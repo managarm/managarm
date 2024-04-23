@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/ostrace.hpp>
+#include <thor-internal/kernel-log.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
@@ -112,7 +113,7 @@ private:
 		if(reqError != Error::success)
 			co_return reqError;
 
-auto preamble = bragi::read_preamble(reqBuffer);
+		auto preamble = bragi::read_preamble(reqBuffer);
 		if (preamble.error())
 			co_return Error::protocolViolation;
 
@@ -123,6 +124,8 @@ auto preamble = bragi::read_preamble(reqBuffer);
 				co_return Error::protocolViolation;
 
 			auto &req = *maybeReq;
+			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
 
 			frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, req.size()};
 
@@ -144,33 +147,38 @@ auto preamble = bragi::read_preamble(reqBuffer);
 					break;
 				}
 
-				co_await buffer_->wait(nextPtr);
-			}
-
-			// Extract further records. We stop on failure, or if we miss records.
-			while(true) {
-				auto [success, recordPtr, nextPtr, actualSize] = buffer_->dequeueAt(
-						currentPtr, static_cast<std::byte *>(dataBuffer.data()) + progress,
-						req.size() - progress);
-				if(recordPtr != currentPtr)
+				if(!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT))
+					co_await buffer_->wait(nextPtr);
+				else {
+					resp.set_error(managarm::kerncfg::Error::WOULD_BLOCK);
 					break;
-				if(success) {
-					assert(actualSize); // For now, we do not support size zero records.
-					if(actualSize == req.size() - progress)
-						break;
-					currentPtr = nextPtr;
-					progress += actualSize;
-					continue;
 				}
-
-				if(progress >= req.watermark())
-					break;
-
-				co_await buffer_->wait(nextPtr);
 			}
 
-			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			if(!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD)) {
+				// Extract further records. We stop on failure, or if we miss records.
+				while(true) {
+					auto [success, recordPtr, nextPtr, actualSize] = buffer_->dequeueAt(
+							currentPtr, static_cast<std::byte *>(dataBuffer.data()) + progress,
+							req.size() - progress);
+					if(recordPtr != currentPtr)
+						break;
+					if(success) {
+						assert(actualSize); // For now, we do not support size zero records.
+						if(actualSize == req.size() - progress)
+							break;
+						currentPtr = nextPtr;
+						progress += actualSize;
+						continue;
+					}
+
+					if(progress >= req.watermark() || req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT)
+						break;
+
+					co_await buffer_->wait(nextPtr);
+				}
+			}
+
 			resp.set_size(progress);
 			resp.set_effective_dequeue(effectivePtr);
 			resp.set_new_dequeue(currentPtr);
@@ -207,6 +215,11 @@ void initializeKerncfg() {
 	KernelFiber::run([=] {
 		auto kerncfg = frg::construct<KerncfgBusObject>(*kernelAlloc);
 		async::detach_with_allocator(*kernelAlloc, kerncfg->run());
+
+		{
+			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalLogRing(), "kernel-log");
+			async::detach_with_allocator(*kernelAlloc, ring->run());
+		}
 
 #ifdef KERNEL_LOG_ALLOCATIONS
 		auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, allocLog.get(), "heap-trace");

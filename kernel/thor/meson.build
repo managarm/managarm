@@ -35,6 +35,7 @@ src = files(
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',
 	'generic/kernel-io.cpp',
+	'generic/kernel-log.cpp',
 	'generic/kernel-stack.cpp',
 	'generic/main.cpp',
 	'generic/mbus.cpp',

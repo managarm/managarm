@@ -11,6 +11,7 @@
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/kernel-log.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -173,6 +174,8 @@ initgraph::Edge fibersTaskingEdge{
 extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
+
+	initializeLog();
 
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
