@@ -54,7 +54,7 @@ void BootScreen::Formatter::print(const char *c) {
 			// This is _csiState == 2.
 			if(*c >= '0' && *c <= '9') {
 				_modeStack[_modeCount] *= 10;
-				_modeStack[_modeCount] += *c - '0'; 
+				_modeStack[_modeCount] += *c - '0';
 				c++;
 			}else if(*c == ';') {
 				_modeCount++;
@@ -63,19 +63,19 @@ void BootScreen::Formatter::print(const char *c) {
 				if(*c == 'm') {
 					for(int i = 0; i <= _modeCount; i++) {
 						if(!_modeStack[i]) {
-							_fg = 15;
+							_fg = _initialFg;
 						}else if(_modeStack[i] >= 30 && _modeStack[i] <= 37) {
 							_fg = _modeStack[i] - 30;
 						}else if(_modeStack[i] == 39) {
-							_fg = 15;
+							_fg = _initialFg;
 						}
 					}
 				}
-		
+
 				for(int i = 0; i < 4; i++)
 					_modeStack[i] = 0;
 				_modeCount = 0;
-				
+
 				_csiState = 0;
 				c++;
 			}
@@ -86,7 +86,8 @@ void BootScreen::Formatter::print(const char *c) {
 }
 
 BootScreen::BootScreen(TextDisplay *display)
-: _display{display}, _bottomSequence{0}, _fmt{this, 0, 0} {
+: _display{display}, _bottomSequence{0},
+		_fmt{this, 0, 0} {
 	_width = _display->getWidth();
 	_height = _display->getHeight();
 }
@@ -117,6 +118,34 @@ void BootScreen::printChar(char) {
 //  LogMessage log;
 //	copyLogMessage(_bottomSequence, log);
 //	_fmt.print(text + _x);
+}
+
+void BootScreen::setPriority(Severity prio) {
+	switch(prio) {
+		case Severity::emergency:
+		case Severity::alert:
+		case Severity::critical:
+		case Severity::error:
+			_fmt.print("\e[31m");
+			break;
+		case Severity::warning:
+			_fmt.print("\e[33m");
+			break;
+		case Severity::notice:
+		case Severity::info:
+			_fmt.print("\e[37m");
+			break;
+		case Severity::debug:
+			_fmt.print("\e[35m");
+			break;
+		default:
+			_fmt.print("\e[39m");
+			break;
+	}
+}
+
+void BootScreen::resetPriority() {
+	_fmt.print("\e[39m");
 }
 
 void BootScreen::printString(const char *string) {

@@ -381,7 +381,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	}else if(flags & kHelAllocOnDemand) {
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}else{
-		// TODO: 
+		// TODO:
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}
 	memory->selfPtr = memory;
@@ -839,7 +839,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	if(!isVspace) {
 		if(map_flags & AddressSpace::kMapFixed && !pointer)
 			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
-		
+
 		mapResult = Thread::asyncBlockCurrent(space->map(slice,
 				(VirtualAddr)pointer, offset, length, map_flags));
 	} else {

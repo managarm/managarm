@@ -16,7 +16,7 @@ protected:
 	~TextDisplay() = default;
 };
 
-struct BootScreen final : LogHandler {
+struct BootScreen final : public LogHandler {
 	struct Formatter {
 		Formatter(BootScreen *screen, int x, int y);
 
@@ -24,20 +24,24 @@ struct BootScreen final : LogHandler {
 
 	private:
 		BootScreen *_screen;
-		
+
 		int _csiState;
 		int _modeStack[4];
 		int _modeCount;
-		
+
 		int _x;
 		int _y;
 		int _fg = 15;
 		int _bg = -1;
+		int _initialFg = _fg;
 	};
 
 	BootScreen(TextDisplay *display);
 
 	void printChar(char c) override;
+	void setPriority(Severity prio) override;
+	void resetPriority() override;
+
 	void printString(const char *string);
 
 private:

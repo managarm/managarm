@@ -11,24 +11,38 @@ namespace thor {
 namespace {
 	struct KmsgLogHandler : public LogHandler {
 		void printChar(char c) override {
-			buffer_[offset_++] = c;
+			buffer_.push_back(c);
 
 			if(c == '\n') {
-				getGlobalLogRing()->enqueue(buffer_, offset_);
-				offset_ = 0;
+				buffer_.push_back(0);
+				getGlobalLogRing()->enqueue(buffer_.data(), buffer_.size());
+				buffer_.resize(0);
 			}
 		}
+
+		void setPriority(Severity prio) override {
+			assert(buffer_.empty());
+			auto now = systemClockSource()->currentNanos() / 1000;
+			frg::output_to(buffer_) << frg::fmt("{},{},{};", uint8_t(prio), kmsgSeq_++, now);
+		}
+
+		void resetPriority() override {
+			// no-op
+		}
+
 	private:
-		char buffer_[2048] = {};
-		size_t offset_ = 0;
+		uint64_t kmsgSeq_;
+		frg::vector<char, KernelAlloc> buffer_{*kernelAlloc};
 	};
 
 	frg::manual_box<LogRingBuffer> globalLogRing;
 
 	initgraph::Task initLogSinks{&globalInitEngine, "generic.init-kernel-log",
 		initgraph::Requires{getFibersAvailableStage(),
-			getIoChannelsDiscoveredStage()},
+			getIoChannelsDiscoveredStage(), getTaskingAvailableStage()},
 		[] {
+			initializeLog();
+
 			auto channel = solicitIoChannel("kernel-log");
 			if(channel) {
 				infoLogger() << "thor: Connecting logging to I/O channel" << frg::endlog;
@@ -39,12 +53,13 @@ namespace {
 	};
 }
 
-constinit KmsgLogHandler kmsgLogHandler;
+frg::manual_box<KmsgLogHandler> kmsgLogHandler;
 
 void initializeLog() {
 	void *logMemory = kernelAlloc->allocate(1 << 20);
 	globalLogRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
-	enableLogHandler(&kmsgLogHandler);
+	kmsgLogHandler.initialize();
+	enableLogHandler(kmsgLogHandler.get());
 }
 
 LogRingBuffer *getGlobalLogRing() {

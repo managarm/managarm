@@ -47,7 +47,7 @@ private:
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 		int ret_len = snprintf(reinterpret_cast<char *>(data), length,
-			"%u,%lu,%u,-;%s", 0, resp.effective_dequeue(), 0, reinterpret_cast<char *>(buffer.data()));
+			"%s", reinterpret_cast<char *>(buffer.data()));
 
 		assert(offset_ == resp.effective_dequeue());
 		offset_ = resp.new_dequeue();

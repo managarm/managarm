@@ -176,8 +176,6 @@ extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
 			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
 
-	initializeLog();
-
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
 
@@ -306,7 +304,7 @@ extern "C" void thorMain() {
 				}else{
 					assert((mode & type_mask) == regular_type);
 	//				if(logInitialization)
-						infoLogger() << "thor: initrd file " << path << frg::endlog;
+						debugLogger() << "thor: initrd file " << path << frg::endlog;
 
 					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
