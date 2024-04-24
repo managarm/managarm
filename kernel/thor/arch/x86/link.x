@@ -24,7 +24,7 @@ SECTIONS {
 		KEEP (*(.init_array .ctors))
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
-	.data : { *(.data) }
-	.bss : { *(.bss) }
+	.data : { *(.data .data.*) }
+	.bss : { *(.bss .bss.*) }
 }
 
