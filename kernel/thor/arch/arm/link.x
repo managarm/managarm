@@ -16,7 +16,7 @@ SECTIONS {
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
 
-	.data ALIGN(0x1000) : { *(.data) }
-	.bss : { *(.bss) }
+	.data ALIGN(0x1000) : { *(.data .data.*) }
+	.bss : { *(.bss .bss.*) }
 }
 
