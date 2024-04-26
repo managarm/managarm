@@ -9,6 +9,7 @@ project('managarm', ['c', 'cpp'],
 )
 
 add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', language: ['c', 'cpp'])
+add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')
