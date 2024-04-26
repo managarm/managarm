@@ -73,11 +73,9 @@ extern "C" void thorInitialize() {
 	infoLogger() << "Starting Thor" << frg::endlog;
 
 	if(thorBootInfoPtr->signature == eirSignatureValue) {
-		infoLogger() << "\e[37mthor: Bootstrap information signature matches\e[39m"
-				<< frg::endlog;
+		infoLogger() << "thor: Bootstrap information signature matches" << frg::endlog;
 	}else{
-		panicLogger() << "\e[31mthor: Bootstrap information signature mismatch!\e[39m"
-				<< frg::endlog;
+		panicLogger() << "thor: Bootstrap information signature mismatch!" << frg::endlog;
 	}
 
 	KernelPageSpace::initialize();
@@ -96,7 +94,7 @@ extern "C" void thorInitialize() {
 	kernelHeap.initialize(*kernelVirtualAlloc);
 	kernelAlloc.initialize(kernelHeap.get());
 
-	infoLogger() << "\e[37mthor: Basic memory management is ready\e[39m" << frg::endlog;
+	infoLogger() << "thor: Basic memory management is ready" << frg::endlog;
 }
 
 extern "C" void thorRunConstructors() {
@@ -434,7 +432,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		if(!image.allowUserPages()) {
 			if(!logEveryPageFault)
 				logFault();
-			panicLogger() << "\e[31mthor: SMAP fault.\e[39m" << frg::endlog;
+			panicLogger() << "thor: SMAP fault." << frg::endlog;
 		}
 	}else{
 		assert(errorCode & kPfUser);
@@ -469,7 +467,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 		if(!logEveryPageFault)
 			logFault();
-		panicLogger() << "\e[31m" "thor: Page fault in kernel, at " << (void *)address
+		panicLogger() << "thor: Page fault in kernel, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
 
@@ -477,7 +475,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 	if(this_thread->flags & Thread::kFlagServer) {
 		if(!logEveryPageFault)
 			logFault();
-		infoLogger() << "\e[31m" "thor: Page fault in server, at " << (void *)address
+		urgentLogger() << "thor: Page fault in server, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
 	Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
@@ -501,8 +499,8 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
 	if(this_thread->flags & Thread::kFlagServer) {
-		infoLogger() << "\e[31m" "thor: " << name << " fault in server.\n"
-				<< "Last ip: " << (void *)*image.ip() << "\e[39m" << frg::endlog;
+		urgentLogger() << "thor: " << name << " fault in server.\n"
+				<< "Last ip: " << (void *)*image.ip() << frg::endlog;
 		// TODO: Trigger a more-specific interrupt.
 		Thread::interruptCurrent(kIntrPanic, image);
 	}else{

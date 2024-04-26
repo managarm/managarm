@@ -1184,7 +1184,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		auto status = io->readConfigHalf(bus, slot, function, kPciStatus);
 
 		if(status & 0x08)
-			infoLogger() << "\e[35m                IRQ is asserted!\e[39m" << frg::endlog;
+			debugLogger() << "                IRQ is asserted!" << frg::endlog;
 
 		auto device = smarter::allocate_shared<PciDevice>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
@@ -1212,8 +1212,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 						<< " (routed to " << irq_pin->name() << ")" << frg::endlog;
 				device->interrupt = irq_pin;
 			}else{
-				infoLogger() << "\e[31m" "            Interrupt routing not available!"
-					"\e[39m" << frg::endlog;
+				urgentLogger() << "            Interrupt routing not available!" << frg::endlog;
 			}
 		}
 

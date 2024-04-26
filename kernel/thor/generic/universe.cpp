@@ -11,7 +11,7 @@ Universe::Universe()
 
 Universe::~Universe() {
 	if(logCleanup)
-		infoLogger() << "\e[31mthor: Universe is deallocated\e[39m" << frg::endlog;
+		debugLogger() << "thor: Universe is deallocated" << frg::endlog;
 }
 
 Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {

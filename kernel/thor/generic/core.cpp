@@ -145,8 +145,7 @@ void *KernelVirtualMemory::allocate(size_t size) {
 					" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
 					" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
 					<< frg::endlog;
-			panicLogger() << "\e[31m" "thor: Out of kernel virtual memory" "\e[39m"
-					<< frg::endlog;
+			panicLogger() << "thor: Out of kernel virtual memory" << frg::endlog;
 		}
 
 		auto current = virtualTree->get_root();

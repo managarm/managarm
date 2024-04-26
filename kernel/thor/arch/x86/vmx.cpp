@@ -112,8 +112,8 @@ namespace thor::vmx {
 		if(successful) {
 			infoLogger() << "thor: CPU entered vmxon operation" << frg::endlog;
 		} else {
-			infoLogger() << "\e[31m" "thor: vmxon failed; this will be a hard error in the future"
-					"\e[39m" << frg::endlog;
+			urgentLogger() << "thor: vmxon failed; this will be a hard error in the future"
+					<< frg::endlog;
 		}
 
 		return successful;

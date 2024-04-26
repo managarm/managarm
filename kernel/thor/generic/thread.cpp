@@ -392,8 +392,7 @@ Thread::~Thread() {
 // This function has to initiate the thread's shutdown.
 void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
-		infoLogger() << "\e[31mthor: Killing thread due to destruction\e[39m"
-				<< frg::endlog;
+		urgentLogger() << "thor: Killing thread due to destruction" << frg::endlog;
 	_kill();
 	_mainWorkQueue.selfPtr = {};
 	_pagingWorkQueue.selfPtr = {};

@@ -295,8 +295,7 @@ void handlePreemption(IrqImageAccessor image);
 void handleSyscall(SyscallImageAccessor image);
 
 void handleDebugFault(FaultImageAccessor image) {
-	infoLogger() << "\e[35mthor: Debug fault "
-			<< "at ip: " << (void *)*image.ip() << "\e[39m" << frg::endlog;
+	debugLogger() << "thor: Debug fault at ip: " << (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
@@ -397,11 +396,11 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 	disableUserAccess();
 
 	if(checkLegacyPicIsr(number)) {
-		infoLogger() << "\e[31m" "thor: Spurious IRQ " << number
-				<< " of legacy PIC" "\e[39m" << frg::endlog;
+		urgentLogger() << "thor: Spurious IRQ " << number
+				<< " of legacy PIC" << frg::endlog;
 	}else{
-		infoLogger() << "\e[31m" "thor: Ignoring non-spurious IRQ " << number
-				<< " of legacy PIC" "\e[39m" << frg::endlog;
+		urgentLogger() << "thor: Ignoring non-spurious IRQ " << number
+				<< " of legacy PIC" << frg::endlog;
 	}
 }
 

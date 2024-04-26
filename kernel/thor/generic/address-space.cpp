@@ -218,7 +218,7 @@ Mapping::Mapping(size_t length, MappingFlags flags,
 
 Mapping::~Mapping() {
 	assert(state == MappingState::retired);
-	//infoLogger() << "\e[31mthor: Mapping is destructed\e[39m" << frg::endlog;
+	//debugLogger() << "thor: Mapping is destructed" << frg::endlog;
 }
 
 void Mapping::tie(smarter::shared_ptr<VirtualSpace> newOwner, VirtualAddr address) {
@@ -355,7 +355,7 @@ void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
 
 VirtualSpace::~VirtualSpace() {
 	if(logCleanup)
-		infoLogger() << "\e[31mthor: VirtualSpace is destructed\e[39m" << frg::endlog;
+		debugLogger() << "thor: VirtualSpace is destructed" << frg::endlog;
 
 	while(_holes.get_root()) {
 		auto hole = _holes.get_root();
@@ -366,7 +366,7 @@ VirtualSpace::~VirtualSpace() {
 
 void VirtualSpace::retire() {
 	if(logCleanup)
-		infoLogger() << "\e[31mthor: VirtualSpace is cleared\e[39m" << frg::endlog;
+		debugLogger() << "thor: VirtualSpace is cleared" << frg::endlog;
 
 	// TODO: Set some flag to make sure that no mappings are added/deleted.
 	auto mapping = _mappings.first();
@@ -678,11 +678,11 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 			if(remapOutcome.error() == Error::spuriousOperation) {
 				// Spurious page faults are the result of race conditions.
 				// They should be rare. If they happen too often, something is probably wrong!
-				infoLogger() << "\e[33m" "thor: Spurious page fault" "\e[39m" << frg::endlog;
+				warningLogger() << "thor: Spurious page fault" << frg::endlog;
 			}else{
 				assert(remapOutcome.error() == Error::fault);
-				infoLogger() << "\e[33m" "thor: Page still not available after"
-						" fetchRange()" "\e[39m" << frg::endlog;
+				warningLogger() << "thor: Page still not available after fetchRange()"
+					<< frg::endlog;
 				continue;
 			}
 		}
@@ -718,8 +718,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueu
 
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
 		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
-			infoLogger() << "\e[33m" "thor: Page still not available after"
-					" fetchRange()" "\e[39m" << frg::endlog;
+			warningLogger() << "thor: Page still not available after fetchRange()" << frg::endlog;
 			continue;
 		}
 

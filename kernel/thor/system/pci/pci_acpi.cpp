@@ -205,13 +205,13 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 
 		auto ret = uacpi_table_find_by_signature("MCFG", &mcfgTbl);
 		if(ret == UACPI_STATUS_NOT_FOUND) {
-			infoLogger() << "\e[31m" "thor: No MCFG table!" "\e[39m" << frg::endlog;
+			urgentLogger() << "thor: No MCFG table!" << frg::endlog;
 			addLegacyConfigIo();
 			return;
 		}
 
 		if(mcfgTbl->hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(McfgEntry)) {
-			infoLogger() << "\e[31m" "thor: MCFG table has no entries, assuming legacy PCI!" "\e[39m"
+			urgentLogger() << "thor: MCFG table has no entries, assuming legacy PCI!"
 					<< frg::endlog;
 			addLegacyConfigIo();
 			return;

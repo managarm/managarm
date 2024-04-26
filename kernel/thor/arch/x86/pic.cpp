@@ -257,11 +257,11 @@ static initgraph::Task discoverApicTask{&globalInitEngine, "x86.discover-apic",
 
 		bool haveX2apic = false;
 		if(common::x86::cpuid(0x01)[2] & (uint32_t(1) << 21)){
-			infoLogger() << "\e[37mthor: CPU supports x2apic\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPU supports x2apic" << frg::endlog;
 			msr |= (1 << 10);
 			haveX2apic = true;
 		} else {
-			infoLogger() << "\e[37mthor: CPU does not support x2apic\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPU does not support x2apic" << frg::endlog;
 		}
 
 		common::x86::wrmsr(common::x86::kMsrLocalApicBase, msr);
@@ -528,8 +528,7 @@ namespace {
 
 		void mask() override {
 			// TODO: Support this.
-			infoLogger() << "\e[31m" "thor: Masking of APIC-MSIs is not implemented" "\e[39m"
-					<< frg::endlog;
+			warningLogger() << "thor: Masking of APIC-MSIs is not implemented" << frg::endlog;
 		}
 
 		void unmask() override {
@@ -679,11 +678,11 @@ namespace {
 				<< ((word1 & pin_word1::activeLow) ? "low" : "high")
 				<< frg::endlog;
 		if(_levelTriggered != (word1 & pin_word1::levelTriggered))
-			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
-					"\e[39m" << frg::endlog;
+			urgentLogger() << "thor: Trigger mode does not match software state!"
+					<< frg::endlog;
 		if(_activeLow != (word1 & pin_word1::activeLow))
-			infoLogger() << "\e[31m" "thor: Trigger mode does not match software state!"
-					"\e[39m" << frg::endlog;
+			urgentLogger() << "thor: Trigger mode does not match software state!"
+					<< frg::endlog;
 		infoLogger() << "thor: I/O APIC state:"
 				<< " mask: " << (int)(word1 & pin_word1::masked)
 				<< ", delivery status: " << (int)(word1 & pin_word1::deliveryStatus)
