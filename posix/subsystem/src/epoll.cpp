@@ -346,14 +346,14 @@ public:
 			it = _fileMap.erase(it);
 			item->state &= ~stateActive;
 
-			if(item->state & statePolling)
-				item->cancelPoll.cancel();
-
 			if(item->state & statePending) {
 				auto qit = _pendingQueue.iterator_to(*item);
 				_pendingQueue.erase(qit);
 				item->state &= ~statePending;
 			}
+
+			if(item->state & statePolling)
+				item->cancelPoll.cancel();
 		}
 
 		_statusBell.raise();
