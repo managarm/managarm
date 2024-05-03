@@ -202,7 +202,7 @@ uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node*, uacpi
 static bool initFromEcdt() {
 	uacpi_table *ecdtTbl;
 
-	auto ret = uacpi_table_find_by_signature(makeSignature("ECDT"), &ecdtTbl);
+	auto ret = uacpi_table_find_by_signature("ECDT", &ecdtTbl);
 	if(ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: no ECDT detected" << frg::endlog;
 		return false;

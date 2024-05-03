@@ -203,7 +203,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	[] {
 		uacpi_table *mcfgTbl;
 
-		auto ret = uacpi_table_find_by_signature(acpi::makeSignature("MCFG"), &mcfgTbl);
+		auto ret = uacpi_table_find_by_signature("MCFG", &mcfgTbl);
 		if(ret == UACPI_STATUS_NOT_FOUND) {
 			infoLogger() << "\e[31m" "thor: No MCFG table!" "\e[39m" << frg::endlog;
 			addLegacyConfigIo();

@@ -123,7 +123,7 @@ namespace acpi {
 void bootOtherProcessors() {
 	uacpi_table *madtTbl;
 
-	auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
 	auto *madt = madtTbl->hdr;
 
@@ -148,7 +148,7 @@ void bootOtherProcessors() {
 void dumpMadt() {
 	uacpi_table *madtTbl;
 
-	auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
 	auto *madt = madtTbl->hdr;
 
@@ -254,7 +254,7 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 
 		uacpi_table *madtTbl;
 
-		auto ret = uacpi_table_find_by_signature(makeSignature("APIC"), &madtTbl);
+		auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 		assert(ret == UACPI_STATUS_OK);
 		auto *madt = madtTbl->hdr;
 
