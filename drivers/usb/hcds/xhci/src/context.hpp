@@ -161,6 +161,10 @@ namespace EpFields {
 		return {0, uint32_t{v} << 16};
 	}
 
+	constexpr ContextField maxEsitPayloadHi(uint32_t v) {
+		return {0, uint32_t{(v >> 16) & 0xFF} << 24};
+	}
+
 	constexpr ContextField errorCount(uint8_t v) {
 		return {1, uint32_t{v & 0b11u} << 1};
 	}
@@ -189,5 +193,9 @@ namespace EpFields {
 
 	constexpr ContextField averageTrbLength(uint16_t v) {
 		return {4, uint32_t{v}};
+	}
+
+	constexpr ContextField maxEsitPayloadLo(uint32_t v) {
+		return {4, uint32_t{v & 0xFFFF} << 16};
 	}
 } // namespace EpFields
