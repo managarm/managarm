@@ -232,7 +232,7 @@ static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 	[] {
 		uacpi_table *hpetTbl;
 
-		auto ret = uacpi_table_find_by_signature(acpi::makeSignature("HPET"), &hpetTbl);
+		auto ret = uacpi_table_find_by_signature("HPET", &hpetTbl);
 		if(ret != UACPI_STATUS_OK) {
 			infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frg::endlog;
 			return;

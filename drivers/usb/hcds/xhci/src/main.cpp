@@ -1048,8 +1048,16 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
 
 	epCtx |= EpFields::errorCount(3);
+	// TODO(qookie): Compute this from bInterval, 6 should be a safe guess:
+	// 2**6 * 125us = 8000us (=> 125Hz polling rate).
+	epCtx |= EpFields::interval(6);
 	epCtx |= EpFields::epType(getHcdEndpointType(dir, type));
 	epCtx |= EpFields::maxPacketSize(maxPacketSize);
+	// TODO(qookie): This is fine for USB 2 (unless max burst > 0),
+	// but for USB 3 this should use wBytesPerInterval from the SS
+	// endpoint companion descriptor.
+	epCtx |= EpFields::maxEsitPayloadLo(maxPacketSize);
+	epCtx |= EpFields::maxEsitPayloadHi(maxPacketSize);
 	epCtx |= EpFields::dequeCycle(true);
 	epCtx |= EpFields::trPointerLo(trPtr);
 	epCtx |= EpFields::trPointerHi(trPtr);

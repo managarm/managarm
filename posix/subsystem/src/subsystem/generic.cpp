@@ -62,7 +62,7 @@ uint64_t allocateDeviceIds(std::string type) {
 	}
 }
 
-async::detached observeDevices(VfsType devType, auto registry, int major) {
+async::detached observeDevices(VfsType devType, auto &registry, int major) {
 	const char *typeStr = devType == VfsType::blockDevice ? "block" : "char";
 
 	auto filter = mbus_ng::Conjunction({

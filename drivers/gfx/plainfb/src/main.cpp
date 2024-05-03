@@ -221,20 +221,21 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(plane_state->fb);
 
 			auto bo = fb->getBufferObject();
-			assert(bo->getWidth() == _device->_screenWidth);
-			assert(bo->getHeight() == _device->_screenHeight);
 			auto dest = reinterpret_cast<char *>(_device->_fbMapping.get());
 			auto src = reinterpret_cast<char *>(bo->accessMapping());
 
+			auto minWidth = std::min(bo->getWidth(), _device->_screenWidth);
+			auto minHeight = std::min(bo->getHeight(), _device->_screenHeight);
+
 			if(fb->fastScanout()) {
-				for(unsigned int k = 0; k < bo->getHeight(); k++) {
-					drm_core::fastCopy16(dest, src, bo->getWidth() * 4);
+				for(unsigned int k = 0; k < minHeight; k++) {
+					drm_core::fastCopy16(dest, src, minWidth * 4);
 					dest += _device->_screenPitch;
 					src += fb->getPitch();
 				}
 			}else{
-				for(unsigned int k = 0; k < bo->getHeight(); k++) {
-					memcpy(dest, src, bo->getWidth() * 4);
+				for(unsigned int k = 0; k < minHeight; k++) {
+					memcpy(dest, src, minWidth * 4);
 					dest += _device->_screenPitch;
 					src += fb->getPitch();
 				}

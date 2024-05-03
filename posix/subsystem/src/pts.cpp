@@ -214,6 +214,12 @@ public:
 	async::result<void>
 	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override;
 
+	async::result<int> getFileFlags() override {
+		if(nonBlock_)
+			co_return O_NONBLOCK;
+		co_return 0;
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
