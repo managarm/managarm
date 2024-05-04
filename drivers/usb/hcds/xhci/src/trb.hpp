@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cassert>
 
-#include <vector>
+#include <bit>
 
 #include <arch/dma_pool.hpp>
 #include <helix/memory.hpp>
@@ -112,12 +112,13 @@ namespace Transfer {
 				| (static_cast<uint32_t>(TrbType::setupStage) << 10)};
 	}
 
-	constexpr RawTrb dataStage(uintptr_t address, size_t size, bool chain, bool dataIn) {
-		// TODO(qookie): Set TD size
+	constexpr RawTrb dataStage(uintptr_t address, size_t size, bool chain, uint32_t tdSize, bool dataIn) {
+		if (tdSize > 31)
+			tdSize = 31;
 		return RawTrb{
 			static_cast<uint32_t>(address),
 			static_cast<uint32_t>(address >> 32),
-			static_cast<uint32_t>(size),
+			static_cast<uint32_t>(size) | (tdSize << 17),
 			(1 << 2) | ((dataIn ? 1 : 0) << 16)
 				| ((chain ? 1 : 0) << 4)
 				| (static_cast<uint32_t>(TrbType::dataStage) << 10)};
@@ -130,18 +131,22 @@ namespace Transfer {
 				| (static_cast<uint32_t>(TrbType::statusStage) << 10)};
 	}
 
-	constexpr RawTrb normal(uintptr_t address, size_t size, bool chain) {
-		// TODO(qookie): Set TD size
+	constexpr RawTrb normal(uintptr_t address, size_t size, bool chain, uint32_t tdSize) {
+		if (tdSize > 31)
+			tdSize = 31;
 		return RawTrb{
 			static_cast<uint32_t>(address),
 			static_cast<uint32_t>(address >> 32),
-			static_cast<uint32_t>(size),
+			static_cast<uint32_t>(size) | (tdSize << 17),
 			(1 << 2) | ((chain ? 1 : 0) << 4)
 				| (static_cast<uint32_t>(TrbType::normal) << 10)};
 	}
 
 	template <typename FU, typename FB, typename ...Ts>
-	inline void buildTransferChain(FU use, bool specifyFinal, arch::dma_buffer_view view, FB build, Ts ...ts) {
+	inline void buildTransferChain(size_t maxPacketSize, FU use, bool specifyFinal, arch::dma_buffer_view view, FB build, Ts ...ts) {
+		assert(std::popcount(maxPacketSize) == 1);
+		size_t tdPacketCount = (view.size() + maxPacketSize - 1) & ~(maxPacketSize - 1);
+
 		size_t progress = 0;
 		while(progress < view.size()) {
 			uintptr_t ptr = (uintptr_t)view.data() + progress;
@@ -151,7 +156,12 @@ namespace Transfer {
 
 			bool chain = (progress + chunk) < view.size();
 
-			auto trb = build(pptr, chunk, chain, ts...);
+			auto tdSize = tdPacketCount - (progress + chunk) / maxPacketSize;
+			// Last TRB always has TD Size = 0
+			if ((progress + chunk) == view.size())
+				tdSize = 0;
+
+			auto trb = build(pptr, chunk, chain, tdSize, ts...);
 
 			use(trb, !chain && specifyFinal);
 			progress += chunk;
@@ -159,19 +169,19 @@ namespace Transfer {
 	}
 
 	template <typename FU>
-	inline void buildNormalChain(FU use, arch::dma_buffer_view view) {
-		buildTransferChain(use, true, view, normal);
+	inline void buildNormalChain(FU use, arch::dma_buffer_view view, size_t maxPacketSize) {
+		buildTransferChain(maxPacketSize, use, true, view, normal);
 	}
 
 	template <typename FU>
-	inline void buildControlChain(FU use, protocols::usb::SetupPacket setup, arch::dma_buffer_view view, bool dataIn) {
+	inline void buildControlChain(FU use, protocols::usb::SetupPacket setup, arch::dma_buffer_view view, bool dataIn, size_t maxPacketSize) {
 		bool statusIn = true;
 
 		if (view.size() && dataIn)
 			statusIn = false;
 
 		use(setupStage(setup, view.size(), dataIn), false);
-		buildTransferChain(use, false, view, dataStage, dataIn);
+		buildTransferChain(maxPacketSize, use, false, view, dataStage, dataIn);
 		use(statusStage(statusIn), true);
 	}
 } // namespace Transfer
