@@ -1041,6 +1041,7 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
+	_maxPacketSizes[endpointId - 1] = maxPacketSize;
 	_transferRings[endpointId - 1] = std::make_unique<ProducerRing>(_controller);
 
 	auto trPtr = _transferRings[endpointId - 1]->getPtr();

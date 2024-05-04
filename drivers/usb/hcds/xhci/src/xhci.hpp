@@ -191,6 +191,8 @@ private:
 			return _slotId;
 		}
 
+		std::array<size_t, 31> _maxPacketSizes;
+
 	private:
 		int _slotId;
 
