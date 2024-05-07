@@ -575,7 +575,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	switch(*image.number()) {
 	case kHelCallLog: {
-		*image.error() = helLog((const char *)arg0, (size_t)arg1);
+		*image.error() = helLog((HelLogSeverity)arg0, (const char *)arg1, (size_t)arg2);
 	} break;
 	case kHelCallPanic: {
 		Thread::interruptCurrent(kIntrPanic, image);

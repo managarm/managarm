@@ -4,6 +4,7 @@
 #include <async/algorithm.hpp>
 #include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
+#include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
 #include <frg/small_vector.hpp>
 #include <thor-internal/event.hpp>
@@ -116,7 +117,18 @@ HelError translateError(Error error) {
 	}
 }
 
-HelError helLog(const char *string, size_t length) {
+namespace {
+
+template<typename Sink>
+void printLog(Sink &p, LogMessage &log, size_t chunk) {
+	for(size_t i = 0; i < chunk; i++)
+		p << frg::char_fmt(log.text[i]);
+	p << frg::endlog;
+};
+
+}
+
+HelError helLog(HelLogSeverity severity, const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		LogMessage log;
@@ -125,10 +137,33 @@ HelError helLog(const char *string, size_t length) {
 		if(!readUserArray(string + offset, log.text, chunk))
 			return kHelErrFault;
 
-		auto p = infoLogger();
-		for(size_t i = 0; i < chunk; i++)
-			p << frg::char_fmt(log.text[i]);
-		p << frg::endlog;
+		switch(severity) {
+			case kHelLogSeverityEmergency:
+			case kHelLogSeverityAlert:
+			case kHelLogSeverityCritical:
+			case kHelLogSeverityError: {
+				auto p = urgentLogger();
+				printLog(p, log, chunk);
+				break;
+			}
+			case kHelLogSeverityWarning: {
+				auto p = warningLogger();
+				printLog(p, log, chunk);
+				break;
+			}
+			case kHelLogSeverityNotice:
+			case kHelLogSeverityInfo:
+			default: {
+				auto p = infoLogger();
+				printLog(p, log, chunk);
+				break;
+			}
+			case kHelLogSeverityDebug: {
+				auto p = debugLogger();
+				printLog(p, log, chunk);
+				break;
+			}
+		}
 
 		offset += chunk;
 	}
