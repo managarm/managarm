@@ -90,9 +90,9 @@ struct Lane { };
 using UniqueLane = UniqueResource<Lane>;
 using BorrowedLane = BorrowedResource<Lane>;
 
-inline std::pair<UniqueLane, UniqueLane> createStream() {
+inline std::pair<UniqueLane, UniqueLane> createStream(bool attach_credentials = false) {
 	HelHandle first_handle, second_handle;
-	HEL_CHECK(helCreateStream(&first_handle, &second_handle));
+	HEL_CHECK(helCreateStream(&first_handle, &second_handle, attach_credentials));
 	return { UniqueLane(first_handle), UniqueLane(second_handle) };
 }
 

@@ -987,7 +987,9 @@ HEL_C_LINKAGE HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t si
 //!     Handle to the first lane of the new stream.
 //! @param[out] lane2
 //!     Handle to the second lane of the new stream.
-HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2);
+//! @param[in] attach_credentials
+//!     Enable or disable credentials for the new stream.
+HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2, uint32_t attach_credentials);
 
 //! Pass messages on a stream.
 //! @param[in] handle

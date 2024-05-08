@@ -246,25 +246,27 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 	auto thisUniverse = thisThread->getUniverse();
 	assert(!flags);
 
-	smarter::shared_ptr<Credentials> creds;
+	std::array<char, 16> creds;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
 
 		if(handle == kHelThisThread) {
-			creds = thisThread.lock();
+			creds = thisThread->credentials();
 		}else{
 			auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
 			if(!wrapper)
 				return kHelErrNoDescriptor;
 			if(wrapper->is<ThreadDescriptor>())
-				creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
+				creds = wrapper->get<ThreadDescriptor>().thread->credentials();
+			else if(wrapper->is<LaneDescriptor>())
+				creds = wrapper->get<LaneDescriptor>().handle.getStream()->credentials().credentials();
 			else
 				return kHelErrBadDescriptor;
 		}
 	}
 
-	if(!writeUserMemory(credentials, creds->credentials().data(), creds->credentials().size()))
+	if(!writeUserMemory(credentials, creds.data(), creds.size()))
 		return kHelErrFault;
 
 	return kHelErrNone;
@@ -2242,11 +2244,11 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	return kHelErrNone;
 }
 
-HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle) {
+HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint32_t attach_credentials) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto lanes = createStream();
+	auto lanes = createStream(attach_credentials);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(this_universe->lock);
@@ -2340,10 +2342,10 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				ipcSize += ipcSourceSize(sizeof(HelHandleResult));
 				break;
 			case kHelActionImbueCredentials: {
-				smarter::shared_ptr<Credentials> creds;
+				std::array<char, 16> creds;
 
 				if(recipe->handle == kHelThisThread) {
-					creds = thisThread.lock();
+					creds = thisThread->credentials();
 				} else {
 					auto irq_lock = frg::guard(&irqMutex());
 					Universe::Guard universe_guard(thisUniverse->lock);
@@ -2353,15 +2355,17 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 						return kHelErrNoDescriptor;
 					}
 					if(wrapper->is<ThreadDescriptor>())
-						creds = remove_tag_cast(wrapper->get<ThreadDescriptor>().thread);
+						creds = wrapper->get<ThreadDescriptor>().thread->credentials();
 					else if(wrapper->is<TokenDescriptor>())
-						creds = wrapper->get<TokenDescriptor>().credentials;
+						creds = wrapper->get<TokenDescriptor>().credentials->credentials();
+					else if(wrapper->is<LaneDescriptor>())
+						creds = wrapper->get<LaneDescriptor>().handle.getStream()->credentials().credentials();
 					else
 						return kHelErrBadDescriptor;
 				}
 
 				node->_tag = kTagImbueCredentials;
-				memcpy(node->_inCredentials.data(), creds->credentials().data(), creds->credentials().size());
+				memcpy(node->_inCredentials.data(), creds.data(), creds.size());
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
 				break;
 			}

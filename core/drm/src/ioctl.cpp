@@ -1052,7 +1052,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 			// Create the lane used for serving the PRIME fd
 			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
+			std::tie(local_lane, remote_lane) = helix::createStream(true);
 			auto file = smarter::make_shared<drm_core::PrimeFile>(bo->getMemory().first, bo->getSize());
 
 			// Start serving the file
@@ -1109,7 +1109,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			if(logDrmRequests)
 				std::cout << "core/drm: PRIME_FD_TO_HANDLE({can't resolve credentials yet})" << std::endl;
 
-			// extract the credentials of the land that served the PRIME fd, as this is keying our maps that keep track of it
+			// extract the credentials of the lane that served the PRIME fd, as this is keying our maps that keep track of it
 			auto [creds] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::extractCredentials());
 			HEL_CHECK(creds.error());
 

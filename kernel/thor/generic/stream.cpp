@@ -279,10 +279,12 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 	return true;
 }
 
-Stream::Stream()
-: _laneBroken{false, false}, _laneShutDown{false, false} {
+Stream::Stream(bool withCredentials)
+: _laneBroken{false, false}, _laneShutDown{false, false}, _withCredentials{withCredentials} {
 	_peerCount[0].store(1, std::memory_order_relaxed);
 	_peerCount[1].store(1, std::memory_order_relaxed);
+	if(withCredentials)
+		_creds = Credentials{};
 }
 
 Stream::~Stream() {
@@ -343,8 +345,8 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	}
 }
 
-frg::tuple<LaneHandle, LaneHandle> createStream() {
-	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc);
+frg::tuple<LaneHandle, LaneHandle> createStream(bool withCredentials) {
+	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc, withCredentials);
 	assert(stream.ctr()->check_count() == 1);
 	stream.ctr()->increment();
 	LaneHandle handle1(adoptLane, stream, 0);
