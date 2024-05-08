@@ -264,7 +264,7 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 		}
 	}
 
-	if(!writeUserMemory(credentials, creds->credentials(), 16))
+	if(!writeUserMemory(credentials, creds->credentials().data(), creds->credentials().size()))
 		return kHelErrFault;
 
 	return kHelErrNone;
@@ -2361,7 +2361,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				}
 
 				node->_tag = kTagImbueCredentials;
-				memcpy(node->_inCredentials.data(), creds->credentials(), 16);
+				memcpy(node->_inCredentials.data(), creds->credentials().data(), creds->credentials().size());
 				ipcSize += ipcSourceSize(sizeof(HelSimpleResult));
 				break;
 			}
