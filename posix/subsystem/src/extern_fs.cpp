@@ -264,7 +264,7 @@ private:
 		semantic_flags &= ~semanticNonBlock;
 
 		if(semantic_flags & ~(semanticRead | semanticWrite | semanticAppend)){
-			std::cout << "\e[31mposix: open() received illegal arguments:"
+			std::cout << "\e[31mposix: extern_fs OpenFile open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticRead (0x2), semanticWrite (0x4) and semanticAppend (0x8) are allowed.\e[39m"
 				<< std::endl;
@@ -751,7 +751,7 @@ private:
 		semantic_flags &= ~semanticNonBlock;
 
 		if(semantic_flags & ~(semanticRead | semanticWrite | semanticAppend)){
-			std::cout << "\e[31mposix: open() received illegal arguments:"
+			std::cout << "\e[31mposix: extern_fs DirectoryNode open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticRead (0x2), semanticWrite (0x4) and semanticAppend (0x8) are allowed.\e[39m"
 				<< std::endl;
