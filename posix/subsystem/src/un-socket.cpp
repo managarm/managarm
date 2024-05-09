@@ -108,7 +108,9 @@ public:
 public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		assert(_currentState == State::connected);
+		if(_currentState != State::connected)
+			co_return Error::wouldBlock;
+
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 

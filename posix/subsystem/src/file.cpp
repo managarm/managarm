@@ -74,6 +74,8 @@ File::ptRead(void *object, const char *credentials,
 			co_return protocols::fs::Error::illegalArguments;
 		case Error::wouldBlock:
 			co_return protocols::fs::Error::wouldBlock;
+		case Error::notConnected:
+			co_return protocols::fs::Error::notConnected;
 		default:
 			assert(!"Unexpected error from readSome()");
 			__builtin_unreachable();

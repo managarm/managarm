@@ -157,6 +157,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 			}else if(*error == Error::isDirectory) {
 				resp.set_error(managarm::fs::Errors::IS_DIRECTORY);
+			}else if(*error == Error::notConnected) {
+				resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
 			} else {
 				std::cout << "Unknown error '" << size_t(*error) << "' from read()" << std::endl;
 				co_return;
@@ -1173,6 +1175,7 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 				conversation,
 				helix_ng::recvBuffer(optbuf.data(), optbuf.size())
 			);
+			HEL_CHECK(recv_buf.error());
 
 			managarm::fs::SvrResponse resp;
 
