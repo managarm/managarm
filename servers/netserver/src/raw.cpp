@@ -1,6 +1,11 @@
 #include <arpa/inet.h>
 #include <async/execution.hpp>
+#include <core/bpf.hpp>
+#include <linux/filter.h>
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
 #include <sys/epoll.h>
+
 #include "raw.hpp"
 
 Raw &raw() {
@@ -19,6 +24,21 @@ managarm::fs::Errors Raw::serveSocket(helix::UniqueLane lane, int type, int prot
 }
 
 void Raw::feedPacket(arch::dma_buffer_view frame) {
+	for(auto s = sockets_.begin(); s != sockets_.end(); s++) {
+		size_t accept_bytes = SIZE_MAX;
+
+		if((*s)->filter_) {
+			Bpf bpf{(*s)->filter_.value()};
+			accept_bytes = bpf.run(frame);
+
+			if(!accept_bytes)
+				continue;
+		}
+
+		(*s)->queue_.emplace(frame.subview(0, std::min(frame.size(), accept_bytes)));
+		(*s)->_inSeq = ++(*s)->_currentSeq;
+		(*s)->_statusBell.raise();
+	}
 }
 
 async::result<protocols::fs::Error> RawSocket::bind(void* obj,
@@ -82,6 +102,19 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(void *obj,
 		int layer, int number, std::vector<char> optbuf) {
 	auto self = static_cast<RawSocket *>(obj);
+
+	if(layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
+		assert(optbuf.size() % sizeof(struct sock_filter) == 0);
+
+		Bpf bpf{optbuf};
+		if(!bpf.validate())
+			co_return protocols::fs::Error::illegalArguments;
+
+		self->filter_ = optbuf;
+	} else {
+		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
 
 	co_return {};
 }

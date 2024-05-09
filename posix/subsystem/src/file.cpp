@@ -278,6 +278,12 @@ File::ptAccessMemory(void *object) {
 	co_return co_await self->accessMemory();
 }
 
+async::result<frg::expected<protocols::fs::Error>> File::ptSetSocketOption(void *object,
+		int layer, int number, std::vector<char> optbuf) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->setSocketOption(layer, number, optbuf);
+}
+
 File::~File() {
 	// Nothing to do here.
 	if(logDestruction)
@@ -509,5 +515,17 @@ async::result<frg::expected<protocols::fs::Error, int>> File::getSeals() {
 
 async::result<frg::expected<protocols::fs::Error, int>> File::addSeals(int seals) {
 	(void) seals;
+	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+async::result<frg::expected<protocols::fs::Error>> File::setSocketOption(int layer,
+		int number, std::vector<char> optbuf) {
+	(void) layer;
+	(void) number;
+	(void) optbuf;
+
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement setSocketOption()" << std::endl;
+
 	co_return protocols::fs::Error::illegalOperationTarget;
 }

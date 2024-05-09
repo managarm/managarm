@@ -37,6 +37,7 @@ enum class Error {
 	noSpaceLeft = 21,
 	noBackingDevice = 23,
 	isDirectory = 22,
+	invalidProtocolOption = 25,
 };
 
 inline managarm::fs::Errors mapFsError(Error e) {
@@ -64,6 +65,7 @@ inline managarm::fs::Errors mapFsError(Error e) {
 		case Error::noSpaceLeft: return managarm::fs::Errors::NO_SPACE_LEFT;
 		case Error::noBackingDevice: return managarm::fs::Errors::NO_BACKING_DEVICE;
 		case Error::isDirectory: return managarm::fs::Errors::IS_DIRECTORY;
+		case Error::invalidProtocolOption: return managarm::fs::Errors::INVALID_PROTOCOL_OPTION;
 	}
 }
 
