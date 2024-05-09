@@ -167,7 +167,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 }
 
 void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
-	assert(hdr->nlmsg_flags == (NLM_F_REQUEST | NLM_F_DUMP));
+	assert((hdr->nlmsg_flags & (NLM_F_REQUEST | NLM_F_MATCH)) == (NLM_F_REQUEST | NLM_F_MATCH));
 
 	const struct rtgenmsg *payload;
 
