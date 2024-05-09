@@ -203,7 +203,7 @@ struct Udp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
-		if (!ip4().hasIp(local.addr)) {
+		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
 			std::cout << "netserver: not local ip" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
