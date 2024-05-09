@@ -4,6 +4,7 @@
 #include "checksum.hpp"
 
 #include <async/basic.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
 #include <arch/bit.hpp>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <iomanip>
 #include <random>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -343,8 +345,36 @@ struct Udp4Socket {
 		co_return len;
 	}
 
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+	pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
+		auto self = static_cast<Udp4Socket *>(obj);
+		(void)mask; // TODO: utilize mask.
+
+		assert(past_seq <= self->_currentSeq);
+		while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
+			co_await self->_statusBell.async_wait(cancellation);
+
+		// For now making sockets always writable is sufficient.
+		int edges = EPOLLOUT;
+		if(self->_inSeq > past_seq)
+			edges |= EPOLLIN;
+
+		co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+	pollStatus(void *obj) {
+		auto self = static_cast<Udp4Socket *>(obj);
+		int events = EPOLLOUT;
+		if(!self->queue_.empty())
+			events |= EPOLLIN;
+
+		co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
+	}
 
 	constexpr static FileOperations ops {
+		.pollWait = &pollWait,
+		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
 		.recvMsg = &recvmsg,
@@ -384,6 +414,10 @@ private:
 	Endpoint local_;
 	Udp4 *parent_;
 	smarter::weak_ptr<Udp4Socket> holder_;
+
+	async::recurring_event _statusBell;
+	uint64_t _currentSeq;
+	uint64_t _inSeq;
 };
 
 void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
@@ -401,6 +435,8 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		if (ep.addr == udp.packet->header.destination
 			|| ep.addr == INADDR_ANY) {
 			i->second->queue_.emplace(std::move(udp));
+			i->second->_inSeq = ++i->second->_currentSeq;
+			i->second->_statusBell.raise();
 			break;
 		}
 	}
