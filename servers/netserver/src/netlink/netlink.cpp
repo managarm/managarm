@@ -2,6 +2,7 @@
 
 #include <linux/rtnetlink.h>
 #include <memory>
+#include <sys/epoll.h>
 
 extern std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 extern std::optional<helix::UniqueDescriptor> posixLane;
@@ -156,6 +157,35 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 	}
 
 	co_return orig_len;
+}
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> NetlinkSocket::pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
+	auto self = static_cast<NetlinkSocket *>(obj);
+	(void)mask; // TODO: utilize mask.
+
+	assert(past_seq <= self->_currentSeq);
+	while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
+		co_await self->_statusBell.async_wait(cancellation);
+
+	// For now making sockets always writable is sufficient.
+	int edges = EPOLLOUT;
+	if(self->_inSeq > past_seq)
+		edges |= EPOLLIN;
+
+	std::cout << "posix: pollWait(" << past_seq << ")"
+			<< " returns (" << self->_currentSeq
+			<< ", " << edges << ")" << std::endl;
+
+	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
+}
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>> NetlinkSocket::pollStatus(void *obj) {
+	auto self = static_cast<NetlinkSocket *>(obj);
+	int events = EPOLLOUT;
+	if(!self->_recvQueue.empty())
+		events |= EPOLLIN;
+
+	co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
 }
 
 } // namespace nl
