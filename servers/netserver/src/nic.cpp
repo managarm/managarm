@@ -62,13 +62,21 @@ std::string Link::name() {
 	return res;
 }
 
+Link::AllocatedBuffer Link::allocateFrame(size_t size) {
+	using namespace arch;
+	Link::AllocatedBuffer buf {
+		dma_buffer { dmaPool(), size }, {}
+	};
+
+	buf.payload = buf.frame;
+	return buf;
+}
+
 Link::AllocatedBuffer Link::allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize) {
 	// default implementation assume an Ethernet II frame
 	using namespace arch;
-	Link::AllocatedBuffer buf {
-		dma_buffer { dmaPool(), 14 + payloadSize }, {}
-	};
+	auto buf = allocateFrame(14 + payloadSize);
 
 	uint16_t et = static_cast<uint16_t>(type);
 	et = convert_endian<endian::big>(et);
