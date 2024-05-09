@@ -1157,8 +1157,52 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 			}
 
 			co_await file_ops->ioctl(file.get(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
+		} else if(preamble.id() == managarm::fs::SetSockOpt::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::SetSockOpt>(recv_req);
+			recv_req.reset();
+
+			if(!req) {
+				std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+				continue;
+			}
+
+			std::vector<char> optbuf;
+			optbuf.resize(req->optlen());
+
+			auto [recv_buf] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(optbuf.data(), optbuf.size())
+			);
+
+			managarm::fs::SvrResponse resp;
+
+			if(!file_ops->setSocketOption) {
+				std::cout << "protocols/fs: setsockopt not supported on socket" << std::endl;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
+
+			auto ret = co_await file_ops->setSocketOption(file.get(), req->layer(), req->number(), optbuf);
+			if(!ret) {
+				assert(ret.error() != protocols::fs::Error::none);
+				resp.set_error(mapFsError(ret.error()));
+			} else {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
 		} else {
-			std::cout << "unhandled request " << preamble.id() << std::endl;;
+			std::cout << "unhandled request " << preamble.id() << std::endl;
 			throw std::runtime_error("Unknown request");
 		}
 	}

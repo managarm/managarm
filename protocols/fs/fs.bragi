@@ -689,3 +689,10 @@ head(128):
 	Errors error;
 	int64 pid;
 }
+
+message SetSockOpt 17 {
+head(128):
+	int32 layer;
+	int32 number;
+	uint64 optlen;
+}
