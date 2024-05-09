@@ -223,6 +223,10 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 				addr = ntohl(attr.data<uint32_t>().value_or(0));
 				break;
 			}
+			case IFA_LOCAL: {
+				addr = ntohl(attr.data<uint32_t>().value_or(0));
+				break;
+			}
 			default: {
 				std::cout << "netserver: ignoring unknown rtattr type " << attr.type() << " in RTM_NEWADDR request" << std::endl;
 				if(attr.type() > RTA_MAX) {
