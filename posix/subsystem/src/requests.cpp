@@ -2401,7 +2401,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					);
 				else
 					file = nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
-			} else if (req->domain() == AF_INET) {
+			} else if (req->domain() == AF_INET || req->domain() == AF_PACKET) {
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
 					req->domain(),

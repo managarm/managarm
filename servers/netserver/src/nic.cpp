@@ -6,8 +6,10 @@
 #include <arch/bit.hpp>
 #include <frg/formatting.hpp>
 #include <frg/logging.hpp>
-#include "ip/ip4.hpp"
+
 #include "ip/arp.hpp"
+#include "ip/ip4.hpp"
+#include "raw.hpp"
 
 namespace {
 
@@ -99,6 +101,8 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 		uint16_t ethertype = data[12] << 8 | data[13];
 		nic::MacAddress dstsrc[2];
 		std::memcpy(dstsrc, data, sizeof(dstsrc));
+
+		raw().feedPacket(frameBuffer);
 
 		switch (ethertype) {
 		case ETHER_TYPE_IP4:
