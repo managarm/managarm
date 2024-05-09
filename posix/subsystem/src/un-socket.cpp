@@ -496,9 +496,17 @@ public:
 					break;
 				}
 				default: {
-					std::cout << "Invalid ioctl for un-socket" << std::endl;
+					std::cout << "posix: invalid ioctl 0x"
+						<< std::hex << req->command() << std::dec
+						<< " for un-socket" << std::endl;
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					break;
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size())
+					);
+					co_return;
 				}
 			}
 
