@@ -48,18 +48,7 @@ async::result<void> doBind(mbus_ng::Entity base_entity, virtio_core::DiscoverMod
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
 	auto device = nic::virtio::makeShared(std::move(transport));
-	if (baseDeviceMap.empty()) {
-		// default via 10.0.2.2 src 10.10.2.15
-		Ip4Router::Route wan { { 0, 0 }, device };
-		wan.gateway = 0x0a000202;
-		wan.source = 0x0a0a020f;
-		ip4Router().addRoute(std::move(wan));
 
-		// 10.0.2.0/24
-		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
-		// inet 10.10.2.15/24
-		ip4().setLink({ 0x0a0a020f, 24 }, device);
-	}
 	baseDeviceMap.insert({base_entity.id(), device});
 	nic::runDevice(device);
 }
