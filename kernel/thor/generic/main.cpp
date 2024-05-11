@@ -807,7 +807,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallCreateStream: {
 		HelHandle lane1;
 		HelHandle lane2;
-		*image.error() = helCreateStream(&lane1, &lane2);
+		*image.error() = helCreateStream(&lane1, &lane2, (uint32_t) arg0);
 		*image.out0() = lane1;
 		*image.out1() = lane2;
 	} break;

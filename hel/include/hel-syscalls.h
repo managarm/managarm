@@ -362,10 +362,10 @@ extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitClock(uin
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHandle *lane1,
-		HelHandle *lane2) {
+		HelHandle *lane2, uint32_t attach_credentials) {
 	HelWord out_lane1;
 	HelWord out_lane2;
-	HelError error = helSyscall0_2(kHelCallCreateStream, &out_lane1, &out_lane2);
+	HelError error = helSyscall1_2(kHelCallCreateStream, attach_credentials, &out_lane1, &out_lane2);
 	*lane1 = (HelHandle)out_lane1;
 	*lane2 = (HelHandle)out_lane2;
 	return error;

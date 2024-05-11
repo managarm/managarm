@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <atomic>
+#include <optional>
 
 #include <async/oneshot-event.hpp>
 #include <async/queue.hpp>
@@ -205,7 +206,7 @@ struct Stream final {
 	static void incrementPeers(Stream *stream, int lane);
 	static bool decrementPeers(Stream *stream, int lane);
 
-	Stream();
+	Stream(bool withCredentials = false);
 	~Stream();
 
 	// Submits a chain of operations to the stream.
@@ -217,10 +218,18 @@ struct Stream final {
 
 	void shutdownLane(int lane);
 
+	Credentials &credentials() {
+		assert(_withCredentials);
+		assert(_creds.has_value());
+		return _creds.value();
+	}
+
 private:
 	static void _cancelItem(StreamNode *item, Error error);
 
 	std::atomic<int> _peerCount[2];
+
+	frg::optional<Credentials> _creds;
 
 	frg::ticket_spinlock _mutex;
 
@@ -241,9 +250,11 @@ private:
 	// Submissions are disallowed and return lane-shutdown errors.
 	// Submissions to the paired lane return end-of-lane errors.
 	bool _laneShutDown[2];
+
+	bool _withCredentials;
 };
 
-frg::tuple<LaneHandle, LaneHandle> createStream();
+frg::tuple<LaneHandle, LaneHandle> createStream(bool withCredentials = false);
 
 //---------------------------------------------------------------------------------------
 // In-kernel stream utilities.

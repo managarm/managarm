@@ -14,8 +14,8 @@ Credentials::Credentials() {
 	//              Although that seems like a waste of time...
 	while (progress < 16) {
 		progress += generateRandomBytes(
-			_credentials + progress,
-			16 - progress);
+			_credentials.data() + progress,
+			_credentials.size() - progress);
 	}
 
 	// Set the UUID to version 4 ...
