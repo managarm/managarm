@@ -97,6 +97,12 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 				A = val;
 				break;
 			}
+			case Op::LD_W_ABS: {
+				auto val = load.template operator()<uint32_t>(inst.k);
+				bpf_log_op("A <- P[k:4 (0x%04x)] = 0x%x", inst.k, val);
+				A = val;
+				break;
+			}
 			case Op::LD_W_IND: {
 				auto val = load.template operator()<uint32_t>(X + inst.k);
 				bpf_log_op("A <- P[X+k:4 (0x%02x + 0x%02x)] (0x%hx)", X, inst.k, val);

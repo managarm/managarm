@@ -20,6 +20,7 @@ struct Bpf {
 		LD_B_IND = BPF_LD | BPF_B | BPF_IND,
 		LD_H_ABS = BPF_LD | BPF_H | BPF_ABS,
 		LD_H_IND = BPF_LD | BPF_H | BPF_IND,
+		LD_W_ABS = BPF_LD | BPF_W | BPF_ABS,
 		LD_W_IND = BPF_LD | BPF_W | BPF_IND,
 		MISC_TAX = BPF_MISC | BPF_TAX,
 		RET_A = BPF_RET | BPF_A,
