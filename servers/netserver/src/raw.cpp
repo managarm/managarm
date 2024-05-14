@@ -111,6 +111,8 @@ async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(vo
 			co_return protocols::fs::Error::illegalArguments;
 
 		self->filter_ = optbuf;
+	} else if(layer == SOL_SOCKET && number == SO_DETACH_FILTER) {
+		self->filter_ = std::nullopt;
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;

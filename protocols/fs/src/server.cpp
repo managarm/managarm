@@ -1169,13 +1169,16 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 			}
 
 			std::vector<char> optbuf;
-			optbuf.resize(req->optlen());
 
-			auto [recv_buf] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvBuffer(optbuf.data(), optbuf.size())
-			);
-			HEL_CHECK(recv_buf.error());
+			if(req->optlen()) {
+				optbuf.resize(req->optlen());
+
+				auto [recv_buf] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(optbuf.data(), optbuf.size())
+				);
+				HEL_CHECK(recv_buf.error());
+			}
 
 			managarm::fs::SvrResponse resp;
 
