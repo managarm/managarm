@@ -540,10 +540,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				co_await async::suspend_indefinitely({});
 			}
 		}else if(observe.observation() == kHelObservePageFault) {
-			printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
-			fflush(stdout);
+			if(logPageFaults) {
+				printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
+				dumpRegisters(self);
+				printf("\e[39m");
+				fflush(stdout);
+			}
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
@@ -552,7 +554,14 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			if(killed) {
+				if(!logPageFaults) {
+					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
+					dumpRegisters(self);
+					printf("\e[39m");
+					fflush(stdout);
+				}
+
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
