@@ -722,8 +722,10 @@ head(128):
 	int32 mtu;
 	int32 ip4_addr;
 	int32 ip4_netmask;
+	int32 ip4_broadcast_addr;
 	int32 index;
 	int32 flags;
+	uint8[6] mac;
 }
 
 message IfconfReply 20 {
