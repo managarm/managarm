@@ -59,11 +59,17 @@ private:
 
 	int proto;
 	bool filterLocked_ = false;
+	bool packetAuxData_ = false;
 	std::optional<std::vector<char>> filter_ = std::nullopt;
 
 	std::shared_ptr<nic::Link> link = {};
 
-	async::queue<arch::dma_buffer_view, frg::stl_allocator> queue_;
+	struct PacketInfo {
+		size_t len;
+		arch::dma_buffer_view view;
+	};
+
+	async::queue<PacketInfo, frg::stl_allocator> queue_;
 
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq;

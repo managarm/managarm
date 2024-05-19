@@ -35,7 +35,9 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 				continue;
 		}
 
-		(*s)->queue_.emplace(frame.subview(0, std::min(frame.size(), accept_bytes)));
+		RawSocket::PacketInfo info{frame.size(), frame.subview(0, std::min(frame.size(), accept_bytes))};
+
+		(*s)->queue_.emplace(info);
 		(*s)->_inSeq = ++(*s)->_currentSeq;
 		(*s)->_statusBell.raise();
 	}
@@ -93,10 +95,21 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 	auto element = co_await self->queue_.async_get();
 	assert(element);
 
-	size_t data_len = std::min(len, element->size());
-	memcpy(data, element->byte_data(), data_len);
+	size_t data_len = std::min(len, element->view.size());
+	memcpy(data, element->view.byte_data(), data_len);
 
-	co_return protocols::fs::RecvData{{}, data_len, 0, 0};
+	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
+
+	if(self->packetAuxData_) {
+		ctrl.message(SOL_PACKET, PACKET_AUXDATA, sizeof(struct tpacket_auxdata));
+		ctrl.write<struct tpacket_auxdata>({
+			.tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
+			.tp_len = static_cast<uint32_t>(element->len),
+			.tp_snaplen = static_cast<uint32_t>(element->view.size()),
+		});
+	}
+
+	co_return protocols::fs::RecvData{ctrl.buffer(), data_len, 0, 0};
 }
 
 async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(void *obj,
@@ -125,6 +138,9 @@ async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(vo
 			co_return protocols::fs::Error::insufficientPermissions;
 		else
 			self->filterLocked_ = true;
+	} else if(layer == SOL_PACKET && number == PACKET_AUXDATA) {
+		auto opt = *reinterpret_cast<int *>(optbuf.data());
+		self->packetAuxData_ = (opt != 0);
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
