@@ -95,14 +95,14 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 	using namespace arch;
 	while(true) {
 		dma_buffer frameBuffer { dev->dmaPool(), 1514 };
-		co_await dev->receive(frameBuffer);
-		auto capsule = frameBuffer.subview(14);
+		auto len = co_await dev->receive(frameBuffer);
+		auto capsule = frameBuffer.subview(14, len - 14);
 		auto data = reinterpret_cast<uint8_t*>(frameBuffer.data());
 		uint16_t ethertype = data[12] << 8 | data[13];
 		nic::MacAddress dstsrc[2];
 		std::memcpy(dstsrc, data, sizeof(dstsrc));
 
-		raw().feedPacket(frameBuffer);
+		raw().feedPacket(frameBuffer.subview(0, len));
 
 		switch (ethertype) {
 		case ETHER_TYPE_IP4:

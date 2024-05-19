@@ -52,7 +52,7 @@ struct Link {
 	Link(unsigned int mtu, arch::dma_pool *dmaPool);
 	virtual ~Link() = default;
 	//! Receives an entire frame from the network
-	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
+	virtual async::result<size_t> receive(arch::dma_buffer_view) = 0;
 	//! Sends an entire ethernet frame
 	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
 	arch::dma_pool *dmaPool();
