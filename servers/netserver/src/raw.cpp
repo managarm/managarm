@@ -106,13 +106,25 @@ async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(vo
 	if(layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
 		assert(optbuf.size() % sizeof(struct sock_filter) == 0);
 
+		if(self->filterLocked_)
+			co_return protocols::fs::Error::insufficientPermissions;
+
 		Bpf bpf{optbuf};
 		if(!bpf.validate())
 			co_return protocols::fs::Error::illegalArguments;
 
 		self->filter_ = optbuf;
 	} else if(layer == SOL_SOCKET && number == SO_DETACH_FILTER) {
+		if(self->filterLocked_)
+			co_return protocols::fs::Error::insufficientPermissions;
+
 		self->filter_ = std::nullopt;
+	} else if(layer == SOL_SOCKET && number == SO_LOCK_FILTER) {
+		auto opt = *reinterpret_cast<int *>(optbuf.data());
+		if(!opt && self->filterLocked_)
+			co_return protocols::fs::Error::insufficientPermissions;
+		else
+			self->filterLocked_ = true;
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;

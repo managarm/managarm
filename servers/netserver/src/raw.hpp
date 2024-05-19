@@ -58,6 +58,7 @@ private:
 	smarter::weak_ptr<RawSocket> holder_;
 
 	int proto;
+	bool filterLocked_ = false;
 	std::optional<std::vector<char>> filter_ = std::nullopt;
 
 	std::shared_ptr<nic::Link> link = {};
