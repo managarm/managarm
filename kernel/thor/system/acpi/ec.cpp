@@ -163,13 +163,14 @@ struct ECQuery {
 };
 
 void handleEcQuery(uacpi_handle opaque) {
+	static const char *hexChars = "0123456789ABCDEF";
+
 	auto *query = reinterpret_cast<ECQuery *>(opaque);
-	char method_name[5];
+	char methodName[5] = { '_', 'Q', hexChars[(query->idx >> 4) & 0xF], hexChars[query->idx & 0xF] };
 
-	snprintf(method_name, sizeof(method_name), "_Q%02X", query->idx);
-	infoLogger() << "thor: evaluating EC query " << method_name << frg::endlog;
+	infoLogger() << "thor: evaluating EC query " << methodName << frg::endlog;
 
-	uacpi_eval(query->device->node, method_name, UACPI_NULL, UACPI_NULL);
+	uacpi_eval(query->device->node, methodName, UACPI_NULL, UACPI_NULL);
 	uacpi_finish_handling_gpe(query->device->gpeNode, *query->device->gpeIdx);
 
 	frg::destruct(*kernelAlloc, query);

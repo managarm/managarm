@@ -136,7 +136,7 @@ if want_acpi
 		'system/pci/pci_acpi.cpp'
 	)
 
-	uacpi_args = [ '-DUACPI_OVERRIDE_STDLIB' ]
+	uacpi_args = [ '-DUACPI_OVERRIDE_LIBC' ]
 
 	uacpi_lib = static_library('uacpi', uacpi_sources,
 		include_directories : [uacpi_includes, 'system/acpi'],
