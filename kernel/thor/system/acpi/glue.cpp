@@ -3,6 +3,7 @@
 #include <frg/allocation.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/spinlock.hpp>
+#include <frg/string.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/arch/paging.hpp>
@@ -19,9 +20,8 @@
 
 using namespace thor;
 
-void uacpi_kernel_vlog(enum uacpi_log_level lvl, const char *msg, uacpi_va_list va) {
+void uacpi_kernel_log(enum uacpi_log_level lvl, const char *msg) {
 	const char *lvlStr;
-	char buf[128];
 
 	switch(lvl) {
 		case UACPI_LOG_TRACE:
@@ -40,24 +40,11 @@ void uacpi_kernel_vlog(enum uacpi_log_level lvl, const char *msg, uacpi_va_list 
 			lvlStr = "<invalid>";
 	}
 
-	auto chars = vsnprintf(buf, sizeof(buf), msg, va);
-	if(chars < 0)
-		return;
+	auto msgView = frg::string_view(msg);
+	if (msgView.ends_with("\n"))
+		msgView = msgView.sub_string(0, msgView.size() - 1);
 
-	// frg::endlog inserts its own \n
-	if ((unsigned)chars < sizeof(buf) && buf[chars - 1] == '\n')
-		buf[chars - 1] = '\0';
-
-	infoLogger() << "uacpi-" << lvlStr << ": " << buf << frg::endlog;
-}
-
-void uacpi_kernel_log(enum uacpi_log_level lvl, const char *fmt, ...) {
-	va_list va;
-	va_start(va, fmt);
-
-	uacpi_kernel_vlog(lvl, fmt, va);
-
-	va_end(va);
+	infoLogger() << "uacpi-" << lvlStr << ": " << msgView << frg::endlog;
 }
 
 void *uacpi_kernel_alloc(uacpi_size size) {
