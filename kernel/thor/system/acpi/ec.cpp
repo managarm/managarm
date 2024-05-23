@@ -60,6 +60,7 @@ struct ECDevice {
 	uacpi_namespace_node *gpeNode;
 	frg::optional<uint16_t> gpeIdx;
 	bool initialized = false;
+	IrqSpinlock lock;
 
 	acpi_gas control;
 	acpi_gas data;
@@ -130,6 +131,8 @@ static uacpi_status ecDoRw(uacpi_region_op op, uacpi_region_rw_data *data) {
 		return UACPI_STATUS_INVALID_ARGUMENT;
 	}
 
+	auto guard = frg::guard(&ecDevice->lock);
+
 	ecDevice->burstEnable();
 
 	switch(op) {
@@ -179,6 +182,8 @@ void handleEcQuery(uacpi_handle opaque) {
 uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node*, uacpi_u16) {
 	auto *ecDevice = reinterpret_cast<ECDevice *>(ctx);
 	uacpi_interrupt_ret ret = UACPI_GPE_REENABLE | UACPI_INTERRUPT_HANDLED;
+
+	auto guard = frg::guard(&ecDevice->lock);
 
 	uint8_t idx;
 	if(!ecDevice->checkEvent(idx))
