@@ -1,5 +1,6 @@
 #include <string.h>
 #include <iostream>
+#include <format>
 
 #include <async/queue.hpp>
 #include <protocols/mbus/client.hpp>
@@ -62,6 +63,15 @@ InterfaceProtocolAttribute interfaceProtocolAttr{"bInterfaceProtocol"};
 AlternateSettingAttribute alternateSettingAttr{"bAlternateSetting"};
 InterfaceNumberAttribute interfaceNumAttr{"bInterfaceNumber"};
 EndpointNumAttribute numEndpointsAttr{"bNumEndpoints"};
+
+/* USB Endpoint-specific attributes */
+EndpointAddressAttribute endpointAddressAttr{"bEndpointAddress"};
+PrettyIntervalAttribute prettyIntervalAttr{"interval"};
+IntervalAttribute intervalAttr{"bInterval"};
+LengthAttribute lengthAttr{"bLength"};
+EpAttributesAttribute epAttributesAttr{"bmAttributes"};
+EpMaxPacketSizeAttribute epMaxPacketSizeAttr{"wMaxPacketSize"};
+EpTypeAttribute epTypeAttr{"type"};
 
 void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint64_t bus_num) {
 	auto pci_parent_id = std::stoi(std::get<mbus_ng::StringItem>(properties["usb.root.parent"]).value);
@@ -208,10 +218,20 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 			interface->interfaceProtocol = desc->interfaceProtocol;
 			interface->alternateSetting = desc->alternateSetting;
 			interface->interfaceNumber = desc->interfaceNumber;
-			interface->endpoints = desc->numEndpoints;
+			interface->endpointCount = desc->numEndpoints;
 			interface->descriptors = device->descriptors;
 
 			device->interfaces.push_back(interface);
+		} else if(type == protocols::usb::descriptor_type::endpoint) {
+			auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
+
+			auto ep_sysfs_name = std::format("ep_{:02x}", desc->endpointAddress & 0x8F);
+			auto ep = std::make_shared<UsbEndpoint>(ep_sysfs_name, entity.id(), device->interfaces.back());
+			ep->endpointAddress = desc->endpointAddress;
+			ep->interval = desc->interval;
+			ep->attributes = desc->attributes;
+			ep->maxPacketSize = desc->maxPacketSize;
+			device->interfaces.back()->endpoints.push_back(ep);
 		}
 	});
 
@@ -233,6 +253,18 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		interface->realizeAttribute(&alternateSettingAttr);
 		interface->realizeAttribute(&interfaceNumAttr);
 		interface->realizeAttribute(&numEndpointsAttr);
+
+		for(auto ep : interface->endpoints) {
+			ep->addObject();
+
+			ep->realizeAttribute(&endpointAddressAttr);
+			ep->realizeAttribute(&prettyIntervalAttr);
+			ep->realizeAttribute(&intervalAttr);
+			ep->realizeAttribute(&lengthAttr);
+			ep->realizeAttribute(&epAttributesAttr);
+			ep->realizeAttribute(&epMaxPacketSizeAttr);
+			ep->realizeAttribute(&epTypeAttr);
+		}
 	}
 
 	// TODO: Call realizeAttribute *before* installing the device.
@@ -258,6 +290,16 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	device->realizeAttribute(&configurationAttr);
 	device->realizeAttribute(&bmAttributesAttr);
 	device->realizeAttribute(&numConfigurationsAttr);
+
+	auto ep = std::make_shared<UsbEndpoint>("ep_00", entity.id(), device);
+	ep->addObject();
+	ep->realizeAttribute(&endpointAddressAttr);
+	ep->realizeAttribute(&prettyIntervalAttr);
+	ep->realizeAttribute(&intervalAttr);
+	ep->realizeAttribute(&lengthAttr);
+	ep->realizeAttribute(&epAttributesAttr);
+	ep->realizeAttribute(&epMaxPacketSizeAttr);
+	ep->realizeAttribute(&epTypeAttr);
 
 	mbusMap.insert({entity.id(), device});
 }

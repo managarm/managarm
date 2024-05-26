@@ -52,6 +52,23 @@ struct UsbController final : UsbBase {
 	uint8_t numInterfaces = 0;
 };
 
+struct UsbEndpoint final : sysfs::Object {
+	UsbEndpoint(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
+		: Object{parent, sysfs_name}, sysfs_name{sysfs_name} {
+
+	}
+
+	protocols::usb::Device &device();
+
+	uint8_t endpointAddress;
+	uint8_t attributes;
+	uint8_t interval;
+	uint8_t length;
+	uint16_t maxPacketSize;
+
+	std::string sysfs_name;
+};
+
 struct UsbInterface final : UsbBase {
 	UsbInterface(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
 		: UsbBase{sysfs_name, mbus_id, parent}, sysfs_name{sysfs_name} {
@@ -75,8 +92,10 @@ struct UsbInterface final : UsbBase {
 	uint8_t interfaceSubClass;
 	uint8_t interfaceProtocol;
 	uint8_t alternateSetting;
+	uint8_t endpointCount;
 	uint8_t interfaceNumber;
-	uint8_t endpoints;
+
+	std::vector<std::shared_ptr<UsbEndpoint>> endpoints;
 
 	std::string sysfs_name;
 };
