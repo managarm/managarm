@@ -1,3 +1,5 @@
+#include <format>
+
 #include "attributes.hpp"
 #include "devices.hpp"
 
@@ -174,8 +176,60 @@ async::result<frg::expected<Error, std::string>> InterfaceNumberAttribute::show(
 async::result<frg::expected<Error, std::string>> EndpointNumAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbInterface *>(object);
 	char buf[4];
-	snprintf(buf, 4, "%02x\n", device->endpoints);
+	snprintf(buf, 4, "%02x\n", device->endpointCount);
 	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> EndpointAddressAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	char buf[4];
+	snprintf(buf, 4, "%02x\n", device->endpointAddress);
+	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> PrettyIntervalAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	co_return std::format("{}ms\n", 0);
+}
+
+async::result<frg::expected<Error, std::string>> IntervalAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	char buf[4];
+	snprintf(buf, 4, "%02x\n", device->interval);
+	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> LengthAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	char buf[4];
+	snprintf(buf, 4, "%02x\n", device->length);
+	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> EpAttributesAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	char buf[4];
+	snprintf(buf, 4, "%02x\n", device->attributes);
+	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> EpMaxPacketSizeAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	char buf[6];
+	snprintf(buf, 6, "%04x\n", device->maxPacketSize);
+	co_return std::string{buf};
+}
+
+async::result<frg::expected<Error, std::string>> EpTypeAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbEndpoint *>(object);
+	switch(device->attributes & 0x03) {
+		case 0: co_return "Control";
+		case 1: co_return "Isochronous";
+		case 2: co_return "Bulk";
+		case 3: co_return "Interrupt";
+	}
+
+	__builtin_unreachable();
 }
 
 } // namespace usb_subsystem
