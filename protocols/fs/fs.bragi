@@ -471,6 +471,11 @@ message SendMsgRequest 7 {
 head(128):
 	int32 size;
 	uint32 flags;
+	byte has_cmsg_rights;
+	byte has_cmsg_creds;
+	int32 creds_pid;
+	uint32 creds_uid;
+	uint32 creds_gid;
 tail:
 	uint32[] fds;
 }

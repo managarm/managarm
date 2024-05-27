@@ -100,7 +100,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 
 async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMsg(void *obj,
 			const char *creds, uint32_t flags, void *data, size_t len,
-			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds) {
+			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred ucreds) {
 	(void) creds;
 	(void) addr_ptr;
 	(void) addr_size;

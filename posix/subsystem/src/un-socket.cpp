@@ -31,6 +31,8 @@ std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 struct Packet {
 	// Sender process information.
 	int senderPid;
+	unsigned int senderUid;
+	unsigned int senderGid;
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
@@ -121,7 +123,6 @@ public:
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
 
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {
 			assert(packet->files.empty());
@@ -195,6 +196,8 @@ public:
 			struct ucred creds;
 			memset(&creds, 0, sizeof(struct ucred));
 			creds.pid = packet->senderPid;
+			creds.uid = packet->senderUid;
+			creds.gid = packet->senderGid;
 
 			if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
 				throw std::runtime_error("posix: Implement CMSG truncation");
@@ -226,7 +229,7 @@ public:
 	async::result<frg::expected<protocols::fs::Error, size_t>>
 	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files) override {
+			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
 		assert(!(flags & ~(MSG_DONTWAIT)));
 
 		if(_currentState == State::remoteShutDown)
@@ -239,8 +242,11 @@ public:
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
+		// TODO: Add permission checking for ucred related items
 		Packet packet;
-		packet.senderPid = process->pid();
+		packet.senderPid = ucreds.pid;
+		packet.senderUid = ucreds.uid;
+		packet.senderGid = ucreds.gid;
 		packet.buffer.resize(max_length);
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);

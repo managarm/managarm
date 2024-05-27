@@ -241,7 +241,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>>
 File::ptSendMsg(void *object, const char *creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr, size_t addr_len,
-		std::vector<uint32_t> fds) {
+		std::vector<uint32_t> fds, struct ucred ucreds) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(creds);
 
@@ -269,7 +269,7 @@ File::ptSendMsg(void *object, const char *creds, uint32_t flags,
 	return self->sendMsg(process.get(), flags,
 			data, len,
 			addr, addr_len,
-			std::move(files));
+			std::move(files), ucreds);
 }
 
 async::result<helix::BorrowedDescriptor>
@@ -352,7 +352,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>>
 File::sendMsg(Process *, uint32_t,
 		const void *, size_t,
 		const void *, size_t,
-		std::vector<smarter::shared_ptr<File, FileHandle>>) {
+		std::vector<smarter::shared_ptr<File, FileHandle>>, struct ucred) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement sendMsg()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::sendMsg()");

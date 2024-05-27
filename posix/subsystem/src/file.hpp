@@ -175,7 +175,7 @@ public:
 	ptSendMsg(void *object, const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr, size_t addr_len,
-			std::vector<uint32_t> fds);
+			std::vector<uint32_t> fds, struct ucred ucreds);
 
 	static async::result<protocols::fs::Error>
 	ptListen(void *object);
@@ -312,7 +312,7 @@ public:
 		sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files);
+			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred creds);
 
 	virtual async::result<frg::expected<protocols::fs::Error>> truncate(size_t size);
 

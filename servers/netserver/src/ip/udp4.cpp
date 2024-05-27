@@ -249,7 +249,7 @@ struct Udp4Socket {
 			const char *creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
-			std::vector<uint32_t> fds) {
+			std::vector<uint32_t> fds, struct ucred ucreds) {
 		(void) creds;
 		(void) flags;
 		(void) fds;
