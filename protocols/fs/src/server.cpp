@@ -714,7 +714,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_error(managarm::fs::Errors::NOT_A_SOCKET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -757,7 +757,8 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		if (!result) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(result.error()));
+			resp.set_error(result.error() == protocols::fs::Error::illegalOperationTarget ?
+				managarm::fs::Errors::NOT_A_SOCKET : static_cast<managarm::fs::Errors>(result.error()));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(

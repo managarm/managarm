@@ -2380,13 +2380,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+			if((req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC))) {
+				std::cout << "posix: SOCKET: non-blocking sockets / close-on-exec sockets are not supported" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::NOT_SUPPORTED);
+				continue;
+			}
 
 			smarter::shared_ptr<File, FileHandle> file;
 			if(req->domain() == AF_UNIX) {
-				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
-						|| req->socktype() == SOCK_SEQPACKET);
-				assert(!req->protocol());
+				if(!(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
+						|| req->socktype() == SOCK_SEQPACKET)) {
+					std::cout << "posix: SOCKET: unix sockets must be of type SOCK_DGRAM, SOCK_STREAM or SOCK_SEQPACKET" << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_SUPPORTED);
+					continue;
+				}
+				if(req->protocol()) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
 
 				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
 			}else if(req->domain() == AF_NETLINK) {
@@ -2409,7 +2420,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req->flags() & SOCK_NONBLOCK);
 			}else{
 				std::cout << "posix: SOCKET: Handle unknown protocols families, this is: " << req->domain() << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse(managarm::posix::Errors::PROTOCOL_NOT_SUPPORTED);
 				continue;
 			}
 
