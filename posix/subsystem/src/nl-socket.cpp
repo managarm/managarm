@@ -180,7 +180,7 @@ public:
 	sendMsg(Process *process, uint32_t flags,
 			const void *data, size_t max_length,
 			const void *addr_ptr, size_t addr_length,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files) override;
+			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override;
 
 	async::result<void> setOption(int option, int value) override {
 		assert(option == SO_PASSCRED);
@@ -302,7 +302,7 @@ private:
 async::result<frg::expected<protocols::fs::Error, size_t>>
 OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 		const void *addr_ptr, size_t addr_length,
-		std::vector<smarter::shared_ptr<File, FileHandle>> files) {
+		std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred) {
 	if(logSockets)
 		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 	assert(!flags);

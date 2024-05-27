@@ -185,7 +185,7 @@ struct FileOperations {
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*sendMsg)(void *object, const char *creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size,
-			std::vector<uint32_t> fds) = nullptr;
+			std::vector<uint32_t> fds, struct ucred ucreds) = nullptr;
 	async::result<frg::expected<Error, size_t>> (*peername)(void *object, void *addr_ptr, size_t max_addr_length) = nullptr;
 	async::result<frg::expected<Error, int>> (*getSeals)(void *object) = nullptr;
 	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals) = nullptr;

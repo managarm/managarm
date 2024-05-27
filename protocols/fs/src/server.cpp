@@ -1108,13 +1108,22 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 				co_return;
 			}
 
-			std::vector<uint32_t> files(req->fds().cbegin(), req->fds().cend());
+			std::vector<uint32_t> files;
+			struct ucred ucreds;
+
+			if(req->has_cmsg_rights()) {
+				files.assign(req->fds().cbegin(), req->fds().cend());
+			} else if(req->has_cmsg_creds()) {
+				ucreds.pid = req->creds_pid();
+				ucreds.uid = req->creds_uid();
+				ucreds.gid = req->creds_gid();
+			}
 
 			auto res = co_await file_ops->sendMsg(file.get(),
 				extract_creds.credentials(), req->flags(),
 				buffer.data(), recv_data.actualLength(),
 				recv_addr.data(), recv_addr.length(),
-				std::move(files));
+				std::move(files), ucreds);
 			recv_addr.reset();
 
 			managarm::fs::SendMsgReply resp;
