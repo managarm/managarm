@@ -6,8 +6,10 @@
 #include <arch/bit.hpp>
 #include <frg/formatting.hpp>
 #include <frg/logging.hpp>
-#include "ip/ip4.hpp"
+
 #include "ip/arp.hpp"
+#include "ip/ip4.hpp"
+#include "raw.hpp"
 
 namespace {
 
@@ -62,13 +64,21 @@ std::string Link::name() {
 	return res;
 }
 
+Link::AllocatedBuffer Link::allocateFrame(size_t size) {
+	using namespace arch;
+	Link::AllocatedBuffer buf {
+		dma_buffer { dmaPool(), size }, {}
+	};
+
+	buf.payload = buf.frame;
+	return buf;
+}
+
 Link::AllocatedBuffer Link::allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize) {
 	// default implementation assume an Ethernet II frame
 	using namespace arch;
-	Link::AllocatedBuffer buf {
-		dma_buffer { dmaPool(), 14 + payloadSize }, {}
-	};
+	auto buf = allocateFrame(14 + payloadSize);
 
 	uint16_t et = static_cast<uint16_t>(type);
 	et = convert_endian<endian::big>(et);
@@ -85,17 +95,19 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 	using namespace arch;
 	while(true) {
 		dma_buffer frameBuffer { dev->dmaPool(), 1514 };
-		co_await dev->receive(frameBuffer);
-		auto capsule = frameBuffer.subview(14);
+		auto len = co_await dev->receive(frameBuffer);
+		auto capsule = frameBuffer.subview(14, len - 14);
 		auto data = reinterpret_cast<uint8_t*>(frameBuffer.data());
 		uint16_t ethertype = data[12] << 8 | data[13];
 		nic::MacAddress dstsrc[2];
 		std::memcpy(dstsrc, data, sizeof(dstsrc));
 
+		raw().feedPacket(frameBuffer.subview(0, len));
+
 		switch (ethertype) {
 		case ETHER_TYPE_IP4:
 			ip4().feedPacket(dstsrc[0], dstsrc[1],
-				std::move(frameBuffer), capsule);
+				std::move(frameBuffer), capsule, dev);
 			break;
 		case ETHER_TYPE_ARP:
 			neigh4().feedArp(dstsrc[0], capsule, dev);

@@ -24,7 +24,8 @@ enum Errors {
 	NO_SPACE_LEFT = 21,
 	NOT_A_TERMINAL = 22,
 	NO_BACKING_DEVICE = 23,
-	IS_DIRECTORY = 24
+	IS_DIRECTORY = 24,
+	INVALID_PROTOCOL_OPTION = 25
 }
 
 consts FileType int64 {
@@ -688,4 +689,41 @@ message ResolveCredentialsToPidReply 16 {
 head(128):
 	Errors error;
 	int64 pid;
+}
+
+message SetSockOpt 17 {
+head(128):
+	int32 layer;
+	int32 number;
+	uint64 optlen;
+}
+
+message IfreqRequest 18 {
+head(128):
+	int32 command;
+	string name;
+	int32 index;
+}
+
+struct Ifconf {
+	string name;
+	int32 ip4;
+}
+
+message IfreqReply 19 {
+head(128):
+	Errors error;
+	string name;
+	int32 mtu;
+	int32 ip4_addr;
+	int32 ip4_netmask;
+	int32 index;
+	int32 flags;
+}
+
+message IfconfReply 20 {
+head(128):
+	Errors error;
+tail:
+	Ifconf[] ifconf;
 }

@@ -52,10 +52,11 @@ struct Link {
 	Link(unsigned int mtu, arch::dma_pool *dmaPool);
 	virtual ~Link() = default;
 	//! Receives an entire frame from the network
-	virtual async::result<void> receive(arch::dma_buffer_view) = 0;
+	virtual async::result<size_t> receive(arch::dma_buffer_view) = 0;
 	//! Sends an entire ethernet frame
 	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
 	arch::dma_pool *dmaPool();
+	AllocatedBuffer allocateFrame(size_t payloadSize);
 	AllocatedBuffer allocateFrame(MacAddress to, EtherType type,
 		size_t payloadSize);
 
@@ -65,6 +66,7 @@ struct Link {
 	unsigned int mtu;
 
 	static std::shared_ptr<Link> byIndex(int index);
+	static std::shared_ptr<Link> byName(std::string name);
 
 	static std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &getLinks();
 protected:

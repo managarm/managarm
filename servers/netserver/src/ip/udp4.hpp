@@ -3,6 +3,7 @@
 #include <helix/ipc.hpp>
 #include <smarter.hpp>
 #include <map>
+#include <netserver/nic.hpp>
 
 class Ip4Packet;
 
@@ -18,7 +19,7 @@ bool operator<(const Endpoint &l, const Endpoint &r);
 
 struct Udp4Socket;
 struct Udp4 {
-	void feedDatagram(smarter::shared_ptr<const Ip4Packet>);
+	void feedDatagram(smarter::shared_ptr<const Ip4Packet>, std::weak_ptr<nic::Link> link);
 	bool tryBind(smarter::shared_ptr<Udp4Socket> socket, Endpoint addr);
 	bool unbind(Endpoint remote);
 	void serveSocket(helix::UniqueLane lane);

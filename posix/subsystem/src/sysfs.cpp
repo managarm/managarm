@@ -232,7 +232,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 AttributeNode::open(std::shared_ptr<MountView> mount,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: sysfs AttributeNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;
@@ -359,7 +359,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 DirectoryNode::open(std::shared_ptr<MountView> mount,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: sysfs DirectoryNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;

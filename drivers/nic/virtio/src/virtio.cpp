@@ -41,7 +41,7 @@ struct VirtHeader {
 struct VirtioNic : nic::Link {
 	VirtioNic(std::unique_ptr<virtio_core::Transport> transport);
 
-	virtual async::result<void> receive(arch::dma_buffer_view) override;
+	virtual async::result<size_t> receive(arch::dma_buffer_view) override;
 	virtual async::result<void> send(const arch::dma_buffer_view) override;
 
 	virtual ~VirtioNic() override = default;
@@ -76,7 +76,7 @@ VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
 	transport_->runDevice();
 }
 
-async::result<void> VirtioNic::receive(arch::dma_buffer_view frame) {
+async::result<size_t> VirtioNic::receive(arch::dma_buffer_view frame) {
 	arch::dma_object<VirtHeader> header { &dmaPool_ };
 
 	virtio_core::Chain chain;
@@ -86,9 +86,7 @@ async::result<void> VirtioNic::receive(arch::dma_buffer_view frame) {
 	chain.append(co_await receiveVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::deviceToHost, frame);
 
-	co_await receiveVq_->submitDescriptor(chain.front());
-
-	co_return;
+	co_return (co_await receiveVq_->submitDescriptor(chain.front()) - legacyHeaderSize);
 }
 
 async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {

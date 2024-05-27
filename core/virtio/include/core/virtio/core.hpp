@@ -286,6 +286,8 @@ async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
 
 struct Request {
 	void (*complete)(Request *);
+
+	size_t len = 0;
 };
 
 // Represents a single virtq.
@@ -318,7 +320,7 @@ public:
 	// Notifies the device that new descriptors have been posted.
 	void notify();
 
-	async::result<void> submitDescriptor(Handle descriptor) {
+	async::result<size_t> submitDescriptor(Handle descriptor) {
 		struct OneshotRequest : Request {
 			async::oneshot_event event;
 		} ev_req;
@@ -331,7 +333,7 @@ public:
 		notify();
 
 		co_await ev_req.event.wait();
-		co_return;
+		co_return ev_req.len;
 	}
 
 	// Processes interrupts for this virtq.

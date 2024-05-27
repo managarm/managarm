@@ -869,6 +869,7 @@ void Queue::processInterrupt() {
 		// Dequeue the Request object.
 		auto request = _activeRequests[table_index];
 		assert(request);
+		request->len = _usedRing->elements[ring_index].written.load();
 		_activeRequests[table_index] = nullptr;
 
 		// Free all descriptors in the descriptor chain.

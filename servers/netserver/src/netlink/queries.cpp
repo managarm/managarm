@@ -13,8 +13,14 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct ifinfomsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
-		sendError(hdr, EINVAL);
-		return;
+		auto rtgm = netlinkMessage<struct rtgenmsg>(hdr, hdr->nlmsg_len);
+
+		if(rtgm) {
+			msg = new ifinfomsg{.ifi_family = (*rtgm)->rtgen_family};
+		} else {
+			sendError(hdr, EINVAL);
+			return;
+		}
 	}
 
 	std::optional<std::string> if_name = std::nullopt;
@@ -23,34 +29,31 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	if(msg) {
 		auto attrs = NetlinkAttr(hdr, nl::packets::ifinfo{});
 
-		if(!attrs.has_value()) {
-			sendError(hdr, EINVAL);
-			return;
-		}
-
-		for(auto attr : *attrs) {
-			switch(attr.type()) {
-				case IFLA_IFNAME: {
-					if(auto opt = attr.str()) {
-						if_name = opt;
-					} else {
-						std::cout << "netlink: string parsing from rtattr failed unexpectedly" << std::endl;
-						sendError(hdr, EINVAL);
-						return;
+		if(attrs.has_value()) {
+			for(auto attr : *attrs) {
+				switch(attr.type()) {
+					case IFLA_IFNAME: {
+						if(auto opt = attr.str()) {
+							if_name = opt;
+						} else {
+							std::cout << "netlink: string parsing from rtattr failed unexpectedly" << std::endl;
+							sendError(hdr, EINVAL);
+							return;
+						}
+						break;
 					}
-					break;
-				}
-				case IFLA_EXT_MASK: {
-					ext_mask = attr.data<uint32_t>().value_or(0);
-					break;
-				}
-				default: {
-					std::cout << "netlink: ignoring unknown attr " << attr.type() << std::endl;
-					if(attr.type() > RTA_MAX) {
-						sendError(hdr, EINVAL);
-						return;
+					case IFLA_EXT_MASK: {
+						ext_mask = attr.data<uint32_t>().value_or(0);
+						break;
 					}
-					break;
+					default: {
+						std::cout << "netlink: ignoring unknown attr " << attr.type() << std::endl;
+						if(attr.type() > RTA_MAX) {
+							sendError(hdr, EINVAL);
+							return;
+						}
+						break;
+					}
 				}
 			}
 		}
@@ -167,7 +170,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 }
 
 void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
-	assert(hdr->nlmsg_flags == (NLM_F_REQUEST | NLM_F_DUMP));
+	assert((hdr->nlmsg_flags & (NLM_F_REQUEST | NLM_F_MATCH)) == (NLM_F_REQUEST | NLM_F_MATCH));
 
 	const struct rtgenmsg *payload;
 
@@ -223,6 +226,10 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 				addr = ntohl(attr.data<uint32_t>().value_or(0));
 				break;
 			}
+			case IFA_LOCAL: {
+				addr = ntohl(attr.data<uint32_t>().value_or(0));
+				break;
+			}
 			default: {
 				std::cout << "netserver: ignoring unknown rtattr type " << attr.type() << " in RTM_NEWADDR request" << std::endl;
 				if(attr.type() > RTA_MAX) {
@@ -249,8 +256,14 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
-		sendError(hdr, EINVAL);
-		return;
+		auto rtgm = netlinkMessage<struct rtgenmsg>(hdr, hdr->nlmsg_len);
+
+		if(rtgm) {
+			msg = new ifaddrmsg{.ifa_family = (*rtgm)->rtgen_family};
+		} else {
+			sendError(hdr, EINVAL);
+			return;
+		}
 	}
 
 	auto links = nic::Link::getLinks();

@@ -47,8 +47,16 @@ public:
 
 	static async::result<size_t> sockname(void *, void *, size_t);
 
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+	pollWait(void *object, uint64_t sequence, int mask, async::cancellation_token cancellation);
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+	pollStatus(void *object);
+
 	constexpr static protocols::fs::FileOperations ops {
 		.setOption = &setOption,
+		.pollWait = &pollWait,
+		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.sockname = &sockname,
 		.recvMsg = &recvMsg,

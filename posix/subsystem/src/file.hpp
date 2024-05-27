@@ -186,6 +186,9 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, int>> ptGetSeals(void *object);
 	static async::result<frg::expected<protocols::fs::Error, int>> ptAddSeals(void *object, int seals);
 
+	static async::result<frg::expected<protocols::fs::Error>> ptSetSocketOption(void *obj,
+			int layer, int number, std::vector<char> optbuf);
+
 	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
@@ -214,6 +217,7 @@ public:
 		.peername = &ptPeername,
 		.getSeals = &ptGetSeals,
 		.addSeals = &ptAddSeals,
+		.setSocketOption = &ptSetSocketOption,
 	};
 
 	// ------------------------------------------------------------------------
@@ -367,6 +371,9 @@ public:
 	virtual async::result<frg::expected<protocols::fs::Error, int>> addSeals(int flags);
 
 	virtual async::result<frg::expected<Error, std::string>> ttyname();
+
+	virtual async::result<frg::expected<protocols::fs::Error>> setSocketOption(int layer,
+			int number, std::vector<char> optbuf);
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;

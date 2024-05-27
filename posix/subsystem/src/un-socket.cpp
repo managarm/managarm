@@ -108,7 +108,9 @@ public:
 public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		assert(_currentState == State::connected);
+		if(_currentState != State::connected)
+			co_return Error::wouldBlock;
+
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -494,9 +496,17 @@ public:
 					break;
 				}
 				default: {
-					std::cout << "Invalid ioctl for un-socket" << std::endl;
+					std::cout << "posix: invalid ioctl 0x"
+						<< std::hex << req->command() << std::dec
+						<< " for un-socket" << std::endl;
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					break;
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size())
+					);
+					co_return;
 				}
 			}
 

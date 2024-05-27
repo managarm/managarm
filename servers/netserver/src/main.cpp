@@ -1,15 +1,13 @@
 #include <assert.h>
+#include <net/if.h>
+#include <netinet/in.h>
 #include <optional>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <iostream>
-#include <memory>
-#include <queue>
-#include <vector>
 
 #include <async/result.hpp>
+#include <bragi/helpers-std.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
@@ -18,10 +16,12 @@
 #include <protocols/svrctl/server.hpp>
 #include <protocols/fs/server.hpp>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include "fs.bragi.hpp"
 
 #include "ip/ip4.hpp"
 #include "netlink/netlink.hpp"
+#include "raw.hpp"
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
@@ -36,11 +36,16 @@ std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
 }
 
 std::shared_ptr<nic::Link> nic::Link::byIndex(int index) {
-	if(baseDeviceMap.empty())
-		return {};
-
 	for(auto it = baseDeviceMap.begin(); it != baseDeviceMap.end(); it++)
 		if(it->second->index() == index)
+			return it->second;
+
+	return {};
+}
+
+std::shared_ptr<nic::Link> nic::Link::byName(std::string name) {
+	for(auto it = baseDeviceMap.begin(); it != baseDeviceMap.end(); it++)
+		if(it->second->name() == name)
 			return it->second;
 
 	return {};
@@ -52,18 +57,7 @@ async::result<void> doBind(mbus_ng::Entity base_entity, virtio_core::DiscoverMod
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
 	auto device = nic::virtio::makeShared(std::move(transport));
-	if (baseDeviceMap.empty()) {
-		// default via 10.0.2.2 src 10.10.2.15
-		Ip4Router::Route wan { { 0, 0 }, device };
-		wan.gateway = 0x0a000202;
-		wan.source = 0x0a0a020f;
-		ip4Router().addRoute(std::move(wan));
 
-		// 10.0.2.0/24
-		ip4Router().addRoute({ { 0x0a000200, 24 }, device });
-		// inet 10.10.2.15/24
-		ip4().setLink({ 0x0a0a020f, 24 }, device);
-	}
 	baseDeviceMap.insert({base_entity.id(), device});
 	nic::runDevice(device);
 }
@@ -125,6 +119,7 @@ async::detached serve(helix::UniqueLane lane) {
 		};
 
 		auto preamble = bragi::read_preamble(recv_req);
+		assert(!preamble.error());
 
 		if(preamble.id() == managarm::fs::CntRequest::message_id) {
 			managarm::fs::CntRequest req;
@@ -148,6 +143,13 @@ async::detached serve(helix::UniqueLane lane) {
 					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags());
 					async::detach(servePassthrough(std::move(local_lane), nl_socket,
 							&nl::NetlinkSocket::ops));
+				} else if(req.domain() == AF_PACKET) {
+					auto err = raw().serveSocket(std::move(local_lane),
+							req.type(), req.protocol(), req.flags());
+					if(err != managarm::fs::Errors::SUCCESS) {
+						co_await sendError(err);
+						continue;
+					}
 				} else {
 					std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
 					co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
@@ -173,6 +175,114 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 				HEL_CHECK(dismiss.error());
 			}
+		}else if(preamble.id() == managarm::fs::IfreqRequest::message_id) {
+			managarm::fs::IfreqRequest req;
+			req.ParseFromArray(recv_req.data(), recv_req.length());
+			recv_req.reset();
+
+			managarm::fs::IfreqReply resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+			if(req.command() == SIOCGIFCONF) {
+				std::vector<managarm::fs::Ifconf> ifconf;
+
+				for(auto [_, link] : nic::Link::getLinks()) {
+					auto addr_check = ip4().getCidrByIndex(link->index());
+					if(!addr_check)
+						continue;
+
+					managarm::fs::Ifconf conf;
+					conf.set_name(link->name());
+					conf.set_ip4(addr_check->ip);
+					ifconf.push_back(conf);
+				}
+
+				managarm::fs::IfconfReply resp;
+
+				resp.set_ifconf(std::move(ifconf));
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				auto [send_head, send_tail] =
+					co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+					);
+				HEL_CHECK(send_head.error());
+				HEL_CHECK(send_tail.error());
+
+				continue;
+			}else if(req.command() == SIOCGIFNETMASK) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					auto addr_check = ip4().getCidrByIndex(link->index());
+
+					if(addr_check) {
+						resp.set_ip4_netmask(addr_check.value().mask());
+						resp.set_error(managarm::fs::Errors::SUCCESS);
+					}else {
+						resp.set_ip4_netmask(0);
+					}
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFINDEX) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					resp.set_index(link->index());
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFNAME) {
+				auto link = nic::Link::byIndex(req.index());
+
+				if(link) {
+					resp.set_name(link->name());
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFFLAGS) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					resp.set_flags(IFF_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFADDR) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					auto addr_check = ip4().getCidrByIndex(link->index());
+
+					if(addr_check) {
+						resp.set_ip4_addr(addr_check->ip);
+						resp.set_error(managarm::fs::Errors::SUCCESS);
+					} else {
+						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					}
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFMTU) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					resp.set_mtu(link->mtu);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}
+
+			auto [send] =
+				co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(send.error());
 		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
 			co_await helix_ng::exchangeMsgs(
 				conversation,

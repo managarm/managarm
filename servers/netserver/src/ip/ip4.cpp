@@ -328,7 +328,7 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 }
 
 void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
-		arch::dma_buffer owner, arch::dma_buffer_view frame) {
+		arch::dma_buffer owner, arch::dma_buffer_view frame, std::weak_ptr<nic::Link> link) {
 	Ip4Packet hdr;
 	if (!hdr.parse(std::move(owner), frame)) {
 		std::cout << "netserver: runt, or otherwise invalid, ip4 frame received"
@@ -347,7 +347,7 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	auto hdrs = smarter::make_shared<const Ip4Packet>(std::move(hdr));
 
 	switch (static_cast<IpProto>(proto)) {
-	case IpProto::udp: udp.feedDatagram(hdrs); break;
+	case IpProto::udp: udp.feedDatagram(hdrs, link); break;
 	case IpProto::tcp: tcp.feedDatagram(hdrs); break;
 	default: break;
 	}

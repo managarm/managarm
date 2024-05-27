@@ -57,7 +57,7 @@ struct FullDevice final : UnixDevice {
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticRead | semanticWrite)){
-			std::cout << "\e[31mposix: open() received illegal arguments:"
+			std::cout << "\e[31mposix: FullFile open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;

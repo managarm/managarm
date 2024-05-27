@@ -4,6 +4,7 @@
 #include "checksum.hpp"
 
 #include <async/basic.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
 #include <arch/bit.hpp>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <iomanip>
 #include <random>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -54,7 +56,7 @@ struct Udp {
 		uint16_t dst;
 		uint16_t len;
 		uint16_t chk;
-	
+
 		void ensureEndian() {
 			maybeFlip(src);
 			maybeFlip(dst);
@@ -99,6 +101,8 @@ struct Udp {
 	}
 
 	smarter::shared_ptr<const Ip4Packet> packet;
+
+	std::weak_ptr<nic::Link> link;
 };
 
 Endpoint &Endpoint::operator=(struct sockaddr_in sa) {
@@ -201,7 +205,7 @@ struct Udp4Socket {
 			co_return protocols::fs::Error::accessDenied;
 		}
 
-		if (!ip4().hasIp(local.addr)) {
+		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
 			std::cout << "netserver: not local ip" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
@@ -225,24 +229,39 @@ struct Udp4Socket {
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 		(void) creds;
 		(void) flags;
-		(void) max_ctrl_len;
 
 		using arch::convert_endian;
 		using arch::endian;
+
 		auto self = static_cast<Udp4Socket *>(obj);
+
 		auto element = co_await self->queue_.async_get();
 		auto packet = element->payload();
 		auto copy_size = std::min(packet.size(), len);
 		std::memcpy(data, packet.data(), copy_size);
+
 		sockaddr_in addr {};
 		addr.sin_family = AF_INET;
 		addr.sin_port = convert_endian<endian::big>(element->header.src);
 		addr.sin_addr = {
 			convert_endian<endian::big>(element->packet->header.source)
 		};
+
 		std::memset(addr_buf, 0, addr_size);
 		std::memcpy(addr_buf, &addr, std::min(addr_size, sizeof(addr)));
-		co_return RecvData{{}, copy_size, sizeof(addr), 0};
+
+		protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
+
+		if(self->ipPacketInfo_) {
+			ctrl.message(IPPROTO_IP, IP_PKTINFO, sizeof(struct in_pktinfo));
+			ctrl.write<struct in_pktinfo>({
+				.ipi_ifindex = unsigned(element->link.lock()->index()),
+				.ipi_spec_dst = { .s_addr = convert_endian<endian::big>(element->packet->header.destination) },
+				.ipi_addr = { .s_addr = convert_endian<endian::big>(element->packet->header.source) },
+			});
+		}
+
+		co_return RecvData{ctrl.buffer(), copy_size, sizeof(addr), 0};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,
@@ -343,12 +362,60 @@ struct Udp4Socket {
 		co_return len;
 	}
 
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+	pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
+		auto self = static_cast<Udp4Socket *>(obj);
+		(void)mask; // TODO: utilize mask.
+
+		assert(past_seq <= self->_currentSeq);
+		while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
+			co_await self->_statusBell.async_wait(cancellation);
+
+		// For now making sockets always writable is sufficient.
+		int edges = EPOLLOUT;
+		if(self->_inSeq > past_seq)
+			edges |= EPOLLIN;
+
+		co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+	pollStatus(void *obj) {
+		auto self = static_cast<Udp4Socket *>(obj);
+		int events = EPOLLOUT;
+		if(!self->queue_.empty())
+			events |= EPOLLIN;
+
+		co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
+	}
+
+	static async::result<frg::expected<Error>> setSocketOption(void *obj,
+		int layer, int number, std::vector<char> optbuf) {
+		auto self = static_cast<Udp4Socket *>(obj);
+
+		if(layer == SOL_IP && number == IP_PKTINFO) {
+			if(optbuf.size() != sizeof(int))
+				co_return Error::illegalArguments;
+
+			int val = *reinterpret_cast<int *>(optbuf.data());
+
+			self->ipPacketInfo_ = (val != 0);
+		} else {
+			printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
+			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+
+		co_return {};
+	}
 
 	constexpr static FileOperations ops {
+		.pollWait = &pollWait,
+		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
+		.setSocketOption = &setSocketOption,
 	};
 
 	bool bindAvailable(uint32_t addr = INADDR_ANY) {
@@ -384,10 +451,16 @@ private:
 	Endpoint local_;
 	Udp4 *parent_;
 	smarter::weak_ptr<Udp4Socket> holder_;
+
+	async::recurring_event _statusBell;
+	uint64_t _currentSeq;
+	uint64_t _inSeq;
+
+	bool ipPacketInfo_ = false;
 };
 
-void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
-	Udp udp;
+void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
+	Udp udp{ .link = link };
 	if (!udp.parse(std::move(packet))) {
 		std::cout << "netserver: broken udp received" << std::endl;
 		return;
@@ -401,6 +474,8 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		if (ep.addr == udp.packet->header.destination
 			|| ep.addr == INADDR_ANY) {
 			i->second->queue_.emplace(std::move(udp));
+			i->second->_inSeq = ++i->second->_currentSeq;
+			i->second->_statusBell.raise();
 			break;
 		}
 	}

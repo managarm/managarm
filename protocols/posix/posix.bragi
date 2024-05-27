@@ -550,3 +550,7 @@ head(128):
 tail:
 	string path;
 }
+
+message NetserverRequest 46 {
+head(128):
+}

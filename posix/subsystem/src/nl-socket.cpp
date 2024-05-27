@@ -1,8 +1,9 @@
-
+#include <core/bpf.hpp>
 #include <linux/netlink.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <linux/filter.h>
 #include <iostream>
 #include <map>
 
@@ -54,6 +55,17 @@ public:
 			_currentSeq{1}, _inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
 	void deliver(Packet packet) {
+		if(filter_) {
+			Bpf bpf{filter_.value()};
+			size_t accept_bytes = bpf.run(arch::dma_buffer_view{nullptr, packet.buffer.data(), packet.buffer.size()});
+
+			if(!accept_bytes)
+				return;
+
+			if(accept_bytes < packet.buffer.size())
+				packet.buffer.resize(accept_bytes);
+		}
+
 		_recvQueue.push_back(std::move(packet));
 		_inSeq = ++_currentSeq;
 		_statusBell.raise();
@@ -216,6 +228,9 @@ public:
 
 	async::result<size_t> sockname(void *, size_t) override;
 
+	async::result<frg::expected<protocols::fs::Error>>
+	setSocketOption(int layer, int number, std::vector<char> optbuf) override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -264,6 +279,9 @@ private:
 	// Socket options.
 	bool _passCreds;
 	bool nonBlock_;
+
+	// BPF filter
+	std::optional<std::vector<char>> filter_ = std::nullopt;
 };
 
 struct Group {
@@ -371,6 +389,24 @@ async::result<size_t> OpenFile::sockname(void *addr_ptr, size_t max_addr_length)
 	memcpy(addr_ptr, &sa, std::min(sizeof(struct sockaddr_nl), max_addr_length));
 
 	co_return sizeof(struct sockaddr_nl);
+}
+
+async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int layer, int number,
+		std::vector<char> optbuf) {
+	if(layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
+		assert(optbuf.size() % sizeof(struct sock_filter) == 0);
+
+		Bpf bpf{optbuf};
+		if(!bpf.validate())
+			co_return protocols::fs::Error::illegalArguments;
+
+		filter_ = optbuf;
+	} else {
+		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
+
+	co_return {};
 }
 
 // ----------------------------------------------------------------------------
