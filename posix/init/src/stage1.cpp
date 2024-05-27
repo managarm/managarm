@@ -119,6 +119,11 @@ int main() {
 		throw std::runtime_error("Opening /run/utmp failed");
 	close(utmp);
 
+	// Symlink /var/run to /run, just like LFS does
+	int varrun = symlink("/var/run", "/run");
+	if(varrun == -1)
+		throw std::runtime_error("Symlinking /var/run failed");
+
 	execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
 	std::cout << "init: Failed to execve() second stage" << std::endl;
 	abort();
