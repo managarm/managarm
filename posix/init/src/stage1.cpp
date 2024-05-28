@@ -120,7 +120,7 @@ int main() {
 	close(utmp);
 
 	// Symlink /var/run to /run, just like LFS does
-	int varrun = symlink("/var/run", "/run");
+	int varrun = symlink("/run", "/var/run");
 	if(varrun == -1)
 		throw std::runtime_error("Symlinking /var/run failed");
 
