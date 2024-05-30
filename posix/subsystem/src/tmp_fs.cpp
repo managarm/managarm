@@ -321,6 +321,16 @@ private:
 		auto it = _entries.find(name);
 		if(it == _entries.end())
 			co_return Error::noSuchFile;
+
+		auto target = it->get()->getTarget();
+		if(target->getType() == VfsType::directory) {
+			auto dir_target = reinterpret_cast<DirectoryNode *>(target.get());
+			
+			if(dir_target->_entries.size()) {
+				co_return Error::directoryNotEmpty;
+			}
+		}
+
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
@@ -332,7 +342,8 @@ private:
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		auto result = co_await unlink(name);
 		if(!result) {
-			assert(result.error() == Error::noSuchFile);
+			assert(result.error() == Error::noSuchFile
+				|| result.error() == Error::directoryNotEmpty);
 			co_return result.error();
 		}
 		co_return {};
