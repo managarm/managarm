@@ -24,6 +24,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::noSpaceLeft: err_string = "noSpaceLeft"; break;
 		case Error::isDirectory: err_string = "isDirectory"; break;
 		case Error::noMemory: err_string = "noMemory"; break;
+		case Error::directoryNotEmpty: err_string = "directoryNotEmpty"; break;
 	}
 
 	return os << err_string;

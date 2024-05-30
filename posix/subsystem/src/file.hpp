@@ -64,7 +64,9 @@ enum class Error {
 	// Corresponds with EISDIR
 	isDirectory,
 
-	noMemory
+	noMemory,
+
+	directoryNotEmpty
 };
 
 std::ostream& operator<<(std::ostream& os, const Error& err);

@@ -302,7 +302,8 @@ async::result<frg::expected<protocols::fs::Error>> unlink(std::shared_ptr<void> 
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto result = co_await self->unlink(std::move(name));
 	if(!result) {
-		assert(result.error() == protocols::fs::Error::fileNotFound);
+		assert(result.error() == protocols::fs::Error::fileNotFound
+			|| result.error() == protocols::fs::Error::directoryNotEmpty);
 		co_return result.error();
 	}
 	co_return {};

@@ -1593,8 +1593,14 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
-				assert(result.error() == protocols::fs::Error::fileNotFound);
-				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+				assert(result.error() == protocols::fs::Error::fileNotFound
+					|| result.error() == protocols::fs::Error::directoryNotEmpty);
+
+				if(result.error() == protocols::fs::Error::fileNotFound) {
+					resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+				} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
+					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+				}
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
