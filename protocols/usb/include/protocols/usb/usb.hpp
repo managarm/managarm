@@ -74,6 +74,10 @@ struct DescriptorBase {
 	uint8_t descriptorType;
 };
 
+struct [[gnu::packed]] StringDescriptor : public DescriptorBase {
+	char16_t data[0];
+};
+
 struct DeviceDescriptor : public DescriptorBase {
 	uint16_t bcdUsb;
 	uint8_t deviceClass;
