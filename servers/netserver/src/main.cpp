@@ -276,6 +276,38 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
+			}else if(req.command() == SIOCGIFBRDADDR) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					auto addr_check = ip4().getCidrByIndex(link->index());
+
+					if(addr_check) {
+						auto addr = addr_check.value().ip;
+						auto mask = addr_check.value().mask();
+						auto wildcard_bits = ~mask;
+						addr &= mask;
+						addr |= wildcard_bits;
+
+						resp.set_ip4_broadcast_addr(addr);
+						resp.set_error(managarm::fs::Errors::SUCCESS);
+					} else {
+						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+					}
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			}else if(req.command() == SIOCGIFHWADDR) {
+				auto link = nic::Link::byName(req.name());
+
+				if(link) {
+					std::array<uint8_t, 6> mac{};
+					memcpy(mac.data(), link->deviceMac().data(), 6);
+					resp.set_mac(mac);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
 			}
 
 			auto [send] =
