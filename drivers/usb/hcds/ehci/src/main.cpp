@@ -589,7 +589,7 @@ Controller::useConfiguration(int address, int configuration) {
 async::result<frg::expected<proto::UsbError>>
 Controller::useInterface(int address, int interface, int alternative) {
 	(void) interface;
-	(void) alternative;
+	assert(!alternative);
 
 	arch::dma_object<proto::SetupPacket> get{&schedulePool};
 	get->type = proto::setup_type::targetDevice | proto::setup_type::byStandard

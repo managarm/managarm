@@ -49,6 +49,7 @@ namespace request_type {
 		setDescriptor = 0x07,
 		getConfig = 0x08,
 		setConfig = 0x09,
+		setInterface = 0x0B,
 
 		// TODO: Move non-standard features to some other location.
 		getReport = 0x01

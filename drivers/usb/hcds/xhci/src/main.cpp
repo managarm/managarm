@@ -1082,7 +1082,15 @@ Controller::ConfigurationState::ConfigurationState(Controller *controller,
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
 Controller::ConfigurationState::useInterface(int number, int alternative) {
-	assert(!alternative);
+	arch::dma_object<proto::SetupPacket> desc{_device->setupPool()};
+	desc->type = proto::setup_type::targetInterface | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	desc->request = proto::request_type::setInterface;
+	desc->value = alternative;
+	desc->index = number;
+	desc->length = 0;
+
+	FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, desc, {}}));
+
 	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
 
