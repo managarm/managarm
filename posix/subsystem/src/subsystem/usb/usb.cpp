@@ -186,18 +186,22 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 
 	/* obtain the device descroptor */
 	auto raw_dev_desc = (co_await device->device().deviceDescriptor()).value();
-	/* obtain the tree of configuration descriptors and its subdescriptors */
-	auto raw_descs = (co_await device->device().configurationDescriptor()).value();
+	device->descriptors.insert(device->descriptors.end(), raw_dev_desc.begin(), raw_dev_desc.end());
 
 	device->portNum = std::stoi(address.value) + 1;
 	device->busNum = bus_num;
 	device->speed = std::get<mbus_ng::StringItem>(properties["usb.speed"]).value;
 
-	device->descriptors.insert(device->descriptors.end(), raw_dev_desc.begin(), raw_dev_desc.end());
-	device->descriptors.insert(device->descriptors.end(), raw_descs.begin(), raw_descs.end());
+	/* obtain the tree of configuration descriptors and its subdescriptors */
+	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(raw_dev_desc.data());
+	for(size_t i = 0; i < devdesc->numConfigs; i++) {
+		auto raw_descs = (co_await device->device().configurationDescriptor(i)).value();
+		device->descriptors.insert(device->descriptors.end(), raw_descs.begin(), raw_descs.end());
+	}
 
 	auto config_val = (co_await device->device().currentConfigurationValue()).value();
 
+	auto raw_descs = (co_await device->device().configurationDescriptor()).value();
 	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
 		if(type == protocols::usb::descriptor_type::configuration) {
 			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
