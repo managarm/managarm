@@ -316,7 +316,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 				co_return;
 			}
 
-			auto outcome = co_await device.configurationDescriptor();
+			auto outcome = co_await device.configurationDescriptor(req->configuration());
 
 			if (!outcome) {
 				co_await respondWithError(conversation, outcome.error());

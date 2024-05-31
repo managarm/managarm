@@ -747,12 +747,12 @@ Controller::Device::deviceDescriptor() {
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
-Controller::Device::configurationDescriptor() {
+Controller::Device::configurationDescriptor(uint8_t configuration) {
 	arch::dma_object<proto::ConfigDescriptor> header{&_controller->_memoryPool};
-	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200));
+	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200 | configuration));
 
 	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
-	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200));
+	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200 | configuration));
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 

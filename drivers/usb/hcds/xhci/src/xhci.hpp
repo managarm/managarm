@@ -170,7 +170,7 @@ private:
 		arch::dma_pool *setupPool() override;
 		arch::dma_pool *bufferPool() override;
 		async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
-		async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor() override;
+		async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) override;
 		async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(int number) override;
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 

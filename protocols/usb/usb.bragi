@@ -34,6 +34,7 @@ group {
 
 message GetConfigurationDescriptorRequest 1 {
 head(128):
+	uint8 configuration;
 }
 
 message UseConfigurationRequest 2 {

@@ -25,8 +25,8 @@ async::result<frg::expected<UsbError, std::string>> Device::deviceDescriptor() c
 	return _state->deviceDescriptor();
 }
 
-async::result<frg::expected<UsbError, std::string>> Device::configurationDescriptor() const {
-	return _state->configurationDescriptor();
+async::result<frg::expected<UsbError, std::string>> Device::configurationDescriptor(uint8_t configuration) const {
+	return _state->configurationDescriptor(configuration);
 }
 
 async::result<frg::expected<UsbError, uint8_t>> Device::currentConfigurationValue() const {
