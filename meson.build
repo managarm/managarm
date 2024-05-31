@@ -163,6 +163,8 @@ if build_drivers
 		'libblockfs', 'libevbackend',
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
+		# net
+		'nic/usb_ecm',
 		# gfx
 		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
 		# io

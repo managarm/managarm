@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
 #include <cstdint>
@@ -9,13 +10,16 @@
 
 namespace nic {
 struct MacAddress {
+	MacAddress() = default;
+	explicit MacAddress(std::array<uint8_t, 6> data) : mac_{data} {}
+
 	uint8_t &operator[](size_t idx);
 	const uint8_t &operator[](size_t idx) const;
 	inline uint8_t *data() {
-		return mac_;
+		return mac_.data();
 	}
 	inline const uint8_t *data() const {
-		return mac_;
+		return mac_.data();
 	}
 
 	friend bool operator==(const MacAddress &l, const MacAddress &r);
@@ -26,14 +30,14 @@ struct MacAddress {
 	}
 
 	inline friend uint8_t *begin(MacAddress &m) {
-		return &m.mac_[0];
+		return m.mac_.begin();
 	}
 
 	inline friend uint8_t *end(MacAddress &m) {
-		return &m.mac_[6];
+		return m.mac_.end();
 	}
 private:
-	uint8_t mac_[6] = { 0 };
+	std::array<uint8_t, 6> mac_ = {};
 };
 
 enum EtherType : uint16_t {
