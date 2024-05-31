@@ -202,10 +202,10 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		if(type == protocols::usb::descriptor_type::configuration) {
 			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
 			device->maxPower = desc->maxPower * 2;
+			device->numInterfaces = desc->numInterfaces;
 
 			if(info.configNumber == config_val) {
 				device->bmAttributes = desc->bmAttributes;
-				device->numInterfaces = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor)->numInterfaces;
 			}
 		} else if(type == protocols::usb::descriptor_type::interface) {
 			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);

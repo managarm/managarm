@@ -132,8 +132,8 @@ struct UsbDevice final : UsbBase {
 	std::vector<std::shared_ptr<UsbInterface>> interfaces;
 
 	size_t maxPower = 0;
-	uint8_t bmAttributes;
-	uint8_t numInterfaces;
+	uint8_t bmAttributes = 0;
+	uint8_t numInterfaces = 0;
 
 private:
 	protocols::usb::Device _device;
