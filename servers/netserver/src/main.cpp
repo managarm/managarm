@@ -72,23 +72,31 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	// Make sure that we only bind to supported devices.
 	auto properties = (co_await baseEntity.getProperties()).unwrap();
-	if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "1af4")
+	auto type = std::get_if<mbus_ng::StringItem>(&properties["unix.subsystem"]);
+
+	if(!type)
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
-	virtio_core::DiscoverMode discover_mode;
-	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]); device_str) {
-		if(device_str->value == "1000")
-			discover_mode = virtio_core::DiscoverMode::transitional;
-		else if(device_str->value == "1041")
-			discover_mode = virtio_core::DiscoverMode::modernOnly;
-		else
+	if(type->value == "pci") {
+		if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
+				!vendor_str || vendor_str->value != "1af4")
 			co_return protocols::svrctl::Error::deviceNotSupported;
-	}else{
-		co_return protocols::svrctl::Error::deviceNotSupported;
+
+		virtio_core::DiscoverMode discover_mode{};
+		if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]); device_str) {
+			if(device_str->value == "1000")
+				discover_mode = virtio_core::DiscoverMode::transitional;
+			else if(device_str->value == "1041")
+				discover_mode = virtio_core::DiscoverMode::modernOnly;
+			else
+				co_return protocols::svrctl::Error::deviceNotSupported;
+		}else{
+			co_return protocols::svrctl::Error::deviceNotSupported;
+		}
+
+		co_await doBind(std::move(baseEntity), discover_mode);
 	}
 
-	co_await doBind(std::move(baseEntity), discover_mode);
 	co_return protocols::svrctl::Error::success;
 }
 
