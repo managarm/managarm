@@ -4,6 +4,7 @@
 #include <async/oneshot-event.hpp>
 #include <smarter.hpp>
 #include <protocols/usb/client.hpp>
+#include <span>
 #include <termios.h>
 #include <unistd.h>
 
@@ -51,11 +52,10 @@ struct Controller {
 };
 
 struct WriteRequest {
-	WriteRequest(const void *buffer, size_t length, Controller *controller)
-	: buffer(buffer), length(length), progress(0), controller{controller} { }
+	WriteRequest(std::span<const uint8_t> buffer, Controller *controller)
+	: buffer(buffer), progress(0), controller{controller} { }
 
-	const void *buffer;
-	size_t length;
+	std::span<const uint8_t> buffer;
 	size_t progress;
 	async::oneshot_event event;
 	frg::default_list_hook<WriteRequest> hook;

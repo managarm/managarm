@@ -50,7 +50,7 @@ write(void *object, const char *, const void *buffer, size_t length) {
 	if(!length)
 		co_return 0;
 
-	WriteRequest req{buffer, length, self};
+	WriteRequest req{std::span(reinterpret_cast<const uint8_t *>(buffer), length), self};
 	sendRequests.push_back(&req);
 
 	self->flushSends();
@@ -199,13 +199,14 @@ async::detached Controller::flushSends() {
 
 	while(!sendRequests.empty()) {
 		auto req = sendRequests.front();
-		assert(req->progress < req->length);
+		assert(req->progress < req->buffer.size_bytes());
 		size_t fifoAvailable = req->controller->sendFifoSize();
 
-		size_t chunk = std::min(req->length - req->progress, fifoAvailable);
+		size_t chunk = std::min(req->buffer.size_bytes() - req->progress, fifoAvailable);
 		assert(chunk);
 		arch::dma_buffer buf{&pool, chunk};
-		memcpy(buf.data(), req->buffer, chunk);
+		memcpy(buf.data(), req->buffer.subspan(req->progress).data(), chunk);
+
 		auto err = co_await req->controller->send(protocols::usb::BulkTransfer{protocols::usb::kXferToDevice, buf});
 
 		if(err == protocols::usb::UsbError::none)
@@ -213,7 +214,7 @@ async::detached Controller::flushSends() {
 
 		// We only complete writes once we have written all bytes;
 		// this avoids unnecessary round trips between the UART driver and the application.
-		if(req->progress == req->length) {
+		if(req->progress == req->buffer.size_bytes()) {
 			sendRequests.pop_front();
 			pending.push_back(req);
 		}
