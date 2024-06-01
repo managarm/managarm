@@ -67,7 +67,7 @@ async::result<frg::expected<UsbError, std::string>> Device::getString(size_t num
 
 	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> convert;
 	auto res = reinterpret_cast<StringDescriptor *>(buffer.data());
-	co_return convert.to_bytes(std::u16string{res->data, (res->length - sizeof(StringDescriptor) / 2)});
+	co_return convert.to_bytes(std::u16string{res->data, (res->length - sizeof(StringDescriptor)) / 2});
 }
 
 async::result<frg::expected<UsbError>> Device::transfer(ControlTransfer info) const {
