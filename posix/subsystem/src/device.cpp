@@ -230,7 +230,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite | semanticAppend)){
 		std::cout << "\e[31mposix: openExternalDevice() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"

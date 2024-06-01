@@ -688,6 +688,32 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
+	}else if(preamble.id() == bragi::message_id<managarm::hw::GetVbtRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetVbtRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		auto vbt = static_cast<PciDevice *>(this)->igdVbt;
+		MemoryViewDescriptor descriptor{nullptr};
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+
+		if(!vbt) {
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+		} else {
+			descriptor = MemoryViewDescriptor{vbt};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+			resp.set_vbt_size(vbt->getLength());
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
 	}else{
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await DismissSender{conversation};

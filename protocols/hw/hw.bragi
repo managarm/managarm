@@ -119,5 +119,11 @@ tail:
 		tag(6) uint32 fb_height;
 		tag(7) uint32 fb_bpp;
 		tag(8) uint32 fb_type;
+
+		tag(11) uint32 vbt_size;
 	}
+}
+
+message GetVbtRequest 17 {
+head(128):
 }
