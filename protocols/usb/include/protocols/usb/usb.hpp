@@ -49,6 +49,7 @@ namespace request_type {
 		setDescriptor = 0x07,
 		getConfig = 0x08,
 		setConfig = 0x09,
+		setInterface = 0x0B,
 
 		// TODO: Move non-standard features to some other location.
 		getReport = 0x01
@@ -65,13 +66,19 @@ namespace descriptor_type {
 
 		// TODO: Put non-standard descriptors somewhere else.
 		hid = 0x21,
-		report = 0x22
+		report = 0x22,
+		cs_interface = 0x24,
+		cs_endpoint = 0x25,
 	};
 }
 
 struct DescriptorBase {
 	uint8_t length;
 	uint8_t descriptorType;
+};
+
+struct [[gnu::packed]] StringDescriptor : public DescriptorBase {
+	char16_t data[0];
 };
 
 struct DeviceDescriptor : public DescriptorBase {
@@ -108,6 +115,44 @@ struct InterfaceDescriptor : public DescriptorBase {
 	uint8_t interfaceSubClass;
 	uint8_t interfaceProtocol;
 	uint8_t iInterface;
+};
+
+struct [[gnu::packed]] CdcDescriptor : public DescriptorBase {
+	enum class CdcSubType : uint8_t {
+		Header = 0x00,
+		CallManagement = 0x01,
+		AbstractControl = 0x02,
+		Union = 0x06,
+		EthernetNetworking = 0x0F,
+	};
+
+	CdcSubType subtype;
+};
+
+struct [[gnu::packed]] CdcHeader : public CdcDescriptor {
+	uint16_t bcdCDC;
+};
+
+struct [[gnu::packed]] CdcCallManagement : public CdcDescriptor {
+	uint8_t bmCapabilities;
+	uint8_t bDataInterface;
+};
+
+struct [[gnu::packed]] CdcAbstractControl : public CdcDescriptor {
+	uint8_t bmCapabilities;
+};
+
+struct [[gnu::packed]] CdcUnion : public CdcDescriptor {
+	uint8_t bControlInterface;
+	uint8_t bSubordinateInterface[1];
+};
+
+struct [[gnu::packed]] CdcEthernetNetworking : public CdcDescriptor {
+	uint8_t iMACAddress;
+	uint32_t bmEthernetStatistics;
+	uint16_t wMaxSegmentSize;
+	uint16_t wNumberMCFilters;
+	uint8_t bNumberPowerFilters;
 };
 
 struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {

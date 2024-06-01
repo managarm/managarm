@@ -109,8 +109,8 @@ async::result<frg::expected<proto::UsbError, std::string>> DeviceState::deviceDe
 	return _controller->deviceDescriptor(_device);
 }
 
-async::result<frg::expected<proto::UsbError, std::string>> DeviceState::configurationDescriptor() {
-	return _controller->configurationDescriptor(_device);
+async::result<frg::expected<proto::UsbError, std::string>> DeviceState::configurationDescriptor(uint8_t configuration) {
+	return _controller->configurationDescriptor(_device, configuration);
 }
 
 async::result<frg::expected<proto::UsbError, proto::Configuration>> DeviceState::useConfiguration(int number) {
@@ -538,13 +538,13 @@ Controller::deviceDescriptor(int address) {
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
-Controller::configurationDescriptor(int address) {
+Controller::configurationDescriptor(int address, uint8_t configuration) {
 	// Read the descriptor header that contains the hierachy size.
 	arch::dma_object<proto::SetupPacket> get_header{&schedulePool};
 	get_header->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_header->request = proto::request_type::getDescriptor;
-	get_header->value = proto::descriptor_type::configuration << 8;
+	get_header->value = proto::descriptor_type::configuration << 8 | configuration;
 	get_header->index = 0;
 	get_header->length = sizeof(proto::ConfigDescriptor);
 
@@ -558,7 +558,7 @@ Controller::configurationDescriptor(int address) {
 	get_descriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_descriptor->request = proto::request_type::getDescriptor;
-	get_descriptor->value = proto::descriptor_type::configuration << 8;
+	get_descriptor->value = proto::descriptor_type::configuration << 8 | configuration;
 	get_descriptor->index = 0;
 	get_descriptor->length = header->totalLength;
 
@@ -589,9 +589,21 @@ Controller::useConfiguration(int address, int configuration) {
 async::result<frg::expected<proto::UsbError>>
 Controller::useInterface(int address, int interface, int alternative) {
 	(void) interface;
-	(void) alternative;
+	assert(!alternative);
 
-	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address));
+	arch::dma_object<proto::SetupPacket> get{&schedulePool};
+	get->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
+			| proto::setup_type::toHost;
+	get->request = proto::request_type::getConfig;
+	get->value = 0;
+	get->index = 0;
+	get->length = 1;
+
+	arch::dma_object<uint8_t> get_conf_desc{&schedulePool};
+	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			get, get_conf_desc.view_buffer()}));
+
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, *get_conf_desc.data()));
 	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
 

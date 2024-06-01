@@ -23,7 +23,7 @@ struct DeviceState final : DeviceData {
 	arch::dma_pool *bufferPool() override;
 
 	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() override;
-	async::result<frg::expected<UsbError, std::string>> configurationDescriptor() override;
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
 	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
 
@@ -119,8 +119,9 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::deviceDescripto
 	co_return std::move(data);
 }
 
-async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor() {
+async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDescriptor(uint8_t configuration) {
 	managarm::usb::GetConfigurationDescriptorRequest req;
+	req.set_configuration(configuration);
 
 	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
 		_lane,

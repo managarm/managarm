@@ -1,3 +1,6 @@
+#include <string>
+#include <locale>
+#include <codecvt>
 
 #include "protocols/usb/api.hpp"
 
@@ -22,8 +25,8 @@ async::result<frg::expected<UsbError, std::string>> Device::deviceDescriptor() c
 	return _state->deviceDescriptor();
 }
 
-async::result<frg::expected<UsbError, std::string>> Device::configurationDescriptor() const {
-	return _state->configurationDescriptor();
+async::result<frg::expected<UsbError, std::string>> Device::configurationDescriptor(uint8_t configuration) const {
+	return _state->configurationDescriptor(configuration);
 }
 
 async::result<frg::expected<UsbError, uint8_t>> Device::currentConfigurationValue() const {
@@ -44,6 +47,27 @@ async::result<frg::expected<UsbError, uint8_t>> Device::currentConfigurationValu
 
 async::result<frg::expected<UsbError, Configuration>> Device::useConfiguration(int number) const {
 	return _state->useConfiguration(number);
+}
+
+async::result<frg::expected<UsbError, std::string>> Device::getString(size_t number) const {
+	arch::dma_object<SetupPacket> desc{setupPool()};
+	desc->type = setup_type::targetDevice | setup_type::byStandard | setup_type::toHost;
+	desc->request = request_type::getDescriptor;
+	desc->value = (descriptor_type::string << 8) | number;
+	desc->index = 0x0409; // en-us
+	desc->length = sizeof(StringDescriptor);
+
+	arch::dma_object<StringDescriptor> header{bufferPool()};
+
+	FRG_CO_TRY(co_await transfer(ControlTransfer(kXferToHost, desc, header.view_buffer())));
+
+	desc->length = header->length;
+	arch::dma_buffer buffer{bufferPool(), header->length};
+	FRG_CO_TRY(co_await transfer(ControlTransfer(kXferToHost, desc, buffer)));
+
+	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> convert;
+	auto res = reinterpret_cast<StringDescriptor *>(buffer.data());
+	co_return convert.to_bytes(std::u16string{res->data, (res->length - sizeof(StringDescriptor) / 2)});
 }
 
 async::result<frg::expected<UsbError>> Device::transfer(ControlTransfer info) const {

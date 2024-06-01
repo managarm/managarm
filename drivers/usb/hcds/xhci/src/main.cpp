@@ -747,12 +747,12 @@ Controller::Device::deviceDescriptor() {
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
-Controller::Device::configurationDescriptor() {
+Controller::Device::configurationDescriptor(uint8_t configuration) {
 	arch::dma_object<proto::ConfigDescriptor> header{&_controller->_memoryPool};
-	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200));
+	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200 | configuration));
 
 	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
-	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200));
+	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200 | configuration));
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
@@ -1082,7 +1082,15 @@ Controller::ConfigurationState::ConfigurationState(Controller *controller,
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
 Controller::ConfigurationState::useInterface(int number, int alternative) {
-	assert(!alternative);
+	arch::dma_object<proto::SetupPacket> desc{_device->setupPool()};
+	desc->type = proto::setup_type::targetInterface | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	desc->request = proto::request_type::setInterface;
+	desc->value = alternative;
+	desc->index = number;
+	desc->length = 0;
+
+	FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, desc, {}}));
+
 	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
 }
 

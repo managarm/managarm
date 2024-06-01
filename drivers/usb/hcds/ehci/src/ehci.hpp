@@ -114,7 +114,7 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 public:
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor(int address);
-	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(int address);
+	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(int address, uint8_t configuration);
 
 	async::result<frg::expected<proto::UsbError>>
 	useConfiguration(int address, int configuration);
@@ -203,7 +203,7 @@ struct DeviceState final : proto::DeviceData {
 	arch::dma_pool *bufferPool() override;
 
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
-	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor() override;
+	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
 	async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(int number) override;
 	async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 

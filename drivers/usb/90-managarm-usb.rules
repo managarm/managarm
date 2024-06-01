@@ -3,4 +3,7 @@ SUBSYSTEM!="usb", GOTO="managarm_usb_end"
 
 ATTR{idVendor}=="10c4", ATTR{idProduct}=="ea60", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/usb-serial.bin", GOTO="managarm_usb_end"
 
+# match CDC devices
+ATTR{bDeviceClass}=="02", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_usb_end"
+
 LABEL="managarm_usb_end"

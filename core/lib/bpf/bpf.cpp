@@ -44,8 +44,12 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 		auto inst = prog_[pc];
 
 		auto load = [&buffer]<typename T>(size_t offset) -> T {
-			assert(offset + sizeof(T) <= buffer.size());
-			return arch::convert_endian<arch::endian::big>(*reinterpret_cast<T *>(buffer.byte_data() + offset));
+			if(!(offset + sizeof(T) <= buffer.size())) {
+				printf("core/bpf: read of size 0x%zx at offset 0x%zx would be out of bounds (buffer size 0x%zx)",
+					sizeof(T), offset, buffer.size());
+				assert(offset + sizeof(T) <= buffer.size());
+			}
+			return arch::convert_endian<arch::endian::big>(*reinterpret_cast<T *>(buffer.subview(offset, sizeof(T)).data()));
 		};
 
 		switch(Op(inst.code)) {
