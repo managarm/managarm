@@ -10,7 +10,6 @@ project('managarm', ['c', 'cpp'],
 
 add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', language: ['c', 'cpp'])
 add_project_arguments('-Wno-missing-field-initializers', language: 'cpp')
-add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')
@@ -38,6 +37,10 @@ endif
 build_kernel = get_option('build_kernel')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
+
+if build_kernel
+	add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
+endif
 
 any_userspace = build_drivers or build_tools
 
