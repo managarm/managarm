@@ -21,6 +21,7 @@
 #include <protocols/usb/usb.hpp>
 
 #include "cp2102/cp2102.hpp"
+#include "ft232/ft232.hpp"
 #include "posix.bragi.hpp"
 #include "controller.hpp"
 
@@ -268,6 +269,7 @@ async::detached serveTerminal(helix::UniqueLane lane, smarter::shared_ptr<Contro
 enum class ControllerType {
 	None,
 	Cp2102,
+	Ft232,
 };
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
@@ -290,6 +292,8 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	if(Cp2102::valid(vendor->value, product->value)) {
 		type = ControllerType::Cp2102;
+	} else if(Ft232::valid(vendor->value, product->value)) {
+		type = ControllerType::Ft232;
 	} else {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
@@ -304,6 +308,13 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_await cp2102->initialize();
 
 			controller = std::move(cp2102);
+			break;
+		}
+		case ControllerType::Ft232: {
+			auto ft232 = smarter::make_shared<Ft232>(std::move(device));
+			co_await ft232->initialize();
+
+			controller = std::move(ft232);
 			break;
 		}
 		default:

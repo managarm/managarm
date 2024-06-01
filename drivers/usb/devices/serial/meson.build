@@ -3,6 +3,7 @@ posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
 src = [
 	'src/main.cpp',
 	'src/cp2102/cp2102.cpp',
+	'src/ft232/ft232.cpp',
 	posix_bragi,
 ]
 
