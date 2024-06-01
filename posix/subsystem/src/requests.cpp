@@ -2123,7 +2123,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests || logPaths)
 				std::cout << "posix: RMDIR " << req->path() << std::endl;
 
-			std::cout << "\e[31mposix: RMDIR: always removes the directory, even when not empty\e[39m" << std::endl;
 			std::shared_ptr<FsLink> target_link;
 
 			PathResolver resolver;
@@ -2149,7 +2148,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto owner = target_link->getOwner();
 			auto result = co_await owner->rmdir(target_link->getName());
 			if(!result) {
+				if(result.error() == Error::directoryNotEmpty) {
+					co_await sendErrorResponse(managarm::posix::Errors::DIRECTORY_NOT_EMPTY);
+					continue;
+				}
+
 				std::cout << "posix: Unexpected failure from rmdir()" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
 				co_return;
 			}
 

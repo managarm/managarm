@@ -739,6 +739,11 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
+
+		if(resp.error() == managarm::fs::Errors::DIRECTORY_NOT_EMPTY) {
+			co_return Error::directoryNotEmpty;
+		}
+
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		co_return {};
