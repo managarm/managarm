@@ -35,6 +35,18 @@ async::result<frg::expected<Error, std::string>> BcdDeviceAttribute::show(sysfs:
 	co_return std::format("{:0>4x}\n", device->desc()->bcdDevice);
 }
 
+async::result<frg::expected<Error, std::string>> ManufacturerNameAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbDevice *>(object);
+	auto str = co_await device->device().getString(device->desc()->manufacturer);
+	co_return std::format("{}\n", str ? str.value() : "");
+}
+
+async::result<frg::expected<Error, std::string>> ProductNameAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbDevice *>(object);
+	auto str = co_await device->device().getString(device->desc()->product);
+	co_return std::format("{}\n", str ? str.value() : "");
+}
+
 async::result<frg::expected<Error, std::string>> VersionAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbBase *>(object);
 	co_return std::format("{:>2x}.{:0>2x}\n", device->desc()->bcdUsb >> 8, device->desc()->bcdUsb & 0xFF);

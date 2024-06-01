@@ -39,6 +39,8 @@ DeviceClassAttribute deviceClassAttr{"bDeviceClass"};
 DeviceSubClassAttribute deviceSubClassAttr{"bDeviceSubClass"};
 DeviceProtocolAttribute deviceProtocolAttr{"bDeviceProtocol"};
 BcdDeviceAttribute bcdDeviceAttr{"bcdDevice"};
+ManufacturerNameAttribute manufacturerNameAttr{"manufacturer"};
+ProductNameAttribute productNameAttr{"product"};
 VersionAttribute versionAttr{"version"};
 SpeedAttribute speedAttr{"speed"};
 DeviceMaxPowerAttribute deviceMaxPowerAttr{"bMaxPower"};
@@ -279,6 +281,8 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	device->realizeAttribute(&deviceProtocolAttr);
 	device->realizeAttribute(&bcdDeviceAttr);
 
+	device->realizeAttribute(&manufacturerNameAttr);
+	device->realizeAttribute(&productNameAttr);
 	device->realizeAttribute(&versionAttr);
 	device->realizeAttribute(&speedAttr);
 	device->realizeAttribute(&deviceMaxPowerAttr);

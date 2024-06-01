@@ -46,6 +46,20 @@ struct BcdDeviceAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct ManufacturerNameAttribute : sysfs::Attribute {
+	ManufacturerNameAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct ProductNameAttribute : sysfs::Attribute {
+	ProductNameAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 struct VersionAttribute : sysfs::Attribute {
 	VersionAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
