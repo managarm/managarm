@@ -2,6 +2,6 @@ executable('virt-test',
 	[
 		'main.cpp'
 	],
-	include_directories : '../../hel/include',
+	dependencies: [ hel_dep ],
 	install : true
 )

@@ -11,8 +11,9 @@ eir_generic_main = files(
 eir_includes = [include_directories(
 	'../klibc',
 	'../common',
-	'../../subprojects/uacpi/include',
 	'generic')]
+
+eir_includes += uacpi_includes
 
 cxx = meson.get_compiler('cpp')
 libgcc = cxx.find_library('gcc')

@@ -4,6 +4,6 @@ executable('kernel-tests',
 		'src/faults.cpp',
 		'src/mapping.cpp'
 	],
-	include_directories : '../../hel/include',
+	dependencies: [ hel_dep ],
 	install : true
 )

@@ -86,9 +86,7 @@ inc += include_directories(
 	'system/legacy-pc',
 	'system/pci',
 	'../common',
-	'../../subprojects/libarch/include',
 	'../../protocols/posix/include',
-	'../../hel/include'
 )
 
 # For now, we only use static initializers for initgraph stages.
@@ -155,7 +153,7 @@ link_with += static_library('cralgo', cralgo_sources,
 	pic : false
 )
 
-deps = [ libgcc, coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep ]
+deps = [ libgcc, coroutines, cxxshim_dep, frigg, libsmarter, bragi_dep, libasync_dep, libarch, hel_dep ]
 
 # TODO: also build thor on RISC-V.
 if arch != 'riscv64'
