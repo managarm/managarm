@@ -49,7 +49,7 @@ if build_kernel or build_drivers
 endif
 
 if build_tools
-	add_languages('c', 'cpp', native: true)
+	add_languages('c', 'cpp')
 endif
 
 if build_kernel and any_userspace
