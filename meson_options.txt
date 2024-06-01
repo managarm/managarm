@@ -13,6 +13,11 @@ option('build_tools',
     value : false
 )
 
+option('provide_deps',
+    type : 'boolean',
+    value : false
+)
+
 option('kernel_ubsan', 
     type : 'boolean', 
     value : false,

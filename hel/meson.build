@@ -13,19 +13,26 @@ elif arch == 'x86_64'
 	headers += 'include/hel-stubs-x86_64.h'
 endif
 
-deps = [ coroutines, bragi_dep, frigg ]
 inc = [ 'include' ]
 
-helix = shared_library('helix', 'src/globals.cpp',
-	dependencies : deps,
-	include_directories : inc,
-	install : true
-)
+if not provide_deps and not build_kernel
+	deps = [ coroutines, bragi_dep, frigg ]
 
-helix_dep = declare_dependency(
-	link_with : helix,
-	dependencies : deps,
+	helix = shared_library('helix', 'src/globals.cpp',
+		dependencies : deps,
+		include_directories : inc,
+		install : true
+	)
+
+	helix_dep = declare_dependency(
+		link_with : helix,
+		dependencies : deps,
+		include_directories : inc
+	)
+
+	install_headers(headers)
+endif
+
+hel_dep = declare_dependency(
 	include_directories : inc
 )
-
-install_headers(headers)

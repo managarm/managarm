@@ -1,4 +1,4 @@
-project('managarm', ['c', 'cpp'],
+project('managarm',
 	license : 'MIT',
 	meson_version : '>=0.57.0',
 	default_options : [
@@ -10,7 +10,6 @@ project('managarm', ['c', 'cpp'],
 
 add_project_arguments('-Wimplicit-fallthrough', '-Werror=misleading-indentation', '-Werror=switch', language: ['c', 'cpp'])
 add_project_arguments('-Wno-missing-field-initializers', language: 'cpp')
-add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
 
 # build documentation
 if get_option('build_docs')
@@ -38,8 +37,20 @@ endif
 build_kernel = get_option('build_kernel')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
-
+provide_deps = get_option('provide_deps')
 any_userspace = build_drivers or build_tools
+
+if build_kernel
+	add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
+endif
+
+if build_kernel or build_drivers
+	add_languages('c', 'cpp', native: false)
+endif
+
+if build_tools
+	add_languages('c', 'cpp', native: true)
+endif
 
 if build_kernel and any_userspace
 	error('Cannot build kernel and userspace components at the same time')
@@ -67,13 +78,19 @@ elif flavor == 'userspace'
 		section : 'Userspace Components', bool_yn : true)
 endif
 
-if not build_kernel and not build_drivers and not build_tools
+if not build_kernel and not build_drivers and not build_tools and not provide_deps
 	subdir_done()
 endif
 
+if provide_deps and (build_kernel or any_userspace)
+	error('The \'provide_deps\' option cannot be used with any \'build_*\' option')
+endif
+
 # declare constants that subdirs are going to use
-c = meson.get_compiler('cpp')
-cxx = meson.get_compiler('cpp')
+if not provide_deps
+	c = meson.get_compiler('cpp')
+	cxx = meson.get_compiler('cpp')
+endif
 arch = host_machine.cpu_family()
 protos = meson.project_source_root()/'protocols'
 server = get_option('libdir')/'managarm/server'
@@ -96,6 +113,7 @@ bragi = find_program('bragi')
 frigg = dependency('frigg',
 	default_options : [ 'frigg_no_install=true' ],
 	fallback: ['frigg', 'frigg_dep'],
+	required: (not provide_deps)
 )
 
 cxxbragi = generator(bragi,
@@ -109,23 +127,25 @@ frgbragi = generator(bragi,
 )
 
 # declare dependencies that subdirs are going to use
-bragi_dep = declare_dependency(include_directories : 'subprojects/bragi/include')
+bragi_dep = subproject('bragi').get_variable('bragi_dep')
 
 # If we are building the kernel, we need the freestanding subset of libarch.
-if flavor == 'kernel'
+if flavor == 'kernel' or flavor == 'none'
 	libarch_opts = [ 'install_headers=false', 'header_only=true' ]
 elif flavor == 'userspace'
 	libarch_opts = [ 'install_headers=false' ]
 endif
 
-if build_kernel or build_drivers
+if build_kernel or build_drivers or provide_deps
 	cxxshim_dep = dependency('cxxshim',
 				 required: false,
 				 fallback: ['cxxshim', 'cxxshim_dep'])
 	coroutines = dependency('cxxshim-coroutine-std',
 				 required: false,
 				 fallback: ['cxxshim', 'std_coroutine_dep'])
+endif
 
+if build_kernel or build_drivers
 	libarch = subproject('libarch',
 		default_options : libarch_opts
 	).get_variable('libarch_dep')
@@ -141,6 +161,7 @@ if build_kernel
 	uacpi_includes = uacpi.get_variable('includes')
 	libasync_dep = libasync.get_variable('libasync_dep')
 
+	subdir('hel')
 	subdir('kernel/eir')
 	subdir('kernel/thor')
 endif
@@ -150,7 +171,9 @@ if build_drivers
 
 	libudev_dep = dependency('libudev')
 	cli11_dep = dependency('CLI11')
+endif
 
+if build_drivers or provide_deps
 	# this produces the helix dependency which
 	# all protocols depend on
 	subdir('hel')
@@ -185,7 +208,9 @@ if build_drivers
 	foreach dir : protocols
 		subdir('protocols'/dir)
 	endforeach
+endif
 
+if build_drivers
 	foreach dir : core
 		subdir(dir)
 	endforeach
