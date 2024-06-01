@@ -1,4 +1,4 @@
-project('managarm', ['c', 'cpp'],
+project('managarm',
 	license : 'MIT',
 	meson_version : '>=0.57.0',
 	default_options : [
@@ -43,6 +43,14 @@ if build_kernel
 endif
 
 any_userspace = build_drivers or build_tools
+
+if build_kernel or build_drivers
+	add_languages('c', 'cpp', native: false)
+endif
+
+if build_tools
+	add_languages('c', 'cpp', native: true)
+endif
 
 if build_kernel and any_userspace
 	error('Cannot build kernel and userspace components at the same time')
