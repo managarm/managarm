@@ -20,7 +20,7 @@
 #include <protocols/usb/client.hpp>
 #include <protocols/usb/usb.hpp>
 
-#include "cp2102.hpp"
+#include "cp2102/cp2102.hpp"
 #include "posix.bragi.hpp"
 #include "controller.hpp"
 

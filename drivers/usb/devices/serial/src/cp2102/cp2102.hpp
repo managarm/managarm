@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "controller.hpp"
+#include "../controller.hpp"
 
 struct Cp2102 : Controller {
 	Cp2102(protocols::usb::Device hw) : Controller{std::move(hw)} {};

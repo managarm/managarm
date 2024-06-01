@@ -1,7 +1,7 @@
 #include <set>
 #include <core/tty.hpp>
 
-#include "controller.hpp"
+#include "../controller.hpp"
 #include "cp2102.hpp"
 
 std::set<std::pair<std::string, std::string>> devices = {
