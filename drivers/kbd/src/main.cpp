@@ -270,13 +270,20 @@ async::result<void> Controller::KbdDevice::run() {
 	if(res1) {
 		// Make sure it is used.
 		auto res2 = co_await submitCommand(device_cmd::GetScancodeSet{});
-		assert(res2);
-		if (res2.value() != 1 && res2.value() != 2) {
-			std::cout << "\e[31m" "ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
+		if (!res2) {
+			// Some keyboards don't seem to support this command, e.g. the
+			// built-in keyboard in my laptop (qookie).
+			// Sucks, but what can you do. Linux just assumes 2 in this case.
+			_codeSet = 2;
+		} else {
+			if (res2.value() != 1 && res2.value() != 2) {
+				std::cout << "\e[31m"
+					"ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
 					"\e[39m" << std::endl;
-			co_return;
+				co_return;
+			}
+			_codeSet = res2.value();
 		}
-		_codeSet = res2.value();
 	} else {
 		_codeSet = 2;
 	}
