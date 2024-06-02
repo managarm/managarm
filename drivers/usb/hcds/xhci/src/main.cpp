@@ -799,7 +799,7 @@ Controller::Device::useConfiguration(int number) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &comp : nullptr);
+		pushRawTransfer(0, trb, &comp);
 	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false,
 			_maxPacketSizes[0]);
 
@@ -824,7 +824,7 @@ Controller::Device::transfer(proto::ControlTransfer info) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &ev : nullptr);
+		pushRawTransfer(0, trb, &ev);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost, _maxPacketSizes[0]);
 
 	submit(1);
@@ -933,7 +933,7 @@ Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &ev : nullptr);
+		pushRawTransfer(0, trb, &ev);
 	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
 		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true,
 			_maxPacketSizes[0]);
@@ -1126,7 +1126,7 @@ Controller::EndpointState::transfer(proto::ControlTransfer info) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
 			_device->_maxPacketSizes[endpointId - 1]);
 
@@ -1147,7 +1147,7 @@ Controller::EndpointState::transfer(proto::InterruptTransfer info) {
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
@@ -1167,7 +1167,7 @@ Controller::EndpointState::transfer(proto::BulkTransfer info) {
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
