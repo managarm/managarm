@@ -20,7 +20,8 @@
 #include <protocols/usb/client.hpp>
 #include <protocols/usb/usb.hpp>
 
-#include "cp2102.hpp"
+#include "cp2102/cp2102.hpp"
+#include "ft232/ft232.hpp"
 #include "posix.bragi.hpp"
 #include "controller.hpp"
 
@@ -50,7 +51,7 @@ write(void *object, const char *, const void *buffer, size_t length) {
 	if(!length)
 		co_return 0;
 
-	WriteRequest req{buffer, length, self};
+	WriteRequest req{std::span(reinterpret_cast<const uint8_t *>(buffer), length), self};
 	sendRequests.push_back(&req);
 
 	self->flushSends();
@@ -199,13 +200,14 @@ async::detached Controller::flushSends() {
 
 	while(!sendRequests.empty()) {
 		auto req = sendRequests.front();
-		assert(req->progress < req->length);
+		assert(req->progress < req->buffer.size_bytes());
 		size_t fifoAvailable = req->controller->sendFifoSize();
 
-		size_t chunk = std::min(req->length - req->progress, fifoAvailable);
+		size_t chunk = std::min(req->buffer.size_bytes() - req->progress, fifoAvailable);
 		assert(chunk);
 		arch::dma_buffer buf{&pool, chunk};
-		memcpy(buf.data(), req->buffer, chunk);
+		memcpy(buf.data(), req->buffer.subspan(req->progress).data(), chunk);
+
 		auto err = co_await req->controller->send(protocols::usb::BulkTransfer{protocols::usb::kXferToDevice, buf});
 
 		if(err == protocols::usb::UsbError::none)
@@ -213,7 +215,7 @@ async::detached Controller::flushSends() {
 
 		// We only complete writes once we have written all bytes;
 		// this avoids unnecessary round trips between the UART driver and the application.
-		if(req->progress == req->length) {
+		if(req->progress == req->buffer.size_bytes()) {
 			sendRequests.pop_front();
 			pending.push_back(req);
 		}
@@ -267,6 +269,7 @@ async::detached serveTerminal(helix::UniqueLane lane, smarter::shared_ptr<Contro
 enum class ControllerType {
 	None,
 	Cp2102,
+	Ft232,
 };
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
@@ -289,6 +292,8 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	if(Cp2102::valid(vendor->value, product->value)) {
 		type = ControllerType::Cp2102;
+	} else if(Ft232::valid(vendor->value, product->value)) {
+		type = ControllerType::Ft232;
 	} else {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
@@ -303,6 +308,13 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_await cp2102->initialize();
 
 			controller = std::move(cp2102);
+			break;
+		}
+		case ControllerType::Ft232: {
+			auto ft232 = smarter::make_shared<Ft232>(std::move(device));
+			co_await ft232->initialize();
+
+			controller = std::move(ft232);
 			break;
 		}
 		default:

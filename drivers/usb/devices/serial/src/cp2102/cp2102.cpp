@@ -1,7 +1,7 @@
 #include <set>
 #include <core/tty.hpp>
 
-#include "controller.hpp"
+#include "../controller.hpp"
 #include "cp2102.hpp"
 
 std::set<std::pair<std::string, std::string>> devices = {
@@ -10,7 +10,7 @@ std::set<std::pair<std::string, std::string>> devices = {
 
 namespace {
 
-std::set<std::pair<speed_t, speed_t>> an205Table1 = {
+std::set<std::pair<size_t, size_t>> an205Table1 = {
 	{ 300, 300 },
 	{ 600, 600 },
 	{ 1200, 1200 },
@@ -42,7 +42,7 @@ std::set<std::pair<speed_t, speed_t>> an205Table1 = {
 	{ 921600, UINT_MAX },
 };
 
-speed_t getAn205Rate(speed_t baud) {
+size_t getAn205Rate(size_t baud) {
 	auto res = std::find_if(an205Table1.begin(), an205Table1.end(), [&] (const auto &ref) {
 		return baud <= ref.first;
 	});
@@ -105,14 +105,12 @@ async::result<void> Cp2102::initialize() {
 	co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_MHS), control,
 		cp2102::CONFIG_INTERFACE, {});
 
-	setConfiguration(activeSettings);
+	co_await setConfiguration(activeSettings);
 }
 
 async::result<void> Cp2102::setConfiguration(struct termios &new_config) {
 	if(new_config.c_cflag & CBAUD) {
-		speed_t termios_baud = B0;
-
-		ttyConvertSpeed(cfgetospeed(&new_config));
+		size_t termios_baud = ttyConvertSpeed(cfgetospeed(&new_config));
 
 		if(termios_baud) {
 			uint32_t baud = getAn205Rate(termios_baud);
