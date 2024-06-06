@@ -1,3 +1,4 @@
+#include <format>
 #include <linux/netlink.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
@@ -2458,8 +2459,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						req->socktype(), req->protocol(),
 						req->flags() & SOCK_NONBLOCK
 					);
-				else
+				else if(req->protocol() == NETLINK_KOBJECT_UEVENT)
 					file = nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
+				else {
+					std::cout << std::format("posix: unhandled netlink protocol 0x{:X}",
+						req->protocol()) << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
 			} else if (req->domain() == AF_INET || req->domain() == AF_PACKET) {
 				file = co_await extern_socket::createSocket(
 					co_await net::getNetLane(),
