@@ -353,8 +353,10 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 
 async::result<protocols::fs::Error> OpenFile::bind(Process *,
 		const void *addr_ptr, size_t addr_length) {
+	if(addr_length < sizeof(struct sockaddr_nl))
+		co_return protocols::fs::Error::illegalArguments;
+
 	struct sockaddr_nl sa;
-	assert(addr_length >= sizeof(struct sockaddr_nl));
 	memcpy(&sa, addr_ptr, addr_length);
 
 	assert(!sa.nl_pid);
