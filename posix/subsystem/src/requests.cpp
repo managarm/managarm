@@ -12,7 +12,7 @@
 #include <helix/timer.hpp>
 
 #include "net.hpp"
-#include "nl-socket.hpp"
+#include "netlink/nl-socket.hpp"
 #include "epoll.hpp"
 #include "extern_socket.hpp"
 #include "fifo.hpp"
@@ -2459,8 +2459,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						req->socktype(), req->protocol(),
 						req->flags() & SOCK_NONBLOCK
 					);
-				else if(req->protocol() == NETLINK_KOBJECT_UEVENT)
-					file = nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
+				else if(netlink::nl_socket::protocol_supported(req->protocol()))
+					file = netlink::nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
 				else {
 					std::cout << std::format("posix: unhandled netlink protocol 0x{:X}",
 						req->protocol()) << std::endl;

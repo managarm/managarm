@@ -3,7 +3,7 @@
 #include <sstream>
 
 #include "drvcore.hpp"
-#include "nl-socket.hpp"
+#include "netlink/nl-socket.hpp"
 
 namespace drvcore {
 
@@ -182,8 +182,7 @@ void BlockDevice::linkToSubsystem() {
 //-----------------------------------------------------------------------------
 
 void initialize() {
-	nl_socket::configure(NETLINK_KOBJECT_UEVENT, 32);
-	nl_socket::configure(NETLINK_ROUTE, 32);
+	netlink::nl_socket::setupProtocols();
 
 	// Create the /sys/dev/{char,block} directories.
 	auto dev_object = std::make_shared<sysfs::Object>(nullptr, "dev");
@@ -246,7 +245,7 @@ uint32_t makeHotplugSeqnum() {
 }
 
 void emitHotplug(std::string buffer) {
-	nl_socket::broadcast(NETLINK_KOBJECT_UEVENT, 1, std::move(buffer));
+	netlink::nl_socket::broadcast(NETLINK_KOBJECT_UEVENT, 1, std::move(buffer));
 }
 
 } // namespace drvcore
