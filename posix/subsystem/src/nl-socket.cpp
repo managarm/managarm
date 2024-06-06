@@ -18,20 +18,21 @@ namespace nl_socket {
 struct OpenFile;
 struct Group;
 
-bool logSockets = false;
+constexpr bool logSockets = false;
 
-std::map<std::pair<int, int>, std::unique_ptr<Group>> globalGroupMap;
+/* (protocol, groupid) -> std::unique_ptr<Group> */
+std::map<std::pair<int, uint8_t>, std::unique_ptr<Group>> globalGroupMap;
 
-int nextPort = -1;
-std::map<int, OpenFile *> globalPortMap;
+uint32_t nextPort = UINT32_MAX;
+std::map<uint32_t, OpenFile *> globalPortMap;
 
 struct Packet {
 	// Sender netlink socket information.
-	int senderPort;
-	int group;
+	uint32_t senderPort = 0;
+	uint32_t group = 0;
 
 	// Sender process information.
-	int senderPid;
+	uint32_t senderPid = 0;
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
@@ -271,7 +272,7 @@ private:
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
 
-	int _socketPort;
+	uint32_t _socketPort;
 
 	// The actual receive queue of the socket.
 	std::deque<Packet> _recvQueue;
@@ -312,7 +313,7 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	struct sockaddr_nl sa;
 	memcpy(&sa, addr_ptr, sizeof(struct sockaddr_nl));
 
-	int grp_idx = 0;
+	size_t grp_idx = 0;
 	if(sa.nl_groups) {
 		// Linux allows multicast only to a single group at a time.
 		grp_idx = __builtin_ffs(sa.nl_groups);
@@ -424,19 +425,20 @@ void Group::carbonCopy(const Packet &packet) {
 // Free functions.
 // ----------------------------------------------------------------------------
 
-void configure(int protocol, int num_groups) {
-	for(int i = 0; i < num_groups; i++) {
+void configure(int protocol, size_t num_groups) {
+	assert(num_groups <= 32);
+
+	for(size_t i = 0; i < num_groups; i++) {
 		std::pair<int, int> idx{protocol, i + 1};
 		auto res = globalGroupMap.insert(std::make_pair(idx, std::make_unique<Group>()));
 		assert(res.second);
 	}
 }
 
-void broadcast(int proto_idx, int grp_idx, std::string buffer) {
-	Packet packet;
-	packet.senderPid = 0;
-	packet.senderPort = 0;
-	packet.group = grp_idx;
+void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
+	Packet packet{
+		.group = grp_idx,
+	};
 	packet.buffer.resize(buffer.size());
 	memcpy(packet.buffer.data(), buffer.data(), buffer.size());
 
