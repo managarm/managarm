@@ -4,6 +4,8 @@
 
 #include <async/recurring-event.hpp>
 
+#include <helix/timer.hpp>
+
 namespace protocols::usb {
 
 // ----------------------------------------------------------------
@@ -92,6 +94,7 @@ namespace PortFeatures {
 	//static constexpr uint16_t connect = 0;
 	//static constexpr uint16_t enable = 1;
 	static constexpr uint16_t reset = 4;
+	static constexpr uint16_t power = 8;
 	static constexpr uint16_t connectChange = 16;
 	static constexpr uint16_t enableChange = 17;
 	static constexpr uint16_t resetChange = 20;
@@ -157,6 +160,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	struct [[gnu::packed]] HubDescriptor : public DescriptorBase {
 		uint8_t numPorts;
 		uint16_t hubCharacteristics;
+		uint8_t powerOnToPowerGood;
 	};
 
 	arch::dma_object<SetupPacket> getDescriptor{device_.setupPool()};
@@ -175,6 +179,25 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 
 	auto rawThinkTime = (hubDescriptor->hubCharacteristics >> 5) & 0b11;
 	characteristics_.ttThinkTime = 8 * (1 + rawThinkTime);
+
+	for (size_t port = 0; port < hubDescriptor->numPorts; port++) {
+		// Issue a SetPortFeature request to power on the port.
+		arch::dma_object<SetupPacket> powerReq{device_.setupPool()};
+		powerReq->type = setup_type::targetOther | setup_type::byClass
+			| setup_type::toDevice;
+		powerReq->request = ClassRequests::setFeature;
+		powerReq->value = PortFeatures::power;
+		powerReq->index = port + 1;
+		powerReq->length = 0;
+
+		FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
+						powerReq, arch::dma_buffer_view{}}));
+	}
+
+	// Wait for the ports to power on (time is specified in 2 ms units).
+	// Linux waits for at least 100ms, even if the hub says less time is needed.
+	auto durationMs = std::max(hubDescriptor->powerOnToPowerGood * 2, 100);
+	co_await helix::sleepFor(durationMs * 1'000'000);
 
 	run_();
 	co_return {};

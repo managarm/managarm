@@ -307,8 +307,12 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				if(local.usage.empty()) {
 					actual_id = local.usageMin.value() + i;
 				}else{
-					assert(local.usage.size() == global.reportCount.value());
-					actual_id = local.usage[i];
+					// Duplicate the last usage if we have excess value, as Linux does.
+					if (i >= local.usage.size()) {
+						actual_id = local.usage.back();
+					} else {
+						actual_id = local.usage[i];
+					}
 				}
 
 				if(!global.logicalMin || !global.logicalMax)

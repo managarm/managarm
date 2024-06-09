@@ -126,7 +126,7 @@ private:
 		async::recurring_event _doorbell;
 
 		async::result<proto::PortState> pollState();
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> getGenericSpeed();
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset();
 
 	private:
 		uint8_t getLinkStatus();
@@ -317,5 +317,3 @@ private:
 
 	mbus_ng::Entity _entity;
 };
-
-

@@ -587,25 +587,34 @@ async::detached Controller::Port::initPort() {
 		printf("xhci: port %u is not powered on\n", _id);
 	}
 
+	// Wait for something to connect to the port
+	co_await awaitFlag(portsc::connectStatus, true);
+
+	// Notify the enumerator
+	_state.changes |= proto::HubStatus::connect;
+	_state.status |= proto::HubStatus::connect;
+	_pollEv.raise();
+}
+
+async::result<proto::PortState> Controller::Port::pollState() {
+	_pollSeq = co_await _pollEv.async_wait(_pollSeq);
+	co_return _state;
+}
+
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Port::issueReset() {
+	// We know something is connected if we're here (CCS=1)
+
+	// Reset the port only for USB 2 devices.
+	// "A USB3 protocol port attempts to automatically advance to
+	//  the Enabled state as part of the attach process."
+	// "A USB2 protocol port requires software to reset the port
+	//  to advance the port to the Enabled state [...]"
 	if (_proto->major == 2) {
-		// await CCS=1
-		co_await awaitFlag(portsc::connectStatus, true);
-
-		// The XHCI spec states that USB2 devices should enter the polling state at the
-		// same time they set CCS=1, but VirtualBox' XHCI does not implement this behavior.
-		auto linkStatus = getLinkStatus();
-		if(linkStatus != 7)
-			printf("\e[35m" "xhci: USB2 port did not enter polling state after CCS=1" "\e[39m\n");
-
 		reset();
-
-		// await PED=1
-		co_await awaitFlag(portsc::portEnable, true);
-	} else if (_proto->major == 3) {
-		// XXX: is this enough?
-		// await PED=1
-		co_await awaitFlag(portsc::portEnable, true);
 	}
+
+	// Wait for the port to enable.
+	co_await awaitFlag(portsc::portEnable, true);
 
 	auto linkStatus = getLinkStatus();
 
@@ -617,17 +626,13 @@ async::detached Controller::Port::initPort() {
 		assert(linkStatus == 0); // U0
 	}
 
-	_state.changes |= proto::HubStatus::connect | proto::HubStatus::enable;
-	_state.status |= proto::HubStatus::connect | proto::HubStatus::enable;
+	// Notify the enumerator.
+	_state.changes |= proto::HubStatus::enable;
+	_state.status |= proto::HubStatus::enable;
 	_pollEv.raise();
-}
 
-async::result<proto::PortState> Controller::Port::pollState() {
-	_pollSeq = co_await _pollEv.async_wait(_pollSeq);
-	co_return _state;
-}
+	// Figure out the device speed.
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Port::getGenericSpeed() {
 	uint8_t speedId = getSpeed();
 
 	std::optional<proto::DeviceSpeed> speed;
@@ -686,9 +691,6 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 		}
 	}
 
-	// Raise the event here to make progress in the enumerator
-	_pollEv.raise();
-
 	if (speed) {
 		co_return speed.value();
 	} else {
@@ -720,7 +722,7 @@ async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 }
 
 async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::RootHub::issueReset(int port) {
-	co_return FRG_CO_TRY(co_await _ports[port]->getGenericSpeed());
+	co_return FRG_CO_TRY(co_await _ports[port]->issueReset());
 }
 
 // ------------------------------------------------------------------------
@@ -799,7 +801,7 @@ Controller::Device::useConfiguration(int number) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &comp : nullptr);
+		pushRawTransfer(0, trb, &comp);
 	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false,
 			_maxPacketSizes[0]);
 
@@ -824,7 +826,7 @@ Controller::Device::transfer(proto::ControlTransfer info) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &ev : nullptr);
+		pushRawTransfer(0, trb, &ev);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost, _maxPacketSizes[0]);
 
 	submit(1);
@@ -933,7 +935,7 @@ Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, last ? &ev : nullptr);
+		pushRawTransfer(0, trb, &ev);
 	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
 		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true,
 			_maxPacketSizes[0]);
@@ -1126,7 +1128,7 @@ Controller::EndpointState::transfer(proto::ControlTransfer info) {
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
 			_device->_maxPacketSizes[endpointId - 1]);
 
@@ -1147,7 +1149,7 @@ Controller::EndpointState::transfer(proto::InterruptTransfer info) {
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
@@ -1167,7 +1169,7 @@ Controller::EndpointState::transfer(proto::BulkTransfer info) {
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, last ? &ev : nullptr);
+		_device->pushRawTransfer(endpointId - 1, trb, &ev);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
