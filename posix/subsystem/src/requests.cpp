@@ -2099,6 +2099,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(result.error() == Error::noSuchFile) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
+				}else if(result.error() == Error::directoryNotEmpty) {
+					co_await sendErrorResponse(managarm::posix::Errors::DIRECTORY_NOT_EMPTY);
+					continue;
 				}else{
 					std::cout << "posix: Unexpected failure from unlink()" << std::endl;
 					co_return;
