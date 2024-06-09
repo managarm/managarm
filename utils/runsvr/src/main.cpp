@@ -170,7 +170,7 @@ async::result<void> uploadFile(const char *name) {
 	co_await uploadWithData();
 }
 
-async::result<void> bindServer(helix::UniqueLane &lane, int mbusId) {
+async::result<int> bindServer(helix::UniqueLane &lane, int mbusId) {
 	managarm::svrctl::CntRequest req;
 	req.set_req_type(managarm::svrctl::CntReqType::CTL_BIND);
 	req.set_mbus_id(mbusId);
@@ -189,7 +189,10 @@ async::result<void> bindServer(helix::UniqueLane &lane, int mbusId) {
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
-	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+	if(resp.error() == managarm::svrctl::Error::SUCCESS)
+		co_return 0;
+	else
+	 	co_return 1;
 }
 
 // ----------------------------------------------------------------
@@ -200,7 +203,7 @@ enum class action {
 	runsvr, run, bind, upload
 };
 
-async::result<void> asyncMain(action act, std::string path) {
+async::result<int> asyncMain(action act, std::string path) {
 	co_await enumerateSvrctl();
 
 	switch (act) {
@@ -261,6 +264,8 @@ async::result<void> asyncMain(action act, std::string path) {
 			abort();
 		}
 	}
+
+	co_return 0;
 }
 
 int main(int argc, const char **argv) {
@@ -314,5 +319,5 @@ int main(int argc, const char **argv) {
 		mbus_ng::recreateInstance();
 	}
 
-	async::run(asyncMain(act, std::move(path)), helix::currentDispatcher);
+	return async::run(asyncMain(act, std::move(path)), helix::currentDispatcher);
 }
