@@ -187,7 +187,7 @@ if build_drivers or provide_deps
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# net
-		'nic/usb_ecm',
+		'nic/usb_net',
 		# gfx
 		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware',
 		# io

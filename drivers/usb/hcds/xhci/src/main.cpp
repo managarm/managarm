@@ -1099,8 +1099,8 @@ Controller::ConfigurationState::useInterface(int number, int alternative) {
 // ------------------------------------------------------------------------
 
 Controller::InterfaceState::InterfaceState(Controller *controller,
-		std::shared_ptr<Device> device, int)
-: _controller{controller}, _device{device} {
+		std::shared_ptr<Device> device, int num)
+: proto::InterfaceData{num}, _controller{controller}, _device{device} {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Endpoint>>

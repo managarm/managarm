@@ -117,6 +117,7 @@ struct InterfaceDescriptor : public DescriptorBase {
 	uint8_t iInterface;
 };
 
+/* CDC 1.1 5.2.3.1 */
 struct [[gnu::packed]] CdcDescriptor : public DescriptorBase {
 	enum class CdcSubType : uint8_t {
 		Header = 0x00,
@@ -124,35 +125,73 @@ struct [[gnu::packed]] CdcDescriptor : public DescriptorBase {
 		AbstractControl = 0x02,
 		Union = 0x06,
 		EthernetNetworking = 0x0F,
+		Ncm = 0x1A,
 	};
 
 	CdcSubType subtype;
 };
 
+/* CDC 1.1 5.2.3.1 */
 struct [[gnu::packed]] CdcHeader : public CdcDescriptor {
 	uint16_t bcdCDC;
 };
 
+/* CDC 1.1 6.3 */
+struct [[gnu::packed]] CdcNotificationHeader {
+	enum class Notification : uint8_t {
+		NETWORK_CONNECTION = 0x00,
+		RESPONSE_AVAILABLE = 0x01,
+		AUX_JACK_HOOK_STATE = 0x08,
+		RING_DETECT = 0x09,
+		SERIAL_STATE = 0x20,
+		CALL_STATE_CHANGE = 0x28,
+		LINE_STATE_CHANGE = 0x29,
+		CONNECTION_SPEED_CHANGE = 0x2A,
+	};
+
+	uint8_t bmRequestType;
+	Notification bNotificationCode;
+	uint16_t wValue;
+	uint16_t wIndex;
+	uint16_t wLength;
+};
+
+/* CDC 1.1 6.3.8 */
+struct [[gnu::packed]] CdcConnectionSpeedChange {
+	uint32_t DlBitRate;
+	uint32_t UlBitRate;
+};
+
+/* CDC 1.1 5.2.3.2 */
 struct [[gnu::packed]] CdcCallManagement : public CdcDescriptor {
 	uint8_t bmCapabilities;
 	uint8_t bDataInterface;
 };
 
+/* CDC 1.1 5.2.3.3 */
 struct [[gnu::packed]] CdcAbstractControl : public CdcDescriptor {
 	uint8_t bmCapabilities;
 };
 
+/* CDC 1.1 5.2.3.8 */
 struct [[gnu::packed]] CdcUnion : public CdcDescriptor {
 	uint8_t bControlInterface;
 	uint8_t bSubordinateInterface[1];
 };
 
+/* CDC 1.1 5.2.3.16 */
 struct [[gnu::packed]] CdcEthernetNetworking : public CdcDescriptor {
 	uint8_t iMACAddress;
 	uint32_t bmEthernetStatistics;
 	uint16_t wMaxSegmentSize;
 	uint16_t wNumberMCFilters;
 	uint8_t bNumberPowerFilters;
+};
+
+/* NCM 1.0 5.2.1 */
+struct [[gnu::packed]] CdcNcm : public CdcDescriptor {
+	uint16_t bcdNcmVersion;
+	uint8_t bmNetworkCapabilities;
 };
 
 struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {

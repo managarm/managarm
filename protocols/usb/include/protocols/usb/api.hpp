@@ -99,11 +99,19 @@ private:
 
 struct InterfaceData {
 protected:
+	InterfaceData(int num) : interface_{num} { }
+
 	~InterfaceData() = default;
 
 public:
 	virtual async::result<frg::expected<UsbError, Endpoint>>
 	getEndpoint(PipeType type, int number) = 0;
+
+	int interface() const {
+		return interface_;
+	}
+private:
+	int interface_;
 };
 
 struct Interface {
@@ -112,6 +120,9 @@ struct Interface {
 	async::result<frg::expected<UsbError, Endpoint>>
 	getEndpoint(PipeType type, int number) const;
 
+	int num() {
+		return _state->interface();
+	}
 private:
 	std::shared_ptr<InterfaceData> _state;
 };
