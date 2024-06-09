@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <format>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <optional>
@@ -25,7 +26,7 @@
 
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
-#include <nic/usb_ecm/usb_ecm.hpp>
+#include <nic/usb_net/usb_net.hpp>
 #include <protocols/usb/client.hpp>
 
 // Maps mbus IDs to device objects
@@ -64,6 +65,124 @@ async::result<void> doBind(mbus_ng::Entity base_entity, virtio_core::DiscoverMod
 	nic::runDevice(device);
 }
 
+async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
+	auto dev = protocols::usb::connect((co_await baseEntity.getRemoteLane()).unwrap());
+	auto raw_desc = (co_await dev.deviceDescriptor()).value();
+	auto dev_desc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(raw_desc.data());
+
+	std::optional<nic::usb_net::ConfigurationInfo> matched_usb_info;
+
+	for(size_t configuration = 0; configuration < dev_desc->numConfigs; configuration++) {
+		nic::usb_net::ConfigurationInfo usb_info{};
+
+		auto raw_descs = (co_await dev.configurationDescriptor(configuration)).value();
+		protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
+			if(type == protocols::usb::descriptor_type::cs_interface) {
+				auto desc = reinterpret_cast<protocols::usb::CdcDescriptor *>(descriptor);
+
+				switch(desc->subtype) {
+					using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
+
+					case CdcSubType::Header: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcHeader *>(descriptor);
+						printf("netserver: CDC version 0x%x\n", hdr->bcdCDC);
+						break;
+					}
+					case CdcSubType::AbstractControl: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcAbstractControl *>(descriptor);
+						printf("netserver: ACM capabilities 0x%02x\n", hdr->bmCapabilities);
+						break;
+					}
+					case CdcSubType::Union: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcUnion *>(descriptor);
+						assert(hdr->length >= 5);
+						usb_info.data_if = hdr->bSubordinateInterface[0];
+						break;
+					}
+					case CdcSubType::EthernetNetworking: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcEthernetNetworking *>(descriptor);
+						usb_info.iMACAddress = hdr->iMACAddress;
+						if(!usb_info.control_if)
+							usb_info.control_if = info.interfaceNumber;
+						break;
+					}
+					case CdcSubType::Ncm: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcNcm *>(descriptor);
+						printf("netserver: NCM %x\n", hdr->bcdNcmVersion);
+						usb_info.ncm = true;
+						break;
+					}
+					default: {
+						std::cout << std::format("netserver: unhandled Function Descriptor SubType {}", uint8_t(desc->subtype)) << std::endl;
+						break;
+					}
+				}
+			} else if(type == protocols::usb::descriptor_type::interface) {
+				auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
+
+				if(desc->interfaceClass == 2 && (desc->interfaceSubClass == 13 || desc->interfaceSubClass == 6))
+					usb_info.valid = true;
+			} else if(type == protocols::usb::descriptor_type::endpoint) {
+				if(info.interfaceNumber && usb_info.data_if && info.interfaceNumber == usb_info.data_if
+						&& info.endpointType == protocols::usb::EndpointType::bulk) {
+					if(info.endpointIn.value()) {
+						usb_info.in_endp_number = info.endpointNumber;
+					} else {
+						usb_info.out_endp_number = info.endpointNumber;
+					}
+				} else if(info.interfaceNumber && info.endpointType == protocols::usb::EndpointType::interrupt
+						&& usb_info.control_if && usb_info.control_if == info.interfaceNumber) {
+					usb_info.int_endp_number = info.endpointNumber;
+				}
+			}
+		});
+
+		if(usb_info.valid && usb_info.iMACAddress && usb_info.control_if && usb_info.data_if) {
+			usb_info.chosen_configuration = reinterpret_cast<protocols::usb::ConfigDescriptor *>(raw_descs.data())->configValue;
+			matched_usb_info = std::move(usb_info);
+			break;
+		}
+	}
+
+	if(!matched_usb_info
+	|| !matched_usb_info->valid
+	|| !matched_usb_info->chosen_configuration
+	|| !matched_usb_info->iMACAddress
+	|| !matched_usb_info->control_if
+	|| !matched_usb_info->data_if) {
+		std::cout << std::format("netserver: skipping device with mbus ID {}", baseEntity.id()) << std::endl;
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	}
+
+	auto str = (co_await dev.getString(*matched_usb_info->iMACAddress)).value();
+
+	auto decodeHexString = [](char c) -> uint8_t {
+		if(c >= 'A' && c <= 'F')
+			return c - 'A' + 0x0A;
+		if(c >= 'a' && c <= 'f')
+			return c - 'a' + 0x0A;
+		if(c >= '0' && c <= '9')
+			return c - '0';
+		__builtin_unreachable();
+	};
+
+	nic::MacAddress mac{{
+		static_cast<uint8_t>((decodeHexString(str[0]) << 4) | decodeHexString(str[1])),
+		static_cast<uint8_t>((decodeHexString(str[2]) << 4) | decodeHexString(str[3])),
+		static_cast<uint8_t>((decodeHexString(str[4]) << 4) | decodeHexString(str[5])),
+		static_cast<uint8_t>((decodeHexString(str[6]) << 4) | decodeHexString(str[7])),
+		static_cast<uint8_t>((decodeHexString(str[8]) << 4) | decodeHexString(str[9])),
+		static_cast<uint8_t>((decodeHexString(str[10]) << 4) | decodeHexString(str[11])),
+	}};
+
+	auto device = co_await nic::usb_net::makeShared(std::move(dev), mac, *matched_usb_info);
+
+	baseDeviceMap.insert({baseEntity.id(), device});
+	nic::runDevice(device);
+
+	co_return protocols::svrctl::Error::success;
+}
+
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "netserver: Binding to device " << base_id << std::endl;
 	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
@@ -98,96 +217,10 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 		co_await doBind(std::move(baseEntity), discover_mode);
 	} else if(type->value == "usb") {
-		auto dev = protocols::usb::connect((co_await baseEntity.getRemoteLane()).unwrap());
-		std::optional<uint8_t> iMACAddress;
-		std::optional<uint8_t> data_if;
+		auto err = co_await doBindUsb(std::move(baseEntity));
 
-		std::optional<int> in_endp_number;
-		std::optional<int> out_endp_number;
-
-		auto raw_descs = (co_await dev.configurationDescriptor(1)).value();
-		protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
-			if(type == protocols::usb::descriptor_type::cs_interface) {
-				auto desc = reinterpret_cast<protocols::usb::CdcDescriptor *>(descriptor);
-
-				switch(desc->subtype) {
-					using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
-
-					case CdcSubType::Header: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcHeader *>(descriptor);
-						printf("netserver: CDC version 0x%x\n", hdr->bcdCDC);
-						break;
-					}
-					case CdcSubType::AbstractControl: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcAbstractControl *>(descriptor);
-						printf("netserver: ACM capabilities 0x%02x\n", hdr->bmCapabilities);
-						break;
-					}
-					case CdcSubType::Union: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcUnion *>(descriptor);
-						assert(hdr->length >= 5);
-						printf("netserver: controller interface %u\n", hdr->bControlInterface);
-						for(size_t i = 0; i < hdr->length - offsetof(protocols::usb::CdcUnion, bSubordinateInterface); i++) {
-							printf("netserver: sub interface #%zu: IF %u\n", i, hdr->bSubordinateInterface[i]);
-						}
-
-						data_if = hdr->bSubordinateInterface[0];
-						break;
-					}
-					case CdcSubType::EthernetNetworking: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcEthernetNetworking *>(descriptor);
-						printf("netserver: iMACAddress %u\n", hdr->iMACAddress);
-						iMACAddress = hdr->iMACAddress;
-						break;
-					}
-					default: {
-						printf("netserver: unhandled Function Descriptor SubType %hhu\n", desc->subtype);
-					}
-				}
-			} else if(type == protocols::usb::descriptor_type::endpoint) {
-				if(info.interfaceNumber && *info.interfaceNumber == data_if && info.endpointType == protocols::usb::EndpointType::bulk) {
-					if(info.endpointIn.value()) {
-						in_endp_number = info.endpointNumber;
-					} else {
-						out_endp_number = info.endpointNumber;
-					}
-				}
-			}
-		});
-
-		if(!iMACAddress || !data_if)
-			co_return protocols::svrctl::Error::deviceNotSupported;
-
-		auto str = (co_await dev.getString(*iMACAddress)).value();
-
-		auto decodeHexString = [](char c) -> uint8_t {
-			if(c >= 'A' && c <= 'F')
-				return c - 'A' + 0x0A;
-			if(c >= 'a' && c <= 'f')
-				return c - 'a' + 0x0A;
-			if(c >= '0' && c <= '9')
-				return c - '0';
-			__builtin_unreachable();
-		};
-
-		nic::MacAddress mac{{
-			static_cast<uint8_t>((decodeHexString(str[0]) << 4) | decodeHexString(str[1])),
-			static_cast<uint8_t>((decodeHexString(str[2]) << 4) | decodeHexString(str[3])),
-			static_cast<uint8_t>((decodeHexString(str[4]) << 4) | decodeHexString(str[5])),
-			static_cast<uint8_t>((decodeHexString(str[6]) << 4) | decodeHexString(str[7])),
-			static_cast<uint8_t>((decodeHexString(str[8]) << 4) | decodeHexString(str[9])),
-			static_cast<uint8_t>((decodeHexString(str[10]) << 4) | decodeHexString(str[11])),
-		}};
-
-		auto config = (co_await dev.useConfiguration(1)).unwrap();
-		auto intf = (co_await config.useInterface(*data_if, 1)).unwrap();
-		auto in = (co_await intf.getEndpoint(protocols::usb::PipeType::in, in_endp_number.value())).unwrap();
-		auto out = (co_await intf.getEndpoint(protocols::usb::PipeType::out, out_endp_number.value())).unwrap();
-
-		auto device = nic::usb_ecm::makeShared(std::move(dev), mac, std::move(in), std::move(out));
-
-		baseDeviceMap.insert({baseEntity.id(), device});
-		nic::runDevice(device);
+		if(err != protocols::svrctl::Error::success)
+			co_return err;
 	}
 
 	co_return protocols::svrctl::Error::success;
