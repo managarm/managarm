@@ -6,5 +6,6 @@ ATTR{idVendor}=="0403", ATTR{idProduct}=="6001", RUN+="/usr/bin/runsvr --fork bi
 
 # match CDC devices
 ATTR{bDeviceClass}=="02", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_usb_end"
+ATTR{bDeviceClass}=="00", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_usb_end"
 
 LABEL="managarm_usb_end"
