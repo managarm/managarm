@@ -715,6 +715,8 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND)
 			co_return Error::noSuchFile;
+		else if(resp.error() == managarm::fs::Errors::DIRECTORY_NOT_EMPTY)
+			co_return Error::directoryNotEmpty;
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 		co_return {};
 	}
