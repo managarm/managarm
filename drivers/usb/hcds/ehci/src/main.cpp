@@ -145,8 +145,7 @@ ConfigurationState::useInterface(int number, int alternative) {
 
 InterfaceState::InterfaceState(std::shared_ptr<Controller> controller,
 		int device, int interface)
-: _controller{std::move(controller)}, _device(device), _interface(interface) {
-	(void)_interface;
+: proto::InterfaceData{interface}, _controller{std::move(controller)}, _device(device), _interface(interface) {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Endpoint>>

@@ -43,8 +43,8 @@ private:
 };
 
 struct InterfaceState final : InterfaceData {
-	InterfaceState(helix::UniqueLane lane)
-	:_lane(std::move(lane)) { }
+	InterfaceState(int num, helix::UniqueLane lane)
+	: InterfaceData{num}, _lane(std::move(lane)) { }
 
 	async::result<frg::expected<UsbError, Endpoint>>
 	getEndpoint(PipeType type, int number) override;
@@ -266,7 +266,7 @@ ConfigurationState::useInterface(int number, int alternative) {
 
 	HEL_CHECK(pullLane.error());
 
-	auto state = std::make_shared<InterfaceState>(pullLane.descriptor());
+	auto state = std::make_shared<InterfaceState>(number, pullLane.descriptor());
 	co_return Interface(std::move(state));
 }
 
