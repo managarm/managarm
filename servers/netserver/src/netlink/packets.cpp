@@ -54,7 +54,7 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 	constexpr struct ether_addr broadcast_addr = { {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF} };
 
 	if(!nic->name().empty())
-		b.rtattr_string(IFLA_IFNAME, nic->name());
+		b.rtattr(IFLA_IFNAME, nic->name());
 	if(nic->mtu)
 		b.rtattr(IFLA_MTU, nic->mtu);
 	b.rtattr(IFLA_TXQLEN, 1000);
@@ -88,7 +88,7 @@ void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifad
 
 	b.rtattr(IFA_ADDRESS, htonl(addr.ip));
 	b.rtattr(IFA_LOCAL, htonl(addr.ip));
-	b.rtattr_string(IFA_LABEL, nic->name());
+	b.rtattr(IFA_LABEL, nic->name());
 
 	deliver(b.packet());
 }

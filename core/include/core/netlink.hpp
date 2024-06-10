@@ -90,7 +90,8 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	inline void rtattr_string(uint8_t type, std::string data) {
+	template<>
+	inline void rtattr(uint8_t type, std::string data) {
 		const size_t str_len = data.length() + 1;
 
 		struct rtattr attr;
