@@ -6,6 +6,7 @@
 #include <linux/filter.h>
 #include <iostream>
 #include <map>
+#include <format>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
@@ -107,8 +108,8 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 	using namespace protocols::fs;
 	if(logSockets)
 		std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-	if(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC))) {
-		std::cout << "posix: Unsupported flag in recvMsg" << std::endl;
+	if(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_PEEK | MSG_TRUNC)) {
+		std::cout << std::format("posix: Unsupported flags 0x{:x} in recvMsg", flags) << std::endl;
 	}
 
 	if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
@@ -124,9 +125,13 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 	auto packet = &_recvQueue.front();
 
 	auto size = packet->buffer.size();
+	auto truncated_size = std::min(size, max_length);
+
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
-	packet->offset += chunk;
+	if(!(flags & MSG_PEEK)) {
+		packet->offset += chunk;
+	}
 
 	if(addr_ptr) {
 		struct sockaddr_nl sa;
@@ -149,9 +154,18 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 		ctrl.write<struct ucred>(creds);
 	}
 
-	if(packet->offset == packet->buffer.size())
+	if(!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
-	co_return RecvData{ctrl.buffer(), size, sizeof(struct sockaddr_nl), 0};
+	}
+
+	uint32_t reply_flags = 0;
+
+	if(truncated_size < size) {
+		reply_flags |= MSG_TRUNC;
+	}
+
+	co_return RecvData{ctrl.buffer(), (flags & MSG_TRUNC) ? size : truncated_size,
+		sizeof(struct sockaddr_nl), reply_flags};
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
