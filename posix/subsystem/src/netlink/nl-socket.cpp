@@ -12,6 +12,7 @@
 #include <helix/ipc.hpp>
 #include <protocols/fs/common.hpp>
 #include "nl-socket.hpp"
+#include "nlctrl.hpp"
 #include "uevent.hpp"
 #include "../process.hpp"
 
@@ -352,6 +353,7 @@ void Group::carbonCopy(const core::netlink::Packet &packet) {
 
 void setupProtocols() {
 	configure(NETLINK_KOBJECT_UEVENT, 32, &netlink::uevent::ops);
+	configure(NETLINK_GENERIC, 32, &netlink::nlctrl::ops);
 	configure(NETLINK_ROUTE, 32, nullptr);
 }
 

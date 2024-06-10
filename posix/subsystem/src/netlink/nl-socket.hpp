@@ -87,6 +87,13 @@ public:
 	async::result<void> setFileFlags(int flags) override;
 	async::result<int> getFileFlags() override;
 
+	uint32_t socketPort() {
+		if(!_socketPort)
+			_associatePort();
+
+		return _socketPort;
+	}
+
 private:
 	void _associatePort();
 
