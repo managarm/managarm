@@ -11,12 +11,12 @@ namespace netlink::nl_socket {
 
 void setupProtocols();
 
-struct ops {
-	void (*sendMsg)(core::netlink::Packet &packet, struct sockaddr_nl *sa);
-};
-
 struct Group;
 struct OpenFile;
+
+struct ops {
+	async::result<protocols::fs::Error> (*sendMsg)(nl_socket::OpenFile *f, core::netlink::Packet packet, struct sockaddr_nl *sa);
+};
 
 extern std::map<int, const ops *> globalProtocolOpsMap;
 extern std::map<std::pair<int, uint8_t>, std::unique_ptr<Group>> globalGroupMap;

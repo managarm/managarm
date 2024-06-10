@@ -201,10 +201,14 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	packet.buffer.resize(max_length);
 	memcpy(packet.buffer.data(), data, max_length);
 
-	if(ops_ && ops_->sendMsg)
-		ops_->sendMsg(packet, &sa);
-	else
+	if(ops_ && ops_->sendMsg) {
+		auto res = co_await ops_->sendMsg(this, packet, &sa);
+
+		if(res != protocols::fs::Error::none)
+			co_return res;
+	} else {
 		co_return protocols::fs::Error::illegalOperationTarget;
+	}
 
 	co_return max_length;
 }
