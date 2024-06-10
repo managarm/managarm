@@ -255,8 +255,13 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 	struct sockaddr_nl sa;
 	memcpy(&sa, addr_ptr, addr_length);
 
-	assert(!sa.nl_pid);
-	_associatePort();
+	if(!sa.nl_pid) {
+		_associatePort();
+	} else {
+		_socketPort = sa.nl_pid;
+		auto res = globalPortMap.insert({_socketPort, this});
+		assert(res.second);
+	}
 
 	if(sa.nl_groups) {
 		for(int i = 0; i < 32; i++) {
