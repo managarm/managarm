@@ -79,7 +79,7 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	inline nl::Packet packet() {
+	inline core::netlink::Packet packet() {
 		memcpy(_packet.buffer.data(), &_offset, sizeof(uint32_t));
 		return std::move(_packet);
 	}
@@ -96,7 +96,7 @@ private:
 		_offset = size;
 	};
 
-	nl::Packet _packet;
+	core::netlink::Packet _packet;
 	size_t _offset = 0;
 };
 

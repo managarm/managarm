@@ -2,7 +2,7 @@
 
 namespace netlink {
 
-void uevent::sendMsg(nl_socket::Packet &packet, struct sockaddr_nl *sa) {
+void uevent::sendMsg(core::netlink::Packet &packet, struct sockaddr_nl *sa) {
 	// Carbon-copy to the message to a group.
 	if(packet.group) {
 		auto it = nl_socket::globalGroupMap.find({NETLINK_KOBJECT_UEVENT, packet.group});

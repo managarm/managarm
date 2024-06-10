@@ -40,7 +40,7 @@ OpenFile::OpenFile(int protocol, bool nonBlock)
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
 		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
-void OpenFile::deliver(Packet packet) {
+void OpenFile::deliver(core::netlink::Packet packet) {
 	if(filter_) {
 		Bpf bpf{filter_.value()};
 		size_t accept_bytes = bpf.run(arch::dma_buffer_view{nullptr, packet.buffer.data(), packet.buffer.size()});
@@ -194,7 +194,7 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	// TODO: Associate port otherwise.
 	assert(_socketPort);
 
-	Packet packet;
+	core::netlink::Packet packet;
 	packet.senderPid = process->pid();
 	packet.senderPort = _socketPort;
 	packet.group = grp_idx;
@@ -332,7 +332,7 @@ void OpenFile::_associatePort() {
 // Group implementation.
 // ----------------------------------------------------------------------------
 
-void Group::carbonCopy(const Packet &packet) {
+void Group::carbonCopy(const core::netlink::Packet &packet) {
 	for(auto socket : _subscriptions)
 		socket->deliver(packet);
 }
@@ -359,7 +359,7 @@ void configure(int protocol, size_t num_groups, const ops *ops) {
 }
 
 void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
-	Packet packet{
+	core::netlink::Packet packet{
 		.group = grp_idx,
 	};
 	packet.buffer.resize(buffer.size());

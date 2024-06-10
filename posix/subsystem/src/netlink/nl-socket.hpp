@@ -4,28 +4,15 @@
 #include <linux/netlink.h>
 #include <map>
 
+#include "core/netlink.hpp"
 #include "../file.hpp"
 
 namespace netlink::nl_socket {
 
 void setupProtocols();
 
-struct Packet {
-	// Sender netlink socket information.
-	uint32_t senderPort = 0;
-	uint32_t group = 0;
-
-	// Sender process information.
-	uint32_t senderPid = 0;
-
-	// The actual octet data that the packet consists of.
-	std::vector<char> buffer;
-
-	size_t offset = 0;
-};
-
 struct ops {
-	void (*sendMsg)(Packet &packet, struct sockaddr_nl *sa);
+	void (*sendMsg)(core::netlink::Packet &packet, struct sockaddr_nl *sa);
 };
 
 struct Group;
@@ -48,7 +35,7 @@ public:
 
 	OpenFile(int protocol, bool nonBlock = false);
 
-	void deliver(Packet packet);
+	void deliver(core::netlink::Packet packet);
 
 	void handleClose() override {
 		_isClosed = true;
@@ -117,7 +104,7 @@ private:
 	uint32_t _socketPort;
 
 	// The actual receive queue of the socket.
-	std::deque<Packet> _recvQueue;
+	std::deque<core::netlink::Packet> _recvQueue;
 
 	// Socket options.
 	bool _passCreds;
@@ -131,7 +118,7 @@ struct Group {
 	friend struct OpenFile;
 
 	// Sends a copy of the given message to this group.
-	void carbonCopy(const Packet &packet);
+	void carbonCopy(const core::netlink::Packet &packet);
 
 private:
 	std::vector<OpenFile *> _subscriptions;

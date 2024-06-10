@@ -5,7 +5,7 @@
 namespace netlink {
 
 struct uevent {
-	static void sendMsg(nl_socket::Packet &packet, struct sockaddr_nl *sa);
+	static void sendMsg(core::netlink::Packet &packet, struct sockaddr_nl *sa);
 
 	constexpr static struct nl_socket::ops ops{
 		.sendMsg = sendMsg,

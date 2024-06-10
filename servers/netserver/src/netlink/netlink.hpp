@@ -7,6 +7,7 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+#include "core/netlink.hpp"
 #include "ip/ip4.hpp"
 #include "ip/arp.hpp"
 
@@ -14,12 +15,6 @@
 #include <vector>
 
 namespace nl {
-struct Packet {
-	int senderPort;
-	int group;
-
-	std::vector<char> buffer;
-};
 
 class NetlinkSocket {
 public:
@@ -93,7 +88,7 @@ private:
 	uint64_t _inSeq;
 	bool _passCreds = false;
 
-	std::deque<nl::Packet> _recvQueue;
+	std::deque<core::netlink::Packet> _recvQueue;
 };
 
 } // namespace nl
