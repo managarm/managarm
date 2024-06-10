@@ -1,6 +1,5 @@
 #include "netlink.hpp"
 #include "netserver/nic.hpp"
-#include "packets.hpp"
 #include "src/ip/arp.hpp"
 
 #include <abi-bits/socket.h>
@@ -11,7 +10,6 @@
 #include <linux/rtnetlink.h>
 #include <memory>
 #include <net/ethernet.h>
-#include <net/if.h>
 
 namespace {
 
@@ -30,6 +28,8 @@ uint16_t mapArpStateToNetlink(Neighbours::State state) {
 }
 
 namespace nl {
+
+using core::netlink::NetlinkBuilder;
 
 void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 	struct nlmsghdr *hdr = reinterpret_cast<struct nlmsghdr *>(h);

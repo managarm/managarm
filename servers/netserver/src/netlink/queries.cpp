@@ -1,11 +1,14 @@
+#include "core/netlink.hpp"
 #include "netlink.hpp"
 #include "src/ip/arp.hpp"
-#include "src/netlink/packets.hpp"
 
 #include <arpa/inet.h>
 #include <linux/neighbour.h>
 
 namespace nl {
+
+using core::netlink::netlinkMessage;
+using core::netlink::NetlinkAttr;
 
 void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	const struct ifinfomsg *msg;
@@ -27,7 +30,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	[[maybe_unused]] uint32_t ext_mask = 0;
 
 	if(msg) {
-		auto attrs = NetlinkAttr(hdr, nl::packets::ifinfo{});
+		auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifinfo{});
 
 		if(attrs.has_value()) {
 			for(auto attr : *attrs) {
@@ -94,7 +97,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, nl::packets::rt{});
+	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::rt{});
 
 	if(!attrs.has_value()) {
 		sendError(hdr, EINVAL);
@@ -204,7 +207,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, nl::packets::ifaddr{});
+	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
 		sendError(hdr, EINVAL);
@@ -291,7 +294,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, nl::packets::ifaddr{});
+	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
 		sendError(hdr, EINVAL);

@@ -1,10 +1,10 @@
+#include "core/netlink.hpp"
 #include "netlink.hpp"
-#include "src/netlink/packets.hpp"
 
 namespace nl {
 
 void NetlinkSocket::sendAck(struct nlmsghdr *hdr) {
-	NetlinkBuilder b;
+	core::netlink::NetlinkBuilder b;
 
 	b.header(NLMSG_ERROR, NLM_F_CAPPED, hdr->nlmsg_seq, 0);
 	b.message<struct nlmsgerr>({
@@ -16,7 +16,7 @@ void NetlinkSocket::sendAck(struct nlmsghdr *hdr) {
 }
 
 void NetlinkSocket::sendDone(struct nlmsghdr *hdr) {
-	NetlinkBuilder b;
+	core::netlink::NetlinkBuilder b;
 
 	b.header(NLMSG_DONE, 0, hdr->nlmsg_seq, 0);
 	b.message<uint32_t>(0);
@@ -25,7 +25,7 @@ void NetlinkSocket::sendDone(struct nlmsghdr *hdr) {
 }
 
 void NetlinkSocket::sendError(struct nlmsghdr *hdr, int err) {
-	NetlinkBuilder b;
+	core::netlink::NetlinkBuilder b;
 
 	b.header(NLMSG_ERROR, 0, hdr->nlmsg_seq, 0);
 
