@@ -16,7 +16,7 @@
 
 namespace nl {
 
-class NetlinkSocket {
+class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags);
 
@@ -58,6 +58,8 @@ public:
 		.sendMsg = &sendMsg,
 	};
 
+	void deliver(core::netlink::Packet packet) override;
+
 private:
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
@@ -74,10 +76,6 @@ private:
 	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
-
-	void sendDone(struct nlmsghdr *hdr);
-	void sendError(struct nlmsghdr *hdr, int err);
-	void sendAck(struct nlmsghdr *hdr);
 
 	int flags;
 

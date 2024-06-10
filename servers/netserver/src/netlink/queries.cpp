@@ -21,7 +21,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 		if(rtgm) {
 			msg = new ifinfomsg{.ifi_family = (*rtgm)->rtgen_family};
 		} else {
-			sendError(hdr, EINVAL);
+			sendError(this, hdr, EINVAL);
 			return;
 		}
 	}
@@ -40,7 +40,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 							if_name = opt;
 						} else {
 							std::cout << "netlink: string parsing from rtattr failed unexpectedly" << std::endl;
-							sendError(hdr, EINVAL);
+							sendError(this, hdr, EINVAL);
 							return;
 						}
 						break;
@@ -52,7 +52,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 					default: {
 						std::cout << "netlink: ignoring unknown attr " << attr.type() << std::endl;
 						if(attr.type() > RTA_MAX) {
-							sendError(hdr, EINVAL);
+							sendError(this, hdr, EINVAL);
 							return;
 						}
 						break;
@@ -74,7 +74,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 		auto nic = nic::Link::byIndex(msg->ifi_index);
 
 		if(!nic) {
-			sendError(hdr, ENODEV);
+			sendError(this, hdr, ENODEV);
 			return;
 		}
 
@@ -82,7 +82,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 			sendLinkPacket(nic, hdr);
 	}
 
-	sendDone(hdr);
+	sendDone(this, hdr);
 
 	return;
 }
@@ -93,14 +93,14 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct rtmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
 	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::rt{});
 
 	if(!attrs.has_value()) {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
@@ -147,7 +147,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 			default:
 				std::cout << "netlink: ignoring unknown attr " << attr.type() << std::endl;
 				if(attr.type() > RTA_MAX) {
-					sendError(hdr, EINVAL);
+					sendError(this, hdr, EINVAL);
 					return;
 				}
 				break;
@@ -169,7 +169,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 		ip4Router().addRoute(std::move(route));
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
-		sendAck(hdr);
+		sendAck(this, hdr);
 }
 
 void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
@@ -180,7 +180,7 @@ void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct rtgenmsg>(hdr, hdr->nlmsg_len))
 		payload = *opt;
 	else {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
@@ -194,7 +194,7 @@ void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
 		sendRoutePacket(hdr, route);
 	}
 
-	sendDone(hdr);
+	sendDone(this, hdr);
 }
 
 void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
@@ -203,14 +203,14 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
 	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
@@ -219,7 +219,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	auto nic = nic::Link::byIndex(msg->ifa_index);
 
 	if(!nic) {
-		sendError(hdr, ENODEV);
+		sendError(this, hdr, ENODEV);
 		return;
 	}
 
@@ -236,7 +236,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 			default: {
 				std::cout << "netserver: ignoring unknown rtattr type " << attr.type() << " in RTM_NEWADDR request" << std::endl;
 				if(attr.type() > RTA_MAX) {
-					sendError(hdr, EINVAL);
+					sendError(this, hdr, EINVAL);
 					return;
 				}
 				break;
@@ -248,7 +248,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 		ip4().setLink({addr, prefix}, nic);
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
-		sendAck(hdr);
+		sendAck(this, hdr);
 
 	return;
 }
@@ -264,7 +264,7 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 		if(rtgm) {
 			msg = new ifaddrmsg{.ifa_family = (*rtgm)->rtgen_family};
 		} else {
-			sendError(hdr, EINVAL);
+			sendError(this, hdr, EINVAL);
 			return;
 		}
 	}
@@ -279,7 +279,7 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 		}
 	}
 
-	sendDone(hdr);
+	sendDone(this, hdr);
 
 	return;
 }
@@ -290,14 +290,14 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
 	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
@@ -305,7 +305,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 	auto nic = nic::Link::byIndex(msg->ifa_index);
 
 	if(!nic) {
-		sendError(hdr, ENODEV);
+		sendError(this, hdr, ENODEV);
 		return;
 	}
 
@@ -318,7 +318,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 					auto nic_by_addr = ip4().getLink(addr);
 
 					if(nic_by_addr == nullptr || nic_by_addr->index() != nic->index()) {
-						sendError(hdr, EINVAL);
+						sendError(this, hdr, EINVAL);
 						return;
 					}
 				}
@@ -327,7 +327,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 			default: {
 				std::cout << "netserver: ignoring unknown rtattr type " << attr.type() << " in RTM_DELADDR request" << std::endl;
 				if(attr.type() > RTA_MAX) {
-					sendError(hdr, EINVAL);
+					sendError(this, hdr, EINVAL);
 					return;
 				}
 				break;
@@ -340,12 +340,12 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 	if(cidr)
 		ip4().deleteLink(cidr.value());
 	else {
-		sendError(hdr, EINVAL);
+		sendError(this, hdr, EINVAL);
 		return;
 	}
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
-		sendAck(hdr);
+		sendAck(this, hdr);
 
 	return;
 }
@@ -357,7 +357,7 @@ void NetlinkSocket::getNeighbor(struct nlmsghdr *hdr) {
 		sendNeighPacket(hdr, it->first, it->second);
 	}
 
-	sendDone(hdr);
+	sendDone(this, hdr);
 
 	return;
 }

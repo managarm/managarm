@@ -22,7 +22,7 @@ extern std::map<int, const ops *> globalProtocolOpsMap;
 extern std::map<std::pair<int, uint8_t>, std::unique_ptr<Group>> globalGroupMap;
 extern std::map<uint32_t, OpenFile *> globalPortMap;
 
-struct OpenFile : File {
+struct OpenFile : File, core::netlink::NetlinkFile {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -35,7 +35,7 @@ public:
 
 	OpenFile(int protocol, bool nonBlock = false);
 
-	void deliver(core::netlink::Packet packet);
+	void deliver(core::netlink::Packet packet) override;
 
 	void handleClose() override {
 		_isClosed = true;

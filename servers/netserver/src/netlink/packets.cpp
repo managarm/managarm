@@ -31,6 +31,12 @@ namespace nl {
 
 using core::netlink::NetlinkBuilder;
 
+void NetlinkSocket::deliver(core::netlink::Packet packet) {
+	_recvQueue.push_back(std::move(packet));
+	_inSeq = ++_currentSeq;
+	_statusBell.raise();
+}
+
 void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 	struct nlmsghdr *hdr = reinterpret_cast<struct nlmsghdr *>(h);
 
@@ -59,9 +65,7 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 	b.rtattr(IFLA_OPERSTATE, (uint8_t) IF_OPER_UP);
 	b.rtattr(IFLA_NUM_TX_QUEUES, 1);
 
-	_recvQueue.push_back(b.packet());
-	_inSeq = ++_currentSeq;
-	_statusBell.raise();
+	deliver(b.packet());
 }
 
 void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link> nic) {
@@ -86,9 +90,7 @@ void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifad
 	b.rtattr(IFA_LOCAL, htonl(addr.ip));
 	b.rtattr_string(IFA_LABEL, nic->name());
 
-	_recvQueue.push_back(b.packet());
-	_inSeq = ++_currentSeq;
-	_statusBell.raise();
+	deliver(b.packet());
 }
 
 void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route) {
@@ -118,9 +120,7 @@ void NetlinkSocket::sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route
 		b.rtattr(RTA_PREFSRC, htonl(route.source));
 	b.rtattr(RTA_OIF, (route.link.expired()) ? 0 : route.link.lock()->index());
 
-	_recvQueue.push_back(b.packet());
-	_inSeq = ++_currentSeq;
-	_statusBell.raise();
+	deliver(b.packet());
 }
 
 void NetlinkSocket::sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry) {
@@ -145,9 +145,7 @@ void NetlinkSocket::sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, N
 	b.rtattr(NDA_DST, htonl(addr));
 	b.rtattr<uint8_t[6]>(NDA_LLADDR, entry.mac.data());
 
-	_recvQueue.push_back(b.packet());
-	_inSeq = ++_currentSeq;
-	_statusBell.raise();
+	deliver(b.packet());
 }
 
 } // namespace nl

@@ -26,6 +26,10 @@ struct Packet {
 	size_t offset = 0;
 };
 
+struct NetlinkFile {
+	virtual void deliver(core::netlink::Packet packet) = 0;
+};
+
 template<typename T>
 std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int length) {
 	if(!NLMSG_OK(header, static_cast<uint32_t>(length)))
@@ -275,6 +279,40 @@ inline std::optional<NetlinkAttrs<struct rtmsg>> NetlinkAttr(struct nlmsghdr *hd
 	}
 
 	return NetlinkAttrs<struct rtmsg>(hdr, msg, RTM_RTA(msg));
+}
+
+inline void sendDone(NetlinkFile *f, struct nlmsghdr *hdr, struct sockaddr_nl *sa = nullptr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_DONE, 0, hdr->nlmsg_seq, (sa != nullptr) ? sa->nl_pid : 0);
+	b.message<uint32_t>(0);
+
+	f->deliver(b.packet());
+}
+
+inline void sendError(NetlinkFile *f, struct nlmsghdr *hdr, int err, struct sockaddr_nl *sa = nullptr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_ERROR, 0, hdr->nlmsg_seq, (sa != nullptr) ? sa->nl_pid : 0);
+
+	b.message<struct nlmsgerr>({
+		.error = -err,
+		.msg = *hdr,
+	});
+
+	f->deliver(b.packet());
+}
+
+inline void sendAck(NetlinkFile *f, struct nlmsghdr *hdr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_ERROR, NLM_F_CAPPED, hdr->nlmsg_seq, 0);
+	b.message<struct nlmsgerr>({
+		.error = 0,
+		.msg = *hdr,
+	});
+
+	f->deliver(b.packet());
 }
 
 } // namespace core::netlink
