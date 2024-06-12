@@ -7,6 +7,8 @@
 
 namespace nic::usb_ncm {
 
+constexpr bool debugNcm = false;
+
 UsbNcmNic::UsbNcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
 		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
 		protocols::usb::Interface data_intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
@@ -67,7 +69,9 @@ async::result<void> UsbNcmNic::initialize() {
 		protocols::usb::kXferToHost, ctrl_msg, params.view_buffer()
 	});
 	assert(res);
-	std::cout << std::format("{}", *params) << std::endl;
+
+	if(debugNcm)
+		std::cout << std::format("{}", *params) << std::endl;
 
 	if(ncm_hdr->bmNetworkCapabilities & regs::bmNetworkCapabilities::crcMode) {
 		ctrl_msg->type = protocols::usb::setup_type::byClass | protocols::usb::setup_type::targetInterface;
