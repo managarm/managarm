@@ -1,4 +1,5 @@
 #include <nic/usb_net/usb_net.hpp>
+#include <net/ethernet.h>
 
 #include "usb-ecm.hpp"
 #include "usb-ncm.hpp"
@@ -15,6 +16,7 @@ UsbNcmNic::UsbNcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
 }
 
 async::result<void> UsbNcmNic::initialize() {
+	protocols::usb::CdcEthernetNetworking *ecm_hdr = nullptr;
 	protocols::usb::CdcNcm *ncm_hdr = nullptr;
 	auto raw_descs = (co_await device_.configurationDescriptor(config_index_)).value();
 
@@ -25,6 +27,10 @@ async::result<void> UsbNcmNic::initialize() {
 			switch(desc->subtype) {
 				using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
 
+				case CdcSubType::EthernetNetworking: {
+					ecm_hdr = reinterpret_cast<protocols::usb::CdcEthernetNetworking *>(descriptor);
+					break;
+				}
 				case CdcSubType::Ncm: {
 					ncm_hdr = reinterpret_cast<protocols::usb::CdcNcm *>(descriptor);
 					break;
@@ -36,7 +42,11 @@ async::result<void> UsbNcmNic::initialize() {
 		}
 	});
 
+	assert(ecm_hdr != nullptr);
 	assert(ncm_hdr != nullptr);
+
+	// wMaxSegmentSize includes MTU and the ethernet header, but not CRC
+	mtu = ecm_hdr->wMaxSegmentSize - sizeof(ether_header);
 
 	arch::dma_object<protocols::usb::SetupPacket> ctrl_msg{&dmaPool_};
 	arch::dma_object<NtbParameter> params{&dmaPool_};
