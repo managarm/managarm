@@ -217,6 +217,11 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
 							| AddressSpace::kMapProtExecute);
 				assert(mapResult);
+			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
+				auto mapResult = co_await space->map(std::move(view),
+						base + virt_address, 0, virt_length,
+						AddressSpace::kMapFixed | AddressSpace::kMapProtRead);
+				assert(mapResult);
 			}else{
 				panicLogger() << "Illegal combination of segment permissions"
 						<< frg::endlog;
@@ -231,7 +236,8 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 		}else if(phdr.p_type == PT_DYNAMIC
 				|| phdr.p_type == PT_TLS
 				|| phdr.p_type == PT_GNU_EH_FRAME
-				|| phdr.p_type == PT_GNU_STACK) {
+				|| phdr.p_type == PT_GNU_STACK
+				|| phdr.p_type == PT_GNU_RELRO) {
 			// ignore the phdr
 		}else{
 			assert(!"Unexpected PHDR");
