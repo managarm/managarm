@@ -382,7 +382,7 @@ async::detached serve(helix::UniqueLane lane) {
 				auto link = nic::Link::byName(req.name());
 
 				if(link) {
-					resp.set_flags(IFF_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST);
+					resp.set_flags(IFF_UP | IFF_RUNNING | link->iff_flags());
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);

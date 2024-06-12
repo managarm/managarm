@@ -70,6 +70,7 @@ struct Link {
 	unsigned int mtu;
 	unsigned int min_mtu;
 	unsigned int max_mtu;
+	unsigned int iff_flags();
 
 	static std::shared_ptr<Link> byIndex(int index);
 	static std::shared_ptr<Link> byName(std::string name);
@@ -79,6 +80,12 @@ protected:
 	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
 	int index_;
+
+	bool promiscuous_ = false;
+	bool multicast_ = false;
+	bool all_multicast_ = false;
+	bool broadcast_ = false;
+	bool l1_up_ = false;
 };
 
 async::detached runDevice(std::shared_ptr<Link> dev);

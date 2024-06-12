@@ -103,6 +103,11 @@ async::result<void> UsbNcmNic::initialize() {
 				packet_type::broadcast(1) |
 				packet_type::multicast(0)
 			).bits();
+
+			promiscuous_ = true;
+			all_multicast_ = true;
+			multicast_ = true;
+			broadcast_ = true;
 		}
 
 		res = co_await device_.transfer(protocols::usb::ControlTransfer{
@@ -131,7 +136,7 @@ async::detached UsbNcmNic::listenForNotifications() {
 			using Notification = NotificationHeader::Notification;
 
 			case Notification::NETWORK_CONNECTION:
-				printf("netserver: connection %s\n", notification->wValue == 1 ? "up" : "down");
+				l1_up_ = (notification->wValue == 1);
 				break;
 			case Notification::CONNECTION_SPEED_CHANGE: {
 				auto change = reinterpret_cast<protocols::usb::CdcConnectionSpeedChange *>(report.subview(sizeof(protocols::usb::CdcNotificationHeader)).data());

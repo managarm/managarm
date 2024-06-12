@@ -48,7 +48,7 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 		.ifi_family = AF_UNSPEC,
 		.ifi_type = ARPHRD_ETHER,
 		.ifi_index = nic->index(),
-		.ifi_flags = IFF_UP | IFF_LOWER_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST,
+		.ifi_flags = IFF_UP | IFF_RUNNING | nic->iff_flags(),
 	});
 
 	constexpr struct ether_addr broadcast_addr = { {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF} };

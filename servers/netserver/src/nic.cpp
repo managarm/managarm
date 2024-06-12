@@ -6,6 +6,7 @@
 #include <arch/bit.hpp>
 #include <frg/formatting.hpp>
 #include <frg/logging.hpp>
+#include <net/if.h>
 
 #include "ip/arp.hpp"
 #include "ip/ip4.hpp"
@@ -89,6 +90,23 @@ Link::AllocatedBuffer Link::allocateFrame(MacAddress to, EtherType type,
 
 	buf.payload = buf.frame.subview(14);
 	return buf;
+}
+
+unsigned int Link::iff_flags() {
+	unsigned int flags = 0;
+
+	if(promiscuous_)
+		flags |= IFF_PROMISC;
+	if(multicast_)
+		flags |= IFF_MULTICAST;
+	if(all_multicast_)
+		flags |= IFF_ALLMULTI;
+	if(broadcast_)
+		flags |= IFF_BROADCAST;
+	if(l1_up_)
+		flags |= IFF_LOWER_UP;
+
+	return flags;
 }
 
 async::detached runDevice(std::shared_ptr<nic::Link> dev) {

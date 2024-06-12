@@ -73,6 +73,12 @@ VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
 	receiveVq_ = transport_->setupQueue(0);
 	transmitVq_ = transport_->setupQueue(1);
 
+	promiscuous_ = true;
+	all_multicast_ = true;
+	multicast_ = true;
+	broadcast_ = true;
+	l1_up_ = true;
+
 	transport_->runDevice();
 }
 
