@@ -137,11 +137,11 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 		} else if(hdr->nlmsg_type == RTM_GETROUTE) {
 			self->getRoute(hdr);
 		} else if(hdr->nlmsg_type == RTM_NEWLINK) {
-			self->sendError(hdr, EPERM);
+			sendError(self, hdr, EPERM);
 		} else if(hdr->nlmsg_type == RTM_GETLINK) {
 			self->getLink(hdr);
 		} else if(hdr->nlmsg_type == RTM_DELLINK) {
-			self->sendError(hdr, EPERM);
+			sendError(self, hdr, EPERM);
 		} else if(hdr->nlmsg_type == RTM_NEWADDR) {
 			self->newAddr(hdr);
 		} else if(hdr->nlmsg_type == RTM_GETADDR) {

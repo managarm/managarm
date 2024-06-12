@@ -10,7 +10,6 @@ src = [
 	'src/netlink/netlink.cpp',
 	'src/netlink/packets.cpp',
 	'src/netlink/queries.cpp',
-	'src/netlink/utils.cpp',
 ]
 
 inc = [ 'include', 'src' ]

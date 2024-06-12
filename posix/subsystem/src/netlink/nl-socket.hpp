@@ -4,38 +4,25 @@
 #include <linux/netlink.h>
 #include <map>
 
+#include "core/netlink.hpp"
 #include "../file.hpp"
 
 namespace netlink::nl_socket {
 
 void setupProtocols();
 
-struct Packet {
-	// Sender netlink socket information.
-	uint32_t senderPort = 0;
-	uint32_t group = 0;
-
-	// Sender process information.
-	uint32_t senderPid = 0;
-
-	// The actual octet data that the packet consists of.
-	std::vector<char> buffer;
-
-	size_t offset = 0;
-};
-
-struct ops {
-	void (*sendMsg)(Packet &packet, struct sockaddr_nl *sa);
-};
-
 struct Group;
 struct OpenFile;
+
+struct ops {
+	async::result<protocols::fs::Error> (*sendMsg)(nl_socket::OpenFile *f, core::netlink::Packet packet, struct sockaddr_nl *sa);
+};
 
 extern std::map<int, const ops *> globalProtocolOpsMap;
 extern std::map<std::pair<int, uint8_t>, std::unique_ptr<Group>> globalGroupMap;
 extern std::map<uint32_t, OpenFile *> globalPortMap;
 
-struct OpenFile : File {
+struct OpenFile : File, core::netlink::NetlinkFile {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -48,7 +35,7 @@ public:
 
 	OpenFile(int protocol, bool nonBlock = false);
 
-	void deliver(Packet packet);
+	void deliver(core::netlink::Packet packet) override;
 
 	void handleClose() override {
 		_isClosed = true;
@@ -100,6 +87,13 @@ public:
 	async::result<void> setFileFlags(int flags) override;
 	async::result<int> getFileFlags() override;
 
+	uint32_t socketPort() {
+		if(!_socketPort)
+			_associatePort();
+
+		return _socketPort;
+	}
+
 private:
 	void _associatePort();
 
@@ -117,7 +111,7 @@ private:
 	uint32_t _socketPort;
 
 	// The actual receive queue of the socket.
-	std::deque<Packet> _recvQueue;
+	std::deque<core::netlink::Packet> _recvQueue;
 
 	// Socket options.
 	bool _passCreds;
@@ -131,7 +125,7 @@ struct Group {
 	friend struct OpenFile;
 
 	// Sends a copy of the given message to this group.
-	void carbonCopy(const Packet &packet);
+	void carbonCopy(const core::netlink::Packet &packet);
 
 private:
 	std::vector<OpenFile *> _subscriptions;

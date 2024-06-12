@@ -6,11 +6,13 @@
 #include <linux/filter.h>
 #include <iostream>
 #include <map>
+#include <format>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/common.hpp>
 #include "nl-socket.hpp"
+#include "nlctrl.hpp"
 #include "uevent.hpp"
 #include "../process.hpp"
 
@@ -39,7 +41,7 @@ OpenFile::OpenFile(int protocol, bool nonBlock)
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
 		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
-void OpenFile::deliver(Packet packet) {
+void OpenFile::deliver(core::netlink::Packet packet) {
 	if(filter_) {
 		Bpf bpf{filter_.value()};
 		size_t accept_bytes = bpf.run(arch::dma_buffer_view{nullptr, packet.buffer.data(), packet.buffer.size()});
@@ -107,8 +109,8 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 	using namespace protocols::fs;
 	if(logSockets)
 		std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-	if(!(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC))) {
-		std::cout << "posix: Unsupported flag in recvMsg" << std::endl;
+	if(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_PEEK | MSG_TRUNC)) {
+		std::cout << std::format("posix: Unsupported flags 0x{:x} in recvMsg", flags) << std::endl;
 	}
 
 	if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
@@ -124,9 +126,13 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 	auto packet = &_recvQueue.front();
 
 	auto size = packet->buffer.size();
+	auto truncated_size = std::min(size, max_length);
+
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
-	packet->offset += chunk;
+	if(!(flags & MSG_PEEK)) {
+		packet->offset += chunk;
+	}
 
 	if(addr_ptr) {
 		struct sockaddr_nl sa;
@@ -149,9 +155,18 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 		ctrl.write<struct ucred>(creds);
 	}
 
-	if(packet->offset == packet->buffer.size())
+	if(!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
-	co_return RecvData{ctrl.buffer(), size, sizeof(struct sockaddr_nl), 0};
+	}
+
+	uint32_t reply_flags = 0;
+
+	if(truncated_size < size) {
+		reply_flags |= MSG_TRUNC;
+	}
+
+	co_return RecvData{ctrl.buffer(), (flags & MSG_TRUNC) ? size : truncated_size,
+		sizeof(struct sockaddr_nl), reply_flags};
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
@@ -180,17 +195,21 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	// TODO: Associate port otherwise.
 	assert(_socketPort);
 
-	Packet packet;
+	core::netlink::Packet packet;
 	packet.senderPid = process->pid();
 	packet.senderPort = _socketPort;
 	packet.group = grp_idx;
 	packet.buffer.resize(max_length);
 	memcpy(packet.buffer.data(), data, max_length);
 
-	if(ops_ && ops_->sendMsg)
-		ops_->sendMsg(packet, &sa);
-	else
+	if(ops_ && ops_->sendMsg) {
+		auto res = co_await ops_->sendMsg(this, packet, &sa);
+
+		if(res != protocols::fs::Error::none)
+			co_return res;
+	} else {
 		co_return protocols::fs::Error::illegalOperationTarget;
+	}
 
 	co_return max_length;
 }
@@ -237,8 +256,13 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 	struct sockaddr_nl sa;
 	memcpy(&sa, addr_ptr, addr_length);
 
-	assert(!sa.nl_pid);
-	_associatePort();
+	if(!sa.nl_pid) {
+		_associatePort();
+	} else {
+		_socketPort = sa.nl_pid;
+		auto res = globalPortMap.insert({_socketPort, this});
+		assert(res.second);
+	}
 
 	if(sa.nl_groups) {
 		for(int i = 0; i < 32; i++) {
@@ -318,7 +342,7 @@ void OpenFile::_associatePort() {
 // Group implementation.
 // ----------------------------------------------------------------------------
 
-void Group::carbonCopy(const Packet &packet) {
+void Group::carbonCopy(const core::netlink::Packet &packet) {
 	for(auto socket : _subscriptions)
 		socket->deliver(packet);
 }
@@ -329,6 +353,7 @@ void Group::carbonCopy(const Packet &packet) {
 
 void setupProtocols() {
 	configure(NETLINK_KOBJECT_UEVENT, 32, &netlink::uevent::ops);
+	configure(NETLINK_GENERIC, 32, &netlink::nlctrl::ops);
 	configure(NETLINK_ROUTE, 32, nullptr);
 }
 
@@ -345,7 +370,7 @@ void configure(int protocol, size_t num_groups, const ops *ops) {
 }
 
 void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
-	Packet packet{
+	core::netlink::Packet packet{
 		.group = grp_idx,
 	};
 	packet.buffer.resize(buffer.size());

@@ -4,7 +4,7 @@
 
 namespace netlink {
 
-struct uevent {
+struct nlctrl {
 	static async::result<protocols::fs::Error> sendMsg(nl_socket::OpenFile *f, core::netlink::Packet packet, struct sockaddr_nl *sa);
 
 	constexpr static struct nl_socket::ops ops{
@@ -13,3 +13,4 @@ struct uevent {
 };
 
 } // namespace netlink
+

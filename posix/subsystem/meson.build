@@ -25,6 +25,7 @@ src = [
 	'src/memfd.cpp',
 	'src/net.cpp',
 	'src/netlink/nl-socket.cpp',
+	'src/netlink/nlctrl.cpp',
 	'src/netlink/uevent.cpp',
 	'src/observations.cpp',
 	'src/process.cpp',

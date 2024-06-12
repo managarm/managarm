@@ -1,14 +1,37 @@
 #pragma once
 
-#include "netlink.hpp"
-
-#include <cstddef>
-#include <cstring>
-#include <iterator>
-#include <linux/netlink.h>
+#include <assert.h>
+#include <functional>
+#include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
-#include <net/if.h>
+#include <format>
+#include <new>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <string>
+#include <vector>
 #include <optional>
+
+namespace core::netlink {
+
+struct Packet {
+	// Sender netlink socket information.
+	uint32_t senderPort = 0;
+	uint32_t group = 0;
+
+	// Sender process information.
+	uint32_t senderPid = 0;
+
+	// The actual octet data that the packet consists of.
+	std::vector<char> buffer;
+
+	size_t offset = 0;
+};
+
+struct NetlinkFile {
+	virtual void deliver(core::netlink::Packet packet) = 0;
+};
 
 template<typename T>
 std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int length) {
@@ -24,7 +47,13 @@ std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int lengt
  * A utility for building up Netlink messages.
  */
 struct NetlinkBuilder {
+	inline void reset() {
+		_packet = {};
+		_offset = 0;
+	}
+
 	inline void header(uint16_t type, uint16_t flags, uint32_t seq, uint32_t pid) {
+		assert(_offset == 0);
 		struct nlmsghdr hdr{};
 		hdr.nlmsg_type = type;
 		hdr.nlmsg_flags = flags;
@@ -48,6 +77,69 @@ struct NetlinkBuilder {
 	}
 
 	template<typename T>
+	inline void nlattr(uint8_t type, T data) {
+		struct nlattr attr;
+		attr.nla_type = type;
+		attr.nla_len = NLA_HDRLEN + sizeof(T);
+		size_t aligned_size = NLA_ALIGN(attr.nla_len);
+
+		assert((_offset & (NLA_ALIGNTO - 1)) == 0);
+		_packet.buffer.resize(_offset + aligned_size);
+		assert(_packet.buffer.cbegin() + _offset + aligned_size <= _packet.buffer.cend());
+
+		memcpy(_packet.buffer.data() + _offset, &attr, sizeof(struct nlattr));
+		memcpy(_packet.buffer.data() + _offset + NLA_HDRLEN, &data, sizeof(T));
+		_offset += aligned_size;
+
+		buffer_align();
+	};
+
+	template<>
+	inline void nlattr<std::string>(uint8_t type, std::string data) {
+		size_t str_len = data.length() + 1;
+
+		struct nlattr attr;
+		attr.nla_type = type;
+		attr.nla_len = NLA_HDRLEN + str_len;
+		size_t aligned_size = NLA_ALIGN(attr.nla_len);
+
+		assert((_offset & (NLA_ALIGNTO - 1)) == 0);
+		_packet.buffer.resize(_offset + aligned_size);
+		assert(_packet.buffer.cbegin() + _offset + aligned_size <= _packet.buffer.cend());
+
+		memcpy(_packet.buffer.data() + _offset, &attr, sizeof(struct nlattr));
+		memcpy(_packet.buffer.data() + _offset + NLA_HDRLEN, data.c_str(), str_len);
+		_offset += aligned_size;
+
+		buffer_align();
+	};
+
+	/**
+	 * Set up a new nlattr that holds nested nlattrs, as created by the callback `cb`.
+	 */
+	template<typename T>
+	inline void nested_nlattr(uint8_t type, std::function<void(NetlinkBuilder &, T)> cb, T ctx) {
+		/* resize the buffer to nold our new nlattr header */
+		_packet.buffer.resize(_offset + NLA_HDRLEN);
+		/* use placement new to setting up the nlattr */
+		struct nlattr *new_attr = new (_packet.buffer.data() + _offset) (struct nlattr);
+		/* save the offset at the start of our new nlattr */
+		auto prev_offset = _offset;
+		new_attr->nla_type = type;
+		/* adjust the nlattr header size, so that the callback starts writing past it */
+		_offset += NLA_HDRLEN;
+
+		cb(*this, ctx);
+
+		/* the callback is very likely to resize the buffer, thus invalidating `new_attr` */
+		auto nested_attr = reinterpret_cast<struct nlattr *>(_packet.buffer.data() + prev_offset);
+		/* set the correct size: the difference between the offsets includes NLA_HDRLEN + whatever `cb` wrote */
+		nested_attr->nla_len = (_offset - prev_offset);
+		/* ensure we're still aligned properly */
+		buffer_align();
+	}
+
+	template<typename T>
 	inline void rtattr(uint8_t type, T data) {
 		struct rtattr attr;
 		attr.rta_type = type;
@@ -64,7 +156,8 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	inline void rtattr_string(uint8_t type, std::string data) {
+	template<>
+	inline void rtattr(uint8_t type, std::string data) {
 		const size_t str_len = data.length() + 1;
 
 		struct rtattr attr;
@@ -79,8 +172,12 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	inline nl::Packet packet() {
-		memcpy(_packet.buffer.data(), &_offset, sizeof(uint32_t));
+	inline Packet packet(size_t sub = 0) {
+		size_t size = _offset - sub;
+
+		auto hdr = reinterpret_cast<nlmsghdr *>(_packet.buffer.data());
+		hdr->nlmsg_len = size;
+
 		return std::move(_packet);
 	}
 private:
@@ -96,7 +193,7 @@ private:
 		_offset = size;
 	};
 
-	nl::Packet _packet;
+	Packet _packet;
 	size_t _offset = 0;
 };
 
@@ -213,6 +310,7 @@ namespace nl::packets {
 	struct ifaddr{};
 	struct ifinfo{};
 	struct rt{};
+	struct genl{};
 }
 
 inline std::optional<NetlinkAttrs<struct ifaddrmsg>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifaddr) {
@@ -250,3 +348,65 @@ inline std::optional<NetlinkAttrs<struct rtmsg>> NetlinkAttr(struct nlmsghdr *hd
 
 	return NetlinkAttrs<struct rtmsg>(hdr, msg, RTM_RTA(msg));
 }
+
+inline std::optional<NetlinkAttrs<struct genlmsghdr>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::genl) {
+	const struct genlmsghdr *msg = nullptr;
+
+	if(auto opt = netlinkMessage<struct genlmsghdr>(hdr, hdr->nlmsg_len)) {
+		msg = *opt;
+	} else {
+		return std::nullopt;
+	}
+
+	return NetlinkAttrs<struct genlmsghdr>(hdr, msg, reinterpret_cast<struct rtattr *>(uintptr_t(msg) + GENL_HDRLEN));
+}
+
+inline void sendDone(NetlinkFile *f, struct nlmsghdr *hdr, struct sockaddr_nl *sa = nullptr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_DONE, 0, hdr->nlmsg_seq, (sa != nullptr) ? sa->nl_pid : 0);
+	b.message<uint32_t>(0);
+
+	f->deliver(b.packet());
+}
+
+inline void sendError(NetlinkFile *f, struct nlmsghdr *hdr, int err, struct sockaddr_nl *sa = nullptr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_ERROR, 0, hdr->nlmsg_seq, (sa != nullptr) ? sa->nl_pid : 0);
+
+	b.message<struct nlmsgerr>({
+		.error = -err,
+		.msg = *hdr,
+	});
+
+	f->deliver(b.packet());
+}
+
+inline void sendAck(NetlinkFile *f, struct nlmsghdr *hdr) {
+	NetlinkBuilder b;
+
+	b.header(NLMSG_ERROR, NLM_F_CAPPED, hdr->nlmsg_seq, 0);
+	b.message<struct nlmsgerr>({
+		.error = 0,
+		.msg = *hdr,
+	});
+
+	f->deliver(b.packet());
+}
+
+} // namespace core::netlink
+
+/* enable dumping netlink packets with std::format */
+template<>
+struct std::formatter<core::netlink::Packet> : std::formatter<string_view> {
+	auto format(const core::netlink::Packet& obj, std::format_context& ctx) const {
+		std::string temp;
+
+		for(auto c : obj.buffer) {
+			std::format_to(std::back_inserter(temp), "\\x{:02x}", (unsigned char) c);
+		}
+
+		return std::formatter<string_view>::format(temp, ctx);
+	}
+};

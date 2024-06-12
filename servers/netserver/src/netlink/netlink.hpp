@@ -7,6 +7,7 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 
+#include "core/netlink.hpp"
 #include "ip/ip4.hpp"
 #include "ip/arp.hpp"
 
@@ -14,14 +15,8 @@
 #include <vector>
 
 namespace nl {
-struct Packet {
-	int senderPort;
-	int group;
 
-	std::vector<char> buffer;
-};
-
-class NetlinkSocket {
+class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags);
 
@@ -63,6 +58,8 @@ public:
 		.sendMsg = &sendMsg,
 	};
 
+	void deliver(core::netlink::Packet packet) override;
+
 private:
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
@@ -80,10 +77,6 @@ private:
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
 
-	void sendDone(struct nlmsghdr *hdr);
-	void sendError(struct nlmsghdr *hdr, int err);
-	void sendAck(struct nlmsghdr *hdr);
-
 	int flags;
 
 	// Status management for poll()
@@ -93,7 +86,7 @@ private:
 	uint64_t _inSeq;
 	bool _passCreds = false;
 
-	std::deque<nl::Packet> _recvQueue;
+	std::deque<core::netlink::Packet> _recvQueue;
 };
 
 } // namespace nl
