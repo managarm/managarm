@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/bits.hpp>
 #include <assert.h>
 #include <cstdint>
 #include <string>
@@ -191,7 +192,7 @@ struct [[gnu::packed]] CdcEthernetNetworking : public CdcDescriptor {
 /* NCM 1.0 5.2.1 */
 struct [[gnu::packed]] CdcNcm : public CdcDescriptor {
 	uint16_t bcdNcmVersion;
-	uint8_t bmNetworkCapabilities;
+	arch::bit_value<uint8_t> bmNetworkCapabilities;
 };
 
 struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {

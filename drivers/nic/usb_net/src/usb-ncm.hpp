@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/bits.hpp>
 #include <format>
 
 #include "usb-net.hpp"
@@ -45,14 +46,31 @@ struct NtbParameter {
 struct UsbNcmNic : UsbNic {
 	UsbNcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
 		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
-		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out);
+		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
+		size_t config_index);
 
 	async::result<void> initialize() override;
 	async::detached listenForNotifications() override;
 
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
+private:
+	size_t config_index_;
 };
+
+namespace regs {
+
+// NCM 1.0 5.2.1 Table 5-2
+namespace bmNetworkCapabilities {
+	constexpr arch::field<uint8_t, uint8_t> setEthernetPacketFilter{0, 1};
+	constexpr arch::field<uint8_t, uint8_t> netAddress{1, 1};
+	constexpr arch::field<uint8_t, uint8_t> encapsulatedCommand{2, 1};
+	constexpr arch::field<uint8_t, uint8_t> maxDatagramSize{3, 1};
+	constexpr arch::field<uint8_t, uint8_t> crcMode{4, 1};
+	constexpr arch::field<uint8_t, uint8_t> ntbInputSize{5, 1};
+} // namespace bmNetworkCapabilities
+
+} // namespace regs
 
 } // namespace nic::usb_ncm
 

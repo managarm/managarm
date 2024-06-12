@@ -28,6 +28,8 @@ struct ConfigurationInfo {
 	bool ncm = false;
 	bool valid = false;
 
+	size_t configuration_index;
+
 	std::optional<uint8_t> chosen_configuration;
 	std::optional<uint8_t> iMACAddress;
 	std::optional<uint8_t> control_if;
