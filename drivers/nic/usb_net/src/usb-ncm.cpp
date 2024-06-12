@@ -46,7 +46,13 @@ async::result<void> UsbNcmNic::initialize() {
 	assert(ncm_hdr != nullptr);
 
 	// wMaxSegmentSize includes MTU and the ethernet header, but not CRC
-	mtu = ecm_hdr->wMaxSegmentSize - sizeof(ether_header);
+	max_mtu = ecm_hdr->wMaxSegmentSize - sizeof(ether_header);
+	mtu = max_mtu;
+
+	if(ncm_hdr->bmNetworkCapabilities & regs::bmNetworkCapabilities::maxDatagramSize)
+		min_mtu = 68;
+	else
+		min_mtu = mtu;
 
 	arch::dma_object<protocols::usb::SetupPacket> ctrl_msg{&dmaPool_};
 	arch::dma_object<NtbParameter> params{&dmaPool_};
@@ -139,7 +145,7 @@ async::detached UsbNcmNic::listenForNotifications() {
 }
 
 async::result<size_t> UsbNcmNic::receive(arch::dma_buffer_view frame) {
-	arch::dma_buffer buf{&dmaPool_, 0x1000};
+	arch::dma_buffer buf{&dmaPool_, mtu};
 
 	auto res = co_await data_in_.transfer(protocols::usb::BulkTransfer{protocols::usb::kXferToHost, buf});
 	assert(res);

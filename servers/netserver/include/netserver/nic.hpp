@@ -68,6 +68,8 @@ struct Link {
 	int index();
 	std::string name();
 	unsigned int mtu;
+	unsigned int min_mtu;
+	unsigned int max_mtu;
 
 	static std::shared_ptr<Link> byIndex(int index);
 	static std::shared_ptr<Link> byName(std::string name);

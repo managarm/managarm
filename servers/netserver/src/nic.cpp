@@ -36,7 +36,7 @@ bool operator!=(const MacAddress &l, const MacAddress &r) {
 }
 
 Link::Link(unsigned int mtu, arch::dma_pool *dmaPool)
-: mtu(mtu), dmaPool_(dmaPool), index_{_allocator.allocate()} {
+: mtu(mtu), min_mtu(mtu), max_mtu(mtu), dmaPool_(dmaPool), index_{_allocator.allocate()} {
 
 }
 
