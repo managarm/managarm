@@ -138,6 +138,7 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 		});
 
 		if(usb_info.valid && usb_info.iMACAddress && usb_info.control_if && usb_info.data_if) {
+			usb_info.configuration_index = configuration;
 			usb_info.chosen_configuration = reinterpret_cast<protocols::usb::ConfigDescriptor *>(raw_descs.data())->configValue;
 			matched_usb_info = std::move(usb_info);
 			break;
@@ -381,7 +382,7 @@ async::detached serve(helix::UniqueLane lane) {
 				auto link = nic::Link::byName(req.name());
 
 				if(link) {
-					resp.set_flags(IFF_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST);
+					resp.set_flags(IFF_UP | IFF_RUNNING | link->iff_flags());
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);

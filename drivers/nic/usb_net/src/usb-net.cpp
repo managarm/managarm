@@ -26,7 +26,7 @@ async::result<std::shared_ptr<nic::Link>> makeShared(protocols::usb::Device hw_d
 
 	if(info.ncm) {
 		auto nic = std::make_shared<nic::usb_ncm::UsbNcmNic>(std::move(hw_device), mac, std::move(ctrl_intf), std::move(ctrl_ep),
-			std::move(data_intf), std::move(data_in), std::move(data_out));
+			std::move(data_intf), std::move(data_in), std::move(data_out), info.configuration_index);
 		co_await nic->initialize();
 
 		co_return nic;

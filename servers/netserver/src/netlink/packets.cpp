@@ -48,15 +48,18 @@ void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
 		.ifi_family = AF_UNSPEC,
 		.ifi_type = ARPHRD_ETHER,
 		.ifi_index = nic->index(),
-		.ifi_flags = IFF_UP | IFF_LOWER_UP | IFF_RUNNING | IFF_MULTICAST | IFF_BROADCAST,
+		.ifi_flags = IFF_UP | IFF_RUNNING | nic->iff_flags(),
 	});
 
 	constexpr struct ether_addr broadcast_addr = { {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF} };
 
 	if(!nic->name().empty())
 		b.rtattr(IFLA_IFNAME, nic->name());
-	if(nic->mtu)
+	if(nic->mtu) {
 		b.rtattr(IFLA_MTU, nic->mtu);
+		b.rtattr(IFLA_MIN_MTU, nic->min_mtu);
+		b.rtattr(IFLA_MAX_MTU, nic->max_mtu);
+	}
 	b.rtattr(IFLA_TXQLEN, 1000);
 	b.rtattr(IFLA_BROADCAST, broadcast_addr);
 	//TODO(no92): separate out the concept of permanent MAC addresses from userspace-configurable ones
