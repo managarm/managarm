@@ -73,13 +73,10 @@ async::result<protocols::fs::Error> nlctrl::sendMsg(nl_socket::OpenFile *f, core
 					core::netlink::NetlinkBuilder b;
 
 					for(auto const &[id, info] : families) {
-						if(filter_id) {
-							if(filter_id.value() != id)
-								continue;
-						} else if(filter_name) {
-							if(filter_name.value() != info.name)
-								continue;
-						}
+						if(filter_id && filter_id.value() != id)
+							continue;
+						else if(filter_name && filter_name.value() != info.name)
+							continue;
 
 						b.header(id, NLM_F_MULTI, nlh->nlmsg_seq, sa->nl_pid);
 						b.message<genlmsghdr>({
