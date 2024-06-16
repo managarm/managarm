@@ -313,7 +313,7 @@ namespace nl::packets {
 	struct genl{};
 }
 
-inline std::optional<NetlinkAttrs<struct ifaddrmsg>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifaddr) {
+inline std::optional<NetlinkAttrs<struct ifaddrmsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifaddr) {
 	const struct ifaddrmsg *msg;
 
 	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
@@ -325,7 +325,7 @@ inline std::optional<NetlinkAttrs<struct ifaddrmsg>> NetlinkAttr(struct nlmsghdr
 	return NetlinkAttrs<struct ifaddrmsg>(hdr, msg, IFA_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct ifinfomsg>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifinfo) {
+inline std::optional<NetlinkAttrs<struct ifinfomsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifinfo) {
 	const struct ifinfomsg *msg;
 
 	if(auto opt = netlinkMessage<struct ifinfomsg>(hdr, hdr->nlmsg_len))
@@ -337,7 +337,7 @@ inline std::optional<NetlinkAttrs<struct ifinfomsg>> NetlinkAttr(struct nlmsghdr
 	return NetlinkAttrs<struct ifinfomsg>(hdr, msg, IFLA_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct rtmsg>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::rt) {
+inline std::optional<NetlinkAttrs<struct rtmsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::rt) {
 	const struct rtmsg *msg;
 
 	if(auto opt = netlinkMessage<struct rtmsg>(hdr, hdr->nlmsg_len))
@@ -349,7 +349,7 @@ inline std::optional<NetlinkAttrs<struct rtmsg>> NetlinkAttr(struct nlmsghdr *hd
 	return NetlinkAttrs<struct rtmsg>(hdr, msg, RTM_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct genlmsghdr>> NetlinkAttr(struct nlmsghdr *hdr, struct nl::packets::genl) {
+inline std::optional<NetlinkAttrs<struct genlmsghdr>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::genl) {
 	const struct genlmsghdr *msg = nullptr;
 
 	if(auto opt = netlinkMessage<struct genlmsghdr>(hdr, hdr->nlmsg_len)) {

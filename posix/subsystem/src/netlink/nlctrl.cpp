@@ -48,7 +48,7 @@ async::result<protocols::fs::Error> nlctrl::sendMsg(nl_socket::OpenFile *f, core
 		case GENL_ID_CTRL: {
 			switch(genlh->cmd) {
 				case CTRL_CMD_GETFAMILY: {
-					auto req = core::netlink::NetlinkAttr(nlh, core::netlink::nl::packets::genl{});
+					auto req = core::netlink::netlinkAttr(nlh, core::netlink::nl::packets::genl{});
 
 					std::optional<uint16_t> filter_id;
 					std::optional<std::string> filter_name;

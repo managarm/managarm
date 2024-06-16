@@ -8,7 +8,7 @@
 namespace nl {
 
 using core::netlink::netlinkMessage;
-using core::netlink::NetlinkAttr;
+using core::netlink::netlinkAttr;
 
 void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	const struct ifinfomsg *msg;
@@ -30,7 +30,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 	[[maybe_unused]] uint32_t ext_mask = 0;
 
 	if(msg) {
-		auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifinfo{});
+		auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::ifinfo{});
 
 		if(attrs.has_value()) {
 			for(auto attr : *attrs) {
@@ -97,7 +97,7 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::rt{});
+	auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::rt{});
 
 	if(!attrs.has_value()) {
 		sendError(this, hdr, EINVAL);
@@ -207,7 +207,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
+	auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
 		sendError(this, hdr, EINVAL);
@@ -294,7 +294,7 @@ void NetlinkSocket::deleteAddr(struct nlmsghdr *hdr) {
 		return;
 	}
 
-	auto attrs = NetlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
+	auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
 	if(!attrs.has_value()) {
 		sendError(this, hdr, EINVAL);
