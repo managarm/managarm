@@ -11,7 +11,6 @@ namespace netlink::nl_socket {
 
 void setupProtocols();
 
-struct Group;
 struct OpenFile;
 
 struct ops {
@@ -19,7 +18,7 @@ struct ops {
 };
 
 extern std::map<int, const ops *> globalProtocolOpsMap;
-extern std::map<std::pair<int, uint8_t>, std::unique_ptr<Group>> globalGroupMap;
+extern std::map<std::pair<int, uint8_t>, std::unique_ptr<core::netlink::Group>> globalGroupMap;
 extern std::map<uint32_t, OpenFile *> globalPortMap;
 
 struct OpenFile : File, core::netlink::NetlinkFile {
@@ -119,16 +118,6 @@ private:
 
 	// BPF filter
 	std::optional<std::vector<char>> filter_ = std::nullopt;
-};
-
-struct Group {
-	friend struct OpenFile;
-
-	// Sends a copy of the given message to this group.
-	void carbonCopy(const core::netlink::Packet &packet);
-
-private:
-	std::vector<OpenFile *> _subscriptions;
 };
 
 // Configures the given netlink protocol.

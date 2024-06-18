@@ -18,8 +18,9 @@
 
 namespace netlink::nl_socket {
 
+using core::netlink::Group;
+
 struct OpenFile;
-struct Group;
 
 constexpr bool logSockets = false;
 
@@ -274,7 +275,7 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 			auto it = globalGroupMap.find({_protocol, i + 1});
 			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
-			group->_subscriptions.push_back(this);
+			group->subscriptions.push_back(this);
 		}
 	}
 
@@ -336,15 +337,6 @@ void OpenFile::_associatePort() {
 	_socketPort = nextPort--;
 	auto res = globalPortMap.insert({_socketPort, this});
 	assert(res.second);
-}
-
-// ----------------------------------------------------------------------------
-// Group implementation.
-// ----------------------------------------------------------------------------
-
-void Group::carbonCopy(const core::netlink::Packet &packet) {
-	for(auto socket : _subscriptions)
-		socket->deliver(packet);
 }
 
 // ----------------------------------------------------------------------------
