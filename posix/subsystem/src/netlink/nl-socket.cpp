@@ -354,7 +354,6 @@ void Group::carbonCopy(const core::netlink::Packet &packet) {
 void setupProtocols() {
 	configure(NETLINK_KOBJECT_UEVENT, 32, &netlink::uevent::ops);
 	configure(NETLINK_GENERIC, 32, &netlink::nlctrl::ops);
-	configure(NETLINK_ROUTE, 32, nullptr);
 }
 
 void configure(int protocol, size_t num_groups, const ops *ops) {
