@@ -18,8 +18,8 @@ if not provide_deps
 		sources : hw_bragi,
 		include_directories : incs
 	)
-endif
 
-install_headers('include/protocols/hw/client.hpp',
-	subdir : 'protocols/hw'
-)
+	install_headers('include/protocols/hw/client.hpp',
+		subdir : 'protocols/hw'
+	)
+endif

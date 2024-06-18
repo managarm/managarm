@@ -127,7 +127,7 @@ frgbragi = generator(bragi,
 )
 
 # declare dependencies that subdirs are going to use
-bragi_dep = subproject('bragi').get_variable('bragi_dep')
+bragi_dep = subproject('bragi', default_options: ['install_headers=false']).get_variable('bragi_dep')
 
 # If we are building the kernel, we need the freestanding subset of libarch.
 if flavor == 'kernel' or flavor == 'none'

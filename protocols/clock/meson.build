@@ -5,6 +5,8 @@ clock_proto_dep = declare_dependency(
 	include_directories : 'include'
 )
 
-install_headers('include/protocols/clock/defs.hpp',
-	subdir : 'protocols/clock'
-)
+if not provide_deps
+	install_headers('include/protocols/clock/defs.hpp',
+		subdir : 'protocols/clock'
+	)
+endif
