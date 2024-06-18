@@ -24,6 +24,6 @@ if not provide_deps
 		dependencies : deps,
 		include_directories : inc
 	)
-endif
 
-install_headers(headers, subdir : 'protocols/usb')
+	install_headers(headers, subdir : 'protocols/usb')
+endif

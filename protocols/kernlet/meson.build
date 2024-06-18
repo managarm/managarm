@@ -18,8 +18,8 @@ if build_drivers
 		sources : kernlet_bragi,
 		include_directories : inc
 	)
-endif
 
-install_headers('include/protocols/kernlet/compiler.hpp',
-	subdir : 'protocols/kernlet'
-)
+	install_headers('include/protocols/kernlet/compiler.hpp',
+		subdir : 'protocols/kernlet'
+	)
+endif

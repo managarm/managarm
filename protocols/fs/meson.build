@@ -21,6 +21,6 @@ if not provide_deps
 		sources : fs_bragi,
 		include_directories : inc
 	)
-endif
 
-install_headers(headers, subdir : 'protocols/fs')
+	install_headers(headers, subdir : 'protocols/fs')
+endif

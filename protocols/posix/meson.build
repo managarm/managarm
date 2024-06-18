@@ -7,4 +7,6 @@ posix_extra_dep = declare_dependency(
 	include_directories : inc
 )
 
-install_headers(headers, subdir : 'protocols/posix')
+if not provide_deps
+	install_headers(headers, subdir : 'protocols/posix')
+endif

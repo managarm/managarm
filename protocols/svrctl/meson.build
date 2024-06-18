@@ -18,8 +18,8 @@ if not provide_deps
 		sources : svrctl_bragi,
 		include_directories : inc
 	)
-endif
 
-install_headers('include/protocols/svrctl/server.hpp',
-	subdir : 'protocols/svrctl'
-)
+	install_headers('include/protocols/svrctl/server.hpp',
+		subdir : 'protocols/svrctl'
+	)
+endif

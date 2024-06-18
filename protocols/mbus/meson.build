@@ -18,8 +18,8 @@ if not provide_deps
 		sources : mbus_bragi,
 		include_directories : inc
 	)
-endif
 
-install_headers('include/protocols/mbus/client.hpp',
-	subdir : 'protocols/mbus'
-)
+	install_headers('include/protocols/mbus/client.hpp',
+		subdir : 'protocols/mbus'
+	)
+endif
