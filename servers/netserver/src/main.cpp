@@ -518,6 +518,8 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 int main() {
 	printf("netserver: Starting driver\n");
 
+	nl::initialize();
+
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 
 	async::detach(protocols::svrctl::serveControl(&controlOps));

@@ -64,6 +64,10 @@ struct NetlinkBuilder {
 		_offset = 0;
 	}
 
+	inline void group(uint32_t groupid) {
+		_packet.group = groupid;
+	}
+
 	inline void header(uint16_t type, uint16_t flags, uint32_t seq, uint32_t pid) {
 		assert(_offset == 0);
 		struct nlmsghdr hdr{};

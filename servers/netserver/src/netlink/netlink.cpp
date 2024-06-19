@@ -7,9 +7,15 @@
 extern std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 extern std::optional<helix::UniqueDescriptor> posixLane;
 
+using core::netlink::Group;
+
 namespace {
 
+constexpr bool logGroups = false;
 constexpr bool logSocket = false;
+
+/* groupid -> std::unique_ptr<Group> */
+std::map<unsigned, std::unique_ptr<Group>> globalGroupMap;
 
 } /* namespace */
 
@@ -101,7 +107,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 
 async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMsg(void *obj,
 			const char *creds, uint32_t flags, void *data, size_t len,
-			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred ucreds) {
+			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred) {
 	(void) creds;
 	(void) addr_ptr;
 	(void) addr_size;
@@ -159,6 +165,35 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 	co_return orig_len;
 }
 
+async::result<protocols::fs::Error> NetlinkSocket::bind(void *obj, const char *creds,
+		const void *addr_ptr, size_t addr_length) {
+	(void) creds;
+
+	auto self = static_cast<NetlinkSocket *>(obj);
+
+	if(addr_length < sizeof(struct sockaddr_nl))
+		co_return protocols::fs::Error::illegalArguments;
+
+	struct sockaddr_nl sa;
+	memcpy(&sa, addr_ptr, addr_length);
+
+	if(sa.nl_groups) {
+		for(int i = 0; i < 32; i++) {
+			if(!(sa.nl_groups & (1 << i)))
+				continue;
+			if(logGroups)
+				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", (i + 1));
+
+			auto it = globalGroupMap.find(i + 1);
+			assert(it != globalGroupMap.end());
+			auto group = it->second.get();
+			group->subscriptions.push_back(self);
+		}
+	}
+
+	co_return protocols::fs::Error::none;
+}
+
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> NetlinkSocket::pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
 	auto self = static_cast<NetlinkSocket *>(obj);
 	(void)mask; // TODO: utilize mask.
@@ -186,6 +221,95 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResul
 		events |= EPOLLIN;
 
 	co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
+}
+
+async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOption(void *object,
+		int layer, int number, std::vector<char> optbuf) {
+	auto self = static_cast<NetlinkSocket *>(object);
+
+	if(layer != SOL_NETLINK)
+		co_return protocols::fs::Error::illegalArguments;
+
+	switch(number) {
+		case NETLINK_ADD_MEMBERSHIP: {
+			auto val = *reinterpret_cast<int *>(optbuf.data());
+			if(!val)
+				co_return protocols::fs::Error::illegalArguments;
+
+			if(!globalGroupMap.contains(val)) {
+				std::cout << std::format("netserver: attempt to join invalid netlink group 0x{:x}\n", val);
+				co_return protocols::fs::Error::illegalArguments;
+			}
+
+			auto it = globalGroupMap.find(val);
+			assert(it != globalGroupMap.end());
+			auto group = it->second.get();
+			group->subscriptions.push_back(self);
+
+			if(logGroups)
+				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", val);
+			break;
+		}
+		default:
+			std::cout << std::format("netserver: unknown setsockopt 0x{:x}\n", number);
+			co_return protocols::fs::Error::illegalArguments;
+	}
+
+	co_return {};
+}
+
+void NetlinkSocket::broadcast(core::netlink::Packet packet) {
+	if(!packet.group)
+		return;
+
+	auto it = globalGroupMap.find(packet.group);
+	assert(it != globalGroupMap.end());
+	auto group = it->second.get();
+	group->carbonCopy(packet);
+}
+
+std::array<rtnetlink_groups, 34> supported_groups = {
+	RTNLGRP_LINK,
+	RTNLGRP_NOTIFY,
+	RTNLGRP_NEIGH,
+	RTNLGRP_TC,
+	RTNLGRP_IPV4_IFADDR,
+	RTNLGRP_IPV4_MROUTE,
+	RTNLGRP_IPV4_ROUTE,
+	RTNLGRP_IPV4_RULE,
+	RTNLGRP_IPV6_IFADDR,
+	RTNLGRP_IPV6_MROUTE,
+	RTNLGRP_IPV6_ROUTE,
+	RTNLGRP_IPV6_IFINFO,
+	RTNLGRP_DECnet_IFADDR,
+	RTNLGRP_DECnet_ROUTE,
+	RTNLGRP_DECnet_RULE,
+	RTNLGRP_IPV6_PREFIX,
+	RTNLGRP_IPV6_RULE,
+	RTNLGRP_ND_USEROPT,
+	RTNLGRP_PHONET_IFADDR,
+	RTNLGRP_PHONET_ROUTE,
+	RTNLGRP_DCB,
+	RTNLGRP_IPV4_NETCONF,
+	RTNLGRP_IPV6_NETCONF,
+	RTNLGRP_MDB,
+	RTNLGRP_MPLS_ROUTE,
+	RTNLGRP_NSID,
+	RTNLGRP_MPLS_NETCONF,
+	RTNLGRP_IPV4_MROUTE_R,
+	RTNLGRP_IPV6_MROUTE_R,
+	RTNLGRP_NEXTHOP,
+	RTNLGRP_BRVLAN,
+	RTNLGRP_MCTP_IFADDR,
+	RTNLGRP_TUNNEL,
+	RTNLGRP_STATS,
+};
+
+void initialize() {
+	for(auto group : supported_groups) {
+		auto res = globalGroupMap.insert({group, std::make_unique<Group>()});
+		assert(res.second);
+	}
 }
 
 } // namespace nl
