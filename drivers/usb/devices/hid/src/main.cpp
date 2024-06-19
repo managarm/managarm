@@ -704,7 +704,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 			config_number = info.configNumber.value();
 		}else if(type == proto::descriptor_type::interface) {
 			auto desc = reinterpret_cast<proto::InterfaceDescriptor *>(p);
-			if(desc->interfaceClass != 3)
+			if(desc->interfaceClass != protocols::usb::usb_class::hid)
 				return;
 
 			if(intf_number) {

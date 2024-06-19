@@ -247,7 +247,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 				<< ", subclass: 0x" << intf_subclass.value()
 				<< ", protocol: 0x" << intf_protocol.value()
 				<< std::dec << std::endl;
-	if(intf_class.value() != 0x08
+	if(intf_class.value() != protocols::usb::usb_class::mass_storage
 			|| intf_subclass.value() != 0x06
 			|| intf_protocol.value() != 0x50)
 		co_return;

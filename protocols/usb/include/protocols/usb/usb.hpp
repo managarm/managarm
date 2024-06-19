@@ -73,6 +73,27 @@ namespace descriptor_type {
 	};
 }
 
+namespace usb_class {
+	enum : uint8_t {
+		per_interface = 0x00,
+		cdc = 0x02,
+		hid = 0x03,
+		mass_storage = 0x08,
+		cdc_data = 0x0A,
+		vendor_specific = 0xFF,
+	};
+} // namespace usb_class
+
+namespace cdc_subclass {
+	enum : uint8_t {
+		reserved = 0x00,
+		ethernet = 0x06,
+		ncm = 0x0D,
+		mbim = 0x0E,
+		vendor_specific = 0xFF,
+	};
+} // namespace cdc_subclass
+
 struct DescriptorBase {
 	uint8_t length;
 	uint8_t descriptorType;
