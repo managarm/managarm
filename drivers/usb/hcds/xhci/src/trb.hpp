@@ -180,8 +180,8 @@ namespace Transfer {
 		if (view.size() && dataIn)
 			statusIn = false;
 
-		use(setupStage(setup, view.size(), dataIn), false);
-		buildTransferChain(maxPacketSize, use, false, view, dataStage, dataIn);
+		use(setupStage(setup, view.size(), dataIn), true);
+		buildTransferChain(maxPacketSize, use, true, view, dataStage, dataIn);
 		use(statusStage(statusIn), true);
 	}
 } // namespace Transfer

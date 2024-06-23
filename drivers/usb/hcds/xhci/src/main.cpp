@@ -31,19 +31,6 @@ namespace proto = protocols::usb;
 // what Linux is doing in it's driver.
 inline constexpr bool ignoreControllerSpeeds = true;
 
-inline frg::expected<proto::UsbError> completionToError(Event ev) {
-	using proto::UsbError;
-
-	switch (ev.completionCode) {
-		case 1: return frg::success;
-		case 13: return frg::success; // Should short packets always be treated as success?
-		case 3: return UsbError::babble;
-		case 6: return UsbError::stall;
-		case 22: return UsbError::unsupported;
-		default: return UsbError::other;
-	}
-}
-
 // ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
@@ -796,24 +783,19 @@ Controller::Device::useConfiguration(int number) {
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
-	ProducerRing::Completion comp;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &comp);
+		pushRawTransfer(0, trb, &tx);
 	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false,
 			_maxPacketSizes[0]);
 
 	submit(1);
 
-	co_await comp.completion.wait();
+	FRG_CO_TRY(co_await tx.control(false));
 
-	if (comp.event.completionCode != 1)
-		printf("xhci: failed to use configuration, completion code: '%s'\n",
-			completionCodeNames[comp.event.completionCode]);
-
-	FRG_CO_TRY(completionToError(comp.event));
 	printf("xhci: configuration set\n");
 
 	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
@@ -821,19 +803,18 @@ Controller::Device::useConfiguration(int number) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::transfer(proto::ControlTransfer info) {
-	ProducerRing::Completion ev;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &ev);
+		pushRawTransfer(0, trb, &tx);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost, _maxPacketSizes[0]);
 
 	submit(1);
 
-	co_await ev.completion.wait();
+	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
 
-	FRG_CO_TRY(completionToError(ev.event));
 	co_return frg::success;
 }
 
@@ -924,33 +905,25 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 	co_return frg::success;
 }
 
-void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *comp) {
-	_transferRings[endpoint]->pushRawTrb(cmd, comp);
+void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Transaction *tx) {
+	_transferRings[endpoint]->pushRawTrb(cmd, tx);
 }
 
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
-	ProducerRing::Completion ev;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &ev);
+		pushRawTransfer(0, trb, &tx);
 	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
 		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true,
 			_maxPacketSizes[0]);
 
 	submit(1);
 
-	co_await ev.completion.wait();
-
-	if (ev.event.completionCode != 1)
-		printf("xhci: failed to read descriptor, completion code: '%s'\n",
-			completionCodeNames[ev.event.completionCode]);
-
-	FRG_CO_TRY(completionToError(ev.event));
-
-	printf("xhci: device descriptor successfully read\n");
+	FRG_CO_TRY(co_await tx.control(true));
 
 	co_return frg::success;
 }
@@ -1123,20 +1096,19 @@ async::result<frg::expected<proto::UsbError>>
 Controller::EndpointState::transfer(proto::ControlTransfer info) {
 	int endpointId = _endpoint * 2;
 
-	ProducerRing::Completion ev;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
+		_device->pushRawTransfer(endpointId - 1, trb, &tx);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
 			_device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
 
-	co_await ev.completion.wait();
+	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
 
-	FRG_CO_TRY(completionToError(ev.event));
 	co_return frg::success;
 }
 
@@ -1144,40 +1116,34 @@ async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::InterruptTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
 
-	ProducerRing::Completion ev;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
+		_device->pushRawTransfer(endpointId - 1, trb, &tx);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
 
-	co_await ev.completion.wait();
-
-	FRG_CO_TRY(completionToError(ev.event));
-	co_return info.buffer.size() - ev.event.transferLen;
+	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::BulkTransfer info) {
 	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
 
-	ProducerRing::Completion ev;
+	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
 		if (last)
 			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
+		_device->pushRawTransfer(endpointId - 1, trb, &tx);
 	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
 
 	_device->submit(endpointId);
 
-	co_await ev.completion.wait();
-
-	FRG_CO_TRY(completionToError(ev.event));
-	co_return info.buffer.size() - ev.event.transferLen;
+	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
 
 // ------------------------------------------------------------------------

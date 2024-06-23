@@ -175,7 +175,7 @@ private:
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 
 		void submit(int endpoint);
-		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *ev = nullptr);
+		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Transaction *tx);
 
 		async::result<frg::expected<proto::UsbError>> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType);
 
@@ -281,14 +281,12 @@ private:
 	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
 
 	async::result<Event> submitCommand(RawTrb trb) {
-		ProducerRing::Completion comp;
-		_cmdRing.pushRawTrb(trb, &comp);
+		ProducerRing::Transaction tx;
+		_cmdRing.pushRawTrb(trb, &tx);
 
 		ringDoorbell(0, 0, 0);
 
-		co_await comp.completion.wait();
-
-		co_return comp.event;
+		co_return co_await tx.command();
 	}
 
 	arch::os::contiguous_pool _memoryPool;

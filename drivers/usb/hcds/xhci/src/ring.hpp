@@ -2,9 +2,16 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <vector>
+
+#include <protocols/usb/api.hpp>
 
 #include <arch/dma_pool.hpp>
-#include <async/oneshot-event.hpp>
+
+#include <async/result.hpp>
+#include <async/sequenced-event.hpp>
+
+#include <frg/expected.hpp>
 
 #include "trb.hpp"
 
@@ -37,6 +44,19 @@ struct Event {
 	static Event fromRawTrb(RawTrb trb);
 	void printInfo();
 };
+
+inline frg::expected<protocols::usb::UsbError> completionToError(Event ev) {
+	using protocols::usb::UsbError;
+
+	switch (ev.completionCode) {
+		case 1: return frg::success;
+		case 13: return frg::success;
+		case 3: return UsbError::babble;
+		case 6: return UsbError::stall;
+		case 22: return UsbError::unsupported;
+		default: return UsbError::other;
+	}
+}
 
 struct Controller;
 
@@ -76,9 +96,28 @@ private:
 struct ProducerRing {
 	constexpr static size_t ringSize = 128;
 
-	struct Completion {
-		async::oneshot_event completion;
-		Event event;
+	struct Transaction {
+		async::result<frg::expected<protocols::usb::UsbError, size_t>>
+		control(bool hasData);
+
+		async::result<frg::expected<protocols::usb::UsbError, size_t>>
+		normal();
+
+		async::result<Event> command();
+
+		void onEvent(Event event, RawTrb associatedTrb);
+	private:
+		std::vector<std::pair<RawTrb, Event>> events_;
+		async::sequenced_event progressEvent_;
+		uint64_t progressSeq_ = 0;
+
+		async::result<frg::expected<protocols::usb::UsbError, std::pair<RawTrb, Event>>>
+		nextEvent_() {
+			co_await progressEvent_.async_wait(progressSeq_);
+			auto ev = events_[progressSeq_++];
+			FRG_CO_TRY(completionToError(ev.second));
+			co_return ev;
+		}
 	};
 
 	struct alignas(64) RingEntries {
@@ -88,12 +127,12 @@ struct ProducerRing {
 	ProducerRing(Controller *controller);
 	uintptr_t getPtr();
 
-	void pushRawTrb(RawTrb cmd, Completion *comp = nullptr);
+	void pushRawTrb(RawTrb cmd, Transaction *tx);
 
 	void processEvent(Event ev);
 
 private:
-	std::array<Completion *, ringSize> _completions;
+	std::array<Transaction *, ringSize> _transactions;
 	arch::dma_object<RingEntries> _ring;
 	size_t _enqueuePtr;
 
