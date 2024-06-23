@@ -142,8 +142,13 @@ namespace Transfer {
 				| (static_cast<uint32_t>(TrbType::normal) << 10)};
 	}
 
+	constexpr RawTrb withInterrupt(RawTrb trb) {
+		trb.val[3] |= 1 << 5;
+		return trb;
+	}
+
 	template <typename FU, typename FB, typename ...Ts>
-	inline void buildTransferChain(size_t maxPacketSize, FU use, bool specifyFinal, arch::dma_buffer_view view, FB build, Ts ...ts) {
+	inline void buildTransferChain(size_t maxPacketSize, FU use, arch::dma_buffer_view view, FB build, Ts ...ts) {
 		assert(std::popcount(maxPacketSize) == 1);
 		size_t tdPacketCount = (view.size() + maxPacketSize - 1) & ~(maxPacketSize - 1);
 
@@ -162,15 +167,17 @@ namespace Transfer {
 				tdSize = 0;
 
 			auto trb = build(pptr, chunk, chain, tdSize, ts...);
+			if (!chain)
+				trb = withInterrupt(trb);
 
-			use(trb, !chain && specifyFinal);
+			use(trb);
 			progress += chunk;
 		}
 	}
 
 	template <typename FU>
 	inline void buildNormalChain(FU use, arch::dma_buffer_view view, size_t maxPacketSize) {
-		buildTransferChain(maxPacketSize, use, true, view, normal);
+		buildTransferChain(maxPacketSize, use, view, normal);
 	}
 
 	template <typename FU>
@@ -180,8 +187,8 @@ namespace Transfer {
 		if (view.size() && dataIn)
 			statusIn = false;
 
-		use(setupStage(setup, view.size(), dataIn), true);
-		buildTransferChain(maxPacketSize, use, true, view, dataStage, dataIn);
-		use(statusStage(statusIn), true);
+		use(withInterrupt(setupStage(setup, view.size(), dataIn)));
+		buildTransferChain(maxPacketSize, use, view, dataStage, dataIn);
+		use(withInterrupt(statusStage(statusIn)));
 	}
 } // namespace Transfer
