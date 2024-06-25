@@ -796,7 +796,7 @@ Controller::Device::useConfiguration(int number) {
 
 	printf("xhci: configuration set\n");
 
-	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
+	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(shared_from_this(), number)};
 }
 
 async::result<frg::expected<proto::UsbError>>
@@ -1044,9 +1044,8 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 // Controller::ConfigurationState
 // ------------------------------------------------------------------------
 
-Controller::ConfigurationState::ConfigurationState(Controller *controller,
-		std::shared_ptr<Device> device, int)
-:_controller{controller}, _device{device} {
+Controller::ConfigurationState::ConfigurationState(std::shared_ptr<Device> device, int)
+: _device{device} {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
@@ -1060,29 +1059,27 @@ Controller::ConfigurationState::useInterface(int number, int alternative) {
 
 	FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, desc, {}}));
 
-	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
+	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_device, number)};
 }
 
 // ------------------------------------------------------------------------
 // Controller::InterfaceState
 // ------------------------------------------------------------------------
 
-Controller::InterfaceState::InterfaceState(Controller *controller,
-		std::shared_ptr<Device> device, int num)
-: proto::InterfaceData{num}, _controller{controller}, _device{device} {
+Controller::InterfaceState::InterfaceState(std::shared_ptr<Device> device, int num)
+: proto::InterfaceData{num}, _device{device} {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
-	co_return proto::Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
+	co_return proto::Endpoint{std::make_shared<Controller::EndpointState>(_device, number, type)};
 }
 
 // ------------------------------------------------------------------------
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Controller *,
-		std::shared_ptr<Device> device, int endpoint, proto::PipeType type)
+Controller::EndpointState::EndpointState(std::shared_ptr<Device> device, int endpoint, proto::PipeType type)
 : _device{device}, _endpoint{endpoint}, _type{type} {
 }
 

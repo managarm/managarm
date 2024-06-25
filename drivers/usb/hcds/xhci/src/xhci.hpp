@@ -231,29 +231,27 @@ private:
 	};
 
 	struct ConfigurationState final : proto::ConfigurationData {
-		explicit ConfigurationState(Controller *controller, std::shared_ptr<Device> device, int number);
+		explicit ConfigurationState(std::shared_ptr<Device> device, int number);
 
 		async::result<frg::expected<proto::UsbError, proto::Interface>>
 		useInterface(int number, int alternative) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 	};
 
 	struct InterfaceState final : proto::InterfaceData {
-		explicit InterfaceState(Controller *controller, std::shared_ptr<Device> device, int interface);
+		explicit InterfaceState(std::shared_ptr<Device> device, int interface);
 
 		async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 		getEndpoint(proto::PipeType type, int number) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 	};
 
 	struct EndpointState final : proto::EndpointData {
-		explicit EndpointState(Controller *controller, std::shared_ptr<Device> device, int endpoint, proto::PipeType type);
+		explicit EndpointState(std::shared_ptr<Device> device, int endpoint, proto::PipeType type);
 
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
