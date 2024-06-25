@@ -783,16 +783,14 @@ Controller::Device::useConfiguration(int number) {
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
-	ProducerRing::Transaction tx;
+	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
+	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	setConfig->request = proto::request_type::setConfig;
+	setConfig->value = number;
+	setConfig->index = 0;
+	setConfig->length = 0;
 
-	Transfer::buildControlChain([&] (RawTrb trb) {
-		pushRawTransfer(0, trb, &tx);
-	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false,
-			_maxPacketSizes[0]);
-
-	submit(1);
-
-	FRG_CO_TRY(co_await tx.control(false));
+	FRG_CO_TRY(co_await transfer({protocols::usb::kXferToDevice, setConfig, {}}));
 
 	printf("xhci: configuration set\n");
 
@@ -907,17 +905,14 @@ void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing:
 
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
-	ProducerRing::Transaction tx;
+	arch::dma_object<proto::SetupPacket> getDesc{setupPool()};
+	getDesc->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toHost;
+	getDesc->request = proto::request_type::getDescriptor;
+	getDesc->value = desc;
+	getDesc->index = 0;
+	getDesc->length = dest.size();
 
-	Transfer::buildControlChain([&] (RawTrb trb) {
-		pushRawTransfer(0, trb, &tx);
-	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
-		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true,
-			_maxPacketSizes[0]);
-
-	submit(1);
-
-	FRG_CO_TRY(co_await tx.control(true));
+	FRG_CO_TRY(co_await transfer({protocols::usb::kXferToHost, getDesc, dest}));
 
 	co_return frg::success;
 }
