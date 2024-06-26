@@ -45,6 +45,17 @@ struct FbInfo {
 	uint64_t type;
 };
 
+struct DtbRegister {
+	uintptr_t address;
+	size_t length;
+	ptrdiff_t offset;
+};
+
+struct DtbInfo {
+	std::vector<DtbRegister> regs;
+	uint32_t numIrqs;
+};
+
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
@@ -54,6 +65,10 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessExpansionRom();
 	async::result<helix::UniqueDescriptor> accessIrq();
 	async::result<helix::UniqueDescriptor> installMsi(int index);
+
+	async::result<DtbInfo> getDtbInfo();
+	async::result<helix::UniqueDescriptor> accessDtbRegister(uint32_t index);
+	async::result<helix::UniqueDescriptor> installDtbIrq(uint32_t index);
 
 	async::result<void> claimDevice();
 	async::result<void> enableBusIrq();
