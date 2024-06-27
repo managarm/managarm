@@ -178,6 +178,15 @@ int main() {
 		}else assert(dbus != -1);
 	}
 
+	// Launch elogind if it's available.
+	if(!access("/usr/lib/elogind/elogind", X_OK)) {
+		sleep(5); // Wait for dbus to be fully started, this is a hack.
+		auto elogind = fork();
+		if(!elogind) {
+			execl("/usr/lib/elogind/elogind", "elogind", "-D", nullptr);
+		}else assert(elogind != -1);
+	}
+
 	// Finally, launch into kmscon/Weston.
 	auto desktop = fork();
 	if(!desktop) {
