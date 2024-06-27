@@ -200,6 +200,18 @@ int main() {
 		if(launch == "kmscon") {
 			// TODO: kmscon should invoke a login program which sets these environment vars.
 			// Force kmscon to not reset the environment
+			// Create some directories needed by elogind
+			// TOOD(Dennis): Figure out why elogind isn't making these itself.
+			if(mkdir("/run/systemd", 1777))
+				throw std::runtime_error("mkdir() failed /run/systemd");
+			if(mkdir("/run/systemd/sessions", 1777))
+				throw std::runtime_error("mkdir() failed /run/systemd/sessions");
+			if(mkdir("/run/user", 1777))
+				throw std::runtime_error("mkdir() failed /run/user");
+			if(mkdir("/run/user/1000", 1777))
+				throw std::runtime_error("mkdir() failed /run/user/1000");
+			if(chown("/run/user/1000", 1000, 1000))
+				throw std::runtime_error("chown() failed /run/user/1000");
 			execl("/usr/bin/kmscon", "kmscon", "--no-reset-env", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", nullptr);
 			//execl("/usr/bin/kmscon", "kmscon", "--debug", "--verbose", nullptr);
@@ -209,6 +221,18 @@ int main() {
 				throw std::runtime_error("mkdir() failed");
 			if(mkdir("/tmp/.X11-unix", 1777))
 				throw std::runtime_error("mkdir() failed");
+			// Create some directories needed by elogind
+			// TOOD(Dennis): Figure out why elogind isn't making these itself.
+			if(mkdir("/run/systemd", 1777))
+				throw std::runtime_error("mkdir() failed /run/systemd");
+			if(mkdir("/run/systemd/sessions", 1777))
+				throw std::runtime_error("mkdir() failed /run/systemd/sessions");
+			if(mkdir("/run/user", 1777))
+				throw std::runtime_error("mkdir() failed /run/user");
+			if(mkdir("/run/user/1000", 1777))
+				throw std::runtime_error("mkdir() failed /run/user/1000");
+			if(chown("/run/user/1000", 1000, 1000))
+				throw std::runtime_error("chown() failed /run/user/1000");
 			//execl("/usr/bin/weston", "weston", nullptr);
 			execl("/usr/bin/weston", "weston", "--xwayland", nullptr);
 			//execl("/usr/bin/weston", "weston", "--use-pixman", nullptr);
