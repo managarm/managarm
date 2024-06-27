@@ -311,6 +311,17 @@ private:
 	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
 };
 
+struct CgroupNode final : RegularNode {
+	CgroupNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
 struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
 public:
 	explicit FdDirectoryNode(Process *process);
