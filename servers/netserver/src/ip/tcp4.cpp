@@ -402,11 +402,12 @@ struct Tcp4Socket {
 			void *data, size_t size,
 			void *addrPtr, size_t addrSize,
 			std::vector<uint32_t> fds, struct ucred ucreds) {
-		(void) creds;
-		(void) flags;
-		(void) addrPtr;
-		(void) addrSize;
-		(void) fds;
+		(void)creds;
+		(void)flags;
+		(void)addrPtr;
+		(void)addrSize;
+		(void)fds;
+		(void)ucreds;
 
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
