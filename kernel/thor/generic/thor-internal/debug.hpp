@@ -30,11 +30,17 @@ enum class Severity : uint8_t {
 };
 
 struct LogHandler {
+	constexpr LogHandler() : context(nullptr) {}
+
+	LogHandler(void *ct) : context{ct} {}
+
 	virtual void printChar(char c) = 0;
 	virtual void setPriority(Severity) = 0;
 	virtual void resetPriority() = 0;
 
 	frg::default_list_hook<LogHandler> hook;
+
+	void *context;
 
 protected:
 	~LogHandler() = default;

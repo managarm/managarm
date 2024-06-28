@@ -9,30 +9,81 @@
 namespace thor {
 
 namespace {
-	struct KmsgLogHandler : public LogHandler {
-		void printChar(char c) override {
-			buffer_.push_back(c);
+	struct KmsgLogHandlerContext {
+		uint64_t kmsgSeq_ = 0;
+		int state_ = 0;
 
-			if(c == '\n') {
-				buffer_.push_back(0);
-				getGlobalLogRing()->enqueue(buffer_.data(), buffer_.size());
-				buffer_.resize(0);
+		frg::vector<char, KernelAlloc> buffer_{*kernelAlloc};
+	};
+
+	struct KmsgLogHandler : public LogHandler {
+		KmsgLogHandler(KmsgLogHandlerContext *context)
+			: LogHandler(context) {}
+
+		void printChar(char c) override {
+			auto emit = [&](const char c) {
+				ctx()->buffer_.push_back(c);
+
+				if(c == '\n') {
+					ctx()->buffer_.push_back(0);
+					getGlobalLogRing()->enqueue(ctx()->buffer_.data(), ctx()->buffer_.size());
+					ctx()->buffer_.resize(0);
+				}
+			};
+
+			if(!ctx()->state_) {
+				if(c == '\x1B') {
+					ctx()->state_ = 1;
+				} else {
+					emit(c);
+				}
+			} else if(ctx()->state_ == 1) {
+				if(c == '[')
+					ctx()->state_ = 2;
+				else {
+					emit(c);
+					ctx()->state_ = 0;
+				}
+			} else if(ctx()->state_ == 2) {
+				if(c >= '0' && c <= '?') {
+					// ignore them
+				} else if(c >= ' ' && c <= '/') {
+					ctx()->state_ = 3;
+				} else if(c >= '@' && c <= '~') {
+					ctx()->state_ = 0;
+				} else {
+					emit(c);
+					ctx()->state_ = 0;
+				}
+			} else if(ctx()->state_ == 3) {
+				if(c >= ' ' && c <= '/') {
+					// ignore them
+				} else if(c >= '@' && c <= '~') {
+					ctx()->state_ = 0;
+				} else {
+					emit(c);
+					ctx()->state_ = 0;
+				}
+			} else {
+				assert(!"invalid state reached!");
+				emit(c);
+				ctx()->state_ = 0;
 			}
 		}
 
 		void setPriority(Severity prio) override {
-			assert(buffer_.empty());
+			assert(ctx()->buffer_.empty());
 			auto now = systemClockSource()->currentNanos() / 1000;
-			frg::output_to(buffer_) << frg::fmt("{},{},{};", uint8_t(prio), kmsgSeq_++, now);
+			frg::output_to(ctx()->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx()->kmsgSeq_++, now);
 		}
 
 		void resetPriority() override {
 			// no-op
 		}
 
-	private:
-		uint64_t kmsgSeq_;
-		frg::vector<char, KernelAlloc> buffer_{*kernelAlloc};
+		KmsgLogHandlerContext *ctx() {
+			return reinterpret_cast<KmsgLogHandlerContext *>(context);
+		}
 	};
 
 	frg::manual_box<LogRingBuffer> globalLogRing;
@@ -53,12 +104,14 @@ namespace {
 	};
 }
 
+frg::manual_box<KmsgLogHandlerContext> kmsgLogHandlerContext;
 frg::manual_box<KmsgLogHandler> kmsgLogHandler;
 
 void initializeLog() {
 	void *logMemory = kernelAlloc->allocate(1 << 20);
 	globalLogRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
-	kmsgLogHandler.initialize();
+	kmsgLogHandlerContext.initialize();
+	kmsgLogHandler.initialize(kmsgLogHandlerContext.get());
 	enableLogHandler(kmsgLogHandler.get());
 }
 
