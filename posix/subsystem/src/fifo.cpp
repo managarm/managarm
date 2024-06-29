@@ -163,9 +163,10 @@ public:
 	}
 
 	async::result<int> getFileFlags() override {
+		int flags = O_RDONLY;
 		if(nonBlock_)
-			co_return O_NONBLOCK;
-		co_return 0;
+			flags |= O_NONBLOCK;
+		co_return flags;
 	}
 
 	async::result<void>
@@ -297,6 +298,11 @@ public:
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
+	}
+
+	async::result<int> getFileFlags() override {
+		// TODO: Check if we need to OR any other bits in
+		co_return O_WRONLY;
 	}
 
 private:
