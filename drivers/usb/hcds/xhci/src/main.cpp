@@ -455,7 +455,10 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case transferEvent:
-			_devices[ev.slotId]->_transferRings[ev.endpointId - 1]->processEvent(ev);
+			if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
+				ep->transferRing().processEvent(ev);
+			else
+				printf("xhci: Event for missing endpoint ID %zu on slot %u?\n", ev.endpointId, ev.slotId);
 			break;
 
 		case portStatusChangeEvent:
@@ -799,17 +802,7 @@ Controller::Device::useConfiguration(int number) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::transfer(proto::ControlTransfer info) {
-	ProducerRing::Transaction tx;
-
-	Transfer::buildControlChain([&] (RawTrb trb) {
-		pushRawTransfer(0, trb, &tx);
-	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost, _maxPacketSizes[0]);
-
-	submit(1);
-
-	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
-
-	co_return frg::success;
+	co_return co_await _endpoints[0]->transfer(info);
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -899,10 +892,6 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 	co_return frg::success;
 }
 
-void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Transaction *tx) {
-	_transferRings[endpoint]->pushRawTrb(cmd, tx);
-}
-
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	arch::dma_object<proto::SetupPacket> getDesc{setupPool()};
@@ -944,6 +933,21 @@ static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
 	if (type == EndpointType::interrupt)
 		return 1 * 1024;
 	return 0;
+}
+
+static inline int getEndpointIndex(int endpoint, proto::PipeType dir) {
+	using proto::PipeType;
+
+	// For control endpoints the index is:
+	//  DCI = (Endpoint Number * 2) + 1.
+	// For interrupt, bulk, isoch, the index is:
+	//  DCI = (Endpoint Number * 2) + Direction,
+	//    where Direction = '0' for OUT endpoints
+	//    and '1' for IN endpoints.
+
+	return endpoint * 2 +
+		((dir == PipeType::in || dir == PipeType::control)
+				? 1 : 0);
 }
 
 async::result<frg::expected<proto::UsbError>>
@@ -1000,17 +1004,14 @@ Controller::Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceS
 }
 
 void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
-	int endpointId = endpoint * 2
-			+ ((dir == proto::PipeType::in || dir == proto::PipeType::control)
-				? 1
-				: 0);
+	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
-	_maxPacketSizes[endpointId - 1] = maxPacketSize;
-	_transferRings[endpointId - 1] = std::make_unique<ProducerRing>(_controller);
+	auto ep = std::make_shared<EndpointState>(this, endpointId, maxPacketSize);
+	_endpoints[endpointId - 1] = ep;
 
-	auto trPtr = _transferRings[endpointId - 1]->getPtr();
+	auto trPtr = ep->transferRing().getPtr();
 
 	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
 
@@ -1067,29 +1068,27 @@ Controller::InterfaceState::InterfaceState(std::shared_ptr<Device> device, int n
 
 async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
-	co_return proto::Endpoint{std::make_shared<Controller::EndpointState>(_device, number, type)};
+	co_return proto::Endpoint{_device->endpoint(getEndpointIndex(number, type))};
 }
 
 // ------------------------------------------------------------------------
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(std::shared_ptr<Device> device, int endpoint, proto::PipeType type)
-: _device{device}, _endpoint{endpoint}, _type{type} {
+Controller::EndpointState::EndpointState(Device *device, int endpointId, size_t maxPacketSize)
+: _device{device}, _endpointId{endpointId}, _maxPacketSize{maxPacketSize}, _transferRing{device->controller()} {
 }
 
 async::result<frg::expected<proto::UsbError>>
 Controller::EndpointState::transfer(proto::ControlTransfer info) {
-	int endpointId = _endpoint * 2;
-
 	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb) {
-		_device->pushRawTransfer(endpointId - 1, trb, &tx);
+		_transferRing.pushRawTrb(trb, &tx);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
-			_device->_maxPacketSizes[endpointId - 1]);
+			_maxPacketSize);
 
-	_device->submit(endpointId);
+	_device->submit(_endpointId);
 
 	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
 
@@ -1098,30 +1097,26 @@ Controller::EndpointState::transfer(proto::ControlTransfer info) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::InterruptTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
-
 	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb) {
-		_device->pushRawTransfer(endpointId - 1, trb, &tx);
-	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
+		_transferRing.pushRawTrb(trb, &tx);
+	}, info.buffer, _maxPacketSize);
 
-	_device->submit(endpointId);
+	_device->submit(_endpointId);
 
 	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::BulkTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
-
 	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb) {
-		_device->pushRawTransfer(endpointId - 1, trb, &tx);
-	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
+		_transferRing.pushRawTrb(trb, &tx);
+	}, info.buffer, _maxPacketSize);
 
-	_device->submit(endpointId);
+	_device->submit(_endpointId);
 
 	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
