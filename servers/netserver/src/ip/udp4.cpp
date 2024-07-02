@@ -269,9 +269,10 @@ struct Udp4Socket {
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
 			std::vector<uint32_t> fds, struct ucred ucreds) {
-		(void) creds;
-		(void) flags;
-		(void) fds;
+		(void)creds;
+		(void)flags;
+		(void)fds;
+		(void)ucreds;
 
 		using arch::convert_endian;
 		using arch::endian;

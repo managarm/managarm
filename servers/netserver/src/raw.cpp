@@ -13,7 +13,7 @@ Raw &raw() {
 	return inst;
 }
 
-managarm::fs::Errors Raw::serveSocket(helix::UniqueLane lane, int type, int proto, int flags) {
+managarm::fs::Errors Raw::serveSocket(helix::UniqueLane lane, int, int proto, int flags) {
 	assert(proto == htons(ETH_P_ALL));
 	auto raw_socket = smarter::make_shared<RawSocket>(this, flags);
 	raw_socket->holder_ = raw_socket;
@@ -44,7 +44,7 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 }
 
 async::result<protocols::fs::Error> RawSocket::bind(void* obj,
-		const char *creds, const void *addr_ptr, size_t addr_size) {
+		const char *, const void *addr_ptr, size_t addr_size) {
 	if(!addr_ptr || addr_size < sizeof(sockaddr))
 		co_return protocols::fs::Error::illegalArguments;
 
@@ -70,7 +70,7 @@ async::result<protocols::fs::Error> RawSocket::bind(void* obj,
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> RawSocket::write(void *obj,
-		const char *credentials, const void *buffer, size_t length) {
+		const char *, const void *buffer, size_t length) {
 	auto self = static_cast<RawSocket *>(obj);
 	assert(self->link);
 
