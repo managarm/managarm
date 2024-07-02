@@ -25,6 +25,7 @@ namespace thor {
 
 static constexpr bool logInitialization = false;
 static constexpr bool logEveryPageFault = false;
+static constexpr bool logUnhandledPageFaults = false;
 static constexpr bool logEveryIrq = false;
 static constexpr bool logOtherFaults = false;
 static constexpr bool logPreemptionIrq = false;
@@ -455,10 +456,12 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 	// If we get here, the page fault could not be handled.
 
-	infoLogger() << "thor: Unhandled page fault"
-			<< " at " << (void *)address
-			<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
-	logFault();
+	if(logUnhandledPageFaults) {
+		infoLogger() << "thor: Unhandled page fault"
+				<< " at " << (void *)address
+				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+		logFault();
+	}
 
 	// Let the UAR error out if it is active.
 	// Otherwise, panic on page faults in the kernel.
