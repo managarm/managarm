@@ -31,19 +31,6 @@ namespace proto = protocols::usb;
 // what Linux is doing in it's driver.
 inline constexpr bool ignoreControllerSpeeds = true;
 
-inline frg::expected<proto::UsbError> completionToError(Event ev) {
-	using proto::UsbError;
-
-	switch (ev.completionCode) {
-		case 1: return frg::success;
-		case 13: return frg::success; // Should short packets always be treated as success?
-		case 3: return UsbError::babble;
-		case 6: return UsbError::stall;
-		case 22: return UsbError::unsupported;
-		default: return UsbError::other;
-	}
-}
-
 // ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
@@ -468,7 +455,10 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case transferEvent:
-			_devices[ev.slotId]->_transferRings[ev.endpointId - 1]->processEvent(ev);
+			if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
+				ep->transferRing().processEvent(ev);
+			else
+				printf("xhci: Event for missing endpoint ID %zu on slot %u?\n", ev.endpointId, ev.slotId);
 			break;
 
 		case portStatusChangeEvent:
@@ -796,45 +786,23 @@ Controller::Device::useConfiguration(int number) {
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
-	ProducerRing::Completion comp;
+	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
+	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	setConfig->request = proto::request_type::setConfig;
+	setConfig->value = number;
+	setConfig->index = 0;
+	setConfig->length = 0;
 
-	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &comp);
-	}, { .request = proto::request_type::setConfig, .value = static_cast<uint16_t>(number), .length = 0 }, { }, false,
-			_maxPacketSizes[0]);
+	FRG_CO_TRY(co_await transfer({protocols::usb::kXferToDevice, setConfig, {}}));
 
-	submit(1);
-
-	co_await comp.completion.wait();
-
-	if (comp.event.completionCode != 1)
-		printf("xhci: failed to use configuration, completion code: '%s'\n",
-			completionCodeNames[comp.event.completionCode]);
-
-	FRG_CO_TRY(completionToError(comp.event));
 	printf("xhci: configuration set\n");
 
-	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(_controller, shared_from_this(), number)};
+	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(shared_from_this(), number)};
 }
 
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::transfer(proto::ControlTransfer info) {
-	ProducerRing::Completion ev;
-
-	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &ev);
-	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost, _maxPacketSizes[0]);
-
-	submit(1);
-
-	co_await ev.completion.wait();
-
-	FRG_CO_TRY(completionToError(ev.event));
-	co_return frg::success;
+	co_return co_await _endpoints[0]->transfer(info);
 }
 
 void Controller::Device::submit(int endpoint) {
@@ -924,33 +892,16 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 	co_return frg::success;
 }
 
-void Controller::Device::pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *comp) {
-	_transferRings[endpoint]->pushRawTrb(cmd, comp);
-}
-
 async::result<frg::expected<proto::UsbError>>
 Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
-	ProducerRing::Completion ev;
+	arch::dma_object<proto::SetupPacket> getDesc{setupPool()};
+	getDesc->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toHost;
+	getDesc->request = proto::request_type::getDescriptor;
+	getDesc->value = desc;
+	getDesc->index = 0;
+	getDesc->length = dest.size();
 
-	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		pushRawTransfer(0, trb, &ev);
-	}, { .type = 0x80, .request = proto::request_type::getDescriptor,
-		.value = desc, .length = static_cast<uint16_t>(dest.size()) }, dest, true,
-			_maxPacketSizes[0]);
-
-	submit(1);
-
-	co_await ev.completion.wait();
-
-	if (ev.event.completionCode != 1)
-		printf("xhci: failed to read descriptor, completion code: '%s'\n",
-			completionCodeNames[ev.event.completionCode]);
-
-	FRG_CO_TRY(completionToError(ev.event));
-
-	printf("xhci: device descriptor successfully read\n");
+	FRG_CO_TRY(co_await transfer({protocols::usb::kXferToHost, getDesc, dest}));
 
 	co_return frg::success;
 }
@@ -982,6 +933,21 @@ static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
 	if (type == EndpointType::interrupt)
 		return 1 * 1024;
 	return 0;
+}
+
+static inline int getEndpointIndex(int endpoint, proto::PipeType dir) {
+	using proto::PipeType;
+
+	// For control endpoints the index is:
+	//  DCI = (Endpoint Number * 2) + 1.
+	// For interrupt, bulk, isoch, the index is:
+	//  DCI = (Endpoint Number * 2) + Direction,
+	//    where Direction = '0' for OUT endpoints
+	//    and '1' for IN endpoints.
+
+	return endpoint * 2 +
+		((dir == PipeType::in || dir == PipeType::control)
+				? 1 : 0);
 }
 
 async::result<frg::expected<proto::UsbError>>
@@ -1038,17 +1004,14 @@ Controller::Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceS
 }
 
 void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
-	int endpointId = endpoint * 2
-			+ ((dir == proto::PipeType::in || dir == proto::PipeType::control)
-				? 1
-				: 0);
+	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
-	_maxPacketSizes[endpointId - 1] = maxPacketSize;
-	_transferRings[endpointId - 1] = std::make_unique<ProducerRing>(_controller);
+	auto ep = std::make_shared<EndpointState>(this, endpointId, maxPacketSize);
+	_endpoints[endpointId - 1] = ep;
 
-	auto trPtr = _transferRings[endpointId - 1]->getPtr();
+	auto trPtr = ep->transferRing().getPtr();
 
 	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
 
@@ -1077,9 +1040,8 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 // Controller::ConfigurationState
 // ------------------------------------------------------------------------
 
-Controller::ConfigurationState::ConfigurationState(Controller *controller,
-		std::shared_ptr<Device> device, int)
-:_controller{controller}, _device{device} {
+Controller::ConfigurationState::ConfigurationState(std::shared_ptr<Device> device, int)
+: _device{device} {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
@@ -1093,91 +1055,70 @@ Controller::ConfigurationState::useInterface(int number, int alternative) {
 
 	FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, desc, {}}));
 
-	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_controller, _device, number)};
+	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_device, number)};
 }
 
 // ------------------------------------------------------------------------
 // Controller::InterfaceState
 // ------------------------------------------------------------------------
 
-Controller::InterfaceState::InterfaceState(Controller *controller,
-		std::shared_ptr<Device> device, int num)
-: proto::InterfaceData{num}, _controller{controller}, _device{device} {
+Controller::InterfaceState::InterfaceState(std::shared_ptr<Device> device, int num)
+: proto::InterfaceData{num}, _device{device} {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
-	co_return proto::Endpoint{std::make_shared<Controller::EndpointState>(_controller, _device, number, type)};
+	co_return proto::Endpoint{_device->endpoint(getEndpointIndex(number, type))};
 }
 
 // ------------------------------------------------------------------------
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Controller *,
-		std::shared_ptr<Device> device, int endpoint, proto::PipeType type)
-: _device{device}, _endpoint{endpoint}, _type{type} {
+Controller::EndpointState::EndpointState(Device *device, int endpointId, size_t maxPacketSize)
+: _device{device}, _endpointId{endpointId}, _maxPacketSize{maxPacketSize}, _transferRing{device->controller()} {
 }
 
 async::result<frg::expected<proto::UsbError>>
 Controller::EndpointState::transfer(proto::ControlTransfer info) {
-	int endpointId = _endpoint * 2;
+	ProducerRing::Transaction tx;
 
-	ProducerRing::Completion ev;
-
-	Transfer::buildControlChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
+	Transfer::buildControlChain([&] (RawTrb trb) {
+		_transferRing.pushRawTrb(trb, &tx);
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
-			_device->_maxPacketSizes[endpointId - 1]);
+			_maxPacketSize);
 
-	_device->submit(endpointId);
+	_device->submit(_endpointId);
 
-	co_await ev.completion.wait();
+	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
 
-	FRG_CO_TRY(completionToError(ev.event));
 	co_return frg::success;
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::InterruptTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
+	ProducerRing::Transaction tx;
 
-	ProducerRing::Completion ev;
+	Transfer::buildNormalChain([&] (RawTrb trb) {
+		_transferRing.pushRawTrb(trb, &tx);
+	}, info.buffer, _maxPacketSize);
 
-	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
-	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
+	_device->submit(_endpointId);
 
-	_device->submit(endpointId);
-
-	co_await ev.completion.wait();
-
-	FRG_CO_TRY(completionToError(ev.event));
-	co_return info.buffer.size() - ev.event.transferLen;
+	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::BulkTransfer info) {
-	int endpointId = _endpoint * 2 + (_type == proto::PipeType::in ? 1 : 0);
+	ProducerRing::Transaction tx;
 
-	ProducerRing::Completion ev;
+	Transfer::buildNormalChain([&] (RawTrb trb) {
+		_transferRing.pushRawTrb(trb, &tx);
+	}, info.buffer, _maxPacketSize);
 
-	Transfer::buildNormalChain([&] (RawTrb trb, bool last) {
-		if (last)
-			trb.val[3] |= 1 << 5; // IOC
-		_device->pushRawTransfer(endpointId - 1, trb, &ev);
-	}, info.buffer, _device->_maxPacketSizes[endpointId - 1]);
+	_device->submit(_endpointId);
 
-	_device->submit(endpointId);
-
-	co_await ev.completion.wait();
-
-	FRG_CO_TRY(completionToError(ev.event));
-	co_return info.buffer.size() - ev.event.transferLen;
+	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
 }
 
 // ------------------------------------------------------------------------

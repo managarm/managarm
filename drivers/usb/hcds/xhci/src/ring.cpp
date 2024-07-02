@@ -68,7 +68,7 @@ void Event::printInfo() {
 			break;
 		case TrbType::commandCompletionEvent:
 			printf("xhci: Type name: Command Completion Event\n");
-			printf("xhci: TRB pointer: %016lxn", trbPointer);
+			printf("xhci: TRB pointer: %016lx\n", trbPointer);
 			printf("xhci: Command completion parameter: %d\n",
 					commandCompletionParameter);
 			break;
@@ -157,7 +157,7 @@ void EventRing::processRing() {
 // ------------------------------------------------------------------------
 
 ProducerRing::ProducerRing(Controller *controller)
-: _completions{}, _ring{controller->memoryPool()}, _enqueuePtr{0}, _pcs{true} {
+: _transactions{}, _ring{controller->memoryPool()}, _enqueuePtr{0}, _pcs{true} {
 	for (uint32_t i = 0; i < ringSize; i++) {
 		_ring->ent[i] = {{0, 0, 0, 0}};
 	}
@@ -169,9 +169,9 @@ uintptr_t ProducerRing::getPtr() {
 	return helix::ptrToPhysical(_ring.data());
 }
 
-void ProducerRing::pushRawTrb(RawTrb cmd, Completion *comp) {
+void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
 	_ring->ent[_enqueuePtr] = cmd;
-	_completions[_enqueuePtr] = comp;
+	_transactions[_enqueuePtr] = tx;
 
 	if (_pcs) {
 		_ring->ent[_enqueuePtr].val[3] |= 1;
@@ -195,11 +195,10 @@ void ProducerRing::processEvent(Event ev) {
 	size_t idx = (ev.trbPointer - getPtr()) / sizeof(RawTrb);
 	assert(idx < ringSize);
 
-	auto comp = std::exchange(_completions[idx], nullptr);
+	auto tx = std::exchange(_transactions[idx], nullptr);
 
-	if (comp) {
-		comp->event = ev;
-		comp->completion.raise();
+	if (tx) {
+		tx->onEvent(ev, _ring->ent[idx]);
 	}
 }
 
@@ -210,4 +209,70 @@ void ProducerRing::updateLink() {
 		0,
 		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
 	}};
+}
+
+// NOTE(qookie): The logic as far as I understand is as follows.
+// There are 3 cases to consider that cause events to be generated:
+// 1. Successful completion of the whole chain or short packet at the
+//    end. Only one event is produced for the final TRB.
+// 2. Short packet in the middle of the chain. Two events are
+//    produced: one for the TRB that got the short packet, and one
+//    for the final TRB that has IOC, so we also need to wait for the
+//    latter one in that case.
+// 3. Other error completion. This causes the endpoint to go into the
+//    halted state, and only one event is produced for the failing
+//    TRB, hence we do not need to wait for any other TRB and can
+//    bail out early via FRG_CO_TRY.
+
+// XXX(qookie): We could probably optimize control transfers a tiny
+// bit by not setting IOC on each of the stages, but doing so
+// simplifies the logic here and I don't think it hurts too much, as
+// control transfers are not that common (and I wouldn't be surprised
+// if the controller batches them in the happy case).
+async::result<frg::expected<protocols::usb::UsbError, size_t>>
+ProducerRing::Transaction::control(bool hasData) {
+	// Setup stage
+	FRG_CO_TRY(co_await nextEvent_());
+
+	// Data stage
+	auto txSize = hasData
+		? FRG_CO_TRY(co_await normal())
+		: 0;
+
+	// Status stage
+	FRG_CO_TRY(co_await nextEvent_());
+
+	co_return txSize;
+}
+
+// TODO(qookie): The logic in normal() might not work for isochronous
+// endpoints (which we don't support yet) on some controllers (e.g.
+// NEC ones). According to the Linux driver, if a TRB in the middle of
+// an isoch TD fails, the controller carries on (as it should), but no
+// event is generated for the final TRB in the chain (the one with IOC
+// set). Other controllers do generate two events though.
+async::result<frg::expected<protocols::usb::UsbError, size_t>>
+ProducerRing::Transaction::normal() {
+	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
+
+	// If we are in the middle of a chain, wait for the final
+	// event for the TRB marked IOC.
+	if (trb.val[3] & (1 << 4)) {
+		// If this is not a short packet completion, something
+		// went wrong...
+		assert(ev.completionCode == 13);
+		std::tie(trb, ev) = FRG_CO_TRY(co_await nextEvent_());
+	}
+
+	co_return ev.transferLen;
+}
+
+async::result<Event> ProducerRing::Transaction::command() {
+	co_await progressEvent_.async_wait(progressSeq_);
+	co_return events_[progressSeq_++].second;
+}
+
+void ProducerRing::Transaction::onEvent(Event event, RawTrb associatedTrb) {
+	events_.push_back({associatedTrb, event});
+	progressEvent_.raise();
 }

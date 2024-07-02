@@ -163,6 +163,8 @@ private:
 		mbus_ng::EntityManager _entity;
 	};
 
+	struct EndpointState;
+
 	struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
 		Device(Controller *controller);
 
@@ -175,13 +177,10 @@ private:
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 
 		void submit(int endpoint);
-		void pushRawTransfer(int endpoint, RawTrb cmd, ProducerRing::Completion *ev = nullptr);
 
 		async::result<frg::expected<proto::UsbError>> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType);
 
 		async::result<frg::expected<proto::UsbError>> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
-
-		std::array<std::unique_ptr<ProducerRing>, 31> _transferRings;
 
 		async::result<frg::expected<proto::UsbError>> setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
 
@@ -191,7 +190,13 @@ private:
 			return _slotId;
 		}
 
-		std::array<size_t, 31> _maxPacketSizes;
+		Controller *controller() const {
+			return _controller;
+		}
+
+		std::shared_ptr<EndpointState> endpoint(int endpointId) {
+			return _endpoints[endpointId - 1];
+		}
 
 	private:
 		int _slotId;
@@ -201,6 +206,8 @@ private:
 		DeviceContext _devCtx;
 
 		void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
+
+		std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
 	};
 
 	struct SupportedProtocol {
@@ -231,38 +238,42 @@ private:
 	};
 
 	struct ConfigurationState final : proto::ConfigurationData {
-		explicit ConfigurationState(Controller *controller, std::shared_ptr<Device> device, int number);
+		explicit ConfigurationState(std::shared_ptr<Device> device, int number);
 
 		async::result<frg::expected<proto::UsbError, proto::Interface>>
 		useInterface(int number, int alternative) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 	};
 
 	struct InterfaceState final : proto::InterfaceData {
-		explicit InterfaceState(Controller *controller, std::shared_ptr<Device> device, int interface);
+		explicit InterfaceState(std::shared_ptr<Device> device, int interface);
 
 		async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 		getEndpoint(proto::PipeType type, int number) override;
 
 	private:
-		Controller *_controller;
 		std::shared_ptr<Device> _device;
 	};
 
 	struct EndpointState final : proto::EndpointData {
-		explicit EndpointState(Controller *controller, std::shared_ptr<Device> device, int endpoint, proto::PipeType type);
+		explicit EndpointState(Device *device, int endpointId, size_t maxPacketSize);
 
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::BulkTransfer info) override;
 
+		ProducerRing &transferRing() {
+			return _transferRing;
+		}
+
 	private:
-		std::shared_ptr<Device> _device;
-		int _endpoint;
-		proto::PipeType _type;
+		Device *_device;
+		int _endpointId;
+
+		size_t _maxPacketSize;
+		ProducerRing _transferRing;
 	};
 
 	std::vector<SupportedProtocol> _supportedProtocols;
@@ -281,14 +292,12 @@ private:
 	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
 
 	async::result<Event> submitCommand(RawTrb trb) {
-		ProducerRing::Completion comp;
-		_cmdRing.pushRawTrb(trb, &comp);
+		ProducerRing::Transaction tx;
+		_cmdRing.pushRawTrb(trb, &tx);
 
 		ringDoorbell(0, 0, 0);
 
-		co_await comp.completion.wait();
-
-		co_return comp.event;
+		co_return co_await tx.command();
 	}
 
 	arch::os::contiguous_pool _memoryPool;
