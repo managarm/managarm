@@ -250,6 +250,14 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);
 
+	core::netlink::NetlinkBuilder b;
+	b.group(RTNLGRP_IPV4_IFADDR);
+	b.header(RTM_NEWADDR, 0, _currentSeq, 0);
+	b.message<struct ifaddrmsg>(*msg);
+	b.nlattr(IFA_ADDRESS, htonl(addr));
+
+	broadcast(b.packet());
+
 	return;
 }
 

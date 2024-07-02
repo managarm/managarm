@@ -120,8 +120,25 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 			} else if(type == protocols::usb::descriptor_type::interface) {
 				auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
 
-				if(desc->interfaceClass == 2 && (desc->interfaceSubClass == 13 || desc->interfaceSubClass == 6))
-					usb_info.valid = true;
+				if(desc->interfaceClass != protocols::usb::usb_class::cdc)
+					return;
+
+				switch(desc->interfaceSubClass) {
+					case protocols::usb::cdc_subclass::ethernet:
+						usb_info.subclass = protocols::usb::cdc_subclass::ethernet;
+						break;
+					case protocols::usb::cdc_subclass::ncm:
+						usb_info.subclass = protocols::usb::cdc_subclass::ncm;
+						break;
+					case protocols::usb::cdc_subclass::mbim:
+						usb_info.subclass = protocols::usb::cdc_subclass::mbim;
+						break;
+					default:
+						std::cout << std::format("netserver: unknown CDC subclass 0x{:x}\n", desc->interfaceSubClass);
+						return;
+				}
+
+				usb_info.valid = true;
 			} else if(type == protocols::usb::descriptor_type::endpoint) {
 				if(info.interfaceNumber && usb_info.data_if && info.interfaceNumber == usb_info.data_if
 						&& info.endpointType == protocols::usb::EndpointType::bulk) {
@@ -146,6 +163,7 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 	}
 
 	if(!matched_usb_info
+	|| matched_usb_info->subclass == protocols::usb::cdc_subclass::reserved
 	|| !matched_usb_info->valid
 	|| !matched_usb_info->chosen_configuration
 	|| !matched_usb_info->iMACAddress
@@ -499,6 +517,8 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 
 int main() {
 	printf("netserver: Starting driver\n");
+
+	nl::initialize();
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 

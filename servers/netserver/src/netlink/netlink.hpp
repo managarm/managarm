@@ -16,6 +16,8 @@
 
 namespace nl {
 
+void initialize();
+
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags);
@@ -30,13 +32,7 @@ public:
 
 
 	static async::result<protocols::fs::Error> bind(void *obj, const char *creds,
-			const void *addr_ptr, size_t addr_length) {
-		(void) obj;
-		(void) creds;
-		(void) addr_ptr;
-		(void) addr_length;
-		co_return protocols::fs::Error::none;
-	}
+			const void *addr_ptr, size_t addr_length);
 
 	static async::result<void> setOption(void *, int option, int value);
 
@@ -48,6 +44,9 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 	pollStatus(void *object);
 
+	static async::result<frg::expected<protocols::fs::Error>>
+	setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
+
 	constexpr static protocols::fs::FileOperations ops {
 		.setOption = &setOption,
 		.pollWait = &pollWait,
@@ -56,11 +55,14 @@ public:
 		.sockname = &sockname,
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
+		.setSocketOption = &setSocketOption,
 	};
 
 	void deliver(core::netlink::Packet packet) override;
 
 private:
+	void broadcast(core::netlink::Packet packet);
+
 	void getRoute(struct nlmsghdr *hdr);
 	void newRoute(struct nlmsghdr *hdr);
 
@@ -82,8 +84,8 @@ private:
 	// Status management for poll()
 	async::recurring_event _statusBell;
 	bool _isClosed = false;
-	uint64_t _currentSeq;
-	uint64_t _inSeq;
+	uint64_t _currentSeq = 0;
+	uint64_t _inSeq = 0;
 	bool _passCreds = false;
 
 	std::deque<core::netlink::Packet> _recvQueue;

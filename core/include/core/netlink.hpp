@@ -33,6 +33,18 @@ struct NetlinkFile {
 	virtual void deliver(core::netlink::Packet packet) = 0;
 };
 
+struct Group {
+	friend struct NetlinkFile;
+
+	// Sends a copy of the given message to this group.
+	void carbonCopy(const core::netlink::Packet &packet) {
+		for(auto socket : subscriptions)
+			socket->deliver(packet);
+	}
+
+	std::vector<NetlinkFile *> subscriptions;
+};
+
 template<typename T>
 std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int length) {
 	if(!NLMSG_OK(header, static_cast<uint32_t>(length)))
@@ -50,6 +62,10 @@ struct NetlinkBuilder {
 	inline void reset() {
 		_packet = {};
 		_offset = 0;
+	}
+
+	inline void group(uint32_t groupid) {
+		_packet.group = groupid;
 	}
 
 	inline void header(uint16_t type, uint16_t flags, uint32_t seq, uint32_t pid) {

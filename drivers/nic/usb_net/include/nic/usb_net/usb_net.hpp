@@ -28,6 +28,8 @@ struct ConfigurationInfo {
 	bool ncm = false;
 	bool valid = false;
 
+	uint8_t subclass = protocols::usb::cdc_subclass::reserved;
+
 	size_t configuration_index;
 
 	std::optional<uint8_t> chosen_configuration;
