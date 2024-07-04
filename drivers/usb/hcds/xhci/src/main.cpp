@@ -1053,7 +1053,14 @@ Controller::ConfigurationState::useInterface(int number, int alternative) {
 	desc->index = number;
 	desc->length = 0;
 
-	FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, desc, {}}));
+	// The device might stall if only the default setting is
+	// supported so just ignore that.
+	auto res = co_await _device->transfer({proto::kXferToDevice, desc, {}});
+	if (!res && res.error() == proto::UsbError::stall) {
+		printf("xhci: SET_INTERFACE(%d, %d) stalled, ignoring...\n", number, alternative);
+	} else {
+		FRG_CO_TRY(res);
+	}
 
 	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_device, number)};
 }
