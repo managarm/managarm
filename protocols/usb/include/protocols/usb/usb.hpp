@@ -57,6 +57,14 @@ namespace request_type {
 	};
 }
 
+namespace features {
+	enum : uint8_t {
+		endpointHalt = 0x00,
+		deviceRemoteWakeup = 0x01,
+		testMode = 0x02,
+	};
+}
+
 namespace descriptor_type {
 	enum : uint16_t {
 		device = 0x01,

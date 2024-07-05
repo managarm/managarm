@@ -1008,7 +1008,7 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
-	auto ep = std::make_shared<EndpointState>(this, endpointId, maxPacketSize);
+	auto ep = std::make_shared<EndpointState>(this, endpointId, type, maxPacketSize);
 	_endpoints[endpointId - 1] = ep;
 
 	auto trPtr = ep->transferRing().getPtr();
@@ -1075,8 +1075,10 @@ Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
 // Controller::EndpointState
 // ------------------------------------------------------------------------
 
-Controller::EndpointState::EndpointState(Device *device, int endpointId, size_t maxPacketSize)
-: _device{device}, _endpointId{endpointId}, _maxPacketSize{maxPacketSize}, _transferRing{device->controller()} {
+Controller::EndpointState::EndpointState(Device *device, int endpointId, proto::EndpointType type,
+		size_t maxPacketSize)
+: _device{device}, _endpointId{endpointId}, _type{type}, _maxPacketSize{maxPacketSize},
+	_transferRing{device->controller()} {
 }
 
 async::result<frg::expected<proto::UsbError>>
@@ -1088,37 +1090,109 @@ Controller::EndpointState::transfer(proto::ControlTransfer info) {
 	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
 			_maxPacketSize);
 
+	size_t nextDequeue = _transferRing.enqueuePtr();
+	bool nextCycle = _transferRing.producerCycle();
+
 	_device->submit(_endpointId);
 
-	FRG_CO_TRY(co_await tx.control(info.buffer.size() != 0));
+	auto maybeResidue = co_await tx.control(info.buffer.size() != 0);
+
+	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
+		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
+		if (!res) {
+			printf("xhci: Failed to reset EP %d after stall: %d!\n", _endpointId, (int)res.error());
+		}
+	}
+
+	// TODO(qookie): Report the residue to the user
+	(void)FRG_CO_TRY(maybeResidue);
 
 	co_return frg::success;
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::EndpointState::transfer(proto::InterruptTransfer info) {
+Controller::EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb) {
 		_transferRing.pushRawTrb(trb, &tx);
-	}, info.buffer, _maxPacketSize);
+	}, buffer, _maxPacketSize);
+
+	size_t nextDequeue = _transferRing.enqueuePtr();
+	bool nextCycle = _transferRing.producerCycle();
 
 	_device->submit(_endpointId);
 
-	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
+	auto maybeResidue = co_await tx.normal();
+
+	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
+		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
+		if (!res) {
+			printf("xhci: Failed to reset EP %d after stall: %d!\n", _endpointId, (int)res.error());
+		}
+	}
+
+	co_return buffer.size() - FRG_CO_TRY(maybeResidue);
+}
+
+async::result<frg::expected<proto::UsbError, size_t>>
+Controller::EndpointState::transfer(proto::InterruptTransfer info) {
+	co_return co_await _bulkOrInterruptXfer(info.buffer);
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 Controller::EndpointState::transfer(proto::BulkTransfer info) {
-	ProducerRing::Transaction tx;
+	co_return co_await _bulkOrInterruptXfer(info.buffer);
+}
 
-	Transfer::buildNormalChain([&] (RawTrb trb) {
-		_transferRing.pushRawTrb(trb, &tx);
-	}, info.buffer, _maxPacketSize);
+async::result<frg::expected<proto::UsbError>>
+Controller::EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
+	// Issue the Reset Endpoint command to reset the xHC state
+	auto event = co_await _device->controller()->submitCommand(
+		Command::resetEndpoint(_device->slot(), _endpointId));
 
+	if (event.completionCode != 1)
+		printf("xhci: failed to reset endpoint, completion code: '%s'\n",
+			completionCodeNames[event.completionCode]);
+
+	FRG_CO_TRY(completionToError(event));
+
+	// TODO(qookie): If behind a TT, and this is a control or bulk
+	// EP, issue ClearFeature(CLEAR_TT_BUFFER)
+
+	// If this is not a control EP, clear the halt on the device
+	// side.
+	// XXX(qookie): Linux has class drivers deal with this (but
+	// does the rest of the handling, incl. clearing TT buffers,
+	// in the xHCI driver).
+	if (_type != proto::EndpointType::control) {
+		arch::dma_object<proto::SetupPacket> clearHalt{_device->setupPool()};
+		clearHalt->type = proto::setup_type::targetEndpoint | proto::setup_type::byStandard | proto::setup_type::toDevice;
+		clearHalt->request = proto::request_type::clearFeature;
+		clearHalt->value = proto::features::endpointHalt;
+		clearHalt->index = _endpointId >> 1; // Our ID is EP no. * 2 + direction
+		clearHalt->length = 0;
+
+		FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, clearHalt, {}}));
+	}
+
+	// Issue the Set TR Dequeue Pointer command to skip the failed
+	// transfer
+	auto dequeue = _transferRing.getPtr() + nextDequeue * sizeof(RawTrb);
+	event = co_await _device->controller()->submitCommand(
+		Command::setTransferRingDequeue(_device->slot(), _endpointId,
+				dequeue | cycle));
+
+	if (event.completionCode != 1)
+		printf("xhci: failed to set TR dequeue ptr, completion code: '%s'\n",
+			completionCodeNames[event.completionCode]);
+
+	FRG_CO_TRY(completionToError(event));
+
+	// Ring the doorbell to restart the pipe
 	_device->submit(_endpointId);
 
-	co_return info.buffer.size() - FRG_CO_TRY(co_await tx.normal());
+	co_return frg::success;
 }
 
 // ------------------------------------------------------------------------

@@ -100,6 +100,23 @@ namespace Command {
 					TrbType::evalContextCommand) << 10)
 		};
 	}
+
+	constexpr RawTrb resetEndpoint(uint8_t slotId, uint8_t endpointId) {
+		return RawTrb{
+			0, 0, 0,
+			(uint32_t{slotId} << 24) | (uint32_t{endpointId} << 16)
+			| (static_cast<uint32_t>(TrbType::resetEndpointCommand) << 10)
+		};
+	}
+
+	constexpr RawTrb setTransferRingDequeue(uint8_t slotId, uint8_t endpointId, uintptr_t dequeue) {
+		return RawTrb{
+			static_cast<uint32_t>(dequeue & 0xFFFFFFFF),
+			static_cast<uint32_t>(dequeue >> 32), 0,
+			(uint32_t{slotId} << 24) | (uint32_t{endpointId} << 16)
+			| (static_cast<uint32_t>(TrbType::setTrDequeuePtrCommand) << 10)
+		};
+	}
 } // namespace Command
 
 namespace Transfer {
