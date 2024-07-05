@@ -5,6 +5,53 @@
 // Event
 // ------------------------------------------------------------------------
 
+constexpr const char *trbTypeNames[] = {
+	"Reserved",
+
+	"Normal",
+	"Setup stage",
+	"Data stage",
+	"Status stage",
+	"Isochronous",
+	"Link",
+	"Event data",
+	"No Op (transfer)",
+
+	"Enable slot",
+	"Disable slot",
+	"Address device",
+	"Configure endpoint",
+	"Evaluate context",
+	"Reset endpoint",
+	"Stop endpoint",
+	"Set TR dequeue pointer",
+	"Reset device",
+	"Force event",
+	"Negotiate bandwidth",
+	"Set latency tolerance value",
+	"Get port bandwidth",
+	"Force header",
+	"No Op (command)",
+	"Get extended property",
+	"Set extended property",
+
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+	"Reserved",
+
+	"Transfer event",
+	"Command completion event",
+	"Port status change event",
+	"Bandwidth request event",
+	"Doorbell event",
+	"Host controller event",
+	"Device notification event",
+	"MFINDEX wrap event"
+};
+
 Event Event::fromRawTrb(RawTrb trb) {
 	Event ev;
 
@@ -273,6 +320,22 @@ async::result<Event> ProducerRing::Transaction::command() {
 }
 
 void ProducerRing::Transaction::onEvent(Event event, RawTrb associatedTrb) {
+	if (event.completionCode != 1) {
+		auto associatedTrbType = static_cast<TrbType>((associatedTrb.val[3] >> 10) & 63);
+
+		// Ignore short packet completions for transfers
+		if (event.type == TrbType::transferEvent && event.completionCode != 13) {
+			printf("xhci: Transfer TRB '%s' completed with '%s' (Slot %d, EP %zu)\n",
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					completionCodeNames[event.completionCode],
+					event.slotId, event.endpointId);
+		} else if (event.type == TrbType::commandCompletionEvent) {
+			printf("xhci: Command TRB '%s' completed with '%s'\n",
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					completionCodeNames[event.completionCode]);
+		}
+	}
+
 	events_.push_back({associatedTrb, event});
 	progressEvent_.raise();
 }
