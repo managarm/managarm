@@ -120,13 +120,23 @@ HelError translateError(Error error) {
 namespace {
 
 template<typename Sink>
-void printLog(Sink &p, LogMessage &log, size_t chunk) {
-	for(size_t i = 0; i < chunk; i++)
-		p << frg::char_fmt(log.text[i]);
+std::optional<size_t> printLog(Sink &p, LogMessage &log, size_t chunk) {
+	for(size_t i = 0; i < chunk && log.text[i]; i++) {
+		if(log.text[i] == '\n') {
+			p << frg::endlog;
+			return i + 1;
+		} else if(log.text[i] == '\0') {
+			p << frg::endlog;
+			return std::nullopt;
+		} else {
+			p << frg::char_fmt(log.text[i]);
+		}
+	}
 	p << frg::endlog;
+	return chunk;
 };
 
-}
+} // namespace
 
 HelError helLog(HelLogSeverity severity, const char *string, size_t length) {
 	size_t offset = 0;
@@ -143,24 +153,40 @@ HelError helLog(HelLogSeverity severity, const char *string, size_t length) {
 			case kHelLogSeverityCritical:
 			case kHelLogSeverityError: {
 				auto p = urgentLogger();
-				printLog(p, log, chunk);
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
 				break;
 			}
 			case kHelLogSeverityWarning: {
 				auto p = warningLogger();
-				printLog(p, log, chunk);
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
 				break;
 			}
 			case kHelLogSeverityNotice:
 			case kHelLogSeverityInfo:
 			default: {
 				auto p = infoLogger();
-				printLog(p, log, chunk);
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
 				break;
 			}
 			case kHelLogSeverityDebug: {
 				auto p = debugLogger();
-				printLog(p, log, chunk);
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
 				break;
 			}
 		}
