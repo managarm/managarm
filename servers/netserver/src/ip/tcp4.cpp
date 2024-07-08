@@ -5,6 +5,7 @@
 #include <arch/variable.hpp>
 #include <protocols/fs/server.hpp>
 #include <cstring>
+#include <format>
 #include <iomanip>
 #include <random>
 #include <fcntl.h>
@@ -493,6 +494,32 @@ struct Tcp4Socket {
 		co_return 0;
 	}
 
+	static async::result<frg::expected<protocols::fs::Error>> setSocketOption(void *object,
+		int layer, int number, std::vector<char> optbuf) {
+		auto self = static_cast<Tcp4Socket *>(object);
+
+		if(layer == SOL_SOCKET && number == SO_BINDTODEVICE) {
+			std::string ifname{optbuf.data()};
+
+			if(ifname.empty()) {
+				self->boundInterface_ = {};
+			} else {
+				auto nic = nic::Link::byName(ifname);
+
+				if(!nic)
+					co_return protocols::fs::Error::illegalArguments;
+
+				self->boundInterface_ = nic;
+				co_return {};
+			}
+		}
+
+		std::cout << std::format("netserver: unhandled TCP socket setsockopt layer {} number {}\n",
+			layer, number);
+
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
+
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
@@ -507,6 +534,7 @@ struct Tcp4Socket {
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
 		.peername = &peername,
+		.setSocketOption = &setSocketOption,
 	};
 
 	bool bindAvailable(uint32_t ipAddress = INADDR_ANY) {
@@ -575,6 +603,8 @@ private:
 	uint64_t outSeq_ = 0;
 	uint64_t hupSeq_ = 1;
 	async::recurring_event pollEvent_;
+
+	std::shared_ptr<nic::Link> boundInterface_ = {};
 };
 
 async::result<void> Tcp4Socket::flushOutPackets_() {
@@ -596,7 +626,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 			localFlushedSn_ = randomSn;
 
 			// Construct and transmit the initial SYN packet.
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
+			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
 			if (!targetInfo) {
 				// TODO: Return an error to users.
 				std::cout << "netserver: Destination unreachable" << std::endl;
@@ -722,6 +752,9 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 }
 
 void Tcp4Socket::handleInPacket_(TcpPacket packet) {
+	if(boundInterface_ && boundInterface_->index() != packet.packet->link.lock()->index())
+		return;
+
 	if(connectState_ == ConnectState::sendSyn) {
 		if(localSettledSn_ == localFlushedSn_) {
 			std::cout << "netserver: Rejecting packet before SYN is sent [sendSyn]"

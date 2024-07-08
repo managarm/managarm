@@ -63,7 +63,7 @@ struct Ip4Router {
 
 	// false if insertion fails
 	bool addRoute(Route r);
-	std::optional<Route> resolveRoute(uint32_t ip);
+	std::optional<Route> resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link = {});
 
 	inline const std::set<Route> &getRoutes() const {
 		return routes;
@@ -106,6 +106,7 @@ public:
 	} header;
 	static_assert(sizeof(header) == 20, "bad header size");
 	arch::dma_buffer_view data;
+	std::weak_ptr<nic::Link> link;
 
 	inline arch::dma_buffer_view payload() const {
 		return data.subview(header.ihl * 4);
@@ -140,7 +141,7 @@ struct Ip4 {
 	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 
-	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t);
+	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t, std::shared_ptr<nic::Link> link = {});
 	async::result<protocols::fs::Error> sendFrame(Ip4TargetInfo,
 		void*, size_t,
 		uint16_t);

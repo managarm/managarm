@@ -30,10 +30,13 @@ bool Ip4Router::addRoute(Route r) {
 	return routes.emplace(std::move(r)).second;
 }
 
-std::optional<Route> Ip4Router::resolveRoute(uint32_t ip) {
+std::optional<Route> Ip4Router::resolveRoute(uint32_t ip, std::shared_ptr<nic::Link> link) {
 	for (auto i = routes.begin(); i != routes.end(); i++) {
 		const auto &r = *i;
 		if (r.network.sameNet(ip)) {
+			if(link && r.link.lock()->index() != link->index())
+				continue;
+
 			if (r.link.expired()) {
 				i = routes.erase(i);
 				continue;
@@ -230,8 +233,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(vo
 }
 
 async::result<std::optional<Ip4TargetInfo>>
-Ip4::targetByRemote(uint32_t remote) {
-	auto oroute = ip4Router().resolveRoute(remote);
+Ip4::targetByRemote(uint32_t remote, std::shared_ptr<nic::Link> link) {
+	auto oroute = ip4Router().resolveRoute(remote, link);
 	if (!oroute) {
 		std::cout << "netserver: net unreachable" << std::endl;
 		co_return std::nullopt;
@@ -329,7 +332,9 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 
 void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 		arch::dma_buffer owner, arch::dma_buffer_view frame, std::weak_ptr<nic::Link> link) {
-	Ip4Packet hdr;
+	Ip4Packet hdr{};
+	hdr.link = link;
+
 	if (!hdr.parse(std::move(owner), frame)) {
 		std::cout << "netserver: runt, or otherwise invalid, ip4 frame received"
 			<< std::endl;
