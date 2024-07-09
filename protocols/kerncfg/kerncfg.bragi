@@ -35,3 +35,15 @@ head(128):
 		tag(3) uint64 new_dequeue;
 	}
 }
+
+message GetMemoryInformationRequest 4 {
+head(128):
+}
+
+message GetMemoryInformationResponse 5 {
+head(128):
+	Error error;
+	uint64 total_usable_memory;
+	uint64 available_memory;
+	uint64 memory_unit;
+}

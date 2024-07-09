@@ -10,6 +10,7 @@
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/mbus.hpp>
+#include <thor-internal/physical.hpp>
 
 #include <bragi/helpers-frigg.hpp>
 #include <bragi/helpers-all.hpp>
@@ -72,6 +73,23 @@ private:
 			auto cmdlineError = co_await SendBufferSender{lane, std::move(cmdlineBuffer)};
 			if(cmdlineError != Error::success)
 				co_return cmdlineError;
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetMemoryInformationRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetMemoryInformationRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req)
+				co_return Error::protocolViolation;
+
+			managarm::kerncfg::GetMemoryInformationResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			resp.set_total_usable_memory(physicalAllocator->numTotalPages());
+			resp.set_available_memory(physicalAllocator->numFreePages());
+			resp.set_memory_unit(kPageSize);
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
+			bragi::write_head_only(resp, respBuffer);
+			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			if(respError != Error::success)
+				co_return respError;
 		}else{
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);

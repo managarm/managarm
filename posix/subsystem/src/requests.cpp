@@ -29,6 +29,7 @@
 
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
+#include <kerncfg.bragi.hpp>
 
 #include "debug-options.hpp"
 
@@ -3445,6 +3446,38 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 				helix_ng::sendBuffer(affinity.data(), affinity.size())
+			);
+			HEL_CHECK(sendResp.error());
+		}else if(preamble.id() == managarm::posix::GetMemoryInformationRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::GetMemoryInformationRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: GET_MEMORY_INFORMATION" << std::endl;
+
+			managarm::kerncfg::GetMemoryInformationRequest kerncfgRequest;
+			auto [kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
+				getKerncfgLane(),
+				helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
+				helix_ng::RecvInline{}
+			);
+			HEL_CHECK(kerncfgSendResp.error());
+			HEL_CHECK(kerncfgResp.error());
+
+			auto kernResp = bragi::parse_head_only<managarm::kerncfg::GetMemoryInformationResponse>(kerncfgResp);
+
+			managarm::posix::GetMemoryInformationResponse resp;
+			resp.set_total_usable_memory(kernResp->total_usable_memory());
+			resp.set_available_memory(kernResp->available_memory());
+			resp.set_memory_unit(kernResp->memory_unit());
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(sendResp.error());
 		}else{
