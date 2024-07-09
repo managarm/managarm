@@ -796,6 +796,8 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	// TODO: This is not really arch-specific!
 	smarter::borrowed_ptr<Thread> activeExecutor;
+
+	uint32_t cpuFeatures;
 };
 
 inline PlatformCpuData *getPlatformCpuData() {

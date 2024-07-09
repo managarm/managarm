@@ -405,9 +405,589 @@ initgraph::Stage *getCpuFeaturesKnownStage() {
 	return &s;
 }
 
+void getNewCpuFeatures() {
+	auto cpuData = getCpuData();
+	// EAX = 1, ECX
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE3);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PCLMULQDQ);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DTES64);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MONITOR);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DS_CPL);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::VMX);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SMX);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::EST);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TM2);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSSE3);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 10)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CNXT_ID);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SDBG);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 12)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FMA);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CX16);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::XTPR);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 15)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PDCM);
+	}
+	// ECX Bit 16 is reserved
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 17)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PCID);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DCA);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 19)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE4_1);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 20)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE4_2);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 21)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::X2APIC);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 22)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MOVBE);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 23)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::POPCNT);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 24)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TSC_DEADLINE);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 25)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AES);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::XSAVE);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 27)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::OSXSAVE);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 29)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::F16C);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 30)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RDRAND);
+	}
+	if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 31)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::HYPERVISOR);
+	}
+	// EAX = 1, EDX
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FPU);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::VME);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PSE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TSC);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MSR);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PAE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MCE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CX8);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::APIC);
+	}
+	// EDX Bit 16 is reserved
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SEP);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 12)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MTRR);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PGE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MCA);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 15)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CMOV);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 16)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PAT);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 17)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PSE36);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PSN);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 19)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CLFLUSH);
+	}
+	// EDX Bit 20 is reserved
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 21)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DS);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 22)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ACPI);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 23)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MMX);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 24)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FXSR);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 25)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 26)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE2);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 27)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SS);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 28)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::HTT);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 29)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TM);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 30)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::IA64);
+	}
+	if(common::x86::cpuid(0x1)[3] & (uint32_t(1) << 31)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PBE);
+	}
+	// EAX = 7, EBX
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FSGSBASE);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TSC_ADJUST);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SGX);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::BMI1);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::HLE);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX2);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FDP_EXCPTN_ONLY);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SMEP);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::BMI2);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ERMS);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 10)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::INVPCID);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RTM);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 12)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PQM);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ZERO_FCS_FDS);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MPX);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 15)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PQE);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 16)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_F);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 17)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_DQ);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RDSEED);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 19)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ADX);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 20)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SMAP);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 21)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_IFMA);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 22)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PCOMMIT);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 23)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CLFLUSHOPT);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 24)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CLWB);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 25)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::INTEL_PT);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 26)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_PF);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 27)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_ER);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 28)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_CD);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 29)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SHA);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 30)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_BW);
+	}
+	if(common::x86::cpuid(0x7)[1] & (uint32_t(1) << 31)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VL);
+	}
+	// EAX = 7, ECX
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PREFETCHWT1);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VBMI);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::UMIP);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PKU);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::OSPKE);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::WAITPKG);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VBMI2);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CET_SS);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::GFNI);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::VAES);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 10)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::VPCLMULQDQ);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VNNI);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 12)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_BITALG);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TME_EN);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VPOPCNTDQ);
+	}
+	// ECX bit 15 is reserved
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 16)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::INTEL_5_LEVEL_PAGING);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 17)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RDPID);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::KL);
+	}
+	// ECX bits 19-24 are reserved
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 25)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CLDEMOTE);
+	}
+	// ECX bit 26 is reserved
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 27)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MOVDIRI);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 28)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MOVDIR64B);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 29)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ENQCMD);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 30)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SGX_LC);
+	}
+	if(common::x86::cpuid(0x7)[2] & (uint32_t(1) << 31)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PKS);
+	}
+	// EAX = 7, EDX
+	// EDX bits 0-1 are reserved
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_4VNNIW);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_4FMAPS);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FSRM);
+	}
+	// EDX bits 5-7 are reserved
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_VP2INTERSECT);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SRBDS_CTRL);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 10)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MD_CLEAR);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RTM_ALWAYS_ABORT);
+	}
+	// EDX bit 12 is reserved
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TSX_FORCE_ABORT);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SERIALIZE);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 15)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::HYBRID);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 16)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TSXLDTRK);
+	}
+	// EDX bit 17 is reserved
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PCONFIG);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 19)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::LBR);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 20)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CET_IBT);
+	}
+	// EDX bit 21 is reserved
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 22)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AMX_BF16);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 23)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AVX512_FP16);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 24)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AMX_TILE);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 25)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::AMX_INT8);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 26)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SPEC_CTRL);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 27)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::STIBP);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 28)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::L1D_FLUSH);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 29)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::IA32_ARCH_CAPABILITIES);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 30)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::IA32_CORE_CAPABILITIES);
+	}
+	if(common::x86::cpuid(0x7)[3] & (uint32_t(1) << 31)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSBD);
+	}
+	// EAX = 80000001h, ECX
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::LAHF_LM);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CMP_LEGACY);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SVM);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::EXTAPIC);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CR8_LEGACY);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::ABM);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSE4A);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MISALIGNSSE);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::_3DNOWPREFETCH);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::OSVW);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 10)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::IBS);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 11)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::XOP);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 12)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SKINIT);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 13)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::WDT);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 14)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::LWP);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 15)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FMA4);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 16)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TCE);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 17)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::NODEID_MSR);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 18)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TBM);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 19)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::TOPOEXT);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 20)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PERFCTR_CORE);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 21)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PERFCTR_NB);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 22)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::DBX);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 23)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PERFTSC);
+	}
+	if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 24)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PCX_L2I);
+	}
+	// RESERVED?
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 25)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::AMX_INT8);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 26)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::SPEC_CTRL);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 27)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::STIBP);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 28)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::L1D_FLUSH);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 29)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::IA32_ARCH_CAPABILITIES);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 30)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::IA32_CORE_CAPABILITIES);
+	// }
+	// if(common::x86::cpuid(0x80000001)[2] & (uint32_t(1) << 31)) {
+	// 	cpuData->cpuFeatures |= uint32_t(CpuFeatures::SSBD);
+	// }
+	// EAX = 80000001h, EDX
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::SYSCALL);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MP);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 2)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::NX);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 3)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::MMXEXT);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 4)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::FXSR_OPT);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 5)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::PDPE1GB);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 6)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::RDTSCP);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 7)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::LM);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 8)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::_3DNOWEXT);
+	}
+	if(common::x86::cpuid(0x80000001)[3] & (uint32_t(1) << 9)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::_3DNOW);
+	}
+	// EAX = 80000007h, EDX
+	if(common::x86::cpuid(0x80000007)[3] & (uint32_t(1) << 0)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::CONSTANT_TSC);
+	}
+	if(common::x86::cpuid(0x80000007)[3] & (uint32_t(1) << 1)) {
+		cpuData->cpuFeatures |= uint32_t(CpuFeatures::NONSTOP_TSC);
+	}
+}
+
 static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
 	initgraph::Entails{getCpuFeaturesKnownStage()},
 	[] {
+		getNewCpuFeatures();
 		// Enable the XSAVE instruction set and child features
 		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
 			debugLogger() << "thor: CPUs support XSAVE" << frg::endlog;
