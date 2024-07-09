@@ -513,7 +513,7 @@ void scrubStack(IrqImageAccessor accessor, Continuation cont);
 void scrubStack(SyscallImageAccessor accessor, Continuation cont);
 void scrubStack(Executor *executor, Continuation cont);
 
-struct CpuFeatures {
+struct OldCpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
 
@@ -528,10 +528,213 @@ struct CpuFeatures {
 	size_t xsaveRegionSize;
 };
 
-extern bool cpuFeaturesKnown;
-extern CpuFeatures globalCpuFeatures;
+enum class CpuFeatures : uint32_t {
+	// EAX=1, ECX
+    SSE3 = 0,						// Streaming SIMD Extensions 3
+    PCLMULQDQ = 1,					// PCLMULDQ Instruction
+    DTES64 = 2,						// 64-Bit Debug Store
+    MONITOR = 3,					// MONITOR/MWAIT Instructions
+    DS_CPL = 4,						// CPL Qualified Debug Store
+    VMX = 5,						// Virtual Machine Extensions
+    SMX = 6,						// Safer Mode Extensions
+    EST = 7,						// Enhanced Intel SpeedStep® Technology
+    TM2 = 8,						// Thermal Monitor 2
+    SSSE3 = 9,						// Supplemental Streaming SIMD Extensions 3
+    CNXT_ID = 10,					// L1 Context ID
+    SDBG = 11,						// Silicon Debug (IA32_DEBUG_INTERFACE MSR)
+    FMA = 12,						// Fused Multiply Add
+    CX16 = 13,						// CMPXCHG16B Instruction
+    XTPR = 14,						// xTPR Update Control
+    PDCM = 15,						// Perfmon and Debug Capability (IA32_PERF_CAPABILITIES MSR)
+    /* ECX Bit 16 */				// Reserved
+    PCID = 17,						// Process Context Identifiers
+    DCA = 18,						// Direct Cache Access
+    SSE4_1 = 19,					// Streaming SIMD Extensions 4.1
+    SSE4_2 = 20,					// Streaming SIMD Extensions 4.2
+    X2APIC = 21,					// Extended xAPIC Support
+    MOVBE = 22,						// MOVBE Instruction
+    POPCNT = 23,					// POPCNT Instruction
+    TSC_DEADLINE = 24,				// Time Stamp Counter Deadline
+    AES = 25,						// AES Instruction Extensions
+    XSAVE = 26,						// XSAVE/XSTOR States
+    OSXSAVE = 27,					// OS-Enabled Extended State Management
+    AVX = 28,						// Advanced Vector Extensions
+    F16C = 29,						// 16-bit floating-point conversion instructions
+    RDRAND = 30,					// RDRAND Instruction
+    HYPERVISOR = 31,				// Hypervisor present (always zero on physical CPUs)
+    // EAX=1, EDX
+    FPU = 32,						// Floating-point Unit On-Chip
+    VME = 33,						// Virtual Mode Extension
+    DE = 34,						// Debugging Extension
+    PSE = 35,						// Page Size Extension
+    TSC = 36,						// Time Stamp Counter
+    MSR = 37,						// Model Specific Registers
+    PAE = 38,						// Physical Address Extension
+    MCE = 39,						// Machine-Check Exception
+    CX8 = 40,						// CMPXCHG8 Instruction
+    APIC = 41,						// On-chip APIC Hardware
+    /* EDX Bit 10 */				// Reserved
+    SEP = 43,						// Fast System Call
+    MTRR = 44,						// Memory Type Range Registers
+    PGE = 45,						// Page Global Enable
+    MCA = 46,						// Machine-Check Architecture
+    CMOV = 47,						// Conditional Move Instruction
+    PAT = 48,						// Page Attribute Table
+    PSE36 = 49,						// 36-bit Page Size Extension
+    PSN = 50,						// Processor serial number is present and enabled
+    CLFLUSH = 51,					// CLFLUSH Instruction
+    /* EDX Bit 20 */				// Reserved
+    DS = 53,						// CLFLUSH Instruction
+    ACPI = 54,						// CLFLUSH Instruction
+    MMX = 55,						// CLFLUSH Instruction
+    FXSR = 56,						// CLFLUSH Instruction
+    SSE = 57,						// Streaming SIMD Extensions
+    SSE2 = 58,						// Streaming SIMD Extensions 2
+    SS = 59,						// Self-Snoop
+    HTT = 60,						// Multi-Threading
+    TM = 61,						// Thermal Monitor
+    IA64 = 62,						// IA64 processor emulating x86
+    PBE = 63,						// Pending Break Enable
+    // EAX=7, EBX
+    FSGSBASE = 64,					// Access to base of %fs and %gs
+    TSC_ADJUST = 65,				// IA32_TSC_ADJUST MSR
+    SGX = 66,						// Software Guard Extensions
+    BMI1 = 67,						// Bit Manipulation Instruction Set 1
+    HLE = 68,						// TSX Hardware Lock Elision
+    AVX2 = 69,						// Advanced Vector Extensions 2
+    FDP_EXCPTN_ONLY = 70,			// FDP_EXCPTN_ONLY
+    SMEP = 71,						// Supervisor Mode Execution Protection
+    BMI2 = 72,						// Bit Manipulation Instruction Set 2
+    ERMS = 73,						// Enhanced REP MOVSB/STOSB
+    INVPCID = 74,					// INVPCID Instruction
+    RTM = 75,						// TSX Restricted Transactional Memory
+    PQM = 76,						// Platform Quality of Service Monitoring
+    ZERO_FCS_FDS = 77,				// FPU CS and FPU DS deprecated
+    MPX = 78,						// Intel MPX (Memory Protection Extensions)
+    PQE = 79,						// Platform Quality of Service Enforcement
+    AVX512_F = 80,					// AVX-512 Foundation
+    AVX512_DQ = 81,					// AVX-512 Doubleword and Quadword Instructions
+    RDSEED = 82,					// RDSEED Instruction
+    ADX = 83,						// Intel ADX (Multi-Precision Add-Carry Instruction Extensions)
+    SMAP = 84,						// Supervisor Mode Access Prevention
+    AVX512_IFMA = 85,				// AVX-512 Integer Fused Multiply-Add Instructions
+    PCOMMIT = 86,					// PCOMMIT Instruction
+    CLFLUSHOPT = 87,				// CLFLUSHOPT Instruction
+    CLWB = 88,						// CLWB Instruction
+    INTEL_PT = 89,					// Intel Processor Tracing
+    AVX512_PF = 90,					// AVX-512 Prefetch Instructions
+    AVX512_ER = 91,					// AVX-512 Exponential and Reciprocal Instructions
+    AVX512_CD = 92,					// AVX-512 Conflict Detection Instructions
+    SHA = 93,						// Intel SHA Extensions
+    AVX512_BW = 94,					// AVX-512 Byte and Word Instructions
+    AVX512_VL = 95,					// AVX-512 Vector Length Extensions
+    // EAX=7, ECX
+    PREFETCHWT1 = 96,				// PREFETCHWT1 Instruction
+    AVX512_VBMI = 97,				// AVX-512 Vector Bit Manipulation Instructions
+    UMIP = 98,						// UMIP
+    PKU = 99,						// Memory Protection Keys for User-mode pages
+    OSPKE = 100,					// PKU enabled by OS
+    WAITPKG = 101,					// Timed pause and user-level monitor/wait
+    AVX512_VBMI2 = 102,				// AVX-512 Vector Bit Manipulation Instructions 2
+    CET_SS = 103,					// Control Flow Enforcement (CET) Shadow Stack
+    GFNI = 104,						// Galois Field Instructions
+    VAES = 105,						// Vector AES instruction set (VEX-256/EVEX)
+    VPCLMULQDQ = 106,				// CLMUL instruction set (VEX-256/EVEX)
+    AVX512_VNNI = 107,				// AVX-512 Vector Neural Network Instructions
+    AVX512_BITALG = 108,			// AVX-512 BITALG Instructions
+    TME_EN = 109,					// IA32_TME related MSRs are supported
+    AVX512_VPOPCNTDQ = 110,			// AVX-512 Vector Population Count Double and Quad-word
+    // ECX Bit 15					// Reserved
+    INTEL_5_LEVEL_PAGING = 112,		// Intel 5-Level Paging
+    RDPID = 113,					// RDPID Instruction
+    KL = 114,						// Key Locker
+    // ECX Bit 24					// Reserved
+    CLDEMOTE = 116,					// Cache Line Demote
+    // ECX Bit 26					// Reserved
+    MOVDIRI = 118,					// MOVDIRI Instruction
+    MOVDIR64B = 119,				// MOVDIR64B Instruction
+    ENQCMD = 120,					// ENQCMD Instruction
+    SGX_LC = 121,					// SGX Launch Configuration
+    PKS = 122,						// Protection Keys for Supervisor-Mode Pages
+    // EAX=7, EDX
+    // ECX Bit 0-1					// Reserved
+    AVX512_4VNNIW = 125,			// AVX-512 4-register Neural Network Instructions
+    AVX512_4FMAPS = 126,			// AVX-512 4-register Multiply Accumulation Single precision
+    FSRM = 127,						// Fast Short REP MOVSB
+    // ECX Bit 5-7					// Reserved
+    AVX512_VP2INTERSECT = 131,		// AVX-512 VP2INTERSECT Doubleword and Quadword Instructions
+    SRBDS_CTRL = 132,				// Special Register Buffer Data Sampling Mitigations
+    MD_CLEAR = 133,					// VERW instruction clears CPU buffers
+    RTM_ALWAYS_ABORT = 134,			// All TSX transactions are aborted
+    // ECX Bit 12 					// Reserved
+    TSX_FORCE_ABORT = 136,			// TSX_FORCE_ABORT MSR
+    SERIALIZE = 137,				// Serialize instruction execution
+    HYBRID = 138,					// Mixture of CPU types in processor topology
+    TSXLDTRK = 139,					// TSX suspend load address tracking
+    // ECX Bit 17					// Reserved
+    PCONFIG = 141,					// Platform configuration (Memory Encryption Technologies Instructions)
+    LBR = 142,						// Architectural Last Branch Records
+    CET_IBT = 143,					// Control flow enforcement (CET) indirect branch tracking
+    // ECX Bit 21 					// Reserved
+    AMX_BF16 = 145,					// Tile computation on bfloat16 numbers
+    AVX512_FP16 = 146,				// AVX512-FP16 half-precision floating-point instructions
+    AMX_TILE = 147,					// Tile architecture
+    AMX_INT8 = 148,					// Tile computation on 8-bit integers
+    SPEC_CTRL = 149,				// Speculation Control
+    STIBP = 150,					// Single Thread Indirect Branch Predictor
+    L1D_FLUSH = 151,				// IA32_FLUSH_CMD MSR
+    IA32_ARCH_CAPABILITIES = 152,	// IA32_ARCH_CAPABILITIES MSR
+    IA32_CORE_CAPABILITIES = 153,	// IA32_CORE_CAPABILITIES MSR
+    SSBD = 154,						// Speculative Store Bypass Disable
+    // EAX=80000001h, ECX
+    LAHF_LM = 155,					// LAHF/SAHF in long mode
+    CMP_LEGACY = 156,				// Hyperthreading not valid
+    SVM = 157,						// Secure Virtual Machine
+    EXTAPIC = 158,					// Extended APIC Space
+    CR8_LEGACY = 159,				// CR8 in 32-bit mode
+    ABM = 160,						// Advanced Bit Manipulation
+    SSE4A = 161,					// SSE4a
+    MISALIGNSSE = 162,				// Misaligned SSE Mode
+    _3DNOWPREFETCH = 163,			// PREFETCH and PREFETCHW Instructions
+    OSVW = 164,						// OS Visible Workaround
+    IBS = 165,						// Instruction Based Sampling
+    XOP = 166,						// XOP instruction set
+    SKINIT = 167,					// SKINIT/STGI Instructions
+    WDT = 168,						// Watchdog timer
+    LWP = 169,						// Light Weight Profiling
+    FMA4 = 170,						// FMA4 instruction set
+    TCE = 171,						// Translation Cache Extension
+    NODEID_MSR = 172,				// NodeID MSR
+    TBM = 173,						// Trailing Bit Manipulation
+    TOPOEXT = 174,					// Topology Extensions
+    PERFCTR_CORE = 175,				// Core Performance Counter Extensions
+    PERFCTR_NB = 176,				// NB Performance Counter Extensions
+    DBX = 177,						// Data Breakpoint Extensions
+    PERFTSC = 178,					// Performance TSC
+    PCX_L2I = 179,					// L2I Performance Counter Extensions
+    // EAX=80000001h, EDX
+    SYSCALL = 180,					// SYSCALL/SYSRET Instructions
+    MP = 181,						// Multiprocessor Capable
+    NX = 182,						// NX bit
+    MMXEXT = 183,					// Extended MMX
+    FXSR_OPT = 184,					// FXSAVE/FXRSTOR Optimizations
+    PDPE1GB = 185,					// Gigabyte Pages
+    RDTSCP = 186,					// RDTSCP Instruction
+    LM = 187,						// Long Mode
+    _3DNOWEXT = 188,				// Extended 3DNow!
+    _3DNOW = 189,					// 3DNow!
+    // EAX=80000007h, EDX
+    CONSTANT_TSC = 190,				// Invariant TSC
+    NONSTOP_TSC = 191,				// Invariant TSC
+    __End = 255,					// Special marker, should never be set ever
+};
 
-[[gnu::const]] inline CpuFeatures *getGlobalCpuFeatures() {
+extern bool cpuFeaturesKnown;
+// This should probably go into the per cpu struct
+// As different cores can have different features.
+extern OldCpuFeatures globalCpuFeatures;
+
+[[gnu::const]] inline OldCpuFeatures *getGlobalCpuFeatures() {
 	assert(cpuFeaturesKnown);
 	return &globalCpuFeatures;
 }

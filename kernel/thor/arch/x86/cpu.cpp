@@ -398,7 +398,7 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 // --------------------------------------------------------
 
 constinit bool cpuFeaturesKnown = false;
-constinit CpuFeatures globalCpuFeatures{};
+constinit OldCpuFeatures globalCpuFeatures{};
 
 initgraph::Stage *getCpuFeaturesKnownStage() {
 	static initgraph::Stage s{&globalInitEngine, "x86.cpu-features-known"};
@@ -456,13 +456,13 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 		if(intelPmLeaf & 0xFF) {
 			debugLogger() << "thor: CPUs support Intel performance counters"
 					<< frg::endlog;
-			globalCpuFeatures.profileFlags |= CpuFeatures::profileIntelSupported;
+			globalCpuFeatures.profileFlags |= OldCpuFeatures::profileIntelSupported;
 		}
 		auto amdPmLeaf = common::x86::cpuid(0x8000'0001)[2];
 		if(amdPmLeaf & (1 << 23)) {
 			debugLogger() << "thor: CPUs support AMD performance counters"
 					<< frg::endlog;
-			globalCpuFeatures.profileFlags |= CpuFeatures::profileAmdSupported;
+			globalCpuFeatures.profileFlags |= OldCpuFeatures::profileAmdSupported;
 		}
 
 		// Check that both VMX and EPT are supported.
