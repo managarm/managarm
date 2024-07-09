@@ -67,4 +67,41 @@ void PIOLogHandler::printChar(char c) {
 	}
 }
 
+void PIOLogHandler::setPriority(Severity prio) {
+	int c = 9;
+
+	switch(prio) {
+		case Severity::emergency:
+		case Severity::alert:
+		case Severity::critical:
+		case Severity::error:
+			c = 1;
+			break;
+		case Severity::warning:
+			c = 3;
+			break;
+		case Severity::notice:
+		case Severity::info:
+			c = 9;
+			break;
+		case Severity::debug:
+			c = 5;
+			break;
+	}
+
+	printChar('\e');
+	printChar('[');
+	printChar('3');
+	printChar('0' + c);
+	printChar('m');
+}
+
+void PIOLogHandler::resetPriority() {
+	printChar('\e');
+	printChar('[');
+	printChar('3');
+	printChar('9');
+	printChar('m');
+}
+
 } // namespace thor

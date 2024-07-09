@@ -9,12 +9,12 @@ namespace thor::pci {
 namespace {
 
 void uhciSmiDisable(smarter::shared_ptr<pci::PciDevice> dev) {
-	infoLogger() << "            \e[32mDisabling UHCI SMI generation!\e[39m" << frg::endlog;
+	debugLogger() << "            Disabling UHCI SMI generation!" << frg::endlog;
 	dev->parentBus->io->writeConfigHalf(dev->parentBus, dev->slot, dev->function, 0xC0, 0x2000);
 }
 
 void switchUsbPortsToXhci(smarter::shared_ptr<pci::PciDevice> dev) {
-	infoLogger() << "            \e[32mSwitching USB ports to XHCI!\e[39m" << frg::endlog;
+	debugLogger() << "            Switching USB ports to XHCI!" << frg::endlog;
 	auto io = dev->parentBus->io;
 
 	auto usb3PortsAvail = io->readConfigWord(dev->parentBus, dev->slot, dev->function, 0xDC);

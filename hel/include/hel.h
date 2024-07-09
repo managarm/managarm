@@ -528,15 +528,29 @@ struct HelVmexitReason {
 	size_t flags;
 };
 
+// see RFC 5424
+enum HelLogSeverity {
+	kHelLogSeverityEmergency,
+	kHelLogSeverityAlert,
+	kHelLogSeverityCritical,
+	kHelLogSeverityError,
+	kHelLogSeverityWarning,
+	kHelLogSeverityNotice,
+	kHelLogSeverityInfo,
+	kHelLogSeverityDebug,
+};
+
 //! @name Logging
 //! @{
 
 //! Writes a text message (e.g., a line of text) to the kernel's log.
+//! @param[in] severity
+//!    	The RFC 5424 priority of the log message.
 //! @param[in] string
 //!    	Text to be written.
 //! @param[in] length
 //! 	Size of the text in bytes.
-HEL_C_LINKAGE HelError helLog(const char *string, size_t length);
+HEL_C_LINKAGE HelError helLog(const HelLogSeverity severity, const char *string, size_t length);
 
 //! Kills the current thread and writes an error message to the kernel's log.
 //! @param[in] string
@@ -1147,13 +1161,13 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 
 extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError err_code,
 		const char *string, int fatal) {
-	helLog(string, strlen(string));
+	helLog(kHelLogSeverityError, string, strlen(string));
 
 	const char *err_string = _helErrorString(err_code);
 	if(err_string == 0)
 		err_string = "(Unexpected error code)";
-	helLog(err_string, strlen(err_string));
-	helLog("\n", 1);
+	helLog(kHelLogSeverityError, err_string, strlen(err_string));
+	helLog(kHelLogSeverityError, "\n", 1);
 
 	if(fatal)
 		helPanic(0, 0);

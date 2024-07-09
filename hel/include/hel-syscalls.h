@@ -6,9 +6,9 @@
 #include <hel-types.h>
 #include <hel-stubs.h>
 
-extern inline __attribute__ (( always_inline )) HelError helLog(const char *string,
+extern inline __attribute__ (( always_inline )) HelError helLog(const HelLogSeverity severity, const char *string,
 		size_t length) {
-	return helSyscall2(kHelCallLog, (HelWord)string, length);
+	return helSyscall3(kHelCallLog, severity, (HelWord)string, length);
 };
 
 extern inline __attribute__ (( always_inline )) void helPanic(const char *string,

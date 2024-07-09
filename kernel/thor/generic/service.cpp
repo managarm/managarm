@@ -101,8 +101,8 @@ namespace stdio {
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else{
-				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
-						<< " for kernel provided stdio file" "\e[39m" << frg::endlog;
+				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided stdio file" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
@@ -211,8 +211,8 @@ namespace initrd {
 				// TODO: improve error handling here.
 				assert(memoryError == Error::success);
 			}else{
-				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
-						<< " for kernel provided regular file" "\e[39m" << frg::endlog;
+				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided regular file" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
@@ -276,8 +276,8 @@ namespace initrd {
 					assert(respError == Error::success);
 				}
 			}else{
-				infoLogger() << "\e[31m" "thor: Illegal request type " << (int32_t)req.req_type()
-						<< " for kernel provided directory file" "\e[39m" << frg::endlog;
+				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+						<< " for kernel provided directory file" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
 				// TODO: improve error handling here.
@@ -651,15 +651,15 @@ namespace posix {
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
-				infoLogger() << "\e[31m" "thor: Panic in server "
-						<< name().data() << "\e[39m" << frg::endlog;
+				urgentLogger() << "thor: Panic in server "
+						<< name().data() << frg::endlog;
 				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
-				infoLogger() << "\e[31m" "thor: Fault in server "
-						<< name().data() << "\e[39m" << frg::endlog;
+				urgentLogger() << "thor: Fault in server "
+						<< name().data() << frg::endlog;
 				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.

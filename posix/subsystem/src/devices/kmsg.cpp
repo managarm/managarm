@@ -47,7 +47,7 @@ private:
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 		int ret_len = snprintf(reinterpret_cast<char *>(data), length,
-			"%u,%lu,%u,-;%s", 0, resp.effective_dequeue(), 0, reinterpret_cast<char *>(buffer.data()));
+			"%s", reinterpret_cast<char *>(buffer.data()));
 
 		assert(offset_ == resp.effective_dequeue());
 		offset_ = resp.new_dequeue();
@@ -57,7 +57,48 @@ private:
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *data, size_t length) override {
 		auto msg = reinterpret_cast<const char *>(data);
-		std::cout << msg;
+
+		HelLogSeverity s = kHelLogSeverityInfo;
+
+		auto handlePrefix = [&](size_t digits) {
+			assert(digits > 0 && digits <= 3);
+
+			char *endptr = 0;
+			auto val = std::strtoul(&msg[1], &endptr, 10);
+			assert(endptr == &msg[1 + digits]);
+			auto level = val & 0x7;
+
+			if(level >= kHelLogSeverityEmergency && level <= kHelLogSeverityDebug) {
+				s = HelLogSeverity(level);
+			}
+
+			msg += digits + 2;
+		};
+
+		if(msg && length >= 1 && msg[0] == '<') {
+			if(length >= 2 && isdigit(msg[1])) {
+				if(length >= 3 && isdigit(msg[2])) {
+					if(length >= 4 && isdigit(msg[3])) {
+						if(length >= 5 && msg[4] == '>') {
+							handlePrefix(3);
+						}
+					} else if(length >= 4 && msg[3] == '>') {
+						handlePrefix(2);
+					}
+				} else if(length >= 3 && msg[2] == '>') {
+					handlePrefix(1);
+				}
+			}
+		}
+
+		auto line_len = strlen(msg);
+		auto newline = strchr(msg, '\n');
+		if(newline) {
+			assert(newline > msg);
+			line_len = frg::min(static_cast<size_t>(newline - msg), line_len);
+		}
+
+		helLog(s, msg, line_len);
 
 		co_return length;
 	}

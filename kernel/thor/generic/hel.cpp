@@ -4,6 +4,7 @@
 #include <async/algorithm.hpp>
 #include <async/cancellation.hpp>
 #include <frg/container_of.hpp>
+#include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
 #include <frg/small_vector.hpp>
 #include <thor-internal/event.hpp>
@@ -116,7 +117,28 @@ HelError translateError(Error error) {
 	}
 }
 
-HelError helLog(const char *string, size_t length) {
+namespace {
+
+template<typename Sink>
+std::optional<size_t> printLog(Sink &p, LogMessage &log, size_t chunk) {
+	for(size_t i = 0; i < chunk && log.text[i]; i++) {
+		if(log.text[i] == '\n') {
+			p << frg::endlog;
+			return i + 1;
+		} else if(log.text[i] == '\0') {
+			p << frg::endlog;
+			return std::nullopt;
+		} else {
+			p << frg::char_fmt(log.text[i]);
+		}
+	}
+	p << frg::endlog;
+	return chunk;
+};
+
+} // namespace
+
+HelError helLog(HelLogSeverity severity, const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
 		LogMessage log;
@@ -125,10 +147,49 @@ HelError helLog(const char *string, size_t length) {
 		if(!readUserArray(string + offset, log.text, chunk))
 			return kHelErrFault;
 
-		auto p = infoLogger();
-		for(size_t i = 0; i < chunk; i++)
-			p << frg::char_fmt(log.text[i]);
-		p << frg::endlog;
+		switch(severity) {
+			case kHelLogSeverityEmergency:
+			case kHelLogSeverityAlert:
+			case kHelLogSeverityCritical:
+			case kHelLogSeverityError: {
+				auto p = urgentLogger();
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
+				break;
+			}
+			case kHelLogSeverityWarning: {
+				auto p = warningLogger();
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
+				break;
+			}
+			case kHelLogSeverityNotice:
+			case kHelLogSeverityInfo:
+			default: {
+				auto p = infoLogger();
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
+				break;
+			}
+			case kHelLogSeverityDebug: {
+				auto p = debugLogger();
+				auto ret = printLog(p, log, chunk);
+				if(ret)
+					chunk = ret.value();
+				else
+					return kHelErrNone;
+				break;
+			}
+		}
 
 		offset += chunk;
 	}
@@ -381,7 +442,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	}else if(flags & kHelAllocOnDemand) {
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}else{
-		// TODO: 
+		// TODO:
 		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
 	}
 	memory->selfPtr = memory;
@@ -839,7 +900,7 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	if(!isVspace) {
 		if(map_flags & AddressSpace::kMapFixed && !pointer)
 			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
-		
+
 		mapResult = Thread::asyncBlockCurrent(space->map(slice,
 				(VirtualAddr)pointer, offset, length, map_flags));
 	} else {

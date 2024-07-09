@@ -124,6 +124,16 @@ namespace {
 				print(*str++);
 		}
 
+		void setPriority(Severity prio) {
+			for (const auto &it : *globalLogList)
+				it->setPriority(prio);
+		}
+
+		void resetPriority() {
+			for (const auto &it : *globalLogList)
+				it->resetPriority();
+		}
+
 	private:
 		static constexpr int maximalCsiLength = 16;
 
@@ -144,24 +154,50 @@ void panic() {
 		halt();
 }
 
+constinit frg::stack_buffer_logger<DebugSink, logLineLength> debugLogger;
+constinit frg::stack_buffer_logger<WarningSink, logLineLength> warningLogger;
 constinit frg::stack_buffer_logger<InfoSink, logLineLength> infoLogger;
 constinit frg::stack_buffer_logger<UrgentSink, logLineLength> urgentLogger;
 constinit frg::stack_buffer_logger<PanicSink, logLineLength> panicLogger;
+
+void DebugSink::operator() (const char *msg) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&logMutex);
+
+	logProcessor.setPriority(Severity::debug);
+	logProcessor.print(msg);
+	logProcessor.print('\n');
+	logProcessor.resetPriority();
+}
+
+void WarningSink::operator() (const char *msg) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&logMutex);
+
+	logProcessor.setPriority(Severity::warning);
+	logProcessor.print(msg);
+	logProcessor.print('\n');
+	logProcessor.resetPriority();
+}
 
 void InfoSink::operator() (const char *msg) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&logMutex);
 
+	logProcessor.setPriority(Severity::info);
 	logProcessor.print(msg);
 	logProcessor.print('\n');
+	logProcessor.resetPriority();
 }
 
 void UrgentSink::operator() (const char *msg) {
 	StatelessIrqLock irqLock;
 	auto lock = frg::guard(&logMutex);
 
+	logProcessor.setPriority(Severity::critical);
 	logProcessor.print(msg);
 	logProcessor.print('\n');
+	logProcessor.resetPriority();
 }
 
 void PanicSink::operator() (const char *msg) {
@@ -169,8 +205,10 @@ void PanicSink::operator() (const char *msg) {
 
 	auto lock = frg::guard(&logMutex);
 
+	logProcessor.setPriority(Severity::emergency);
 	logProcessor.print(msg);
 	logProcessor.print('\n');
+	logProcessor.resetPriority();
 }
 
 void PanicSink::finalize(bool) {

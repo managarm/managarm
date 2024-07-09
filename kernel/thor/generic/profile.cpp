@@ -39,8 +39,8 @@ void initializeProfile() {
 
 	if(!(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported)
 			&& !(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported)) {
-		infoLogger() << "\e[31m" "thor: Kernel profiling was requested but"
-				" no hardware support is available" "\e[39m" << frg::endlog;
+		urgentLogger() << "thor: Kernel profiling was requested but"
+				" no hardware support is available" << frg::endlog;
 		return;
 	}
 

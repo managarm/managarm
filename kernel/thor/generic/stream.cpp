@@ -289,7 +289,7 @@ Stream::Stream(bool withCredentials)
 
 Stream::~Stream() {
 // TODO: remove debugging messages?
-//	infoLogger() << "\e[31mClosing stream\e[0m" << frg::endlog;
+//	infoLogger() << "Closing stream" << frg::endlog;
 }
 
 void Stream::shutdownLane(int lane) {

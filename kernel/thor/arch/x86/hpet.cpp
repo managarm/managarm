@@ -114,8 +114,7 @@ public:
 			//         everything works as expected; we do not need to warn.
 			//       - Adjust this code one we count the number of overflows.
 			if(ticks & ~uint64_t{0xFFFFFFFF})
-				infoLogger() << "\e[31m" "thor: HPET comparator overflow" "\e[39m"
-						<< frg::endlog;
+				urgentLogger() << "thor: HPET comparator overflow" << frg::endlog;
 			ticks &= ~uint64_t(0xFFFFFFFF);
 		}
 		hpetBase.store(timerComparator0, ticks);
@@ -234,12 +233,11 @@ static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 
 		auto ret = uacpi_table_find_by_signature("HPET", &hpetTbl);
 		if(ret != UACPI_STATUS_OK) {
-			infoLogger() << "\e[31m" "thor: No HPET table!" "\e[39m" << frg::endlog;
+			urgentLogger() << "thor: No HPET table!" << frg::endlog;
 			return;
 		}
 		if(hpetTbl->hdr->length < sizeof(acpi_sdt_hdr) + sizeof(HpetEntry)) {
-			infoLogger() << "\e[31m" "thor: HPET table has no entries!" "\e[39m"
-					<< frg::endlog;
+			urgentLogger() << "thor: HPET table has no entries!" << frg::endlog;
 			return;
 		}
 		auto hpetEntry = (HpetEntry *)(hpetTbl->virt_addr + sizeof(acpi_sdt_hdr));

@@ -404,8 +404,7 @@ struct ZeroMemory final : MemoryView, GlobalFutexSpace {
 	}
 
 	void markDirty(uintptr_t, size_t) override {
-		infoLogger() << "\e[31m" "thor: ZeroMemory::markDirty() called,"
-				"" "\e[39m" << frg::endlog;
+		urgentLogger() << "thor: ZeroMemory::markDirty() called," << frg::endlog;
 	}
 
 	coroutine<frg::expected<Error, PhysicalAddr>> takeGlobalFutex(uintptr_t,
@@ -601,14 +600,14 @@ AllocatedMemory::AllocatedMemory(size_t desiredLngth,
 	static_assert(sizeof(unsigned long) == sizeof(uint64_t), "Fix use of __builtin_clzl");
 	_chunkSize = size_t(1) << (64 - __builtin_clzl(desiredChunkSize - 1));
 	if(_chunkSize != desiredChunkSize)
-		infoLogger() << "\e[31mPhysical allocation of size " << (void *)desiredChunkSize
-				<< " rounded up to power of 2\e[39m" << frg::endlog;
+		urgentLogger() << "Physical allocation of size " << (void *)desiredChunkSize
+				<< " rounded up to power of 2" << frg::endlog;
 
 	size_t length = (desiredLngth + (_chunkSize - 1)) & ~(_chunkSize - 1);
 	if(length != desiredLngth)
-		infoLogger() << "\e[31mMemory length " << (void *)desiredLngth
+		urgentLogger() << "Memory length " << (void *)desiredLngth
 				<< " rounded up to chunk size " << (void *)_chunkSize
-				<< "\e[39m" << frg::endlog;
+				<< frg::endlog;
 
 	assert(_chunkSize % kPageSize == 0);
 	assert(_chunkAlign % kPageSize == 0);
@@ -772,7 +771,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 			}
 
 			if(logUncaching)
-				infoLogger() << "\e[33mEvicting physical page\e[39m" << frg::endlog;
+				warningLogger() << "Evicting physical page" << frg::endlog;
 			physicalAllocator->free(physical, kPageSize);
 		}
 	}(this);
@@ -1218,8 +1217,7 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_pt
 		}
 
 		if(flags & fetchDisallowBacking) {
-			infoLogger() << "\e[31m" "thor: Backing of page is disallowed" "\e[39m"
-					<< frg::endlog;
+			urgentLogger() << "thor: Backing of page is disallowed" << frg::endlog;
 			co_return Error::fault;
 		}
 

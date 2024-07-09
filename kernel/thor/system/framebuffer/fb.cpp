@@ -34,7 +34,7 @@ struct FbDisplay final : TextDisplay {
 
 	int getWidth() override;
 	int getHeight() override;
-	
+
 	void setChars(unsigned int x, unsigned int y,
 			const char *c, int count, int fg, int bg) override;
 	void setBlanks(unsigned int x, unsigned int y, int count, int bg) override;
@@ -64,7 +64,7 @@ void FbDisplay::setChars(unsigned int x, unsigned int y,
 }
 
 void FbDisplay::setBlanks(unsigned int x, unsigned int y, int count, int bg) {
-	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg]; 
+	auto bg_rgb = (bg < 0) ? defaultBg : rgbColor[bg];
 
 	auto dest_line = _window + y * fontHeight * _pitch + x * fontWidth;
 	for(size_t i = 0; i < fontHeight; i++) {
@@ -147,7 +147,7 @@ void transitionBootFb() {
 						&& bootInfo->address + bootInfo->height * bootInfo->pitch <= bar_end)
 					return true;
 			}
-			
+
 			return false;
 		};
 

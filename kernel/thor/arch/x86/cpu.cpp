@@ -410,57 +410,57 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 	[] {
 		// Enable the XSAVE instruction set and child features
 		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
-			infoLogger() << "\e[37mthor: CPUs support XSAVE\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPUs support XSAVE" << frg::endlog;
 			globalCpuFeatures.haveXsave = true;
 
 			auto xsaveCpuid = common::x86::cpuid(0xD);
 			globalCpuFeatures.xsaveRegionSize = xsaveCpuid[2];
 		}else{
-			infoLogger() << "\e[37mthor: CPUs do not support XSAVE!\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPUs do not support XSAVE!" << frg::endlog;
 		}
 
 		if(globalCpuFeatures.haveXsave) {
 			if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 28)) {
-				infoLogger() << "\e[37mthor: CPUs support AVX\e[39m" << frg::endlog;
+				debugLogger() << "thor: CPUs support AVX" << frg::endlog;
 				globalCpuFeatures.haveAvx = true;
 			}else{
-				infoLogger() << "\e[37mthor: CPUs do not support AVX!\e[39m" << frg::endlog;
+				debugLogger() << "thor: CPUs do not support AVX!" << frg::endlog;
 			}
 
 			if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 16)) {
-				infoLogger() << "\e[37mthor: CPUs support AVX-512\e[39m" << frg::endlog;
+				debugLogger() << "thor: CPUs support AVX-512" << frg::endlog;
 				globalCpuFeatures.haveZmm = true;
 			}else{
-				infoLogger() << "\e[37mthor: CPUs do not support AVX-512!\e[39m" << frg::endlog;
+				debugLogger() << "thor: CPUs do not support AVX-512!" << frg::endlog;
 			}
 		}
 
 		if(common::x86::cpuid(0x80000007)[3] & (1 << 8)) {
-			infoLogger() << "\e[37mthor: CPUs support invariant TSC\e[39m"
+			debugLogger() << "thor: CPUs support invariant TSC"
 					<< frg::endlog;
 			globalCpuFeatures.haveInvariantTsc = true;
 		}else{
-			infoLogger() << "\e[37mthor: CPUs do not support invariant TSC!\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPUs do not support invariant TSC!" << frg::endlog;
 		}
 
 		if(common::x86::cpuid(0x01)[2] & (1 << 24)) {
-			infoLogger() << "\e[37mthor: CPUs support TSC deadline mode\e[39m"
+			debugLogger() << "thor: CPUs support TSC deadline mode"
 					<< frg::endlog;
 			globalCpuFeatures.haveTscDeadline = true;
 		}else{
-			infoLogger() << "\e[37mthor: CPUs do not support TSC deadline mode!\e[39m"
+			debugLogger() << "thor: CPUs do not support TSC deadline mode!"
 					<< frg::endlog;
 		}
 
 		auto intelPmLeaf = common::x86::cpuid(0xA)[0];
 		if(intelPmLeaf & 0xFF) {
-			infoLogger() << "\e[37mthor: CPUs support Intel performance counters\e[39m"
+			debugLogger() << "thor: CPUs support Intel performance counters"
 					<< frg::endlog;
 			globalCpuFeatures.profileFlags |= CpuFeatures::profileIntelSupported;
 		}
 		auto amdPmLeaf = common::x86::cpuid(0x8000'0001)[2];
 		if(amdPmLeaf & (1 << 23)) {
-			infoLogger() << "\e[37mthor: CPUs support AMD performance counters\e[39m"
+			debugLogger() << "thor: CPUs support AMD performance counters"
 					<< frg::endlog;
 			globalCpuFeatures.profileFlags |= CpuFeatures::profileAmdSupported;
 		}
@@ -494,10 +494,10 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			auto vm_cr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
 			if(vm_cr & (1 << 4)) {
 				if(leaf[3] & (1 << 2)) {
-					infoLogger() << "\e[37mthor: SVM Locked with Key\e[39m" << frg::endlog;
+					debugLogger() << "thor: SVM Locked with Key" << frg::endlog;
 					return false;
 				} else {
-					infoLogger() << "\e[37mthor: SVM Disabled in BIOS\e[39m" << frg::endlog;
+					debugLogger() << "thor: SVM Disabled in BIOS" << frg::endlog;
 					return false;
 				}
 			}
@@ -508,19 +508,19 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 		}();
 
 		if(vmxSupported) {
-			infoLogger() << "\e[37mthor: CPUs support VMX\e[39m"
+			debugLogger() << "thor: CPUs support VMX"
 					<< frg::endlog;
 			globalCpuFeatures.haveVmx = true;
 		}else{
-			infoLogger() << "\e[37mthor: CPUs do not support VMX!\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPUs do not support VMX!" << frg::endlog;
 		}
 
 		if(svmSupported) {
-			infoLogger() << "\e[37mthor: CPUs support SVM\e[39m"
+			debugLogger() << "thor: CPUs support SVM"
 					<< frg::endlog;
 			globalCpuFeatures.haveSvm = true;
 		}else{
-			infoLogger() << "\e[37mthor: CPUs do not support SVM!\e[39m" << frg::endlog;
+			debugLogger() << "thor: CPUs do not support SVM!" << frg::endlog;
 		}
 
 		cpuFeaturesKnown = true;
@@ -583,7 +583,7 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-p
 		// We need to fill in the boot APIC ID.
 		// This cannot be done in setupBootCpuContext() as we need the APIC base first.
 		staticBootCpuContext->localApicId = getLocalApicId();
-		infoLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
+		debugLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
 				<< frg::endlog;
 
 		initializeThisProcessor();
@@ -686,7 +686,7 @@ void initializeThisProcessor() {
 
 	// Enable the SMAP extension.
 	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 20)) {
-		infoLogger() << "\e[37mthor: CPU supports SMAP\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU supports SMAP" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -697,38 +697,38 @@ void initializeThisProcessor() {
 
 		cpuData->haveSmap = true;
 	}else{
-		infoLogger() << "\e[37mthor: CPU does not support SMAP!\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU does not support SMAP!" << frg::endlog;
 	}
 
 	// Enable the SMEP extension.
 	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
-		infoLogger() << "\e[37mthor: CPU supports SMEP\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU supports SMEP" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= uint32_t(1) << 20;
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 	}else{
-		infoLogger() << "\e[37mthor: CPU does not support SMEP!\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU does not support SMEP!" << frg::endlog;
 	}
 
 	// Enable the UMIP extension.
 	if(common::x86::cpuid(0x07)[2] & (uint32_t(1) << 2)) {
-		infoLogger() << "\e[37mthor: CPU supports UMIP\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU supports UMIP" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
 		cr4 |= uint32_t(1) << 11;
 		asm volatile ("mov %0, %%cr4" : : "r" (cr4));
 	}else{
-		infoLogger() << "\e[37mthor: CPU does not support UMIP!\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU does not support UMIP!" << frg::endlog;
 	}
 
 	// Enable the PCID extension.
 	bool pcidBit = common::x86::cpuid(0x01)[2] & (uint32_t(1) << 17);
 	bool invpcidBit = common::x86::cpuid(0x07)[1] & (uint32_t(1) << 10);
 	if(pcidBit && invpcidBit) {
-		infoLogger() << "\e[37mthor: CPU supports PCIDs\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU supports PCIDs" << frg::endlog;
 
 		uint64_t cr4;
 		asm volatile ("mov %%cr4, %0" : "=r" (cr4));
@@ -737,10 +737,10 @@ void initializeThisProcessor() {
 
 		cpuData->havePcids = true;
 	}else if(pcidBit) {
-		infoLogger() << "\e[37mthor: CPU supports PCIDs but no INVPCID;"
-				" will not use PCIDs!\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU supports PCIDs but no INVPCID;"
+				" will not use PCIDs!" << frg::endlog;
 	}else{
-		infoLogger() << "\e[37mthor: CPU does not support PCIDs!\e[39m" << frg::endlog;
+		debugLogger() << "thor: CPU does not support PCIDs!" << frg::endlog;
 	}
 
 	// Enable SVM or VMX if it is supported.
@@ -800,7 +800,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 	initializeThisProcessor();
 	__atomic_store_n(&statusBlock->targetStage, 2, __ATOMIC_RELEASE);
 
-	infoLogger() << "Hello world from CPU #" << getLocalApicId() << frg::endlog;
+	debugLogger() << "Hello world from CPU #" << getLocalApicId() << frg::endlog;
 
 	Scheduler::resume(cpuContext->wqFiber);
 
@@ -841,7 +841,7 @@ void bootSecondary(unsigned int apic_id) {
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
 			+ (kPageSize - sizeof(StatusBlock)));
-	infoLogger() << "status block accessed via: " << statusBlock << frg::endlog;
+	debugLogger() << "status block accessed via: " << statusBlock << frg::endlog;
 
 	statusBlock->self = statusBlock;
 	statusBlock->targetStage = 0;
@@ -869,7 +869,7 @@ void bootSecondary(unsigned int apic_id) {
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
 		pause();
 	}
-	infoLogger() << "thor: AP did wake up." << frg::endlog;
+	debugLogger() << "thor: AP did wake up." << frg::endlog;
 
 	// We only let the AP proceed after all IPIs have been sent.
 	// This ensures that the AP does not execute boot code twice (e.g. in case
@@ -880,7 +880,7 @@ void bootSecondary(unsigned int apic_id) {
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 2) {
 		pause();
 	}
-	infoLogger() << "thor: AP finished booting." << frg::endlog;
+	debugLogger() << "thor: AP finished booting." << frg::endlog;
 }
 
 Error getEntropyFromCpu(void *buffer, size_t size) {
