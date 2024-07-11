@@ -217,37 +217,34 @@ async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lan
 // mbus Enumerator class.
 // ------------------------------------------------------------------------
 
-static void encodeFilter(const AnyFilter &filter, auto &msg) {
+static const managarm::mbus::AnyFilter encodeFilter(const AnyFilter &filter) {
 	managarm::mbus::AnyFilter flt;
+
 	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
-		managarm::mbus::EqualsFilter eqf;
-		eqf.set_path(alt->path());
-		eqf.set_value(alt->value());
-		flt.set_equals_filter(std::move(eqf));
+		flt.set_type(managarm::mbus::FilterType::EQUALS);
+		flt.set_path(alt->path());
+		flt.set_value(alt->value());
 	}else if(auto alt = std::get_if<Conjunction>(&filter); alt) {
-		managarm::mbus::Conjunction conj;
+		flt.set_type(managarm::mbus::FilterType::CONJUNCTION);
 		for(auto &operand : alt->operands()) {
-			auto eqf = std::get_if<EqualsFilter>(&operand);
-			assert(eqf && "Sorry, unimplemented: Non-EqualsFilter in Conjunction");
-
-			managarm::mbus::EqualsFilter flt{};
-
-			flt.set_path(eqf->path());
-			flt.set_value(eqf->value());
-			conj.add_operands(std::move(flt));
+			flt.add_operands(encodeFilter(operand));
 		}
-		flt.set_conjunction(std::move(conj));
+	}else if(auto alt = std::get_if<Disjunction>(&filter); alt) {
+		flt.set_type(managarm::mbus::FilterType::DISJUNCTION);
+		for(auto &operand : alt->operands()) {
+			flt.add_operands(encodeFilter(operand));
+		}
 	}else{
 		throw std::runtime_error("Unexpected filter type");
 	}
 
-	msg.set_filter(std::move(flt));
+	return flt;
 }
 
 async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 	managarm::mbus::EnumerateRequest req;
 	req.set_seq(curSeq_);
-	encodeFilter(filter_, req);
+	req.set_filter(encodeFilter(filter_));
 
 	auto [offer, sendHead, sendTail, recvRespHead] =
 		co_await helix_ng::exchangeMsgs(
@@ -309,6 +306,32 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 	curSeq_ = resp.out_seq();
 
 	co_return result;
+}
+
+// ------------------------------------------------------------------------
+// mbus Conjunction class.
+// ------------------------------------------------------------------------
+
+Conjunction::Conjunction(std::vector<AnyFilter> &&operands)
+	: operands_{std::move(operands)} {
+
+}
+
+const std::vector<AnyFilter> &Conjunction::operands() const & {
+	return operands_;
+}
+
+// ------------------------------------------------------------------------
+// mbus Disjunction class.
+// ------------------------------------------------------------------------
+
+Disjunction::Disjunction(std::vector<AnyFilter> &&operands)
+	: operands_{std::move(operands)} {
+
+}
+
+const std::vector<AnyFilter> &Disjunction::operands() const & {
+	return operands_;
 }
 
 }  // namespace mbus_ng

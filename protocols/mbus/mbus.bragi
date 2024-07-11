@@ -17,23 +17,18 @@ struct Property {
 	}
 }
 
-struct EqualsFilter {
-	string path;
-	string value;
-}
-
-// TODO(qookie): Maybe this should just be merged straight into AnyFilter?
-struct Conjunction {
-	// TODO(qookie): Bring back ability to nest Conjunctions together?
-	//               Seems pointless unless we also add a Disjunction
-	//               and let the user do AND(..., OR(..., AND(...)))
-	EqualsFilter[] operands;
+enum FilterType {
+	EQUALS,
+	CONJUNCTION,
+	DISJUNCTION
 }
 
 struct AnyFilter {
+	FilterType type;
 	tags {
-		tag(1) EqualsFilter equals_filter;
-		tag(2) Conjunction conjunction;
+		tag(1) string path;
+		tag(2) string value;
+		tag(3) AnyFilter[] operands;
 	}
 }
 
