@@ -90,10 +90,12 @@ async::result<helix::UniqueDescriptor> Entity::bind() {
 
 struct EqualsFilter;
 struct Conjunction;
+struct Disjunction;
 
 using AnyFilter = std::variant<
 	EqualsFilter,
-	Conjunction
+	Conjunction,
+	Disjunction
 >;
 
 struct EqualsFilter {
@@ -109,16 +111,40 @@ private:
 };
 
 struct Conjunction {
-	explicit Conjunction(std::vector<AnyFilter> operands)
-	: _operands(std::move(operands)) { }
+	explicit Conjunction(std::vector<AnyFilter> operands);
 
-	const std::vector<AnyFilter> &getOperands() const {
-		return _operands;
-	}
+	const std::vector<AnyFilter> &getOperands() const;
 
 private:
-	std::vector<AnyFilter> _operands;
+	std::vector<AnyFilter> operands_;
 };
+
+struct Disjunction {
+	explicit Disjunction(std::vector<AnyFilter> operands);
+
+	const std::vector<AnyFilter> &getOperands() const;
+
+private:
+	std::vector<AnyFilter> operands_;
+};
+
+Conjunction::Conjunction(std::vector<AnyFilter> operands)
+	: operands_{std::move(operands)} {
+
+}
+
+const std::vector<AnyFilter> &Conjunction::getOperands() const {
+	return operands_;
+}
+
+Disjunction::Disjunction(std::vector<AnyFilter> operands)
+	: operands_{std::move(operands)} {
+
+}
+
+const std::vector<AnyFilter> &Disjunction::getOperands() const {
+	return operands_;
+}
 
 static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 	if(auto real = std::get_if<EqualsFilter>(&filter); real) {
@@ -130,6 +156,11 @@ static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 	}else if(auto real = std::get_if<Conjunction>(&filter); real) {
 		auto &operands = real->getOperands();
 		return std::all_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
+			return matchesFilter(entity, operand);
+		});
+	}else if(auto real = std::get_if<Disjunction>(&filter); real) {
+		auto &operands = real->getOperands();
+		return std::any_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
 			return matchesFilter(entity, operand);
 		});
 	}else{
@@ -161,27 +192,29 @@ std::shared_ptr<Entity> getEntityById(int64_t id) {
 }
 
 static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
-	// HACK(qookie): This is a massive hack. I thought bragi had "has_foo" getters, but
-	//               apparently I misremembered... We should add them, but for now this
-	//               will suffice (and I think we'll get rid of filters on the protocol
-	//               level anyway).
-	// If the equals filter value is empty, assume this is actually a conjunction.
-	if (protoFilter.equals_filter().value().size() == 0) {
-		std::vector<AnyFilter> operands;
-		for(auto &protoOperand : protoFilter.conjunction().operands()) {
-			operands.push_back(EqualsFilter{
-						protoOperand.path(),
-						protoOperand.value()
-					});
+	switch(protoFilter.type()) {
+		case managarm::mbus::FilterType::EQUALS: {
+			return EqualsFilter{protoFilter.path(), protoFilter.value()};
 		}
-		return Conjunction(std::move(operands));
-	} else {
-		return EqualsFilter{protoFilter.equals_filter().path(),
-			protoFilter.equals_filter().value()};
+		case managarm::mbus::FilterType::CONJUNCTION: {
+			std::vector<AnyFilter> operands;
+			for(auto &op : protoFilter.operands()) {
+				operands.push_back(decodeFilter(op));
+			}
+			return Conjunction{operands};
+		}
+		case managarm::mbus::FilterType::DISJUNCTION: {
+			std::vector<AnyFilter> operands;
+			for(auto &op : protoFilter.operands()) {
+				operands.push_back(decodeFilter(op));
+			}
+			return Disjunction{operands};
+		}
+		default: {
+			throw std::runtime_error("Unexpected filter type");
+		}
 	}
 }
-
-
 
 async::result<std::tuple<uint64_t, uint64_t>>
 tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyFilter &filter) {

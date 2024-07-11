@@ -26,11 +26,13 @@ using EntityId = int64_t;
 struct NoFilter;
 struct EqualsFilter;
 struct Conjunction;
+struct Disjunction;
 
 using AnyFilter = std::variant<
 	NoFilter,
 	EqualsFilter,
-	Conjunction
+	Conjunction,
+	Disjunction
 >;
 
 struct NoFilter { };
@@ -48,10 +50,18 @@ private:
 };
 
 struct Conjunction {
-	Conjunction(std::vector<AnyFilter> &&operands)
-	: operands_{std::move(operands)} { }
+	Conjunction(std::vector<AnyFilter> &&operands);
 
-	const std::vector<AnyFilter> &operands() const & { return operands_; }
+	const std::vector<AnyFilter> &operands() const &;
+
+private:
+	std::vector<AnyFilter> operands_;
+};
+
+struct Disjunction {
+	Disjunction(std::vector<AnyFilter> &&operands);
+
+	const std::vector<AnyFilter> &operands() const &;
 
 private:
 	std::vector<AnyFilter> operands_;
