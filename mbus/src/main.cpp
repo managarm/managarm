@@ -43,12 +43,21 @@ struct Entity {
 		return _seq;
 	}
 
+	void updateSeq(uint64_t val) {
+		assert(val > _seq);
+		_seq = val;
+	}
+
 	const std::string &name() const & {
 		return _name;
 	}
 
 	const std::unordered_map<std::string, std::string> &getProperties() const {
 		return _properties;
+	}
+
+	void updateProperty(std::string key, std::string value) {
+		_properties.emplace(key, value);
 	}
 
 	async::result<void> submitRemoteLane(helix::UniqueLane &&lane) {
@@ -476,6 +485,40 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
+			auto entity = getEntityById(req->id());
+			managarm::mbus::UpdatePropertiesResponse resp;
+
+			if(!entity) {
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+			} else {
+				for(auto p : req->properties()) {
+					entity->updateProperty(p.name(), p.string_item());
+				}
+
+				resp.set_error(managarm::mbus::Error::SUCCESS);
+
+				entitySeqTree.remove(entity.get());
+				auto seq = globalSeq.next_sequence() - 1;
+				entity->updateSeq(seq);
+				entitySeqTree.insert(entity.get());
+				globalSeq.raise();
+			}
+
+			auto [sendResp] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}

@@ -102,3 +102,16 @@ message ServeRemoteLaneResponse 10 {
 head(128):
 	Error error;
 }
+
+
+message UpdatePropertiesRequest 11 {
+head(128):
+	int64 id;
+tail:
+	Property[] properties;
+}
+
+message UpdatePropertiesResponse 12 {
+head(128):
+	Error error;
+}
