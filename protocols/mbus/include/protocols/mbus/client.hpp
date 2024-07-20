@@ -183,6 +183,7 @@ struct Entity {
 
 	async::result<Result<Properties>> getProperties() const;
 	async::result<Result<helix::UniqueLane>> getRemoteLane() const;
+	async::result<Error> updateProperties(Properties properties);
 
 private:
 	std::shared_ptr<Connection> connection_;
