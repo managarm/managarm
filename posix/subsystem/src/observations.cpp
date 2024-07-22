@@ -256,20 +256,29 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
-			if(error == Error::noSuchFile) {
+			if(error == Error::success) {
+				// Continue
+			}else if(error == Error::noSuchFile) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOENT;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else if(error == Error::badExecutable) {
+			}else if(error == Error::badExecutable || error == Error::eof) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOEXEC;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else
-				assert(error == Error::success);
+			}else {
+				// Unhandled error, log and bubble up EIO
+				std::cout << "posix: exec: unhandled error from Process::exec, we got: " << (int)error << std::endl;
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = EIO;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+				HEL_CHECK(helResume(thread.getHandle()));
+			}
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superExit) {
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
