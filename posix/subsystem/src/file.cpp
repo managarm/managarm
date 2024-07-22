@@ -304,7 +304,7 @@ async::result<frg::expected<Error>> File::readExactly(Process *process,
 		auto result = FRG_CO_TRY(co_await readSome(process,
 				(char *)data + offset, length - offset));
 		if(!result)
-			co_return Error::wouldBlock;
+			co_return Error::eof;
 		offset += result;
 	}
 

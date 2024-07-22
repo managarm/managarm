@@ -66,7 +66,10 @@ enum class Error {
 
 	noMemory,
 
-	directoryNotEmpty
+	directoryNotEmpty,
+
+	// Failure of the underlying device, corresponds to EIO
+	ioError
 };
 
 std::ostream& operator<<(std::ostream& os, const Error& err);
