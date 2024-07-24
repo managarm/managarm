@@ -22,7 +22,11 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	for (auto property : properties.properties_) {
 		managarm::mbus::Property<KernelAlloc> reqProperty(*kernelAlloc);
 		reqProperty.set_name(frg::string<KernelAlloc>(*kernelAlloc, property.name));
-		reqProperty.set_string_item(std::move(property.value));
+		// TODO(no92): have thor support non-string item types
+		managarm::mbus::AnyItem<KernelAlloc> item(*kernelAlloc);
+		item.set_type(managarm::mbus::ItemType::STRING);
+		item.set_string_item(std::move(property.value));
+		reqProperty.set_item(item);
 		req.add_properties(std::move(reqProperty));
 	}
 
