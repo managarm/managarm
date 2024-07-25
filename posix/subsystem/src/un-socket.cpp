@@ -1,6 +1,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <format>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
@@ -462,8 +463,9 @@ public:
 	}
 
 	async::result<void> setFileFlags(int flags) override {
-		if(flags & ~O_NONBLOCK) {
-			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+		if(flags & ~(O_NONBLOCK | O_RDONLY | O_WRONLY | O_RDWR)) {
+			std::cout << std::format("posix: setFileFlags on socket \e[1;34m{}\e[0m called with unknown flags {:x}\n",
+					structName(), flags & ~O_NONBLOCK);
 			co_return;
 		}
 		if(flags & O_NONBLOCK)
@@ -474,9 +476,10 @@ public:
 	}
 
 	async::result<int> getFileFlags() override {
+		int flags = O_RDWR;
 		if(nonBlock_)
-			co_return O_NONBLOCK;
-		co_return 0;
+			flags |= O_NONBLOCK;
+		co_return flags;
 	}
 
 	async::result<void>
