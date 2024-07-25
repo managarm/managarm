@@ -322,6 +322,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 	auto usbDeviceFilter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "usb"},
+		mbus_ng::EqualsFilter{"usb.type", "device"},
 		mbus_ng::EqualsFilter{"usb.bus", std::to_string(controllerId)},
 	});
 
