@@ -78,7 +78,7 @@ struct UsbInterface final : UsbBase {
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char product[15], interface[9];
 		snprintf(product, 15, "%x:%x:%x", desc()->idVendor, desc()->idProduct, desc()->bcdDevice);
-		snprintf(interface, 9, "%x/%x/%x", interfaceClass, interfaceSubClass, interfaceProtocol);
+		snprintf(interface, 9, "%u/%u/%u", interfaceClass, interfaceSubClass, interfaceProtocol);
 
 		ue.set("DEVTYPE", "usb_interface");
 		ue.set("PRODUCT", product);
