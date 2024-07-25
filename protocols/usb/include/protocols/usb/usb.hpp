@@ -3,8 +3,10 @@
 #include <arch/bits.hpp>
 #include <assert.h>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <optional>
+#include <vector>
 
 namespace protocols::usb {
 
@@ -105,6 +107,14 @@ namespace cdc_subclass {
 struct DescriptorBase {
 	uint8_t length;
 	uint8_t descriptorType;
+
+	template<typename T>
+	static T from_vec(std::string &vec) {
+		T c;
+		assert(vec.size() >= sizeof(c));
+		std::memcpy(&c, vec.data(), sizeof(c));
+		return c;
+	}
 };
 
 struct [[gnu::packed]] StringDescriptor : public DescriptorBase {

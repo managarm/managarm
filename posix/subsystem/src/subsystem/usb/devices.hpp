@@ -21,7 +21,7 @@ public:
 	size_t portNum;
 	std::string speed;
 
-	std::vector<uint8_t> descriptors;
+	std::vector<char> descriptors;
 };
 
 struct UsbController final : UsbBase {
