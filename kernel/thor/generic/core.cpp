@@ -224,7 +224,12 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+		// OOM!
+		if(physical == static_cast<PhysicalAddr>(-1)) {
+			unpoisonKasanShadow(p, length);
+			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(p), length);
+			return uintptr_t(nullptr);
+		}
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
 				page_access::write, CachingMode::null);
 	}
