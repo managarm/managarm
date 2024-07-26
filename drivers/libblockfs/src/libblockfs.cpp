@@ -714,8 +714,29 @@ async::detached servePartition(helix::UniqueLane lane) {
 			if(old_file) {
 				auto result = co_await newInode->unlink(req->new_name());
 				if(!result) {
-					assert(result.error() == protocols::fs::Error::fileNotFound);
-					// Ignored
+					if(result.error() == protocols::fs::Error::fileNotFound) {
+						// Ignored
+					} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
+						resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+
+						auto ser = resp.SerializeAsString();
+						auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+							helix_ng::sendBuffer(ser.data(), ser.size()));
+						HEL_CHECK(send_resp.error());
+						continue;
+					} else if(result.error() == protocols::fs::Error::notDirectory) {
+						resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+						auto ser = resp.SerializeAsString();
+						auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+							helix_ng::sendBuffer(ser.data(), ser.size()));
+						HEL_CHECK(send_resp.error());
+						continue;
+					} else {
+						// Handle error
+						std::cout << "libblockfs: rename: unhandled error: " << (int)result.error() << std::endl;
+						assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
+					}
 				}
 				co_await newInode->link(req->new_name(), old_file.value().inode, old_file.value().fileType);
 			} else {
