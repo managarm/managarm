@@ -258,7 +258,7 @@ private:
 	};
 
 	struct EndpointState final : proto::EndpointData {
-		explicit EndpointState(Device *device, int endpointId, size_t maxPacketSize);
+		explicit EndpointState(Device *device, int endpointId, proto::EndpointType type, size_t maxPacketSize);
 
 		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
@@ -271,9 +271,13 @@ private:
 	private:
 		Device *_device;
 		int _endpointId;
+		proto::EndpointType _type;
 
 		size_t _maxPacketSize;
 		ProducerRing _transferRing;
+
+		async::result<frg::expected<proto::UsbError, size_t>> _bulkOrInterruptXfer(arch::dma_buffer_view buffer);
+		async::result<frg::expected<proto::UsbError>> _resetAfterError(size_t nextDequeue, bool nextCycle);
 	};
 
 	std::vector<SupportedProtocol> _supportedProtocols;

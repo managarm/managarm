@@ -126,6 +126,8 @@ struct ProducerRing {
 
 	ProducerRing(Controller *controller);
 	uintptr_t getPtr();
+	size_t enqueuePtr() const { return _enqueuePtr; }
+	bool producerCycle() const { return _pcs; }
 
 	void pushRawTrb(RawTrb cmd, Transaction *tx);
 
