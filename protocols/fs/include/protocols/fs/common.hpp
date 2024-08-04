@@ -36,9 +36,9 @@ enum class Error {
 	illegalOperationTarget = 19,
 	noSpaceLeft = 21,
 	noBackingDevice = 23,
-	isDirectory = 22,
-	directoryNotEmpty = 24,
+	isDirectory = 24,
 	invalidProtocolOption = 25,
+	directoryNotEmpty = 26,
 };
 
 inline managarm::fs::Errors mapFsError(Error e) {
