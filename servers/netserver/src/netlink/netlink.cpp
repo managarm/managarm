@@ -50,6 +50,9 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 	if(logSocket)
 		std::cout << "netserver: Recv from netlink socket" << std::endl;
 
+	if(self->_recvQueue.empty() && self->_nonBlock)
+		co_return protocols::fs::Error::wouldBlock;
+
 	while(self->_recvQueue.empty())
 		co_await self->_statusBell.async_wait();
 
@@ -192,6 +195,28 @@ async::result<protocols::fs::Error> NetlinkSocket::bind(void *obj, const char *c
 	}
 
 	co_return protocols::fs::Error::none;
+}
+
+async::result<void> NetlinkSocket::setFileFlags(void *object, int flags) {
+	auto self = static_cast<NetlinkSocket *>(object);
+	if(flags & ~(O_NONBLOCK | O_RDONLY | O_WRONLY | O_RDWR)) {
+		std::cout << std::format("posix: setFileFlags on rtnetlink socket called with unknown flags 0x{:x}\n", flags & ~O_NONBLOCK);
+		co_return;
+	}
+	if(flags & O_NONBLOCK)
+		self->_nonBlock = true;
+	else
+		self->_nonBlock = false;
+	co_return;
+}
+
+async::result<int> NetlinkSocket::getFileFlags(void *object) {
+	auto self = static_cast<NetlinkSocket *>(object);
+
+	int flags = O_RDWR;
+	if(self->_nonBlock)
+		flags |= O_NONBLOCK;
+	co_return flags;
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> NetlinkSocket::pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {

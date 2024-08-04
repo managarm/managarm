@@ -47,12 +47,17 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>>
 	setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
 
+	static async::result<void> setFileFlags(void *object, int flags);
+	static async::result<int> getFileFlags(void *object);
+
 	constexpr static protocols::fs::FileOperations ops {
 		.setOption = &setOption,
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.sockname = &sockname,
+		.getFileFlags = &getFileFlags,
+		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
 		.setSocketOption = &setSocketOption,
@@ -87,6 +92,7 @@ private:
 	uint64_t _currentSeq = 0;
 	uint64_t _inSeq = 0;
 	bool _passCreds = false;
+	bool _nonBlock = false;
 
 	std::deque<core::netlink::Packet> _recvQueue;
 };
