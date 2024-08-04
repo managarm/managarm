@@ -420,6 +420,8 @@ public:
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
 
+			if(!abstractSocketsBindMap.contains(path))
+				co_return protocols::fs::Error::connectionRefused;
 			auto server = abstractSocketsBindMap.at(path);
 			server->_acceptQueue.push_back(this);
 			server->_inSeq = ++server->_currentSeq;
