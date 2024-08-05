@@ -306,6 +306,14 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 			co_return protocols::fs::Error::illegalArguments;
 
 		filter_ = optbuf;
+	} else if(layer == SOL_NETLINK && number == NETLINK_ADD_MEMBERSHIP) {
+		auto val = *reinterpret_cast<int *>(optbuf.data());
+		std::cout << "posix: Join netlink group "
+					<< _protocol << "." << val << std::endl;
+		auto it = globalGroupMap.find({_protocol, val});
+		assert(it != globalGroupMap.end());
+		auto group = it->second.get();
+		group->subscriptions.push_back(this);
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
