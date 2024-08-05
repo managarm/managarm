@@ -40,7 +40,7 @@ private:
 	: sysfs::Attribute("uevent", true) { }
 
 public:
-	virtual async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override {
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override {
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
@@ -54,7 +54,7 @@ public:
 		co_return ss.str();
 	}
 
-	virtual async::result<Error> store(sysfs::Object *object, std::string data) override {
+	async::result<Error> store(sysfs::Object *object, std::string data) override {
 		(void) data;
 
 		auto device = static_cast<Device *>(object);
