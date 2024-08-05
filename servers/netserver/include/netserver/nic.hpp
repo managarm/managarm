@@ -66,6 +66,7 @@ struct Link {
 
 	MacAddress deviceMac();
 	int index();
+	void configureName(std::string prefix);
 	std::string name();
 	unsigned int mtu;
 	unsigned int min_mtu;
@@ -84,6 +85,8 @@ protected:
 	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
 	int index_;
+	std::string namePrefix_;
+	int nameId_ = -1;
 
 	bool promiscuous_ = false;
 	bool multicast_ = false;

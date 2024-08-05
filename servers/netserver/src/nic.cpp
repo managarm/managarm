@@ -1,4 +1,5 @@
 #include <core/id-allocator.hpp>
+#include <format>
 #include <netserver/nic.hpp>
 
 #include <algorithm>
@@ -15,6 +16,8 @@
 namespace {
 
 id_allocator<int> _allocator;
+
+std::unordered_map<std::string, id_allocator<int>> prefixedNames_;
 
 } /* namespace */
 
@@ -53,16 +56,47 @@ int Link::index() {
 	return index_;
 }
 
-std::string Link::name() {
-	std::string res;
+/**
+ * Sets the name of this interface using the prefix, while allocating the number automatically.
+ *
+ * Passing a prefix of `wwan` will set the name `wwan0` if not taken, otherwise `wwan1`, etc.
+ */
+void Link::configureName(std::string prefix) {
+	if(prefix == namePrefix_)
+		return;
 
-	if(!mac_) {
-		frg::output_to(res) << frg::fmt("eth{}", index_ - 1);
-	} else {
-		frg::output_to(res) << frg::fmt("enx{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}", mac_[0], mac_[1], mac_[2], mac_[3], mac_[4], mac_[5]);
+	if(!namePrefix_.empty()) {
+		prefixedNames_.at(namePrefix_).free(nameId_);
+		nameId_ = -1;
+		namePrefix_ = {};
 	}
 
-	return res;
+	if(!prefixedNames_.contains(prefix)) {
+		id_allocator<int> prefix_alloc{0};
+		prefixedNames_.insert({prefix, prefix_alloc});
+	}
+
+	nameId_ = prefixedNames_.at(prefix).allocate();
+	namePrefix_ = prefix;
+}
+
+std::string Link::name() {
+	/* if our fallback option of naming using the MAC fails, and no prefix is set, use `ethX` */
+	if(namePrefix_.empty() && !mac_)
+		configureName("eth");
+	else if(namePrefix_ == "eth" && mac_) {
+		prefixedNames_.at(namePrefix_).free(nameId_);
+		nameId_ = -1;
+		namePrefix_ = {};
+	}
+
+	/* Construct the name from prefix and ID, if available */
+	if(!namePrefix_.empty())
+		return std::format("{}{}", namePrefix_, nameId_);
+
+	/* otherwise, fall back to naming using the MAC address */
+	assert(mac_);
+	return std::format("enx{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}", mac_[0], mac_[1], mac_[2], mac_[3], mac_[4], mac_[5]);
 }
 
 Link::AllocatedBuffer Link::allocateFrame(size_t size) {
