@@ -290,16 +290,6 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 		co_return protocols::fs::Error::messageSize;
 	}
 
-	auto macTarget = ti.route.gateway;
-	if (macTarget == 0) {
-		macTarget = ti.remote;
-	}
-
-	auto mac = co_await neigh4().tryResolve(macTarget, ti.source);
-	if (!mac) {
-		co_return protocols::fs::Error::hostUnreachable;
-	}
-
 	Ip4Packet::Header hdr;
 	// TODO(arsen): options
 	hdr.ihl = 0x45;
@@ -321,7 +311,23 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 	chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
 	hdr.checksum = convert_endian<endian::big>(chk.finalize());
 
-	auto fb = target->allocateFrame(*mac, nic::ETHER_TYPE_IP4, packet_size);
+	nic::Link::AllocatedBuffer fb;
+
+	if(!target->rawIp()) {
+		auto macTarget = ti.route.gateway;
+		if (macTarget == 0) {
+			macTarget = ti.remote;
+		}
+
+		auto mac = co_await neigh4().tryResolve(macTarget, ti.source);
+		if (!mac) {
+			co_return protocols::fs::Error::hostUnreachable;
+		}
+
+		fb = target->allocateFrame(*mac, nic::ETHER_TYPE_IP4, packet_size);
+	} else {
+		fb = target->allocateFrame(packet_size);
+	}
 
 	std::memcpy(fb.payload.data(), &hdr, sizeof(hdr));
 	std::memcpy(fb.payload.subview(header_size).byte_data(), data, len);

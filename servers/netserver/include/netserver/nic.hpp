@@ -72,6 +72,10 @@ struct Link {
 	unsigned int max_mtu;
 	unsigned int iff_flags();
 
+	bool rawIp() {
+		return raw_ip_;
+	}
+
 	static std::shared_ptr<Link> byIndex(int index);
 	static std::shared_ptr<Link> byName(std::string name);
 
@@ -86,6 +90,8 @@ protected:
 	bool all_multicast_ = false;
 	bool broadcast_ = false;
 	bool l1_up_ = false;
+
+	bool raw_ip_ = false;
 };
 
 async::detached runDevice(std::shared_ptr<Link> dev);
