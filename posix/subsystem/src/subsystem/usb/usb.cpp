@@ -223,7 +223,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		} else if(type == protocols::usb::descriptor_type::interface) {
 			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
 
-			auto if_sysfs_name = sysfs_name + ":" + std::to_string(*info.configNumber) + "-" + std::to_string(desc->interfaceNumber);
+			auto if_sysfs_name = std::format("{}:{}.{}", sysfs_name, *info.configNumber, desc->interfaceNumber);
 			auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.id(), device);
 
 			interface->interfaceClass = desc->interfaceClass;
