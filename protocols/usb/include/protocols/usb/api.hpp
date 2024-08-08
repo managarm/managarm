@@ -76,7 +76,7 @@ protected:
 	~EndpointData() = default;
 
 public:
-	virtual async::result<frg::expected<UsbError>> transfer(ControlTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) = 0;
 	virtual async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) = 0;
 	virtual async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) = 0;
 };
@@ -85,7 +85,7 @@ public:
 struct Endpoint {
 	Endpoint(std::shared_ptr<EndpointData> state);
 
-	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
+	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) const;
 	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) const;
 	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) const;
 
@@ -166,7 +166,7 @@ public:
 	virtual async::result<frg::expected<UsbError, std::string>> deviceDescriptor() = 0;
 	virtual async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) = 0;
 	virtual async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) = 0;
-	virtual async::result<frg::expected<UsbError>> transfer(ControlTransfer info) = 0;
+	virtual async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) = 0;
 };
 
 struct Device {
@@ -180,7 +180,7 @@ struct Device {
 	async::result<frg::expected<UsbError, uint8_t>> currentConfigurationValue() const;
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
 	async::result<frg::expected<UsbError, std::string>> getString(size_t number) const;
-	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) const;
+	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) const;
 
 	std::shared_ptr<DeviceData> state() const {
 		return _state;

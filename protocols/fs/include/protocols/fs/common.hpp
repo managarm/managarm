@@ -36,9 +36,10 @@ enum class Error {
 	illegalOperationTarget = 19,
 	noSpaceLeft = 21,
 	noBackingDevice = 23,
-	isDirectory = 22,
-	directoryNotEmpty = 24,
+	isDirectory = 24,
 	invalidProtocolOption = 25,
+	directoryNotEmpty = 26,
+	connectionRefused = 27,
 };
 
 inline managarm::fs::Errors mapFsError(Error e) {
@@ -68,6 +69,7 @@ inline managarm::fs::Errors mapFsError(Error e) {
 		case Error::isDirectory: return managarm::fs::Errors::IS_DIRECTORY;
 		case Error::invalidProtocolOption: return managarm::fs::Errors::INVALID_PROTOCOL_OPTION;
 		case Error::directoryNotEmpty: return managarm::fs::Errors::DIRECTORY_NOT_EMPTY;
+		case Error::connectionRefused: return managarm::fs::Errors::CONNECTION_REFUSED;
 	}
 }
 

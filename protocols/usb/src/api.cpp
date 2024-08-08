@@ -70,7 +70,7 @@ async::result<frg::expected<UsbError, std::string>> Device::getString(size_t num
 	co_return convert.to_bytes(std::u16string{res->data, (res->length - sizeof(StringDescriptor)) / 2});
 }
 
-async::result<frg::expected<UsbError>> Device::transfer(ControlTransfer info) const {
+async::result<frg::expected<UsbError, size_t>> Device::transfer(ControlTransfer info) const {
 	return _state->transfer(info);
 }
 

@@ -412,6 +412,8 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			resp.set_error(managarm::usb::Errors::SUCCESS);
 
 			if (req->dir() == managarm::usb::XferDirection::TO_HOST) {
+				resp.set_size(outcome.value());
+
 				auto [sendResp, sendData] =
 					co_await helix_ng::exchangeMsgs(
 						conversation,

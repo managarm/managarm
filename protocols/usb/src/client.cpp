@@ -25,7 +25,7 @@ struct DeviceState final : DeviceData {
 	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() override;
 	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
 	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
-	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) override;
 
 private:
 	helix::UniqueLane _lane;
@@ -58,7 +58,7 @@ struct EndpointState final : EndpointData {
 	EndpointState(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { }
 
-	async::result<frg::expected<UsbError>> transfer(ControlTransfer info) override;
+	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) override;
 	async::result<frg::expected<UsbError, size_t>> transfer(InterruptTransfer info) override;
 	async::result<frg::expected<UsbError, size_t>> transfer(BulkTransfer info) override;
 
@@ -179,7 +179,7 @@ async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfigurat
 	co_return Configuration(std::move(state));
 }
 
-async::result<frg::expected<UsbError>>
+async::result<frg::expected<UsbError, size_t>>
 doControlTransfer(auto &lane, ControlTransfer info) {
 	managarm::usb::TransferRequest req;
 
@@ -210,6 +210,8 @@ doControlTransfer(auto &lane, ControlTransfer info) {
 		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
 
 		FRG_CO_TRY(transformProtocolError(resp->error()));
+
+		co_return 0;
 	}else{
 		auto [offer, sendReq, sendSetup, recvResp, recvData] = co_await helix_ng::exchangeMsgs(
 			lane,
@@ -231,12 +233,12 @@ doControlTransfer(auto &lane, ControlTransfer info) {
 		FRG_CO_TRY(transformProtocolError(resp->error()));
 
 		HEL_CHECK(recvData.error());
-	}
 
-	co_return frg::success;
+		co_return resp->size();
+	}
 }
 
-async::result<frg::expected<UsbError>> DeviceState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError, size_t>> DeviceState::transfer(ControlTransfer info) {
 	co_return co_await doControlTransfer(_lane, info);
 }
 
@@ -359,7 +361,7 @@ doTransferOfType(auto &lane, managarm::usb::XferType type, XferInfo info) {
 	}
 }
 
-async::result<frg::expected<UsbError>> EndpointState::transfer(ControlTransfer info) {
+async::result<frg::expected<UsbError, size_t>> EndpointState::transfer(ControlTransfer info) {
 	co_return co_await doControlTransfer(_lane, info);
 }
 

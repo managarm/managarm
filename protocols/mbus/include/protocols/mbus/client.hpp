@@ -11,9 +11,10 @@
 #include <optional>
 
 #include <async/result.hpp>
+#include <frg/expected.hpp>
 #include <helix/ipc.hpp>
 
-#include <frg/expected.hpp>
+#include "mbus.bragi.hpp"
 
 namespace mbus_ng {
 
@@ -72,17 +73,25 @@ private:
 // ------------------------------------------------------------------------
 
 struct StringItem;
-struct ListItem;
+struct ArrayItem;
 
 using AnyItem = std::variant<
-	StringItem
+	StringItem,
+	ArrayItem
 >;
 
 struct StringItem {
 	std::string value;
 };
 
+struct ArrayItem {
+	std::vector<AnyItem> items;
+};
+
 using Properties = std::unordered_map<std::string, AnyItem>;
+
+managarm::mbus::AnyItem encodeItem(mbus_ng::AnyItem item);
+mbus_ng::AnyItem decodeItem(managarm::mbus::AnyItem item);
 
 // ------------------------------------------------------------------------
 // Private state object.
@@ -183,6 +192,7 @@ struct Entity {
 
 	async::result<Result<Properties>> getProperties() const;
 	async::result<Result<helix::UniqueLane>> getRemoteLane() const;
+	async::result<Error> updateProperties(Properties properties);
 
 private:
 	std::shared_ptr<Connection> connection_;

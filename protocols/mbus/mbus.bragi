@@ -7,14 +7,22 @@ enum Error {
 	NO_SUCH_ENTITY
 }
 
+enum ItemType {
+	STRING,
+	ARRAY
+}
+
+struct AnyItem {
+	ItemType type;
+	tags {
+		tag(1) string string_item;
+		tag(2) AnyItem[] items;
+	}
+}
+
 struct Property {
 	string name;
-
-	tags {
-		// TODO(qookie): Bring back ListItem? (it was not supported in the
-		//               client or filters anyway)
-		tag(1) string string_item;
-	}
+	AnyItem item;
 }
 
 enum FilterType {
@@ -99,6 +107,19 @@ head(128):
 }
 
 message ServeRemoteLaneResponse 10 {
+head(128):
+	Error error;
+}
+
+
+message UpdatePropertiesRequest 11 {
+head(128):
+	int64 id;
+tail:
+	Property[] properties;
+}
+
+message UpdatePropertiesResponse 12 {
 head(128):
 	Error error;
 }
