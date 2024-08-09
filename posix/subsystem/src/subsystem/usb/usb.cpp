@@ -27,7 +27,7 @@ id_allocator<uint64_t> usbControllerAllocator;
 
 namespace usb_subsystem {
 
-drvcore::BusSubsystem *sysfsSubsystem;
+std::shared_ptr<drvcore::BusSubsystem> sysfsSubsystem;
 
 std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
 
@@ -266,6 +266,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		interface->realizeAttribute(&alternateSettingAttr);
 		interface->realizeAttribute(&interfaceNumAttr);
 		interface->realizeAttribute(&numEndpointsAttr);
+		interface->createSymlink("subsystem", sysfsSubsystem->object());
 
 		for(auto ep : interface->endpoints) {
 			ep->addObject();
@@ -306,6 +307,8 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	device->realizeAttribute(&bmAttributesAttr);
 	device->realizeAttribute(&numConfigurationsAttr);
 
+	device->createSymlink("subsystem", sysfsSubsystem->object());
+
 	auto ep = std::make_shared<UsbEndpoint>("ep_00", entity.id(), device);
 	ep->addObject();
 	ep->realizeAttribute(&endpointAddressAttr);
@@ -344,7 +347,7 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 async::detached run() {
 	usbControllerAllocator.use_range();
 
-	sysfsSubsystem = new drvcore::BusSubsystem{"usb"};
+	sysfsSubsystem = std::make_shared<drvcore::BusSubsystem>("usb");
 
 	auto usbControllerFilter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"generic.devtype", "usb-controller"}
