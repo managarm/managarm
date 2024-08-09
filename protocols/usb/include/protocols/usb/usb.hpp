@@ -166,6 +166,8 @@ struct [[gnu::packed]] CdcDescriptor : public DescriptorBase {
 		Union = 0x06,
 		EthernetNetworking = 0x0F,
 		Ncm = 0x1A,
+		Mbim = 0x1B,
+		MbimExtended = 0x1C,
 	};
 
 	CdcSubType subtype;
@@ -232,6 +234,23 @@ struct [[gnu::packed]] CdcEthernetNetworking : public CdcDescriptor {
 struct [[gnu::packed]] CdcNcm : public CdcDescriptor {
 	uint16_t bcdNcmVersion;
 	arch::bit_value<uint8_t> bmNetworkCapabilities;
+};
+
+/* MBIM 1.0 6.4 */
+struct [[gnu::packed]] CdcMbim : public CdcDescriptor {
+	uint16_t bcdMBIMVersion;
+	uint16_t wMaxControlMessage;
+	uint8_t bNumberFilters;
+	uint8_t bMaxFilterSize;
+	uint16_t wMaxSegmentSize;
+	uint8_t bmNetworkCapabilities;
+};
+
+/* MBIM 1.0 6.5 */
+struct [[gnu::packed]] CdcMbimExtended : public CdcDescriptor {
+	uint16_t bcdMBIMExtendedVersion;
+	uint8_t bMaxOutstandingCommandMessages;
+	uint16_t wMTU;
 };
 
 struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
