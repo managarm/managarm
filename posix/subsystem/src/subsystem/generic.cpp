@@ -1,24 +1,18 @@
 #include <string.h>
 #include <iostream>
 
+#include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../common.hpp"
 #include "../device.hpp"
-#include "../util.hpp"
 #include "../vfs.hpp"
 
 namespace generic_subsystem {
 
 namespace {
 
-id_allocator<uint32_t> minorAllocator;
-
-struct Subsystem {
-	Subsystem() {
-		minorAllocator.use_range(0);
-	}
-} subsystem;
+id_allocator<uint32_t> minorAllocator{0};
 
 struct Device final : UnixDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
@@ -44,9 +38,9 @@ private:
 	helix::UniqueLane _lane;
 };
 
-id_allocator<uint64_t> ttyUsbAllocator;
-id_allocator<uint64_t> ttySAllocator;
-id_allocator<uint64_t> driCardAllocator;
+id_allocator<uint64_t> ttyUsbAllocator{0};
+id_allocator<uint64_t> ttySAllocator{0};
+id_allocator<uint64_t> driCardAllocator{0};
 
 uint64_t allocateDeviceIds(std::string type) {
 	if(type == "ttyS") {
@@ -101,10 +95,6 @@ async::detached observeDevices(VfsType devType, auto &registry, int major) {
 } // anonymous namepsace
 
 void run() {
-	ttyUsbAllocator.use_range(0);
-	ttySAllocator.use_range(0);
-	driCardAllocator.use_range(0);
-
 	observeDevices(VfsType::blockDevice, blockRegistry, 240);
 	observeDevices(VfsType::charDevice, charRegistry, 234);
 }

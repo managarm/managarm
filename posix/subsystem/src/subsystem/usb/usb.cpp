@@ -5,11 +5,11 @@
 #include <async/queue.hpp>
 #include <protocols/mbus/client.hpp>
 
+#include <core/id-allocator.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>
 
 #include "../../drvcore.hpp"
-#include "../../util.hpp"
 #include "../pci.hpp"
 #include "attributes.hpp"
 #include "devices.hpp"
@@ -21,7 +21,7 @@ using protocols::usb::DescriptorBase;
 namespace {
 
 std::unordered_map<mbus_ng::EntityId, uint64_t> usbControllerMap;
-id_allocator<uint64_t> usbControllerAllocator;
+id_allocator<uint64_t> usbControllerAllocator{};
 
 } // namespace anonymous
 
@@ -345,8 +345,6 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 }
 
 async::detached run() {
-	usbControllerAllocator.use_range();
-
 	sysfsSubsystem = std::make_shared<drvcore::BusSubsystem>("usb");
 
 	auto usbControllerFilter = mbus_ng::Conjunction({

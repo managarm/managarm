@@ -2,12 +2,12 @@
 #include <string.h>
 #include <iostream>
 
+#include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../common.hpp"
 #include "../device.hpp"
 #include "../drvcore.hpp"
-#include "../util.hpp"
 #include "../vfs.hpp"
 #include "pci.hpp"
 
@@ -17,13 +17,7 @@ namespace {
 
 drvcore::ClassSubsystem *sysfsSubsystem;
 
-id_allocator<uint32_t> minorAllocator;
-
-struct Subsystem {
-	Subsystem() {
-		minorAllocator.use_range(0);
-	}
-} subsystem;
+id_allocator<uint32_t> minorAllocator{0};
 
 struct Device final : UnixDevice, drvcore::ClassDevice {
 	Device(int index, helix::UniqueLane lane, std::shared_ptr<drvcore::Device> parent)
