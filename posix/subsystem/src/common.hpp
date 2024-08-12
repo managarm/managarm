@@ -1,6 +1,8 @@
 #pragma once
 
 #include <iostream>
+#include <format>
+#include <iterator>
 #include <unordered_map>
 
 #include <helix/ipc.hpp>
@@ -14,9 +16,11 @@ struct StructName {
 	}
 
 	friend std::ostream &operator<< (std::ostream &os, const StructName &sn) {
-		os << sn._type << "." << sn._id;
+		std::format_to(std::ostream_iterator<char>(os), "{}.{}", sn._type, sn._id);
 		return os;
 	}
+
+	friend struct std::formatter<StructName>;
 
 private:
 	explicit StructName(const char *type, uint64_t id)
@@ -24,4 +28,11 @@ private:
 
 	const char *_type;
 	uint64_t _id;
+};
+
+template <>
+struct std::formatter<StructName> : std::formatter<std::string> {
+	auto format(const StructName& obj, std::format_context& ctx) const {
+		return std::format_to(ctx.out(), "{}.{}", obj._type, obj._id);
+	}
 };

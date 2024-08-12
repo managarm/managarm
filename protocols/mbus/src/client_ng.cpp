@@ -48,15 +48,55 @@ async::result<Entity> Instance::getEntity(int64_t id) {
 	co_return Entity{connection_, id};
 }
 
+managarm::mbus::AnyItem encodeItem(mbus_ng::AnyItem item) {
+	managarm::mbus::AnyItem ret{};
+
+	if(std::holds_alternative<StringItem>(item)) {
+		ret.set_type(managarm::mbus::ItemType::STRING);
+		ret.set_string_item({std::get<StringItem>(item).value});
+	} else if(std::holds_alternative<ArrayItem>(item)) {
+		ret.set_type(managarm::mbus::ItemType::ARRAY);
+		auto arr = std::get<ArrayItem>(item);
+		for(auto &arr_item : arr.items) {
+			ret.add_items(encodeItem(arr_item));
+		}
+	} else {
+		assert(!"unimplemented mbus item type!");
+	}
+
+	return ret;
+}
+
+mbus_ng::AnyItem decodeItem(managarm::mbus::AnyItem item) {
+	mbus_ng::AnyItem ret{};
+
+	switch(item.type()) {
+		case managarm::mbus::ItemType::STRING: {
+			return StringItem{item.string_item()};
+		}
+		case managarm::mbus::ItemType::ARRAY: {
+			ArrayItem ret;
+
+			for(auto &arr_item : item.items()) {
+				ret.items.push_back(decodeItem(arr_item));
+			}
+
+			return ret;
+		}
+		default:
+			assert(!"unhandled item type in decode");
+	}
+}
+
 async::result<Result<EntityManager>>
 Instance::createEntity(std::string_view name, const Properties &properties) {
 	managarm::mbus::CreateObjectRequest req;
 	req.set_name(std::string{name});
 
-	for(auto kv : properties) {
+	for(auto &[name, value] : properties) {
 		managarm::mbus::Property prop;
-		prop.set_name(kv.first);
-		prop.set_string_item(std::get<StringItem>(kv.second).value);
+		prop.set_name(name);
+		prop.set_item(encodeItem(value));
 		req.add_properties(prop);
 	}
 
@@ -137,9 +177,50 @@ async::result<Result<Properties>> Entity::getProperties() const {
 
 	Properties properties;
 	for(auto &kv : resp.properties())
-		properties.insert({ kv.name(), StringItem{ kv.string_item() } });
+		properties.insert({ kv.name(), decodeItem(kv.item()) });
 
 	co_return properties;
+}
+
+async::result<Error> Entity::updateProperties(Properties properties) {
+	managarm::mbus::UpdatePropertiesRequest req;
+	req.set_id(id_);
+	for(auto &[name, value] : properties) {
+		managarm::mbus::Property prop;
+		prop.set_name(name);
+		prop.set_item(encodeItem(value));
+		req.add_properties(prop);
+	}
+	assert(req.properties_size());
+
+	auto [offer, sendHead, sendTail, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			connection_->lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	auto conversation = offer.descriptor();
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(recvResp.error());
+
+	auto maybeResp = bragi::parse_head_only<managarm::mbus::UpdatePropertiesResponse>(recvResp);
+	if (!maybeResp)
+		co_return Error::protocolViolation;
+
+	auto &resp = *maybeResp;
+	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
+		co_return Error::noSuchEntity;
+
+	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+
+	co_return Error::success;
 }
 
 async::result<Result<helix::UniqueLane>> Entity::getRemoteLane() const {
@@ -298,7 +379,7 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 		event.name = entity.name();
 		event.type = unseen ? created : propertiesChanged;
 		for(auto &kv : entity.properties())
-			event.properties.insert({ kv.name(), StringItem{ kv.string_item() } });
+			event.properties.insert({ kv.name(), decodeItem(kv.item()) });
 
 		result.events.push_back(std::move(event));
 	}

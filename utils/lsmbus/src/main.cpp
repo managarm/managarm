@@ -10,6 +10,15 @@ struct PrintVisitor {
 		std::cout << item.value;
 	}
 
+	void operator()(mbus_ng::ArrayItem &item) {
+		std::cout << "[ ";
+		for(auto array_item : item.items) {
+			std::visit(PrintVisitor{}, array_item);
+			std::cout << " ";
+		}
+		std::cout << "]";
+	}
+
 	template<typename T>
 	void operator()(T&&) {
 		std::cout << "WARNING: Unimplemented type: " << typeid(std::decay_t<T>).name();

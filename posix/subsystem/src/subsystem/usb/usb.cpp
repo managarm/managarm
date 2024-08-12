@@ -16,6 +16,8 @@
 #include "root-hub.hpp"
 #include "usb.hpp"
 
+using protocols::usb::DescriptorBase;
+
 namespace {
 
 std::unordered_map<mbus_ng::EntityId, uint64_t> usbControllerMap;
@@ -194,17 +196,22 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	device->busNum = bus_num;
 	device->speed = std::get<mbus_ng::StringItem>(properties["usb.speed"]).value;
 
+	auto config_val = (co_await device->device().currentConfigurationValue()).value();
+	std::string raw_desc;
+
 	/* obtain the tree of configuration descriptors and its subdescriptors */
 	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(raw_dev_desc.data());
+	protocols::usb::ConfigDescriptor cfgdesc;
 	for(size_t i = 0; i < devdesc->numConfigs; i++) {
 		auto raw_descs = (co_await device->device().configurationDescriptor(i)).value();
+		cfgdesc = DescriptorBase::from_vec<protocols::usb::ConfigDescriptor>(raw_descs);
+
+		if(cfgdesc.configValue == config_val)
+			raw_desc = raw_descs;
 		device->descriptors.insert(device->descriptors.end(), raw_descs.begin(), raw_descs.end());
 	}
 
-	auto config_val = (co_await device->device().currentConfigurationValue()).value();
-
-	auto raw_descs = (co_await device->device().configurationDescriptor()).value();
-	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
+	protocols::usb::walkConfiguration(raw_desc, [&] (int type, size_t, void *descriptor, const auto &info) {
 		if(type == protocols::usb::descriptor_type::configuration) {
 			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
 			device->maxPower = desc->maxPower * 2;
@@ -216,7 +223,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		} else if(type == protocols::usb::descriptor_type::interface) {
 			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
 
-			auto if_sysfs_name = sysfs_name + ":" + std::to_string(*info.configNumber) + "-" + std::to_string(desc->interfaceNumber);
+			auto if_sysfs_name = std::format("{}:{}.{}", sysfs_name, *info.configNumber, desc->interfaceNumber);
 			auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.id(), device);
 
 			interface->interfaceClass = desc->interfaceClass;
@@ -315,6 +322,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 	auto usbDeviceFilter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "usb"},
+		mbus_ng::EqualsFilter{"usb.type", "device"},
 		mbus_ng::EqualsFilter{"usb.bus", std::to_string(controllerId)},
 	});
 

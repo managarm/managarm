@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <format>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -20,6 +21,7 @@
 #include <async/result.hpp>
 #include <async/queue.hpp>
 #include <helix/ipc.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
@@ -32,7 +34,7 @@
 
 struct Entity {
 	explicit Entity(int64_t id, uint64_t seq, std::string name,
-			std::unordered_map<std::string, std::string> properties)
+			std::unordered_map<std::string, mbus_ng::AnyItem> properties)
 	: _id{id}, _seq{seq}, _name{name}, _properties{std::move(properties)} { }
 
 	int64_t id() const {
@@ -43,12 +45,21 @@ struct Entity {
 		return _seq;
 	}
 
+	void updateSeq(uint64_t val) {
+		assert(val > _seq);
+		_seq = val;
+	}
+
 	const std::string &name() const & {
 		return _name;
 	}
 
-	const std::unordered_map<std::string, std::string> &getProperties() const {
+	const std::unordered_map<std::string, mbus_ng::AnyItem> &getProperties() const {
 		return _properties;
+	}
+
+	void updateProperty(std::string key, mbus_ng::AnyItem value) {
+		_properties.emplace(key, value);
 	}
 
 	async::result<void> submitRemoteLane(helix::UniqueLane &&lane) {
@@ -64,7 +75,7 @@ private:
 	int64_t _id;
 	uint64_t _seq;
 	std::string _name;
-	std::unordered_map<std::string, std::string> _properties;
+	std::unordered_map<std::string, mbus_ng::AnyItem> _properties;
 
 	struct SubmittedLane {
 		helix::UniqueLane lane;
@@ -100,14 +111,14 @@ using AnyFilter = std::variant<
 
 struct EqualsFilter {
 	explicit EqualsFilter(std::string property, std::string value)
-	: _property(std::move(property)), _value(std::move(value)) { }
+	: _property(std::move(property)), _value{mbus_ng::StringItem{std::move(value)}} { }
 
 	std::string getProperty() const { return _property; }
-	std::string getValue() const { return _value; }
+	mbus_ng::AnyItem getValue() const { return _value; }
 
 private:
 	std::string _property;
-	std::string _value;
+	mbus_ng::AnyItem _value;
 };
 
 struct Conjunction {
@@ -152,7 +163,14 @@ static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 		auto it = properties.find(real->getProperty());
 		if(it == properties.end())
 			return false;
-		return it->second == real->getValue();
+		if(std::holds_alternative<mbus_ng::StringItem>(real->getValue()) &&
+				std::holds_alternative<mbus_ng::StringItem>(it->second)) {
+			return std::get<mbus_ng::StringItem>(it->second).value == std::get<mbus_ng::StringItem>(real->getValue()).value;
+		} else {
+			std::cout << std::format("mbus: unhandled types in item matching: {} vs {}\n",
+				real->getValue().index(), it->second.index());
+			return false;
+		}
 	}else if(auto real = std::get_if<Conjunction>(&filter); real) {
 		auto &operands = real->getOperands();
 		return std::all_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
@@ -166,6 +184,8 @@ static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
 	}else{
 		throw std::runtime_error("Unexpected filter");
 	}
+
+	return false;
 }
 
 
@@ -249,7 +269,7 @@ tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyF
 		for(auto kv : cur->getProperties()) {
 			managarm::mbus::Property prop;
 			prop.set_name(kv.first);
-			prop.set_string_item(kv.second);
+			prop.set_item(mbus_ng::encodeItem(kv.second));
 			protoEntity.add_properties(prop);
 		}
 
@@ -390,7 +410,7 @@ async::detached serve(helix::UniqueLane lane) {
 				for(auto kv : entity->getProperties()) {
 					managarm::mbus::Property prop;
 					prop.set_name(kv.first);
-					prop.set_string_item(kv.second);
+					prop.set_item(mbus_ng::encodeItem(kv.second));
 					resp.add_properties(prop);
 				}
 			}
@@ -441,9 +461,9 @@ async::detached serve(helix::UniqueLane lane) {
 
 			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
 
-			std::unordered_map<std::string, std::string> properties;
+			std::unordered_map<std::string, mbus_ng::AnyItem> properties;
 			for(auto &kv : req->properties()) {
-				properties.insert({ kv.name(), kv.string_item() });
+				properties.insert({kv.name(), mbus_ng::decodeItem(kv.item())});
 			}
 
 			// TODO(qookie): Introduce async::sequenced_event::current_sequence?
@@ -476,6 +496,40 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
+		} else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
+			auto entity = getEntityById(req->id());
+			managarm::mbus::UpdatePropertiesResponse resp;
+
+			if(!entity) {
+				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+			} else {
+				for(auto p : req->properties()) {
+					entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
+				}
+
+				resp.set_error(managarm::mbus::Error::SUCCESS);
+
+				entitySeqTree.remove(entity.get());
+				auto seq = globalSeq.next_sequence() - 1;
+				entity->updateSeq(seq);
+				entitySeqTree.insert(entity.get());
+				globalSeq.raise();
+			}
+
+			auto [sendResp] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}

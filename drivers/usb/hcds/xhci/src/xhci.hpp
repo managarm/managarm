@@ -174,7 +174,7 @@ private:
 		async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
 		async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) override;
 		async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(int number) override;
-		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
+		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
 
 		void submit(int endpoint);
 
@@ -260,7 +260,7 @@ private:
 	struct EndpointState final : proto::EndpointData {
 		explicit EndpointState(Device *device, int endpointId, proto::EndpointType type, size_t maxPacketSize);
 
-		async::result<frg::expected<proto::UsbError>> transfer(proto::ControlTransfer info) override;
+		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::BulkTransfer info) override;
 
