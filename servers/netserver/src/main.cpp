@@ -34,6 +34,17 @@ std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 
 std::optional<helix::UniqueDescriptor> posixLane;
 
+const std::string VENDOR_REDHAT = "1af4";
+
+std::unordered_set<std::string_view> nic_vendor_ids = {
+	VENDOR_REDHAT, /* virtio */
+};
+
+std::unordered_set<std::string_view> virtio_device_ids = {
+	"1000",
+	"1041",
+};
+
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
 	return baseDeviceMap;
 }
@@ -54,15 +65,58 @@ std::shared_ptr<nic::Link> nic::Link::byName(std::string name) {
 	return {};
 }
 
-async::result<void> doBind(mbus_ng::Entity base_entity, virtio_core::DiscoverMode discover_mode) {
-	protocols::hw::Device hwDevice((co_await base_entity.getRemoteLane()).unwrap());
-	co_await hwDevice.enableBusmaster();
+namespace {
+
+async::result<std::shared_ptr<nic::Link>> setupVirtioDevice(mbus_ng::Entity &base_entity, protocols::hw::Device hwDevice) {
+	virtio_core::DiscoverMode discover_mode = virtio_core::DiscoverMode::null;
+	auto properties = (co_await base_entity.getProperties()).unwrap();
+
+	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
+		device_str) {
+		if(device_str->value == "1000")
+			discover_mode = virtio_core::DiscoverMode::transitional;
+		else if(device_str->value == "1041")
+			discover_mode = virtio_core::DiscoverMode::modernOnly;
+		else
+			assert(!"Unhandled virtio device");
+	}
+
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
-	auto device = nic::virtio::makeShared(std::move(transport));
+	co_return nic::virtio::makeShared(std::move(transport));
+}
 
-	baseDeviceMap.insert({base_entity.id(), device});
+} // namespace
+
+async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
+	protocols::hw::Device hwDevice((co_await baseEntity.getRemoteLane()).unwrap());
+	co_await hwDevice.enableBusmaster();
+
+	auto properties = (co_await baseEntity.getProperties()).unwrap();
+	auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
+
+	if(!vendor_str || !nic_vendor_ids.contains(vendor_str->value))
+		co_return protocols::svrctl::Error::deviceNotSupported;
+
+	std::shared_ptr<nic::Link> device;
+
+	if(vendor_str->value == VENDOR_REDHAT) {
+		if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
+				!device_str || !virtio_device_ids.contains(device_str->value))
+			co_return protocols::svrctl::Error::deviceNotSupported;
+
+		protocols::hw::Device hwDevice((co_await baseEntity.getRemoteLane()).unwrap());
+		co_await hwDevice.enableBusmaster();
+
+		device = co_await setupVirtioDevice(baseEntity, std::move(hwDevice));
+	} else {
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	}
+
+	baseDeviceMap.insert({baseEntity.id(), device});
 	nic::runDevice(device);
+
+	co_return protocols::svrctl::Error::success;
 }
 
 async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
@@ -238,23 +292,10 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
 	if(type->value == "pci") {
-		if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
-				!vendor_str || vendor_str->value != "1af4")
-			co_return protocols::svrctl::Error::deviceNotSupported;
+		auto err = co_await doBindPci(std::move(baseEntity));
 
-		virtio_core::DiscoverMode discover_mode{};
-		if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]); device_str) {
-			if(device_str->value == "1000")
-				discover_mode = virtio_core::DiscoverMode::transitional;
-			else if(device_str->value == "1041")
-				discover_mode = virtio_core::DiscoverMode::modernOnly;
-			else
-				co_return protocols::svrctl::Error::deviceNotSupported;
-		}else{
-			co_return protocols::svrctl::Error::deviceNotSupported;
-		}
-
-		co_await doBind(std::move(baseEntity), discover_mode);
+		if(err != protocols::svrctl::Error::success)
+			co_return err;
 	} else if(type->value == "usb") {
 		auto err = co_await doBindUsb(std::move(baseEntity));
 
