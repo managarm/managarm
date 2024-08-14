@@ -5,6 +5,7 @@ nic_usb_net_src = files(
 	'src/usb-ecm.cpp',
 	'src/usb-ncm.cpp',
 	'src/usb-net.cpp',
+	'src/usb-mbim.cpp',
 )
 
 nic_usb_net_lib = static_library('nic-usb-net', nic_usb_net_src,

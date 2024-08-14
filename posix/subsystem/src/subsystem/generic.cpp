@@ -91,6 +91,14 @@ async::detached observeDevices(VfsType devType, auto &registry, int major) {
 
 } // anonymous namepsace
 
+std::optional<std::pair<std::string, uint64_t>> getDeviceName(mbus_ng::EntityId id) {
+	if(deviceIdMap.contains(id)) {
+		return deviceIdMap.at(id);
+	}
+
+	return std::nullopt;
+}
+
 void run() {
 	observeDevices(VfsType::blockDevice, blockRegistry, 240);
 	observeDevices(VfsType::charDevice, charRegistry, 234);

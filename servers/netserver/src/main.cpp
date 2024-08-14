@@ -112,6 +112,18 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 						usb_info.ncm = true;
 						break;
 					}
+					case CdcSubType::Mbim: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcMbim *>(descriptor);
+						printf("netserver: MBIM %x\n", hdr->bcdMBIMVersion);
+						if(!usb_info.control_if)
+							usb_info.control_if = info.interfaceNumber;
+						break;
+					}
+					case CdcSubType::MbimExtended: {
+						auto hdr = reinterpret_cast<protocols::usb::CdcMbimExtended *>(descriptor);
+						printf("netserver: MBIM Extended MTU %u\n", hdr->wMTU);
+						break;
+					}
 					default: {
 						std::cout << std::format("netserver: unhandled Function Descriptor SubType {}", uint8_t(desc->subtype)) << std::endl;
 						break;

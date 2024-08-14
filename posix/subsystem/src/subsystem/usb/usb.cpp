@@ -10,8 +10,10 @@
 #include <protocols/usb/client.hpp>
 
 #include "../../drvcore.hpp"
+#include "../generic.hpp"
 #include "../net.hpp"
 #include "../pci.hpp"
+#include "../usbmisc.hpp"
 #include "attributes.hpp"
 #include "devices.hpp"
 #include "drivers.hpp"
@@ -31,6 +33,7 @@ namespace usb_subsystem {
 
 std::shared_ptr<drvcore::BusSubsystem> sysfsSubsystem;
 drvcore::ClassSubsystem *netSubsystem;
+drvcore::ClassSubsystem *usbmiscSubsystem;
 
 std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
 
@@ -45,6 +48,13 @@ void UsbBase::setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Proper
 			return;
 		auto net = std::make_shared<net_subsystem::Device>(netSubsystem, ifname, std::stol(ifindex), shared_from_this());
 		addClassDevice(std::move(net));
+	} else if(name == "usbmisc") {
+		auto devinfo = generic_subsystem::getDeviceName(id);
+		if(!devinfo)
+			return;
+		auto devname = std::format("{}{}", devinfo->first, devinfo->second);
+		auto usbmisc = std::make_shared<usbmisc_subsystem::Device>(usbmiscSubsystem, devname, shared_from_this());
+		addClassDevice(std::move(usbmisc));
 	} else {
 		std::cout << std::format("posix: unhandled sysfs device class '{}', skipping setup", name);
 	}
@@ -473,6 +483,7 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 async::detached run() {
 	sysfsSubsystem = std::make_shared<drvcore::BusSubsystem>("usb");
 	netSubsystem = new drvcore::ClassSubsystem{"net"};
+	usbmiscSubsystem = new drvcore::ClassSubsystem{"usbmisc"};
 
 	auto usbControllerFilter = mbus_ng::EqualsFilter{"generic.devtype", "usb-controller"};
 
