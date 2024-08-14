@@ -100,6 +100,7 @@ struct UsbInterface final : UsbBase {
 	std::vector<std::shared_ptr<UsbEndpoint>> endpoints;
 
 	std::string sysfs_name;
+	std::shared_ptr<drvcore::BusDriver> driver;
 };
 
 struct UsbDevice final : UsbBase {

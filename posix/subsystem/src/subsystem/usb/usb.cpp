@@ -14,6 +14,7 @@
 #include "../pci.hpp"
 #include "attributes.hpp"
 #include "devices.hpp"
+#include "drivers.hpp"
 #include "root-hub.hpp"
 #include "usb.hpp"
 
@@ -340,6 +341,32 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	mbusMap.insert({entity.id(), device});
 }
 
+std::unordered_map<std::string, std::shared_ptr<drvcore::BusDriver>> interface_driver_list;
+
+std::shared_ptr<drvcore::BusDriver> getInterfaceDriver(std::string name) {
+	if(interface_driver_list.contains(name)) {
+		return interface_driver_list.at(name);
+	}
+
+	if(name == "cdc_ncm") {
+		auto ncmDriver = std::make_shared<CdcNcmDriver>(sysfsSubsystem, name);
+		ncmDriver->addObject();
+		interface_driver_list.insert({name, ncmDriver});
+	} else if(name == "cdc_mbim") {
+		auto mbimDriver = std::make_shared<CdcMbimDriver>(sysfsSubsystem, name);
+		mbimDriver->addObject();
+		interface_driver_list.insert({name, mbimDriver});
+	} else if(name == "cdc_ether") {
+		auto cdcEtherDriver = std::make_shared<CdcEtherDriver>(sysfsSubsystem, name);
+		cdcEtherDriver->addObject();
+		interface_driver_list.insert({name, cdcEtherDriver});
+	} else {
+		assert(!"unsupported USB interface driver");
+	}
+
+	return interface_driver_list.at(name);
+}
+
 async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 	auto filter = mbus_ng::EqualsFilter{"drvcore.mbus-parent", std::to_string(deviceId)};
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
@@ -387,6 +414,31 @@ async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 
 					if(dev_if != dev->interfaces.end()) {
 						dev_if->get()->setupClass(class_name, event.id, event.properties);
+					}
+				}
+			}
+
+			auto if_drivers = event.properties.find("usb.interface_drivers");
+			if(if_drivers != event.properties.end()) {
+				auto drivers_list = std::get<mbus_ng::ArrayItem>(if_drivers->second).items;
+
+				for(auto &driver_info : drivers_list) {
+					auto info = std::get<mbus_ng::ArrayItem>(driver_info).items;
+					auto if_num = std::get<mbus_ng::StringItem>(info.at(0)).value;
+					auto driver_name = std::get<mbus_ng::StringItem>(info.at(1)).value;
+
+					auto dev = std::static_pointer_cast<UsbDevice>(device);
+					auto config_val = (co_await dev->device().currentConfigurationValue()).value();
+					auto dev_if = std::find_if(
+						dev->interfaces.begin(), dev->interfaces.end(),
+						[&](const auto &intf) {
+							return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num;
+						}
+					);
+
+					if(dev_if != dev->interfaces.end() && !dev_if->get()->driver) {
+						dev_if->get()->driver = getInterfaceDriver(driver_name);
+						dev_if->get()->createSymlink("driver", dev_if->get()->driver);
 					}
 				}
 			}

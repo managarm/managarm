@@ -104,6 +104,11 @@ private:
 	BusSubsystem *_subsystem;
 };
 
+struct BusDriver : sysfs::Object {
+	BusDriver(std::shared_ptr<BusSubsystem> parent, std::string name)
+	: sysfs::Object(parent->driversObject(), name) {}
+};
+
 struct ClassSubsystem {
 	ClassSubsystem(std::string name);
 

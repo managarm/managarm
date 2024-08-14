@@ -23,6 +23,16 @@ async::result<void> UsbNcmNic::initialize() {
 
 	mbus_ng::Properties descriptor = {
 		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"usb.interface_drivers", mbus_ng::ArrayItem{{
+			mbus_ng::ArrayItem{{
+				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
+				mbus_ng::StringItem{"cdc_ncm"},
+			}},
+			mbus_ng::ArrayItem{{
+				mbus_ng::StringItem{std::format("{}.{}", config_val, data_intf_.num())},
+				mbus_ng::StringItem{"cdc_ncm"},
+			}},
+		}}},
 		{"usb.interface_classes", mbus_ng::ArrayItem{{
 			mbus_ng::ArrayItem{{
 				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
