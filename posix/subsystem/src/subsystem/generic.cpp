@@ -38,22 +38,19 @@ private:
 	helix::UniqueLane _lane;
 };
 
-id_allocator<uint64_t> ttyUsbAllocator{0};
-id_allocator<uint64_t> ttySAllocator{0};
-id_allocator<uint64_t> driCardAllocator{0};
+std::unordered_map<std::string, id_allocator<uint64_t>> deviceIdAllocators;
+std::unordered_map<mbus_ng::EntityId, std::pair<std::string, uint64_t>> deviceIdMap;
 
-uint64_t allocateDeviceIds(std::string type) {
-	if(type == "ttyS") {
-		return ttySAllocator.allocate();
-	} else if(type == "ttyUSB") {
-		return ttyUsbAllocator.allocate();
-	} else if(type == "dri/card") {
-		return driCardAllocator.allocate();
-	} else {
-		std::cout << "unhandled device type '" << type << "'" << std::endl;
-		assert(!"unhandled device type");
-		__builtin_unreachable();
+uint64_t allocateDeviceIds(mbus_ng::EntityId entity_id, std::string prefix) {
+	if(!deviceIdAllocators.contains(prefix)) {
+		id_allocator<uint64_t> new_alloc{0};
+		deviceIdAllocators.insert({prefix, new_alloc});
 	}
+
+	auto id = deviceIdAllocators.at(prefix).allocate();
+	deviceIdMap.insert({entity_id, {prefix, id}});
+
+	return id;
 }
 
 async::detached observeDevices(VfsType devType, auto &registry, int major) {
@@ -74,7 +71,7 @@ async::detached observeDevices(VfsType devType, auto &registry, int major) {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
 			auto name = std::get<mbus_ng::StringItem>(event.properties.at("generic.devname"));
-			auto id = allocateDeviceIds(name.value);
+			auto id = allocateDeviceIds(entity.id(), name.value);
 
 			auto sysfs_name = name.value + std::to_string(id);
 
