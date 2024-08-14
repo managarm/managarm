@@ -5,7 +5,7 @@
 
 namespace usb_subsystem {
 
-struct UsbBase : drvcore::Device {
+struct UsbBase : drvcore::Device, std::enable_shared_from_this<UsbBase> {
 protected:
 	UsbBase(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
 	: drvcore::Device{parent, std::move(sysfs_name), nullptr},
@@ -15,6 +15,8 @@ public:
 	protocols::usb::DeviceDescriptor *desc() {
 		return reinterpret_cast<protocols::usb::DeviceDescriptor *>(descriptors.data());
 	}
+
+	void setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Properties &prop) override;
 
 	int64_t mbusId;
 	size_t busNum;

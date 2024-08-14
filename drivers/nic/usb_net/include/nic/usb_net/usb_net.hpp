@@ -1,6 +1,7 @@
 #pragma once
 
 #include <netserver/nic.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/usb/client.hpp>
 
 namespace nic::usb_net {
@@ -42,7 +43,7 @@ struct ConfigurationInfo {
 	std::optional<int> out_endp_number;
 };
 
-async::result<std::shared_ptr<nic::Link>> makeShared(protocols::usb::Device hw_device, MacAddress mac,
+async::result<std::shared_ptr<nic::Link>> makeShared(mbus_ng::EntityId entity, protocols::usb::Device hw_device, MacAddress mac,
 	ConfigurationInfo info);
 
 } // namespace nic::usb_net

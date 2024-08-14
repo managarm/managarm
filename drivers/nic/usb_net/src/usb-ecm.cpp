@@ -1,3 +1,4 @@
+#include <format>
 #include <nic/usb_net/usb_net.hpp>
 
 #include "usb-ecm.hpp"
@@ -5,10 +6,10 @@
 
 namespace nic::usb_ecm {
 
-UsbEcmNic::UsbEcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
+UsbEcmNic::UsbEcmNic(mbus_ng::EntityId entity, protocols::usb::Device hw_device, nic::MacAddress mac,
 		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
 		protocols::usb::Interface data_intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out)
-	: UsbNic{hw_device, mac, ctrl_intf, ctrl_ep, data_intf, in, out} {
+	: UsbNic{hw_device, mac, ctrl_intf, ctrl_ep, data_intf, in, out}, entity_{entity} {
 
 }
 
@@ -58,6 +59,30 @@ async::result<void> UsbEcmNic::initialize() {
 		protocols::usb::kXferToDevice, ctrl_msg, {}
 	});
 	assert(res);
+
+	auto config_val = (co_await device_.currentConfigurationValue()).value();
+
+	mbus_ng::Properties descriptor = {
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"usb.interface_classes", mbus_ng::ArrayItem{{
+			mbus_ng::ArrayItem{{
+				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
+				mbus_ng::StringItem{"net"},
+			}},
+		}}},
+	};
+	descriptor.merge(mbusNetworkProperties());
+
+	auto device_entity = (co_await mbus_ng::Instance::global().createEntity("usb-ncm", descriptor)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(device_entity));
 
 	listenForNotifications();
 }

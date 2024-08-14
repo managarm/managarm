@@ -10,6 +10,7 @@
 #include <protocols/usb/client.hpp>
 
 #include "../../drvcore.hpp"
+#include "../net.hpp"
 #include "../pci.hpp"
 #include "attributes.hpp"
 #include "devices.hpp"
@@ -28,8 +29,25 @@ id_allocator<uint64_t> usbControllerAllocator{};
 namespace usb_subsystem {
 
 std::shared_ptr<drvcore::BusSubsystem> sysfsSubsystem;
+drvcore::ClassSubsystem *netSubsystem;
 
 std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
+
+void UsbBase::setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Properties &prop) {
+	if(classDevices().contains(name))
+		return;
+
+	if(name == "net") {
+		auto ifname = std::get<mbus_ng::StringItem>(prop["net.ifname"]).value;
+		auto ifindex = std::get<mbus_ng::StringItem>(prop["net.ifindex"]).value;
+		if(ifname.empty() || ifindex.empty())
+			return;
+		auto net = std::make_shared<net_subsystem::Device>(netSubsystem, ifname, std::stol(ifindex), shared_from_this());
+		addClassDevice(std::move(net));
+	} else {
+		std::cout << std::format("posix: unhandled sysfs device class '{}', skipping setup", name);
+	}
+}
 
 protocols::usb::Device &UsbInterface::device() {
 	return std::static_pointer_cast<UsbDevice>(parentDevice())->device();
@@ -322,6 +340,60 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	mbusMap.insert({entity.id(), device});
 }
 
+async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
+	auto filter = mbus_ng::EqualsFilter{"drvcore.mbus-parent", std::to_string(deviceId)};
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+
+	while(true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for (auto &event : events) {
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+
+			auto device = ({
+				auto parent_id = std::get<mbus_ng::StringItem>(event.properties["drvcore.mbus-parent"]).value;
+				auto device_it = mbusMap.find(std::stoi(parent_id));
+				assert(device_it != mbusMap.end());
+				device_it->second;
+			});
+			assert(device);
+
+			if(event.properties.find("drvcore.device_classes") != event.properties.end()) {
+				auto devclasses = std::get_if<mbus_ng::ArrayItem>(&event.properties["drvcore.device_classes"]);
+
+				for(auto &devclass_item : devclasses->items) {
+					auto devclass = std::get<mbus_ng::StringItem>(devclass_item);
+
+					device->setupClass(devclass.value, event.id, event.properties);
+				}
+			}
+
+			if(event.properties.find("usb.interface_classes") != event.properties.end()) {
+				auto classes = std::get_if<mbus_ng::ArrayItem>(&event.properties["usb.interface_classes"]);
+
+				for(auto &info_item : classes->items) {
+					auto info = std::get<mbus_ng::ArrayItem>(info_item).items;
+					auto if_num = std::get<mbus_ng::StringItem>(info.at(0)).value;
+					auto class_name = std::get<mbus_ng::StringItem>(info.at(1)).value;
+
+					auto dev = std::static_pointer_cast<UsbDevice>(device);
+					auto config_val = (co_await dev->device().currentConfigurationValue()).value();
+					auto dev_if = std::find_if(
+						dev->interfaces.begin(), dev->interfaces.end(),
+						[&](const auto &intf) {
+							return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num;
+						}
+					);
+
+					if(dev_if != dev->interfaces.end()) {
+						dev_if->get()->setupClass(class_name, event.id, event.properties);
+					}
+				}
+			}
+		}
+	}
+}
+
 async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 	auto usbDeviceFilter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "usb"},
@@ -334,22 +406,23 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
 		for (auto &event : events) {
-			if (event.type != mbus_ng::EnumerationEvent::Type::created)
-				continue;
-
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
-			co_await bindDevice(std::move(entity), std::move(event.properties));
+			if (event.type == mbus_ng::EnumerationEvent::Type::created) {
+				observeDeviceChildren(entity.id());
+				co_await bindDevice(std::move(entity), std::move(event.properties));
+			} else {
+				continue;
+			}
 		}
 	}
 }
 
 async::detached run() {
 	sysfsSubsystem = std::make_shared<drvcore::BusSubsystem>("usb");
+	netSubsystem = new drvcore::ClassSubsystem{"net"};
 
-	auto usbControllerFilter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter{"generic.devtype", "usb-controller"}
-	});
+	auto usbControllerFilter = mbus_ng::EqualsFilter{"generic.devtype", "usb-controller"};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(usbControllerFilter);
 	while (true) {

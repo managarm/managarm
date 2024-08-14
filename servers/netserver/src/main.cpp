@@ -202,7 +202,7 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 		static_cast<uint8_t>((decodeHexString(str[10]) << 4) | decodeHexString(str[11])),
 	}};
 
-	auto device = co_await nic::usb_net::makeShared(std::move(dev), mac, *matched_usb_info);
+	auto device = co_await nic::usb_net::makeShared(baseEntity.id(), std::move(dev), mac, *matched_usb_info);
 
 	baseDeviceMap.insert({baseEntity.id(), device});
 	nic::runDevice(device);

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <protocols/mbus/client.hpp>
 #include <unordered_map>
 
 namespace nic {
@@ -75,6 +76,13 @@ struct Link {
 
 	bool rawIp() {
 		return raw_ip_;
+	}
+
+	mbus_ng::Properties mbusNetworkProperties() {
+		return {
+			{"net.ifname", mbus_ng::StringItem{name()}},
+			{"net.ifindex", mbus_ng::StringItem{std::to_string(index())}},
+		};
 	}
 
 	static std::shared_ptr<Link> byIndex(int index);
