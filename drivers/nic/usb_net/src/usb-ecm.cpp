@@ -74,14 +74,7 @@ async::result<void> UsbEcmNic::initialize() {
 				mbus_ng::StringItem{"cdc_ether"},
 			}},
 		}}},
-		{"usb.interface_classes", mbus_ng::ArrayItem{{
-			mbus_ng::ArrayItem{{
-				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
-				mbus_ng::StringItem{"net"},
-			}},
-		}}},
 	};
-	descriptor.merge(mbusNetworkProperties());
 
 	auto device_entity = (co_await mbus_ng::Instance::global().createEntity("usb-ncm", descriptor)).unwrap();
 
@@ -93,6 +86,25 @@ async::result<void> UsbEcmNic::initialize() {
 			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 		}
 	}(std::move(device_entity));
+
+	mbus_ng::Properties netProperties{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"unix.subsystem", mbus_ng::StringItem{"net"}},
+		{"usb.parent-interface", mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},}
+	};
+	netProperties.merge(mbusNetworkProperties());
+
+	auto netClassEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"net", netProperties)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(netClassEntity));
 
 	listenForNotifications();
 }

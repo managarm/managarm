@@ -57,9 +57,6 @@ public:
 		return _classDevices;
 	}
 
-	virtual void setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Properties &prop);
-	void addClassDevice(std::shared_ptr<ClassDevice> dev);
-
 	// Returns the path of this device under /sys/devices.
 	std::string getSysfsPath();
 
@@ -149,6 +146,9 @@ private:
 };
 
 void initialize();
+
+void registerMbusDevice(mbus_ng::EntityId, std::shared_ptr<Device>);
+std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId);
 
 void installDevice(std::shared_ptr<Device> device);
 

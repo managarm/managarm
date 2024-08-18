@@ -16,8 +16,6 @@ public:
 		return reinterpret_cast<protocols::usb::DeviceDescriptor *>(descriptors.data());
 	}
 
-	void setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Properties &prop) override;
-
 	int64_t mbusId;
 	size_t busNum;
 	size_t portNum;

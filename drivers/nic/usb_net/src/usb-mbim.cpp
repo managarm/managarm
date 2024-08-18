@@ -222,16 +222,6 @@ async::result<void> UsbMbimNic::initialize() {
 		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
 		{"generic.devtype", mbus_ng::StringItem{"char"}},
 		{"generic.devname", mbus_ng::StringItem{"cdc-wdm"}},
-		{"usb.interface_classes", mbus_ng::ArrayItem{{
-			mbus_ng::ArrayItem{{
-				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
-				mbus_ng::StringItem{"usbmisc"},
-			}},
-			mbus_ng::ArrayItem{{
-				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
-				mbus_ng::StringItem{"net"},
-			}},
-		}}},
 		{"usb.interface_drivers", mbus_ng::ArrayItem{{
 			mbus_ng::ArrayItem{{
 				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
@@ -243,7 +233,6 @@ async::result<void> UsbMbimNic::initialize() {
 			}},
 		}}},
 	};
-	descriptor.merge(mbusNetworkProperties());
 
 	auto wwan_entity = (co_await mbus_ng::Instance::global().createEntity(
 		"wwan", descriptor)).unwrap();
@@ -262,6 +251,43 @@ async::result<void> UsbMbimNic::initialize() {
 	}(cdc_wdm, std::move(wwan_entity));
 
 	cdcWdmDev_ = std::move(cdc_wdm);
+
+	mbus_ng::Properties netProperties{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"unix.subsystem", mbus_ng::StringItem{"net"}},
+		{"usb.parent-interface", mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},}
+	};
+	netProperties.merge(mbusNetworkProperties());
+
+	auto netClassEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"net", netProperties)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(netClassEntity));
+
+	mbus_ng::Properties usbmiscProperties{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"unix.subsystem", mbus_ng::StringItem{"usbmisc"}},
+		{"usb.parent-interface", mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},}
+	};
+
+	auto usbmiscClassEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"usbmisc", usbmiscProperties)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(usbmiscClassEntity));
 
 	receiveEncapsulated();
 	listenForNotifications();

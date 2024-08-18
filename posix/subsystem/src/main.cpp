@@ -18,8 +18,10 @@
 #include "subsystem/drm.hpp"
 #include "subsystem/generic.hpp"
 #include "subsystem/input.hpp"
+#include "subsystem/net.hpp"
 #include "subsystem/pci.hpp"
 #include "subsystem/usb/usb.hpp"
+#include "subsystem/usbmisc.hpp"
 #include "observations.hpp"
 
 #include <bragi/helpers-std.hpp>
@@ -160,10 +162,15 @@ int main() {
 	charRegistry.install(createUrandomDevice());
 	charRegistry.install(createZeroDevice());
 	charRegistry.install(createKmsgDevice());
-	block_subsystem::run();
+
 	drm_subsystem::run();
-	generic_subsystem::run();
 	input_subsystem::run();
+	net_subsystem::run();
+	usbmisc_subsystem::run();
+
+	block_subsystem::run();
+	generic_subsystem::run();
+
 	pci_subsystem::run();
 	usb_subsystem::run();
 

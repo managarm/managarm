@@ -35,31 +35,6 @@ std::shared_ptr<drvcore::BusSubsystem> sysfsSubsystem;
 drvcore::ClassSubsystem *netSubsystem;
 drvcore::ClassSubsystem *usbmiscSubsystem;
 
-std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
-
-void UsbBase::setupClass(std::string name, mbus_ng::EntityId id, mbus_ng::Properties &prop) {
-	if(classDevices().contains(name))
-		return;
-
-	if(name == "net") {
-		auto ifname = std::get<mbus_ng::StringItem>(prop["net.ifname"]).value;
-		auto ifindex = std::get<mbus_ng::StringItem>(prop["net.ifindex"]).value;
-		if(ifname.empty() || ifindex.empty())
-			return;
-		auto net = std::make_shared<net_subsystem::Device>(netSubsystem, ifname, std::stol(ifindex), shared_from_this());
-		addClassDevice(std::move(net));
-	} else if(name == "usbmisc") {
-		auto devinfo = generic_subsystem::getDeviceName(id);
-		if(!devinfo)
-			return;
-		auto devname = std::format("{}{}", devinfo->first, devinfo->second);
-		auto usbmisc = std::make_shared<usbmisc_subsystem::Device>(usbmiscSubsystem, devname, shared_from_this());
-		addClassDevice(std::move(usbmisc));
-	} else {
-		std::cout << std::format("posix: unhandled sysfs device class '{}', skipping setup", name);
-	}
-}
-
 protocols::usb::Device &UsbInterface::device() {
 	return std::static_pointer_cast<UsbDevice>(parentDevice())->device();
 }
@@ -178,6 +153,7 @@ void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint
 
 	assert(device->descriptors.size() >= 18 + 25);
 
+	drvcore::registerMbusDevice(entity.id(), device);
 	drvcore::installDevice(device);
 
 	device->realizeAttribute(&vendorAttr);
@@ -195,15 +171,13 @@ void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint
 	device->realizeAttribute(&descriptorsAttr);
 	device->realizeAttribute(&rxLanesAttr);
 	device->realizeAttribute(&txLanesAttr);
-
-	mbusMap.insert({entity.id(), device});
 }
 
 async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 	auto address = std::get<mbus_ng::StringItem>(properties["usb.hub_port"]);
 	auto mbus_bus = std::get<mbus_ng::StringItem>(properties["usb.bus"]);
 	uint64_t bus = std::stol(mbus_bus.value);
-	auto parent = getDeviceByMbus(bus);
+	auto parent = drvcore::getMbusDevice(std::stol(mbus_bus.value));
 
 	assert(usbControllerMap.find(bus) != usbControllerMap.end());
 	auto bus_num = usbControllerMap[bus];
@@ -277,6 +251,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		}
 	});
 
+	drvcore::registerMbusDevice(entity.id(), device);
 	drvcore::installDevice(device);
 	sysfsSubsystem->devicesObject()->createSymlink(sysfs_name, device);
 
@@ -347,8 +322,6 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	ep->realizeAttribute(&epAttributesAttr);
 	ep->realizeAttribute(&epMaxPacketSizeAttr);
 	ep->realizeAttribute(&epTypeAttr);
-
-	mbusMap.insert({entity.id(), device});
 }
 
 std::unordered_map<std::string, std::shared_ptr<drvcore::BusDriver>> interface_driver_list;
@@ -389,44 +362,9 @@ async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 
 			auto device = ({
 				auto parent_id = std::get<mbus_ng::StringItem>(event.properties["drvcore.mbus-parent"]).value;
-				auto device_it = mbusMap.find(std::stoi(parent_id));
-				assert(device_it != mbusMap.end());
-				device_it->second;
+				drvcore::getMbusDevice(mbus_ng::EntityId{std::stoi(parent_id)});
 			});
 			assert(device);
-
-			if(event.properties.find("drvcore.device_classes") != event.properties.end()) {
-				auto devclasses = std::get_if<mbus_ng::ArrayItem>(&event.properties["drvcore.device_classes"]);
-
-				for(auto &devclass_item : devclasses->items) {
-					auto devclass = std::get<mbus_ng::StringItem>(devclass_item);
-
-					device->setupClass(devclass.value, event.id, event.properties);
-				}
-			}
-
-			if(event.properties.find("usb.interface_classes") != event.properties.end()) {
-				auto classes = std::get_if<mbus_ng::ArrayItem>(&event.properties["usb.interface_classes"]);
-
-				for(auto &info_item : classes->items) {
-					auto info = std::get<mbus_ng::ArrayItem>(info_item).items;
-					auto if_num = std::get<mbus_ng::StringItem>(info.at(0)).value;
-					auto class_name = std::get<mbus_ng::StringItem>(info.at(1)).value;
-
-					auto dev = std::static_pointer_cast<UsbDevice>(device);
-					auto config_val = (co_await dev->device().currentConfigurationValue()).value();
-					auto dev_if = std::find_if(
-						dev->interfaces.begin(), dev->interfaces.end(),
-						[&](const auto &intf) {
-							return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num;
-						}
-					);
-
-					if(dev_if != dev->interfaces.end()) {
-						dev_if->get()->setupClass(class_name, event.id, event.properties);
-					}
-				}
-			}
 
 			auto if_drivers = event.properties.find("usb.interface_drivers");
 			if(if_drivers != event.properties.end()) {
@@ -505,13 +443,26 @@ async::detached run() {
 	}
 }
 
-std::shared_ptr<drvcore::Device> getDeviceByMbus(int id) {
-	auto it = mbusMap.find(id);
+async::result<std::shared_ptr<drvcore::Device>> getInterfaceDevice(std::shared_ptr<drvcore::Device> parent, mbus_ng::Properties &prop) {
+	assert(parent);
+	// TODO(no92): check the device type before casting instead of having it be caller-checked
+	auto dev = std::static_pointer_cast<UsbDevice>(parent);
+	assert(dev);
+	auto if_num = std::get_if<mbus_ng::StringItem>(&prop["usb.parent-interface"]);
+	assert(if_num);
 
-	if(it != mbusMap.end())
-		return it->second;
+	auto config_val = (co_await dev->device().currentConfigurationValue()).value();
+	auto dev_if = std::find_if(
+		dev->interfaces.begin(), dev->interfaces.end(),
+		[&](const auto &intf) {
+			return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num->value;
+		}
+	);
 
-	return nullptr;
+	if(dev_if != dev->interfaces.end())
+		co_return dev_if->get()->shared_from_this();
+
+	co_return {};
 }
 
 } // namespace usb_subsystem
