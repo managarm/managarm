@@ -2,6 +2,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <protocols/mbus/client.hpp>
 
 #include "device.hpp"
 #include "sysfs.hpp"
@@ -24,6 +25,8 @@ struct UeventProperties {
 private:
 	std::unordered_map<std::string, std::string> map;
 };
+
+struct ClassDevice;
 
 // This struct corresponds to Linux' struct Device (i.e. a device that is part of sysfs).
 // TODO: Make the sysfs::Object private?
@@ -50,6 +53,10 @@ public:
 		return _unixDevice;
 	}
 
+	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> &classDevices() {
+		return _classDevices;
+	}
+
 	// Returns the path of this device under /sys/devices.
 	std::string getSysfsPath();
 
@@ -63,6 +70,8 @@ private:
 	std::weak_ptr<Device> _devicePtr;
 	UnixDevice *_unixDevice;
 	std::shared_ptr<Device> _parentDevice;
+
+	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> _classDevices;
 };
 
 struct BusSubsystem {
@@ -90,6 +99,11 @@ public:
 
 private:
 	BusSubsystem *_subsystem;
+};
+
+struct BusDriver : sysfs::Object {
+	BusDriver(std::shared_ptr<BusSubsystem> parent, std::string name)
+	: sysfs::Object(parent->driversObject(), name) {}
 };
 
 struct ClassSubsystem {
@@ -132,6 +146,9 @@ private:
 };
 
 void initialize();
+
+void registerMbusDevice(mbus_ng::EntityId, std::shared_ptr<Device>);
+std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId);
 
 void installDevice(std::shared_ptr<Device> device);
 

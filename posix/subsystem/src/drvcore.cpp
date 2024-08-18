@@ -203,6 +203,27 @@ void initialize() {
 	globalBlockDevObject->addObject();
 }
 
+namespace {
+
+std::map<mbus_ng::EntityId, std::shared_ptr<Device>> mbusMap;
+
+} // namespace
+
+// TODO(no92): also attach type info (USB, PCI, etc.) about the device here?
+void registerMbusDevice(mbus_ng::EntityId id, std::shared_ptr<Device> dev) {
+	mbusMap.insert({id, std::move(dev)});
+}
+
+std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId id) {
+	auto v = mbusMap.find(id);
+
+	if(v != mbusMap.end()) {
+		return v->second;
+	}
+
+	return {};
+}
+
 void installDevice(std::shared_ptr<Device> device) {
 	device->setupDevicePtr(device);
 	device->addObject();

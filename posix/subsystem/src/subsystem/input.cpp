@@ -4,11 +4,11 @@
 #include <iostream>
 #include <sstream>
 
+#include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../device.hpp"
 #include "../drvcore.hpp"
-#include "../util.hpp"
 #include "../vfs.hpp"
 #include "fs.bragi.hpp"
 
@@ -18,13 +18,7 @@ namespace {
 
 drvcore::ClassSubsystem *sysfsSubsystem;
 
-id_allocator<uint32_t> evdevAllocator;
-
-struct Subsystem {
-	Subsystem() {
-		evdevAllocator.use_range(0);
-	}
-} subsystem;
+id_allocator<uint32_t> evdevAllocator{0};
 
 struct CapabilityAttribute : sysfs::Attribute {
 	CapabilityAttribute(std::string name, int index, size_t bits)

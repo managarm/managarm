@@ -2,6 +2,7 @@
 
 #include <arch/bits.hpp>
 #include <format>
+#include <protocols/mbus/client.hpp>
 
 #include "usb-net.hpp"
 
@@ -44,7 +45,7 @@ struct NtbParameter {
 };
 
 struct UsbNcmNic : UsbNic {
-	UsbNcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
+	UsbNcmNic(mbus_ng::EntityId entity, protocols::usb::Device hw_device, nic::MacAddress mac,
 		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
 		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
 		size_t config_index);
@@ -55,6 +56,7 @@ struct UsbNcmNic : UsbNic {
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
 private:
+	mbus_ng::EntityId entity_;
 	size_t config_index_;
 };
 

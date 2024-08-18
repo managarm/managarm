@@ -1,11 +1,14 @@
 #pragma once
 
 #include <netserver/nic.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/usb/client.hpp>
 
 namespace nic::usb_net {
 
 enum class RequestCode : uint8_t {
+	SEND_ENCAPSULATED_COMMAND = 0x00,
+	GET_ENCAPSULATED_RESPONSE = 0x01,
 	SET_ETHERNET_MULTICAST_FILTERS = 0x40,
 	SET_ETHERNET_POWER_MANAGEMENT_PATTERN_FILTER = 0x41,
 	GET_ETHERNET_POWER_MANAGEMENT_PATTERN_FILTER = 0x42,
@@ -42,7 +45,7 @@ struct ConfigurationInfo {
 	std::optional<int> out_endp_number;
 };
 
-async::result<std::shared_ptr<nic::Link>> makeShared(protocols::usb::Device hw_device, MacAddress mac,
+async::result<std::shared_ptr<nic::Link>> makeShared(mbus_ng::EntityId entity, protocols::usb::Device hw_device, MacAddress mac,
 	ConfigurationInfo info);
 
 } // namespace nic::usb_net

@@ -9,15 +9,62 @@ namespace nic::usb_ncm {
 
 constexpr bool debugNcm = false;
 
-UsbNcmNic::UsbNcmNic(protocols::usb::Device hw_device, nic::MacAddress mac,
+UsbNcmNic::UsbNcmNic(mbus_ng::EntityId entity, protocols::usb::Device hw_device, nic::MacAddress mac,
 		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
 		protocols::usb::Interface data_intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
 		size_t config_index)
-	: UsbNic{hw_device, mac, ctrl_intf, ctrl_ep, data_intf, in, out}, config_index_{config_index} {
+	: UsbNic{hw_device, mac, ctrl_intf, ctrl_ep, data_intf, in, out},
+		entity_{entity}, config_index_{config_index} {
 
 }
 
 async::result<void> UsbNcmNic::initialize() {
+	auto config_val = (co_await device_.currentConfigurationValue()).value();
+
+	mbus_ng::Properties descriptor = {
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"usb.interface_drivers", mbus_ng::ArrayItem{{
+			mbus_ng::ArrayItem{{
+				mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},
+				mbus_ng::StringItem{"cdc_ncm"},
+			}},
+			mbus_ng::ArrayItem{{
+				mbus_ng::StringItem{std::format("{}.{}", config_val, data_intf_.num())},
+				mbus_ng::StringItem{"cdc_ncm"},
+			}},
+		}}},
+	};
+
+	auto device_entity = (co_await mbus_ng::Instance::global().createEntity("usb-ncm", descriptor)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(device_entity));
+
+	mbus_ng::Properties netProperties{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"unix.subsystem", mbus_ng::StringItem{"net"}},
+		{"usb.parent-interface", mbus_ng::StringItem{std::format("{}.{}", config_val, ctrl_intf_.num())},}
+	};
+	netProperties.merge(mbusNetworkProperties());
+
+	auto netClassEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"net", netProperties)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(netClassEntity));
+
 	protocols::usb::CdcEthernetNetworking *ecm_hdr = nullptr;
 	protocols::usb::CdcNcm *ncm_hdr = nullptr;
 	auto raw_descs = (co_await device_.configurationDescriptor(config_index_)).value();

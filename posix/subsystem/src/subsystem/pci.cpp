@@ -9,7 +9,6 @@
 
 #include "../common.hpp"
 #include "../drvcore.hpp"
-#include "../util.hpp"
 #include "../vfs.hpp"
 #include "fs.bragi.hpp"
 #include "pci.hpp"

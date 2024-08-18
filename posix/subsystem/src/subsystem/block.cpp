@@ -4,10 +4,10 @@
 #include <string_view>
 #include <linux/fs.h>
 
+#include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../device.hpp"
-#include "../util.hpp"
 #include "../vfs.hpp"
 #include "../drvcore.hpp"
 #include "pci.hpp"
@@ -18,16 +18,9 @@ namespace {
 
 drvcore::ClassSubsystem *sysfsSubsystem;
 
-id_allocator<uint32_t> minorAllocator;
-id_allocator<uint32_t> diskAllocator;
+id_allocator<uint32_t> minorAllocator{0};
+id_allocator<uint32_t> diskAllocator{0};
 std::unordered_map<int64_t, char> diskNames;
-
-struct Subsystem {
-	Subsystem() {
-		minorAllocator.use_range(0);
-		diskAllocator.use_range(0);
-	}
-} subsystem;
 
 struct Device final : UnixDevice, drvcore::BlockDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane,

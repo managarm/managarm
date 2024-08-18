@@ -5,7 +5,7 @@
 
 namespace usb_subsystem {
 
-struct UsbBase : drvcore::Device {
+struct UsbBase : drvcore::Device, std::enable_shared_from_this<UsbBase> {
 protected:
 	UsbBase(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
 	: drvcore::Device{parent, std::move(sysfs_name), nullptr},
@@ -98,6 +98,7 @@ struct UsbInterface final : UsbBase {
 	std::vector<std::shared_ptr<UsbEndpoint>> endpoints;
 
 	std::string sysfs_name;
+	std::shared_ptr<drvcore::BusDriver> driver;
 };
 
 struct UsbDevice final : UsbBase {
