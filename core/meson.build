@@ -3,6 +3,7 @@ inc = [ 'include' ]
 headers = [
 	'include/core/bpf.hpp',
 	'include/core/id-allocator.hpp',
+	'include/core/queue.hpp',
 ]
 
 core_lib_sources = files(
