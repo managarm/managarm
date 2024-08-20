@@ -27,6 +27,7 @@
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
 #include <nic/rtl8168/rtl8168.hpp>
+#include <nic/freebsd-e1000/common.hpp>
 #include <nic/usb_net/usb_net.hpp>
 #include <protocols/usb/client.hpp>
 
@@ -42,6 +43,8 @@ const std::string VENDOR_COREGA = "1259";
 const std::string VENDOR_LINKSYS = "1737";
 const std::string VENDOR_US_ROBOTICS = "16ec";
 const std::string VENDOR_REDHAT = "1af4";
+const std::string VENDOR_INTEL = "8086";
+
 
 std::unordered_set<std::string_view> nic_vendor_ids = {
 	VENDOR_REDHAT, /* virtio */
@@ -51,6 +54,7 @@ std::unordered_set<std::string_view> nic_vendor_ids = {
 	VENDOR_COREGA, /* rtl8168 */
 	VENDOR_LINKSYS, /* rtl8168 */
 	VENDOR_US_ROBOTICS, /* rtl8168 */
+	VENDOR_INTEL, /* e1000 */
 };
 
 std::unordered_set<std::string_view> virtio_device_ids = {
@@ -72,6 +76,12 @@ std::unordered_set<std::string_view> rtl8168_device_ids = {
 std::unordered_set<std::string_view> rtl8168_dlink_device_ids = {
 	"4300",
 	"4302",
+};
+
+std::unordered_set<std::string_view> intel_device_ids = {
+	"100e", /* QEMU's e1000 device */
+	"10d3", /* QEMU's e1000e device */
+	"15d8", /* i219-V (4) */
 };
 
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
@@ -169,6 +179,8 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 		device = co_await setupVirtioDevice(baseEntity, std::move(hwDevice));
 	} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
 		device = nic::rtl8168::makeShared(std::move(hwDevice));
+	} else if(vendor_str->value == VENDOR_INTEL) {
+		device = nic::e1000::makeShared(std::move(hwDevice));
 	} else {
 		std::cout << std::format("netserver: skipping PCI device {}:{}\n", vendor_str->value, device_str->value);
 		co_return protocols::svrctl::Error::deviceNotSupported;
