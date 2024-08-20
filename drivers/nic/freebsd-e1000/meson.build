@@ -18,6 +18,9 @@ nic_freebsd_e1000_import_dep = declare_dependency(
 src_files = files(
 	'src/managarm.cpp',
 	'src/osdep.cpp',
+	'src/irq.cpp',
+	'src/rx.cpp',
+	'src/tx.cpp',
 )
 
 nic_freebsd_e1000_lib = static_library('nic-freebsd-e1000', src_files,
