@@ -24,6 +24,33 @@ async::result<void> E1000Nic::send(const arch::dma_buffer_view buf) {
 	co_return;
 }
 
+void E1000Nic::pciRead(u32 reg, u32 *value) {
+	auto run = [this, reg]() -> async::result<u16> {
+		u32 ret = co_await _device.loadPciSpace(reg, 4);
+		co_return ret;
+	};
+
+	*value = async::run(run(), helix::currentDispatcher);
+}
+
+void E1000Nic::pciRead(u32 reg, u16 *value) {
+	auto run = [this, reg]() -> async::result<u16> {
+		u16 ret = co_await _device.loadPciSpace(reg, 2);
+		co_return ret;
+	};
+
+	*value = async::run(run(), helix::currentDispatcher);
+}
+
+void E1000Nic::pciRead(u32 reg, u8 *value) {
+	auto run = [this, reg]() -> async::result<u16> {
+		u8 ret = co_await _device.loadPciSpace(reg, 1);
+		co_return ret;
+	};
+
+	*value = async::run(run(), helix::currentDispatcher);
+}
+
 namespace nic::e1000 {
 
 std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
