@@ -879,7 +879,8 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.blocktype", mbus_ng::StringItem{"partition"}},
 			{"unix.partid", mbus_ng::StringItem{std::to_string(partId++)}},
 			{"unix.diskid", mbus_ng::StringItem{std::to_string(diskId)}},
-			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}}
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}},
+			{"unix.is-managarm-root", mbus_ng::StringItem{std::to_string(type == gpt::type_guids::managarmRootPartition)}}
 		};
 
 		auto entity = (co_await mbus_ng::Instance::global().createEntity(
