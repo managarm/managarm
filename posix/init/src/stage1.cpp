@@ -63,9 +63,9 @@ int main() {
 	}else assert(block_usb != -1);
 
 	// Spin until /dev/sda0 becomes available. Then mount the rootfs and prepare it.
-	while(access("/dev/sda0", F_OK)) {
+	while(access("/dev/sda1", F_OK)) {
 		assert(errno == ENOENT);
-		std::cout << "Waiting for /dev/sda0" << std::endl;
+		std::cout << "Waiting for /dev/sda1" << std::endl;
 		sleep(1);
 	}
 
@@ -77,8 +77,8 @@ int main() {
 	}else assert(uhci != -1);
 #endif
 
-	std::cout << "init: Mounting /dev/sda0" << std::endl;
-	if(mount("/dev/sda0", "/realfs", "ext2", 0, ""))
+	std::cout << "init: Mounting /dev/sda1" << std::endl;
+	if(mount("/dev/sda1", "/realfs", "ext2", 0, ""))
 		throw std::runtime_error("mount() failed");
 
 	if(mount("", "/realfs/proc", "procfs", 0, ""))

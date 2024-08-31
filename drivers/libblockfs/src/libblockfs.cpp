@@ -873,9 +873,8 @@ async::detached runDevice(BlockDevice *device) {
 				i, type.a, type.b, type.c, type.d[0], type.d[1],
 				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5]);
 
-		if(type != gpt::type_guids::managarmRootPartition)
-			continue;
-		printf("It's a Managarm root partition!\n");
+		if(type == gpt::type_guids::managarmRootPartition)
+			printf("  It's a Managarm root partition!\n");
 
 		auto device = &table->getPartition(i);
 
