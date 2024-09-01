@@ -11,6 +11,7 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
+#include "sysfs.hpp"
 
 HelHandle __mlibc_getPassthrough(int fd);
 
@@ -71,6 +72,9 @@ async::result<void> populateRootView() {
 	// TODO: Check for errors from mkdir().
 	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("dev"));
 	co_await rootView->mount(std::move(dev), getDevtmpfs());
+
+	auto sys = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("sys"));
+	co_await rootView->mount(std::move(sys), getSysfs());
 
 	// Populate the tmpfs from the fs we are running on.
 	std::vector<

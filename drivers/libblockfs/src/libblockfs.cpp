@@ -21,10 +21,7 @@
 
 namespace blockfs {
 
-// TODO: Support more than one table.
-gpt::Table *table;
-ext2fs::FileSystem *fs;
-raw::RawFs *rawFs;
+bool tracingInitialized = false;
 
 protocols::ostrace::Context ostContext;
 protocols::ostrace::EventId ostReadEvent;
@@ -268,7 +265,7 @@ getLink(std::shared_ptr<void> object,
 	}
 
 	assert(entry->inode);
-	co_return protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type};
+	co_return protocols::fs::GetLinkResult{self->fs.accessInode(entry->inode), entry->inode, type};
 }
 
 async::result<protocols::fs::GetLinkResult> link(std::shared_ptr<void> object,
@@ -295,7 +292,7 @@ async::result<protocols::fs::GetLinkResult> link(std::shared_ptr<void> object,
 	}
 
 	assert(entry->inode);
-	co_return protocols::fs::GetLinkResult{fs->accessInode(entry->inode), entry->inode, type};
+	co_return protocols::fs::GetLinkResult{self->fs.accessInode(entry->inode), entry->inode, type};
 }
 
 async::result<frg::expected<protocols::fs::Error>> unlink(std::shared_ptr<void> object, std::string name) {
@@ -393,7 +390,7 @@ mkdir(std::shared_ptr<void> object, std::string name) {
 		co_return protocols::fs::MkdirResult{nullptr, -1};
 
 	assert(entry->inode);
-	co_return protocols::fs::MkdirResult{fs->accessInode(entry->inode), entry->inode};
+	co_return protocols::fs::MkdirResult{self->fs.accessInode(entry->inode), entry->inode};
 }
 
 async::result<protocols::fs::SymlinkResult>
@@ -405,7 +402,7 @@ symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 		co_return protocols::fs::SymlinkResult{nullptr, -1};
 
 	assert(entry->inode);
-	co_return protocols::fs::SymlinkResult{fs->accessInode(entry->inode), entry->inode};
+	co_return protocols::fs::SymlinkResult{self->fs.accessInode(entry->inode), entry->inode};
 }
 
 async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode) {
@@ -611,8 +608,11 @@ constexpr protocols::fs::FileOperations rawOperations {
 BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
 : size(0), sectorSize(sector_size), parentId(parent_id) { }
 
-async::detached servePartition(helix::UniqueLane lane) {
+async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition, std::unique_ptr<raw::RawFs> rawFs) {
 	std::cout << "unix device: Connection" << std::endl;
+
+	// TODO(qookie): Generic file system type
+	std::unique_ptr<ext2fs::FileSystem> fs;
 
 	while(true) {
 		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
@@ -640,6 +640,11 @@ async::detached servePartition(helix::UniqueLane lane) {
 		recv_head.reset();
 
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
+			// Mount the actual file system
+			fs = std::make_unique<ext2fs::FileSystem>(partition);
+			co_await fs->init();
+			printf("ext2fs is ready!\n");
+
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
@@ -769,7 +774,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 		}else if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
+			auto file = smarter::make_shared<raw::OpenFile>(rawFs.get());
 			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
 					file,
 					&rawOperations));
@@ -796,7 +801,7 @@ async::detached servePartition(helix::UniqueLane lane) {
 			if(req->command() == BLKGETSIZE64) {
 				managarm::fs::GenericIoctlReply rsp;
 				rsp.set_error(managarm::fs::Errors::SUCCESS);
-				rsp.set_size(co_await fs->device->getSize());
+				rsp.set_size(co_await partition->getSize());
 
 				auto ser = rsp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -819,13 +824,20 @@ async::detached servePartition(helix::UniqueLane lane) {
 }
 
 async::detached runDevice(BlockDevice *device) {
-	ostContext = co_await protocols::ostrace::createContext();
-	ostReadEvent = co_await ostContext.announceEvent("libblockfs.read");
-	ostReaddirEvent = co_await ostContext.announceEvent("libblockfs.readdir");
-	ostByteCounter = co_await ostContext.announceItem("numBytes");
-	ostTimeCounter = co_await ostContext.announceItem("time");
+	if (!tracingInitialized) {
+		ostContext = co_await protocols::ostrace::createContext();
+		ostReadEvent = co_await ostContext.announceEvent("libblockfs.read");
+		ostReaddirEvent = co_await ostContext.announceEvent("libblockfs.readdir");
+		ostByteCounter = co_await ostContext.announceItem("numBytes");
+		ostTimeCounter = co_await ostContext.announceItem("time");
 
-	table = new gpt::Table(device);
+		tracingInitialized = true;
+	}
+
+	// TODO(qookie): Don't leak the table.
+	// Currently it should be fine to leak it since neither it nor
+	// the device gets deleted anyway.
+	auto table = new gpt::Table(device);
 	co_await table->parse();
 
 	int64_t diskId = 0;
@@ -861,15 +873,12 @@ async::detached runDevice(BlockDevice *device) {
 				i, type.a, type.b, type.c, type.d[0], type.d[1],
 				type.e[0], type.e[1], type.e[2], type.e[3], type.e[4], type.e[5]);
 
-		if(type != gpt::type_guids::managarmRootPartition)
-			continue;
-		printf("It's a Managarm root partition!\n");
+		if(type == gpt::type_guids::managarmRootPartition)
+			printf("  It's a Managarm root partition!\n");
 
-		fs = new ext2fs::FileSystem(&table->getPartition(i));
-		co_await fs->init();
-		printf("ext2fs is ready!\n");
+		auto device = &table->getPartition(i);
 
-		rawFs = new raw::RawFs(fs->device);
+		auto rawFs = std::make_unique<raw::RawFs>(device);
 		co_await rawFs->init();
 		printf("rawfs is ready!\n");
 
@@ -879,22 +888,23 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.blocktype", mbus_ng::StringItem{"partition"}},
 			{"unix.partid", mbus_ng::StringItem{std::to_string(partId++)}},
 			{"unix.diskid", mbus_ng::StringItem{std::to_string(diskId)}},
-			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}}
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}},
+			{"unix.is-managarm-root", mbus_ng::StringItem{std::to_string(type == gpt::type_guids::managarmRootPartition)}}
 		};
 
 		auto entity = (co_await mbus_ng::Instance::global().createEntity(
 					"partition", descriptor)).unwrap();
 
-		[] (mbus_ng::EntityManager entity) -> async::detached {
+		[] (mbus_ng::EntityManager entity, gpt::Partition *partition, std::unique_ptr<raw::RawFs> rawFs) -> async::detached {
 			while (true) {
 				auto [localLane, remoteLane] = helix::createStream();
 
 				// If this fails, too bad!
 				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 
-				servePartition(std::move(localLane));
+				servePartition(std::move(localLane), partition, std::move(rawFs));
 			}
-		}(std::move(entity));
+		}(std::move(entity), device, std::move(rawFs));
 	}
 }
 

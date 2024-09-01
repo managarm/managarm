@@ -85,9 +85,17 @@ struct SizeAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct ManagarmRootAttribute : sysfs::Attribute {
+	ManagarmRootAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 ReadOnlyAttribute roAttr{"ro"};
 DevAttribute devAttr{"dev"};
 SizeAttribute sizeAttr{"size"};
+ManagarmRootAttribute managarmRootAttr{"managarm-root"};
 
 async::result<frg::expected<Error, std::string>> ReadOnlyAttribute::show(sysfs::Object *object) {
 	(void) object;
@@ -106,6 +114,10 @@ async::result<frg::expected<Error, std::string>> DevAttribute::show(sysfs::Objec
 async::result<frg::expected<Error, std::string>> SizeAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	co_return std::to_string(device->size() / 512) + "\n";
+}
+
+async::result<frg::expected<Error, std::string>> ManagarmRootAttribute::show(sysfs::Object *) {
+	co_return "1\n";
 }
 
 async::detached observePartitions() {
@@ -178,7 +190,8 @@ async::detached observePartitions() {
 			device->realizeAttribute(&roAttr);
 			device->realizeAttribute(&devAttr);
 			device->realizeAttribute(&sizeAttr);
-
+			if (std::get<mbus_ng::StringItem>(properties.at("unix.is-managarm-root")).value == "1")
+				device->realizeAttribute(&managarmRootAttr);
 		}
 	}
 }
