@@ -49,7 +49,7 @@ struct Channel {
 		activeSettings.c_iflag = ICRNL | IXON;
 		activeSettings.c_oflag = OPOST | ONLCR;
 		activeSettings.c_cflag = CS8 | CREAD | HUPCL;
-		activeSettings.c_lflag = TTYDEF_LFLAG;
+		activeSettings.c_lflag = TTYDEF_LFLAG | ECHOK;
 		activeSettings.c_cc[VINTR] = CINTR;
 		activeSettings.c_cc[VEOF] = CEOF;
 		activeSettings.c_cc[VKILL] = CKILL;
@@ -59,6 +59,12 @@ struct Channel {
 		activeSettings.c_cc[VQUIT] = CQUIT;
 		activeSettings.c_cc[VERASE] = CERASE; // DEL character.
 		activeSettings.c_cc[VMIN] = CMIN;
+		activeSettings.c_cc[VDISCARD] = CDISCARD;
+		activeSettings.c_cc[VLNEXT] = CLNEXT;
+		activeSettings.c_cc[VWERASE] = CWERASE;
+		activeSettings.c_cc[VREPRINT] = CRPRNT;
+		cfsetispeed(&activeSettings, B38400);
+		cfsetospeed(&activeSettings, B38400);
 	}
 
 	async::result<void> commonIoctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation);
