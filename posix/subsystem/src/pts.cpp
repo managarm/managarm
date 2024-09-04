@@ -8,6 +8,7 @@
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
 
+#include "core/tty.hpp"
 #include "file.hpp"
 #include "process.hpp"
 #include "pts.hpp"
@@ -851,6 +852,8 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				}
 				std::cout << std::dec << std::endl;
 			}
+
+			ttyCopyTermios(attrs, _channel->activeSettings);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
