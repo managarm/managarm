@@ -838,12 +838,62 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(recv_attrs.error());
 
+			auto prettyPrintFlags = [](tcflag_t flags, std::map<tcflag_t, std::string> map) -> std::string {
+				std::string ret = "";
+				tcflag_t leftover = flags;
+				for(auto &[val, name] : map) {
+					if(flags & val) {
+						leftover &= ~val;
+						ret.append(std::format("{} ", name));
+					}
+				}
+
+				if(leftover)
+					ret.append(std::format("0o{:o}", leftover));
+
+				return ret;
+			};
+
 			if(logAttrs) {
+				std::map<tcflag_t, std::string> iflags = {
+					{ INLCR, "INLCR" },
+					{ ICRNL, "ICRNL" },
+					{ IXON, "IXON" },
+					{ IUTF8, "IUTF8" },
+				};
+
+				std::map<tcflag_t, std::string> oflags = {
+					{ OPOST, "OPOST" },
+					{ ONLCR, "ONLCR" },
+				};
+
+				std::map<tcflag_t, std::string> cflags = {
+					{ CREAD, "CREAD" },
+					{ HUPCL, "HUPCL" },
+				};
+
+				std::map<tcflag_t, std::string> lflags = {
+					{ ISIG, "ISIG" },
+					{ ICANON, "ICANON" },
+					{ XCASE, "XCASE" },
+					{ ECHO, "ECHO" },
+					{ ECHOE, "ECHOE" },
+					{ ECHOK, "ECHOK" },
+					{ ECHONL, "ECHONL" },
+					{ ECHOCTL, "ECHOCTL" },
+					{ ECHOPRT, "ECHOCTL" },
+					{ ECHOKE, "ECHOKE" },
+					{ NOFLSH, "NOFLSH" },
+					{ TOSTOP, "TOSTOP" },
+					{ PENDIN, "PENDIN" },
+					{ IEXTEN, "IEXTEN" },
+				};
+
 				std::cout << "posix: TCSETS request\n"
-						<< "    iflag: 0x" << attrs.c_iflag << '\n'
-						<< "    oflag: 0x" << attrs.c_oflag << '\n'
-						<< "    cflag: 0x" << attrs.c_cflag << '\n'
-						<< "    lflag: 0x" << attrs.c_lflag << '\n';
+						<< "   iflag: " << prettyPrintFlags(attrs.c_iflag, iflags) << '\n'
+						<< "   oflag: " << prettyPrintFlags(attrs.c_oflag, oflags) << '\n'
+						<< "   cflag: " << prettyPrintFlags(attrs.c_cflag, cflags) << '\n'
+						<< "   lflag: " << prettyPrintFlags(attrs.c_lflag, lflags) << '\n';
 				for(int i = 0; i < NCCS; i++) {
 					std::cout << std::dec << "   cc[" << i << "]: 0x"
 							<< std::hex << (int)attrs.c_cc[i];
