@@ -91,6 +91,27 @@ struct Channel {
 	std::deque<Packet> slaveQueue;
 };
 
+namespace {
+
+void processOut(const char c, Packet &packet, std::shared_ptr<Channel> channel) {
+	if(!(channel->activeSettings.c_oflag & OPOST)) {
+		packet.buffer.push_back(c);
+		return;
+	}
+
+	if((channel->activeSettings.c_oflag & ONLCR) && c == '\n') {
+		packet.buffer.push_back('\r');
+		packet.buffer.push_back('\n');
+		return;
+	}
+
+	packet.buffer.push_back(c);
+
+	return;
+}
+
+} // namespace
+
 //-----------------------------------------------------------------------------
 // Device and file structs.
 //-----------------------------------------------------------------------------
@@ -238,6 +259,7 @@ private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+	Packet _packet{};
 
 	bool nonBlock_;
 };
@@ -735,36 +757,22 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 async::result<frg::expected<Error, size_t>>
 SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
-		std::cout << "posix: Write to tty " << structName() << std::endl;
+		std::cout << std::format("posix: Write to tty {}\n", structName());
 
 	if(!length)
 		co_return {};
 
 	// Perform output processing.
-	std::stringstream ss;
 	for(size_t i = 0; i < length; i++) {
 		char c;
 		memcpy(&c, reinterpret_cast<const char *>(data) + i, 1);
-		if((_channel->activeSettings.c_oflag & ONLCR) && c == '\n') {
-//			std::cout << "Mapping NL -> CR,NL" << std::endl;
-			ss << "\r\n";
-		}else{
-//			std::cout << "c: " << (int)c << std::endl;
-			ss << c;
-		}
+		processOut(c, _packet, _channel);
 	}
 
-	// TODO: This is very inefficient.
-	auto str = ss.str();
-
-	Packet packet;
-	packet.buffer.resize(str.size());
-	memcpy(packet.buffer.data(), str.data(), str.size());
-	packet.offset = 0;
-
-	_channel->masterQueue.push_back(std::move(packet));
+	_channel->masterQueue.push_back(std::move(_packet));
 	_channel->masterInSeq = ++_channel->currentSeq;
 	_channel->statusBell.raise();
+	_packet = Packet{};
 	co_return length;
 }
 
