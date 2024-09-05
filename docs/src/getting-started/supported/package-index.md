@@ -8,11 +8,13 @@ Some of the available packages include:
 
 - Unix tools: `grep`, `sed`, `findutils`, `coreutils`, `gawk`, `file`, `man-db`, `tar`, `which`, `groff`, `less`, `bzip2`, `gzip`, `xz-utils`, `lz4`, `zstd`
 - Development: `yasm`, `nasm`, `diffutils`, `patch`, `make`, `m4`, `gcc`, `cmake`, `binutils`, `bc`
-- Scripting: `perl` (only basic functionality), `python` (only basic functionality), `lua`
-- Games: `ace`, `mednafen`, `tyr-quake`, `gtklife`, `nyancat`
+- Scripting: `perl` (only basic functionality), `python`, `lua`
+- Games: `ace`, `mednafen`, `tyr-quake`, `gtklife`, `nyancat`, `libremines`
 - Networking: `wget`, `curl`, `socat`, `rsync`
+- Communication: `hexchat`, `konversation`
 - Editors: `nano`, `vim`
-- Shells: `bash`
-- Graphical: `weston`, `mesa-demos`, `gtk+2`, `xclock`, `xkill`, `xwininfo`
+- Shells: `bash`, `dash`, `zsh`
+- Graphical: `weston`, `mesa-demos`, `gtk+3`, `xclock`, `xkill`, `xwininfo`
+- Browsers: `minibrowser`, `links`
 - Databases: `sqlite`, `gdbm`
 - Bootloaders: `limine`
