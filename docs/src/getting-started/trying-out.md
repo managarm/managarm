@@ -19,3 +19,8 @@ $ qemu-system-x86_64 -enable-kvm -m 2048 -cpu host,migratable=off -device qemu-x
 ```
 
 Be aware that the `-enable-kvm` flags works only on systems that support KVM.
+
+If you boot into `kmscon` (the non graphical environment), or if you issue `login` from any shell, use the following default credentials to log in.
+
+For the root user, username: `root`, password: `toor`.
+For the Managarm user, username: `managarm`. password: `managarm`.
