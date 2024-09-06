@@ -28,6 +28,7 @@ jobs:
                         host-managarm-tools
                         host-pkg-config
                         host-xorg-macros
+                        host-mold
                         system-gcc
                     pkg_deps: >-
                         boost
