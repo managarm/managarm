@@ -8,6 +8,7 @@
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
 
+#include "core/tty.hpp"
 #include "file.hpp"
 #include "process.hpp"
 #include "pts.hpp"
@@ -49,7 +50,7 @@ struct Channel {
 		activeSettings.c_iflag = ICRNL | IXON;
 		activeSettings.c_oflag = OPOST | ONLCR;
 		activeSettings.c_cflag = CS8 | CREAD | HUPCL;
-		activeSettings.c_lflag = TTYDEF_LFLAG;
+		activeSettings.c_lflag = TTYDEF_LFLAG | ECHOK;
 		activeSettings.c_cc[VINTR] = CINTR;
 		activeSettings.c_cc[VEOF] = CEOF;
 		activeSettings.c_cc[VKILL] = CKILL;
@@ -59,6 +60,12 @@ struct Channel {
 		activeSettings.c_cc[VQUIT] = CQUIT;
 		activeSettings.c_cc[VERASE] = CERASE; // DEL character.
 		activeSettings.c_cc[VMIN] = CMIN;
+		activeSettings.c_cc[VDISCARD] = CDISCARD;
+		activeSettings.c_cc[VLNEXT] = CLNEXT;
+		activeSettings.c_cc[VWERASE] = CWERASE;
+		activeSettings.c_cc[VREPRINT] = CRPRNT;
+		cfsetispeed(&activeSettings, B38400);
+		cfsetospeed(&activeSettings, B38400);
 	}
 
 	async::result<void> commonIoctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation);
@@ -83,6 +90,136 @@ struct Channel {
 	std::deque<Packet> masterQueue;
 	std::deque<Packet> slaveQueue;
 };
+
+namespace {
+
+void processOut(const char c, Packet &packet, std::shared_ptr<Channel> channel) {
+	if(!(channel->activeSettings.c_oflag & OPOST)) {
+		packet.buffer.push_back(c);
+		return;
+	}
+
+	if((channel->activeSettings.c_oflag & ONLCR) && c == '\n') {
+		packet.buffer.push_back('\r');
+		packet.buffer.push_back('\n');
+		return;
+	}
+
+	packet.buffer.push_back(c);
+
+	return;
+}
+
+void processIn(const char character, Packet &packet, std::shared_ptr<Channel> channel) {
+	auto enqueuePacket = [&channel](Packet packet) {
+		channel->slaveQueue.push_back(std::move(packet));
+		channel->slaveInSeq = ++channel->currentSeq;
+		channel->statusBell.raise();
+	};
+
+	auto enqueueOut = [&channel](Packet packet) {
+		Packet parsed{};
+
+		for(auto c : packet.buffer) {
+			processOut(c, parsed, channel);
+		}
+
+		channel->masterQueue.push_back(std::move(parsed));
+		channel->masterInSeq = ++channel->currentSeq;
+		channel->statusBell.raise();
+	};
+
+	char c = character;
+
+	if(channel->activeSettings.c_iflag & ISTRIP)
+		c &= 0x7F;
+
+	if(c == '\r') {
+		if(channel->activeSettings.c_iflag & IGNCR)
+			return;
+
+		if(channel->activeSettings.c_iflag & ICRNL)
+			c = '\n';
+	} else if(c == '\n') {
+		if(channel->activeSettings.c_iflag & INLCR)
+			c = '\r';
+	}
+
+	if((channel->activeSettings.c_iflag & IUCLC) && (c >= 'A' && c <= 'Z'))
+		c = c - 'A' + 'a';
+
+	char echo_char = (channel->activeSettings.c_lflag & ECHO) ? c : '\0';
+
+	if((channel->activeSettings.c_lflag & ECHOCTL) && (channel->activeSettings.c_lflag & ECHO)
+		&& c < 32 && c != '\n' && c != '\t') {
+		Packet echopacket;
+		echopacket.buffer.push_back('^');
+		echopacket.buffer.push_back(c + 0x40);
+		enqueueOut(std::move(echopacket));
+		echo_char = '\0';
+	}
+
+	if(channel->activeSettings.c_lflag & ISIG) {
+		std::optional<int> signal = {};
+
+		if(c == static_cast<char>(channel->activeSettings.c_cc[VINTR])) {
+			signal = SIGINT;
+		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VQUIT])) {
+			signal = SIGQUIT;
+		} else if(c == static_cast<char>(channel->activeSettings.c_cc[VSUSP])) {
+			signal = SIGTSTP;
+		}
+
+		if(signal.has_value()) {
+			UserSignal info;
+			channel->cts.issueSignalToForegroundGroup(signal.value(), info);
+			return;
+		}
+	}
+
+	if(channel->activeSettings.c_lflag & ICANON) {
+		if(c == static_cast<char>(channel->activeSettings.c_cc[VEOF])) {
+			enqueuePacket(std::move(packet));
+			packet = Packet{};
+
+			return;
+		}
+
+		packet.buffer.push_back(c);
+
+		if(echo_char) {
+			Packet echopacket;
+			echopacket.buffer.push_back(c);
+			enqueueOut(std::move(echopacket));
+		}
+
+		if(c == '\n'
+		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL])
+		|| c == static_cast<char>(channel->activeSettings.c_cc[VEOL2])) {
+			if(!(channel->activeSettings.c_lflag & ECHO) && (channel->activeSettings.c_lflag & ECHONL)) {
+				Packet echopacket;
+				echopacket.buffer.push_back(c);
+				enqueueOut(std::move(echopacket));
+			}
+			enqueuePacket(std::move(packet));
+			packet = Packet{};
+			return;
+		}
+
+		return;
+	} else if(channel->activeSettings.c_lflag & ECHO) {
+		Packet echopacket;
+		echopacket.buffer.push_back(c);
+		enqueueOut(std::move(echopacket));
+	}
+
+	// Not a special character. Emit to the slave.
+	packet.buffer.push_back(c);
+
+	return;
+}
+
+} // namespace
 
 //-----------------------------------------------------------------------------
 // Device and file structs.
@@ -177,6 +314,7 @@ private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+	Packet _packet{};
 
 	bool _nonBlocking;
 };
@@ -231,6 +369,7 @@ private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
+	Packet _packet{};
 
 	bool nonBlock_;
 };
@@ -506,7 +645,7 @@ MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink>
 async::result<frg::expected<Error, size_t>>
 MasterFile::readSome(Process *, void *data, size_t maxLength) {
 	if(logReadWrite)
-		std::cout << "posix: Read from tty " << structName() << std::endl;
+		std::cout << std::format("posix: Read from tty {}\n", structName());
 	if(!maxLength)
 		co_return 0;
 
@@ -529,32 +668,25 @@ MasterFile::readSome(Process *, void *data, size_t maxLength) {
 async::result<frg::expected<Error, size_t>>
 MasterFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
-		std::cout << "posix: Write to tty " << structName() << std::endl;
+		std::cout << std::format("posix: Write to tty {} of size {}\n", structName(), length);
 
-	Packet packet;
-	packet.buffer.reserve(length);
-	packet.offset = 0;
-
-	auto s = reinterpret_cast<const char *>(data);
-	for(size_t i = 0; i < length; i++) {
-		if(_channel->activeSettings.c_lflag & ISIG) {
-			if(s[i] == static_cast<char>(_channel->activeSettings.c_cc[VINTR])) {
-				UserSignal info;
-				_channel->cts.issueSignalToForegroundGroup(SIGINT, info);
-				continue;
-			}
-		}
-
-		// Not a special character. Emit to the slave.
-		packet.buffer.push_back(s[i]);
-	}
-
-	// Check whether all data was discarded above.
-	if(packet.buffer.size()) {
+	auto enqueuePacket = [this](Packet packet) {
 		_channel->slaveQueue.push_back(std::move(packet));
 		_channel->slaveInSeq = ++_channel->currentSeq;
 		_channel->statusBell.raise();
+	};
+
+	auto s = reinterpret_cast<const char *>(data);
+	for(size_t i = 0; i < length; i++) {
+		processIn(s[i], _packet, _channel);
 	}
+
+	// Check whether all data was discarded above.
+	if(!(_channel->activeSettings.c_lflag & ICANON)) {
+		enqueuePacket(std::move(_packet));
+		_packet = Packet{};
+	}
+
 	co_return length;
 }
 
@@ -728,36 +860,22 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 async::result<frg::expected<Error, size_t>>
 SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
-		std::cout << "posix: Write to tty " << structName() << std::endl;
+		std::cout << std::format("posix: Write to tty {}\n", structName());
 
 	if(!length)
 		co_return {};
 
 	// Perform output processing.
-	std::stringstream ss;
 	for(size_t i = 0; i < length; i++) {
 		char c;
 		memcpy(&c, reinterpret_cast<const char *>(data) + i, 1);
-		if((_channel->activeSettings.c_oflag & ONLCR) && c == '\n') {
-//			std::cout << "Mapping NL -> CR,NL" << std::endl;
-			ss << "\r\n";
-		}else{
-//			std::cout << "c: " << (int)c << std::endl;
-			ss << c;
-		}
+		processOut(c, _packet, _channel);
 	}
 
-	// TODO: This is very inefficient.
-	auto str = ss.str();
-
-	Packet packet;
-	packet.buffer.resize(str.size());
-	memcpy(packet.buffer.data(), str.data(), str.size());
-	packet.offset = 0;
-
-	_channel->masterQueue.push_back(std::move(packet));
+	_channel->masterQueue.push_back(std::move(_packet));
 	_channel->masterInSeq = ++_channel->currentSeq;
 	_channel->statusBell.raise();
+	_packet = Packet{};
 	co_return length;
 }
 
@@ -831,12 +949,62 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(recv_attrs.error());
 
+			auto prettyPrintFlags = [](tcflag_t flags, std::map<tcflag_t, std::string> map) -> std::string {
+				std::string ret = "";
+				tcflag_t leftover = flags;
+				for(auto &[val, name] : map) {
+					if(flags & val) {
+						leftover &= ~val;
+						ret.append(std::format("{} ", name));
+					}
+				}
+
+				if(leftover)
+					ret.append(std::format("0o{:o}", leftover));
+
+				return ret;
+			};
+
 			if(logAttrs) {
+				std::map<tcflag_t, std::string> iflags = {
+					{ INLCR, "INLCR" },
+					{ ICRNL, "ICRNL" },
+					{ IXON, "IXON" },
+					{ IUTF8, "IUTF8" },
+				};
+
+				std::map<tcflag_t, std::string> oflags = {
+					{ OPOST, "OPOST" },
+					{ ONLCR, "ONLCR" },
+				};
+
+				std::map<tcflag_t, std::string> cflags = {
+					{ CREAD, "CREAD" },
+					{ HUPCL, "HUPCL" },
+				};
+
+				std::map<tcflag_t, std::string> lflags = {
+					{ ISIG, "ISIG" },
+					{ ICANON, "ICANON" },
+					{ XCASE, "XCASE" },
+					{ ECHO, "ECHO" },
+					{ ECHOE, "ECHOE" },
+					{ ECHOK, "ECHOK" },
+					{ ECHONL, "ECHONL" },
+					{ ECHOCTL, "ECHOCTL" },
+					{ ECHOPRT, "ECHOCTL" },
+					{ ECHOKE, "ECHOKE" },
+					{ NOFLSH, "NOFLSH" },
+					{ TOSTOP, "TOSTOP" },
+					{ PENDIN, "PENDIN" },
+					{ IEXTEN, "IEXTEN" },
+				};
+
 				std::cout << "posix: TCSETS request\n"
-						<< "    iflag: 0x" << attrs.c_iflag << '\n'
-						<< "    oflag: 0x" << attrs.c_oflag << '\n'
-						<< "    cflag: 0x" << attrs.c_cflag << '\n'
-						<< "    lflag: 0x" << attrs.c_lflag << '\n';
+						<< "   iflag: " << prettyPrintFlags(attrs.c_iflag, iflags) << '\n'
+						<< "   oflag: " << prettyPrintFlags(attrs.c_oflag, oflags) << '\n'
+						<< "   cflag: " << prettyPrintFlags(attrs.c_cflag, cflags) << '\n'
+						<< "   lflag: " << prettyPrintFlags(attrs.c_lflag, lflags) << '\n';
 				for(int i = 0; i < NCCS; i++) {
 					std::cout << std::dec << "   cc[" << i << "]: 0x"
 							<< std::hex << (int)attrs.c_cc[i];
@@ -845,6 +1013,8 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				}
 				std::cout << std::dec << std::endl;
 			}
+
+			ttyCopyTermios(attrs, _channel->activeSettings);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
