@@ -68,6 +68,10 @@ namespace config {
 }
 
 namespace interrupter {
+	inline constexpr arch::mem_space interrupterSpace(arch::mem_space runtime, int idx) {
+		return runtime.subspace(0x20 + idx * 32);
+	}
+
 	inline constexpr arch::bit_register<uint32_t> iman(0x0);
 	inline constexpr arch::scalar_register<uint32_t> imod(0x4);
 	inline constexpr arch::scalar_register<uint32_t> erstsz(0x8);

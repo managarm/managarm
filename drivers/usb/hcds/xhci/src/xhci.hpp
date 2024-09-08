@@ -67,13 +67,11 @@ struct Controller final : proto::BaseController {
 			mbus_ng::Entity entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
-			helix::UniqueIrq irq, bool useMsis);
+			helix::UniqueIrq irq);
 
 	virtual ~Controller() = default;
 
 	async::detached initialize();
-	async::detached handleIrqs();
-	async::detached handleMsis();
 
 	async::result<void> enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
@@ -85,12 +83,17 @@ struct Controller final : proto::BaseController {
 
 private:
 	struct Interrupter {
-		Interrupter(int id, Controller *controller);
-		void setEnable(bool enable);
-		void setEventRing(EventRing *ring, bool clear_ehb = false);
-		bool isPending();
-		void clearPending();
+		Interrupter(EventRing *ring, arch::mem_space space)
+		: _ring{ring}, _space{space} { }
+
+		void initialize();
+		async::detached handleIrqs(helix::UniqueIrq &irq);
 	private:
+		bool _isBusy();
+		void _clearPending();
+		void _updateDequeue();
+
+		EventRing *_ring;
 		arch::mem_space _space;
 	};
 
@@ -304,8 +307,6 @@ private:
 
 	int _numPorts;
 	int _maxDeviceSlots;
-
-	bool _useMsis;
 
 	proto::Enumerator _enumerator;
 

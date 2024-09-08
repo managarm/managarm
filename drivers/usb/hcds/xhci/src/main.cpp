@@ -33,12 +33,12 @@ namespace proto = protocols::usb;
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, bool useMsis)
+		helix::UniqueDescriptor mmio, helix::UniqueIrq irq)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
 		_space{_mapping.get()}, _memoryPool{},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
-		_eventRing{this}, _useMsis{useMsis},
+		_eventRing{this},
 		_enumerator{this}, _largeCtx{false},
 		_entity{std::move(entity)} {
 	auto op_offset = _space.load(cap_regs::caplength);
@@ -198,20 +198,13 @@ async::detached Controller::initialize() {
 	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::maxIntrs;
 	printf("xhci: max interrupters: %u\n", max_intrs);
 
-	_interrupters.push_back(std::make_unique<Interrupter>(0, this));
-
-	for (int i = 1; i < max_intrs; i++)
-		_interrupters.push_back(std::make_unique<Interrupter>(i, this));
-
-	_interrupters[0]->setEventRing(&_eventRing);
-	_interrupters[0]->setEnable(true);
-
-	if (_useMsis) {
-		handleMsis();
-	} else {
-		co_await _hw_device.enableBusIrq();
-		handleIrqs();
-	}
+	// TODO(qookie): MSIs let us use multiple interrupters to
+	// spread out the load (we probably want up to 1 per core?)
+	_interrupters.push_back(std::make_unique<Interrupter>(
+				&_eventRing,
+				interrupter::interrupterSpace(_runtime, 0)));
+	_interrupters.back()->handleIrqs(_irq);
+	_interrupters.back()->initialize();
 
 	_ports.resize(_numPorts);
 
@@ -237,50 +230,6 @@ async::detached Controller::initialize() {
 	}
 
 	printf("xhci: init done\n");
-}
-
-async::detached Controller::handleIrqs() {
-	uint64_t sequence = 0;
-
-	while(1) {
-		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
-		HEL_CHECK(await.error());
-		sequence = await.sequence();
-
-		if (!_interrupters[0]->isPending()) {
-			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, sequence));
-			continue;
-		}
-
-		_interrupters[0]->clearPending();
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
-
-		_eventRing.processRing();
-		_interrupters[0]->setEventRing(&_eventRing, true);
-	}
-
-	printf("xhci: interrupt coroutine should not exit...\n");
-}
-
-async::detached Controller::handleMsis() {
-	uint64_t sequence = 0;
-
-	while(1) {
-		auto await = co_await helix_ng::awaitEvent(_irq, sequence);
-		HEL_CHECK(await.error());
-		sequence = await.sequence();
-
-		// XXX: In theory, ERDP.EHB should always be set on MSI entry,
-		// but if we check it, and nack if it's unset, the driver nacks
-		// an IRQ from the device and essentially stalls the driver.
-
-		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
-
-		_eventRing.processRing();
-		_interrupters[0]->setEventRing(&_eventRing, true);
-	}
-
-	printf("xhci: interrupt coroutine should not exit...\n");
 }
 
 void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id) {
@@ -412,42 +361,50 @@ void Controller::processEvent(Event ev) {
 // Controller::Interrutper
 // ------------------------------------------------------------------------
 
-Controller::Interrupter::Interrupter(int id, Controller *controller) {
-	_space = controller->_runtime.subspace(0x20 + id * 32);
+void Controller::Interrupter::initialize() {
+	// Initialize the event ring segment table
+	_space.store(interrupter::erstsz, _ring->getErstSize());
+	_space.store(interrupter::erstbaLow,_ring->getErstPtr() & 0xFFFFFFFF);
+	_space.store(interrupter::erstbaHi, _ring->getErstPtr() >> 32);
+
+	_updateDequeue();
+
+	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::enable(1));
 }
 
-void Controller::Interrupter::setEnable(bool enable) {
-	auto val = _space.load(interrupter::iman);
+async::detached Controller::Interrupter::handleIrqs(helix::UniqueIrq &irq) {
+	uint64_t sequence = 0;
 
-	if (enable) {
-		val |= iman::enable(1);
-	} else {
-		val &= ~iman::enable;
+	while(1) {
+		auto await = co_await helix_ng::awaitEvent(irq, sequence);
+		HEL_CHECK(await.error());
+		sequence = await.sequence();
+
+		if (!_isBusy()) {
+			HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckNack, sequence));
+			continue;
+		}
+
+		_clearPending();
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
+
+		_ring->processRing();
+		_updateDequeue();
 	}
-
-	_space.store(interrupter::iman, val);
 }
 
-void Controller::Interrupter::setEventRing(EventRing *ring, bool clearEhb) {
-	// don't reload erstba if only setting erdp (indicated wanting to clear ehb)
-	if (!clearEhb) {
-		_space.store(interrupter::erstsz, ring->getErstSize());
-		_space.store(interrupter::erstbaLow,ring->getErstPtr() & 0xFFFFFFFF);
-		_space.store(interrupter::erstbaHi, ring->getErstPtr() >> 32);
-	}
-
+void Controller::Interrupter::_updateDequeue() {
 	_space.store(interrupter::erdpLow,
-		(ring->getEventRingPtr() & 0xFFFFFFF0) | ((clearEhb ? 1 : 0) << 3));
-	_space.store(interrupter::erdpHi, ring->getEventRingPtr() >> 32);
+			(_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));
+	_space.store(interrupter::erdpHi, _ring->getEventRingPtr() >> 32);
 }
 
-bool Controller::Interrupter::isPending() {
-	return _space.load(interrupter::iman) & iman::pending;
+bool Controller::Interrupter::_isBusy() {
+	return _space.load(interrupter::erdpLow) & (1 << 3);
 }
 
-void Controller::Interrupter::clearPending() {
-	auto reg = _space.load(interrupter::iman);
-	_space.store(interrupter::iman, reg | iman::pending(1));
+void Controller::Interrupter::_clearPending() {
+	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::pending(1));
 }
 
 // ------------------------------------------------------------------------
@@ -1128,6 +1085,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 		co_await device.enableMsi();
 		irq = co_await device.installMsi(0);
 	} else {
+		co_await device.enableBusIrq();
 		irq = co_await device.accessIrq();
 	}
 
@@ -1136,7 +1094,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
-			std::move(bar), std::move(irq), info.numMsis > 0);
+			std::move(bar), std::move(irq));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }
