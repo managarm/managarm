@@ -49,102 +49,60 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 	_doorbells = _space.subspace(doorbell_offset);
 
 	_numPorts = _space.load(cap_regs::hcsparams1) & hcsparams1::maxPorts;
+	_ports.resize(_numPorts);
 	printf("xhci: %u ports\n", _numPorts);
 }
 
-std::vector<std::pair<uint8_t, uint16_t>> Controller::getExtendedCapabilityOffsets() {
-	auto ptr = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4;
-	if (!ptr)
-		return {};
-
-	std::vector<std::pair<uint8_t, uint16_t>> caps = {};
+void Controller::_processExtendedCapabilities() {
+	auto cur = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4u;
+	if(!cur)
+		return;
 
 	while(1) {
-		auto val = arch::scalar_load<uint32_t>(_space, ptr);
-
-		if (val == 0xFFFFFFFF)
+		auto val = arch::scalar_load<uint32_t>(_space, cur);
+		if(val == 0xFFFFFFFF)
 			break;
 
-		if (!(val & 0xFF))
+		auto id = val & 0xFF;
+		if(!id)
 			break;
 
-		caps.push_back({val & 0xFF, ptr});
+		if(id == 1) {
+			printf("xhci: USB Legacy Support capability at %04x\n", cur);
 
-		auto old_ptr = ptr;
-		ptr += ((val >> 8) & 0xFF) << 2;
-		if (old_ptr == ptr)
+			while(arch::scalar_load<uint8_t>(_space, cur + 0x2)) {
+				arch::scalar_store<uint8_t>(_space, cur + 0x3, 1);
+				sleep(1);
+			}
+
+			printf("xhci: Controller ownership obtained from bios\n");
+		} else if(id == 2) {
+			SupportedProtocol proto;
+
+			auto v = arch::scalar_load<uint32_t>(_space, cur);
+			proto.major = (v >> 24) & 0xFF;
+			proto.minor = (v >> 16) & 0xFF;
+
+			v = arch::scalar_load<uint32_t>(_space, cur + 8);
+			proto.compatiblePortStart = v & 0xFF;
+			proto.compatiblePortCount = (v >> 8) & 0xFF;
+
+			v = arch::scalar_load<uint32_t>(_space, cur + 12);
+			proto.slotType = v & 0xF;
+
+			_supportedProtocols.push_back(proto);
+		}
+
+		auto next = cur + (((val >> 8) & 0xFF) << 2);
+		if (next == cur)
 			break;
+
+		next = cur;
 	}
-
-	return caps;
 }
 
 async::detached Controller::initialize() {
-	auto caps = getExtendedCapabilityOffsets();
-
-	auto usb_legacy_cap = std::find_if(caps.begin(), caps.end(),
-			[](auto &a){
-				return a.first == 0x1;
-			});
-
-	if(usb_legacy_cap != caps.end()) {
-		auto usb_legacy_cap_off = usb_legacy_cap->second;
-		printf("xhci: usb legacy capability at %04x\n", usb_legacy_cap_off);
-
-		auto val = arch::scalar_load<uint8_t>(_space, usb_legacy_cap_off + 0x2);
-
-		if (val)
-			arch::scalar_store<uint8_t>(_space, usb_legacy_cap_off + 0x3, 1);
-
-		while (1) {
-			val = arch::scalar_load<uint8_t>(_space, usb_legacy_cap_off + 0x2);
-
-			if(!val)
-				break;
-
-			sleep(1);
-		}
-
-		printf("xhci: device obtained from bios\n");
-	} else {
-		printf("xhci: no usb legacy support extended capability\n");
-	}
-
-	for (auto &c : caps) {
-		if (c.first != 0x2)
-			continue;
-
-		auto off = c.second;
-
-		SupportedProtocol proto;
-
-		auto v = arch::scalar_load<uint32_t>(_space, off);
-		proto.major = (v >> 24) & 0xFF;
-		proto.minor = (v >> 16) & 0xFF;
-		off += 4;
-
-		v = arch::scalar_load<uint32_t>(_space, off);
-		off += 4;
-
-		v = arch::scalar_load<uint32_t>(_space, off);
-		proto.compatiblePortStart = v & 0xFF;
-		proto.compatiblePortCount = (v >> 8) & 0xFF;
-		off += 4;
-
-		v = arch::scalar_load<uint32_t>(_space, off);
-		proto.slotType = v & 0xF;
-
-		_supportedProtocols.push_back(proto);
-	}
-
-	for (auto &p : _supportedProtocols) {
-		printf("xhci: USB %d.%d: %zu ports (%zu-%zu), slot type %zu\n",
-				p.major, p.minor,
-				p.compatiblePortCount,
-				p.compatiblePortStart,
-				p.compatiblePortStart + p.compatiblePortCount - 1,
-				p.slotType);
-	}
+	_processExtendedCapabilities();
 
 	printf("xhci: initializing controller...\n");
 
@@ -206,13 +164,18 @@ async::detached Controller::initialize() {
 	_interrupters.back()->handleIrqs(_irq);
 	_interrupters.back()->initialize();
 
-	_ports.resize(_numPorts);
-
 	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
 
 	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
 
 	for (auto &p : _supportedProtocols) {
+		printf("xhci: USB %d.%d: %zu ports (%zu-%zu), slot type %zu\n",
+				p.major, p.minor,
+				p.compatiblePortCount,
+				p.compatiblePortStart,
+				p.compatiblePortStart + p.compatiblePortCount - 1,
+				p.slotType);
+
 		mbus_ng::Properties descriptor{
 			{"generic.devtype", mbus_ng::StringItem{"usb-controller"}},
 			{"generic.devsubtype", mbus_ng::StringItem{"xhci"}},

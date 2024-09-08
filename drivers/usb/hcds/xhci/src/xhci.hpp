@@ -279,7 +279,7 @@ private:
 
 	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id);
 
-	std::vector<std::pair<uint8_t, uint16_t>> getExtendedCapabilityOffsets();
+	void _processExtendedCapabilities();
 
 	async::result<Event> submitCommand(RawTrb trb) {
 		ProducerRing::Transaction tx;
