@@ -749,8 +749,8 @@ Controller::Device::configurationDescriptor(uint8_t configuration) {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Configuration>>
-Controller::Device::useConfiguration(int number) {
-	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor());
+Controller::Device::useConfiguration(uint8_t index, uint8_t value) {
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(index));
 
 	struct EndpointInfo {
 		int pipe;
@@ -761,8 +761,15 @@ Controller::Device::useConfiguration(int number) {
 
 	std::vector<EndpointInfo> _eps = {};
 
+	std::optional<uint8_t> valueByIndex;
+
 	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
+
+		if(type == proto::descriptor_type::configuration) {
+			auto desc = (proto::ConfigDescriptor *)p;
+			valueByIndex = desc->configValue;
+		}
 
 		if(type != proto::descriptor_type::endpoint)
 			return;
@@ -780,6 +787,14 @@ Controller::Device::useConfiguration(int number) {
 		}
 	});
 
+	assert(valueByIndex);
+	// Bail out if the user has no idea what they're asking for
+	if (*valueByIndex != value) {
+		printf("xhci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
+				index, value, *valueByIndex);
+		co_return proto::UsbError::other;
+	}
+
 	for (auto &ep : _eps) {
 		printf("xhci: setting up %s endpoint %d (max packet size: %d)\n",
 			ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize);
@@ -789,7 +804,7 @@ Controller::Device::useConfiguration(int number) {
 	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
 	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toDevice;
 	setConfig->request = proto::request_type::setConfig;
-	setConfig->value = number;
+	setConfig->value = value;
 	setConfig->index = 0;
 	setConfig->length = 0;
 
@@ -797,7 +812,7 @@ Controller::Device::useConfiguration(int number) {
 
 	printf("xhci: configuration set\n");
 
-	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(shared_from_this(), number)};
+	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(shared_from_this())};
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
@@ -1040,7 +1055,7 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 // Controller::ConfigurationState
 // ------------------------------------------------------------------------
 
-Controller::ConfigurationState::ConfigurationState(std::shared_ptr<Device> device, int)
+Controller::ConfigurationState::ConfigurationState(std::shared_ptr<Device> device)
 : _device{device} {
 }
 

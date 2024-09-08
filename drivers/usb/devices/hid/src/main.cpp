@@ -523,7 +523,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 }
 
 async::detached HidDevice::run(proto::Device device, int config_num, int intf_num) {
-	auto descriptor = (co_await device.configurationDescriptor()).unwrap();
+	auto descriptor = (co_await device.configurationDescriptor(0)).unwrap();
 
 	std::vector<size_t> report_descs;
 	std::optional<int> in_endp_number;
@@ -619,7 +619,7 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 		}
 	}(_eventDev, std::move(entity));
 
-	auto config = (co_await device.useConfiguration(config_num)).unwrap();
+	auto config = (co_await device.useConfiguration(0, config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
 	auto endp = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
 
@@ -688,9 +688,9 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 	auto lane = (co_await entity.getRemoteLane()).unwrap();
 	auto device = proto::connect(std::move(lane));
 
-	auto descriptorOrError = co_await device.configurationDescriptor();
+	auto descriptorOrError = co_await device.configurationDescriptor(0);
 	if(!descriptorOrError) {
-		std::cout << "usb-hid: Failed to get device descriptor" << std::endl;
+		std::cout << "usb-hid: Failed to get configuration descriptor" << std::endl;
 		co_return;
 	}
 

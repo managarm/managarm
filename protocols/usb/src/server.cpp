@@ -438,7 +438,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 				co_return;
 			}
 
-			auto outcome = co_await device.useConfiguration(req->number());
+			auto outcome = co_await device.useConfiguration(req->index(), req->value());
 
 			if (!outcome) {
 				co_await respondWithError(conversation, outcome.error());

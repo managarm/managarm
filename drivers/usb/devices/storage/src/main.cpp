@@ -27,7 +27,7 @@ namespace {
 namespace proto = protocols::usb;
 
 async::detached StorageDevice::run(int config_num, int intf_num) {
-	auto descriptor = (co_await _usbDevice.configurationDescriptor()).unwrap();
+	auto descriptor = (co_await _usbDevice.configurationDescriptor(0)).unwrap();
 
 	std::optional<int> in_endp_number;
 	std::optional<int> out_endp_number;
@@ -50,7 +50,7 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	if(logSteps)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
 
-	auto config = (co_await _usbDevice.useConfiguration(config_num)).unwrap();
+	auto config = (co_await _usbDevice.useConfiguration(0, config_num)).unwrap();
 	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
 	auto endp_in = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
 	auto endp_out = (co_await intf.getEndpoint(proto::PipeType::out, out_endp_number.value())).unwrap();
@@ -211,7 +211,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 	if(logEnumeration)
 		std::cout << "block-usb: Getting configuration descriptor" << std::endl;
 
-	auto descriptorOrError = co_await device.configurationDescriptor();
+	auto descriptorOrError = co_await device.configurationDescriptor(0);
 	if(!descriptorOrError) {
 		std::cout << "usb-hid: Failed to get device descriptor" << std::endl;
 		co_return;

@@ -164,8 +164,8 @@ public:
 	virtual arch::dma_pool *bufferPool() = 0;
 
 	virtual async::result<frg::expected<UsbError, std::string>> deviceDescriptor() = 0;
-	virtual async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) = 0;
-	virtual async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) = 0;
+	virtual async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration) = 0;
+	virtual async::result<frg::expected<UsbError, Configuration>> useConfiguration(uint8_t index, uint8_t value) = 0;
 	virtual async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) = 0;
 };
 
@@ -176,9 +176,9 @@ struct Device {
 	arch::dma_pool *bufferPool() const;
 
 	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() const;
-	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) const;
+	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration) const;
 	async::result<frg::expected<UsbError, uint8_t>> currentConfigurationValue() const;
-	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) const;
+	async::result<frg::expected<UsbError, Configuration>> useConfiguration(uint8_t index, uint8_t value) const;
 	async::result<frg::expected<UsbError, std::string>> getString(size_t number) const;
 	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) const;
 

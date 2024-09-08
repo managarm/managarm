@@ -80,10 +80,10 @@ async::result<frg::expected<proto::UsbError, std::string>> DeviceState::configur
 	return _controller->configurationDescriptor(_device, configuration);
 }
 
-async::result<frg::expected<proto::UsbError, proto::Configuration>> DeviceState::useConfiguration(int number) {
-	FRG_CO_TRY(co_await _controller->useConfiguration(_device, number));
+async::result<frg::expected<proto::UsbError, proto::Configuration>> DeviceState::useConfiguration(uint8_t index, uint8_t value) {
+	FRG_CO_TRY(co_await _controller->useConfiguration(_device, value));
 	co_return proto::Configuration{std::make_shared<ConfigurationState>(_controller,
-			_device, number)};
+				_device, index, value)};
 }
 
 async::result<frg::expected<proto::UsbError, size_t>> DeviceState::transfer(proto::ControlTransfer info) {
@@ -95,14 +95,13 @@ async::result<frg::expected<proto::UsbError, size_t>> DeviceState::transfer(prot
 // ----------------------------------------------------------------------------
 
 ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
-		int device, int configuration)
-: _controller{std::move(controller)}, _device(device), _configuration(configuration) {
-	(void)_configuration;
+		int device, uint8_t index, uint8_t value)
+: _controller{std::move(controller)}, _device(device), _index(index), _value(value) {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
 ConfigurationState::useInterface(int number, int alternative) {
-	FRG_CO_TRY(co_await _controller->useInterface(_device, number, alternative));
+	FRG_CO_TRY(co_await _controller->useInterface(_device, _index, _value, number, alternative));
 	co_return proto::Interface{std::make_shared<InterfaceState>(_controller, _device, number)};
 }
 
@@ -607,26 +606,21 @@ Controller::useConfiguration(int address, int configuration) {
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::useInterface(int address, int interface, int alternative) {
+Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative) {
 	(void) interface;
 	assert(!alternative);
 
-	arch::dma_object<proto::SetupPacket> get{&schedulePool};
-	get->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
-			| proto::setup_type::toHost;
-	get->request = proto::request_type::getConfig;
-	get->value = 0;
-	get->index = 0;
-	get->length = 1;
+	std::optional<uint8_t> valueByIndex;
 
-	arch::dma_object<uint8_t> get_conf_desc{&schedulePool};
-	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			get, get_conf_desc.view_buffer()}));
-
-	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, *get_conf_desc.data()));
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, configIndex));
 	bool fail = false;
 	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
+
+		if(type == proto::descriptor_type::configuration) {
+			auto desc = (proto::ConfigDescriptor *)p;
+			valueByIndex = desc->configValue;
+		}
 
 		if(type != proto::descriptor_type::endpoint)
 			return;
@@ -661,6 +655,15 @@ Controller::useInterface(int address, int interface, int alternative) {
 			return;
 		}
 	});
+
+	assert(valueByIndex);
+	// Bail out if the user has no idea what they're asking for
+	// A little late, but better late than never...
+	if (*valueByIndex != configValue) {
+		printf("uhci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
+				configIndex, configValue, *valueByIndex);
+		co_return proto::UsbError::other;
+	}
 
 	if (fail)
 		co_return proto::UsbError::unsupported;

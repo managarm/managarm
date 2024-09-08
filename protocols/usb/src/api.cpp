@@ -45,8 +45,8 @@ async::result<frg::expected<UsbError, uint8_t>> Device::currentConfigurationValu
 	co_return *descriptor.data();
 }
 
-async::result<frg::expected<UsbError, Configuration>> Device::useConfiguration(int number) const {
-	return _state->useConfiguration(number);
+async::result<frg::expected<UsbError, Configuration>> Device::useConfiguration(uint8_t index, uint8_t value) const {
+	return _state->useConfiguration(index, value);
 }
 
 async::result<frg::expected<UsbError, std::string>> Device::getString(size_t number) const {

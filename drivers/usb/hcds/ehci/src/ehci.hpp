@@ -119,7 +119,7 @@ public:
 	useConfiguration(int address, int configuration);
 
 	async::result<frg::expected<proto::UsbError>>
-	useInterface(int address, int interface, int alternative);
+	useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative);
 
 	// ------------------------------------------------------------------------
 	// Transfer functions.
@@ -203,7 +203,7 @@ struct DeviceState final : proto::DeviceData {
 
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
 	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
-	async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(int number) override;
+	async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(uint8_t index, uint8_t value) override;
 	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
 
 private:
@@ -217,7 +217,7 @@ private:
 
 struct ConfigurationState final : proto::ConfigurationData {
 	explicit ConfigurationState(std::shared_ptr<Controller> controller,
-			int device, int configuration);
+			int device, uint8_t index, uint8_t value);
 
 	async::result<frg::expected<proto::UsbError, proto::Interface>>
 	useInterface(int number, int alternative) override;
@@ -225,7 +225,8 @@ struct ConfigurationState final : proto::ConfigurationData {
 private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
-	int _configuration;
+	uint8_t _index;
+	uint8_t _value;
 };
 
 // ----------------------------------------------------------------------------

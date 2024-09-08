@@ -173,7 +173,7 @@ private:
 		arch::dma_pool *bufferPool() override;
 		async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
 		async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) override;
-		async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(int number) override;
+		async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(uint8_t index, uint8_t value) override;
 		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
 
 		void submit(int endpoint);
@@ -238,7 +238,7 @@ private:
 	};
 
 	struct ConfigurationState final : proto::ConfigurationData {
-		explicit ConfigurationState(std::shared_ptr<Device> device, int number);
+		explicit ConfigurationState(std::shared_ptr<Device> device);
 
 		async::result<frg::expected<proto::UsbError, proto::Interface>>
 		useInterface(int number, int alternative) override;
