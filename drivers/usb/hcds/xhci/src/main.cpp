@@ -5,6 +5,7 @@
 #include <optional>
 #include <functional>
 #include <memory>
+#include <bit>
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
@@ -42,10 +43,8 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 		_enumerator{this}, _largeCtx{false},
 		_entity{std::move(entity)} {
 	auto op_offset = _space.load(cap_regs::caplength);
-	auto runtime_offset = _space.load(cap_regs::rtsoff);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
 	_operational = _space.subspace(op_offset);
-	_runtime = _space.subspace(runtime_offset);
 	_doorbells = _space.subspace(doorbell_offset);
 
 	_numPorts = _space.load(cap_regs::hcsparams1) & hcsparams1::maxPorts;
@@ -97,77 +96,86 @@ void Controller::_processExtendedCapabilities() {
 		if (next == cur)
 			break;
 
-		next = cur;
+		cur = next;
 	}
 }
 
 async::detached Controller::initialize() {
 	_processExtendedCapabilities();
 
-	printf("xhci: initializing controller...\n");
+	printf("xhci: Initializing controller\n");
 
-	auto state = _operational.load(op_regs::usbcmd);
-	state &= ~usbcmd::run;
-	_operational.store(op_regs::usbcmd, state);
+	// Stop the controller
+	_operational.store(op_regs::usbcmd, usbcmd::run(false));
 
-	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted)); // wait for halt
+	// Wait for the controller to halt
+	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted))
+		;
 
-	_operational.store(op_regs::usbcmd, usbcmd::hcReset(1)); // reset hcd
-	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady); // poll for reset to complete
-	printf("xhci: controller reset done...\n");
+	// Reset the controller and wait for it to complete
+	_operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
+	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
+		;
+
+	printf("xhci: Controller reset done\n");
 
 	_largeCtx = _space.load(cap_regs::hccparams1) & hccparams1::contextSize;
 
 	_maxDeviceSlots = _space.load(cap_regs::hcsparams1) & hcsparams1::maxDevSlots;
 	_operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
 
-	uint32_t hcsparams2 = static_cast<uint32_t>(_space.load(cap_regs::hcsparams2));
-	uint32_t max_scratchpad_bufs = ((((hcsparams2) >> 16) & 0x3e0) | (((hcsparams2) >> 27) & 0x1f));
+	// Figure out how many scratchpad buffers are needed
+	auto nScratchpadBufs =
+		(uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsHi} << 5)
+		| (uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsLow});
+	printf("xhci: Controller wants %u scratchpad buffers\n", nScratchpadBufs);
 
-	auto pagesize_reg = _operational.load(op_regs::pagesize);
-	size_t page_size = 1 << ((__builtin_ffs(pagesize_reg) - 1) + 12); // 2^(n + 12)
+	// Pick the smallest supported page size
+	// XXX(qookie): Linux seems to not care and always uses 4K
+	// pages? I can't find anything in the spec that justifies
+	// doing that...
+	auto pageSize = 1u << ((std::countr_zero(_operational.load(op_regs::pagesize))) + 12);
+	printf("xhci: Controller's minimum page size is %u\n", pageSize);
 
-	printf("xhci: max scratchpad buffers: %u\n", max_scratchpad_bufs);
-	printf("xhci: page size: %lu\n", page_size);
-
-	auto max_erst = _space.load(cap_regs::hcsparams2) & hcsparams2::erstMax;
-	max_erst = 1 << (max_erst);
-	printf("xhci: max_erst: %u\n", max_erst);
-
-	_scratchpadBufArray = arch::dma_array<uint64_t>{
-		&_memoryPool, static_cast<size_t>(max_scratchpad_bufs)};
-	for (size_t i = 0; i < max_scratchpad_bufs; i++) {
+	// Allocate the scratchpad buffers
+	_scratchpadBufArray = arch::dma_array<uint64_t>{&_memoryPool, nScratchpadBufs};
+	for (size_t i = 0; i < nScratchpadBufs; i++) {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
-					page_size));
+					pageSize));
 
 		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
 	}
 
+	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
-
 	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
 
-	_operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data())); // tell the device about our dcbaa
+	// Tell the controller about our device context pointer array
+	_operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
 
+	// Tell the controller about our command ring
 	_operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
 
-	printf("xhci: setting up interrupters\n");
-	auto max_intrs = _space.load(cap_regs::hcsparams1) & hcsparams1::maxIntrs;
-	printf("xhci: max interrupters: %u\n", max_intrs);
-
+	// Set up interrupters
 	// TODO(qookie): MSIs let us use multiple interrupters to
 	// spread out the load (we probably want up to 1 per core?)
+	auto runtimeOffset = _space.load(cap_regs::rtsoff);
+	auto runtime = _space.subspace(runtimeOffset);
 	_interrupters.push_back(std::make_unique<Interrupter>(
 				&_eventRing,
-				interrupter::interrupterSpace(_runtime, 0)));
+				interrupter::interrupterSpace(runtime, 0)));
 	_interrupters.back()->handleIrqs(_irq);
 	_interrupters.back()->initialize();
 
-	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1)); // enable interrupts and start hcd
+	// Start the controller and enable interrupts
+	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
 
-	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted); // wait for start
+	// Wait for the controller to start
+	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted)
+		;
 
+	// Set up root hubs for each protocol
 	for (auto &p : _supportedProtocols) {
 		printf("xhci: USB %d.%d: %zu ports (%zu-%zu), slot type %zu\n",
 				p.major, p.minor,

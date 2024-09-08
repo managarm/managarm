@@ -274,7 +274,6 @@ private:
 	helix::UniqueIrq _irq;
 	arch::mem_space _space;
 	arch::mem_space _operational;
-	arch::mem_space _runtime;
 	arch::mem_space _doorbells;
 
 	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id);
