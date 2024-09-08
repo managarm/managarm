@@ -3,7 +3,7 @@
 
 #include <arch/mem_space.hpp>
 #include <arch/dma_structs.hpp>
-#include <async/recurring-event.hpp>
+#include <async/sequenced-event.hpp>
 #include <async/promise.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
@@ -14,6 +14,7 @@
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/api.hpp>
+#include <protocols/usb/hub.hpp>
 
 #include "spec.hpp"
 
@@ -25,41 +26,19 @@ struct ConfigurationState;
 struct InterfaceState;
 struct EndpointState;
 
-// TODO: This could be moved to a "USB core" driver.
-struct Enumerator {
-	Enumerator(Controller *controller);
-
-	// Called by the USB hub driver once a device connects to a port.
-	void connectPort(int port);
-
-	// Called by the USB hub driver once a device completes reset.
-	void enablePort(int port);
-
-	// Called by the USB hub driver if a port fails to enable after connection
-	void disablePort(int port);
-
-private:
-	async::detached _reset(int port);
-	async::detached _probe();
-
-	Controller *_controller;
-	int _activePort;
-	async::mutex _addressMutex;
-};
-
 // ----------------------------------------------------------------
 // Controller.
 // ----------------------------------------------------------------
 
-struct Controller : std::enable_shared_from_this<Controller> {
+struct Controller final : proto::BaseController, std::enable_shared_from_this<Controller> {
 	Controller(protocols::hw::Device hw_device,
 			mbus_ng::EntityManager entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
 
 	async::detached initialize();
-	async::result<void> probeDevice();
 	async::detached handleIrqs();
+	async::result<void> enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
 	// ------------------------------------------------------------------------
 	// Schedule classes.
@@ -110,6 +89,40 @@ struct Controller : std::enable_shared_from_this<Controller> {
 
 	std::queue<int> _addressStack;
 	DeviceSlot _activeDevices[128];
+
+	// ------------------------------------------------------------------------
+	// Root hub.
+	// ------------------------------------------------------------------------
+
+	struct Port {
+		async::result<proto::PortState> pollState() {
+			pollSeq = co_await pollEv.async_wait(pollSeq);
+			co_return state;
+		}
+
+		async::sequenced_event pollEv;
+		uint64_t pollSeq = 0;
+		proto::PortState state{};
+	};
+
+	struct RootHub final : proto::Hub {
+		RootHub(Controller *controller);
+
+		size_t numPorts() override;
+		async::result<proto::PortState> pollState(int port) override;
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port) override;
+
+		Port &port(int portnr) {
+			assert(portnr < _controller->_numPorts);
+			return *_ports[portnr];
+		}
+
+	private:
+		Controller *_controller;
+		std::vector<std::unique_ptr<Port>> _ports;
+	};
+
+	std::shared_ptr<RootHub> _rootHub;
 
 public:
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor(int address);
@@ -167,7 +180,8 @@ private:
 	void _checkPorts();
 
 public:
-	async::detached resetPort(int number);
+	async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+	resetPort(int number);
 
 	// ----------------------------------------------------------------------------
 	// Debugging functions.
@@ -186,7 +200,7 @@ private:
 	arch::mem_space _operational;
 
 	int _numPorts;
-	Enumerator _enumerator;
+	proto::Enumerator _enumerator;
 
 	mbus_ng::EntityManager _entity;
 };
