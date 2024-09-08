@@ -548,40 +548,40 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Ro
 }
 
 // ------------------------------------------------------------------------
-// Controller::Device
+// Device
 // ------------------------------------------------------------------------
 
-Controller::Device::Device(Controller *controller)
+Device::Device(Controller *controller)
 : _slotId{-1}, _controller{controller} {
 }
 
-arch::dma_pool *Controller::Device::setupPool() {
-	return &_controller->_memoryPool;
+arch::dma_pool *Device::setupPool() {
+	return _controller->memoryPool();
 }
 
-arch::dma_pool *Controller::Device::bufferPool() {
-	return &_controller->_memoryPool;
+arch::dma_pool *Device::bufferPool() {
+	return _controller->memoryPool();
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
-Controller::Device::deviceDescriptor() {
+Device::deviceDescriptor() {
 	arch::dma_object<proto::DeviceDescriptor> descriptor{bufferPool()};
 	FRG_CO_TRY(co_await readDescriptor(descriptor.view_buffer(), 0x0100));
 	co_return std::string{(char *)descriptor.data(), descriptor.view_buffer().size()};
 }
 
 async::result<frg::expected<proto::UsbError, std::string>>
-Controller::Device::configurationDescriptor(uint8_t configuration) {
-	arch::dma_object<proto::ConfigDescriptor> header{&_controller->_memoryPool};
+Device::configurationDescriptor(uint8_t configuration) {
+	arch::dma_object<proto::ConfigDescriptor> header{bufferPool()};
 	FRG_CO_TRY(co_await readDescriptor(header.view_buffer(), 0x0200 | configuration));
 
-	arch::dma_buffer descriptor{&_controller->_memoryPool, header->totalLength};
+	arch::dma_buffer descriptor{bufferPool(), header->totalLength};
 	FRG_CO_TRY(co_await readDescriptor(descriptor, 0x0200 | configuration));
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
 async::result<frg::expected<proto::UsbError, proto::Configuration>>
-Controller::Device::useConfiguration(uint8_t index, uint8_t value) {
+Device::useConfiguration(uint8_t index, uint8_t value) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(index));
 
 	struct EndpointInfo {
@@ -644,17 +644,17 @@ Controller::Device::useConfiguration(uint8_t index, uint8_t value) {
 
 	printf("xhci: configuration set\n");
 
-	co_return proto::Configuration{std::make_shared<Controller::ConfigurationState>(shared_from_this())};
+	co_return proto::Configuration{std::make_shared<ConfigurationState>(shared_from_this())};
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::Device::transfer(proto::ControlTransfer info) {
+Device::transfer(proto::ControlTransfer info) {
 	co_return co_await _endpoints[0]->transfer(info);
 }
 
-void Controller::Device::submit(int endpoint) {
+void Device::submit(int endpoint) {
 	assert(_slotId != -1);
-	_controller->ringDoorbell(_slotId, endpoint, /* stream */ 0);
+	_controller->ringDoorbell(_slotId, endpoint);
 }
 
 static inline uint8_t getHcdSpeedId(proto::DeviceSpeed speed) {
@@ -671,7 +671,7 @@ static inline uint8_t getHcdSpeedId(proto::DeviceSpeed speed) {
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType) {
+Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType) {
 	auto event = co_await _controller->submitCommand(
 			Command::enableSlot(slotType));
 
@@ -687,9 +687,9 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 
 	// initialize slot
 
-	_devCtx = DeviceContext{_controller->_largeCtx, &_controller->_memoryPool};
+	_devCtx = DeviceContext{_controller->largeCtx(), _controller->memoryPool()};
 
-	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
+	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 	auto &slotCtx = inputCtx.get(inputCtxSlot);
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -722,7 +722,7 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 
 	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control);
 
-	_controller->_dcbaa[_slotId] = helix::ptrToPhysical(_devCtx.rawData());
+	_controller->setDeviceContext(_slotId, _devCtx);
 
 	event = co_await _controller->submitCommand(
 			Command::addressDevice(_slotId,
@@ -740,7 +740,7 @@ Controller::Device::enumerate(size_t rootPort, size_t port, uint32_t route, std:
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
+Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	arch::dma_object<proto::SetupPacket> getDesc{setupPool()};
 	getDesc->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toHost;
 	getDesc->request = proto::request_type::getDescriptor;
@@ -782,24 +782,11 @@ static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
 	return 0;
 }
 
-static inline int getEndpointIndex(int endpoint, proto::PipeType dir) {
-	using proto::PipeType;
 
-	// For control endpoints the index is:
-	//  DCI = (Endpoint Number * 2) + 1.
-	// For interrupt, bulk, isoch, the index is:
-	//  DCI = (Endpoint Number * 2) + Direction,
-	//    where Direction = '0' for OUT endpoints
-	//    and '1' for IN endpoints.
-
-	return endpoint * 2 +
-		((dir == PipeType::in || dir == PipeType::control)
-				? 1 : 0);
-}
 
 async::result<frg::expected<proto::UsbError>>
-Controller::Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
-	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
+Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
@@ -823,8 +810,8 @@ Controller::Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxP
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) {
-	InputContext inputCtx{_controller->_largeCtx, &_controller->_memoryPool};
+Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) {
+	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
@@ -850,7 +837,7 @@ Controller::Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceS
 	co_return frg::success;
 }
 
-void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
 	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
@@ -884,15 +871,11 @@ void Controller::Device::_initEpCtx(InputContext &ctx, int endpoint, proto::Pipe
 }
 
 // ------------------------------------------------------------------------
-// Controller::ConfigurationState
+// ConfigurationState
 // ------------------------------------------------------------------------
 
-Controller::ConfigurationState::ConfigurationState(std::shared_ptr<Device> device)
-: _device{device} {
-}
-
 async::result<frg::expected<proto::UsbError, proto::Interface>>
-Controller::ConfigurationState::useInterface(int number, int alternative) {
+ConfigurationState::useInterface(int number, int alternative) {
 	arch::dma_object<proto::SetupPacket> desc{_device->setupPool()};
 	desc->type = proto::setup_type::targetInterface | proto::setup_type::byStandard | proto::setup_type::toDevice;
 	desc->request = proto::request_type::setInterface;
@@ -909,34 +892,15 @@ Controller::ConfigurationState::useInterface(int number, int alternative) {
 		FRG_CO_TRY(res);
 	}
 
-	co_return proto::Interface{std::make_shared<Controller::InterfaceState>(_device, number)};
+	co_return proto::Interface{std::make_shared<InterfaceState>(_device, number)};
 }
 
 // ------------------------------------------------------------------------
-// Controller::InterfaceState
+// EndpointState
 // ------------------------------------------------------------------------
-
-Controller::InterfaceState::InterfaceState(std::shared_ptr<Device> device, int num)
-: proto::InterfaceData{num}, _device{device} {
-}
-
-async::result<frg::expected<proto::UsbError, proto::Endpoint>>
-Controller::InterfaceState::getEndpoint(proto::PipeType type, int number) {
-	co_return proto::Endpoint{_device->endpoint(getEndpointIndex(number, type))};
-}
-
-// ------------------------------------------------------------------------
-// Controller::EndpointState
-// ------------------------------------------------------------------------
-
-Controller::EndpointState::EndpointState(Device *device, int endpointId, proto::EndpointType type,
-		size_t maxPacketSize)
-: _device{device}, _endpointId{endpointId}, _type{type}, _maxPacketSize{maxPacketSize},
-	_transferRing{device->controller()} {
-}
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::EndpointState::transfer(proto::ControlTransfer info) {
+EndpointState::transfer(proto::ControlTransfer info) {
 	ProducerRing::Transaction tx;
 
 	Transfer::buildControlChain([&] (RawTrb trb) {
@@ -962,7 +926,7 @@ Controller::EndpointState::transfer(proto::ControlTransfer info) {
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
+EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb) {
@@ -987,17 +951,17 @@ Controller::EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::EndpointState::transfer(proto::InterruptTransfer info) {
+EndpointState::transfer(proto::InterruptTransfer info) {
 	co_return co_await _bulkOrInterruptXfer(info.buffer);
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-Controller::EndpointState::transfer(proto::BulkTransfer info) {
+EndpointState::transfer(proto::BulkTransfer info) {
 	co_return co_await _bulkOrInterruptXfer(info.buffer);
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
+EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 	// Issue the Reset Endpoint command to reset the xHC state
 	auto event = co_await _device->controller()->submitCommand(
 		Command::resetEndpoint(_device->slot(), _endpointId));

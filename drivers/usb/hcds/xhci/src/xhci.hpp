@@ -58,6 +58,8 @@ constexpr const char *completionCodeNames[256] = {
 	"Split transaction error",
 };
 
+struct Controller;
+
 // ----------------------------------------------------------------
 // Interrupter
 // ----------------------------------------------------------------
@@ -76,6 +78,145 @@ private:
 
 	EventRing *_ring;
 	arch::mem_space _space;
+};
+
+// ----------------------------------------------------------------
+// Device & {Configuration,Interface,Endpoint}State
+// ----------------------------------------------------------------
+
+inline int getEndpointIndex(int endpoint, proto::PipeType dir) {
+	using proto::PipeType;
+
+	// For control endpoints the index is:
+	//  DCI = (Endpoint Number * 2) + 1.
+	// For interrupt, bulk, isoch, the index is:
+	//  DCI = (Endpoint Number * 2) + Direction,
+	//    where Direction = '0' for OUT endpoints
+	//    and '1' for IN endpoints.
+
+	return endpoint * 2 +
+		((dir == PipeType::in || dir == PipeType::control)
+				? 1 : 0);
+}
+
+struct EndpointState;
+
+struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
+	Device(Controller *controller);
+
+	// Public API inherited from DeviceData.
+	arch::dma_pool *setupPool() override;
+	arch::dma_pool *bufferPool() override;
+
+	async::result<frg::expected<proto::UsbError, std::string>>
+	deviceDescriptor() override;
+
+	async::result<frg::expected<proto::UsbError, std::string>>
+	configurationDescriptor(uint8_t configuration) override;
+
+	async::result<frg::expected<proto::UsbError, proto::Configuration>>
+	useConfiguration(uint8_t index, uint8_t value) override;
+
+	async::result<frg::expected<proto::UsbError, size_t>>
+	transfer(proto::ControlTransfer info) override;
+
+
+	void submit(int endpoint);
+
+	async::result<frg::expected<proto::UsbError>>
+	enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType);
+
+	async::result<frg::expected<proto::UsbError>>
+	readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
+
+	async::result<frg::expected<proto::UsbError>>
+	setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
+
+	async::result<frg::expected<proto::UsbError>>
+	configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed);
+
+	size_t slot() const {
+		return _slotId;
+	}
+
+	Controller *controller() const {
+		return _controller;
+	}
+
+	std::shared_ptr<EndpointState> endpoint(int endpointId) {
+		return _endpoints[endpointId - 1];
+	}
+
+private:
+	int _slotId;
+
+	Controller *_controller;
+
+	DeviceContext _devCtx;
+
+	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
+
+	std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
+};
+
+
+struct EndpointState final : proto::EndpointData {
+	explicit EndpointState(Device *device, int endpointId, proto::EndpointType type, size_t maxPacketSize)
+	: _device{device}, _endpointId{endpointId}, _type{type},
+		_maxPacketSize{maxPacketSize}, _transferRing{device->controller()} { }
+
+	async::result<frg::expected<proto::UsbError, size_t>>
+	transfer(proto::ControlTransfer info) override;
+
+	async::result<frg::expected<proto::UsbError, size_t>>
+	transfer(proto::InterruptTransfer info) override;
+
+	async::result<frg::expected<proto::UsbError, size_t>>
+	transfer(proto::BulkTransfer info) override;
+
+	ProducerRing &transferRing() {
+		return _transferRing;
+	}
+
+private:
+	Device *_device;
+	int _endpointId;
+	proto::EndpointType _type;
+
+	size_t _maxPacketSize;
+	ProducerRing _transferRing;
+
+	async::result<frg::expected<proto::UsbError, size_t>>
+	_bulkOrInterruptXfer(arch::dma_buffer_view buffer);
+
+	async::result<frg::expected<proto::UsbError>>
+	_resetAfterError(size_t nextDequeue, bool nextCycle);
+};
+
+
+struct ConfigurationState final : proto::ConfigurationData {
+	explicit ConfigurationState(std::shared_ptr<Device> device)
+	: _device{device} { }
+
+	async::result<frg::expected<proto::UsbError, proto::Interface>>
+	useInterface(int number, int alternative) override;
+
+private:
+	std::shared_ptr<Device> _device;
+};
+
+
+struct InterfaceState final : proto::InterfaceData {
+	explicit InterfaceState(std::shared_ptr<Device> device, int interface)
+	: proto::InterfaceData{interface}, _device{device} { }
+
+	async::result<frg::expected<proto::UsbError, proto::Endpoint>>
+	getEndpoint(proto::PipeType type, int number) override {
+		co_return proto::Endpoint{_device->endpoint(getEndpointIndex(number, type))};
+	}
+
+private:
+	std::shared_ptr<Device> _device;
 };
 
 // ----------------------------------------------------------------
@@ -101,8 +242,26 @@ struct Controller final : proto::BaseController {
 
 	void processEvent(Event ev);
 
+	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t streamId = 0);
+
+	async::result<Event> submitCommand(RawTrb trb) {
+		ProducerRing::Transaction tx;
+		_cmdRing.pushRawTrb(trb, &tx);
+
+		ringDoorbell(0, 0);
+
+		co_return co_await tx.command();
+	}
+
+	bool largeCtx() const {
+		return _largeCtx;
+	}
+
+	void setDeviceContext(size_t slot, DeviceContext &ctx) {
+		_dcbaa[slot] = helix::ptrToPhysical(ctx.rawData());
+	}
+
 private:
-	struct Device;
 	struct SupportedProtocol;
 
 	struct Port {
@@ -171,53 +330,6 @@ private:
 		mbus_ng::EntityManager _entity;
 	};
 
-	struct EndpointState;
-
-	struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
-		Device(Controller *controller);
-
-		// Public API inherited from DeviceData.
-		arch::dma_pool *setupPool() override;
-		arch::dma_pool *bufferPool() override;
-		async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
-		async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration = 0) override;
-		async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(uint8_t index, uint8_t value) override;
-		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
-
-		void submit(int endpoint);
-
-		async::result<frg::expected<proto::UsbError>> enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType);
-
-		async::result<frg::expected<proto::UsbError>> readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
-
-		async::result<frg::expected<proto::UsbError>> setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
-
-		async::result<frg::expected<proto::UsbError>> configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed);
-
-		size_t slot() const {
-			return _slotId;
-		}
-
-		Controller *controller() const {
-			return _controller;
-		}
-
-		std::shared_ptr<EndpointState> endpoint(int endpointId) {
-			return _endpoints[endpointId - 1];
-		}
-
-	private:
-		int _slotId;
-
-		Controller *_controller;
-
-		DeviceContext _devCtx;
-
-		void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
-
-		std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
-	};
-
 	struct SupportedProtocol {
 		int minor;
 		int major;
@@ -226,49 +338,6 @@ private:
 		size_t compatiblePortCount;
 
 		size_t slotType;
-	};
-
-	struct ConfigurationState final : proto::ConfigurationData {
-		explicit ConfigurationState(std::shared_ptr<Device> device);
-
-		async::result<frg::expected<proto::UsbError, proto::Interface>>
-		useInterface(int number, int alternative) override;
-
-	private:
-		std::shared_ptr<Device> _device;
-	};
-
-	struct InterfaceState final : proto::InterfaceData {
-		explicit InterfaceState(std::shared_ptr<Device> device, int interface);
-
-		async::result<frg::expected<proto::UsbError, proto::Endpoint>>
-		getEndpoint(proto::PipeType type, int number) override;
-
-	private:
-		std::shared_ptr<Device> _device;
-	};
-
-	struct EndpointState final : proto::EndpointData {
-		explicit EndpointState(Device *device, int endpointId, proto::EndpointType type, size_t maxPacketSize);
-
-		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
-		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
-		async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::BulkTransfer info) override;
-
-		ProducerRing &transferRing() {
-			return _transferRing;
-		}
-
-	private:
-		Device *_device;
-		int _endpointId;
-		proto::EndpointType _type;
-
-		size_t _maxPacketSize;
-		ProducerRing _transferRing;
-
-		async::result<frg::expected<proto::UsbError, size_t>> _bulkOrInterruptXfer(arch::dma_buffer_view buffer);
-		async::result<frg::expected<proto::UsbError>> _resetAfterError(size_t nextDequeue, bool nextCycle);
 	};
 
 	std::vector<SupportedProtocol> _supportedProtocols;
@@ -280,18 +349,7 @@ private:
 	arch::mem_space _space;
 	arch::mem_space _doorbells;
 
-	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id);
-
 	void _processExtendedCapabilities();
-
-	async::result<Event> submitCommand(RawTrb trb) {
-		ProducerRing::Transaction tx;
-		_cmdRing.pushRawTrb(trb, &tx);
-
-		ringDoorbell(0, 0, 0);
-
-		co_return co_await tx.command();
-	}
 
 	arch::os::contiguous_pool _memoryPool;
 
