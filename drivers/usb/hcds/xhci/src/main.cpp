@@ -124,86 +124,26 @@ async::detached Controller::initialize() {
 		off += 4;
 
 		v = arch::scalar_load<uint32_t>(_space, off);
-		proto.name = {
-			static_cast<char>(v & 0xFF),
-			static_cast<char>((v >> 8) & 0xFF),
-			static_cast<char>((v >> 16) & 0xFF),
-			static_cast<char>((v >> 24) & 0xFF)
-		};
 		off += 4;
 
 		v = arch::scalar_load<uint32_t>(_space, off);
 		proto.compatiblePortStart = v & 0xFF;
 		proto.compatiblePortCount = (v >> 8) & 0xFF;
-		proto.protocolDefined = (v >> 16) & 0xFFF;
-		auto speedIdCount = (v >> 28) & 0xF;
 		off += 4;
 
 		v = arch::scalar_load<uint32_t>(_space, off);
-		proto.protocolSlotType = v & 0xF;
-		off += 4;
-
-		proto.speeds = {};
-
-		for (size_t i = 0; i < speedIdCount; i++) {
-			v = arch::scalar_load<uint32_t>(_space, off);
-
-			SupportedProtocol::PortSpeed speed;
-			speed.value = v & 0xF;
-			speed.exponent = (v >> 4) & 0x3;
-			speed.type = (v >> 6) & 0x3;
-			speed.fullDuplex = (v >> 8) & 1;
-			speed.linkProtocol = (v >> 14) & 0x3;
-			speed.mantissa = (v >> 16) & 0xFFFF;
-
-			off += 4;
-
-			proto.speeds.push_back(speed);
-		}
+		proto.slotType = v & 0xF;
 
 		_supportedProtocols.push_back(proto);
 	}
 
 	for (auto &p : _supportedProtocols) {
-		printf("xhci: supported protocol:\n");
-		printf("xhci: name: \"%s\" %u.%u\n", p.name.c_str(), p.major, p.minor);
-		printf("xhci: compatible ports: %lu to %lu\n", p.compatiblePortStart,
-				p.compatiblePortStart + p.compatiblePortCount - 1);
-		printf("xhci: protocol defined: %03x\n", p.protocolDefined);
-		printf("xhci: protocol slot type: %lu\n", p.protocolSlotType);
-
-		constexpr const char *exponent[] = {
-			"B/s",
-			"Kb/s",
-			"Mb/s",
-			"Gb/s"
-		};
-
-		constexpr const char *type[] = {
-			"Symmetric",
-			"Reserved",
-			"Asymmetric Rx",
-			"Asymmetric Tx"
-		};
-
-		constexpr const char *linkProtocol[] = {
-			"SuperSpeed",
-			"SuperSpeedPlus",
-			"Reserved",
-			"Reserved"
-		};
-
-		printf("xhci: supported speeds:\n");
-		for (auto &s : p.speeds) {
-			printf("xhci:\tspeed:%u %s\n", s.mantissa,
-					exponent[s.exponent]);
-			printf("xhci:\tfull duplex? %s\n",
-					s.fullDuplex ? "yes" : "no");
-			printf("xhci:\ttype: %s\n", type[s.type]);
-			if (p.major == 3)
-				printf("xhci:\tlink protocol: %s\n",
-						linkProtocol[s.linkProtocol]);
-		}
+		printf("xhci: USB %d.%d: %zu ports (%zu-%zu), slot type %zu\n",
+				p.major, p.minor,
+				p.compatiblePortCount,
+				p.compatiblePortStart,
+				p.compatiblePortStart + p.compatiblePortCount - 1,
+				p.slotType);
 	}
 
 	printf("xhci: initializing controller...\n");
@@ -378,7 +318,7 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	rootPort += proto->compatiblePortStart;
 
 	auto device = std::make_shared<Device>(this);
-	(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->protocolSlotType)).unwrap();
+	(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType)).unwrap();
 	_devices[device->slot()] = device;
 
 	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor

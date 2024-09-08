@@ -214,27 +214,10 @@ private:
 		int minor;
 		int major;
 
-		std::string name;
-
 		size_t compatiblePortStart;
 		size_t compatiblePortCount;
 
-		uint16_t protocolDefined;
-
-		size_t protocolSlotType;
-
-		struct PortSpeed {
-			uint8_t value;
-			uint8_t exponent;
-			uint8_t type;
-
-			bool fullDuplex;
-
-			uint8_t linkProtocol;
-			uint16_t mantissa;
-		};
-
-		std::vector<PortSpeed> speeds;
+		size_t slotType;
 	};
 
 	struct ConfigurationState final : proto::ConfigurationData {
