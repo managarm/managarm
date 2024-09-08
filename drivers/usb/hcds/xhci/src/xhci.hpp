@@ -101,7 +101,7 @@ private:
 	struct SupportedProtocol;
 
 	struct Port {
-		Port(int id, Controller *controller, SupportedProtocol *port);
+		Port(int id, arch::mem_space space, Controller *controller, SupportedProtocol *port);
 		void reset();
 		void disable();
 		void resetChangeBits();
@@ -145,7 +145,7 @@ private:
 	};
 
 	struct RootHub final : proto::Hub {
-		RootHub(Controller *controller, SupportedProtocol &proto, mbus_ng::EntityManager entity);
+		RootHub(Controller *controller, SupportedProtocol &proto, arch::mem_space portSpace, mbus_ng::EntityManager entity);
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
@@ -273,7 +273,6 @@ private:
 	helix::UniqueDescriptor _mmio;
 	helix::UniqueIrq _irq;
 	arch::mem_space _space;
-	arch::mem_space _operational;
 	arch::mem_space _doorbells;
 
 	void ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id);

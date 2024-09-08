@@ -8,6 +8,10 @@
 //-------------------------------------------------
 
 namespace op_regs {
+	inline constexpr arch::mem_space portSpace(arch::mem_space operational, int idx) {
+		return operational.subspace(0x400 + idx * 16);
+	}
+
 	inline constexpr arch::bit_register<uint32_t> usbcmd(0);
 	inline constexpr arch::bit_register<uint32_t> usbsts(0x04);
 	inline constexpr arch::scalar_register<uint32_t> pagesize(0x8);
@@ -87,6 +91,10 @@ namespace iman {
 }
 
 namespace port {
+	inline constexpr arch::mem_space spaceForIndex(arch::mem_space portSpace, int idx) {
+		return portSpace.subspace(idx * 16);
+	}
+
 	inline constexpr arch::bit_register<uint32_t> portsc(0x0);
 	inline constexpr arch::bit_register<uint32_t> portpmsc(0x4);
 	inline constexpr arch::bit_register<uint32_t> portli(0x8);

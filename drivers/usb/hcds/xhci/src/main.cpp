@@ -42,9 +42,7 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 		_eventRing{this},
 		_enumerator{this}, _largeCtx{false},
 		_entity{std::move(entity)} {
-	auto op_offset = _space.load(cap_regs::caplength);
 	auto doorbell_offset = _space.load(cap_regs::dboff);
-	_operational = _space.subspace(op_offset);
 	_doorbells = _space.subspace(doorbell_offset);
 
 	_numPorts = _space.load(cap_regs::hcsparams1) & hcsparams1::maxPorts;
@@ -101,20 +99,23 @@ void Controller::_processExtendedCapabilities() {
 }
 
 async::detached Controller::initialize() {
+	auto opOffset = _space.load(cap_regs::caplength);
+	auto operational = _space.subspace(opOffset);
+
 	_processExtendedCapabilities();
 
 	printf("xhci: Initializing controller\n");
 
 	// Stop the controller
-	_operational.store(op_regs::usbcmd, usbcmd::run(false));
+	operational.store(op_regs::usbcmd, usbcmd::run(false));
 
 	// Wait for the controller to halt
-	while(!(_operational.load(op_regs::usbsts) & usbsts::hcHalted))
+	while(!(operational.load(op_regs::usbsts) & usbsts::hcHalted))
 		;
 
 	// Reset the controller and wait for it to complete
-	_operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
-	while(_operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
+	operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
+	while(operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
 		;
 
 	printf("xhci: Controller reset done\n");
@@ -122,7 +123,7 @@ async::detached Controller::initialize() {
 	_largeCtx = _space.load(cap_regs::hccparams1) & hccparams1::contextSize;
 
 	_maxDeviceSlots = _space.load(cap_regs::hcsparams1) & hcsparams1::maxDevSlots;
-	_operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
+	operational.store(op_regs::config, config::enabledDeviceSlots(_maxDeviceSlots));
 
 	// Figure out how many scratchpad buffers are needed
 	auto nScratchpadBufs =
@@ -134,7 +135,7 @@ async::detached Controller::initialize() {
 	// XXX(qookie): Linux seems to not care and always uses 4K
 	// pages? I can't find anything in the spec that justifies
 	// doing that...
-	auto pageSize = 1u << ((std::countr_zero(_operational.load(op_regs::pagesize))) + 12);
+	auto pageSize = 1u << ((std::countr_zero(operational.load(op_regs::pagesize))) + 12);
 	printf("xhci: Controller's minimum page size is %u\n", pageSize);
 
 	// Allocate the scratchpad buffers
@@ -152,10 +153,10 @@ async::detached Controller::initialize() {
 	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
 
 	// Tell the controller about our device context pointer array
-	_operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
+	operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
 
 	// Tell the controller about our command ring
-	_operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
+	operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
 
 	// Set up interrupters
 	// TODO(qookie): MSIs let us use multiple interrupters to
@@ -169,10 +170,10 @@ async::detached Controller::initialize() {
 	_interrupters.back()->initialize();
 
 	// Start the controller and enable interrupts
-	_operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
+	operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
 
 	// Wait for the controller to start
-	while(_operational.load(op_regs::usbsts) & usbsts::hcHalted)
+	while(operational.load(op_regs::usbsts) & usbsts::hcHalted)
 		;
 
 	// Set up root hubs for each protocol
@@ -195,7 +196,10 @@ async::detached Controller::initialize() {
 		auto xhciEntity = (co_await mbus_ng::Instance::global().createEntity(
 					"xhci-controller", descriptor)).unwrap();
 
-		auto hub = std::make_shared<RootHub>(this, p, std::move(xhciEntity));
+		auto hub = std::make_shared<RootHub>(
+			this, p,
+			op_regs::portSpace(operational, p.compatiblePortStart - 1),
+			std::move(xhciEntity));
 		_rootHubs.push_back(hub);
 		_enumerator.observeHub(hub);
 	}
@@ -382,9 +386,8 @@ void Controller::Interrupter::_clearPending() {
 // Controller::Port
 // ------------------------------------------------------------------------
 
-Controller::Port::Port(int id, Controller *controller, SupportedProtocol *proto)
-: _id{id}, _proto{proto} {
-	_space = controller->_operational.subspace(0x400 + (id - 1) * 0x10);
+Controller::Port::Port(int id, arch::mem_space space, Controller *controller, SupportedProtocol *proto)
+: _id{id}, _proto{proto}, _space{space} {
 }
 
 void Controller::Port::reset() {
@@ -519,10 +522,13 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 // Controller::RootHub
 // ------------------------------------------------------------------------
 
-Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto, mbus_ng::EntityManager entity)
+Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto, arch::mem_space portSpace, mbus_ng::EntityManager entity)
 : Hub{nullptr, 0}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
 	for (size_t i = 0; i < proto.compatiblePortCount; i++) {
-		_ports.push_back(std::make_unique<Port>(i + proto.compatiblePortStart, controller, &proto));
+		_ports.push_back(std::make_unique<Port>(
+					i + proto.compatiblePortStart,
+					port::spaceForIndex(portSpace, i),
+					controller, &proto));
 		_ports.back()->initPort();
 		_controller->_ports[(i + proto.compatiblePortStart - 1)] =
 				_ports.back().get();
