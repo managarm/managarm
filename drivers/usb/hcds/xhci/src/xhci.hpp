@@ -59,6 +59,26 @@ constexpr const char *completionCodeNames[256] = {
 };
 
 // ----------------------------------------------------------------
+// Interrupter
+// ----------------------------------------------------------------
+
+struct Interrupter {
+	Interrupter(EventRing *ring, arch::mem_space space)
+	: _ring{ring}, _space{space} { }
+
+	void initialize();
+	async::detached handleIrqs(helix::UniqueIrq &irq);
+
+private:
+	bool _isBusy();
+	void _clearPending();
+	void _updateDequeue();
+
+	EventRing *_ring;
+	arch::mem_space _space;
+};
+
+// ----------------------------------------------------------------
 // Controller
 // ----------------------------------------------------------------
 
@@ -82,21 +102,6 @@ struct Controller final : proto::BaseController {
 	void processEvent(Event ev);
 
 private:
-	struct Interrupter {
-		Interrupter(EventRing *ring, arch::mem_space space)
-		: _ring{ring}, _space{space} { }
-
-		void initialize();
-		async::detached handleIrqs(helix::UniqueIrq &irq);
-	private:
-		bool _isBusy();
-		void _clearPending();
-		void _updateDequeue();
-
-		EventRing *_ring;
-		arch::mem_space _space;
-	};
-
 	struct Device;
 	struct SupportedProtocol;
 

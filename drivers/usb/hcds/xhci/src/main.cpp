@@ -333,10 +333,10 @@ void Controller::processEvent(Event ev) {
 }
 
 // ------------------------------------------------------------------------
-// Controller::Interrutper
+// Interrutper
 // ------------------------------------------------------------------------
 
-void Controller::Interrupter::initialize() {
+void Interrupter::initialize() {
 	// Initialize the event ring segment table
 	_space.store(interrupter::erstsz, _ring->getErstSize());
 	_space.store(interrupter::erstbaLow,_ring->getErstPtr() & 0xFFFFFFFF);
@@ -347,7 +347,7 @@ void Controller::Interrupter::initialize() {
 	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::enable(1));
 }
 
-async::detached Controller::Interrupter::handleIrqs(helix::UniqueIrq &irq) {
+async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 	uint64_t sequence = 0;
 
 	while(1) {
@@ -368,17 +368,17 @@ async::detached Controller::Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 	}
 }
 
-void Controller::Interrupter::_updateDequeue() {
+void Interrupter::_updateDequeue() {
 	_space.store(interrupter::erdpLow,
 			(_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));
 	_space.store(interrupter::erdpHi, _ring->getEventRingPtr() >> 32);
 }
 
-bool Controller::Interrupter::_isBusy() {
+bool Interrupter::_isBusy() {
 	return _space.load(interrupter::erdpLow) & (1 << 3);
 }
 
-void Controller::Interrupter::_clearPending() {
+void Interrupter::_clearPending() {
 	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::pending(1));
 }
 
