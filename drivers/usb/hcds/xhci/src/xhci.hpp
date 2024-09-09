@@ -228,7 +228,8 @@ struct Controller final : proto::BaseController {
 			mbus_ng::Entity entity,
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
-			helix::UniqueIrq irq);
+			helix::UniqueIrq irq,
+			std::string name);
 
 	virtual ~Controller() = default;
 
@@ -259,6 +260,18 @@ struct Controller final : proto::BaseController {
 
 	void setDeviceContext(size_t slot, DeviceContext &ctx) {
 		_dcbaa[slot] = helix::ptrToPhysical(ctx.rawData());
+	}
+
+	std::string_view name() const {
+		return _name;
+	}
+
+	friend std::ostream &operator<<(std::ostream &os, Controller *controller) {
+		return os << "xhci " << (controller ? controller->name() : "(null)") << ": ";
+	}
+
+	friend std::ostream &operator<<(std::ostream &os, Controller &controller) {
+		return os << &controller;
 	}
 
 private:
@@ -299,6 +312,7 @@ private:
 		uint8_t getLinkStatus();
 		uint8_t getSpeed();
 		int _id;
+		Controller *_controller;
 		std::shared_ptr<Device> _device;
 		SupportedProtocol *_proto;
 		arch::mem_space _space;
@@ -348,6 +362,8 @@ private:
 	helix::UniqueIrq _irq;
 	arch::mem_space _space;
 	arch::mem_space _doorbells;
+
+	std::string _name;
 
 	void _processExtendedCapabilities();
 

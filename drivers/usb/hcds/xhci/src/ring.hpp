@@ -105,7 +105,7 @@ struct ProducerRing {
 
 		async::result<Event> command();
 
-		void onEvent(Event event, RawTrb associatedTrb);
+		void onEvent(Controller *controller, Event event, RawTrb associatedTrb);
 	private:
 		std::vector<std::pair<RawTrb, Event>> events_;
 		async::sequenced_event progressEvent_;
@@ -136,6 +136,7 @@ struct ProducerRing {
 private:
 	std::array<Transaction *, ringSize> _transactions;
 	arch::dma_object<RingEntries> _ring;
+	Controller *_controller;
 	size_t _enqueuePtr;
 
 	bool _pcs;

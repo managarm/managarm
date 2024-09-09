@@ -99,7 +99,7 @@ void Event::printInfo() {
 	printf("xhci: --- Event dump ---\n");
 	printf("xhci: Raw: %08x %08x %08x %08x\n",
 			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: Type: %u\n", static_cast<unsigned int>(type));
+	printf("xhci: Type: %s (%u)\n", trbTypeNames[static_cast<unsigned int>(type)], static_cast<unsigned int>(type));
 	printf("xhci: Slot ID: %d\n", slotId);
 	printf("xhci: Completion code: %s (%d)\n",
 			completionCodeNames[completionCode],
@@ -107,40 +107,29 @@ void Event::printInfo() {
 
 	switch(type) {
 		case TrbType::transferEvent:
-			printf("xhci: Type name: Transfer Event\n");
 			printf("xhci: TRB pointer: %016lx, transfer length %lu\n", trbPointer,
 					transferLen);
 			printf("xhci: Endpoint ID: %lu, has event data? %s\n",
 					endpointId, eventData ? "yes" : "no");
 			break;
 		case TrbType::commandCompletionEvent:
-			printf("xhci: Type name: Command Completion Event\n");
 			printf("xhci: TRB pointer: %016lx\n", trbPointer);
 			printf("xhci: Command completion parameter: %d\n",
 					commandCompletionParameter);
 			break;
 		case TrbType::portStatusChangeEvent:
-			printf("xhci: Type name: Port Status Change Event\n");
 			printf("xhci: Port ID: %lu\n", portId);
 			break;
 		case TrbType::bandwidthRequestEvent:
-			printf("xhci: Type name: Bandwidth Request Event\n");
-			break;
 		case TrbType::doorbellEvent:
-			printf("xhci: Type name: Doorbell Event\n");
-			break;
 		case TrbType::hostControllerEvent:
-			printf("xhci: Type name: Host Controller Event\n");
+		case TrbType::mfindexWrapEvent:
 			break;
 		case TrbType::deviceNotificationEvent:
-			printf("xhci: Type name: Device Notification Event\n");
 			printf("xhci: Notification data: %lx\n",
 					notificationData);
 			printf("xhci: Notification type: %lu\n",
 					notificationType);
-			break;
-		case TrbType::mfindexWrapEvent:
-			printf("xhci: Type name: MFINDEX Wrap Event\n");
 			break;
 		default:
 			printf("xhci: Invalid event\n");
@@ -204,7 +193,7 @@ void EventRing::processRing() {
 // ------------------------------------------------------------------------
 
 ProducerRing::ProducerRing(Controller *controller)
-: _transactions{}, _ring{controller->memoryPool()}, _enqueuePtr{0}, _pcs{true} {
+: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}, _enqueuePtr{0}, _pcs{true} {
 	for (uint32_t i = 0; i < ringSize; i++) {
 		_ring->ent[i] = {{0, 0, 0, 0}};
 	}
@@ -245,7 +234,7 @@ void ProducerRing::processEvent(Event ev) {
 	auto tx = std::exchange(_transactions[idx], nullptr);
 
 	if (tx) {
-		tx->onEvent(ev, _ring->ent[idx]);
+		tx->onEvent(_controller, ev, _ring->ent[idx]);
 	}
 }
 
@@ -319,20 +308,18 @@ async::result<Event> ProducerRing::Transaction::command() {
 	co_return events_[progressSeq_++].second;
 }
 
-void ProducerRing::Transaction::onEvent(Event event, RawTrb associatedTrb) {
+void ProducerRing::Transaction::onEvent(Controller *controller, Event event, RawTrb associatedTrb) {
 	if (event.completionCode != 1) {
 		auto associatedTrbType = static_cast<TrbType>((associatedTrb.val[3] >> 10) & 63);
 
 		// Ignore short packet completions for transfers
 		if (event.type == TrbType::transferEvent && event.completionCode != 13) {
-			printf("xhci: Transfer TRB '%s' completed with '%s' (Slot %d, EP %zu)\n",
-					trbTypeNames[static_cast<int>(associatedTrbType)],
-					completionCodeNames[event.completionCode],
-					event.slotId, event.endpointId);
+			std::cout << controller << "Transfer TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
+				<< " completed with '" << completionCodeNames[event.completionCode] << "'"
+				<< " (Slot " << event.slotId << ", EP " << event.endpointId << ")" << std::endl;
 		} else if (event.type == TrbType::commandCompletionEvent) {
-			printf("xhci: Command TRB '%s' completed with '%s'\n",
-					trbTypeNames[static_cast<int>(associatedTrbType)],
-					completionCodeNames[event.completionCode]);
+			std::cout << controller << "Command TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
+				<< " completed with '" << completionCodeNames[event.completionCode] << "'" << std::endl;
 		}
 	}
 
