@@ -148,6 +148,11 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		async::cancellation_event ce;
 		([] (helix::UniqueDescriptor event,
 		     async::cancellation_event &ce) -> async::detached {	
+			// TODO(gurt): this needs to be tested because this should pop when
+			// we kill cat pleaseee and if this doesn't happen then wtf
+			// Hmm okay on second thought it makes sense it doesn't get triggered
+			// because userspace is killed before it has the chance to trigger this.
+		 	std::cout << "event popped!!! lets GGOOGOGOGOGOGOGO" << std::endl;
 			co_await helix_ng::awaitEvent(event, 1);
 			ce.cancel();
 		})(cancel_event.descriptor(), ce);

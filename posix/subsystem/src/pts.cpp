@@ -658,9 +658,6 @@ MasterFile::readSome(Process *process, void *data, size_t maxLength, async::canc
 		co_await _channel->statusBell.async_wait(ce);
 		if (ce.is_cancellation_requested())
 			co_return std::make_pair(protocols::fs::Error::interrupted, 0);
-		if (process->processTerminationToken().is_cancellation_requested()) {
-			co_return {protocols::fs::Error::none, 0};
-		}
 	}
 
 	auto packet = &_channel->masterQueue.front();
@@ -856,9 +853,6 @@ SlaveFile::readSome(Process *process, void *data, size_t maxLength, async::cance
 			if (logReadWrite)
 				std::cout << "posix: tty read interrupted" << std::endl;
 			co_return std::make_pair(protocols::fs::Error::interrupted, 0);
-		}
-		if (process->processTerminationToken().is_cancellation_requested()) {
-			co_return {protocols::fs::Error::none, 0};
 		}
 	}
 
