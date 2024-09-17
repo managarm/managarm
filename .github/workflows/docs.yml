@@ -37,12 +37,12 @@ jobs:
             run: ninja hel-api
             working-directory: build/
           - name: Upload handbook artifact
-            uses: actions/upload-artifact@v2
+            uses: actions/upload-artifact@v4
             with:
                 name: handbook
                 path: build/docs/
           - name: Upload hel reference artifact
-            uses: actions/upload-artifact@v2
+            uses: actions/upload-artifact@v4
             with:
                 name: hel-reference
                 path: build/hel-api/html/
