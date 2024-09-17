@@ -174,7 +174,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 					eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
 						<< frg::endlog;
 				}else{
-					setFbInfo(reinterpret_cast<void *>(framebuffer->address),
+					setFbInfo(reinterpret_cast<void *>(framebuffer_tag->address),
 							framebuffer_tag->width, framebuffer_tag->height, framebuffer_tag->pitch);
 
 					framebuffer = framebuffer_tag;
