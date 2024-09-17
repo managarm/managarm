@@ -201,7 +201,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
 	[] {
-		uacpi_table *mcfgTbl;
+		uacpi_table mcfgTbl;
 
 		auto ret = uacpi_table_find_by_signature("MCFG", &mcfgTbl);
 		if(ret == UACPI_STATUS_NOT_FOUND) {
@@ -210,15 +210,15 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 			return;
 		}
 
-		if(mcfgTbl->hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(McfgEntry)) {
+		if(mcfgTbl.hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(McfgEntry)) {
 			urgentLogger() << "thor: MCFG table has no entries, assuming legacy PCI!"
 					<< frg::endlog;
 			addLegacyConfigIo();
 			return;
 		}
 
-		size_t nEntries = (mcfgTbl->hdr->length - 44) / 16;
-		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgTbl->virt_addr + sizeof(acpi_sdt_hdr) + 8);
+		size_t nEntries = (mcfgTbl.hdr->length - 44) / 16;
+		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgTbl.virt_addr + sizeof(acpi_sdt_hdr) + 8);
 		for (size_t i = 0; i < nEntries; i++) {
 			auto &entry = mcfgEntries[i];
 			infoLogger() << "Found config space for segment " << entry.segment

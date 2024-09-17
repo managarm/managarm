@@ -121,17 +121,17 @@ namespace thor {
 namespace acpi {
 
 void bootOtherProcessors() {
-	uacpi_table *madtTbl;
+	uacpi_table madtTbl;
 
 	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
-	auto *madt = madtTbl->hdr;
+	auto *madt = madtTbl.hdr;
 
 	infoLogger() << "thor: Booting APs." << frg::endlog;
 
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
+		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			// TODO: Support BSPs with APIC ID != 0.
@@ -146,17 +146,17 @@ void bootOtherProcessors() {
 // --------------------------------------------------------
 
 void dumpMadt() {
-	uacpi_table *madtTbl;
+	uacpi_table madtTbl;
 
 	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
-	auto *madt = madtTbl->hdr;
+	auto *madt = madtTbl.hdr;
 
 	infoLogger() << "thor: Dumping MADT" << frg::endlog;
 
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
+		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		if(generic->type == 0) { // local APIC
 			auto entry = (MadtLocalEntry *)generic;
 			infoLogger() << "    Local APIC id: "
@@ -234,11 +234,8 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	[] {
 		uacpi_init_params params = {
 			.rsdp = thorBootInfoPtr->acpiRsdp,
-			.rt_params = {
-				.log_level = UACPI_LOG_INFO,
-				.flags = {},
-			},
-			.no_acpi_mode = {},
+			.log_level = UACPI_LOG_INFO,
+			.flags = 0,
 		};
 		auto ret = uacpi_initialize(&params);
 		assert(ret == UACPI_STATUS_OK);
@@ -252,11 +249,11 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 	[] {
 		dumpMadt();
 
-		uacpi_table *madtTbl;
+		uacpi_table madtTbl;
 
 		auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 		assert(ret == UACPI_STATUS_OK);
-		auto *madt = madtTbl->hdr;
+		auto *madt = madtTbl.hdr;
 
 		// Configure all interrupt controllers.
 		// TODO: This should be done during thor's initialization in order to avoid races.
@@ -264,7 +261,7 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 
 		size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 		while(offset < madt->length) {
-			auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
+			auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 			if(generic->type == 1) { // I/O APIC
 				auto entry = (MadtIoEntry *)generic;
 #ifdef __x86_64__
@@ -280,7 +277,7 @@ static initgraph::Task discoverIoApicsTask{&globalInitEngine, "acpi.discover-ioa
 
 		offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 		while(offset < madt->length) {
-			auto generic = (MadtGenericEntry *)(madtTbl->virt_addr + offset);
+			auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 			if(generic->type == 2) { // interrupt source override
 				auto entry = (MadtIntOverrideEntry *)generic;
 
