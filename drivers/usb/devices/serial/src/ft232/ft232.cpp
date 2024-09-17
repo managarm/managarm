@@ -29,7 +29,7 @@ async::result<void> Ft232::initialize() {
 			assert(!"unsupported");
 	}
 
-	auto descriptorOrError = co_await hw().configurationDescriptor();
+	auto descriptorOrError = co_await hw().configurationDescriptor(0);
 	assert(descriptorOrError);
 
 	std::optional<int> config_number;
@@ -54,7 +54,7 @@ async::result<void> Ft232::initialize() {
 		}
 	});
 
-	auto config = (co_await hw().useConfiguration(*config_number)).unwrap();
+	auto config = (co_await hw().useConfiguration(0, *config_number)).unwrap();
 	if_ = (co_await config.useInterface(intfNumber_.value(), 0)).unwrap();
 	in_ = (co_await if_->getEndpoint(protocols::usb::PipeType::in, in_endp_number.value())).unwrap();
 	out_ = (co_await if_->getEndpoint(protocols::usb::PipeType::out, out_endp_number.value())).unwrap();

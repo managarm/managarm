@@ -138,7 +138,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	std::optional<int> intfNumber;
 	std::optional<int> endNumber;
 
-	auto cfgDescriptor = FRG_CO_TRY(co_await device_.configurationDescriptor());
+	auto cfgDescriptor = FRG_CO_TRY(co_await device_.configurationDescriptor(0));
 	walkConfiguration(cfgDescriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!cfgNumber);
@@ -152,7 +152,7 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 		}
 	});
 
-	auto cfg = FRG_CO_TRY(co_await device_.useConfiguration(cfgNumber.value()));
+	auto cfg = FRG_CO_TRY(co_await device_.useConfiguration(0, cfgNumber.value()));
 	auto intf = FRG_CO_TRY(co_await cfg.useInterface(intfNumber.value(), 0));
 	endpoint_ = FRG_CO_TRY(co_await intf.getEndpoint(PipeType::in, endNumber.value()));
 

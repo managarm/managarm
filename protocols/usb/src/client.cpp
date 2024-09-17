@@ -24,7 +24,7 @@ struct DeviceState final : DeviceData {
 
 	async::result<frg::expected<UsbError, std::string>> deviceDescriptor() override;
 	async::result<frg::expected<UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
-	async::result<frg::expected<UsbError, Configuration>> useConfiguration(int number) override;
+	async::result<frg::expected<UsbError, Configuration>> useConfiguration(uint8_t index, uint8_t value) override;
 	async::result<frg::expected<UsbError, size_t>> transfer(ControlTransfer info) override;
 
 private:
@@ -151,10 +151,10 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDe
 	co_return recvBuffer;
 }
 
-async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(int number) {
+async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfiguration(uint8_t index, uint8_t value) {
 	managarm::usb::UseConfigurationRequest req;
-
-	req.set_number(number);
+	req.set_index(index);
+	req.set_value(value);
 
 	auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
 		_lane,

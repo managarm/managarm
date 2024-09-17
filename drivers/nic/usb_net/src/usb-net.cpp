@@ -17,7 +17,7 @@ namespace nic::usb_net {
 
 async::result<std::shared_ptr<nic::Link>> makeShared(mbus_ng::EntityId entity, protocols::usb::Device hw_device, MacAddress mac,
 		ConfigurationInfo info) {
-	auto config = (co_await hw_device.useConfiguration(*info.chosen_configuration)).unwrap();
+	auto config = (co_await hw_device.useConfiguration(info.configuration_index, *info.chosen_configuration)).unwrap();
 	auto ctrl_intf = (co_await config.useInterface(*info.control_if, 0)).unwrap();
 	auto ctrl_ep = (co_await ctrl_intf.getEndpoint(protocols::usb::PipeType::in, *info.int_endp_number)).value();
 

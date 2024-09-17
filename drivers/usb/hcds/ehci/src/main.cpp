@@ -34,38 +34,6 @@ namespace proto = protocols::usb;
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 // ----------------------------------------------------------------------------
-// Enumerator.
-// ----------------------------------------------------------------------------
-
-Enumerator::Enumerator(Controller *controller)
-: _controller{controller} { }
-
-void Enumerator::connectPort(int port) {
-	_reset(port);
-}
-
-void Enumerator::enablePort(int port) {
-	assert(_activePort == port);
-	_probe();
-}
-
-void Enumerator::disablePort(int port) {
-	assert(_activePort == port);
-	_addressMutex.unlock();
-}
-
-async::detached Enumerator::_reset(int port) {
-	co_await _addressMutex.async_lock();
-	_activePort = port;
-	_controller->resetPort(_activePort);
-}
-
-async::detached Enumerator::_probe() {
-	co_await _controller->probeDevice();
-	_addressMutex.unlock();
-}
-
-// ----------------------------------------------------------------------------
 // Memory management.
 // ----------------------------------------------------------------------------
 
@@ -113,10 +81,10 @@ async::result<frg::expected<proto::UsbError, std::string>> DeviceState::configur
 	return _controller->configurationDescriptor(_device, configuration);
 }
 
-async::result<frg::expected<proto::UsbError, proto::Configuration>> DeviceState::useConfiguration(int number) {
-	FRG_CO_TRY(co_await _controller->useConfiguration(_device, number));
+async::result<frg::expected<proto::UsbError, proto::Configuration>> DeviceState::useConfiguration(uint8_t index, uint8_t value) {
+	FRG_CO_TRY(co_await _controller->useConfiguration(_device, value));
 	co_return proto::Configuration{std::make_shared<ConfigurationState>(_controller,
-			_device, number)};
+				_device, index, value)};
 }
 
 async::result<frg::expected<proto::UsbError, size_t>> DeviceState::transfer(proto::ControlTransfer info) {
@@ -128,14 +96,13 @@ async::result<frg::expected<proto::UsbError, size_t>> DeviceState::transfer(prot
 // ----------------------------------------------------------------------------
 
 ConfigurationState::ConfigurationState(std::shared_ptr<Controller> controller,
-		int device, int configuration)
-: _controller{std::move(controller)}, _device(device), _configuration(configuration) {
-	(void)_configuration;
+		int device, uint8_t index, uint8_t value)
+: _controller{std::move(controller)}, _device(device), _index(index), _value(value) {
 }
 
 async::result<frg::expected<proto::UsbError, proto::Interface>>
 ConfigurationState::useInterface(int number, int alternative) {
-	FRG_CO_TRY(co_await _controller->useInterface(_device, number, alternative));
+	FRG_CO_TRY(co_await _controller->useInterface(_device, _index, _value, number, alternative));
 	co_return proto::Interface{std::make_shared<InterfaceState>(_controller, _device, number)};
 }
 
@@ -255,6 +222,9 @@ async::detached Controller::initialize() {
 	_operational.store(op_regs::usbcmd, usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	_operational.store(op_regs::configflag, 0x01);
 
+	_rootHub = std::make_shared<RootHub>(this);
+	_enumerator.observeHub(_rootHub);
+
 	_checkPorts();
 	handleIrqs();
 }
@@ -268,12 +238,18 @@ void Controller::_checkPorts() {
 		auto sc = port_space.load(port_regs::sc);
 //		std::cout << "port " << i << " sc: " << static_cast<unsigned int>(sc) << std::endl;
 
+		auto &port = _rootHub->port(i);
+
 		if(sc & portsc::enableChange) {
 			// EHCI specifies that enableChange is only set on port error.
 			port_space.store(port_regs::sc, portsc::enableChange(true)
 					| portsc::portOwner(sc & portsc::portOwner));
 			if(!(sc & portsc::enableStatus)) {
 				std::cout << "ehci: Port " << i << " disabled due to error" << std::endl;
+
+				port.state.changes |= proto::HubStatus::enable;
+				port.state.status &= ~proto::HubStatus::enable;
+				port.pollEv.raise();
 			}else{
 				std::cout << "ehci: Spurious portsc::enableChange" << std::endl;
 			}
@@ -293,17 +269,29 @@ void Controller::_checkPorts() {
 				}else{
 					if(logDeviceEnumeration)
 						std::cout << "ehci: Connect on port " << i << std::endl;
-					_enumerator.connectPort(i);
+
+					port.state.changes |= proto::HubStatus::connect;
+					port.state.status |= proto::HubStatus::connect;
+					port.pollEv.raise();
 				}
 			}else{
 				if(logDeviceEnumeration)
 					std::cout << "ehci: Disconnect on port " << i << std::endl;
+
+				port.state.changes |= proto::HubStatus::connect;
+				port.state.status &= ~proto::HubStatus::connect;
+				port.pollEv.raise();
 			}
 		}
 	}
 }
 
-async::result<void> Controller::probeDevice() {
+async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
+	// TODO(qookie): Hub support
+	assert(hub.get() == _rootHub.get());
+	// Requires split TX when we have hub support
+	assert(speed == proto::DeviceSpeed::highSpeed);
+
 	// This queue will become the default control pipe of our new device.
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
 	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, proto::PipeType::control, 64};
@@ -586,25 +574,20 @@ Controller::useConfiguration(int address, int configuration) {
 }
 
 async::result<frg::expected<proto::UsbError>>
-Controller::useInterface(int address, int interface, int alternative) {
+Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative) {
 	(void) interface;
 	assert(!alternative);
 
-	arch::dma_object<proto::SetupPacket> get{&schedulePool};
-	get->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
-			| proto::setup_type::toHost;
-	get->request = proto::request_type::getConfig;
-	get->value = 0;
-	get->index = 0;
-	get->length = 1;
+	std::optional<uint8_t> valueByIndex;
 
-	arch::dma_object<uint8_t> get_conf_desc{&schedulePool};
-	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			get, get_conf_desc.view_buffer()}));
-
-	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, *get_conf_desc.data()));
+	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, configIndex));
 	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
 		(void)length;
+
+		if(type == proto::descriptor_type::configuration) {
+			auto desc = (proto::ConfigDescriptor *)p;
+			valueByIndex = desc->configValue;
+		}
 
 		if(type != proto::descriptor_type::endpoint)
 			return;
@@ -639,7 +622,17 @@ Controller::useInterface(int address, int interface, int alternative) {
 			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
 		}
 	});
-	co_return {};
+
+	assert(valueByIndex);
+	// Bail out if the user has no idea what they're asking for
+	// A little late, but better late than never...
+	if (*valueByIndex != configValue) {
+		printf("ehci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
+				configIndex, configValue, *valueByIndex);
+		co_return proto::UsbError::other;
+	}
+
+	co_return frg::success;
 }
 
 // ------------------------------------------------------------------------
@@ -1003,7 +996,8 @@ void Controller::_progressQueue(QueueEntity *entity) {
 // ----------------------------------------------------------------------------
 
 // TODO: This should be async.
-async::detached Controller::resetPort(int number) {
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+Controller::resetPort(int number) {
 	auto offset = _space.load(cap_regs::caplength);
 	auto port_space = _space.subspace(offset + 0x44 + (4 * number));
 
@@ -1027,14 +1021,22 @@ async::detached Controller::resetPort(int number) {
 		sc = port_space.load(port_regs::sc);
 	} while(sc & portsc::portReset);
 
+	auto &port = _rootHub->port(number);
+
 	if(sc & portsc::enableStatus) {
 		assert(!(sc & portsc::enableChange)); // See handleIrqs().
 		std::cout << "ehci: Port " << number << " was enabled." << std::endl;
-		_enumerator.enablePort(number);
+
+		port.state.changes |= proto::HubStatus::enable;
+		port.state.status |= proto::HubStatus::enable;
+		port.pollEv.raise();
+
+		co_return proto::DeviceSpeed::highSpeed;
 	}else{
 		std::cout << "ehci: Device on port " << number << " is not high-speed" << std::endl;
 		port_space.store(port_regs::sc, portsc::portOwner(true));
-		_enumerator.disablePort(number);
+
+		co_return proto::UsbError::unsupported;
 	}
 }
 
@@ -1102,6 +1104,30 @@ void Controller::_dump(QueueEntity *entity) {
 		std::cout << "    dataToggle: " << (int)(transfer.status.load()
 				& td_status::dataToggle) << std::endl;
 	}
+}
+
+// ----------------------------------------------------------------
+// Root hub.
+// ----------------------------------------------------------------
+
+Controller::RootHub::RootHub(Controller *controller)
+: Hub{nullptr, 0}, _controller{controller} {
+	for (int i = 0; i < _controller->_numPorts; i++) {
+		_ports.push_back(std::make_unique<Port>());
+	}
+}
+
+size_t Controller::RootHub::numPorts() {
+	return _ports.size();
+}
+
+async::result<proto::PortState> Controller::RootHub::pollState(int port) {
+	co_return co_await _ports[port]->pollState();
+}
+
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+Controller::RootHub::issueReset(int port) {
+	co_return co_await _controller->resetPort(port);
 }
 
 // ----------------------------------------------------------------

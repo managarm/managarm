@@ -39,7 +39,8 @@ head(128):
 
 message UseConfigurationRequest 2 {
 head(128):
-	int32 number;
+	uint8 index;
+	uint8 value;
 }
 
 message UseInterfaceRequest 3 {
