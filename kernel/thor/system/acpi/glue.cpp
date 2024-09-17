@@ -541,3 +541,30 @@ void uacpi_kernel_reset_event(uacpi_handle opaque) {
 	auto *event = reinterpret_cast<AcpiEvent *>(opaque);
 	event->counter.store(0, std::memory_order_release);
 }
+
+uacpi_thread_id uacpi_kernel_get_thread_id(void) {
+	return thisFiber();
+}
+
+
+uacpi_handle uacpi_kernel_create_spinlock(void) {
+	return frg::construct<IrqSpinlock>(*kernelAlloc);
+}
+void uacpi_kernel_free_spinlock(uacpi_handle opaque) {
+	frg::destruct(*kernelAlloc, reinterpret_cast<IrqSpinlock *>(opaque));
+}
+
+uacpi_cpu_flags uacpi_kernel_spinlock_lock(uacpi_handle opaque) {
+	auto *lock = reinterpret_cast<IrqSpinlock *>(opaque);
+
+	lock->lock();
+
+	// IrqSpinlock already manages turning off interrupts, so no
+	// need to track that here.
+	return 0;
+}
+
+void uacpi_kernel_spinlock_unlock(uacpi_handle opaque, uacpi_cpu_flags) {
+	auto *mutex = reinterpret_cast<IrqSpinlock *>(opaque);
+	mutex->unlock();
+}

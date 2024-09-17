@@ -206,7 +206,7 @@ uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node*, uacpi
 }
 
 static bool initFromEcdt() {
-	uacpi_table *ecdtTbl;
+	uacpi_table ecdtTbl;
 
 	auto ret = uacpi_table_find_by_signature("ECDT", &ecdtTbl);
 	if(ret != UACPI_STATUS_OK) {
@@ -214,7 +214,7 @@ static bool initFromEcdt() {
 		return false;
 	}
 
-	auto *ecdt = reinterpret_cast<acpi_ecdt *>(ecdtTbl->hdr);
+	auto *ecdt = reinterpret_cast<acpi_ecdt *>(ecdtTbl.hdr);
 	infoLogger() << "thor: found ECDT, EC@" << ecdt->ec_id << frg::endlog;
 
 	auto *ecNode = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id);

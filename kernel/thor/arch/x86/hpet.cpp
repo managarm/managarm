@@ -229,18 +229,18 @@ static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 	initgraph::Entails{getHpetInitializedStage()},
 	// Initialize the HPET.
 	[] {
-		uacpi_table *hpetTbl;
+		uacpi_table hpetTbl;
 
 		auto ret = uacpi_table_find_by_signature("HPET", &hpetTbl);
 		if(ret != UACPI_STATUS_OK) {
 			urgentLogger() << "thor: No HPET table!" << frg::endlog;
 			return;
 		}
-		if(hpetTbl->hdr->length < sizeof(acpi_sdt_hdr) + sizeof(HpetEntry)) {
+		if(hpetTbl.hdr->length < sizeof(acpi_sdt_hdr) + sizeof(HpetEntry)) {
 			urgentLogger() << "thor: HPET table has no entries!" << frg::endlog;
 			return;
 		}
-		auto hpetEntry = (HpetEntry *)(hpetTbl->virt_addr + sizeof(acpi_sdt_hdr));
+		auto hpetEntry = (HpetEntry *)(hpetTbl.virt_addr + sizeof(acpi_sdt_hdr));
 		infoLogger() << "thor: Setting up HPET" << frg::endlog;
 		assert(hpetEntry->address.address_space_id == ACPI_AS_ID_SYS_MEM);
 		setupHpet(hpetEntry->address.address);
