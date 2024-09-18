@@ -86,6 +86,29 @@ public:
 		return _ctime;
 	}
 
+	void setUid(uid_t uid) {
+		_uid = uid;
+	}
+
+	void setGid(gid_t gid) {
+		_gid = gid;
+	}
+
+	void setAtime(timespec atime) {
+		_atime.tv_sec = atime.tv_sec;
+		_atime.tv_nsec = atime.tv_nsec;
+	}
+
+	void setCtime(timespec ctime) {
+		_ctime.tv_sec = ctime.tv_sec;
+		_ctime.tv_nsec = ctime.tv_nsec;
+	}
+
+	void setMtime(timespec mtime) {
+		_mtime.tv_sec = mtime.tv_sec;
+		_mtime.tv_nsec = mtime.tv_nsec;
+	}
+
 	async::result<Error> chmod(int mode) override {
 		_mode = (_mode & 0xFFFFF000) | mode;
 		co_return Error::success;
@@ -506,13 +529,27 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *self) override {
 		auto node = std::make_shared<MemoryNode>(this);
+		struct timespec time;
+		// TODO: Move to CLOCK_REALTIME when supported
+		clock_gettime(CLOCK_MONOTONIC, &time);
+		node->setAtime(time);
+		node->setCtime(time);
+		node->setMtime(time);
+		node->setUid(self->uid());
+		node->setGid(self->gid());
 		co_return std::move(node);
 	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
 		auto node = std::make_shared<SocketNode>(this);
+		struct timespec time;
+		// TODO: Move to CLOCK_REALTIME when supported
+		clock_gettime(CLOCK_MONOTONIC, &time);
+		node->setAtime(time);
+		node->setCtime(time);
+		node->setMtime(time);
 		co_return std::move(node);
 	}
 
