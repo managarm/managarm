@@ -167,7 +167,7 @@ namespace Transfer {
 	template <typename FU, typename FB, typename ...Ts>
 	inline void buildTransferChain(size_t maxPacketSize, FU use, arch::dma_buffer_view view, FB build, Ts ...ts) {
 		assert(std::popcount(maxPacketSize) == 1);
-		size_t tdPacketCount = (view.size() + maxPacketSize - 1) & ~(maxPacketSize - 1);
+		size_t tdPacketCount = (view.size() + maxPacketSize - 1) / maxPacketSize;
 
 		size_t progress = 0;
 		while(progress < view.size()) {
@@ -178,6 +178,7 @@ namespace Transfer {
 
 			bool chain = (progress + chunk) < view.size();
 
+			// TODO(qookie): For xHCI 0.96 and older, this should be (progress + chunk) >> 10.
 			auto tdSize = tdPacketCount - (progress + chunk) / maxPacketSize;
 			// Last TRB always has TD Size = 0
 			if ((progress + chunk) == view.size())
