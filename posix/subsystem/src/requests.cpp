@@ -1737,7 +1737,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					auto link = linkResult.value();
 					auto fileResult = co_await node->open(self.get(), resolver.currentView(), std::move(link),
 										semantic_flags);
-					assert(fileResult);
+					if(!fileResult) {
+						if(fileResult.error() == Error::accessDenied) {
+							co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+							continue;
+						} else {
+							std::cout << "posix: Unexpected failure from open() error: " << (int)fileResult.error() << std::endl;
+							co_return;
+						}
+					}
 					file = fileResult.value();
 					assert(file);
 				}
@@ -1774,6 +1782,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 							continue;
 						} else if(fileResult.error() == Error::illegalArguments) {
 							co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+							continue;
+						} else if(fileResult.error() == Error::accessDenied) {
+							co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;

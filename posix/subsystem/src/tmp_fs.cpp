@@ -140,6 +140,46 @@ private:
 	timespec _ctime = {0, 0};
 };
 
+bool checkReadPerms(uid_t uid, gid_t gid, uid_t file_uid, gid_t file_gid, mode_t mode) {
+	if(!(mode & S_IRUSR) && !(mode & S_IRGRP) && !(mode & S_IROTH)) {
+		return false;
+	}
+
+	// Check for owner
+	if(uid == file_uid) {
+		return mode & S_IRUSR;
+	}
+
+	// Not owner, but maybe we're in the group?
+	// TODO: Support supplemental group lists
+	if(gid == file_gid) {
+		return mode & S_IRGRP;
+	}
+
+	// Neither owner nor group, check other
+	return mode & S_IROTH;
+}
+
+bool checkWritePerms(uid_t uid, gid_t gid, uid_t file_uid, gid_t file_gid, mode_t mode) {
+	if(!(mode & S_IWUSR) && !(mode & S_IWGRP) && !(mode & S_IWOTH)) {
+		return false;
+	}
+
+	// Check for owner
+	if(uid == file_uid) {
+		return mode & S_IWUSR;
+	}
+
+	// Not owner, but maybe we're in the group?
+	// TODO: Support supplemental group lists
+	if(gid == file_gid) {
+		return mode & S_IWGRP;
+	}
+
+	// Neither owner nor group, check other
+	return mode & S_IWOTH;
+}
+
 struct SymlinkNode final : Node {
 private:
 	VfsType getType() override {
@@ -477,6 +517,12 @@ struct MemoryNode final : Node {
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;
 			co_return Error::illegalArguments;
+		}
+		if((semantic_flags & semanticRead) && !checkReadPerms(self->uid(), self->gid(), uid(), gid(), mode())) {
+			co_return Error::accessDenied;
+		}
+		if((semantic_flags & semanticWrite) && !checkWritePerms(self->uid(), self->gid(), uid(), gid(), mode())) {
+			co_return Error::accessDenied;
 		}
 		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
