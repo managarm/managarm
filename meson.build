@@ -174,11 +174,13 @@ if build_drivers
 endif
 
 if build_drivers or provide_deps
+	subdir('protocols/posix')
+
 	# this produces the helix dependency which
-	# all protocols depend on
+	# all other protocols depend on
 	subdir('hel')
 
-	protocols = [ 'posix', 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
+	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
 	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [

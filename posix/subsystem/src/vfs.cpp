@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <coroutine>
 #include <future>
+#include <helix/passthrough-fd.hpp>
 
 #include "common.hpp"
 #include "fs.bragi.hpp"
@@ -12,8 +13,6 @@
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
 #include "sysfs.hpp"
-
-HelHandle __mlibc_getPassthrough(int fd);
 
 static bool debugResolve = false;
 
@@ -94,7 +93,7 @@ async::result<void> populateRootView() {
 		auto dir_fd = open(dir_path.c_str(), O_RDONLY);
 		assert(dir_fd != -1);
 
-		auto lane = helix::BorrowedLane{__mlibc_getPassthrough(dir_fd)};
+		auto lane = helix::BorrowedLane{helix::handleForFd(dir_fd)};
 		while(true) {
 			managarm::fs::CntRequest req;
 			req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);

@@ -1,3 +1,4 @@
+#include <helix/passthrough-fd.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 
@@ -6,8 +7,6 @@
 
 #include <bitset>
 #include <coroutine>
-
-HelHandle __mlibc_getPassthrough(int fd);
 
 namespace {
 
@@ -40,7 +39,7 @@ private:
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
-		return helix::BorrowedDescriptor(__mlibc_getPassthrough(1));
+		return helix::BorrowedDescriptor(helix::handleForFd(1));
 	}
 
 public:
