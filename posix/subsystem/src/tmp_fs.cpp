@@ -3,6 +3,7 @@
 #include <set>
 
 #include <helix/memory.hpp>
+#include <helix/passthrough-fd.hpp>
 #include <protocols/fs/client.hpp>
 #include <protocols/fs/server.hpp>
 #include "common.hpp"
@@ -16,7 +17,6 @@
 
 // TODO: Remove dependency on those functions.
 #include "extern_fs.hpp"
-HelHandle __mlibc_getPassthrough(int fd);
 HelHandle __raw_map(int fd);
 
 namespace tmp_fs {
@@ -378,7 +378,7 @@ private:
 		auto fd = ::open(_path.c_str(), O_RDONLY);
 		assert(fd != -1);
 
-		helix::UniqueDescriptor passthrough(__mlibc_getPassthrough(fd));
+		helix::UniqueDescriptor passthrough(helix::handleForFd(fd));
 		co_return extern_fs::createFile(std::move(passthrough), std::move(mount), std::move(link));
 	}
 
