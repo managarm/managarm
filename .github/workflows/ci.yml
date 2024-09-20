@@ -10,11 +10,18 @@ jobs:
                   - pkg: managarm-kernel
                     tool_deps: >-
                         cross-binutils
+                        host-autoconf-v2.69
+                        host-automake-v1.11
+                        host-automake-v1.15
+                        host-libtool
                         host-llvm-toolchain
                         host-managarm-tools
+                        host-pkg-config
                         kernel-gcc
                         system-gcc
                     pkg_deps: >-
+                        libdrm-headers
+                        linux-headers
                         mlibc
                         mlibc-headers
                   - pkg: managarm-system
@@ -26,13 +33,15 @@ jobs:
                         host-libtool
                         host-llvm-toolchain
                         host-managarm-tools
+                        host-mold
                         host-pkg-config
                         host-xorg-macros
-                        host-mold
                         system-gcc
                     pkg_deps: >-
                         boost
                         eudev
+                        libdrm-headers
+                        linux-headers
                         mlibc
                         mlibc-headers
         name: Build ${{ matrix.pkg }}
