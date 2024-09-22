@@ -986,7 +986,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 					{ ECHOK, "ECHOK" },
 					{ ECHONL, "ECHONL" },
 					{ ECHOCTL, "ECHOCTL" },
-					{ ECHOPRT, "ECHOCTL" },
+					{ ECHOPRT, "ECHOPRT" },
 					{ ECHOKE, "ECHOKE" },
 					{ NOFLSH, "NOFLSH" },
 					{ TOSTOP, "TOSTOP" },
