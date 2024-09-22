@@ -129,6 +129,31 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 		channel->statusBell.raise();
 	};
 
+	auto is_control_char = [](char c) -> bool {
+		return c < 32 || c == 0x7F;
+	};
+
+	auto erase_char = [&](bool erase) {
+		if(!packet.buffer.empty()) {
+			size_t chars = 1;
+			char c = packet.buffer.back();
+			packet.buffer.pop_back();
+
+			if(is_control_char(c))
+				chars = 2;
+
+			if((channel->activeSettings.c_lflag & ECHO) && erase) {
+				Packet echopacket;
+				for(size_t i = 0; i < chars; i++) {
+					echopacket.buffer.push_back('\b');
+					echopacket.buffer.push_back(' ');
+					echopacket.buffer.push_back('\b');
+				}
+				enqueueOut(std::move(echopacket));
+			}
+		}
+	};
+
 	char c = character;
 
 	if(channel->activeSettings.c_iflag & ISTRIP)
@@ -147,17 +172,6 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 
 	if((channel->activeSettings.c_iflag & IUCLC) && (c >= 'A' && c <= 'Z'))
 		c = c - 'A' + 'a';
-
-	char echo_char = (channel->activeSettings.c_lflag & ECHO) ? c : '\0';
-
-	if((channel->activeSettings.c_lflag & ECHOCTL) && (channel->activeSettings.c_lflag & ECHO)
-		&& c < 32 && c != '\n' && c != '\t') {
-		Packet echopacket;
-		echopacket.buffer.push_back('^');
-		echopacket.buffer.push_back(c + 0x40);
-		enqueueOut(std::move(echopacket));
-		echo_char = '\0';
-	}
 
 	if(channel->activeSettings.c_lflag & ISIG) {
 		std::optional<int> signal = {};
@@ -178,18 +192,64 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 	}
 
 	if(channel->activeSettings.c_lflag & ICANON) {
+		if(c == static_cast<char>(channel->activeSettings.c_cc[VKILL])) {
+			while(!packet.buffer.empty()) {
+				erase_char(channel->activeSettings.c_lflag & ECHOK);
+			}
+
+			return;
+		}
+
+		if(c == static_cast<char>(channel->activeSettings.c_cc[VERASE])) {
+			erase_char(channel->activeSettings.c_lflag & ECHOE);
+			return;
+		}
+
+		if((channel->activeSettings.c_lflag & IEXTEN) &&
+		c == static_cast<char>(channel->activeSettings.c_cc[VWERASE])) {
+			// remove trailing whitespace
+			while(!packet.buffer.empty() && packet.buffer.back() == ' ') {
+				erase_char(channel->activeSettings.c_lflag & ECHOE);
+			}
+
+			// remove last word
+			while(!packet.buffer.empty() && packet.buffer.back() != ' ') {
+				erase_char(channel->activeSettings.c_lflag & ECHOE);
+			}
+
+			return;
+		}
+
 		if(c == static_cast<char>(channel->activeSettings.c_cc[VEOF])) {
 			enqueuePacket(std::move(packet));
 			packet = Packet{};
 
 			return;
 		}
+	}
 
+	char echo_char = (channel->activeSettings.c_lflag & ECHO) ? c : '\0';
+
+	if((channel->activeSettings.c_lflag & ECHOCTL) && (channel->activeSettings.c_lflag & ECHO)
+		&& c < 32 && c != '\n' && c != '\t') {
+		Packet echopacket;
+		echopacket.buffer.push_back('^');
+		echopacket.buffer.push_back(c + 0x40);
+		enqueueOut(std::move(echopacket));
+		echo_char = '\0';
+	}
+
+	if(channel->activeSettings.c_lflag & ICANON) {
 		packet.buffer.push_back(c);
 
 		if(echo_char) {
 			Packet echopacket;
-			echopacket.buffer.push_back(c);
+			if(is_control_char(c) && c != '\n') {
+				echopacket.buffer.push_back('^');
+				echopacket.buffer.push_back(('@' + c) % 128);
+			} else {
+				echopacket.buffer.push_back(c);
+			}
 			enqueueOut(std::move(echopacket));
 		}
 
@@ -848,8 +908,8 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength) {
 
 	auto packet = &_channel->slaveQueue.front();
 	auto chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
-	assert(chunk); // Otherwise, we return above due to !maxLength.
-	memcpy(data, packet->buffer.data() + packet->offset, chunk);
+	if(chunk)
+		memcpy(data, packet->buffer.data() + packet->offset, chunk);
 	packet->offset += chunk;
 	if(packet->offset == packet->buffer.size())
 		_channel->slaveQueue.pop_front();
