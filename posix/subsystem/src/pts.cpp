@@ -920,14 +920,8 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			managarm::fs::GenericIoctlReply resp;
 			struct termios attrs;
 
-			// Element-wise copy to avoid information leaks in padding.
 			memset(&attrs, 0, sizeof(struct termios));
-			attrs.c_iflag = _channel->activeSettings.c_iflag;
-			attrs.c_oflag = _channel->activeSettings.c_oflag;
-			attrs.c_cflag = _channel->activeSettings.c_cflag;
-			attrs.c_lflag = _channel->activeSettings.c_lflag;
-			for(int i = 0; i < NCCS; i++)
-				attrs.c_cc[i] = _channel->activeSettings.c_cc[i];
+			ttyCopyTermios(_channel->activeSettings, attrs);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
