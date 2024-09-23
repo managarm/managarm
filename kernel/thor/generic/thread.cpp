@@ -35,9 +35,9 @@ void Thread::migrateCurrent() {
 	Scheduler::unassociate(this_thread);
 
 	size_t n = -1;
-	for (int i = 0; i < getCpuCount(); i++) {
+	for (size_t i = 0; i < getCpuCount(); i++) {
 		bool bit = 0;
-		if ((static_cast<size_t>(i) + 7) / 8 < this_thread->_affinityMask.size())
+		if ((i + 7) / 8 < this_thread->_affinityMask.size())
 			bit = this_thread->_affinityMask[(i + 7) / 8] & (1 << (i % 8));
 
 		if (bit) {

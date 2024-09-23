@@ -535,7 +535,7 @@ CpuData *getCpuData(size_t k) {
 	return (*allCpuContexts)[k];
 }
 
-int getCpuCount() {
+size_t getCpuCount() {
 	return allCpuContexts->size();
 }
 
