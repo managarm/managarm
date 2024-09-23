@@ -184,7 +184,7 @@ void Scheduler::update() {
 	// Returns the reciprocal in 0.8 fixed point format.
 	auto fixedInverse = [] (uint32_t x) -> uint32_t {
 		assert(x < (1 << 6));
-		return static_cast<uint32_t>(1 << 8) / x;
+		return (1 << 8) / x;
 	};
 
 	assert(_current);

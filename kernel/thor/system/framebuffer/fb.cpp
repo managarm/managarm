@@ -32,8 +32,8 @@ struct FbDisplay final : TextDisplay {
 		_window = reinterpret_cast<uint32_t *>(ptr);
 	}
 
-	int getWidth() override;
-	int getHeight() override;
+	size_t getWidth() override;
+	size_t getHeight() override;
 
 	void setChars(unsigned int x, unsigned int y,
 			const char *c, int count, int fg, int bg) override;
@@ -48,11 +48,11 @@ private:
 	size_t _pitch;
 };
 
-int FbDisplay::getWidth() {
+size_t FbDisplay::getWidth() {
 	return _width / fontWidth;
 }
 
-int FbDisplay::getHeight() {
+size_t FbDisplay::getHeight() {
 	return _height / fontHeight;
 }
 
