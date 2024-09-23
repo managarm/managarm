@@ -11,7 +11,7 @@ void panic();
 // Log infrastructure.
 // --------------------------------------------------------
 
-constexpr int logLineLength = 256;
+constexpr size_t logLineLength = 256;
 
 struct LogMessage {
 	char text[logLineLength];

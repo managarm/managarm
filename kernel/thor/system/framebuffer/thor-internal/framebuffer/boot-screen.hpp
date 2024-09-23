@@ -5,8 +5,8 @@
 namespace thor {
 
 struct TextDisplay {
-	virtual int getWidth() = 0;
-	virtual int getHeight() = 0;
+	virtual size_t getWidth() = 0;
+	virtual size_t getHeight() = 0;
 
 	virtual void setChars(unsigned int x, unsigned int y,
 			const char *c, int count, int fg, int bg) = 0;
@@ -18,7 +18,7 @@ protected:
 
 struct BootScreen final : public LogHandler {
 	struct Formatter {
-		Formatter(BootScreen *screen, int x, int y);
+		Formatter(BootScreen *screen, size_t x, size_t y);
 
 		void print(const char *c);
 
@@ -29,8 +29,8 @@ struct BootScreen final : public LogHandler {
 		int _modeStack[4];
 		int _modeCount;
 
-		int _x;
-		int _y;
+		size_t _x;
+		size_t _y;
 		int _fg = 15;
 		int _bg = -1;
 		int _initialFg = _fg;
@@ -46,8 +46,8 @@ struct BootScreen final : public LogHandler {
 
 private:
 	TextDisplay *_display;
-	int _width;
-	int _height;
+	size_t _width;
+	size_t _height;
 
 	uint64_t _bottomSequence;
 	Formatter _fmt;

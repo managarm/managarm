@@ -3,9 +3,9 @@
 
 namespace thor {
 
-BootScreen::Formatter::Formatter(BootScreen *screen, int x, int y)
+BootScreen::Formatter::Formatter(BootScreen *screen, size_t x, size_t y)
 : _screen{screen}, _csiState{0}, _modeCount{0}, _x{x}, _y{y} {
-	for(int i = 0; i < 4; i++)
+	for(size_t i = 0; i < 4; i++)
 		_modeStack[i] = 0;
 }
 
@@ -18,7 +18,7 @@ void BootScreen::Formatter::print(const char *c) {
 			}else if(*c == '\t') {
 				constexpr const char *spaces = "        ";
 
-				int n = 8 - (_x % 8);
+				size_t n = 8 - (_x % 8);
 				if (!n)
 					n = 8;
 
@@ -30,7 +30,7 @@ void BootScreen::Formatter::print(const char *c) {
 
 				c++;
 			}else{
-				int n = 0;
+				size_t n = 0;
 				while(c[n] && c[n] != '\x1B')
 					n++;
 				int m = frg::min(_screen->_width - _x, n);
@@ -93,7 +93,7 @@ BootScreen::BootScreen(TextDisplay *display)
 }
 
 void BootScreen::printChar(char) {
-	auto displayLine = [&] (uint64_t seq, int i) {
+	auto displayLine = [&] (uint64_t seq, size_t i) {
 		LogMessage log;
 		copyLogMessage(seq, log);
 		_fmt = Formatter{this, 0, i};
@@ -102,8 +102,8 @@ void BootScreen::printChar(char) {
 
 	if(auto cs = currentLogSequence(); _bottomSequence < cs) {
 		// Fully redraw the first _height - 1 lines.
-		for(int i = 1; i < _height; i++) {
-			if(cs < static_cast<uint64_t>(i))
+		for(size_t i = 1; i < _height; i++) {
+			if(cs < i)
 				break;
 			displayLine(cs - i, _height - 1 - i);
 		}
