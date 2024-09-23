@@ -8,6 +8,7 @@
 #include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <helix/timer.hpp>
 
@@ -3460,11 +3461,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_MEMORY_INFORMATION" << std::endl;
 
 			managarm::kerncfg::GetMemoryInformationRequest kerncfgRequest;
-			auto [kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
+			auto [offer, kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
 				getKerncfgLane(),
-				helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
-				helix_ng::RecvInline{}
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
+					helix_ng::recvInline()
+				)
 			);
+			HEL_CHECK(offer.error());
 			HEL_CHECK(kerncfgSendResp.error());
 			HEL_CHECK(kerncfgResp.error());
 
@@ -3480,6 +3484,47 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(sendResp.error());
+		}else if(preamble.id() == managarm::posix::SysconfRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SysconfRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: SYSCONF" << std::endl;
+
+			managarm::posix::SysconfResponse resp;
+
+			// Configured == available == online
+			if(req->num() == _SC_NPROCESSORS_CONF || req->num() == _SC_NPROCESSORS_ONLN) {
+				managarm::kerncfg::GetNumCpuRequest kerncfgRequest;
+				auto [offer, kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
+				getKerncfgLane(),
+				helix_ng::offer(
+						helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
+						helix_ng::recvInline()
+					)
+				);
+				HEL_CHECK(offer.error());
+				HEL_CHECK(kerncfgSendResp.error());
+				HEL_CHECK(kerncfgResp.error());
+
+				auto kernResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(kerncfgResp);
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_value(kernResp->num_cpu());
+			} else {
+				// Not handled, bubble up EINVAL.
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			}
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;

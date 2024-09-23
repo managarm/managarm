@@ -47,3 +47,13 @@ head(128):
 	uint64 available_memory;
 	uint64 memory_unit;
 }
+
+message GetNumCpuRequest 6 {
+head(128):
+}
+
+message GetNumCpuResponse 7 {
+head(128):
+	Error error;
+	uint64 num_cpu;
+}
