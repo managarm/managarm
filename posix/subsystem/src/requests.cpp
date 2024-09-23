@@ -3460,11 +3460,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: GET_MEMORY_INFORMATION" << std::endl;
 
 			managarm::kerncfg::GetMemoryInformationRequest kerncfgRequest;
-			auto [kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
+			auto [offer, kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
 				getKerncfgLane(),
-				helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
-				helix_ng::RecvInline{}
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(kerncfgRequest, frg::stl_allocator{}),
+					helix_ng::recvInline()
+				)
 			);
+			HEL_CHECK(offer.error());
 			HEL_CHECK(kerncfgSendResp.error());
 			HEL_CHECK(kerncfgResp.error());
 
