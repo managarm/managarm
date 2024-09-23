@@ -46,7 +46,7 @@ struct CpuData : public PlatformCpuData {
 };
 
 CpuData *getCpuData(size_t k);
-int getCpuCount();
+size_t getCpuCount();
 
 inline CpuData *getCpuData() {
 	return static_cast<CpuData *>(getPlatformCpuData());

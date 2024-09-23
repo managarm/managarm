@@ -220,7 +220,7 @@ namespace {
 	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
 }
 
-int getCpuCount() {
+size_t getCpuCount() {
 	return allCpuContexts->size();
 }
 
