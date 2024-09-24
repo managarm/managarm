@@ -11,7 +11,7 @@ A list of packages is available on our [repo](https://builds.managarm.org/projec
 - Graphics: Generic VBE graphics, Intel G45
 - Input: USB human interface devices, PS/2 keyboard and mouse
 - Storage: USB mass storage devices, NVMe, AHCI, ATA
-- Network: USB CDC ECM/NCM ethernet devices, USB MBIM cellular modems, RTL8168 family
+- Network: USB CDC ECM/NCM ethernet devices, USB MBIM cellular modems, RTL8168 family, Intel Gigabit Ethernet devices
 - Serial: UART, CP2102 (USB to UART), FTDI FT232 (USB to UART)
 
 ### Virtual Hardware
