@@ -78,6 +78,18 @@ include Setup of env, IDE and typical getting started instructions?
 
 -->
 
+### Handling bootstrap-managarm and managarm dependencies
+
+Sometimes, a situation can arise where changes to both the [managarm/managarm repo](https://github.com/managarm/managarm) and [managarm/bootstrap-managarm](https://github.com/managarm/bootstrap-managarm) are needed. If these changes depend on each other, our GitHub Actions jobs may fail for managarm. This is obviously suboptimal, as we would like to ensure that a PR builds correctly even if, and especially if, it depends on [bootstrap-managarm](https://github.com/managarm/bootstrap-managarm) changes.
+
+In order to fix this, you can specify a [bootstrap-managarm](https://github.com/managarm/bootstrap-managarm) PR that the GitHub Actions jobs for managarm should build against. In order to do this, include the following line as a separate line (as in, it should be at the beginning of a line) in your PR description body:
+
+```md
+Depends on managarm/bootstrap-managarm#<PR>.
+```
+
+Obviously, replace `<PR>` with your PR number.
+
 ### Improving The Documentation
 
 > This section of the Guide is Work-In-Progress. Please come back later for more information.

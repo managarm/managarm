@@ -1,6 +1,9 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
     build-package:
@@ -51,13 +54,24 @@ jobs:
             run: |
                 set -x
                 sudo apt-get update
-                sudo apt-get install qemu-system-x86
+                sudo apt-get install qemu-system-x86 pcre2-utils
                 pip3 install xbstrap
                 xbstrap prereqs cbuildrt xbps
+          - name: Check for requested bootstrap-managarm PR
+            env:
+              PR_BODY: ${{ github.event.pull_request.body }}
+            run: |
+              pr_num=$(echo "$PR_BODY" | pcre2grep -o1 "^Depends on managarm\/bootstrap-managarm#([0-9]+)" | head -n1)
+              pr_ref=""
+              if [ ! -z "${pr_num}" ]; then
+                pr_ref="refs/pull/$pr_num/head"
+              fi
+              echo "bootstrap_ref=${pr_ref}" >> "$GITHUB_ENV"
           - name: Checkout bootstrap-managarm
             uses: actions/checkout@v2
             with:
                 repository: managarm/bootstrap-managarm
+                ref: ${{env.bootstrap_ref}}
                 path: src/
           - name: Checkout Managarm
             uses: actions/checkout@v2
