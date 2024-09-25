@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <format>
 
 #include <stdio.h>
 #include <string.h>
@@ -277,9 +278,9 @@ async::result<void> Controller::KbdDevice::run() {
 			_codeSet = 2;
 		} else {
 			if (res2.value() != 1 && res2.value() != 2) {
-				std::cout << "\e[31m"
-					"ps2-hid: Keyboard does supports neither scancode set 1 nor 2"
-					"\e[39m" << std::endl;
+				std::cout << std::format("\e[31m"
+					"ps2-hid: Keyboard supports neither scancode set 1 nor 2, returns 0x{:x}"
+					"\e[39m\n", res2.value());
 				co_return;
 			}
 			_codeSet = res2.value();
@@ -1019,7 +1020,17 @@ Controller::KbdDevice::submitCommand(device_cmd::GetScancodeSet) {
 	auto setResp = co_await _port->recvResponseByte(default_timeout);
 	if (!setResp)
 		co_return Ps2Error::timeout;
-	co_return setResp.value();
+
+	switch(setResp.value()) {
+		case 0x43:
+			co_return 1;
+		case 0x41:
+			co_return 2;
+		case 0x3f:
+			co_return 3;
+		default:
+			co_return setResp.value();
+	}
 }
 
 void Controller::Port::sendByte(uint8_t byte) {
