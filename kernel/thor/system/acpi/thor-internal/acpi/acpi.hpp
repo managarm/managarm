@@ -22,6 +22,11 @@ void configureIrq(GlobalIrqInfo info);
 namespace thor {
 namespace acpi {
 
+constexpr const uacpi_char *ACPI_HID_PCI = "PNP0A03";
+constexpr const uacpi_char *ACPI_HID_PCIE = "PNP0A08";
+constexpr const uacpi_char *ACPI_HID_EC = "PNP0C09";
+constexpr const uacpi_char *ACPI_HID_POWER_BUTTON = "PNP0C0C";
+
 initgraph::Stage *getTablesDiscoveredStage();
 initgraph::Stage *getNsAvailableStage();
 
