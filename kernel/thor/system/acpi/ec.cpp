@@ -231,7 +231,7 @@ static bool initFromEcdt() {
 }
 
 static void initFromNamespace() {
-	uacpi_find_devices("PNP0C09", [](void*, uacpi_namespace_node *node) {
+	uacpi_find_devices(ACPI_HID_EC, [](void*, uacpi_namespace_node *node) {
 		uacpi_resources *resources;
 
 		auto ret = uacpi_get_current_resources(node, &resources);
@@ -402,7 +402,7 @@ void initEvents() {
 	 * Modern hardware uses power button devices instead of the fixed event.
 	 * Search for them here and hook AML notifications.
 	 */
-	uacpi_find_devices("PNP0C0C", [](void*, uacpi_namespace_node *node) {
+	uacpi_find_devices(ACPI_HID_POWER_BUTTON, [](void*, uacpi_namespace_node *node) {
 		uacpi_install_notify_handler(node, handlePowerButtonNotify, nullptr);
 		return UACPI_NS_ITERATION_DECISION_CONTINUE;
 	}, nullptr);

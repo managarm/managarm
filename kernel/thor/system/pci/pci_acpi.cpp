@@ -241,8 +241,8 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 	initgraph::Entails{getDevicesEnumeratedStage()},
 	[] {
 		static const char *pciRootIds[] = {
-			"PNP0A03",
-			"PNP0A08",
+			acpi::ACPI_HID_PCI,
+			acpi::ACPI_HID_PCIE,
 			nullptr,
 		};
 
