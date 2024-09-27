@@ -2,6 +2,7 @@
 
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
+#include <optional>
 #include <vector>
 
 namespace protocols {
@@ -45,6 +46,17 @@ struct FbInfo {
 	uint64_t type;
 };
 
+struct BatteryState {
+	bool charging;
+	std::optional<uint64_t> current_now = std::nullopt;
+	std::optional<uint64_t> power_now = std::nullopt;
+	std::optional<uint64_t> energy_now = std::nullopt;
+	std::optional<uint64_t> energy_full = std::nullopt;
+	std::optional<uint64_t> energy_full_design = std::nullopt;
+	std::optional<uint64_t> voltage_now = std::nullopt;
+	std::optional<uint64_t> voltage_min_design = std::nullopt;
+};
+
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
@@ -66,6 +78,8 @@ struct Device {
 
 	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessFbMemory();
+
+	async::result<void> getBatteryState(BatteryState &state, bool block = false);
 
 private:
 	helix::UniqueLane _lane;
