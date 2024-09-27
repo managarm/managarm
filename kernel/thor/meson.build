@@ -127,10 +127,12 @@ endif
 
 if want_acpi
 	src += files(
+		'system/acpi/acpi.cpp',
 		'system/acpi/glue.cpp',
 		'system/acpi/madt.cpp',
 		'system/acpi/ec.cpp',
 		'system/acpi/pm-interface.cpp',
+		'system/acpi/battery.cpp',
 		'system/pci/pci_acpi.cpp'
 	)
 

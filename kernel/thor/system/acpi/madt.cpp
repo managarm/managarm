@@ -8,6 +8,7 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/acpi/battery.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/pci/pci.hpp>
 
@@ -229,6 +230,8 @@ initgraph::Stage *getNsAvailableStage() {
 	return &s;
 }
 
+KernelFiber *acpiFiber;
+
 static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
@@ -367,6 +370,25 @@ static initgraph::Task initPmInterfaceTask{&globalInitEngine, "acpi.init-pm-inte
 	initgraph::Requires{&loadAcpiNamespaceTask},
 	[] {
 		initializePmInterface();
+	}
+};
+
+static initgraph::Task initAcpiWorkqueueTask{&globalInitEngine, "acpi.init-acpi-workqueue",
+	initgraph::Requires{getFibersAvailableStage()},
+	[] {
+		// Create a fiber to manage requests to the battery mbus objects.
+		acpiFiber = KernelFiber::post([] {
+			// Do nothing. Our only purpose is to run the associated work queue.
+		});
+
+		Scheduler::resume(acpiFiber);
+	}
+};
+
+static initgraph::Task initBatteriesTask{&globalInitEngine, "acpi.init-batteries",
+	initgraph::Requires{&loadAcpiNamespaceTask, &initAcpiWorkqueueTask},
+	[] {
+		initializeBatteries();
 	}
 };
 
