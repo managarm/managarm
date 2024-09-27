@@ -33,6 +33,7 @@ src = [
 	'src/pts.cpp',
 	'src/requests.cpp',
 	'src/signalfd.cpp',
+	'src/subsystem/acpi.cpp',
 	'src/subsystem/block.cpp',
 	'src/subsystem/drm.cpp',
 	'src/subsystem/generic.cpp',
