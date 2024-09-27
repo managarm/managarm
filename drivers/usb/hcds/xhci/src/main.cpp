@@ -211,7 +211,9 @@ void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_
 			target | (stream_id << 16));
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
+
+async::result<frg::expected<proto::UsbError>>
+Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
 	uint32_t route = 0;
 	size_t rootPort = port;
 
@@ -241,23 +243,23 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	rootPort += proto->compatiblePortStart;
 
 	auto device = std::make_shared<Device>(this);
-	(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType)).unwrap();
+	FRG_CO_TRY(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType));
 	_devices[device->slot()] = device;
 
 	// If this is full speed, our guess for MPS might be wrong,
 	// get the first 8 bytes of the device descriptor to check.
 	if (speed == proto::DeviceSpeed::fullSpeed) {
 		arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
-		(co_await device->readDescriptor(descriptor.view_buffer().subview(0, 8), 0x0100)).unwrap();
+		FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer().subview(0, 8), 0x0100));
 
 		std::cout << this << "Full-speed device on port " << port
 			<< " has bMaxPacketSize0 = " << int{descriptor->maxPacketSize} << std::endl;
 
-		(co_await device->updateEp0PacketSize(descriptor->maxPacketSize)).unwrap();
+		FRG_CO_TRY(co_await device->updateEp0PacketSize(descriptor->maxPacketSize));
 	}
 
 	arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
-	(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100)).unwrap();
+	FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100));
 
 	// Advertise the USB device on mbus.
 	char class_code[3], sub_class[3], protocol[3];
@@ -270,9 +272,9 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	snprintf(release, 5, "%.4x", descriptor->bcdDevice);
 
 	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
-		auto hub = (co_await createHubFromDevice(parentHub, proto::Device{device}, port)).unwrap();
+		auto hub = FRG_CO_TRY(co_await createHubFromDevice(parentHub, proto::Device{device}, port));
 
-		(co_await device->configureHub(hub, speed)).unwrap();
+		FRG_CO_TRY(co_await device->configureHub(hub, speed));
 
 		_enumerator.observeHub(std::move(hub));
 	}
@@ -311,6 +313,8 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 			proto::serve(proto::Device{device}, std::move(localLane));
 		}
 	}(device, std::move(usbEntity));
+
+	co_return frg::success;
 }
 
 void Controller::processEvent(Event ev) {

@@ -286,7 +286,8 @@ void Controller::_checkPorts() {
 	}
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
+async::result<frg::expected<proto::UsbError>>
+Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
 	// TODO(qookie): Hub support
 	assert(hub.get() == _rootHub.get());
 	// Requires split TX when we have hub support
@@ -395,6 +396,8 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub,
 			proto::serve(proto::Device{std::move(state)}, std::move(localLane));
 		}
 	}(this, address, std::move(usbEntity));
+
+	co_return frg::success;
 }
 
 async::detached Controller::handleIrqs() {

@@ -241,7 +241,8 @@ struct Controller final : proto::BaseController {
 
 	async::detached initialize();
 
-	async::result<void> enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
+	async::result<frg::expected<proto::UsbError>>
+	enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
 	arch::os::contiguous_pool *memoryPool() {
 		return &_memoryPool;
