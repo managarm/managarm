@@ -14,6 +14,7 @@
 #include "devices/zero.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
+#include "subsystem/acpi.hpp"
 #include "subsystem/block.hpp"
 #include "subsystem/drm.hpp"
 #include "subsystem/generic.hpp"
@@ -182,6 +183,7 @@ int main() {
 	charRegistry.install(createZeroDevice());
 	charRegistry.install(createKmsgDevice());
 
+	acpi_subsystem::run();
 	drm_subsystem::run();
 	input_subsystem::run();
 	net_subsystem::run();
