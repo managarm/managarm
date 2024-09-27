@@ -41,7 +41,8 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 	async::detached _handleIrqs();
 	async::detached _refreshFrame();
 
-	async::result<void> enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
+	async::result<frg::expected<proto::UsbError>>
+	enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
 private:
 	protocols::hw::Device _hwDevice;

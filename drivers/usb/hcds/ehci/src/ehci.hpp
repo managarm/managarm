@@ -38,7 +38,8 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 
 	async::detached initialize();
 	async::detached handleIrqs();
-	async::result<void> enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
+	async::result<frg::expected<proto::UsbError>>
+	enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
 	// ------------------------------------------------------------------------
 	// Schedule classes.

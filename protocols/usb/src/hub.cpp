@@ -23,7 +23,7 @@ async::detached Enumerator::observePort_(std::shared_ptr<Hub> hub, int port) {
 }
 
 async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int port) {
-	std::unique_lock<async::mutex> enumerate_lock;
+	std::unique_lock<async::mutex> enumerateLock;
 
 	// Wait until the device is connected.
 	while (true) {
@@ -34,16 +34,19 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	}
 
 	co_await enumerateMutex_.async_lock();
-	enumerate_lock = std::unique_lock<async::mutex>{enumerateMutex_, std::adopt_lock};
+	enumerateLock = std::unique_lock<async::mutex>{enumerateMutex_, std::adopt_lock};
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
 
 	DeviceSpeed speed; 
 
-	if (auto v = co_await hub->issueReset(port); !v)
+	if (auto v = co_await hub->issueReset(port); !v) {
+		std::cout << "usb: Device on port " << port << " failed to reset: "
+			<< (int)v.error() << std::endl;
 		co_return;
-	else
+	} else {
 		speed = v.value();
+	}
 
 	std::cout << "usb: Waiting for device to become enabled on port " << port << std::endl;
 
@@ -57,8 +60,14 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	}
 
 	std::cout << "usb: Enumerating device on port " << port << std::endl;
-	co_await controller_->enumerateDevice(hub, port, speed);
-	enumerate_lock.unlock();
+
+	if (auto v = co_await controller_->enumerateDevice(hub, port, speed); !v) {
+		std::cout << "usb: Device on port " << port << " failed to enumerate: "
+			<< (int)v.error() << std::endl;
+		co_return;
+	}
+
+	enumerateLock.unlock();
 
 	// Wait until the device is disconnected.
 	while(true) {

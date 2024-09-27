@@ -408,7 +408,8 @@ Controller::RootHub::issueReset(int port) {
 	co_return speed;
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
+async::result<frg::expected<proto::UsbError>>
+Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
 	using proto::DeviceSpeed;
 
 	assert(speed == DeviceSpeed::lowSpeed || speed == DeviceSpeed::fullSpeed);
@@ -519,6 +520,8 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 			proto::serve(proto::Device{std::move(state)}, std::move(localLane));
 		}
 	}(this, address, std::move(usbEntity));
+
+	co_return frg::success;
 }
 
 // ------------------------------------------------------------------------

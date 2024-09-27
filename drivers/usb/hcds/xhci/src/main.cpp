@@ -211,7 +211,9 @@ void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_
 			target | (stream_id << 16));
 }
 
-async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
+
+async::result<frg::expected<proto::UsbError>>
+Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
 	uint32_t route = 0;
 	size_t rootPort = port;
 
@@ -241,14 +243,23 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	rootPort += proto->compatiblePortStart;
 
 	auto device = std::make_shared<Device>(this);
-	(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType)).unwrap();
+	FRG_CO_TRY(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType));
 	_devices[device->slot()] = device;
 
-	// TODO: if isFullSpeed is set, read the first 8 bytes of the device descriptor
-	// and update the control endpoint's max packet size to match the bMaxPacketSize0 value
+	// If this is full speed, our guess for MPS might be wrong,
+	// get the first 8 bytes of the device descriptor to check.
+	if (speed == proto::DeviceSpeed::fullSpeed) {
+		arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
+		FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer().subview(0, 8), 0x0100));
+
+		std::cout << this << "Full-speed device on port " << port
+			<< " has bMaxPacketSize0 = " << int{descriptor->maxPacketSize} << std::endl;
+
+		FRG_CO_TRY(co_await device->updateEp0PacketSize(descriptor->maxPacketSize));
+	}
 
 	arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
-	(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100)).unwrap();
+	FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100));
 
 	// Advertise the USB device on mbus.
 	char class_code[3], sub_class[3], protocol[3];
@@ -261,9 +272,9 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 	snprintf(release, 5, "%.4x", descriptor->bcdDevice);
 
 	if (descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
-		auto hub = (co_await createHubFromDevice(parentHub, proto::Device{device}, port)).unwrap();
+		auto hub = FRG_CO_TRY(co_await createHubFromDevice(parentHub, proto::Device{device}, port));
 
-		(co_await device->configureHub(hub, speed)).unwrap();
+		FRG_CO_TRY(co_await device->configureHub(hub, speed));
 
 		_enumerator.observeHub(std::move(hub));
 	}
@@ -302,6 +313,8 @@ async::result<void> Controller::enumerateDevice(std::shared_ptr<proto::Hub> pare
 			proto::serve(proto::Device{device}, std::move(localLane));
 		}
 	}(device, std::move(usbEntity));
+
+	co_return frg::success;
 }
 
 void Controller::processEvent(Event ev) {
@@ -870,6 +883,39 @@ void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, si
 	// update this every once in a while. Currently we just use the recommended
 	// initial values from the specification.
 	epCtx |= EpFields::averageTrbLength(getDefaultAverageTrbLen(type));
+}
+
+async::result<frg::expected<proto::UsbError>>
+Device::updateEp0PacketSize(size_t maxPacketSize) {
+	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
+	int endpointId = getEndpointIndex(0, proto::PipeType::control);
+
+	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
+
+	auto &epCtx = inputCtx.get(inputCtxEp0 + endpointId - 1);
+	epCtx = _devCtx.get(deviceCtxEp0 + endpointId - 1);
+
+	epCtx &= ~EpFields::maxPacketSize(0xFFFF);
+	epCtx |= EpFields::maxPacketSize(maxPacketSize);
+
+	epCtx &= ~EpFields::maxEsitPayloadLo(0xFFFFFF);
+	epCtx &= ~EpFields::maxEsitPayloadHi(0xFFFFFF);
+	epCtx |= EpFields::maxEsitPayloadLo(maxPacketSize);
+	epCtx |= EpFields::maxEsitPayloadHi(maxPacketSize);
+
+	_endpoints[endpointId - 1]->_maxPacketSize = maxPacketSize;
+
+	auto event = co_await _controller->submitCommand(
+		Command::evaluateContext(_slotId,
+				helix::ptrToPhysical(inputCtx.rawData())));
+
+	if (event.completionCode != 1)
+		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
+			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
 }
 
 // ------------------------------------------------------------------------

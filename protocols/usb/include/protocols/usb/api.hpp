@@ -201,7 +201,8 @@ protected:
 	~BaseController() = default;
 
 public:
-	virtual async::result<void> enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
+	virtual async::result<frg::expected<UsbError>>
+	enumerateDevice(std::shared_ptr<Hub> hub, int port, DeviceSpeed speed) = 0;
 };
 
 inline std::string getSpeedMbps(DeviceSpeed speed) {
