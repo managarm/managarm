@@ -40,6 +40,7 @@ src = [
 	'src/subsystem/input.cpp',
 	'src/subsystem/net.cpp',
 	'src/subsystem/pci.cpp',
+	'src/subsystem/power_supply.cpp',
 	'src/subsystem/usbmisc.cpp',
 	'src/subsystem/usb/attributes.cpp',
 	'src/subsystem/usb/usb.cpp',
