@@ -135,6 +135,10 @@ struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
 	async::result<frg::expected<proto::UsbError>>
 	configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed);
 
+	async::result<frg::expected<proto::UsbError>>
+	updateEp0PacketSize(size_t maxPacketSize);
+
+
 	size_t slot() const {
 		return _slotId;
 	}
@@ -161,6 +165,8 @@ private:
 
 
 struct EndpointState final : proto::EndpointData {
+	friend struct Device;
+
 	explicit EndpointState(Device *device, int endpointId, proto::EndpointType type, size_t maxPacketSize)
 	: _device{device}, _endpointId{endpointId}, _type{type},
 		_maxPacketSize{maxPacketSize}, _transferRing{device->controller()} { }
