@@ -21,6 +21,7 @@
 #include "subsystem/input.hpp"
 #include "subsystem/net.hpp"
 #include "subsystem/pci.hpp"
+#include "subsystem/power_supply.hpp"
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
 #include "observations.hpp"
@@ -188,6 +189,7 @@ int main() {
 	input_subsystem::run();
 	net_subsystem::run();
 	usbmisc_subsystem::run();
+	power_supply_subsystem::run();
 
 	block_subsystem::run();
 	generic_subsystem::run();
