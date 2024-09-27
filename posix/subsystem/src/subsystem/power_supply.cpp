@@ -96,11 +96,32 @@ struct Device final : drvcore::ClassDevice {
 	async::detached run() {
 		while(true) {
 			co_await _hwDevice.getBatteryState(_state, true);
+
+			drvcore::UeventProperties ue;
+			composeStandardUevent(ue);
+			composeUevent(ue);
+
+			drvcore::udev::emitChangeEvent(getSysfsPath(), ue);
 		}
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		ue.set("SUBSYSTEM", "power_supply");
+		ue.set("POWER_SUPPLY_NAME", name());
+		ue.set("POWER_SUPPLY_TYPE", "Battery");
+		ue.set("POWER_SUPPLY_STATUS", _state.charging ? "Charging\n" : "Discharging\n");
+		if(_state.voltage_min_design)
+			ue.set("POWER_SUPPLY_VOLTAGE_MIN_DESIGN", std::to_string(*_state.voltage_min_design * 1000));
+		if(_state.voltage_now)
+			ue.set("POWER_SUPPLY_VOLTAGE_NOW", std::to_string(*_state.voltage_now * 1000));
+		if(_state.current_now)
+			ue.set("POWER_SUPPLY_CURRENT_NOW", std::to_string(*_state.current_now * 1000));
+		if(_state.energy_now)
+			ue.set("POWER_SUPPLY_ENERGY_NOW", std::to_string(*_state.energy_now * 1000));
+		if(_state.energy_full)
+			ue.set("POWER_SUPPLY_ENERGY_FULL", std::to_string(*_state.energy_full * 1000));
+		if(_state.energy_full_design)
+			ue.set("POWER_SUPPLY_ENERGY_FULL_DESIGN", std::to_string(*_state.energy_full_design * 1000));
 	}
 
 	std::optional<std::string> getClassPath() override {
