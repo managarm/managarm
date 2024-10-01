@@ -532,6 +532,16 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			usesReportIds = true;
 			break;
 
+		case 0x54:
+			if(logDescriptorParser)
+				printf("usb-hid:     Unit exponent: %d\n", data);
+			break;
+
+		case 0x64:
+			if(logDescriptorParser)
+				printf("usb-hid:     Units: 0x%02x\n", data);
+			break;
+
 		// Local items
 		case 0x28:
 			if(logDescriptorParser)
