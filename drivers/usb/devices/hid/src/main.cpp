@@ -1,6 +1,7 @@
 
-#include <optional>
+#include <format>
 #include <iostream>
+#include <optional>
 #include <set>
 
 #include <assert.h>
@@ -196,8 +197,8 @@ int32_t signExtend(uint32_t x, int bits) {
 	return (x ^ m) - m;
 }
 
-void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
-		std::vector<std::pair<bool, int32_t>> &values) {
+void interpret(const std::unordered_map<uint8_t, std::vector<Field>> &fields, uint8_t *report, size_t size,
+		std::vector<std::pair<bool, int32_t>> &values, bool usesReportIds) {
 	int k = 0; // Offset of the value that we're generating.
 
 	unsigned int bit_offset = 0;
@@ -228,7 +229,14 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 		}
 	};
 
-	for(const Field &f : fields) {
+	uint8_t report_id = 0;
+
+	if(usesReportIds) {
+		report_id = *report;
+		bit_offset += 8;
+	}
+
+	for(const Field &f : fields.at(report_id)) {
 		if(f.type == FieldType::padding) {
 			for(int i = 0; i < f.arraySize; i++)
 				fetch(f.bitSize, false);
@@ -273,6 +281,7 @@ struct GlobalState {
 	std::optional<std::pair<int32_t, uint32_t>> logicalMin;
 	std::optional<std::pair<int32_t, uint32_t>> logicalMax;
 	std::optional<unsigned int> reportSize;
+	std::optional<uint8_t> reportId;
 	std::optional<unsigned int> reportCount;
 	std::optional<int> physicalMin;
 	std::optional<int> physicalMax;
@@ -298,12 +307,15 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 		if(!local.usage.empty() && (local.usageMin || local.usageMax))
 			throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
 
+		if(global.reportId)
+			fields.insert({global.reportId.value(), {}});
+
 		if(local.usage.empty() && !local.usageMin && !local.usageMax) {
 			Field field;
 			field.type = FieldType::padding;
 			field.bitSize = global.reportSize.value();
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			fields.at(global.reportId.value_or(0)).push_back(field);
 		}else if(!array) {
 			for(unsigned int i = 0; i < global.reportCount.value(); i++) {
 				uint16_t actual_id;
@@ -333,7 +345,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 					field.dataMin = global.logicalMin.value().second;
 					field.dataMax = global.logicalMax.value().second;
 				}
-				fields.push_back(field);
+				fields.at(global.reportId.value_or(0)).push_back(field);
 
 				Element element;
 				element.usageId = actual_id;
@@ -375,10 +387,11 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				field.dataMax = global.logicalMax.value().second;
 			}
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			fields.at(global.reportId.value_or(0)).push_back(field);
 
 			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
+				element.reportId = global.reportId.value_or(0);
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = 0;
@@ -496,6 +509,15 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			global.usagePage = data;
 			break;
 
+		case 0x84:
+			if(logDescriptorParser)
+				printf("usb-hid:     Report ID: %u\n", data);
+			// Report ID 0 is reserved
+			assert(data != 0);
+			global.reportId = data;
+			usesReportIds = true;
+			break;
+
 		// Local items
 		case 0x28:
 			if(logDescriptorParser)
@@ -597,10 +619,13 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	}
 
 	if(logFields)
-		for(size_t i = 0; i < fields.size(); i++) {
-			std::cout << "Field " << i << ": [" << fields[i].arraySize
-					<< "]. Bit size: " << fields[i].bitSize
-					<< ", signed: " << fields[i].isSigned << std::endl;
+		for(auto [id, field_list] : fields) {
+			std::cout << std::format("Report ID {}\n", id);
+			for(size_t i = 0; i < field_list.size(); i++) {
+				auto &f = field_list.at(i);
+				std::cout << std::format("\tField {}: [{}]. Bit size: {}, signed: {}\n",
+					i, f.arraySize, f.bitSize, f.isSigned);
+			}
 		}
 
 	// Create an mbus object for the device.
@@ -654,7 +679,7 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
 		interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
-				length, values);
+				length, values, usesReportIds);
 
 		if(logFieldValues) {
 			for(size_t i = 0; i < values.size(); i++)
