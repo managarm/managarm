@@ -1,6 +1,8 @@
 
-#include <optional>
+#include <format>
 #include <iostream>
+#include <numeric>
+#include <optional>
 #include <set>
 
 #include <assert.h>
@@ -10,6 +12,7 @@
 #include <string.h>
 
 #include <async/result.hpp>
+#include <core/logging.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
@@ -196,8 +199,8 @@ int32_t signExtend(uint32_t x, int bits) {
 	return (x ^ m) - m;
 }
 
-void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
-		std::vector<std::pair<bool, int32_t>> &values) {
+uint8_t interpret(const std::unordered_map<uint8_t, std::vector<Field>> &fields, uint8_t *report, size_t size,
+		std::vector<std::pair<bool, int32_t>> &values, bool usesReportIds) {
 	int k = 0; // Offset of the value that we're generating.
 
 	unsigned int bit_offset = 0;
@@ -228,7 +231,14 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 		}
 	};
 
-	for(const Field &f : fields) {
+	uint8_t report_id = 0;
+
+	if(usesReportIds) {
+		report_id = *report;
+		bit_offset += 8;
+	}
+
+	for(const Field &f : fields.at(report_id)) {
 		if(f.type == FieldType::padding) {
 			for(int i = 0; i < f.arraySize; i++)
 				fetch(f.bitSize, false);
@@ -260,6 +270,8 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 	}
 
 	assert(bit_offset == size * 8);
+
+	return report_id;
 }
 
 struct LocalState {
@@ -273,6 +285,7 @@ struct GlobalState {
 	std::optional<std::pair<int32_t, uint32_t>> logicalMin;
 	std::optional<std::pair<int32_t, uint32_t>> logicalMax;
 	std::optional<unsigned int> reportSize;
+	std::optional<uint8_t> reportId;
 	std::optional<unsigned int> reportCount;
 	std::optional<int> physicalMin;
 	std::optional<int> physicalMax;
@@ -298,12 +311,17 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 		if(!local.usage.empty() && (local.usageMin || local.usageMax))
 			throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
 
+		if(global.reportId) {
+			fields.insert({global.reportId.value(), {}});
+			elements.insert({global.reportId.value(), {}});
+		}
+
 		if(local.usage.empty() && !local.usageMin && !local.usageMax) {
 			Field field;
 			field.type = FieldType::padding;
 			field.bitSize = global.reportSize.value();
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			fields.at(global.reportId.value_or(0)).push_back(field);
 		}else if(!array) {
 			for(unsigned int i = 0; i < global.reportCount.value(); i++) {
 				uint16_t actual_id;
@@ -333,7 +351,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 					field.dataMin = global.logicalMin.value().second;
 					field.dataMax = global.logicalMax.value().second;
 				}
-				fields.push_back(field);
+				fields.at(global.reportId.value_or(0)).push_back(field);
 
 				Element element;
 				element.usageId = actual_id;
@@ -343,7 +361,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				element.isAbsolute = !relative;
 				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
 				foundElements.insert((element.usagePage << 16) |  element.usageId);
-				elements.push_back(element);
+				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}else{
 			assert(!relative);
@@ -375,17 +393,18 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				field.dataMax = global.logicalMax.value().second;
 			}
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			fields.at(global.reportId.value_or(0)).push_back(field);
 
 			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
+				element.reportId = global.reportId.value_or(0);
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = 0;
 				element.logicalMax = 1;
 				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
 				foundElements.insert((element.usagePage << 16) |  element.usageId);
-				elements.push_back(element);
+				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}
 	};
@@ -496,6 +515,16 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			global.usagePage = data;
 			break;
 
+		case 0x84:
+			if(logDescriptorParser)
+				printf("usb-hid:     Report ID: %u\n", data);
+			// HID 1.11 page 36: "Report ID zero is reserved and should not be used."
+			if(data == 0)
+				logPanic("usb-hid: invalid Report ID {} in descriptor!\n", data);
+			global.reportId = data;
+			usesReportIds = true;
+			break;
+
 		// Local items
 		case 0x28:
 			if(logDescriptorParser)
@@ -585,22 +614,27 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	}
 
 	// Report supported input codes to the evdev core.
-	for(size_t i = 0; i < elements.size(); i++) {
-		auto element = &elements[i];
-		setupInputTranslation(element);
-		if(element->inputType < 0)
-			continue;
-		if(element->inputType == EV_ABS)
-			_eventDev->setAbsoluteDetails(element->inputCode,
-					element->logicalMin, element->logicalMax);
-		_eventDev->enableEvent(element->inputType, element->inputCode);
+	for(auto &[_, report] : elements) {
+		for(size_t i = 0; i < report.size(); i++) {
+			auto element = &report[i];
+			setupInputTranslation(element);
+			if(element->inputType < 0)
+				continue;
+			if(element->inputType == EV_ABS)
+				_eventDev->setAbsoluteDetails(element->inputCode,
+						element->logicalMin, element->logicalMax);
+			_eventDev->enableEvent(element->inputType, element->inputCode);
+		}
 	}
 
 	if(logFields)
-		for(size_t i = 0; i < fields.size(); i++) {
-			std::cout << "Field " << i << ": [" << fields[i].arraySize
-					<< "]. Bit size: " << fields[i].bitSize
-					<< ", signed: " << fields[i].isSigned << std::endl;
+		for(auto [id, field_list] : fields) {
+			std::cout << std::format("Report ID {}\n", id);
+			for(size_t i = 0; i < field_list.size(); i++) {
+				auto &f = field_list.at(i);
+				std::cout << std::format("\tField {}: [{}]. Bit size: {}, signed: {}\n",
+					i, f.arraySize, f.bitSize, f.isSigned);
+			}
 		}
 
 	// Create an mbus object for the device.
@@ -630,7 +664,15 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	std::cout << "usb-hid: Entering report loop" << std::endl;
 
 	std::vector<std::pair<bool, int32_t>> values;
-	values.resize(elements.size());
+
+	// resize values to the largest number of elements possible
+	values.resize(std::transform_reduce(elements.cbegin(), elements.cend(),
+		0, [](size_t a, size_t b) {
+			return std::max(a, b);
+		}, [](auto m) {
+			return m.second.size();
+		}));
+
 	while(true) {
 //		std::cout << "usb-hid: Requesting new report" << std::endl;
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
@@ -653,22 +695,22 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 		}
 
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
-		interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
-				length, values);
+		auto report_id = interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
+				length, values, usesReportIds);
 
 		if(logFieldValues) {
-			for(size_t i = 0; i < values.size(); i++)
+			for(size_t i = 0; i < elements.at(report_id).size(); i++)
 				if(values[i].first)
-					std::cout << "usagePage: " << elements[i].usagePage
-							<< ", usageId: 0x" << std::hex << elements[i].usageId << std::dec
+					std::cout << "usagePage: " << elements.at(report_id)[i].usagePage
+							<< ", usageId: 0x" << std::hex << elements.at(report_id)[i].usageId << std::dec
 							<< ", value: " << values[i].second << std::endl;
 			std::cout << std::endl;
 		}
 
 		if(logInputCodes)
 			std::cout << "Reporting input event" << std::endl;
-		for(size_t i = 0; i < values.size(); i++) {
-			auto element = &elements[i];
+		for(size_t i = 0; i < elements.at(report_id).size(); i++) {
+			auto element = &elements.at(report_id)[i];
 			if(element->inputType < 0)
 				continue;
 			if(!values[i].first)

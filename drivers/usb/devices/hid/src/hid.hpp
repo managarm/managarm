@@ -16,7 +16,7 @@ enum class FieldType {
 
 struct Field {
 	FieldType type;
-	int bitSize;
+	unsigned int bitSize;
 	int dataMin;
 	int dataMax;
 	bool isSigned;
@@ -36,6 +36,7 @@ struct Element {
 	uint16_t usagePage;
 	int32_t logicalMin;
 	int32_t logicalMax;
+	uint8_t reportId;
 	bool isAbsolute;
 
 	int inputType;
@@ -53,8 +54,15 @@ struct HidDevice {
 	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
-	std::vector<Field> fields;
-	std::vector<Element> elements;
+	std::unordered_map<uint8_t, std::vector<Field>> fields{
+		{0, {}}
+	};
+
+	std::unordered_map<uint8_t, std::vector<Element>> elements{
+		{0, {}}
+	};
+
+	bool usesReportIds = false;
 
 private:
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;
