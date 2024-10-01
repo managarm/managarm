@@ -181,9 +181,12 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Button Page" << std::endl;
 		}
+	}else if(element->usagePage >= pages::firstVendorDefined && element->usagePage <= pages::lastVendorDefined) {
+		if(logUnknownCodes)
+			std::cout << std::format("usb-hid: Ignoring vendor-defined usage page 0x{:04x}\n", element->usagePage);
 	}else{
 		if(logUnknownCodes)
-			std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
+			std::cout << std::format("usb-hid: Unkown usage page 0x{:02x}\n", element->usagePage);
 	}
 }
 
