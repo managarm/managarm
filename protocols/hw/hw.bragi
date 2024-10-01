@@ -100,6 +100,7 @@ head(128):
 
 message PmResetRequest 12 {
 head(128):
+	int64 cmd;
 }
 
 message SvrResponse 13 {
@@ -124,6 +125,5 @@ tail:
 
 message RebootRequest 17 {
 head(128):
-	Errors error;
 	int64 cmd;
 }

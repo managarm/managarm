@@ -16,6 +16,8 @@
 
 #include <uacpi/sleep.h>
 
+#include <sys/reboot.h>
+
 namespace thor::acpi {
 
 #ifdef __x86_64__
@@ -71,6 +73,57 @@ private:
 			infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
 #endif
 			panicLogger() << "thor: We do not know how to reset" << frg::endlog;
+		} else if(preamble.id() == bragi::message_id<managarm::hw::RebootRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::RebootRequest>(reqBuffer, *kernelAlloc);
+
+			if(!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			uacpi_sleep_state state = UACPI_SLEEP_STATE_S0;
+			switch(req->cmd()) {
+				case RB_POWER_OFF: {
+					state = UACPI_SLEEP_STATE_S5;
+					auto ret = uacpi_prepare_for_sleep_state(state);
+					if(uacpi_unlikely_error(ret))
+						infoLogger() << "thor: Preparing to enter sleep state S5 failed: " << uacpi_status_to_string(ret) << frg::endlog;
+
+					// uACPI Documentation states that you must call uacpi_enter_sleep_state with interrupts disabled.
+					disableInts();
+					
+					ret = uacpi_enter_sleep_state(state);
+					if(uacpi_unlikely_error(ret))
+						infoLogger() << "thor: Entering sleep state S" << (int)state << " failed: " << uacpi_status_to_string(ret) << frg::endlog;
+
+					// Poweroff failed, panic
+					panicLogger() << "thor: Poweroff failed" << frg::endlog;
+					break;
+				}
+				case RB_AUTOBOOT: {
+					state = UACPI_SLEEP_STATE_S5;
+					auto ret = uacpi_prepare_for_sleep_state(state);
+					if(uacpi_unlikely_error(ret))
+						infoLogger() << "thor: Preparing for reboot failed: " << uacpi_status_to_string(ret) << frg::endlog;
+
+					disableInts();
+
+					ret = uacpi_reboot();
+					if(uacpi_unlikely_error(ret))
+						infoLogger() << "thor: ACPI reset failed: " << uacpi_status_to_string(ret) << frg::endlog;
+
+#ifdef __x86_64__
+					issuePs2Reset();
+					infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
+#endif
+					panicLogger() << "thor: We do not know how to reset" << frg::endlog;
+					break;
+				}
+				default:
+					infoLogger() << "thor: Unhandled reboot request" << frg::endlog;
+					co_return frg::success;
+			}
+			assert(!"We should not reach this!");
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await DismissSender{conversation};
