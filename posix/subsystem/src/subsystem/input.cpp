@@ -56,6 +56,10 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 		ue.set("SUBSYSTEM", "input");
 	}
 
+	std::optional<std::string> getClassPath() override {
+		return "input";
+	};
+
 private:
 	int _index;
 	helix::UniqueLane _lane;

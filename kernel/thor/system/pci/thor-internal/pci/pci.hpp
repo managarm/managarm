@@ -210,7 +210,7 @@ struct PciBus : private KernelBusObject {
 	async::oneshot_event mbusPublished;
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane);
+	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
 };
 
 struct PciBar {
