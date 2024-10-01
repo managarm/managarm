@@ -184,6 +184,13 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Button Page" << std::endl;
 		}
+	}else if(element->usagePage == pages::digitizers) {
+		switch(element->usageId) {
+			default:
+				if(logUnknownCodes)
+					std::cout << std::format("usb-hid: Unknown usage 0x{:02x} in Digitizers Page\n",
+						element->usageId);
+		}
 	}else if(element->usagePage >= pages::firstVendorDefined && element->usagePage <= pages::lastVendorDefined) {
 		if(logUnknownCodes)
 			std::cout << std::format("usb-hid: Ignoring vendor-defined usage page 0x{:04x}\n", element->usagePage);
