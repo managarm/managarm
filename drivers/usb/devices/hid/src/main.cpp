@@ -29,7 +29,7 @@ namespace {
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
 	constexpr bool logInputCodes = false;
-}
+} // namespace
 
 namespace proto = protocols::usb;
 
@@ -298,9 +298,11 @@ struct GlobalState {
 	std::optional<int> physicalMax;
 };
 
-HidDevice::HidDevice() {
-	_eventDev = std::make_shared<libevbackend::EventDevice>();
-}
+struct EventDevice final : libevbackend::EventDevice {
+	EventDevice(std::string name, uint16_t vendor, uint16_t product)
+	: libevbackend::EventDevice(std::move(name), BUS_USB, vendor, product) {
+	}
+};
 
 void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
@@ -572,6 +574,14 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 }
 
 async::detached HidDevice::run(proto::Device device, int config_num, int intf_num) {
+	auto devdesc_data = (co_await device.deviceDescriptor()).unwrap();
+	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(devdesc_data.data());
+	auto manufacturer = (co_await device.getString(devdesc->manufacturer)).unwrap();
+	auto product = (co_await device.getString(devdesc->product)).unwrap();
+
+	_eventDev = std::make_shared<EventDevice>(std::format("{} {}", manufacturer, product),
+		devdesc->idVendor, devdesc->idProduct);
+
 	auto descriptor = (co_await device.configurationDescriptor(0)).unwrap();
 
 	std::vector<size_t> report_descs;

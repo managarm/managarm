@@ -102,6 +102,17 @@ constexpr std::array<const char *, 38> mousePnpIds = {{
 } // namespace
 
 // --------------------------------------------------------------------
+// EventDevice
+// --------------------------------------------------------------------
+
+struct EventDevice final : libevbackend::EventDevice {
+	EventDevice(std::string name)
+	: libevbackend::EventDevice(std::move(name), BUS_I8042, 0, 0) {
+
+	}
+};
+
+// --------------------------------------------------------------------
 // Controller
 // --------------------------------------------------------------------
 
@@ -380,7 +391,7 @@ async::result<void> Controller::KbdDevice::run() {
 	}
 
 	//setup evdev stuff
-	_evDev = std::make_shared<libevbackend::EventDevice>();
+	_evDev = std::make_shared<EventDevice>("PS/2 keyboard");
 
 	_evDev->enableEvent(EV_KEY, KEY_A);
 	_evDev->enableEvent(EV_KEY, KEY_B);
@@ -546,7 +557,7 @@ async::result<void> Controller::MouseDevice::run() {
 	assert(res1);
 
 	// setup evdev stuff
-	_evDev = std::make_shared<libevbackend::EventDevice>();
+	_evDev = std::make_shared<EventDevice>("PS/2 mouse");
 
 	_evDev->enableEvent(EV_REL, REL_X);
 	_evDev->enableEvent(EV_REL, REL_Y);
