@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <protocols/usb/client.hpp>
 #include <libevbackend.hpp>
 
 // -----------------------------------------------------
@@ -50,7 +51,7 @@ struct Element {
 // -----------------------------------------------------
 
 struct HidDevice {
-	HidDevice();
+	HidDevice() = default;
 	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
