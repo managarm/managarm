@@ -98,7 +98,7 @@ message AccessFbMemoryRequest 11 {
 head(128):
 }
 
-message PmResetRequest 12 {
+message RebootRequest 12 {
 head(128):
 	int64 cmd;
 }
@@ -121,9 +121,4 @@ tail:
 		tag(7) uint32 fb_bpp;
 		tag(8) uint32 fb_type;
 	}
-}
-
-message RebootRequest 17 {
-head(128):
-	int64 cmd;
 }
