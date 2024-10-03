@@ -44,6 +44,6 @@ option('build_docs',
 
 option('kernel_frame_pointers',
     type : 'boolean',
-    value : 'false',
+    value : false,
     description : 'include frame pointers for stack traces'
 )
