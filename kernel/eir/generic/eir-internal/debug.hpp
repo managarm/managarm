@@ -16,9 +16,13 @@ struct LogSink {
 
 struct PanicSink {
 	void operator()(const char *c);
+	void finalize(bool);
 };
 
-extern frg::stack_buffer_logger<LogSink> infoLogger;
-extern frg::stack_buffer_logger<PanicSink> panicLogger;
+extern bool log_e9;
+extern void (*logHandler)(const char c);
+
+extern frg::stack_buffer_logger<LogSink, 128> infoLogger;
+extern frg::stack_buffer_logger<PanicSink, 128> panicLogger;
 
 } // namespace eir

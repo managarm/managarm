@@ -35,6 +35,7 @@ if get_option('build_docs')
 endif
 
 build_kernel = get_option('build_kernel')
+build_uefi = get_option('build_uefi')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
 provide_deps = get_option('provide_deps')
@@ -126,6 +127,18 @@ frgbragi = generator(bragi,
 	arguments : [ '-l', 'frigg', '--protobuf', '@INPUT@', '@OUTPUT@' ]
 )
 
+freestnd_c_hdrs_dep = dependency(
+	'freestnd-c-hdrs-' + host_machine.cpu_family(),
+	required: build_uefi,
+	method: 'pkg-config'
+)
+
+freestnd_cxx_hdrs_dep = dependency(
+	'freestnd-cxx-hdrs-' + host_machine.cpu_family(),
+	required: build_uefi,
+	method: 'pkg-config'
+)
+
 # declare dependencies that subdirs are going to use
 bragi_dep = subproject('bragi', default_options: ['install_headers=false']).get_variable('bragi_dep')
 
@@ -136,7 +149,7 @@ elif flavor == 'userspace'
 	libarch_opts = [ 'install_headers=false' ]
 endif
 
-if build_kernel or build_drivers or provide_deps
+if build_kernel or build_uefi or build_drivers or provide_deps
 	cxxshim_dep = dependency('cxxshim',
 				 required: false,
 				 fallback: ['cxxshim', 'cxxshim_dep'])

@@ -1,3 +1,7 @@
+if build_uefi
+	subdir_done()
+endif
+
 libsmarter = subproject('libsmarter').get_variable('libsmarter_dep')
 link_args = [ '-nostdlib' ]
 

@@ -6,9 +6,12 @@
 
 namespace eir {
 
+bool log_e9 = false;
+void (*logHandler)(const char c) = nullptr;
+
 constinit OutputSink infoSink;
-constinit frg::stack_buffer_logger<LogSink> infoLogger;
-constinit frg::stack_buffer_logger<PanicSink> panicLogger;
+constinit frg::stack_buffer_logger<LogSink, 128> infoLogger;
+constinit frg::stack_buffer_logger<PanicSink, 128> panicLogger;
 
 constexpr int fontWidth = 8;
 constexpr int fontHeight = 16;
@@ -27,8 +30,16 @@ void setFbInfo(void *ptr, int width, int height, size_t pitch) {
 	displayPitch = pitch;
 }
 
+extern "C" void frg_panic(const char *cstring) {
+	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
+}
+
 void OutputSink::print(char c) {
-	debugPrintChar(c);
+	if(log_e9)
+		debugPrintChar(c);
+
+	if(logHandler)
+		logHandler(c);
 
 	if(displayFb) {
 		if(c == '\n') {
@@ -62,6 +73,9 @@ void LogSink::operator()(const char *c) {
 
 void PanicSink::operator()(const char *c) {
 	infoSink.print(c);
+}
+
+void PanicSink::finalize(bool) {
 	infoSink.print('\n');
 	while(true)
 		asm volatile("" : : : "memory");

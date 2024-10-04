@@ -16,7 +16,7 @@ eir_includes = [include_directories(
 eir_includes += uacpi_includes
 
 cxx = meson.get_compiler('cpp')
-libgcc = cxx.find_library('gcc')
+libgcc = cxx.find_library('gcc', required: not build_uefi)
 
 eir_c_args = []
 eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
@@ -41,4 +41,9 @@ elif arch == 'riscv64'
 	subdir('arch/riscv')
 elif arch == 'x86_64'
 	subdir('arch/x86')
+endif
+
+if build_uefi
+	eir_cpp_args = []
+	subdir('protos/uefi')
 endif

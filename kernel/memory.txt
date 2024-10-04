@@ -31,11 +31,6 @@ FFFF'F000'0000'0000
 	Log ring buffer memory
 	Referenced in eir/main.cpp, thor/generic/core.cpp
 
-FFFF'F000'0000'0000
-	Length: 256MiB
-	Log ring buffer memory
-	Referenced in eir/main.cpp, thor/generic/core.cpp
-
 FFFF'FE00'0000'0000
 	Length: 0x1'0000 bytes
 	Initial stack for thor
