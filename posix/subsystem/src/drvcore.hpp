@@ -152,8 +152,11 @@ std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId);
 
 void installDevice(std::shared_ptr<Device> device);
 
-uint32_t makeHotplugSeqnum();
+namespace udev {
 
-void emitHotplug(std::string buffer);
+void emitAddEvent(std::string devpath, UeventProperties &ue);
+void emitChangeEvent(std::string devpath, UeventProperties &ue);
+
+} // namespace udev
 
 } // namespace drvcore

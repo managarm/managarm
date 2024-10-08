@@ -568,5 +568,57 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 	co_return std::move(bar);
 }
 
+#define COPY_BATTERY_STATE(x) do { \
+	if(resp.x()) \
+		state.x = resp.x(); \
+	else \
+		state.x = std::nullopt; \
+} while(0)
+
+async::result<void> Device::getBatteryState(BatteryState &state, bool block) {
+	managarm::hw::BatteryStateRequest req;
+	req.set_block_until_ready(block);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::want_lane,
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+	);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::BatteryStateReply>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	state.charging = (resp.charging() != 0);
+	COPY_BATTERY_STATE(current_now);
+	COPY_BATTERY_STATE(power_now);
+	COPY_BATTERY_STATE(energy_now);
+	COPY_BATTERY_STATE(energy_full);
+	COPY_BATTERY_STATE(energy_full_design);
+	COPY_BATTERY_STATE(voltage_now);
+	COPY_BATTERY_STATE(voltage_min_design);
+
+	co_return;
+}
+
 } } // namespace protocols::hw
 
