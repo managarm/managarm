@@ -153,7 +153,7 @@ public:
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *self, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
 
 	// Reads the target of a symlink (symlinks only).

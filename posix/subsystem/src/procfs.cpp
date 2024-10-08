@@ -187,7 +187,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: open() received illegal arguments:"
@@ -320,7 +320,7 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: open() received illegal arguments:"
@@ -759,7 +759,7 @@ async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: open() received illegal arguments:"

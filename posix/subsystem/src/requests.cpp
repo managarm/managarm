@@ -1750,7 +1750,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 						continue;
 					}else{
-						auto fileResult = co_await tail->getTarget()->open(
+						auto fileResult = co_await tail->getTarget()->open(self.get(),
 											resolver.currentView(), std::move(tail),
 											semantic_flags);
 						assert(fileResult);
@@ -1776,9 +1776,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
 					assert(linkResult);
 					auto link = linkResult.value();
-					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+					auto fileResult = co_await node->open(self.get(), resolver.currentView(), std::move(link),
 										semantic_flags);
-					assert(fileResult);
+					if(!fileResult) {
+						if(fileResult.error() == Error::accessDenied) {
+							co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+							continue;
+						} else {
+							std::cout << "posix: Unexpected failure from open() error: " << (int)fileResult.error() << std::endl;
+							co_return;
+						}
+					}
 					file = fileResult.value();
 					assert(file);
 				}
@@ -1808,13 +1816,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					DummyFile::serve(dummyFile);
 					file = File::constructHandle(std::move(dummyFile));
 				} else {
-					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
+					auto fileResult = co_await target->open(self.get(), resolver.currentView(), resolver.currentLink(), semantic_flags);
 					if(!fileResult) {
 						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
 							continue;
 						} else if(fileResult.error() == Error::illegalArguments) {
 							co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+							continue;
+						} else if(fileResult.error() == Error::accessDenied) {
+							co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 							continue;
 						} else {
 							std::cout << "posix: Unexpected failure from open()" << std::endl;
