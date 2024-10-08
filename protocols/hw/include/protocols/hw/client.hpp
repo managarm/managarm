@@ -66,6 +66,7 @@ struct Device {
 
 	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessFbMemory();
+	async::result<std::pair<helix::UniqueDescriptor, uint32_t>> getVbt();
 
 private:
 	helix::UniqueLane _lane;
