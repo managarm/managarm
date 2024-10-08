@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <protocols/usb/client.hpp>
 #include <libevbackend.hpp>
 
 // -----------------------------------------------------
@@ -16,7 +17,7 @@ enum class FieldType {
 
 struct Field {
 	FieldType type;
-	int bitSize;
+	unsigned int bitSize;
 	int dataMin;
 	int dataMax;
 	bool isSigned;
@@ -36,6 +37,7 @@ struct Element {
 	uint16_t usagePage;
 	int32_t logicalMin;
 	int32_t logicalMax;
+	uint8_t reportId;
 	bool isAbsolute;
 
 	int inputType;
@@ -49,12 +51,16 @@ struct Element {
 // -----------------------------------------------------
 
 struct HidDevice {
-	HidDevice();
+	HidDevice() = default;
 	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
-	std::vector<Field> fields;
+	std::unordered_map<uint8_t, std::vector<Field>> fields{
+		{0, {}}
+	};
 	std::vector<Element> elements;
+
+	bool usesReportIds = false;
 
 private:
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;

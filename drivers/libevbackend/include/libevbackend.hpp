@@ -97,7 +97,7 @@ public:
 	friend struct File;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
-	EventDevice();
+	EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product);
 
 	void setAbsoluteDetails(int code, int minimum, int maximum);
 
@@ -130,6 +130,11 @@ private:
 	> _files;
 
 	std::vector<StagedEvent> _staged;
+
+	std::string name_;
+	uint16_t busType_;
+	uint16_t vendor_;
+	uint16_t product_;
 };
 
 // --------------------------------------------

@@ -20,6 +20,8 @@ namespace pages {
 	constexpr int unicode = 0x10;
 	constexpr int alphanumericalDisplay = 0x14;
 	constexpr int medicalInstrument = 0x40;
+	constexpr int firstVendorDefined = 0xFF00;
+	constexpr int lastVendorDefined = 0xFFFF;
 
 }
 
