@@ -11,8 +11,50 @@
 #include <bragi/helpers-std.hpp>
 #include "protocols/hw/client.hpp"
 
+// Now we can be confident casting between these values
+static_assert((int)protocols::hw::IoType::kIoTypeNone == (int)managarm::hw::IoType::NO_BAR, "Bad kIoTypeNone value");
+static_assert((int)protocols::hw::IoType::kIoTypeMemory == (int)managarm::hw::IoType::MEMORY, "Bad kIoTypeMemory value");
+static_assert((int)protocols::hw::IoType::kIoTypePort == (int)managarm::hw::IoType::PORT, "Bad kIoTypePort value");
+
 namespace protocols {
 namespace hw {
+
+async::result<helix::UniqueDescriptor> accessIrq(helix::UniqueLane& lane) {
+	managarm::hw::AccessIrqRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_irq.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	co_return pull_irq.descriptor();
+}
 
 async::result<PciInfo> Device::getPciInfo() {
 	managarm::hw::GetPciInfoRequest req;
@@ -170,40 +212,7 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 }
 
 async::result<helix::UniqueDescriptor> Device::accessIrq() {
-	managarm::hw::AccessIrqRequest req;
-
-	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
-			_lane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
-
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_head.error());
-
-	auto preamble = bragi::read_preamble(recv_head);
-	assert(!preamble.error());
-	recv_head.reset();
-
-	std::vector<std::byte> tailBuffer(preamble.tail_size());
-	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
-			offer.descriptor(),
-			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::pullDescriptor()
-		);
-
-	HEL_CHECK(recv_tail.error());
-	HEL_CHECK(pull_irq.error());
-
-	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
-
-	assert(resp.error() == managarm::hw::Errors::SUCCESS);
-
-	co_return pull_irq.descriptor();
+	return ::protocols::hw::accessIrq(_lane);
 }
 
 async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
@@ -566,6 +575,88 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 
 	auto bar = pull_bar.descriptor();
 	co_return std::move(bar);
+}
+
+async::result<std::vector<BusDeviceMemoryInfo>> BusDevice::getMemoryRegions() {
+	managarm::hw::GetMemoryRegionsRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::want_lane,
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	std::vector<protocols::hw::BusDeviceMemoryInfo> regions;
+	for(auto& region : resp.regions()) {
+		regions.emplace_back(region.tag(), (protocols::hw::IoType)region.type(), region.address(), region.length());
+	}
+
+	co_return std::move(regions);
+}
+
+async::result<helix::UniqueDescriptor> BusDevice::accessMemory(int index) {
+	managarm::hw::AccessMemoryRequest req;
+	req.set_index(index);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_bar.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto bar = pull_bar.descriptor();
+	co_return std::move(bar);
+}
+
+async::result<helix::UniqueDescriptor> BusDevice::accessIrq() {
+	return ::protocols::hw::accessIrq(_lane);
 }
 
 } } // namespace protocols::hw

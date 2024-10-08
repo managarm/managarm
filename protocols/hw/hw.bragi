@@ -32,6 +32,13 @@ struct PciCapability {
 	uint64 length;
 }
 
+struct BusDeviceMemoryInfo {
+	string tag;
+	IoType type;
+	uint64 address;
+	uint64 length;
+}
+
 message GetPciInfoRequest 1 {
 head(128):
 }
@@ -120,5 +127,16 @@ tail:
 		tag(6) uint32 fb_height;
 		tag(7) uint32 fb_bpp;
 		tag(8) uint32 fb_type;
+
+		tag(10) BusDeviceMemoryInfo[] regions;
 	}
+}
+
+message GetMemoryRegionsRequest 16 {
+head(128):
+}
+
+message AccessMemoryRequest 18 {
+head(128):
+	int32 index;
 }
