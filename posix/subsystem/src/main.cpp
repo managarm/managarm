@@ -82,10 +82,15 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 
 namespace {
 	helix::UniqueLane kerncfgLane;
+	helix::UniqueLane pmLane;
 };
 
 helix::UniqueLane &getKerncfgLane() {
 	return kerncfgLane;
+}
+
+helix::UniqueLane &getPmLane() {
+	return pmLane;
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
@@ -135,12 +140,26 @@ async::result<void> enumerateKerncfg() {
 	procfsRoot->directMkregular("cmdline", std::make_shared<CmdlineNode>());
 }
 
+async::result<void> enumeratePm() {
+	auto filter = mbus_ng::Conjunction{{
+		mbus_ng::EqualsFilter{"class", "pm-interface"}
+	}};
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+	assert(events.size() == 1);
+
+	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
+	pmLane = (co_await entity.getRemoteLane()).unwrap();
+}
+
 // --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
 
 async::detached runInit() {
 	co_await enumerateKerncfg();
+	co_await enumeratePm();
 	co_await clk::enumerateTracker();
 	async::detach(net::enumerateNetserver());
 	co_await populateRootView();

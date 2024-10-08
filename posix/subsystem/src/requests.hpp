@@ -6,3 +6,4 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation);
 
 helix::UniqueLane &getKerncfgLane();
+helix::UniqueLane &getPmLane();

@@ -577,3 +577,8 @@ head(128):
 	Errors error;
 	int64 value;
 }
+
+message RebootRequest 47 {
+head(128):
+	int64 cmd;
+}

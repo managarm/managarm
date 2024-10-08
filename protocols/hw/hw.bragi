@@ -98,8 +98,9 @@ message AccessFbMemoryRequest 11 {
 head(128):
 }
 
-message PmResetRequest 12 {
+message RebootRequest 12 {
 head(128):
+	int64 cmd;
 }
 
 message SvrResponse 13 {

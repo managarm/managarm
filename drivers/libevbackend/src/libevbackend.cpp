@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/reboot.h>
 #include <algorithm>
 #include <deque>
 #include <iostream>
@@ -42,22 +43,21 @@ async::detached issueReset() {
 	auto entity = co_await mbus_ng::Instance::global().getEntity(events[0].id);
 	auto pmLane = (co_await entity.getRemoteLane()).unwrap();
 
-	managarm::hw::PmResetRequest req;
+	managarm::hw::RebootRequest hwRequest;
+	hwRequest.set_cmd(RB_AUTOBOOT);
 
-	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
-			pmLane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
-
+	auto [offer, hwSendResp, hwResp] = co_await helix_ng::exchangeMsgs(
+		pmLane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(hwRequest, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
 	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(recv_head.error());
+	HEL_CHECK(hwSendResp.error());
+	HEL_CHECK(hwResp.error());
 
-	auto preamble = bragi::read_preamble(recv_head);
+	auto preamble = bragi::read_preamble(hwResp);
 	assert(!preamble.error());
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
@@ -68,8 +68,8 @@ async::detached issueReset() {
 
 	HEL_CHECK(recv_tail.error());
 
-	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
-	recv_head.reset();
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(hwResp, tailBuffer);
+	hwResp.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	throw std::runtime_error("Return from PM_RESET request");

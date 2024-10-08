@@ -31,6 +31,7 @@
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
 #include <kerncfg.bragi.hpp>
+#include <hw.bragi.hpp>
 
 #include "debug-options.hpp"
 
@@ -386,6 +387,45 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(std::holds_alternative<std::monostate>(state));
 			}
 			resp.set_mode(mode);
+
+			auto ser = resp.SerializeAsString();
+			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
+					helix::action(&send_resp, ser.data(), ser.size()));
+			co_await transmit.async_wait();
+			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::RebootRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::RebootRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: REBOOT with command: " << req->cmd() << std::endl;
+
+			if(self->uid() != 0) {
+				sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+				continue;
+			}
+
+			managarm::hw::RebootRequest hwRequest;
+			hwRequest.set_cmd(req->cmd());
+			auto [offer, hwSendResp, hwResp] = co_await helix_ng::exchangeMsgs(
+				getPmLane(),
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(hwRequest, frg::stl_allocator{}),
+					helix_ng::recvInline()
+				)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(hwSendResp.error());
+			HEL_CHECK(hwResp.error());
+			
+			helix::SendBuffer send_resp;
+			managarm::posix::SvrResponse resp;
+
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
