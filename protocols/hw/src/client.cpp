@@ -11,8 +11,7 @@
 #include <bragi/helpers-std.hpp>
 #include "protocols/hw/client.hpp"
 
-namespace protocols {
-namespace hw {
+namespace protocols::hw {
 
 async::result<PciInfo> Device::getPciInfo() {
 	managarm::hw::GetPciInfoRequest req;
@@ -621,5 +620,43 @@ async::result<void> Device::getBatteryState(BatteryState &state, bool block) {
 	co_return;
 }
 
-} } // namespace protocols::hw
+async::result<std::shared_ptr<AcpiResources>> Device::getResources() {
+	managarm::hw::AcpiGetResourcesRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::want_lane,
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+	);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::AcpiGetResourcesReply>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+	auto res = std::make_shared<AcpiResources>();
+	res->io_ports = resp.io_ports();
+	res->irqs = resp.irqs();
+
+	co_return res;
+}
+
+} // namespace protocols::hw
 

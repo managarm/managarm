@@ -1,5 +1,6 @@
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
+#include <hw.frigg_bragi.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/battery.hpp>
 #include <thor-internal/fiber.hpp>
@@ -41,8 +42,70 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 	if(preamble.error())
 		co_return Error::protocolViolation;
 
-	infoLogger() << "thor: dismissing conversation due to illegal HW request." << frg::endlog;
-	co_await DismissSender{conversation};
+	if(preamble.id() == bragi::message_id<managarm::hw::AcpiGetResourcesRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AcpiGetResourcesRequest>(reqBuffer, *kernelAlloc);
+
+		managarm::hw::AcpiGetResourcesReply<KernelAlloc> resp(*kernelAlloc);
+
+		auto ret = uacpi_for_each_device_resource(node, "_CRS",
+		[](void *ctx, uacpi_resource *res){
+			auto resp = reinterpret_cast<managarm::hw::AcpiGetResourcesReply<KernelAlloc> *>(ctx);
+
+			switch(res->type) {
+				case UACPI_RESOURCE_TYPE_END_TAG:
+					break;
+				case UACPI_RESOURCE_TYPE_IO:
+					for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
+						resp->add_io_ports(i);
+					}
+					break;
+				case UACPI_RESOURCE_TYPE_FIXED_IO:
+					for(size_t i = 0; i < res->fixed_io.length; i++) {
+						resp->add_fixed_io_ports(res->fixed_io.address + i);
+					}
+					break;
+				case UACPI_RESOURCE_TYPE_IRQ:
+					for(size_t i = 0; i < res->irq.num_irqs; i++) {
+						resp->add_irqs(res->irq.irqs[i]);
+					}
+					break;
+				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+					for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
+						resp->add_irqs(res->extended_irq.irqs[i]);
+					}
+					break;
+				default:
+					warningLogger() << "thor: unhandled uACPI resource type " << res->type << frg::endlog;
+					return UACPI_RESOURCE_ITERATION_CONTINUE;
+			}
+
+			return UACPI_RESOURCE_ITERATION_CONTINUE;
+		}, &resp);
+
+		if(ret == UACPI_STATUS_OK) {
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+		}
+
+		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
+		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+
+		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+		if(respHeadError != Error::success)
+			co_return respHeadError;
+
+		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+		if(respTailError != Error::success)
+			co_return respTailError;
+
+		co_return frg::success;
+	} else {
+		infoLogger() << "thor: dismissing conversation due to illegal HW request." << frg::endlog;
+		co_await DismissSender{conversation};
+	}
 
 	co_return frg::success;
 }

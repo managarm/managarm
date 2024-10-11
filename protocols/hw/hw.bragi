@@ -4,7 +4,8 @@ enum Errors {
 	SUCCESS = 0,
 	OUT_OF_BOUNDS,
 	ILLEGAL_ARGUMENTS,
-	RESOURCE_EXHAUSTION
+	RESOURCE_EXHAUSTION,
+	DEVICE_ERROR
 }
 
 enum IoType {
@@ -152,4 +153,17 @@ tail:
 		tag(7) uint64 voltage_now;
 		tag(8) uint64 voltage_min_design;
 	}
+}
+
+message AcpiGetResourcesRequest 19 {
+head(16):
+}
+
+message AcpiGetResourcesReply 20 {
+head(16):
+	Errors error;
+tail:
+	uint16[] io_ports;
+	uint16[] fixed_io_ports;
+	uint8[] irqs;
 }

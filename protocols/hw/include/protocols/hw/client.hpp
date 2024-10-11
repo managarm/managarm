@@ -57,6 +57,11 @@ struct BatteryState {
 	std::optional<uint64_t> voltage_min_design = std::nullopt;
 };
 
+struct AcpiResources {
+	std::vector<uint16_t> io_ports;
+	std::vector<uint8_t> irqs;
+};
+
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
@@ -80,6 +85,8 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessFbMemory();
 
 	async::result<void> getBatteryState(BatteryState &state, bool block = false);
+
+	async::result<std::shared_ptr<AcpiResources>> getResources();
 
 private:
 	helix::UniqueLane _lane;
