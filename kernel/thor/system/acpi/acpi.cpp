@@ -14,12 +14,17 @@ coroutine<void> AcpiObject::run() {
 	Properties acpi_properties;
 	acpi_properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "acpi"));
 	acpi_properties.stringProperty("acpi.path", frg::string<KernelAlloc>(path, *kernelAlloc));
-	acpi_properties.stringProperty("acpi.hid", frg::string<KernelAlloc>(*kernelAlloc, hid_name));
+	if(hid_name)
+		acpi_properties.stringProperty("acpi.hid", frg::string<KernelAlloc>(*kernelAlloc, hid_name->value));
+	if(cid_name && cid_name->num_ids)
+		acpi_properties.stringProperty("acpi.cid", frg::string<KernelAlloc>(*kernelAlloc, cid_name->ids[0].value));
 	acpi_properties.stringProperty("acpi.instance", frg::to_allocated_string(*kernelAlloc, instance));
 
 	uacpi_free_absolute_path(path);
 
 	mbus_id = (co_await createObject("acpi-object", std::move(acpi_properties))).unwrap();
+
+	completion.raise();
 }
 
 coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {

@@ -91,7 +91,8 @@ async::detached run() {
 
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
-			bind(std::move(entity), std::move(event.properties));
+			if(event.properties.contains("acpi.hid"))
+				bind(std::move(entity), std::move(event.properties));
 		}
 	}
 }

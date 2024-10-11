@@ -133,6 +133,7 @@ if want_acpi
 		'system/acpi/ec.cpp',
 		'system/acpi/pm-interface.cpp',
 		'system/acpi/battery.cpp',
+		'system/acpi/ps2.cpp',
 		'system/pci/pci_acpi.cpp'
 	)
 
