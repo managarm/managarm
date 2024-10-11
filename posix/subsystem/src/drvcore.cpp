@@ -63,15 +63,7 @@ public:
 		device->composeStandardUevent(ue);
 		device->composeUevent(ue);
 
-		std::string sysfs_path = device->getSysfsPath();
-		std::stringstream ss;
-		ss << "add@/" << sysfs_path << '\0';
-		ss << "ACTION=add" << '\0';
-		ss << "DEVPATH=/" << sysfs_path << '\0';
-		ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
-		for(const auto &[name, value] : ue)
-			ss << name << '=' << value << '\0';
-		drvcore::emitHotplug(ss.str());
+		udev::emitAddEvent(device->getSysfsPath(), ue);
 		co_return Error::success;
 	}
 };
@@ -247,27 +239,49 @@ void installDevice(std::shared_ptr<Device> device) {
 	device->composeStandardUevent(ue);
 	device->composeUevent(ue);
 
-	std::string sysfs_path = device->getSysfsPath();
-	std::stringstream ss;
-	ss << "add@/" << sysfs_path << '\0';
-	ss << "ACTION=add" << '\0';
-	ss << "DEVPATH=/" << sysfs_path << '\0';
-	ss << "SEQNUM=" << drvcore::makeHotplugSeqnum() << '\0';
-	for(const auto &[name, value] : ue)
-		ss << name << '=' << value << '\0';
-	drvcore::emitHotplug(ss.str());
+	udev::emitAddEvent(device->getSysfsPath(), ue);
 }
+
+namespace udev {
+
+namespace {
 
 // TODO: There could be a race between makeHotplugSeqnum() and emitHotplug().
 //       Is it required that seqnums always appear in the correct order?
-uint32_t makeHotplugSeqnum() {
+uint32_t allocateNextSeq() {
 	static uint32_t seqnum = 1;
 	return seqnum++;
 }
 
-void emitHotplug(std::string buffer) {
+void emitEvent(std::string buffer) {
 	netlink::nl_socket::broadcast(NETLINK_KOBJECT_UEVENT, 1, std::move(buffer));
 }
+
+} // namespace
+
+void emitAddEvent(std::string devpath, UeventProperties &ue) {
+	std::stringstream ss;
+	ss << "add@/" << devpath << '\0';
+	ss << "ACTION=add" << '\0';
+	ss << "DEVPATH=/" << devpath << '\0';
+	ss << "SEQNUM=" << allocateNextSeq() << '\0';
+	for(const auto &[name, value] : ue)
+		ss << name << '=' << value << '\0';
+	udev::emitEvent(ss.str());
+}
+
+void emitChangeEvent(std::string devpath, UeventProperties &ue) {
+	std::stringstream ss;
+	ss << "change@/" << devpath << '\0';
+	ss << "ACTION=change" << '\0';
+	ss << "DEVPATH=/" << devpath << '\0';
+	ss << "SEQNUM=" << allocateNextSeq() << '\0';
+	for(const auto &[name, value] : ue)
+		ss << name << '=' << value << '\0';
+	udev::emitEvent(ss.str());
+}
+
+} // namespace udev
 
 } // namespace drvcore
 

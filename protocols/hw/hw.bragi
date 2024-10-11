@@ -122,3 +122,33 @@ tail:
 		tag(8) uint32 fb_type;
 	}
 }
+
+message BatteryStateRequest 17 {
+head(128):
+	uint64 id;
+	uint32 block_until_ready;
+}
+
+message BatteryStateReply 18 {
+head(16):
+	Errors error;
+tail:
+	// Units used here:
+	// voltage: µV
+	// current: µA
+	// charge: µAh
+	// energy: µWh
+	// time: seconds
+	// temperature: tenths of degrees Celsius
+
+	tags {
+		tag(1) uint8 charging;
+		tag(2) uint64 current_now;
+		tag(3) uint64 power_now;
+		tag(4) uint64 energy_now;
+		tag(5) uint64 energy_full;
+		tag(6) uint64 energy_full_design;
+		tag(7) uint64 voltage_now;
+		tag(8) uint64 voltage_min_design;
+	}
+}

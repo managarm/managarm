@@ -229,6 +229,8 @@ initgraph::Stage *getNsAvailableStage() {
 	return &s;
 }
 
+KernelFiber *acpiFiber;
+
 static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
