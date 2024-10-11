@@ -5,6 +5,7 @@
 #include <libevbackend.hpp>
 #include <array>
 #include <memory>
+#include <protocols/hw/client.hpp>
 
 struct stl_allocator {
 	void *allocate(size_t size) {
@@ -67,7 +68,9 @@ struct DeviceType {
 };
 
 struct Controller {
-	Controller();
+	Controller(std::shared_ptr<protocols::hw::Device> device, std::array<uintptr_t, 2> ports,
+		std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
+		std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq);
 	async::detached init();
 
 	struct Device {
@@ -173,15 +176,20 @@ private:
 	std::optional<uint8_t> recvResponseByte(uint64_t timeout = 0);
 
 	std::array<Port *, 2> _ports{};
-	bool _hasSecondPort;
+	bool _hasSecondPort = true;
 	bool _portsOwnData = false;
 
-	arch::io_space _space;
+	std::shared_ptr<protocols::hw::Device> _hwDevice;
+	std::array<uintptr_t, 2> _ioPorts;
 
-	HelHandle _irq1Handle;
-	HelHandle _irq12Handle;
-	helix::UniqueIrq _irq1;
-	helix::UniqueIrq _irq12;
+	arch::io_space _dataSpace;
+	arch::io_space _commandSpace;
+
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> _primaryIrq;
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> _secondaryIrq;
+
+	helix::UniqueIrq _port1Irq;
+	std::optional<helix::UniqueIrq> _port2Irq;
 
 };
 

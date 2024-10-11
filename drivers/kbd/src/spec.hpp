@@ -13,9 +13,12 @@ constexpr int enable1stPort = 0xAE;
 constexpr int write2ndNextByte = 0xD4;
 
 namespace kbd_register {
+	// R/W on the first (data) port
 	arch::scalar_register<uint8_t> data(0);
-	arch::bit_register<uint8_t> status(4);
-	arch::scalar_register<uint8_t> command(4);
+	// RO on the second (command/status) port
+	arch::bit_register<uint8_t> status(0);
+	// WO on the second (command/status) port
+	arch::scalar_register<uint8_t> command(0);
 }
 
 namespace status_bits {

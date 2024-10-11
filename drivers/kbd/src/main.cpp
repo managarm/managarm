@@ -16,50 +16,138 @@
 #include <protocols/mbus/client.hpp>
 #include <async/queue.hpp>
 #include <helix/timer.hpp>
+#include <protocols/hw/client.hpp>
 
 #include "spec.hpp"
 #include "ps2.hpp"
 
 namespace {
-	constexpr bool logInconsistencies = false;
-	constexpr bool logPackets = false;
-	constexpr bool logMouse = false;
-}
+
+constexpr bool logInconsistencies = false;
+constexpr bool logPackets = false;
+constexpr bool logMouse = false;
+
 constexpr int default_timeout = 500'000'000;
+
+constexpr std::array<const char *, 26> keyboardPnpIds = {{
+	"PNP0300",
+	"PNP0301",
+	"PNP0302",
+	"PNP0303",
+	"PNP0304",
+	"PNP0305",
+	"PNP0306",
+	"PNP0307",
+	"PNP0308",
+	"PNP0309",
+	"PNP030A",
+	"PNP030B",
+	"PNP0320",
+	"PNP0321",
+	"PNP0322",
+	"PNP0323",
+	"PNP0324",
+	"PNP0325",
+	"PNP0326",
+	"PNP0327",
+	"PNP0340",
+	"PNP0341",
+	"PNP0342",
+	"PNP0343",
+	"PNP0343",
+	"PNP0344",
+}};
+
+constexpr std::array<const char *, 38> mousePnpIds = {{
+	"PNP0F00",
+	"PNP0F01",
+	"PNP0F02",
+	"PNP0F03",
+	"PNP0F04",
+	"PNP0F05",
+	"PNP0F06",
+	"PNP0F07",
+	"PNP0F08",
+	"PNP0F09",
+	"PNP0F0A",
+	"PNP0F0B",
+	"PNP0F0C",
+	"PNP0F0D",
+	"PNP0F0E",
+	"PNP0F0F",
+	"PNP0F10",
+	"PNP0F11",
+	"PNP0F12",
+	"PNP0F13",
+	"PNP0F14",
+	"PNP0F15",
+	"PNP0F16",
+	"PNP0F17",
+	"PNP0F18",
+	"PNP0F19",
+	"PNP0F1A",
+	"PNP0F1B",
+	"PNP0F1C",
+	"PNP0F1D",
+	"PNP0F1E",
+	"PNP0F1F",
+	"PNP0F20",
+	"PNP0F21",
+	"PNP0F22",
+	"PNP0F23",
+	"PNP0FFC",
+	"PNP0FFF",
+}};
+
+} // namespace
 
 // --------------------------------------------------------------------
 // Controller
 // --------------------------------------------------------------------
 
-Controller::Controller() {
-	HEL_CHECK(helAccessIrq(1, &_irq1Handle));
-	_irq1 = helix::UniqueIrq(_irq1Handle);
+Controller::Controller(std::shared_ptr<protocols::hw::Device> device, std::array<uintptr_t, 2> ports,
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq)
+	: _hwDevice{std::move(device)}, _ioPorts{ports}, _primaryIrq{primaryIrq},
+	_secondaryIrq{secondaryIrq} {
 
-	HEL_CHECK(helAccessIrq(12, &_irq12Handle));
-	_irq12 = helix::UniqueIrq(_irq12Handle);
-
-	uintptr_t ports[] = { DATA, STATUS };
-	HelHandle handle;
-	HEL_CHECK(helAccessIo(ports, 2, &handle));
-	HEL_CHECK(helEnableIo(handle));
-
-	_space = arch::global_io.subspace(DATA);
+	if(!secondaryIrq)
+		_hasSecondPort = false;
 }
 
 async::detached Controller::init() {
-	_space = arch::global_io.subspace(DATA);
+	auto first_port = co_await _hwDevice->accessBar(0);
+	HEL_CHECK(helEnableIo(first_port.getHandle()));
+	_dataSpace = arch::global_io.subspace(_ioPorts[0]);
+
+	auto second_port = co_await _hwDevice->accessBar(1);
+	HEL_CHECK(helEnableIo(second_port.getHandle()));
+	_commandSpace = arch::global_io.subspace(_ioPorts[1]);
+
+	auto first_handle = co_await _primaryIrq->second->accessIrq(0);
+	assert(first_handle);
+	_port1Irq = helix::UniqueIrq{std::move(first_handle)};
+
+	if(_secondaryIrq) {
+		// if the IRQs are on the same device, we use index 1; if not, it's index 0
+		auto irq_num = _secondaryIrq->second == _primaryIrq->second ? 1 : 0;
+
+		auto second_handle = co_await _secondaryIrq->second->accessIrq(irq_num);
+		assert(second_handle);
+		_port2Irq = helix::UniqueIrq{std::move(second_handle)};
+	}
 
 	// disable both devices
 	submitCommand(controller_cmd::DisablePort{}, 0);
 	submitCommand(controller_cmd::DisablePort{}, 1);
 
 	// flush the output buffer
-	while(_space.load(kbd_register::status) & status_bits::outBufferStatus)
-		_space.load(kbd_register::data);
+	while(_commandSpace.load(kbd_register::status) & status_bits::outBufferStatus)
+		_dataSpace.load(kbd_register::data);
 
 	// enable interrupt for second device
 	auto configuration = submitCommand(controller_cmd::GetByte0{});
-	_hasSecondPort = configuration & (1 << 5);
+	_hasSecondPort = (configuration & (1 << 5)) && _hasSecondPort;
 
 	configuration |= 0b11; // enable interrupts
 	configuration &= ~(1 << 6); // disable translation
@@ -72,12 +160,14 @@ async::detached Controller::init() {
 
 	// From this point on, data read from the data port belongs to the device.
 	_portsOwnData = true;
-	handleIrqsFor(_irq1, 0);
-	handleIrqsFor(_irq12, 1);
+	handleIrqsFor(_port1Irq, 0);
+	if(_port2Irq)
+		handleIrqsFor(_port2Irq.value(), 1);
 	// Firmware might have left ports enabled, and the user might have typed during boot.
 	// Reset the IRQ status to ensure that the following code works.
-	HEL_CHECK(helAcknowledgeIrq(_irq1.getHandle(), kHelAckKick, 0));
-	HEL_CHECK(helAcknowledgeIrq(_irq12.getHandle(), kHelAckKick, 0));
+	HEL_CHECK(helAcknowledgeIrq(_port1Irq.getHandle(), kHelAckKick, 0));
+	if(_port2Irq)
+		HEL_CHECK(helAcknowledgeIrq(_port2Irq->getHandle(), kHelAckKick, 0));
 	// enable devices
 	submitCommand(controller_cmd::EnablePort{}, 0);
 	if(_hasSecondPort)
@@ -105,26 +195,26 @@ async::detached Controller::init() {
 
 void Controller::sendCommandByte(uint8_t byte) {
 	bool inEmpty = helix::busyWaitUntil(default_timeout, [&] {
-		return !(_space.load(kbd_register::status) & status_bits::inBufferStatus);
+		return !(_commandSpace.load(kbd_register::status) & status_bits::inBufferStatus);
 	});
 	if(!inEmpty)
 		printf("ps2-hid: Controller failed to empty input buffer\n");
 	// There is not a load that we can do if the controller misbehaves; for now we just abort.
 	assert(inEmpty);
 
-	_space.store(kbd_register::command, byte);
+	_commandSpace.store(kbd_register::command, byte);
 }
 
 void Controller::sendDataByte(uint8_t byte) {
 	bool inEmpty = helix::busyWaitUntil(default_timeout, [&] {
-		return !(_space.load(kbd_register::status) & status_bits::inBufferStatus);
+		return !(_commandSpace.load(kbd_register::status) & status_bits::inBufferStatus);
 	});
 	if(!inEmpty)
 		printf("ps2-hid: Controller failed to empty input buffer\n");
 	// There is not a lot that we can do if the controller misbehaves; for now we just abort.
 	assert(inEmpty);
 
-	_space.store(kbd_register::data, byte);
+	_dataSpace.store(kbd_register::data, byte);
 }
 
 std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
@@ -137,7 +227,7 @@ std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
 		end = start + timeout;
 		current = start;
 
-		while (!(_space.load(kbd_register::status)
+		while (!(_commandSpace.load(kbd_register::status)
 				& status_bits::outBufferStatus) && current < end)
 			HEL_CHECK(helGetClock(&current));
 
@@ -146,12 +236,12 @@ std::optional<uint8_t> Controller::recvResponseByte(uint64_t timeout) {
 		if (cancelled)
 			return std::nullopt;
 
-		return _space.load(kbd_register::data);
+		return _dataSpace.load(kbd_register::data);
 	}
 
-	while (!(_space.load(kbd_register::status) & status_bits::outBufferStatus))
+	while (!(_commandSpace.load(kbd_register::status) & status_bits::outBufferStatus))
 		;
-	return _space.load(kbd_register::data);
+	return _dataSpace.load(kbd_register::data);
 }
 
 void Controller::submitCommand(controller_cmd::DisablePort, int port) {
@@ -205,10 +295,10 @@ async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
 bool Controller::processData(int irqPort) {
 	size_t count = 0;
 	while (true) {
-		auto status = _space.load(kbd_register::status);
+		auto status = _commandSpace.load(kbd_register::status);
 		if (!(status & status_bits::outBufferStatus))
 			break;
-		auto val = _space.load(kbd_register::data);
+		auto val = _dataSpace.load(kbd_register::data);
 
 		auto port = (status & status_bits::secondPort ? 1 : 0);
 		if (logInconsistencies && port != irqPort)
@@ -1074,6 +1164,90 @@ async::result<std::optional<uint8_t>> Controller::Port::recvResponseByte(uint64_
 
 Controller *_controller;
 
+async::detached observeControllers() {
+	mbus_ng::Disjunction devlist({
+		mbus_ng::EqualsFilter{"acpi.status", "ps2.init_complete"},
+	});
+
+	for(auto v : keyboardPnpIds)
+		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.hid", v});
+	for(auto v : mousePnpIds)
+		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.hid", v});
+
+	auto filter = mbus_ng::Conjunction({
+		mbus_ng::EqualsFilter{"unix.subsystem", "acpi"},
+		devlist,
+	});
+
+	bool done = false;
+	bool ready = false;
+
+	std::optional<std::shared_ptr<protocols::hw::Device>> hwDevice = std::nullopt;
+	std::optional<uintptr_t> primaryPort = std::nullopt;
+	std::optional<uintptr_t> secondaryPort = std::nullopt;
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq = std::nullopt;
+	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq = std::nullopt;
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	while(!ready && !done) {
+		auto [paginated, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for(auto &event : events) {
+			if(event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			// if all ACPI PS/2 devices have shown up, set `ready` to true, in order to only parse
+			// events up to that mbus seq number
+			if(event.properties.contains("acpi.status") &&
+			std::get<mbus_ng::StringItem>(event.properties.at("acpi.status")).value == "ps2.init_complete") {
+				ready = true;
+				continue;
+			}
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto device = std::make_shared<protocols::hw::Device>((co_await entity.getRemoteLane()).unwrap());
+			auto res = co_await device->getResources();
+
+			if(res->io_ports.size() == 2 && !primaryPort && !secondaryPort) {
+				primaryPort = res->io_ports.at(0);
+				secondaryPort = res->io_ports.at(1);
+				hwDevice = device;
+			}
+
+			for(auto irq : res->irqs) {
+				if(!primaryIrq)
+					primaryIrq = {irq, device};
+				else if(!secondaryIrq)
+					secondaryIrq = {irq, std::move(device)};
+			}
+		}
+
+		if(ready)
+			done = !paginated;
+	}
+
+	if(!primaryPort || !secondaryPort) {
+		std::cout << std::format("ps2-hid: invalid ports reported: {}, {}\n",
+			primaryPort ? std::format("0x{:x}", primaryPort.value()) : "none",
+			secondaryPort ? std::format("0x{:x}", secondaryPort.value()) : "none"
+		);
+		co_return;
+	}
+
+	if(!primaryIrq) {
+		std::cout << std::format("ps2-hid: invalid IRQs reported: {}, {}\n",
+			primaryIrq ? std::to_string(primaryIrq.value().first) : "none",
+			secondaryIrq ? std::to_string(secondaryIrq.value().first) : "none"
+		);
+		co_return;
+	}
+
+	std::array<uintptr_t, 2> ports{*primaryPort, *secondaryPort};
+
+	_controller = new Controller(hwDevice.value(), ports, primaryIrq, secondaryIrq);
+	_controller->init();
+}
+
 int main() {
 	std::cout << "ps2-hid: Starting driver" << std::endl;
 
@@ -1081,8 +1255,7 @@ int main() {
 	// (since the buffer size of the controller is quite small).
 	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
-	_controller = new Controller;
+	observeControllers();
 
-	_controller->init();
 	async::run_forever(helix::currentDispatcher);
 }
