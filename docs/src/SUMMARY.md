@@ -30,6 +30,7 @@
         - [mbus](sys-arch/mbus/index.md)
         - [bragi](sys-arch/bragi/index.md)
         - [posix subsystem](sys-arch/posix/index.md)
+    - [Servers](sys-arch/servers/index.md)
     - [Drivers](sys-arch/drivers/index.md)
         - [libblockfs](sys-arch/drivers/libblockfs/index.md)
 
