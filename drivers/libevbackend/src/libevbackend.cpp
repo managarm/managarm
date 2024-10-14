@@ -169,10 +169,11 @@ File::pollStatus(void *object) {
 async::result<void>
 File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	auto self = static_cast<File *>(object);
+
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 		assert(req);
-		auto self = static_cast<File *>(object);
 		if(req->command() == EVIOCGBIT(0, 0)) {
 			assert(req->size());
 			if(logRequests)
@@ -269,6 +270,32 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
+	} else if(id == managarm::fs::EvioGetNameRequest::message_id) {
+		managarm::fs::EvioGetNameReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_name(self->_device->name_);
+
+		auto [send_head, send_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
+	} else if(id == managarm::fs::EvioGetIdRequest::message_id) {
+		managarm::fs::EvioGetIdReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_bustype(self->_device->busType_);
+		resp.set_vendor(self->_device->vendor_);
+		resp.set_product(self->_device->product_);
+		resp.set_version(1);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
@@ -350,7 +377,8 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 	}
 }
 
-EventDevice::EventDevice() {
+EventDevice::EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product)
+: name_{std::move(name)}, busType_{bustype}, vendor_{vendor}, product_{product} {
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
