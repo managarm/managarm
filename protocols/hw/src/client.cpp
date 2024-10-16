@@ -169,8 +169,9 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 	co_return std::move(expansion_rom);
 }
 
-async::result<helix::UniqueDescriptor> Device::accessIrq() {
+async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 	managarm::hw::AccessIrqRequest req;
+	req.set_index(index);
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
 			_lane,

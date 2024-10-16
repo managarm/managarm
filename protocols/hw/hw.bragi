@@ -43,6 +43,7 @@ head(128):
 
 message AccessIrqRequest 3 {
 head(128):
+	uint64 index;
 }
 
 message AccessExpansionRomRequest 16 {

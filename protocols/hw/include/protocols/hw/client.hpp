@@ -64,7 +64,7 @@ struct Device {
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
 	async::result<helix::UniqueDescriptor> accessExpansionRom();
-	async::result<helix::UniqueDescriptor> accessIrq();
+	async::result<helix::UniqueDescriptor> accessIrq(size_t index = 0);
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 
 	async::result<void> claimDevice();
