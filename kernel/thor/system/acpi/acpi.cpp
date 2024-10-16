@@ -4,6 +4,7 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/battery.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
 #include <uacpi/resources.h>
 
@@ -41,6 +42,29 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 	if(preamble.error())
 		co_return Error::protocolViolation;
+
+	auto sendResponse = [] (LaneHandle &conversation,
+			managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
+		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+			resp.head_size};
+
+		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+			resp.size_of_tail()};
+
+		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+
+		if (respHeadError != Error::success)
+			co_return respHeadError;
+
+		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+
+		if (respTailError != Error::success)
+			co_return respTailError;
+
+		co_return frg::success;
+	};
 
 	if(preamble.id() == bragi::message_id<managarm::hw::AcpiGetResourcesRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::AcpiGetResourcesRequest>(reqBuffer, *kernelAlloc);
@@ -100,8 +124,70 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
 		if(respTailError != Error::success)
 			co_return respTailError;
+	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
 
-		co_return frg::success;
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+
+		struct PortInfo {
+			int32_t requested_index;
+			int32_t parsed_ports;
+			bool success;
+			smarter::shared_ptr<IoSpace> space;
+		} port_info = {req->index(), 0, false, space};
+
+		// TODO(no92): we should cache this
+		auto ret = uacpi_for_each_device_resource(node, "_CRS",
+		[](void *ctx, uacpi_resource *res){
+			auto info = reinterpret_cast<struct PortInfo *>(ctx);
+
+			switch(res->type) {
+				case UACPI_RESOURCE_TYPE_END_TAG:
+					break;
+				case UACPI_RESOURCE_TYPE_IO:
+					if(info->requested_index == info->parsed_ports) {
+						for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
+							info->space->addPort(i);
+							info->success = true;
+						}
+					}
+					info->parsed_ports++;
+					break;
+				case UACPI_RESOURCE_TYPE_FIXED_IO:
+					if(info->requested_index == info->parsed_ports) {
+						for(size_t i = 0; i < res->fixed_io.length; i++) {
+							info->space->addPort(res->fixed_io.address + i);
+							info->success = true;
+						}
+					}
+					info->parsed_ports++;
+					break;
+				default:
+					return UACPI_RESOURCE_ITERATION_CONTINUE;
+			}
+
+			return UACPI_RESOURCE_ITERATION_CONTINUE;
+		}, &port_info);
+
+		if(ret != UACPI_STATUS_OK || !port_info.success) {
+			resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+		} else if(port_info.parsed_ports <= port_info.requested_index) {
+			resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
+		} else {
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto ioError = co_await PushDescriptorSender{conversation, IoDescriptor{space}};
+		if(ioError != Error::success)
+			co_return ioError;
 	} else {
 		infoLogger() << "thor: dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await DismissSender{conversation};
