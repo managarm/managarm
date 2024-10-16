@@ -188,6 +188,71 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 		auto ioError = co_await PushDescriptorSender{conversation, IoDescriptor{space}};
 		if(ioError != Error::success)
 			co_return ioError;
+	} else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		struct InterruptInfo {
+			size_t requested_index;
+			size_t parsed_irqs;
+			std::optional<int> irq;
+		} interrupt_info = {req->index(), 0, std::nullopt};
+
+		// TODO(no92): we should cache this
+		auto ret = uacpi_for_each_device_resource(node, "_CRS",
+		[](void *ctx, uacpi_resource *res){
+			auto info = reinterpret_cast<struct InterruptInfo *>(ctx);
+
+			switch(res->type) {
+				case UACPI_RESOURCE_TYPE_END_TAG:
+					break;
+				case UACPI_RESOURCE_TYPE_IRQ:
+					for(size_t i = 0; i < res->irq.num_irqs; i++) {
+						if(info->parsed_irqs == info->requested_index)
+							info->irq = res->irq.irqs[i];
+						info->parsed_irqs++;
+					}
+					break;
+				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+					for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
+						if(info->parsed_irqs == info->requested_index)
+							info->irq = res->extended_irq.irqs[i];
+						info->parsed_irqs++;
+					}
+					break;
+				default:
+					return UACPI_RESOURCE_ITERATION_CONTINUE;
+			}
+
+			return UACPI_RESOURCE_ITERATION_CONTINUE;
+		}, &interrupt_info);
+
+		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+			frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
+
+		if(ret != UACPI_STATUS_OK || !interrupt_info.irq) {
+			resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+		} else {
+#ifdef __x86_64__
+			auto irqOverride = resolveIsaIrq(interrupt_info.irq.value());
+			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
+#else
+			#error "unimplemented"
+#endif
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto irqError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+		if(irqError != Error::success)
+			co_return irqError;
 	} else {
 		infoLogger() << "thor: dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await DismissSender{conversation};
