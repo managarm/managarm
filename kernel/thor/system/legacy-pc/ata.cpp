@@ -126,6 +126,12 @@ private:
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
+			if(req->index() != 0) {
+				resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
+				FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
+				co_return frg::success;
+			}
+
 			auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
 #ifdef __x86_64__

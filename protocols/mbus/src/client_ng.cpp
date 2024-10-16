@@ -398,6 +398,10 @@ Conjunction::Conjunction(std::vector<AnyFilter> &&operands)
 
 }
 
+std::vector<AnyFilter> &Conjunction::operands() & {
+	return operands_;
+}
+
 const std::vector<AnyFilter> &Conjunction::operands() const & {
 	return operands_;
 }
@@ -409,6 +413,10 @@ const std::vector<AnyFilter> &Conjunction::operands() const & {
 Disjunction::Disjunction(std::vector<AnyFilter> &&operands)
 	: operands_{std::move(operands)} {
 
+}
+
+std::vector<AnyFilter> &Disjunction::operands() & {
+	return operands_;
 }
 
 const std::vector<AnyFilter> &Disjunction::operands() const & {

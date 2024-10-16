@@ -333,11 +333,16 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-
-		auto object = static_cast<PciDevice *>(this)->obtainIrqObject();
-
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		if(req->index() != 0) {
+			resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
+			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
+			co_return frg::success;
+		}
+
+		auto object = static_cast<PciDevice *>(this)->obtainIrqObject();
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 

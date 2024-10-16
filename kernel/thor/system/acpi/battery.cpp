@@ -115,7 +115,7 @@ namespace BST {
 namespace thor::acpi {
 
 coroutine<void> BatteryBusObject::run() {
-	auto obj = frg::construct<AcpiObject>(*kernelAlloc, _node, ACPI_HID_BATTERY, _id);
+	auto obj = frg::construct<AcpiObject>(*kernelAlloc, _node, _id);
 	co_await obj->run();
 	auto acpi_object = obj->mbus_id;
 

@@ -53,6 +53,7 @@ private:
 struct Conjunction {
 	Conjunction(std::vector<AnyFilter> &&operands);
 
+	std::vector<AnyFilter> &operands() &;
 	const std::vector<AnyFilter> &operands() const &;
 
 private:
@@ -62,6 +63,7 @@ private:
 struct Disjunction {
 	Disjunction(std::vector<AnyFilter> &&operands);
 
+	std::vector<AnyFilter> &operands() &;
 	const std::vector<AnyFilter> &operands() const &;
 
 private:

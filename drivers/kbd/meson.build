@@ -3,7 +3,7 @@ if host_machine.cpu_family() != 'x86_64'
 endif
 
 executable('ps2-hid', 'src/main.cpp',
-	dependencies : evbackend_dep,
+	dependencies : [ evbackend_dep, hw_proto_dep ],
 	install : true
 )
 
