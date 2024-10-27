@@ -23,12 +23,22 @@ namespace pages {
 	constexpr int firstVendorDefined = 0xFF00;
 	constexpr int lastVendorDefined = 0xFFFF;
 
-}
+} // namespace pages
+
+namespace usage {
+
+namespace genericDesktop {
+	constexpr int x = 0x30;
+	constexpr int y = 0x31;
+	constexpr int wheel = 0x38;
+} // namespace genericDesktop
+
+} // namespace usage
 
 namespace item {
 	constexpr uint32_t variable = (1 << 1);
 	constexpr uint32_t relative = (1 << 2);
-}
+} // namespace item
 
 struct HidDescriptor : public protocols::usb::DescriptorBase {
 	struct [[ gnu::packed ]] Entry {

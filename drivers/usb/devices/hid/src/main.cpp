@@ -43,9 +43,9 @@ void setupInputTranslation(Element *element) {
 		// TODO: Distinguish between absolute and relative controls.
 		if(element->isAbsolute) {
 			switch(element->usageId) {
-				case 0x30: setInput(EV_ABS, ABS_X); break;
-				case 0x31: setInput(EV_ABS, ABS_Y); break;
-				case 0x38: setInput(EV_ABS, ABS_WHEEL); break;
+				case usage::genericDesktop::x: setInput(EV_ABS, ABS_X); break;
+				case usage::genericDesktop::y: setInput(EV_ABS, ABS_Y); break;
+				case usage::genericDesktop::wheel: setInput(EV_ABS, ABS_WHEEL); break;
 				default:
 					if(logUnknownCodes)
 						std::cout << "usb-hid: Unknown usage " << element->usageId
@@ -53,9 +53,9 @@ void setupInputTranslation(Element *element) {
 			}
 		}else{
 			switch(element->usageId) {
-				case 0x30: setInput(EV_REL, REL_X); break;
-				case 0x31: setInput(EV_REL, REL_Y); break;
-				case 0x38: setInput(EV_REL, REL_WHEEL); break;
+				case usage::genericDesktop::x: setInput(EV_REL, REL_X); break;
+				case usage::genericDesktop::y: setInput(EV_REL, REL_Y); break;
+				case usage::genericDesktop::wheel: setInput(EV_REL, REL_WHEEL); break;
 				default:
 					if(logUnknownCodes)
 						std::cout << "usb-hid: Unknown usage " << element->usageId
