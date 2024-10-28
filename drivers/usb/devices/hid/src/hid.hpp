@@ -133,6 +133,10 @@ struct HidDevice {
 	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
+	std::pair<uint16_t, uint16_t> getDeviceId() {
+		return {_vendorId, _deviceId};
+	}
+
 	std::unordered_map<uint8_t, std::vector<Field>> fields{
 		{0, {}}
 	};
@@ -145,4 +149,7 @@ struct HidDevice {
 
 private:
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;
+
+	uint16_t _vendorId = 0xFFFF;
+	uint16_t _deviceId = 0xFFFF;
 };

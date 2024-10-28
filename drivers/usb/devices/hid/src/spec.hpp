@@ -33,6 +33,14 @@ namespace genericDesktop {
 	constexpr int wheel = 0x38;
 } // namespace genericDesktop
 
+namespace digitizers {
+	constexpr int finger = 0x22;
+	constexpr int tipSwitch = 0x42;
+	constexpr int touchValid = 0x47;
+	constexpr int contactIdentifier = 0x51;
+	constexpr int contactCount = 0x54;
+} // namespace digitizers
+
 } // namespace usage
 
 namespace item {

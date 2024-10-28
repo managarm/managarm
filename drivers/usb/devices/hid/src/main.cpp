@@ -18,8 +18,10 @@
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>
 
-#include "spec.hpp"
+#include "handler/multitouch.hpp"
 #include "hid.hpp"
+#include "quirks.hpp"
+#include "spec.hpp"
 
 namespace {
 	constexpr bool logDescriptorParser = false;
@@ -322,6 +324,12 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 	};
 
 	auto generateFields = [&] (bool array, bool relative) {
+		auto addField = [&](uint16_t usagePage, uint16_t usageId, auto f) {
+			quirks::processField(this, usagePage, usageId, f);
+
+			fields.at(global.reportId.value_or(0)).push_back(f);
+		};
+
 		if(!global.reportSize || !global.reportCount)
 			throw std::runtime_error("Missing Report Size/Count");
 
@@ -341,7 +349,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			field.type = FieldType::padding;
 			field.bitSize = global.reportSize.value();
 			field.arraySize = global.reportCount.value();
-			fields.at(global.reportId.value_or(0)).push_back(field);
+			addField(0, 0, field);
 		}else if(!array) {
 			for(unsigned int i = 0; i < global.reportCount.value(); i++) {
 				uint16_t actual_id;
@@ -371,7 +379,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 					field.dataMin = global.logicalMin.value().second;
 					field.dataMax = global.logicalMax.value().second;
 				}
-				fields.at(global.reportId.value_or(0)).push_back(field);
+				addField(global.usagePage.value(), actual_id, field);
 
 				Element element;
 				element.parent = context.back();
@@ -420,7 +428,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				field.dataMax = global.logicalMax.value().second;
 			}
 			field.arraySize = global.reportCount.value();
-			fields.at(global.reportId.value_or(0)).push_back(field);
+			addField(local.usageMin.value(), global.usagePage.value(), field);
 
 			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
@@ -471,7 +479,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			}
 			auto c = static_cast<Collection *>(h);
 			if(logDescriptorParser)
-				printf("usb-hid:     End Collection (Type 0x%x)\n", c->type());
+				printf("usb-hid:     End Collection (Type 0x%x)\n", c->collectionType());
 			context.pop_back();
 			break;
 		}
@@ -617,6 +625,9 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(devdesc_data.data());
 	auto manufacturer = (co_await device.getString(devdesc->manufacturer)).unwrap();
 	auto product = (co_await device.getString(devdesc->product)).unwrap();
+
+	_vendorId = devdesc->idVendor;
+	_deviceId = devdesc->idProduct;
 
 	_eventDev = std::make_shared<EventDevice>(std::format("{} {}", manufacturer, product),
 		devdesc->idVendor, devdesc->idProduct);
@@ -877,6 +888,8 @@ int main() {
 	printf("usb-hid: Starting driver\n");
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
+
+	handlers.push_back(new handler::multitouch::MultitouchHandler);
 
 	observeDevices();
 	async::run_forever(helix::currentDispatcher);

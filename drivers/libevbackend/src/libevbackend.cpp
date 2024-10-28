@@ -31,6 +31,10 @@ bool logRequests = false;
 
 namespace {
 
+constexpr bool isMultitouchCode(int code) {
+	return code >= ABS_MT_FIRST && code <= ABS_MT_LAST;
+}
+
 async::detached issueReset() {
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"class", "pm-interface"}
@@ -426,19 +430,54 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		array[bit / 8] |= (((int)value) << (bit % 8));
 	};
 
+	auto currentMtSlot = [this]() -> int & {
+		return _absoluteSlots[ABS_MT_SLOT].value;
+	};
+
 	// Filter out events that do not update the device state.
 	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
 		return;
 	if(type == EV_REL && !value)
 		return;
-	if(type == EV_ABS && value == _absoluteSlots[code].value)
+	if(type == EV_ABS && isMultitouchCode(code)) {
+		// ABS_MT_SLOT is treated like global state, while other ABS_MT_* values are local to a slot
+		if(code == ABS_MT_SLOT && _absoluteSlots[code].value == value)
+			return;
+
+		if(_mtState.contains(currentMtSlot()) && code != ABS_MT_SLOT) {
+			assert(std::cmp_greater(_mtState.at(currentMtSlot()).abs.size(), (code - ABS_MT_FIRST)));
+			if(_mtState.at(currentMtSlot()).abs.at(code - ABS_MT_FIRST) == value)
+				return;
+		}
+	} else if(type == EV_ABS && value == _absoluteSlots[code].value) {
 		return;
+	}
 
 	// Update the device state.
 	if(type == EV_KEY) {
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
 	}else if(type == EV_ABS) {
-		_absoluteSlots[code].value = value;
+		if(isMultitouchCode(code)) {
+			if(code == ABS_MT_SLOT)
+				currentMtSlot() = value;
+
+			if(!_mtState.contains(currentMtSlot())) {
+				_mtState.insert({currentMtSlot(), {}});
+			}
+
+			if(code == ABS_MT_TRACKING_ID && value == -1) {
+				auto removed_items = _mtState.erase(currentMtSlot());
+				assert(removed_items == 1);
+			} else {
+				if(code == ABS_MT_TRACKING_ID && value != -1)
+					_mtState.at(currentMtSlot()).userTrackingId = value;
+
+				assert(_mtState.contains(currentMtSlot()));
+				_mtState.at(currentMtSlot()).abs.at(code - ABS_MT_FIRST) = value;
+			}
+		} else {
+			_absoluteSlots[code].value = value;
+		}
 	}
 
 	// Handle magic key sequences in the driver.  This ensure that all devices implement
