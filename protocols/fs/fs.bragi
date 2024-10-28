@@ -760,3 +760,15 @@ head(128):
 	uint16 product;
 	uint16 version;
 }
+
+message EvioGetMultitouchSlotsRequest 25 {
+head(128):
+	uint32 code;
+}
+
+message EvioGetMultitouchSlotsReply 26 {
+head(128):
+	Errors error;
+tail:
+	uint32[] values;
+}

@@ -300,6 +300,31 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
+	} else if(id == managarm::fs::EvioGetMultitouchSlotsRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::EvioGetMultitouchSlotsRequest>(msg);
+		managarm::fs::EvioGetMultitouchSlotsReply resp;
+
+		for(auto &e : self->_device->_mtState) {
+			resp.add_values(e.second.abs.at(req->code() - ABS_MT_FIRST));
+		}
+
+		assert(resp.values_size() < maxMultitouchSlots);
+
+		for(size_t i = 0; i < (maxMultitouchSlots - resp.values_size()); i++) {
+			if(req->code() == ABS_MT_TRACKING_ID)
+				resp.add_values(-1);
+			else
+				resp.add_values(0);
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto [send_head, send_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
 	}else{
 		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
