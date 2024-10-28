@@ -107,7 +107,21 @@ struct Element {
 	int inputType;
 	int inputCode;
 
-	bool disabled;
+	size_t elementNum;
+};
+
+// -----------------------------------------------------
+// Handler.
+// -----------------------------------------------------
+
+// Used for implementing specific Handler for devices that need special logic, like touchscreens.
+struct Handler {
+	// called for handling a HID report with the given elements and values
+	virtual void handleReport(std::shared_ptr<libevbackend::EventDevice> eventDev,
+		std::vector<Element> &elements, std::vector<std::pair<bool, int32_t>> &values) = 0;
+
+	// called for setting up evdev events for that Element
+	virtual void setupElement(std::shared_ptr<libevbackend::EventDevice> eventDev, Element *) = 0;
 };
 
 // -----------------------------------------------------

@@ -3,7 +3,6 @@
 #include <iostream>
 #include <numeric>
 #include <optional>
-#include <set>
 
 #include <assert.h>
 #include <linux/input.h>
@@ -33,11 +32,17 @@ namespace {
 
 namespace proto = protocols::usb;
 
-void setupInputTranslation(Element *element) {
+std::vector<Handler *> handlers = {};
+
+void setupInputTranslation(std::shared_ptr<libevbackend::EventDevice> eventDev, Element *element) {
 	auto setInput = [&] (int type, int code) {
 		element->inputType = type;
 		element->inputCode = code;
 	};
+
+	for(auto h : handlers) {
+		h->setupElement(eventDev, element);
+	}
 
 	if(element->usagePage == pages::genericDesktop) {
 		// TODO: Distinguish between absolute and relative controls.
@@ -308,7 +313,6 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 	LocalState local;
 	GlobalState global;
 
-	std::set<uint32_t> foundElements;
 	// root context for this report descriptor
 	auto context_root = new Root{};
 
@@ -376,8 +380,14 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				element.logicalMin = field.dataMin;
 				element.logicalMax = field.dataMax;
 				element.isAbsolute = !relative;
-				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
-				foundElements.insert((element.usagePage << 16) |  element.usageId);
+				// track the number of elements previously encountered with the usage (page+ID)
+				// usually, items cannot repeat usages; however, this is possible when they are
+				// members of Collections.
+				element.elementNum = std::count_if(elements.at(global.reportId.value_or(0)).cbegin(),
+					elements.at(global.reportId.value_or(0)).cend(),
+					[&](auto e) {
+						return ((e.usagePage << 16) |  e.usageId) == ((element.usagePage << 16) | element.usageId);
+					});
 				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}else{
@@ -420,8 +430,15 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = 0;
 				element.logicalMax = 1;
-				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
-				foundElements.insert((element.usagePage << 16) |  element.usageId);
+				// track the number of elements previously encountered with the usage (page+ID)
+				// usually, items cannot repeat usages; however, this is possible when they are
+				// members of Collections. This information can later be used to do things like
+				// determining the finger index for multitouch screens
+				element.elementNum = std::count_if(elements.at(global.reportId.value_or(0)).cbegin(),
+					elements.at(global.reportId.value_or(0)).cend(),
+					[&](auto e) {
+						return ((e.usagePage << 16) |  e.usageId) == ((element.usagePage << 16) | element.usageId);
+					});
 				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}
@@ -666,7 +683,7 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	for(auto &[_, report] : elements) {
 		for(size_t i = 0; i < report.size(); i++) {
 			auto element = &report[i];
-			setupInputTranslation(element);
+			setupInputTranslation(_eventDev, element);
 			if(element->inputType < 0)
 				continue;
 			if(element->inputType == EV_ABS)
@@ -756,6 +773,10 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			std::cout << std::endl;
 		}
 
+		for(auto &h : handlers) {
+			h->handleReport(_eventDev, elements.at(report_id), values);
+		}
+
 		if(logInputCodes)
 			std::cout << "Reporting input event" << std::endl;
 		for(size_t i = 0; i < elements.at(report_id).size(); i++) {
@@ -763,8 +784,6 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			if(element->inputType < 0)
 				continue;
 			if(!values[i].first)
-				continue;
-			if(element->disabled)
 				continue;
 			if(logInputCodes)
 				std::cout << "    inputType: " << element->inputType
