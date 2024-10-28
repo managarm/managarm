@@ -309,6 +309,13 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 	GlobalState global;
 
 	std::set<uint32_t> foundElements;
+	// root context for this report descriptor
+	auto context_root = new Root{};
+
+	// stack of current context(s) as we are parsing the descriptor
+	std::vector<Hierarchy *> context = {
+		context_root,
+	};
 
 	auto generateFields = [&] (bool array, bool relative) {
 		if(!global.reportSize || !global.reportCount)
@@ -363,6 +370,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				fields.at(global.reportId.value_or(0)).push_back(field);
 
 				Element element;
+				element.parent = context.back();
 				element.usageId = actual_id;
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = field.dataMin;
@@ -406,6 +414,7 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 
 			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
+				element.parent = context.back();
 				element.reportId = global.reportId.value_or(0);
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
@@ -437,16 +446,29 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 		uint32_t data = fetch(size);
 		switch(token & 0xFC) {
 		// Main items
-		case 0xC0:
+		case 0xC0: {
+			auto h = context.back();
+			if(h->type() != CollectionType::Collection) {
+				printf("usb-hid: unbalanced End Collection, ignoring\n");
+				break;
+			}
+			auto c = static_cast<Collection *>(h);
 			if(logDescriptorParser)
-				printf("usb-hid:     End Collection: 0x%x\n", data);
+				printf("usb-hid:     End Collection (Type 0x%x)\n", c->type());
+			context.pop_back();
 			break;
+		}
 
-		case 0xA0:
+		case 0xA0: {
+			uint32_t usage = (local.usage.empty() ? 0 : local.usage.back()) | (*global.usagePage << 16);
 			if(logDescriptorParser)
-				printf("usb-hid:     Collection: 0x%x\n", data);
+				printf("usb-hid:     Collection: 0x%x (Usage 0x%04x)\n", data, usage);
+			auto c = new Collection(context.back(), data, usage);
+			context.back()->children.push_back(c);
+			context.push_back(std::move(c));
 			local = LocalState();
 			break;
+		}
 
 		case 0xB0:
 			if(logDescriptorParser)
@@ -819,6 +841,12 @@ async::detached observeDevices() {
 			std::cout << "usb-hid: Detected USB device" << std::endl;
 			bindDevice(std::move(entity));
 		}
+	}
+}
+
+Hierarchy::~Hierarchy() {
+	for(auto c : children) {
+		delete c;
 	}
 }
 
