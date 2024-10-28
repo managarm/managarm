@@ -765,10 +765,9 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			std::cout << "usb-hid: Report size: " << length
 					<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
 			std::cout << "usb-hid: Packet:";
-			std::cout << std::hex;
-			for(size_t i = 0; i < 4; i++)
-				std::cout << " " << (int)reinterpret_cast<uint8_t *>(report.data())[i];
-			std::cout << std::dec << std::endl;
+			for(size_t i = 0; i < length; i++)
+				std::cout << std::format(" {:02x}", reinterpret_cast<uint8_t *>(report.data())[i]);
+			std::cout << std::endl;
 		}
 
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
