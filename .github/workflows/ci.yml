@@ -48,14 +48,19 @@ jobs:
                         mlibc
                         mlibc-headers
         name: Build ${{ matrix.pkg }}
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-24.04
         steps:
+          - name: Permit unprivileged user namespaces
+            run: |
+                set -x
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           - name: Install prerequisites
             run: |
                 set -x
                 sudo apt-get update
                 sudo apt-get install qemu-system-x86 pcre2-utils
-                pip3 install xbstrap
+                pip3 install xbstrap y4
                 xbstrap prereqs cbuildrt xbps
           - name: Check for requested bootstrap-managarm PR
             env:
