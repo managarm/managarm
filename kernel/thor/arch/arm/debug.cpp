@@ -39,4 +39,11 @@ void UartLogHandler::printChar(char c) {
 	space.store(reg::data, c);
 }
 
+void UartLogHandler::setPriority(Severity prio) {
+	(void)prio;
+}
+
+void UartLogHandler::resetPriority() {
+}
+
 } // namespace thor
