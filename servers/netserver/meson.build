@@ -14,9 +14,15 @@ src = [
 
 inc = [ 'include', 'src' ]
 
+dep = [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep,
+	nic_usb_net_dep, nic_rtl8168_dep, core_dep ]
+
+if host_machine.cpu_family() == 'x86_64'
+	dep += nic_freebsd_e1000_dep
+endif
+
 executable('netserver', src,
-	dependencies : [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep,
-		nic_usb_net_dep, nic_rtl8168_dep, nic_freebsd_e1000_dep, core_dep ],
+	dependencies : dep,
 	include_directories : inc,
 	install : true
 )

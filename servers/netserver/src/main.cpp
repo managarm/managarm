@@ -27,7 +27,9 @@
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
 #include <nic/rtl8168/rtl8168.hpp>
-#include <nic/freebsd-e1000/common.hpp>
+#ifdef __x86_64__
+# include <nic/freebsd-e1000/common.hpp>
+#endif
 #include <nic/usb_net/usb_net.hpp>
 #include <protocols/usb/client.hpp>
 
@@ -179,8 +181,10 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 		device = co_await setupVirtioDevice(baseEntity, std::move(hwDevice));
 	} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
 		device = nic::rtl8168::makeShared(std::move(hwDevice));
+#ifdef __x86_64__
 	} else if(vendor_str->value == VENDOR_INTEL) {
 		device = nic::e1000::makeShared(std::move(hwDevice));
+#endif
 	} else {
 		std::cout << std::format("netserver: skipping PCI device {}:{}\n", vendor_str->value, device_str->value);
 		co_return protocols::svrctl::Error::deviceNotSupported;
