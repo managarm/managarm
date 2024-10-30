@@ -159,7 +159,7 @@ async::result<void> enumeratePm() {
 
 async::detached runInit() {
 	co_await enumerateKerncfg();
-	co_await enumeratePm();
+	async::detach(enumeratePm());
 	co_await clk::enumerateTracker();
 	async::detach(net::enumerateNetserver());
 	co_await populateRootView();
