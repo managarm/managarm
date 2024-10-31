@@ -6,6 +6,8 @@
 namespace regs {
 	constexpr arch::bit_register<uint64_t> cap{0x0};
 	constexpr arch::scalar_register<uint32_t> vs{0x8};
+	constexpr arch::scalar_register<uint32_t> intms{0xc};
+	constexpr arch::scalar_register<uint32_t> intmc{0x10};
 	constexpr arch::bit_register<uint32_t> cc{0x14};
 	constexpr arch::scalar_register<uint32_t> csts{0x1c};
 	constexpr arch::scalar_register<uint32_t> aqa{0x24};
@@ -58,14 +60,19 @@ async::detached Controller::handleIrqs() {
 	irqSequence_ = 0;
 
 	while (true) {
-		auto await = co_await helix_ng::awaitEvent(irq_, irqSequence_);
-		HEL_CHECK(await.error());
-		irqSequence_ = await.sequence();
+		auto awaitResult = co_await helix_ng::awaitEvent(irq_, irqSequence_);
+
+		regs_.store(regs::intms, 1);
+
+		HEL_CHECK(awaitResult.error());
+		irqSequence_ = awaitResult.sequence();
 
 		int found = 0;
 		for (auto &q : activeQueues_) {
 			found |= q->handleIrq();
 		}
+
+		regs_.store(regs::intmc, 1);
 
 		if (found) {
 			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckAcknowledge, irqSequence_));

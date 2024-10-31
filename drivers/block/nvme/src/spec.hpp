@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 namespace spec {
 
 enum CommandOpcode {
