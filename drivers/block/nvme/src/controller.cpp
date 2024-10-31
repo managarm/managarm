@@ -5,7 +5,7 @@
 
 namespace regs {
 	constexpr arch::bit_register<uint64_t> cap{0x0};
-	constexpr arch::scalar_register<uint32_t> vs{0x4};
+	constexpr arch::scalar_register<uint32_t> vs{0x8};
 	constexpr arch::bit_register<uint32_t> cc{0x14};
 	constexpr arch::scalar_register<uint32_t> csts{0x1c};
 	constexpr arch::scalar_register<uint32_t> aqa{0x24};
