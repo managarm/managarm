@@ -21,7 +21,7 @@ libgcc = cxx.find_library('gcc', required: not build_uefi)
 eir_c_args = []
 eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
 eir_link_args = ['-nostdlib']
-eir_dependencies = [libgcc, cxxshim_dep, frigg, libarch]
+eir_dependencies = [libgcc, frigg, libarch]
 
 if get_option('kernel_kasan')
 	eir_c_args += [

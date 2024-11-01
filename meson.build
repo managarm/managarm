@@ -149,15 +149,6 @@ elif flavor == 'userspace'
 	libarch_opts = [ 'install_headers=false' ]
 endif
 
-if build_kernel or build_uefi or build_drivers or provide_deps
-	cxxshim_dep = dependency('cxxshim',
-				 required: false,
-				 fallback: ['cxxshim', 'cxxshim_dep'])
-	coroutines = dependency('cxxshim-coroutine-std',
-				 required: false,
-				 fallback: ['cxxshim', 'std_coroutine_dep'])
-endif
-
 if build_kernel or build_drivers
 	libarch = subproject('libarch',
 		default_options : libarch_opts
