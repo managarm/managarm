@@ -1,12 +1,12 @@
 
 #include <assert.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <optional>
-#include <functional>
-#include <memory>
 #include <bit>
 #include <format>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <stdio.h>
+#include <unistd.h>
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
@@ -14,17 +14,17 @@
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
 #include <protocols/mbus/client.hpp>
-#include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/hub.hpp>
 #include <protocols/usb/server.hpp>
+#include <protocols/usb/usb.hpp>
 
 #include <helix/memory.hpp>
 
-#include "spec.hpp"
 #include "context.hpp"
-#include "xhci.hpp"
+#include "spec.hpp"
 #include "trb.hpp"
+#include "xhci.hpp"
 
 namespace proto = protocols::usb;
 
@@ -34,15 +34,27 @@ namespace proto = protocols::usb;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
-Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, std::string name)
-: _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
-		_mmio{std::move(mmio)}, _irq{std::move(irq)},
-		_space{_mapping.get()}, _name{name}, _memoryPool{},
-		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
-		_eventRing{this},
-		_enumerator{this}, _largeCtx{false},
-		_entity{std::move(entity)} {
+Controller::Controller(
+    protocols::hw::Device hw_device,
+    mbus_ng::Entity entity,
+    helix::Mapping mapping,
+    helix::UniqueDescriptor mmio,
+    helix::UniqueIrq irq,
+    std::string name
+)
+    : _hw_device{std::move(hw_device)},
+      _mapping{std::move(mapping)},
+      _mmio{std::move(mmio)},
+      _irq{std::move(irq)},
+      _space{_mapping.get()},
+      _name{name},
+      _memoryPool{},
+      _dcbaa{&_memoryPool, 256},
+      _cmdRing{this},
+      _eventRing{this},
+      _enumerator{this},
+      _largeCtx{false},
+      _entity{std::move(entity)} {
 	auto doorbell_offset = _space.load(cap_regs::dboff);
 	_doorbells = _space.subspace(doorbell_offset);
 
@@ -53,28 +65,28 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 
 void Controller::_processExtendedCapabilities() {
 	auto cur = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4u;
-	if(!cur)
+	if (!cur)
 		return;
 
-	while(1) {
+	while (1) {
 		auto val = arch::scalar_load<uint32_t>(_space, cur);
-		if(val == 0xFFFFFFFF)
+		if (val == 0xFFFFFFFF)
 			break;
 
 		auto id = val & 0xFF;
-		if(!id)
+		if (!id)
 			break;
 
-		if(id == 1) {
+		if (id == 1) {
 			std::cout << this << "USB Legacy Support capability at " << cur << std::endl;
 
-			while(arch::scalar_load<uint8_t>(_space, cur + 0x2)) {
+			while (arch::scalar_load<uint8_t>(_space, cur + 0x2)) {
 				arch::scalar_store<uint8_t>(_space, cur + 0x3, 1);
 				sleep(1);
 			}
 
 			std::cout << this << "Controller ownership obtained from BIOS" << std::endl;
-		} else if(id == 2) {
+		} else if (id == 2) {
 			SupportedProtocol proto;
 
 			auto v = arch::scalar_load<uint32_t>(_space, cur);
@@ -111,12 +123,12 @@ async::detached Controller::initialize() {
 	operational.store(op_regs::usbcmd, usbcmd::run(false));
 
 	// Wait for the controller to halt
-	while(!(operational.load(op_regs::usbsts) & usbsts::hcHalted))
+	while (!(operational.load(op_regs::usbsts) & usbsts::hcHalted))
 		;
 
 	// Reset the controller and wait for it to complete
 	operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
-	while(operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
+	while (operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
 		;
 
 	std::cout << this << "Controller reset done" << std::endl;
@@ -128,9 +140,10 @@ async::detached Controller::initialize() {
 
 	// Figure out how many scratchpad buffers are needed
 	auto nScratchpadBufs =
-		(uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsHi} << 5)
-		| (uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsLow});
-	std::cout << this << "Controller wants " << nScratchpadBufs << " scratchpad buffers" << std::endl;
+	    (uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsHi} << 5) |
+	    (uint32_t{_space.load(cap_regs::hcsparams2) & hcsparams2::maxScratchpadBufsLow});
+	std::cout << this << "Controller wants " << nScratchpadBufs << " scratchpad buffers"
+	          << std::endl;
 
 	// Pick the smallest supported page size
 	// XXX(qookie): Linux seems to not care and always uses 4K
@@ -142,8 +155,7 @@ async::detached Controller::initialize() {
 	// Allocate the scratchpad buffers
 	_scratchpadBufArray = arch::dma_array<uint64_t>{&_memoryPool, nScratchpadBufs};
 	for (size_t i = 0; i < nScratchpadBufs; i++) {
-		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
-					pageSize));
+		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool, pageSize));
 
 		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
 	}
@@ -164,9 +176,9 @@ async::detached Controller::initialize() {
 	// spread out the load (we probably want up to 1 per core?)
 	auto runtimeOffset = _space.load(cap_regs::rtsoff);
 	auto runtime = _space.subspace(runtimeOffset);
-	_interrupters.push_back(std::make_unique<Interrupter>(
-				&_eventRing,
-				interrupter::interrupterSpace(runtime, 0)));
+	_interrupters.push_back(
+	    std::make_unique<Interrupter>(&_eventRing, interrupter::interrupterSpace(runtime, 0))
+	);
 	_interrupters.back()->handleIrqs(_irq);
 	_interrupters.back()->initialize();
 
@@ -174,31 +186,34 @@ async::detached Controller::initialize() {
 	operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
 
 	// Wait for the controller to start
-	while(operational.load(op_regs::usbsts) & usbsts::hcHalted)
+	while (operational.load(op_regs::usbsts) & usbsts::hcHalted)
 		;
 
 	// Set up root hubs for each protocol
 	for (auto &p : _supportedProtocols) {
-		std::cout << this << "USB " << std::format("{:x}.{:02x}", p.major, p.minor)
-			<< ": " << p.compatiblePortCount << " ports ("
-			<< p.compatiblePortStart << "-" << (p.compatiblePortStart + p.compatiblePortCount - 1)
-			<< "), slot type " << p.slotType << std::endl;
+		std::cout << this << "USB " << std::format("{:x}.{:02x}", p.major, p.minor) << ": "
+		          << p.compatiblePortCount << " ports (" << p.compatiblePortStart << "-"
+		          << (p.compatiblePortStart + p.compatiblePortCount - 1) << "), slot type "
+		          << p.slotType << std::endl;
 
 		mbus_ng::Properties descriptor{
-			{"generic.devtype", mbus_ng::StringItem{"usb-controller"}},
-			{"generic.devsubtype", mbus_ng::StringItem{"xhci"}},
-			{"usb.version.major", mbus_ng::StringItem{std::to_string(p.major)}},
-			{"usb.version.minor", mbus_ng::StringItem{std::to_string(p.minor)}},
-			{"usb.root.parent", mbus_ng::StringItem{std::to_string(_entity.id())}},
+		    {"generic.devtype", mbus_ng::StringItem{"usb-controller"}},
+		    {"generic.devsubtype", mbus_ng::StringItem{"xhci"}},
+		    {"usb.version.major", mbus_ng::StringItem{std::to_string(p.major)}},
+		    {"usb.version.minor", mbus_ng::StringItem{std::to_string(p.minor)}},
+		    {"usb.root.parent", mbus_ng::StringItem{std::to_string(_entity.id())}},
 		};
 
-		auto xhciEntity = (co_await mbus_ng::Instance::global().createEntity(
-					"xhci-controller", descriptor)).unwrap();
+		auto xhciEntity =
+		    (co_await mbus_ng::Instance::global().createEntity("xhci-controller", descriptor))
+		        .unwrap();
 
 		auto hub = std::make_shared<RootHub>(
-			this, p,
-			op_regs::portSpace(operational, p.compatiblePortStart - 1),
-			std::move(xhciEntity));
+		    this,
+		    p,
+		    op_regs::portSpace(operational, p.compatiblePortStart - 1),
+		    std::move(xhciEntity)
+		);
 		_rootHubs.push_back(hub);
 		_enumerator.observeHub(hub);
 	}
@@ -207,13 +222,12 @@ async::detached Controller::initialize() {
 }
 
 void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_id) {
-	arch::scalar_store<uint32_t>(_doorbells, doorbell * 4,
-			target | (stream_id << 16));
+	arch::scalar_store<uint32_t>(_doorbells, doorbell * 4, target | (stream_id << 16));
 }
 
-
-async::result<frg::expected<proto::UsbError>>
-Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
+async::result<frg::expected<proto::UsbError>> Controller::enumerateDevice(
+    std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed
+) {
 	uint32_t route = 0;
 	size_t rootPort = port;
 
@@ -243,7 +257,8 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 	rootPort += proto->compatiblePortStart;
 
 	auto device = std::make_shared<Device>(this);
-	FRG_CO_TRY(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType));
+	FRG_CO_TRY(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType)
+	);
 	_devices[device->slot()] = device;
 
 	// If this is full speed, our guess for MPS might be wrong,
@@ -253,7 +268,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 		FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer().subview(0, 8), 0x0100));
 
 		std::cout << this << "Full-speed device on port " << port
-			<< " has bMaxPacketSize0 = " << int{descriptor->maxPacketSize} << std::endl;
+		          << " has bMaxPacketSize0 = " << int{descriptor->maxPacketSize} << std::endl;
 
 		FRG_CO_TRY(co_await device->updateEp0PacketSize(descriptor->maxPacketSize));
 	}
@@ -287,23 +302,25 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 	auto entity_id = std::static_pointer_cast<RootHub>(h)->entityId();
 
 	mbus_ng::Properties mbusDescriptor{
-		{"usb.type", mbus_ng::StringItem{"device"}},
-		{"usb.vendor", mbus_ng::StringItem{vendor}},
-		{"usb.product", mbus_ng::StringItem{product}},
-		{"usb.class", mbus_ng::StringItem{class_code}},
-		{"usb.subclass", mbus_ng::StringItem{sub_class}},
-		{"usb.protocol", mbus_ng::StringItem{protocol}},
-		{"usb.release", mbus_ng::StringItem{release}},
-		{"usb.hub_port", mbus_ng::StringItem{name}},
-		{"usb.bus", mbus_ng::StringItem{std::to_string(entity_id)}},
-		{"usb.speed", mbus_ng::StringItem{mbps}},
-		{"unix.subsystem", mbus_ng::StringItem{"usb"}},
+	    {"usb.type", mbus_ng::StringItem{"device"}},
+	    {"usb.vendor", mbus_ng::StringItem{vendor}},
+	    {"usb.product", mbus_ng::StringItem{product}},
+	    {"usb.class", mbus_ng::StringItem{class_code}},
+	    {"usb.subclass", mbus_ng::StringItem{sub_class}},
+	    {"usb.protocol", mbus_ng::StringItem{protocol}},
+	    {"usb.release", mbus_ng::StringItem{release}},
+	    {"usb.hub_port", mbus_ng::StringItem{name}},
+	    {"usb.bus", mbus_ng::StringItem{std::to_string(entity_id)}},
+	    {"usb.speed", mbus_ng::StringItem{mbps}},
+	    {"unix.subsystem", mbus_ng::StringItem{"usb"}},
 	};
 
 	auto usbEntity = (co_await mbus_ng::Instance::global().createEntity(
-				"usb-xhci-dev-" + std::string{name}, mbusDescriptor)).unwrap();
+	                      "usb-xhci-dev-" + std::string{name}, mbusDescriptor
+	                  ))
+	                     .unwrap();
 
-	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+	[](auto device, mbus_ng::EntityManager entity) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
@@ -321,27 +338,27 @@ void Controller::processEvent(Event ev) {
 	switch (ev.type) {
 		using enum TrbType;
 
-		case commandCompletionEvent:
-			_cmdRing.processEvent(ev);
-			break;
+	case commandCompletionEvent:
+		_cmdRing.processEvent(ev);
+		break;
 
-		case transferEvent:
-			if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
-				ep->transferRing().processEvent(ev);
-			else
-				std::cout << this << "Event for missing endpoint ID " << ev.endpointId
-					<< " on slot " << ev.slotId << std::endl;
-			break;
+	case transferEvent:
+		if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
+			ep->transferRing().processEvent(ev);
+		else
+			std::cout << this << "Event for missing endpoint ID " << ev.endpointId << " on slot "
+			          << ev.slotId << std::endl;
+		break;
 
-		case portStatusChangeEvent:
-			assert(ev.portId <= _ports.size());
-			if (_ports[ev.portId - 1])
-				_ports[ev.portId - 1]->_doorbell.raise();
-			break;
+	case portStatusChangeEvent:
+		assert(ev.portId <= _ports.size());
+		if (_ports[ev.portId - 1])
+			_ports[ev.portId - 1]->_doorbell.raise();
+		break;
 
-		default:
-			std::cout << this << "Unexpected event in processEvent, ignoring..." << std::endl;
-			ev.printInfo();
+	default:
+		std::cout << this << "Unexpected event in processEvent, ignoring..." << std::endl;
+		ev.printInfo();
 	}
 }
 
@@ -352,7 +369,7 @@ void Controller::processEvent(Event ev) {
 void Interrupter::initialize() {
 	// Initialize the event ring segment table
 	_space.store(interrupter::erstsz, _ring->getErstSize());
-	_space.store(interrupter::erstbaLow,_ring->getErstPtr() & 0xFFFFFFFF);
+	_space.store(interrupter::erstbaLow, _ring->getErstPtr() & 0xFFFFFFFF);
 	_space.store(interrupter::erstbaHi, _ring->getErstPtr() >> 32);
 
 	_updateDequeue();
@@ -363,7 +380,7 @@ void Interrupter::initialize() {
 async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 	uint64_t sequence = 0;
 
-	while(1) {
+	while (1) {
 		auto await = co_await helix_ng::awaitEvent(irq, sequence);
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
@@ -382,14 +399,11 @@ async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 }
 
 void Interrupter::_updateDequeue() {
-	_space.store(interrupter::erdpLow,
-			(_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));
+	_space.store(interrupter::erdpLow, (_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));
 	_space.store(interrupter::erdpHi, _ring->getEventRingPtr() >> 32);
 }
 
-bool Interrupter::_isBusy() {
-	return _space.load(interrupter::erdpLow) & (1 << 3);
-}
+bool Interrupter::_isBusy() { return _space.load(interrupter::erdpLow) & (1 << 3); }
 
 void Interrupter::_clearPending() {
 	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::pending(1));
@@ -399,9 +413,13 @@ void Interrupter::_clearPending() {
 // Controller::Port
 // ------------------------------------------------------------------------
 
-Controller::Port::Port(int id, arch::mem_space space, Controller *controller, SupportedProtocol *proto)
-: _id{id}, _controller{controller}, _proto{proto}, _space{space} {
-}
+Controller::Port::Port(
+    int id, arch::mem_space space, Controller *controller, SupportedProtocol *proto
+)
+    : _id{id},
+      _controller{controller},
+      _proto{proto},
+      _space{space} {}
 
 void Controller::Port::reset() {
 	std::cout << _controller << "Resetting port " << _id << std::endl;
@@ -413,14 +431,13 @@ void Controller::Port::disable() {
 }
 
 void Controller::Port::resetChangeBits() {
-	_space.store(port::portsc, portsc::portPower(true)
-			| portsc::connectStatusChange(true)
-			| portsc::portResetChange(true)
-			| portsc::portEnableChange(true)
-			| portsc::warmPortResetChange(true)
-			| portsc::overCurrentChange(true)
-			| portsc::portLinkStatusChange(true)
-			| portsc::portConfigErrorChange(true));
+	_space.store(
+	    port::portsc,
+	    portsc::portPower(true) | portsc::connectStatusChange(true) |
+	        portsc::portResetChange(true) | portsc::portEnableChange(true) |
+	        portsc::warmPortResetChange(true) | portsc::overCurrentChange(true) |
+	        portsc::portLinkStatusChange(true) | portsc::portConfigErrorChange(true)
+	);
 }
 
 bool Controller::Port::isConnected() {
@@ -433,22 +450,20 @@ bool Controller::Port::isPowered() {
 	return portsc & portsc::portPower;
 }
 
-bool Controller::Port::isEnabled() {
-	return _space.load(port::portsc) & portsc::portEnable;
-}
+bool Controller::Port::isEnabled() { return _space.load(port::portsc) & portsc::portEnable; }
 
 uint8_t Controller::Port::getLinkStatus() {
 	return _space.load(port::portsc) & portsc::portLinkStatus;
 }
 
-uint8_t Controller::Port::getSpeed() {
-	return _space.load(port::portsc) & portsc::portSpeed;
-}
+uint8_t Controller::Port::getSpeed() { return _space.load(port::portsc) & portsc::portSpeed; }
 
 void Controller::Port::transitionToLinkStatus(uint8_t status) {
-	_space.store(port::portsc, portsc::portPower(true)
-			| portsc::portLinkStatus(status)
-			| portsc::portLinkStatusStrobe(true));
+	_space.store(
+	    port::portsc,
+	    portsc::portPower(true) | portsc::portLinkStatus(status) |
+	        portsc::portLinkStatusStrobe(true)
+	);
 }
 
 async::detached Controller::Port::initPort() {
@@ -487,7 +502,8 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 
 	auto linkStatus = getLinkStatus();
 
-	std::cout << _controller << "Port " << _id << " link status is " << (unsigned int)linkStatus << std::endl;
+	std::cout << _controller << "Port " << _id << " link status is " << (unsigned int)linkStatus
+	          << std::endl;
 
 	if (linkStatus >= 1 && linkStatus <= 3) {
 		transitionToLinkStatus(0);
@@ -506,27 +522,28 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 
 	std::optional<proto::DeviceSpeed> speed;
 
-	switch(speedId) {
-		case 1:
-			speed = proto::DeviceSpeed::fullSpeed;
-			break;
-		case 2:
-			speed = proto::DeviceSpeed::lowSpeed;
-			break;
-		case 3:
-			speed = proto::DeviceSpeed::highSpeed;
-			break;
-		case 4:
-		case 5:
-		case 6:
-		case 7:
-			speed = proto::DeviceSpeed::superSpeed;
+	switch (speedId) {
+	case 1:
+		speed = proto::DeviceSpeed::fullSpeed;
+		break;
+	case 2:
+		speed = proto::DeviceSpeed::lowSpeed;
+		break;
+	case 3:
+		speed = proto::DeviceSpeed::highSpeed;
+		break;
+	case 4:
+	case 5:
+	case 6:
+	case 7:
+		speed = proto::DeviceSpeed::superSpeed;
 	}
 
 	if (speed) {
 		co_return speed.value();
 	} else {
-		std::cout << _controller << "Port " << _id << " has invalid speed ID " << speedId << std::endl;
+		std::cout << _controller << "Port " << _id << " has invalid speed ID " << speedId
+		          << std::endl;
 		co_return proto::UsbError::unsupported;
 	}
 }
@@ -535,28 +552,33 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 // Controller::RootHub
 // ------------------------------------------------------------------------
 
-Controller::RootHub::RootHub(Controller *controller, SupportedProtocol &proto, arch::mem_space portSpace, mbus_ng::EntityManager entity)
-: Hub{nullptr, 0}, _controller{controller}, _proto{&proto}, _entity{std::move(entity)} {
+Controller::RootHub::RootHub(
+    Controller *controller,
+    SupportedProtocol &proto,
+    arch::mem_space portSpace,
+    mbus_ng::EntityManager entity
+)
+    : Hub{nullptr, 0},
+      _controller{controller},
+      _proto{&proto},
+      _entity{std::move(entity)} {
 	for (size_t i = 0; i < proto.compatiblePortCount; i++) {
 		_ports.push_back(std::make_unique<Port>(
-					i + proto.compatiblePortStart,
-					port::spaceForIndex(portSpace, i),
-					controller, &proto));
+		    i + proto.compatiblePortStart, port::spaceForIndex(portSpace, i), controller, &proto
+		));
 		_ports.back()->initPort();
-		_controller->_ports[(i + proto.compatiblePortStart - 1)] =
-				_ports.back().get();
+		_controller->_ports[(i + proto.compatiblePortStart - 1)] = _ports.back().get();
 	}
 }
 
-size_t Controller::RootHub::numPorts() {
-	return _proto->compatiblePortCount;
-}
+size_t Controller::RootHub::numPorts() { return _proto->compatiblePortCount; }
 
 async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	co_return co_await _ports[port]->pollState();
 }
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::RootHub::issueReset(int port) {
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+Controller::RootHub::issueReset(int port) {
 	co_return FRG_CO_TRY(co_await _ports[port]->issueReset());
 }
 
@@ -564,20 +586,13 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Ro
 // Device
 // ------------------------------------------------------------------------
 
-Device::Device(Controller *controller)
-: _slotId{-1}, _controller{controller} {
-}
+Device::Device(Controller *controller) : _slotId{-1}, _controller{controller} {}
 
-arch::dma_pool *Device::setupPool() {
-	return _controller->memoryPool();
-}
+arch::dma_pool *Device::setupPool() { return _controller->memoryPool(); }
 
-arch::dma_pool *Device::bufferPool() {
-	return _controller->memoryPool();
-}
+arch::dma_pool *Device::bufferPool() { return _controller->memoryPool(); }
 
-async::result<frg::expected<proto::UsbError, std::string>>
-Device::deviceDescriptor() {
+async::result<frg::expected<proto::UsbError, std::string>> Device::deviceDescriptor() {
 	arch::dma_object<proto::DeviceDescriptor> descriptor{bufferPool()};
 	FRG_CO_TRY(co_await readDescriptor(descriptor.view_buffer(), 0x0100));
 	co_return std::string{(char *)descriptor.data(), descriptor.view_buffer().size()};
@@ -608,15 +623,15 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 
 	std::optional<uint8_t> valueByIndex;
 
-	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
+	proto::walkConfiguration(descriptor, [&](int type, size_t length, void *p, const auto &info) {
 		(void)length;
 
-		if(type == proto::descriptor_type::configuration) {
+		if (type == proto::descriptor_type::configuration) {
 			auto desc = (proto::ConfigDescriptor *)p;
 			valueByIndex = desc->configValue;
 		}
 
-		if(type != proto::descriptor_type::endpoint)
+		if (type != proto::descriptor_type::endpoint)
 			return;
 		auto desc = (proto::EndpointDescriptor *)p;
 
@@ -635,20 +650,24 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 	assert(valueByIndex);
 	// Bail out if the user has no idea what they're asking for
 	if (*valueByIndex != value) {
-		std::cout << _controller << "useConfiguration(" << (unsigned int)index << ", " << (unsigned int)value
-			<< ") called, but that configuration has bConfigurationValue = " << (unsigned int)*valueByIndex << "???" << std::endl;
+		std::cout << _controller << "useConfiguration(" << (unsigned int)index << ", "
+		          << (unsigned int)value
+		          << ") called, but that configuration has bConfigurationValue = "
+		          << (unsigned int)*valueByIndex << "???" << std::endl;
 		co_return proto::UsbError::other;
 	}
 
 	for (auto &ep : _eps) {
 		std::cout << _controller << "Setting up " << (ep.dir == proto::PipeType::in ? "in" : "out")
-			<< " endpoint " << ep.pipe << " (max packet size: " << ep.packetSize << ")" << std::endl;
+		          << " endpoint " << ep.pipe << " (max packet size: " << ep.packetSize << ")"
+		          << std::endl;
 
 		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
 	}
 
 	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
-	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard |
+	                  proto::setup_type::toDevice;
 	setConfig->request = proto::request_type::setConfig;
 	setConfig->value = value;
 	setConfig->index = 0;
@@ -661,8 +680,8 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 	co_return proto::Configuration{std::make_shared<ConfigurationState>(shared_from_this())};
 }
 
-async::result<frg::expected<proto::UsbError, size_t>>
-Device::transfer(proto::ControlTransfer info) {
+async::result<frg::expected<proto::UsbError, size_t>> Device::transfer(proto::ControlTransfer info
+) {
 	co_return co_await _endpoints[0]->transfer(info);
 }
 
@@ -675,19 +694,28 @@ static inline uint8_t getHcdSpeedId(proto::DeviceSpeed speed) {
 	switch (speed) {
 		using enum proto::DeviceSpeed;
 
-		case lowSpeed: return 2;
-		case fullSpeed: return 1;
-		case highSpeed: return 3;
-		case superSpeed: return 4;
+	case lowSpeed:
+		return 2;
+	case fullSpeed:
+		return 1;
+	case highSpeed:
+		return 3;
+	case superSpeed:
+		return 4;
 	}
 
 	return 0;
 }
 
-async::result<frg::expected<proto::UsbError>>
-Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType) {
-	auto event = co_await _controller->submitCommand(
-			Command::enableSlot(slotType));
+async::result<frg::expected<proto::UsbError>> Device::enumerate(
+    size_t rootPort,
+    size_t port,
+    uint32_t route,
+    std::shared_ptr<proto::Hub> hub,
+    proto::DeviceSpeed speed,
+    int slotType
+) {
+	auto event = co_await _controller->submitCommand(Command::enableSlot(slotType));
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -696,8 +724,8 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 
 	_slotId = event.slotId;
 
-	std::cout << _controller << "Slot " << _slotId << " allocated for port " << port
-		<< " (route " << std::hex << route << std::dec << ")" << std::endl;
+	std::cout << _controller << "Slot " << _slotId << " allocated for port " << port << " (route "
+	          << std::hex << route << std::dec << ")" << std::endl;
 
 	// initialize slot
 
@@ -712,8 +740,8 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	slotCtx |= SlotFields::ctxEntries(1);
 	slotCtx |= SlotFields::speed(getHcdSpeedId(speed));
 
-	if ((speed == proto::DeviceSpeed::lowSpeed || speed == proto::DeviceSpeed::fullSpeed)
-			&& hub->parent()) {
+	if ((speed == proto::DeviceSpeed::lowSpeed || speed == proto::DeviceSpeed::fullSpeed) &&
+	    hub->parent()) {
 		// We need to fill these fields out for split transactions.
 
 		auto hubDevice = std::static_pointer_cast<Device>(hub->associatedDevice()->state());
@@ -728,10 +756,16 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	switch (speed) {
 		using enum proto::DeviceSpeed;
 
-		case lowSpeed:
-		case fullSpeed: packetSize = 8; break;
-		case highSpeed: packetSize = 64; break;
-		case superSpeed: packetSize = 512; break;
+	case lowSpeed:
+	case fullSpeed:
+		packetSize = 8;
+		break;
+	case highSpeed:
+		packetSize = 64;
+		break;
+	case superSpeed:
+		packetSize = 512;
+		break;
 	}
 
 	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control);
@@ -739,12 +773,13 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	_controller->setDeviceContext(_slotId, _devCtx);
 
 	event = co_await _controller->submitCommand(
-			Command::addressDevice(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
+	    Command::addressDevice(_slotId, helix::ptrToPhysical(inputCtx.rawData()))
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _controller << "Failed to address device on slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -756,7 +791,8 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 async::result<frg::expected<proto::UsbError>>
 Device::readDescriptor(arch::dma_buffer_view dest, uint16_t desc) {
 	arch::dma_object<proto::SetupPacket> getDesc{setupPool()};
-	getDesc->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toHost;
+	getDesc->type =
+	    proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toHost;
 	getDesc->request = proto::request_type::getDescriptor;
 	getDesc->value = desc;
 	getDesc->index = 0;
@@ -796,10 +832,9 @@ static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
 	return 0;
 }
 
-
-
-async::result<frg::expected<proto::UsbError>>
-Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+async::result<frg::expected<proto::UsbError>> Device::setupEndpoint(
+    int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type
+) {
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -809,12 +844,13 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
 
 	auto event = co_await _controller->submitCommand(
-			Command::configureEndpoint(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
+	    Command::configureEndpoint(_slotId, helix::ptrToPhysical(inputCtx.rawData()))
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _controller << "Failed to configure endpoint " << endpoint
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -834,16 +870,17 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 	inputCtx.get(inputCtxSlot) |= SlotFields::portCount(hub->numPorts());
 
 	if (speed == proto::DeviceSpeed::highSpeed)
-		inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
-				hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
+		inputCtx.get(inputCtxSlot) |=
+		    SlotFields::ttThinkTime(hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
 	auto event = co_await _controller->submitCommand(
-			Command::evaluateContext(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
+	    Command::evaluateContext(_slotId, helix::ptrToPhysical(inputCtx.rawData()))
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -852,7 +889,13 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 	co_return frg::success;
 }
 
-void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+void Device::_initEpCtx(
+    InputContext &ctx,
+    int endpoint,
+    proto::PipeType dir,
+    size_t maxPacketSize,
+    proto::EndpointType type
+) {
 	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
@@ -885,8 +928,7 @@ void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, si
 	epCtx |= EpFields::averageTrbLength(getDefaultAverageTrbLen(type));
 }
 
-async::result<frg::expected<proto::UsbError>>
-Device::updateEp0PacketSize(size_t maxPacketSize) {
+async::result<frg::expected<proto::UsbError>> Device::updateEp0PacketSize(size_t maxPacketSize) {
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 	int endpointId = getEndpointIndex(0, proto::PipeType::control);
 
@@ -906,12 +948,13 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 	_endpoints[endpointId - 1]->_maxPacketSize = maxPacketSize;
 
 	auto event = co_await _controller->submitCommand(
-		Command::evaluateContext(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
+	    Command::evaluateContext(_slotId, helix::ptrToPhysical(inputCtx.rawData()))
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -925,7 +968,8 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 async::result<frg::expected<proto::UsbError, proto::Interface>>
 ConfigurationState::useInterface(int number, int alternative) {
 	arch::dma_object<proto::SetupPacket> desc{_device->setupPool()};
-	desc->type = proto::setup_type::targetInterface | proto::setup_type::byStandard | proto::setup_type::toDevice;
+	desc->type = proto::setup_type::targetInterface | proto::setup_type::byStandard |
+	             proto::setup_type::toDevice;
 	desc->request = proto::request_type::setInterface;
 	desc->value = alternative;
 	desc->index = number;
@@ -936,7 +980,7 @@ ConfigurationState::useInterface(int number, int alternative) {
 	auto res = co_await _device->transfer({proto::kXferToDevice, desc, {}});
 	if (!res && res.error() == proto::UsbError::stall) {
 		std::cout << _device->controller() << "SET_INTERFACE(" << number << ", " << alternative
-			<< ") stalled, ignoring..." << std::endl;
+		          << ") stalled, ignoring..." << std::endl;
 	} else {
 		FRG_CO_TRY(res);
 	}
@@ -952,10 +996,13 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::ControlTransfer info) {
 	ProducerRing::Transaction tx;
 
-	Transfer::buildControlChain([&] (RawTrb trb) {
-		_transferRing.pushRawTrb(trb, &tx);
-	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
-			_maxPacketSize);
+	Transfer::buildControlChain(
+	    [&](RawTrb trb) { _transferRing.pushRawTrb(trb, &tx); },
+	    *info.setup.data(),
+	    info.buffer,
+	    info.flags == proto::kXferToHost,
+	    _maxPacketSize
+	);
 
 	size_t nextDequeue = _transferRing.enqueuePtr();
 	bool nextCycle = _transferRing.producerCycle();
@@ -968,7 +1015,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
 		if (!res) {
 			std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-				<< " after stall: " << (int)res.error() << std::endl;
+			          << " after stall: " << (int)res.error() << std::endl;
 		}
 	}
 
@@ -979,9 +1026,9 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 	ProducerRing::Transaction tx;
 
-	Transfer::buildNormalChain([&] (RawTrb trb) {
-		_transferRing.pushRawTrb(trb, &tx);
-	}, buffer, _maxPacketSize);
+	Transfer::buildNormalChain(
+	    [&](RawTrb trb) { _transferRing.pushRawTrb(trb, &tx); }, buffer, _maxPacketSize
+	);
 
 	size_t nextDequeue = _transferRing.enqueuePtr();
 	bool nextCycle = _transferRing.producerCycle();
@@ -994,7 +1041,7 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
 		if (!res) {
 			std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-				<< " after stall: " << (int)res.error() << std::endl;
+			          << " after stall: " << (int)res.error() << std::endl;
 		}
 	}
 
@@ -1015,11 +1062,13 @@ async::result<frg::expected<proto::UsbError>>
 EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 	// Issue the Reset Endpoint command to reset the xHC state
 	auto event = co_await _device->controller()->submitCommand(
-		Command::resetEndpoint(_device->slot(), _endpointId));
+	    Command::resetEndpoint(_device->slot(), _endpointId)
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -1033,7 +1082,8 @@ EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 	// in the xHCI driver).
 	if (_type != proto::EndpointType::control) {
 		arch::dma_object<proto::SetupPacket> clearHalt{_device->setupPool()};
-		clearHalt->type = proto::setup_type::targetEndpoint | proto::setup_type::byStandard | proto::setup_type::toDevice;
+		clearHalt->type = proto::setup_type::targetEndpoint | proto::setup_type::byStandard |
+		                  proto::setup_type::toDevice;
 		clearHalt->request = proto::request_type::clearFeature;
 		clearHalt->value = proto::features::endpointHalt;
 		clearHalt->index = _endpointId >> 1; // Our ID is EP no. * 2 + direction
@@ -1046,12 +1096,13 @@ EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 	// transfer
 	auto dequeue = _transferRing.getPtr() + nextDequeue * sizeof(RawTrb);
 	event = co_await _device->controller()->submitCommand(
-		Command::setTransferRingDequeue(_device->slot(), _endpointId,
-				dequeue | cycle));
+	    Command::setTransferRingDequeue(_device->slot(), _endpointId, dequeue | cycle)
+	);
 
 	if (event.completionCode != 1)
 		std::cout << _device->controller() << "Failed to set TR dequeue pointer"
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+		          << ", completion code: " << completionCodeNames[event.completionCode]
+		          << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -1085,18 +1136,24 @@ async::detached bindController(mbus_ng::Entity entity) {
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
-	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
-			std::move(bar), std::move(irq), std::format("pci.{:08x}", info.barInfo[0].address));
+	auto controller = std::make_shared<Controller>(
+	    std::move(device),
+	    std::move(entity),
+	    std::move(mapping),
+	    std::move(bar),
+	    std::move(irq),
+	    std::format("pci.{:08x}", info.barInfo[0].address)
+	);
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"pci-class", "0c"},
-		mbus_ng::EqualsFilter{"pci-subclass", "03"},
-		mbus_ng::EqualsFilter{"pci-interface", "30"}
-	}};
+	auto filter = mbus_ng::Conjunction{
+	    {mbus_ng::EqualsFilter{"pci-class", "0c"},
+	     mbus_ng::EqualsFilter{"pci-subclass", "03"},
+	     mbus_ng::EqualsFilter{"pci-interface", "30"}}
+	};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -1123,4 +1180,3 @@ int main() {
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);
 }
-

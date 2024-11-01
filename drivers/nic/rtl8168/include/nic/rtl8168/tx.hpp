@@ -12,17 +12,15 @@ struct TxQueue {
 
 	void handleTxOk();
 
-	uintptr_t getBase() {
-		return helix_ng::ptrToPhysical(&_descriptors[0]);
-	}
+	uintptr_t getBase() { return helix_ng::ptrToPhysical(&_descriptors[0]); }
 
 	async::result<void> submitDescriptor(arch::dma_buffer_view frame, RealtekNic &nic);
-	async::result<void> postDescriptor(arch::dma_buffer_view frame, RealtekNic &nic, std::shared_ptr<Request> req);
+	async::result<void>
+	postDescriptor(arch::dma_buffer_view frame, RealtekNic &nic, std::shared_ptr<Request> req);
 
-	bool bufferEmpty() {
-		return _amount_free_descriptors == _descriptor_count;
-	}
-protected:
+	bool bufferEmpty() { return _amount_free_descriptors == _descriptor_count; }
+
+  protected:
 	size_t _descriptor_count;
 	size_t _amount_free_descriptors;
 	std::vector<arch::dma_buffer> _descriptor_buffers;

@@ -1,12 +1,12 @@
 #include "arp.hpp"
 
-#include <helix/ipc.hpp>
-#include <helix/timer.hpp>
+#include "ip4.hpp"
 #include <arch/bit.hpp>
 #include <cstring>
+#include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include <iomanip>
 #include <memory>
-#include "ip4.hpp"
 
 struct ArpHeader {
 	uint16_t hrd;
@@ -18,18 +18,13 @@ struct ArpHeader {
 static_assert(sizeof(ArpHeader) == 8, "ARP leader struct must be 8 bytes");
 
 namespace {
-async::result<void> sendArp(uint16_t op,
-		uint32_t sender,
-		nic::MacAddress targetHw, uint32_t targetProto) {
-	auto ensureEndian = [] (auto &x) {
+async::result<void>
+sendArp(uint16_t op, uint32_t sender, nic::MacAddress targetHw, uint32_t targetProto) {
+	auto ensureEndian = [](auto &x) {
 		using namespace arch;
 		x = convert_endian<endian::big, endian::native>(x);
 	};
-	ArpHeader leader {
-		1, static_cast<uint16_t>(nic::ETHER_TYPE_IP4),
-		6, 4,
-		op
-	};
+	ArpHeader leader{1, static_cast<uint16_t>(nic::ETHER_TYPE_IP4), 6, 4, op};
 
 	auto link = ip4().getLink(sender);
 	if (!link) {
@@ -37,8 +32,7 @@ async::result<void> sendArp(uint16_t op,
 	}
 
 	auto targetMac = targetHw;
-	if (std::all_of(begin(targetMac), end(targetMac),
-			[] (auto x) { return x == 0; })) {
+	if (std::all_of(begin(targetMac), end(targetMac), [](auto x) { return x == 0; })) {
 		// create broadcast
 		std::fill(begin(targetMac), end(targetMac), 0xff);
 	}
@@ -49,12 +43,13 @@ async::result<void> sendArp(uint16_t op,
 	ensureEndian(sender);
 	ensureEndian(targetProto);
 
-	auto buffer = link->allocateFrame(targetMac, nic::ETHER_TYPE_ARP,
-		sizeof(leader)
-		+ 2 * sizeof(nic::MacAddress)
-		+ 2 * sizeof(uint32_t));
-	arch::dma_buffer_view bufv { buffer.payload };
-	auto appendData = [&bufv] (auto data) {
+	auto buffer = link->allocateFrame(
+	    targetMac,
+	    nic::ETHER_TYPE_ARP,
+	    sizeof(leader) + 2 * sizeof(nic::MacAddress) + 2 * sizeof(uint32_t)
+	);
+	arch::dma_buffer_view bufv{buffer.payload};
+	auto appendData = [&bufv](auto data) {
 		std::memcpy(bufv.data(), &data, sizeof(data));
 		bufv = bufv.subview(sizeof(data));
 	};
@@ -68,11 +63,12 @@ async::result<void> sendArp(uint16_t op,
 	appendData(targetProto);
 	co_await link->send(std::move(buffer.frame));
 }
-}
+} // namespace
 
-void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_ptr<nic::Link> link) {
+void
+Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_ptr<nic::Link> link) {
 	using namespace nic;
-	auto ensureEndian = [] (auto &x) {
+	auto ensureEndian = [](auto &x) {
 		using namespace arch;
 		x = convert_endian<endian::big, endian::native>(x);
 	};
@@ -141,8 +137,8 @@ Neighbours::Entry &Neighbours::getEntry(uint32_t ip) {
 		}
 		return f->second;
 	}
-	auto &entry = table_.emplace(std::piecewise_construct,
-		std::make_tuple(ip), std::make_tuple()).first->second;
+	auto &entry = table_.emplace(std::piecewise_construct, std::make_tuple(ip), std::make_tuple())
+	                  .first->second;
 	entry.mtime_ns = time;
 	return entry;
 }
@@ -156,9 +152,7 @@ void Neighbours::updateTable(uint32_t ip, nic::MacAddress mac, std::weak_ptr<nic
 	entry.change.raise();
 }
 
-std::map<uint32_t, Neighbours::Entry> &Neighbours::getTable() {
-	return table_;
-}
+std::map<uint32_t, Neighbours::Entry> &Neighbours::getTable() { return table_; }
 
 namespace {
 async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) {
@@ -168,7 +162,7 @@ async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) 
 		std::cout << "netserver: sent arp req" << std::endl;
 
 		async::cancellation_event ev;
-		helix::TimeoutCancellation timer { 1'000'000'000, ev };
+		helix::TimeoutCancellation timer{1'000'000'000, ev};
 		co_await e.change.async_wait(ev);
 		co_await timer.retire();
 
@@ -181,8 +175,7 @@ async::detached entryProber(uint32_t ip, Neighbours::Entry &e, uint32_t sender) 
 }
 } // namespace
 
-async::result<std::optional<nic::MacAddress>> Neighbours::tryResolve(uint32_t ip,
-		uint32_t sender) {
+async::result<std::optional<nic::MacAddress>> Neighbours::tryResolve(uint32_t ip, uint32_t sender) {
 	auto &entry = getEntry(ip);
 	if (entry.state == State::reachable) {
 		co_return entry.mac;

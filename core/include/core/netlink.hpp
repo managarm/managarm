@@ -1,17 +1,17 @@
 #pragma once
 
 #include <assert.h>
+#include <format>
 #include <functional>
 #include <linux/genetlink.h>
 #include <linux/rtnetlink.h>
-#include <format>
 #include <new>
+#include <optional>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <string>
 #include <vector>
-#include <optional>
 
 namespace core::netlink {
 
@@ -38,21 +38,21 @@ struct Group {
 
 	// Sends a copy of the given message to this group.
 	void carbonCopy(const core::netlink::Packet &packet) {
-		for(auto socket : subscriptions)
+		for (auto socket : subscriptions)
 			socket->deliver(packet);
 	}
 
 	std::vector<NetlinkFile *> subscriptions;
 };
 
-template<typename T>
+template <typename T>
 std::optional<const T *> netlinkMessage(const struct nlmsghdr *header, int length) {
-	if(!NLMSG_OK(header, static_cast<uint32_t>(length)))
+	if (!NLMSG_OK(header, static_cast<uint32_t>(length)))
 		return std::nullopt;
 
-	if(length <= 0 || static_cast<uint32_t>(length) < (NLMSG_HDRLEN + sizeof(T)))
+	if (length <= 0 || static_cast<uint32_t>(length) < (NLMSG_HDRLEN + sizeof(T)))
 		return std::nullopt;
-	return reinterpret_cast<const T*>(NLMSG_DATA(header));
+	return reinterpret_cast<const T *>(NLMSG_DATA(header));
 }
 
 /**
@@ -64,9 +64,7 @@ struct NetlinkBuilder {
 		_offset = 0;
 	}
 
-	inline void group(uint32_t groupid) {
-		_packet.group = groupid;
-	}
+	inline void group(uint32_t groupid) { _packet.group = groupid; }
 
 	inline void header(uint16_t type, uint16_t flags, uint32_t seq, uint32_t pid) {
 		assert(_offset == 0);
@@ -83,8 +81,7 @@ struct NetlinkBuilder {
 		buffer_align();
 	}
 
-	template<typename T>
-	inline void message(T msg) {
+	template <typename T> inline void message(T msg) {
 		_packet.buffer.resize(_offset + sizeof(T));
 		memcpy(_packet.buffer.data() + _offset, &msg, sizeof(T));
 		_offset += sizeof(T);
@@ -92,8 +89,7 @@ struct NetlinkBuilder {
 		buffer_align();
 	}
 
-	template<typename T>
-	inline void nlattr(uint8_t type, T data) {
+	template <typename T> inline void nlattr(uint8_t type, T data) {
 		struct nlattr attr;
 		attr.nla_type = type;
 		attr.nla_len = NLA_HDRLEN + sizeof(T);
@@ -110,8 +106,7 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	template<>
-	inline void nlattr<std::string>(uint8_t type, std::string data) {
+	template <> inline void nlattr<std::string>(uint8_t type, std::string data) {
 		size_t str_len = data.length() + 1;
 
 		struct nlattr attr;
@@ -133,12 +128,12 @@ struct NetlinkBuilder {
 	/**
 	 * Set up a new nlattr that holds nested nlattrs, as created by the callback `cb`.
 	 */
-	template<typename T>
+	template <typename T>
 	inline void nested_nlattr(uint8_t type, std::function<void(NetlinkBuilder &, T)> cb, T ctx) {
 		/* resize the buffer to nold our new nlattr header */
 		_packet.buffer.resize(_offset + NLA_HDRLEN);
 		/* use placement new to setting up the nlattr */
-		struct nlattr *new_attr = new (_packet.buffer.data() + _offset) (struct nlattr);
+		struct nlattr *new_attr = new (_packet.buffer.data() + _offset)(struct nlattr);
 		/* save the offset at the start of our new nlattr */
 		auto prev_offset = _offset;
 		new_attr->nla_type = type;
@@ -149,14 +144,14 @@ struct NetlinkBuilder {
 
 		/* the callback is very likely to resize the buffer, thus invalidating `new_attr` */
 		auto nested_attr = reinterpret_cast<struct nlattr *>(_packet.buffer.data() + prev_offset);
-		/* set the correct size: the difference between the offsets includes NLA_HDRLEN + whatever `cb` wrote */
+		/* set the correct size: the difference between the offsets includes NLA_HDRLEN + whatever
+		 * `cb` wrote */
 		nested_attr->nla_len = (_offset - prev_offset);
 		/* ensure we're still aligned properly */
 		buffer_align();
 	}
 
-	template<typename T>
-	inline void rtattr(uint8_t type, T data) {
+	template <typename T> inline void rtattr(uint8_t type, T data) {
 		struct rtattr attr;
 		attr.rta_type = type;
 		attr.rta_len = RTA_LENGTH(sizeof(T));
@@ -172,8 +167,7 @@ struct NetlinkBuilder {
 		buffer_align();
 	};
 
-	template<>
-	inline void rtattr(uint8_t type, std::string data) {
+	template <> inline void rtattr(uint8_t type, std::string data) {
 		const size_t str_len = data.length() + 1;
 
 		struct rtattr attr;
@@ -196,13 +190,14 @@ struct NetlinkBuilder {
 
 		return std::move(_packet);
 	}
-private:
+
+  private:
 	/**
 	 * Align the buffer to the netlink message alignment.
 	 */
 	inline void buffer_align() {
 		auto size = NLMSG_ALIGN(_offset); // NLMSG_ALIGN only aligns up
-		if(_offset != size) {
+		if (_offset != size) {
 			_packet.buffer.resize(size);
 			memset(_packet.buffer.data() + _offset, 0, size - _offset);
 		}
@@ -216,11 +211,14 @@ private:
 /**
  * Helper class to retrieve `struct rtattr`s from a netlink message
  *
- * This class mostly serves to implement an Iterator for attributes. The Iterator returns instances of `Attr` to allow safe access to attributes.
+ * This class mostly serves to implement an Iterator for attributes. The Iterator returns instances
+ * of `Attr` to allow safe access to attributes.
  */
-template<typename T>
-struct NetlinkAttrs {
-	explicit NetlinkAttrs(const struct nlmsghdr *hdr, const T *s, const struct rtattr *attrs) : _hdr{hdr}, _s{s}, _attrs{attrs} {};
+template <typename T> struct NetlinkAttrs {
+	explicit NetlinkAttrs(const struct nlmsghdr *hdr, const T *s, const struct rtattr *attrs)
+	    : _hdr{hdr},
+	      _s{s},
+	      _attrs{attrs} {};
 
 	struct Iterator;
 
@@ -235,22 +233,19 @@ struct NetlinkAttrs {
 		 *
 		 * This is not marked explicit to allow for implicit conversion.
 		 */
-		Attr(const struct rtattr *attr) : _attr{attr} { };
+		Attr(const struct rtattr *attr) : _attr{attr} {};
 
 		/**
 		 * Returns the `rta_type` of the attribute
 		 */
-		unsigned short type() const {
-			return _attr->rta_type;
-		}
+		unsigned short type() const { return _attr->rta_type; }
 
 		/**
 		 * Type-safe and bounds-checked access to attribute data.
 		 */
-		template<typename D>
-		std::optional<D> data() const {
-			if(length() >= RTA_LENGTH(sizeof(D)))
-				return { *reinterpret_cast<D *>(RTA_DATA(_attr)) };
+		template <typename D> std::optional<D> data() const {
+			if (length() >= RTA_LENGTH(sizeof(D)))
+				return {*reinterpret_cast<D *>(RTA_DATA(_attr))};
 			else
 				return std::nullopt;
 		}
@@ -260,23 +255,22 @@ struct NetlinkAttrs {
 		 */
 		std::optional<std::string> str() const {
 			/* Assert that there is even a string to begin with */
-			if(length() < RTA_LENGTH(1))
+			if (length() < RTA_LENGTH(1))
 				return std::nullopt;
 			/* Assert that the string length actually matches the attr length */
-			if(length() < RTA_LENGTH(strlen((const char *) RTA_DATA(_attr))))
+			if (length() < RTA_LENGTH(strlen((const char *)RTA_DATA(_attr))))
 				return std::nullopt;
-			return std::string((const char *) RTA_DATA(_attr));
+			return std::string((const char *)RTA_DATA(_attr));
 		}
 
-	private:
+	  private:
 		/**
 		 * Return the length of this `struct rtattr`.
 		 *
-		 * As consumers should not care about the length of an attribute (as they should not do pointer arithmetic on this anyways), this is marked private.
+		 * As consumers should not care about the length of an attribute (as they should not do
+		 * pointer arithmetic on this anyways), this is marked private.
 		 */
-		size_t length() const {
-			return _attr->rta_len;
-		}
+		size_t length() const { return _attr->rta_len; }
 
 		const struct rtattr *_attr;
 	};
@@ -288,7 +282,7 @@ struct NetlinkAttrs {
 		using pointer = value_type *;
 		using reference = value_type &;
 
-		Iterator(value_type val) : _val{val} { };
+		Iterator(value_type val) : _val{val} {};
 
 		Iterator &operator++() {
 			size_t dummy = _val.length();
@@ -296,18 +290,21 @@ struct NetlinkAttrs {
 			return *this;
 		}
 
-		reference operator*() {
-			return _val;
-		}
+		reference operator*() { return _val; }
 
-		friend bool operator== (const Iterator& a, const Iterator& b) { return a._val._attr == b._val._attr; };
-    	friend bool operator!= (const Iterator& a, const Iterator& b) { return a._val._attr != b._val._attr; };
-	private:
+		friend bool operator==(const Iterator &a, const Iterator &b) {
+			return a._val._attr == b._val._attr;
+		};
+		friend bool operator!=(const Iterator &a, const Iterator &b) {
+			return a._val._attr != b._val._attr;
+		};
+
+	  private:
 		value_type _val;
 	};
 
 	Iterator begin() {
-		if(_attrs)
+		if (_attrs)
 			return Iterator{_attrs.value()};
 		return end();
 	}
@@ -316,23 +313,25 @@ struct NetlinkAttrs {
 		auto ptr = uintptr_t(_hdr) + _hdr->nlmsg_len;
 		return Iterator{reinterpret_cast<const struct rtattr *>(ptr)};
 	}
-private:
+
+  private:
 	const struct nlmsghdr *_hdr;
 	const T *_s;
 	std::optional<const struct rtattr *> _attrs = std::nullopt;
 };
 
 namespace nl::packets {
-	struct ifaddr{};
-	struct ifinfo{};
-	struct rt{};
-	struct genl{};
-}
+struct ifaddr {};
+struct ifinfo {};
+struct rt {};
+struct genl {};
+} // namespace nl::packets
 
-inline std::optional<NetlinkAttrs<struct ifaddrmsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifaddr) {
+inline std::optional<NetlinkAttrs<struct ifaddrmsg>>
+netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifaddr) {
 	const struct ifaddrmsg *msg;
 
-	if(auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
+	if (auto opt = netlinkMessage<struct ifaddrmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
 		return std::nullopt;
@@ -341,10 +340,11 @@ inline std::optional<NetlinkAttrs<struct ifaddrmsg>> netlinkAttr(struct nlmsghdr
 	return NetlinkAttrs<struct ifaddrmsg>(hdr, msg, IFA_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct ifinfomsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifinfo) {
+inline std::optional<NetlinkAttrs<struct ifinfomsg>>
+netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::ifinfo) {
 	const struct ifinfomsg *msg;
 
-	if(auto opt = netlinkMessage<struct ifinfomsg>(hdr, hdr->nlmsg_len))
+	if (auto opt = netlinkMessage<struct ifinfomsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
 		return std::nullopt;
@@ -353,10 +353,11 @@ inline std::optional<NetlinkAttrs<struct ifinfomsg>> netlinkAttr(struct nlmsghdr
 	return NetlinkAttrs<struct ifinfomsg>(hdr, msg, IFLA_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct rtmsg>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::rt) {
+inline std::optional<NetlinkAttrs<struct rtmsg>>
+netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::rt) {
 	const struct rtmsg *msg;
 
-	if(auto opt = netlinkMessage<struct rtmsg>(hdr, hdr->nlmsg_len))
+	if (auto opt = netlinkMessage<struct rtmsg>(hdr, hdr->nlmsg_len))
 		msg = *opt;
 	else {
 		return std::nullopt;
@@ -365,16 +366,19 @@ inline std::optional<NetlinkAttrs<struct rtmsg>> netlinkAttr(struct nlmsghdr *hd
 	return NetlinkAttrs<struct rtmsg>(hdr, msg, RTM_RTA(msg));
 }
 
-inline std::optional<NetlinkAttrs<struct genlmsghdr>> netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::genl) {
+inline std::optional<NetlinkAttrs<struct genlmsghdr>>
+netlinkAttr(struct nlmsghdr *hdr, struct nl::packets::genl) {
 	const struct genlmsghdr *msg = nullptr;
 
-	if(auto opt = netlinkMessage<struct genlmsghdr>(hdr, hdr->nlmsg_len)) {
+	if (auto opt = netlinkMessage<struct genlmsghdr>(hdr, hdr->nlmsg_len)) {
 		msg = *opt;
 	} else {
 		return std::nullopt;
 	}
 
-	return NetlinkAttrs<struct genlmsghdr>(hdr, msg, reinterpret_cast<struct rtattr *>(uintptr_t(msg) + GENL_HDRLEN));
+	return NetlinkAttrs<struct genlmsghdr>(
+	    hdr, msg, reinterpret_cast<struct rtattr *>(uintptr_t(msg) + GENL_HDRLEN)
+	);
 }
 
 inline void sendDone(NetlinkFile *f, struct nlmsghdr *hdr, struct sockaddr_nl *sa = nullptr) {
@@ -386,14 +390,15 @@ inline void sendDone(NetlinkFile *f, struct nlmsghdr *hdr, struct sockaddr_nl *s
 	f->deliver(b.packet());
 }
 
-inline void sendError(NetlinkFile *f, struct nlmsghdr *hdr, int err, struct sockaddr_nl *sa = nullptr) {
+inline void
+sendError(NetlinkFile *f, struct nlmsghdr *hdr, int err, struct sockaddr_nl *sa = nullptr) {
 	NetlinkBuilder b;
 
 	b.header(NLMSG_ERROR, 0, hdr->nlmsg_seq, (sa != nullptr) ? sa->nl_pid : 0);
 
 	b.message<struct nlmsgerr>({
-		.error = -err,
-		.msg = *hdr,
+	    .error = -err,
+	    .msg = *hdr,
 	});
 
 	f->deliver(b.packet());
@@ -404,8 +409,8 @@ inline void sendAck(NetlinkFile *f, struct nlmsghdr *hdr) {
 
 	b.header(NLMSG_ERROR, NLM_F_CAPPED, hdr->nlmsg_seq, 0);
 	b.message<struct nlmsgerr>({
-		.error = 0,
-		.msg = *hdr,
+	    .error = 0,
+	    .msg = *hdr,
 	});
 
 	f->deliver(b.packet());
@@ -414,13 +419,12 @@ inline void sendAck(NetlinkFile *f, struct nlmsghdr *hdr) {
 } // namespace core::netlink
 
 /* enable dumping netlink packets with std::format */
-template<>
-struct std::formatter<core::netlink::Packet> : std::formatter<string_view> {
-	auto format(const core::netlink::Packet& obj, std::format_context& ctx) const {
+template <> struct std::formatter<core::netlink::Packet> : std::formatter<string_view> {
+	auto format(const core::netlink::Packet &obj, std::format_context &ctx) const {
 		std::string temp;
 
-		for(auto c : obj.buffer) {
-			std::format_to(std::back_inserter(temp), "\\x{:02x}", (unsigned char) c);
+		for (auto c : obj.buffer) {
+			std::format_to(std::back_inserter(temp), "\\x{:02x}", (unsigned char)c);
 		}
 
 		return std::formatter<string_view>::format(temp, ctx);

@@ -1,3 +1,3 @@
 #pragma once
 
-struct BindableHandle { };
+struct BindableHandle {};

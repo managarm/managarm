@@ -1,14 +1,14 @@
 #pragma once
 
+#include <memory>
+#include <optional>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
-#include <memory>
-#include <optional>
 
 #include <async/result.hpp>
 #include <frg/expected.hpp>
@@ -29,23 +29,19 @@ struct EqualsFilter;
 struct Conjunction;
 struct Disjunction;
 
-using AnyFilter = std::variant<
-	NoFilter,
-	EqualsFilter,
-	Conjunction,
-	Disjunction
->;
+using AnyFilter = std::variant<NoFilter, EqualsFilter, Conjunction, Disjunction>;
 
-struct NoFilter { };
+struct NoFilter {};
 
 struct EqualsFilter {
 	EqualsFilter(std::string path, std::string value)
-	: path_{std::move(path)}, value_{std::move(value)} { }
+	    : path_{std::move(path)},
+	      value_{std::move(value)} {}
 
 	const std::string &path() const & { return path_; }
 	const std::string &value() const & { return value_; }
 
-private:
+  private:
 	std::string path_;
 	std::string value_;
 };
@@ -56,7 +52,7 @@ struct Conjunction {
 	std::vector<AnyFilter> &operands() &;
 	const std::vector<AnyFilter> &operands() const &;
 
-private:
+  private:
 	std::vector<AnyFilter> operands_;
 };
 
@@ -66,7 +62,7 @@ struct Disjunction {
 	std::vector<AnyFilter> &operands() &;
 	const std::vector<AnyFilter> &operands() const &;
 
-private:
+  private:
 	std::vector<AnyFilter> operands_;
 };
 
@@ -77,10 +73,7 @@ private:
 struct StringItem;
 struct ArrayItem;
 
-using AnyItem = std::variant<
-	StringItem,
-	ArrayItem
->;
+using AnyItem = std::variant<StringItem, ArrayItem>;
 
 struct StringItem {
 	std::string value;
@@ -100,8 +93,7 @@ mbus_ng::AnyItem decodeItem(managarm::mbus::AnyItem item);
 // ------------------------------------------------------------------------
 
 struct Connection {
-	Connection(helix::UniqueLane lane)
-	: lane(std::move(lane)) { }
+	Connection(helix::UniqueLane lane) : lane(std::move(lane)) {}
 
 	helix::UniqueLane lane;
 };
@@ -116,19 +108,14 @@ enum class Error {
 	noSuchEntity,
 };
 
-template <typename T>
-using Result = frg::expected<Error, T>;
+template <typename T> using Result = frg::expected<Error, T>;
 
 // ------------------------------------------------------------------------
 // mbus Enumerator class.
 // ------------------------------------------------------------------------
 
 struct EnumerationEvent {
-	enum class Type {
-		created,
-		propertiesChanged,
-		removed
-	} type;
+	enum class Type { created, propertiesChanged, removed } type;
 
 	EntityId id;
 	std::string name;
@@ -142,12 +129,13 @@ struct EnumerationResult {
 
 struct Enumerator {
 	Enumerator(std::shared_ptr<Connection> connection, AnyFilter &&filter)
-	: connection_{connection}, filter_{std::move(filter)} { }
+	    : connection_{connection},
+	      filter_{std::move(filter)} {}
 
 	// Get changes since last enumeration
 	async::result<Result<EnumerationResult>> nextEvents();
 
-private:
+  private:
 	std::shared_ptr<Connection> connection_;
 	AnyFilter filter_;
 
@@ -165,18 +153,16 @@ struct EntityManager;
 struct Instance {
 	static Instance global();
 
-	Instance(helix::UniqueLane lane)
-	: connection_{std::make_shared<Connection>(std::move(lane))} { }
+	Instance(helix::UniqueLane lane) : connection_{std::make_shared<Connection>(std::move(lane))} {}
 
 	async::result<Entity> getEntity(EntityId id);
 
-	async::result<Result<EntityManager>> createEntity(std::string_view name, const Properties &properties);
+	async::result<Result<EntityManager>>
+	createEntity(std::string_view name, const Properties &properties);
 
-	Enumerator enumerate(AnyFilter filter) {
-		return {connection_, std::move(filter)};
-	}
+	Enumerator enumerate(AnyFilter filter) { return {connection_, std::move(filter)}; }
 
-private:
+  private:
 	std::shared_ptr<Connection> connection_;
 };
 
@@ -186,17 +172,16 @@ private:
 
 struct Entity {
 	Entity(std::shared_ptr<Connection> connection, EntityId id)
-	: connection_{connection}, id_{id} { }
+	    : connection_{connection},
+	      id_{id} {}
 
-	EntityId id() const {
-		return id_;
-	}
+	EntityId id() const { return id_; }
 
 	async::result<Result<Properties>> getProperties() const;
 	async::result<Result<helix::UniqueLane>> getRemoteLane() const;
 	async::result<Error> updateProperties(Properties properties);
 
-private:
+  private:
 	std::shared_ptr<Connection> connection_;
 
 	EntityId id_;
@@ -208,7 +193,8 @@ private:
 
 struct EntityManager {
 	EntityManager(EntityId id, helix::UniqueLane mgmtLane)
-	: id_{id}, mgmtLane_{std::move(mgmtLane)} { }
+	    : id_{id},
+	      mgmtLane_{std::move(mgmtLane)} {}
 
 	~EntityManager() {
 		// TODO(qookie): Allow destroying entities. This
@@ -223,9 +209,7 @@ struct EntityManager {
 	EntityManager(const EntityManager &other) = delete;
 	EntityManager(EntityManager &&other) = default;
 
-	EntityId id() const {
-		return id_;
-	}
+	EntityId id() const { return id_; }
 
 	async::result<Entity> intoEntity() const {
 		co_return co_await mbus_ng::Instance::global().getEntity(id());
@@ -234,7 +218,7 @@ struct EntityManager {
 	// Serves the remote lane to one client. Completes only after the lane is consumed.
 	async::result<Result<void>> serveRemoteLane(helix::UniqueLane lane) const;
 
-private:
+  private:
 	EntityId id_;
 	helix::UniqueLane mgmtLane_;
 };

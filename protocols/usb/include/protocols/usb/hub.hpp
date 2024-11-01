@@ -3,12 +3,12 @@
 #include <memory>
 
 #include <arch/dma_structs.hpp>
-#include <async/result.hpp>
 #include <async/mutex.hpp>
+#include <async/result.hpp>
 #include <frg/expected.hpp>
 
-#include "usb.hpp"
 #include "api.hpp"
+#include "usb.hpp"
 
 namespace protocols::usb {
 
@@ -17,10 +17,10 @@ namespace protocols::usb {
 // ----------------------------------------------------------------
 
 namespace HubStatus {
-	static constexpr uint32_t connect = 0x01;
-	static constexpr uint32_t enable = 0x02;
-	static constexpr uint32_t reset = 0x04;
-}
+static constexpr uint32_t connect = 0x01;
+static constexpr uint32_t enable = 0x02;
+static constexpr uint32_t reset = 0x04;
+} // namespace HubStatus
 
 struct PortState {
 	uint32_t status;
@@ -32,12 +32,11 @@ struct HubCharacteristics {
 };
 
 struct Hub {
-protected:
+  protected:
 	~Hub() = default;
 
-public:
-	Hub(std::shared_ptr<Hub> parent, size_t port)
-	: parent_{parent}, port_{port} { }
+  public:
+	Hub(std::shared_ptr<Hub> parent, size_t port) : parent_{parent}, port_{port} {}
 
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
@@ -47,19 +46,13 @@ public:
 		return UsbError::unsupported;
 	}
 
-	virtual std::optional<Device> associatedDevice() {
-		return std::nullopt;
-	}
+	virtual std::optional<Device> associatedDevice() { return std::nullopt; }
 
-	std::shared_ptr<Hub> parent() const {
-		return parent_;
-	}
+	std::shared_ptr<Hub> parent() const { return parent_; }
 
-	size_t port() const {
-		return port_;
-	}
+	size_t port() const { return port_; }
 
-private:
+  private:
 	std::shared_ptr<Hub> parent_;
 	size_t port_;
 };
@@ -72,12 +65,11 @@ createHubFromDevice(std::shared_ptr<Hub> parentHub, Device device, size_t port);
 // ----------------------------------------------------------------
 
 struct Enumerator {
-	Enumerator(BaseController *controller)
-	: controller_{controller} { }
+	Enumerator(BaseController *controller) : controller_{controller} {}
 
 	void observeHub(std::shared_ptr<Hub> hub);
 
-private:
+  private:
 	async::detached observePort_(std::shared_ptr<Hub> hub, int port);
 	async::result<void> observationCycle_(std::shared_ptr<Hub> hub, int port);
 

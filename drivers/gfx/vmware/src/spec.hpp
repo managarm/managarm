@@ -1,18 +1,18 @@
 #pragma once
 
 namespace ports {
-	arch::scalar_register<uint32_t> register_port(0x00);
-	arch::scalar_register<uint32_t> value_port(0x01);
-	arch::scalar_register<uint32_t> bios_port(0x02);
-	arch::scalar_register<uint32_t> irq_status_port(0x08);
-};
+arch::scalar_register<uint32_t> register_port(0x00);
+arch::scalar_register<uint32_t> value_port(0x01);
+arch::scalar_register<uint32_t> bios_port(0x02);
+arch::scalar_register<uint32_t> irq_status_port(0x08);
+}; // namespace ports
 
 namespace versions {
-	constexpr uint32_t magic = 0x900000;
-	constexpr uint32_t id_2 = (magic << 8) | 2;
-	constexpr uint32_t id_1 = (magic << 8) | 1;
-	constexpr uint32_t id_0 = (magic << 8) | 0;
-}
+constexpr uint32_t magic = 0x900000;
+constexpr uint32_t id_2 = (magic << 8) | 2;
+constexpr uint32_t id_1 = (magic << 8) | 1;
+constexpr uint32_t id_0 = (magic << 8) | 0;
+} // namespace versions
 
 enum class register_index : uint32_t {
 	id = 0,
@@ -71,24 +71,24 @@ enum class register_index : uint32_t {
 };
 
 enum class command_index : uint32_t {
-	invalid_cmd           = 0,
-	update                = 1,
-	rect_copy             = 3,
-	define_cursor         = 19,
-	define_alpha_cursor   = 22,
-	update_verbose        = 25,
-	front_rop_fill        = 29,
-	fence                 = 30,
-	escape                = 33,
-	define_screen         = 34,
-	destroy_screen        = 35,
-	define_gmrfb          = 36,
-	blit_gmrfb_to_screen  = 37,
-	blit_screen_to_gmrfb  = 38,
-	annotation_fill       = 39,
-	annotation_copy       = 40,
-	define_gmr2           = 41,
-	remap_gmr2            = 42,
+	invalid_cmd = 0,
+	update = 1,
+	rect_copy = 3,
+	define_cursor = 19,
+	define_alpha_cursor = 22,
+	update_verbose = 25,
+	front_rop_fill = 29,
+	fence = 30,
+	escape = 33,
+	define_screen = 34,
+	destroy_screen = 35,
+	define_gmrfb = 36,
+	blit_gmrfb_to_screen = 37,
+	blit_screen_to_gmrfb = 38,
+	annotation_fill = 39,
+	annotation_copy = 40,
+	define_gmr2 = 41,
+	remap_gmr2 = 42,
 	max
 };
 
@@ -119,7 +119,7 @@ enum class fifo_index : uint32_t {
 
 	_3d_hwversion_revised,
 
-	_3d_caps      = 32,
+	_3d_caps = 32,
 	_3d_caps_last = 32 + 255,
 
 	guest_3d_hwversion,
@@ -131,38 +131,38 @@ enum class fifo_index : uint32_t {
 
 // only necessary commands are implemented
 namespace commands {
-	struct define_alpha_cursor {
-		uint32_t id;				// must be 0
-		uint32_t hotspot_x;
-		uint32_t hotspot_y;
-		uint32_t width;
-		uint32_t height;
-		uint8_t pixel_data[];
-	};
+struct define_alpha_cursor {
+	uint32_t id; // must be 0
+	uint32_t hotspot_x;
+	uint32_t hotspot_y;
+	uint32_t width;
+	uint32_t height;
+	uint8_t pixel_data[];
+};
 
-	struct define_cursor {
-		uint32_t id;				// must be 0
-		uint32_t hotspot_x;
-		uint32_t hotspot_y;
-		uint32_t width;
-		uint32_t height;
-		uint32_t and_mask_depth;
-		uint32_t xor_mask_depth;
-		uint8_t pixel_data[];
-	};
+struct define_cursor {
+	uint32_t id; // must be 0
+	uint32_t hotspot_x;
+	uint32_t hotspot_y;
+	uint32_t width;
+	uint32_t height;
+	uint32_t and_mask_depth;
+	uint32_t xor_mask_depth;
+	uint8_t pixel_data[];
+};
 
-	struct update_rectangle {
-		uint32_t x;
-		uint32_t y;
-		uint32_t w;
-		uint32_t h;
-	};
-}
+struct update_rectangle {
+	uint32_t x;
+	uint32_t y;
+	uint32_t w;
+	uint32_t h;
+};
+} // namespace commands
 
 enum class caps : uint32_t {
 	cursor = 0x00000020,
 	fifo_extended = 0x00008000,
 	irqmask = 0x00040000,
-	fifo_reserve = (1<<6),
-	fifo_cursor_bypass_3 = (1<<4),
+	fifo_reserve = (1 << 6),
+	fifo_cursor_bypass_3 = (1 << 4),
 };

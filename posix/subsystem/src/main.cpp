@@ -2,9 +2,7 @@
 
 #include <protocols/mbus/client.hpp>
 
-#include "net.hpp"
 #include "clock.hpp"
-#include "drvcore.hpp"
 #include "devices/full.hpp"
 #include "devices/helout.hpp"
 #include "devices/kmsg.hpp"
@@ -12,6 +10,9 @@
 #include "devices/random.hpp"
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
+#include "drvcore.hpp"
+#include "net.hpp"
+#include "observations.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "subsystem/acpi.hpp"
@@ -24,7 +25,6 @@
 #include "subsystem/power_supply.hpp"
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
-#include "observations.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <kerncfg.bragi.hpp>
@@ -32,10 +32,7 @@
 
 #include "debug-options.hpp"
 
-std::map<
-	std::array<char, 16>,
-	std::shared_ptr<Process>
-> globalCredentialsMap;
+std::map<std::array<char, 16>, std::shared_ptr<Process>> globalCredentialsMap;
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
 	std::array<char, 16> creds;
@@ -43,24 +40,24 @@ std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
 	return globalCredentialsMap.at(creds);
 }
 
-async::result<void> serveSignals(std::shared_ptr<Process> self,
-		std::shared_ptr<Generation> generation) {
+async::result<void>
+serveSignals(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	uint64_t sequence = 1;
-	while(true) {
-		if(cancellation.is_cancellation_requested())
+	while (true) {
+		if (cancellation.is_cancellation_requested())
 			break;
-		//std::cout << "Waiting for raise in " << self->pid() << std::endl;
-		auto result = co_await self->signalContext()->pollSignal(sequence,
-				UINT64_C(-1), cancellation);
+		// std::cout << "Waiting for raise in " << self->pid() << std::endl;
+		auto result =
+		    co_await self->signalContext()->pollSignal(sequence, UINT64_C(-1), cancellation);
 		sequence = std::get<0>(result);
-		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
+		// std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;
 		HEL_CHECK(helInterruptThread(thread.getHandle()));
 	}
 
-	if(logCleanup)
+	if (logCleanup)
 		std::cout << "\e[33mposix: Exiting serveSignals()\e[39m" << std::endl;
 	generation->signalsDone.raise();
 }
@@ -74,41 +71,36 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 	assert(res.second);
 
 	co_await async::when_all(
-		observeThread(self, generation),
-		serveSignals(self, generation),
-		serveRequests(self, generation)
+	    observeThread(self, generation),
+	    serveSignals(self, generation),
+	    serveRequests(self, generation)
 	);
 }
 
 // --------------------------------------------------------
 
 namespace {
-	helix::UniqueLane kerncfgLane;
-	helix::UniqueLane pmLane;
-};
+helix::UniqueLane kerncfgLane;
+helix::UniqueLane pmLane;
+}; // namespace
 
-helix::UniqueLane &getKerncfgLane() {
-	return kerncfgLane;
-}
+helix::UniqueLane &getKerncfgLane() { return kerncfgLane; }
 
-helix::UniqueLane &getPmLane() {
-	return pmLane;
-}
+helix::UniqueLane &getPmLane() { return pmLane; }
 
 struct CmdlineNode final : public procfs::RegularNode {
 	async::result<std::string> show() override {
 
 		managarm::kerncfg::GetCmdlineRequest req;
 
-		auto [offer, sendReq, recvResp, recvCmdline] =
-			co_await helix_ng::exchangeMsgs(
-				kerncfgLane,
-				helix_ng::offer(
-					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-					helix_ng::recvInline(),
-					helix_ng::recvInline() // What about a cmdline larger than 128 bytes?
-				)
-			);
+		auto [offer, sendReq, recvResp, recvCmdline] = co_await helix_ng::exchangeMsgs(
+		    kerncfgLane,
+		    helix_ng::offer(
+		        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+		        helix_ng::recvInline(),
+		        helix_ng::recvInline() // What about a cmdline larger than 128 bytes?
+		    )
+		);
 
 		HEL_CHECK(offer.error());
 		HEL_CHECK(sendReq.error());
@@ -127,9 +119,7 @@ struct CmdlineNode final : public procfs::RegularNode {
 };
 
 async::result<void> enumerateKerncfg() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "kerncfg"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "kerncfg"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -143,9 +133,7 @@ async::result<void> enumerateKerncfg() {
 }
 
 async::result<void> enumeratePm() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "pm-interface"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "pm-interface"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -171,7 +159,7 @@ async::detached runInit() {
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
 
-//	HEL_CHECK(helSetPriority(kHelThisThread, 1));
+	//	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
 	drvcore::initialize();
 

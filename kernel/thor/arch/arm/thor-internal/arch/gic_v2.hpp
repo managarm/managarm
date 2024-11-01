@@ -1,10 +1,10 @@
 #pragma once
 
+#include <arch/mem_space.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/irq.hpp>
-#include <arch/mem_space.hpp>
 
 namespace thor {
 
@@ -27,7 +27,9 @@ struct GicDistributorV2 {
 		friend struct GicDistributorV2;
 
 		Pin(GicDistributorV2 *parent, uint32_t irq)
-		: Gic::Pin{parent->buildPinName(irq)}, parent_{parent}, irq_{irq} {}
+		    : Gic::Pin{parent->buildPinName(irq)},
+		      parent_{parent},
+		      irq_{irq} {}
 
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override;
 		void mask() override;
@@ -39,7 +41,7 @@ struct GicDistributorV2 {
 
 		bool setMode(TriggerMode trigger, Polarity polarity) override;
 
-	private:
+	  private:
 		void setAffinity_(uint8_t ifaceNo);
 		void setPriority_(uint8_t prio);
 
@@ -55,7 +57,7 @@ struct GicDistributorV2 {
 		return irqPins_[irq];
 	}
 
-private:
+  private:
 	uint8_t getCurrentCpuIfaceNo_();
 
 	uintptr_t base_;
@@ -74,15 +76,11 @@ struct GicCpuInterfaceV2 {
 
 	uint8_t getCurrentPriority();
 
-	GicDistributorV2 *getDistributor() const {
-		return dist_;
-	}
+	GicDistributorV2 *getDistributor() const { return dist_; }
 
-	uint8_t interfaceNumber() const {
-		return ifaceNo_;
-	}
+	uint8_t interfaceNumber() const { return ifaceNo_; }
 
-private:
+  private:
 	GicDistributorV2 *dist_;
 	arch::mem_space space_;
 	bool useSplitEoiDeact_;
@@ -104,4 +102,4 @@ struct GicV2 : public Gic {
 bool initGicV2();
 void initGicOnThisCpuV2();
 
-}
+} // namespace thor

@@ -1,9 +1,9 @@
-#include <eir-internal/arch.hpp>
-#include <eir-internal/generic.hpp>
-#include <eir-internal/debug.hpp>
 #include <arch/io_space.hpp>
-#include <x86/machine.hpp>
+#include <eir-internal/arch.hpp>
+#include <eir-internal/debug.hpp>
+#include <eir-internal/generic.hpp>
 #include <x86/gdt.hpp>
+#include <x86/machine.hpp>
 
 namespace eir {
 
@@ -35,15 +35,15 @@ void setupPaging() {
 	for (int i = 256; i < 512; i++) {
 		uintptr_t pdpt_page = allocPage();
 		uint64_t *pdpt_pointer = (uint64_t *)pdpt_page;
-		for(int j = 0; j < 512; j++)
+		for (int j = 0; j < 512; j++)
 			pdpt_pointer[j] = 0;
 
 		((uint64_t *)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite;
 	}
 }
 
-void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
-		CachingMode caching_mode) {
+void
+mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
 	assert(address % pageSize == 0);
 	assert(physical % pageSize == 0);
 
@@ -58,9 +58,9 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 
 	// find the pdpt entry; create pdpt if necessary
 	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
-	if(!(pml4_entry & kPagePresent)) {
+	if (!(pml4_entry & kPagePresent)) {
 		pdpt = allocPage();
-		for(int i = 0; i < 512; i++)
+		for (int i = 0; i < 512; i++)
 			((uint64_t *)pdpt)[i] = 0;
 		((uint64_t *)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
 	}
@@ -68,9 +68,9 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 
 	// find the pd entry; create pd if necessary
 	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
-	if(!(pdpt_entry & kPagePresent)) {
+	if (!(pdpt_entry & kPagePresent)) {
 		pd = allocPage();
-		for(int i = 0; i < 512; i++)
+		for (int i = 0; i < 512; i++)
 			((uint64_t *)pd)[i] = 0;
 		((uint64_t *)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
 	}
@@ -78,18 +78,18 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 
 	// find the pt entry; create pt if necessary
 	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
-	if(!(pd_entry & kPagePresent)) {
+	if (!(pd_entry & kPagePresent)) {
 		pt = allocPage();
-		for(int i = 0; i < 512; i++)
+		for (int i = 0; i < 512; i++)
 			((uint64_t *)pt)[i] = 0;
 		((uint64_t *)pd)[pd_index] = pt | kPagePresent | kPageWrite;
 	}
-	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
+	uint64_t pt_entry = ((uint64_t *)pt)[pt_index];
 
 	// setup the new pt entry
-	if(pt_entry & kPagePresent)
-		eir::panicLogger() << "eir: Trying to map 0x" << frg::hex_fmt{address}
-				<< " twice!" << frg::endlog;
+	if (pt_entry & kPagePresent)
+		eir::panicLogger() << "eir: Trying to map 0x" << frg::hex_fmt{address} << " twice!"
+		                   << frg::endlog;
 
 	uint64_t new_entry = physical | kPagePresent;
 	if (flags & PageFlags::write)
@@ -103,7 +103,7 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 	else
 		assert(caching_mode == CachingMode::null);
 
-	((uint64_t*)pt)[pt_index] = new_entry;
+	((uint64_t *)pt)[pt_index] = new_entry;
 }
 
 address_t getSingle4kPage(address_t address) {
@@ -120,24 +120,24 @@ address_t getSingle4kPage(address_t address) {
 
 	// find the pdpt entry; create pdpt if necessary
 	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
-	if(!(pml4_entry & kPagePresent))
+	if (!(pml4_entry & kPagePresent))
 		return -1;
 	uint64_t pdpt_entry = ((uint64_t *)pdpt)[pdpt_index];
 
 	// find the pd entry; create pd if necessary
 	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
-	if(!(pdpt_entry & kPagePresent))
+	if (!(pdpt_entry & kPagePresent))
 		return -1;
 	uint64_t pd_entry = ((uint64_t *)pd)[pd_index];
 
 	// find the pt entry; create pt if necessary
 	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
-	if(!(pd_entry & kPagePresent))
+	if (!(pd_entry & kPagePresent))
 		return -1;
 	uint64_t pt_entry = ((uint64_t *)pt)[pt_index];
 
 	// setup the new pt entry
-	if(!(pt_entry & kPagePresent))
+	if (!(pt_entry & kPagePresent))
 		return -1;
 	return pt_entry & 0xF'FFFF'FFFF'F000;
 }
@@ -159,13 +159,13 @@ void initProcessorEarly() {
 
 	// Make sure everything we require is supported by the CPU.
 	frg::array<uint32_t, 4> extended = arch::cpuid(arch::kCpuIndexExtendedFeatures);
-	if((extended[3] & arch::kCpuFlagLongMode) == 0)
+	if ((extended[3] & arch::kCpuFlagLongMode) == 0)
 		eir::panicLogger() << "Long mode is not supported on this CPU" << frg::endlog;
-	if((extended[3] & arch::kCpuFlagNx) == 0)
+	if ((extended[3] & arch::kCpuFlagNx) == 0)
 		eir::panicLogger() << "NX bit is not supported on this CPU" << frg::endlog;
 
 	frg::array<uint32_t, 4> normal = arch::cpuid(arch::kCpuIndexFeatures);
-	if((normal[3] & arch::kCpuFlagPat) == 0)
+	if ((normal[3] & arch::kCpuFlagPat) == 0)
 		eir::panicLogger() << "PAT is not supported on this CPU" << frg::endlog;
 
 	initArchCpu();
@@ -183,12 +183,14 @@ void initProcessorEarly() {
 // Returns Core region index
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	setupPaging();
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after setting up paging" << frg::endlog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
+	                  << " KiB"
+	                     " after setting up paging"
+	                  << frg::endlog;
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
-	for(address_t addr = 0; addr < 0x8000000; addr += 0x1000)
+	for (address_t addr = 0; addr < 0x8000000; addr += 0x1000)
 		mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
 
 	mapRegionsAndStructs();
@@ -198,11 +200,13 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	// Setup the kernel image.
 	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after loading the kernel" << frg::endlog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
+	                  << " KiB"
+	                     " after loading the kernel"
+	                  << frg::endlog;
 
 	// Setup the kernel stack.
-	for(address_t page = 0; page < 0x10000; page += pageSize)
+	for (address_t page = 0; page < 0x10000; page += pageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), PageFlags::write);
 	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
 	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);

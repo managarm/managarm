@@ -1,5 +1,5 @@
-#include <thor-internal/arch/npt.hpp>
 #include <thor-internal/address-space.hpp>
+#include <thor-internal/arch/npt.hpp>
 #include <thor-internal/physical.hpp>
 
 using namespace thor;
@@ -18,22 +18,22 @@ Error thor::svm::NptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int 
 	auto lock = frg::guard(&_mutex);
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int pdeIdx = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx = (((guestAddress) >> 12) & 0x1ff);
 
 	PageAccessor spaceAccessor{spaceRoot};
 	auto pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
 
 	size_t pageFlags = kPagePresent | kPageUser;
-	if(flags & page_access::write)
+	if (flags & page_access::write)
 		pageFlags |= kPageWrite;
-	if(!(flags & page_access::execute))
+	if (!(flags & page_access::execute))
 		pageFlags |= kPageXd;
 
 	size_t *pdpte;
-	if(!(pml4e[pml4eIdx] & kPagePresent)) {
+	if (!(pml4e[pml4eIdx] & kPagePresent)) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
-		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1))
+		if (reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1))
 			return Error::noMemory;
 
 		pml4e[pml4eIdx] = (pdpte_ptr & kPageAddress) | kPagePresent | kPageUser | kPageWrite;
@@ -44,11 +44,11 @@ Error thor::svm::NptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int 
 	pdpte = reinterpret_cast<size_t *>(pdpteAccessor.get());
 
 	size_t *pde;
-	if(!(pdpte[pdpteIdx] & kPagePresent)) {
+	if (!(pdpte[pdpteIdx] & kPagePresent)) {
 		auto pdpte_ptr = physicalAllocator->allocate(kPageSize);
-		if(reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1))
+		if (reinterpret_cast<PhysicalAddr>(pdpte_ptr) == static_cast<PhysicalAddr>(-1))
 			return Error::noMemory;
-		
+
 		pdpte[pdpteIdx] = (pdpte_ptr & kPageAddress) | kPagePresent | kPageUser | kPageWrite;
 		PageAccessor pdpteAccessor{pdpte_ptr};
 		memset(pdpteAccessor.get(), 0, kPageSize);
@@ -57,9 +57,9 @@ Error thor::svm::NptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int 
 	pde = reinterpret_cast<size_t *>(pdeAccessor.get());
 
 	size_t *pte;
-	if(!(pde[pdeIdx] & kPagePresent)) {
+	if (!(pde[pdeIdx] & kPagePresent)) {
 		auto pt_ptr = physicalAllocator->allocate(kPageSize);
-		if(reinterpret_cast<PhysicalAddr>(pt_ptr) == static_cast<PhysicalAddr>(-1))
+		if (reinterpret_cast<PhysicalAddr>(pt_ptr) == static_cast<PhysicalAddr>(-1))
 			return Error::noMemory;
 
 		pde[pdeIdx] = (pt_ptr & kPageAddress) | kPagePresent | kPageUser | kPageWrite;
@@ -78,14 +78,14 @@ Error thor::svm::NptSpace::map(uint64_t guestAddress, uint64_t hostAddress, int 
 bool thor::svm::NptSpace::isMapped(VirtualAddr guestAddress) {
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int pdeIdx = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx = (((guestAddress) >> 12) & 0x1ff);
 
 	PageAccessor spaceAccessor{spaceRoot};
 	size_t *pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
 
 	size_t *pdpte;
-	if(!(pml4e[pml4eIdx] & kPagePresent)) {
+	if (!(pml4e[pml4eIdx] & kPagePresent)) {
 		return false;
 	} else {
 		PageAccessor pdpteAccessor{pml4e[pml4eIdx] & kPageAddress};
@@ -93,7 +93,7 @@ bool thor::svm::NptSpace::isMapped(VirtualAddr guestAddress) {
 	}
 
 	size_t *pde;
-	if(!(pdpte[pdpteIdx] & kPagePresent)) {
+	if (!(pdpte[pdpteIdx] & kPagePresent)) {
 		return false;
 	} else {
 		PageAccessor pdeAccessor{pdpte[pdpteIdx] & kPageAddress};
@@ -101,7 +101,7 @@ bool thor::svm::NptSpace::isMapped(VirtualAddr guestAddress) {
 	}
 
 	size_t *pte;
-	if(!(pde[pdeIdx] & kPagePresent)) {
+	if (!(pde[pdeIdx] & kPagePresent)) {
 		return false;
 	} else {
 		PageAccessor pteAccessor{pde[pdeIdx] & kPageAddress};
@@ -114,15 +114,15 @@ bool thor::svm::NptSpace::isMapped(VirtualAddr guestAddress) {
 uintptr_t thor::svm::NptSpace::translate(uintptr_t guestAddress) {
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int pdeIdx = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx = (((guestAddress) >> 12) & 0x1ff);
 	size_t offset = (size_t)guestAddress & 0xFFF;
 
 	PageAccessor spaceAccessor{spaceRoot};
 	size_t *pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
 
 	size_t *pdpte;
-	if(!(pml4e[pml4eIdx] & kPagePresent)) {
+	if (!(pml4e[pml4eIdx] & kPagePresent)) {
 		return -1;
 	} else {
 		PageAccessor pdpteAccessor{pml4e[pml4eIdx] & kPageAddress};
@@ -130,7 +130,7 @@ uintptr_t thor::svm::NptSpace::translate(uintptr_t guestAddress) {
 	}
 
 	size_t *pde;
-	if(!(pdpte[pdpteIdx] & kPagePresent)) {
+	if (!(pdpte[pdpteIdx] & kPagePresent)) {
 		return -1;
 	} else {
 		PageAccessor pdeAccessor{pdpte[pdpteIdx] & kPageAddress};
@@ -138,7 +138,7 @@ uintptr_t thor::svm::NptSpace::translate(uintptr_t guestAddress) {
 	}
 
 	size_t *pte;
-	if(!(pde[pdeIdx] & kPagePresent)) {
+	if (!(pde[pdeIdx] & kPagePresent)) {
 		return -1;
 	} else {
 		PageAccessor pteAccessor{pde[pdeIdx] & kPageAddress};
@@ -151,14 +151,14 @@ uintptr_t thor::svm::NptSpace::translate(uintptr_t guestAddress) {
 PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
+	int pdeIdx = (((guestAddress) >> 21) & 0x1ff);
+	int pteIdx = (((guestAddress) >> 12) & 0x1ff);
 
 	PageAccessor spaceAccessor{spaceRoot};
 	size_t *pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
 
 	size_t *pdpte;
-	if(!(pml4e[pml4eIdx] & kPagePresent)) {
+	if (!(pml4e[pml4eIdx] & kPagePresent)) {
 		return 0;
 	} else {
 		PageAccessor pdpteAccessor{pml4e[pml4eIdx] & kPageAddress};
@@ -166,7 +166,7 @@ PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 	}
 
 	size_t *pde;
-	if(!(pdpte[pdpteIdx] & kPagePresent)) {
+	if (!(pdpte[pdpteIdx] & kPagePresent)) {
 		return 0;
 	} else {
 		PageAccessor pdeAccessor{pdpte[pdpteIdx] & kPageAddress};
@@ -174,7 +174,7 @@ PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 	}
 
 	size_t *pte;
-	if(!(pde[pdeIdx] & kPagePresent)) {
+	if (!(pde[pdeIdx] & kPagePresent)) {
 		return 0;
 	} else {
 		PageAccessor pteAccessor{pde[pdeIdx] & kPageAddress};
@@ -182,7 +182,7 @@ PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 	}
 
 	PageStatus status = page_status::present;
-	if(pte[pteIdx] & kPageDirty)
+	if (pte[pteIdx] & kPageDirty)
 		status |= page_status::dirty;
 
 	pte[pteIdx] = 0;
@@ -193,13 +193,13 @@ Error thor::svm::NptSpace::store(uintptr_t guestAddress, size_t size, const void
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 	size_t progress = 0;
-	while(progress < size) {
+	while (progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
 		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
+		if (page == PhysicalAddr(-1)) {
 			return Error::fault;
 		}
 
@@ -214,13 +214,13 @@ Error thor::svm::NptSpace::load(uintptr_t guestAddress, size_t size, void *buffe
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 	size_t progress = 0;
-	while(progress < size) {
+	while (progress < size) {
 		VirtualAddr write = guestAddress + progress;
 		size_t misalign = (VirtualAddr)write % kPageSize;
 		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
 		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
+		if (page == PhysicalAddr(-1)) {
 			return Error::fault;
 		}
 
@@ -240,7 +240,7 @@ bool thor::svm::NptSpace::submitShootdown(ShootNode *node) {
 
 void thor::svm::NptSpace::retire(RetireNode *node) {
 	infoLogger() << "thor: NptSpace::retire is a stub" << frg::endlog;
-	
+
 	node->complete();
 }
 
@@ -248,16 +248,16 @@ thor::svm::NptSpace::~NptSpace() {
 	PageAccessor spaceAccessor{spaceRoot};
 	auto pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
 
-	for(int i = 0; i < 512; i++) {
-		if(pml4e[i] & kPagePresent) {
+	for (int i = 0; i < 512; i++) {
+		if (pml4e[i] & kPagePresent) {
 			PageAccessor pdpteAccessor{pml4e[i] & kPageAddress};
 			auto pdpte = reinterpret_cast<size_t *>(pdpteAccessor.get());
-			for(int j = 0; j < 512; j++) {
-				if(pdpte[j] & kPagePresent) {
+			for (int j = 0; j < 512; j++) {
+				if (pdpte[j] & kPagePresent) {
 					PageAccessor pdeAccessor{pdpte[j] & kPageAddress};
 					auto pde = reinterpret_cast<size_t *>(pdeAccessor.get());
-					for(int k = 0; k < 512; k++) {
-						if(pde[k] & kPagePresent) {
+					for (int k = 0; k < 512; k++) {
+						if (pde[k] & kPagePresent) {
 							physicalAllocator->free((size_t)(pde[k] & kPageAddress), kPageSize);
 						}
 					}

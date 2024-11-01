@@ -14,10 +14,7 @@
 namespace protocols {
 namespace svrctl {
 
-enum class Error {
-	success,
-	deviceNotSupported = 2
-};
+enum class Error { success, deviceNotSupported = 2 };
 
 struct ControlOperations {
 	// Tries to bind to a device with a given mbus ID.
@@ -25,7 +22,7 @@ struct ControlOperations {
 	async::result<Error> (*bind)(int64_t base_id);
 };
 
-async::result<void>
-serveControl(const ControlOperations *ops);
+async::result<void> serveControl(const ControlOperations *ops);
 
-} } // namespace protocols::svrctl
+} // namespace svrctl
+} // namespace protocols

@@ -30,8 +30,11 @@ std::shared_ptr<FsLink> FsNode::treeLink() {
 }
 
 void FsNode::addObserver(std::shared_ptr<FsObserver> observer) {
-	if(!(_defaultOps & defaultSupportsObservers))
-		std::cout << "\e[31m" "posix: FsNode does not support observers" "\e[39m" << std::endl;
+	if (!(_defaultOps & defaultSupportsObservers))
+		std::cout << "\e[31m"
+		             "posix: FsNode does not support observers"
+		             "\e[39m"
+		          << std::endl;
 
 	// TODO: For increased efficiency, Observers could be stored in an intrusive list.
 	auto borrowed = observer.get();
@@ -51,12 +54,12 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+FsNode::link(std::string, std::shared_ptr<FsNode>) {
 	throw std::runtime_error("link() is not implemented for this FsNode");
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-FsNode::mkdir(std::string) {
+async::result<std::variant<Error, std::shared_ptr<FsLink>>> FsNode::mkdir(std::string) {
 	std::cout << "posix: mkdir() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }
@@ -67,14 +70,14 @@ FsNode::symlink(std::string, std::string) {
 	co_return Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+FsNode::mkdev(std::string, VfsType, DeviceId) {
 	throw std::runtime_error("mkdev() is not implemented for this FsNode");
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
 	throw std::runtime_error("mkfifo() is not implemented for this FsNode");
 }
-
 
 async::result<frg::expected<Error>> FsNode::unlink(std::string) {
 	throw std::runtime_error("unlink() is not implemented for this FsNode");
@@ -98,42 +101,51 @@ DeviceId FsNode::readDevice() {
 	throw std::runtime_error("readDevice() is not implemented for this FsNode");
 }
 
-bool FsNode::hasTraverseLinks() {
-	return false;
-}
+bool FsNode::hasTraverseLinks() { return false; }
 
-async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string>) {
+async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
+FsNode::traverseLinks(std::deque<std::string>) {
 	throw std::runtime_error("traverseLinks() is not implemented for this FsNode");
 }
 
 async::result<Error> FsNode::chmod(int mode) {
-	(void) mode;
-	std::cout << "\e[31m" "posix: chmod() is not implemented for this FsNode" "\e[39m" << std::endl;
+	(void)mode;
+	std::cout << "\e[31m"
+	             "posix: chmod() is not implemented for this FsNode"
+	             "\e[39m"
+	          << std::endl;
 	co_return Error::accessDenied;
 }
 
-async::result<Error> FsNode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
-	(void) atime_sec;
-	(void) atime_nsec;
-	(void) mtime_sec;
-	(void) mtime_nsec;
+async::result<Error> FsNode::utimensat(
+    uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec
+) {
+	(void)atime_sec;
+	(void)atime_nsec;
+	(void)mtime_sec;
+	(void)mtime_nsec;
 
-	std::cout << "\e[31m" "posix: utimensat() is not implemented for this FsNode" "\e[39m" << std::endl;
+	std::cout << "\e[31m"
+	             "posix: utimensat() is not implemented for this FsNode"
+	             "\e[39m"
+	          << std::endl;
 	co_return Error::accessDenied;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name) {
-	(void) name;
+	(void)name;
 
-	std::cout << "\e[31m" "posix: mksocket() is not implemented for this FsNode" "\e[39m" << std::endl;
+	std::cout << "\e[31m"
+	             "posix: mksocket() is not implemented for this FsNode"
+	             "\e[39m"
+	          << std::endl;
 	co_return Error::illegalOperationTarget;
 }
 
 void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie) {
 	assert(_defaultOps & defaultSupportsObservers);
-	for(const auto &[borrowed, observer] : _observers) {
+	for (const auto &[borrowed, observer] : _observers) {
 		borrowed->observeNotification(events, name, cookie);
 		(void)observer;
 	}
 }
-

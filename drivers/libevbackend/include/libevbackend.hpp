@@ -3,8 +3,8 @@
 #include <queue>
 #include <vector>
 
-#include <async/result.hpp>
 #include <async/recurring-event.hpp>
+#include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -46,19 +46,16 @@ struct File {
 	static async::result<protocols::fs::ReadResult>
 	read(void *object, const char *, void *buffer, size_t length);
 
-	static async::result<void>
-	write(void *object, const char *, const void *buffer, size_t length);
+	static async::result<void> write(void *object, const char *, const void *buffer, size_t length);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
-	pollWait(void *object, uint64_t past_seq, int mask,
-			async::cancellation_token cancellation);
+	pollWait(void *object, uint64_t past_seq, int mask, async::cancellation_token cancellation);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 	pollStatus(void *object);
 
 	static async::result<void>
-	ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult,
-			helix::UniqueLane conversation);
+	ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult, helix::UniqueLane conversation);
 
 	// ------------------------------------------------------------------------
 	// Public File API.
@@ -70,7 +67,7 @@ struct File {
 
 	~File();
 
-private:
+  private:
 	EventDevice *_device;
 	boost::intrusive::list_member_hook<> hook;
 	protocols::fs::StatusPageProvider _statusPage;
@@ -93,7 +90,7 @@ struct EventDevice {
 		int value;
 	};
 
-public:
+  public:
 	friend struct File;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
@@ -107,7 +104,7 @@ public:
 
 	void notify();
 
-private:
+  private:
 	// Supported event bits.
 	// The array sizes come from Linux' EV_CNT, KEY_CNT, REL_CNT etc. macros (divided by 8)
 	// and can be extended if more event constants are added.
@@ -121,13 +118,9 @@ private:
 	std::array<AbsoluteSlot, 8> _absoluteSlots;
 
 	boost::intrusive::list<
-		File,
-		boost::intrusive::member_hook<
-			File,
-			boost::intrusive::list_member_hook<>,
-			&File::hook
-		>
-	> _files;
+	    File,
+	    boost::intrusive::member_hook<File, boost::intrusive::list_member_hook<>, &File::hook>>
+	    _files;
 
 	std::vector<StagedEvent> _staged;
 };
@@ -136,7 +129,6 @@ private:
 // Functions
 // --------------------------------------------
 
-async::detached serveDevice(std::shared_ptr<EventDevice> device,
-		helix::UniqueLane p);
+async::detached serveDevice(std::shared_ptr<EventDevice> device, helix::UniqueLane p);
 
 } // namespace libevbackend

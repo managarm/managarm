@@ -4,14 +4,14 @@
 #include <memory>
 #include <unordered_map>
 
-#include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
+#include <async/result.hpp>
 #include <boost/intrusive/list.hpp>
 #include <frg/expected.hpp>
 
-#include "vfs.hpp"
 #include "procfs.hpp"
+#include "vfs.hpp"
 
 struct Generation;
 struct Process;
@@ -29,14 +29,18 @@ struct VmContext {
 
 	~VmContext();
 
-	helix::BorrowedDescriptor getSpace() {
-		return _space;
-	}
+	helix::BorrowedDescriptor getSpace() { return _space; }
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<frg::expected<Error, void *>> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
-			smarter::shared_ptr<File, FileHandle> file,
-			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
+	async::result<frg::expected<Error, void *>> mapFile(
+	    uintptr_t hint,
+	    helix::UniqueDescriptor memory,
+	    smarter::shared_ptr<File, FileHandle> file,
+	    intptr_t offset,
+	    size_t size,
+	    bool copyOnWrite,
+	    uint32_t nativeFlags
+	);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
@@ -44,7 +48,7 @@ struct VmContext {
 
 	void unmapFile(void *pointer, size_t size);
 
-private:
+  private:
 	struct Area {
 		bool copyOnWrite;
 		size_t areaSize;
@@ -55,83 +59,56 @@ private:
 		intptr_t offset;
 	};
 
-	std::pair<
-		std::map<uintptr_t, Area>::iterator,
-		std::map<uintptr_t, Area>::iterator
-	> splitAreaOn_(uintptr_t addr, size_t size);
+	std::pair<std::map<uintptr_t, Area>::iterator, std::map<uintptr_t, Area>::iterator>
+	splitAreaOn_(uintptr_t addr, size_t size);
 
 	helix::UniqueDescriptor _space;
 
 	std::map<uintptr_t, Area> _areaTree;
 
-public:
+  public:
 	struct AreaAccessor {
-		AreaAccessor(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
+		AreaAccessor(std::map<uintptr_t, Area>::iterator iter) : _it{iter} {}
 
-		uintptr_t baseAddress() {
-			return _it->first;
-		}
+		uintptr_t baseAddress() { return _it->first; }
 
-		size_t size() {
-			return _it->second.areaSize;
-		}
+		size_t size() { return _it->second.areaSize; }
 
-		bool isPrivate() {
-			return _it->second.copyOnWrite;
-		}
+		bool isPrivate() { return _it->second.copyOnWrite; }
 
-		bool isReadable() {
-			return _it->second.nativeFlags & kHelMapProtRead;
-		}
+		bool isReadable() { return _it->second.nativeFlags & kHelMapProtRead; }
 
-		bool isWritable() {
-			return _it->second.nativeFlags & kHelMapProtWrite;
-		}
+		bool isWritable() { return _it->second.nativeFlags & kHelMapProtWrite; }
 
-		bool isExecutable() {
-			return _it->second.nativeFlags & kHelMapProtExecute;
-		}
+		bool isExecutable() { return _it->second.nativeFlags & kHelMapProtExecute; }
 
-		smarter::borrowed_ptr<File, FileHandle> backingFile() {
-			return _it->second.file;
-		}
+		smarter::borrowed_ptr<File, FileHandle> backingFile() { return _it->second.file; }
 
-		intptr_t backingFileOffset() {
-			return _it->second.offset;
-		}
+		intptr_t backingFileOffset() { return _it->second.offset; }
 
-	private:
+	  private:
 		std::map<uintptr_t, Area>::iterator _it;
 	};
 
 	struct AreaIterator {
-		AreaIterator(std::map<uintptr_t, Area>::iterator iter)
-		:_it{iter} {}
+		AreaIterator(std::map<uintptr_t, Area>::iterator iter) : _it{iter} {}
 
 		AreaIterator &operator++() {
 			_it++;
 			return *this;
 		}
 
-		AreaAccessor operator*() {
-			return AreaAccessor{_it};
-		}
+		AreaAccessor operator*() { return AreaAccessor{_it}; }
 
-		bool operator!=(const AreaIterator &other) {
-			return _it != other._it;
-		}
-	private:
+		bool operator!=(const AreaIterator &other) { return _it != other._it; }
+
+	  private:
 		std::map<uintptr_t, Area>::iterator _it;
 	};
 
-	AreaIterator begin() {
-		return AreaIterator{_areaTree.begin()};
-	}
+	AreaIterator begin() { return AreaIterator{_areaTree.begin()}; }
 
-	AreaIterator end() {
-		return AreaIterator{_areaTree.end()};
-	}
+	AreaIterator end() { return AreaIterator{_areaTree.end()}; }
 };
 
 struct FsContext {
@@ -144,7 +121,7 @@ struct FsContext {
 	void changeRoot(ViewPath root);
 	void changeWorkingDirectory(ViewPath root);
 
-private:
+  private:
 	ViewPath _root;
 	ViewPath _workDir;
 };
@@ -155,19 +132,15 @@ struct FileDescriptor {
 };
 
 struct FileContext {
-public:
+  public:
 	static std::shared_ptr<FileContext> create();
 	static std::shared_ptr<FileContext> clone(std::shared_ptr<FileContext> original);
 
 	~FileContext();
 
-	helix::BorrowedDescriptor getUniverse() {
-		return _universe;
-	}
+	helix::BorrowedDescriptor getUniverse() { return _universe; }
 
-	helix::BorrowedDescriptor fileTableMemory() {
-		return _fileTableMemory;
-	}
+	helix::BorrowedDescriptor fileTableMemory() { return _fileTableMemory; }
 
 	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
@@ -183,15 +156,11 @@ public:
 
 	void closeOnExec();
 
-	HelHandle clientMbusLane() {
-		return _clientMbusLane;
-	}
+	HelHandle clientMbusLane() { return _clientMbusLane; }
 
-	const std::unordered_map<int, FileDescriptor> &fileTable() {
-		return _fileTable;
-	}
+	const std::unordered_map<int, FileDescriptor> &fileTable() { return _fileTable; }
 
-private:
+  private:
 	helix::UniqueDescriptor _universe;
 
 	// TODO: replace this by a tree that remembers gaps between keys.
@@ -209,9 +178,7 @@ struct UserSignal {
 	int uid = 0;
 };
 
-using SignalInfo = std::variant<
-	UserSignal
->;
+using SignalInfo = std::variant<UserSignal>;
 
 using SignalFlags = uint32_t;
 
@@ -220,11 +187,7 @@ inline constexpr SignalFlags signalOnce = (1 << 1);
 inline constexpr SignalFlags signalReentrant = (1 << 2);
 inline constexpr SignalFlags signalOnStack = (1 << 3);
 
-enum class SignalDisposition {
-	none,
-	ignore,
-	handle
-};
+enum class SignalDisposition { none, ignore, handle };
 
 struct SignalHandler {
 	SignalDisposition disposition;
@@ -244,20 +207,20 @@ using PollSignalResult = std::tuple<uint64_t, uint64_t>;
 using CheckSignalResult = std::tuple<uint64_t, uint64_t>;
 
 struct SignalContext {
-private:
+  private:
 	struct SignalSlot {
 		uint64_t raiseSeq = 0;
 
 		boost::intrusive::list<
-			SignalItem,
-			boost::intrusive::member_hook<
-				SignalItem,
-				boost::intrusive::list_member_hook<>,
-				&SignalItem::queueHook>
-		> asyncQueue;
+		    SignalItem,
+		    boost::intrusive::member_hook<
+		        SignalItem,
+		        boost::intrusive::list_member_hook<>,
+		        &SignalItem::queueHook>>
+		    asyncQueue;
 	};
 
-public:
+  public:
 	static std::shared_ptr<SignalContext> create();
 	static std::shared_ptr<SignalContext> clone(std::shared_ptr<SignalContext> original);
 
@@ -270,8 +233,8 @@ public:
 
 	void issueSignal(int sn, SignalInfo info);
 
-	async::result<PollSignalResult> pollSignal(uint64_t in_seq, uint64_t mask,
-			async::cancellation_token cancellation = {});
+	async::result<PollSignalResult>
+	pollSignal(uint64_t in_seq, uint64_t mask, async::cancellation_token cancellation = {});
 
 	CheckSignalResult checkSignal();
 
@@ -283,12 +246,11 @@ public:
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 
-	async::result<void> raiseContext(SignalItem *item, Process *process,
-			bool &killed);
+	async::result<void> raiseContext(SignalItem *item, Process *process, bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
 
-private:
+  private:
 	SignalHandler _handlers[64];
 	SignalSlot _slots[64];
 
@@ -297,10 +259,7 @@ private:
 	uint64_t _activeSet;
 };
 
-enum class NotifyType {
-	null,
-	terminated
-};
+enum class NotifyType { null, terminated };
 
 struct TerminationByExit {
 	int code;
@@ -310,11 +269,7 @@ struct TerminationBySignal {
 	int signo;
 };
 
-using TerminationState = std::variant<
-	std::monostate,
-	TerminationByExit,
-	TerminationBySignal
->;
+using TerminationState = std::variant<std::monostate, TerminationByExit, TerminationBySignal>;
 
 struct ResourceUsage {
 	uint64_t userTime;
@@ -349,11 +304,9 @@ struct PidHull : std::enable_shared_from_this<PidHull> {
 
 	~PidHull();
 
-	PidHull &operator= (const PidHull &) = delete;
+	PidHull &operator=(const PidHull &) = delete;
 
-	pid_t getPid() {
-		return pid_;
-	}
+	pid_t getPid() { return pid_; }
 
 	void initializeProcess(Process *process);
 	void initializeProcessGroup(ProcessGroup *group);
@@ -363,7 +316,7 @@ struct PidHull : std::enable_shared_from_this<PidHull> {
 	std::shared_ptr<ProcessGroup> getProcessGroup();
 	std::shared_ptr<TerminalSession> getTerminalSession();
 
-private:
+  private:
 	pid_t pid_;
 	std::weak_ptr<Process> process_;
 	std::weak_ptr<ProcessGroup> processGroup_;
@@ -382,24 +335,24 @@ struct Process : std::enable_shared_from_this<Process> {
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
 	static std::shared_ptr<Process> clone(std::shared_ptr<Process> parent, void *ip, void *sp);
 
-	static async::result<Error> exec(std::shared_ptr<Process> process,
-			std::string path, std::vector<std::string> args, std::vector<std::string> env);
+	static async::result<Error> exec(
+	    std::shared_ptr<Process> process,
+	    std::string path,
+	    std::vector<std::string> args,
+	    std::vector<std::string> env
+	);
 
 	// Called when the PID is released (by waitpid()).
 	static void retire(Process *process);
 
-public:
+  public:
 	Process(std::shared_ptr<PidHull> hull, Process *parent);
 
 	~Process();
 
-	Process *getParent() {
-		return _parent;
-	}
+	Process *getParent() { return _parent; }
 
-	PidHull *getHull() {
-		return _hull.get();
-	}
+	PidHull *getHull() { return _hull.get(); }
 
 	int pid() {
 		assert(_hull);
@@ -412,96 +365,76 @@ public:
 	}
 
 	Error setUid(int uid) {
-		if(uid < 0) {
+		if (uid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_uid == 0 || _euid == 0) {
+		if (_uid == 0 || _euid == 0) {
 			_uid = uid;
 			_euid = uid;
 			return Error::success;
-		} else if(uid == _uid) {
+		} else if (uid == _uid) {
 			_uid = uid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int uid() {
-		return _uid;
-	}
+	int uid() { return _uid; }
 
 	Error setEuid(int euid) {
-		if(euid < 0) {
+		if (euid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_uid == 0 || _euid == 0 || euid == _uid) {
+		if (_uid == 0 || _euid == 0 || euid == _uid) {
 			_euid = euid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int euid() {
-		return _euid;
-	}
+	int euid() { return _euid; }
 
 	Error setGid(int gid) {
-		if(gid < 0) {
+		if (gid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_gid == 0 || _egid == 0) {
+		if (_gid == 0 || _egid == 0) {
 			_gid = gid;
 			_egid = gid;
 			return Error::success;
-		} else if(gid == _gid) {
+		} else if (gid == _gid) {
 			_egid = gid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int gid() {
-		return _gid;
-	}
+	int gid() { return _gid; }
 
 	Error setEgid(int egid) {
-		if(egid < 0) {
+		if (egid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
+		if (_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
 			_egid = egid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int egid() {
-		return _egid;
-	}
+	int egid() { return _egid; }
 
-	bool didExecute() {
-		return _didExecute;
-	}
+	bool didExecute() { return _didExecute; }
 
-	std::string path() {
-		return _path;
-	}
+	std::string path() { return _path; }
 
-	std::string name() {
-		return _name;
-	}
+	std::string name() { return _name; }
 
-	void setName(std::string name) {
-		_name = name;
-	}
+	void setName(std::string name) { _name = name; }
 
-	helix::BorrowedLane posixLane() {
-		return _posixLane;
-	}
+	helix::BorrowedLane posixLane() { return _posixLane; }
 
-	helix::BorrowedDescriptor threadDescriptor() {
-		return _threadDescriptor;
-	}
+	helix::BorrowedDescriptor threadDescriptor() { return _threadDescriptor; }
 
 	// As the contexts associated with a process can change (e.g. when unshare() is implemented),
 	// those functions return refcounted pointers.
@@ -511,13 +444,9 @@ public:
 	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
 	SignalContext *signalContext() { return _signalContext.get(); }
 
-	void setSignalMask(uint64_t mask) {
-		_signalMask = mask;
-	}
+	void setSignalMask(uint64_t mask) { _signalMask = mask; }
 
-	uint64_t signalMask() {
-		return _signalMask;
-	}
+	uint64_t signalMask() { return _signalMask; }
 
 	HelHandle clientPosixLane() { return _clientPosixLane; }
 	void *clientThreadPage() { return _clientThreadPage; }
@@ -540,46 +469,33 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats = nullptr);
+	async::result<int>
+	wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats = nullptr);
 
-	ResourceUsage accumulatedUsage() {
-		return _childrenUsage;
-	}
+	ResourceUsage accumulatedUsage() { return _childrenUsage; }
 
 	bool isOnAltStack(uint64_t sp) {
 		return sp >= _altStackSp && sp <= (_altStackSp + _altStackSize);
 	}
 
-	uint64_t altStackSp() {
-		return _altStackSp;
-	}
+	uint64_t altStackSp() { return _altStackSp; }
 
-	size_t altStackSize() {
-		return _altStackSize;
-	}
+	size_t altStackSize() { return _altStackSize; }
 
 	void setAltStackSp(uint64_t ptr, size_t size) {
 		_altStackSp = ptr;
 		_altStackSize = size;
 	}
 
-	bool isAltStackEnabled() {
-		return _altStackEnabled;
-	}
+	bool isAltStackEnabled() { return _altStackEnabled; }
 
-	void setAltStackEnabled(bool en) {
-		_altStackEnabled = en;
-	}
+	void setAltStackEnabled(bool en) { _altStackEnabled = en; }
 
-	uint64_t enteredSignalSeq() {
-		return _enteredSignalSeq;
-	}
+	uint64_t enteredSignalSeq() { return _enteredSignalSeq; }
 
-	void enterSignal() {
-		_enteredSignalSeq++;
-	}
+	void enterSignal() { _enteredSignalSeq++; }
 
-private:
+  private:
 	Process *_parent;
 
 	std::shared_ptr<PidHull> _hull;
@@ -623,13 +539,10 @@ private:
 	boost::intrusive::list_member_hook<> _notifyHook;
 
 	boost::intrusive::list<
-		Process,
-		boost::intrusive::member_hook<
-			Process,
-			boost::intrusive::list_member_hook<>,
-			&Process::_notifyHook
-		>
-	> _notifyQueue;
+	    Process,
+	    boost::intrusive::
+	        member_hook<Process, boost::intrusive::list_member_hook<>, &Process::_notifyHook>>
+	    _notifyQueue;
 
 	async::recurring_event _notifyBell;
 
@@ -669,23 +582,18 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 
 	void issueSignalToGroup(int sn, SignalInfo info);
 
-	PidHull *getHull() {
-		return hull_.get();
-	}
+	PidHull *getHull() { return hull_.get(); }
 
 	TerminalSession *getSession() { return sessionPointer_.get(); }
 
-private:
+  private:
 	std::shared_ptr<PidHull> hull_;
 
 	boost::intrusive::list<
-		Process,
-		boost::intrusive::member_hook<
-			Process,
-			boost::intrusive::list_member_hook<>,
-			&Process::_pgHook
-		>
-	> members_;
+	    Process,
+	    boost::intrusive::
+	        member_hook<Process, boost::intrusive::list_member_hook<>, &Process::_pgHook>>
+	    members_;
 
 	std::shared_ptr<TerminalSession> sessionPointer_;
 	boost::intrusive::list_member_hook<> sessionHook_;
@@ -714,17 +622,16 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	Error setForegroundGroup(ProcessGroup *group);
 
-private:
+  private:
 	std::shared_ptr<PidHull> hull_;
 
 	boost::intrusive::list<
-		ProcessGroup,
-		boost::intrusive::member_hook<
-			ProcessGroup,
-			boost::intrusive::list_member_hook<>,
-			&ProcessGroup::sessionHook_
-		>
-	> groups_;
+	    ProcessGroup,
+	    boost::intrusive::member_hook<
+	        ProcessGroup,
+	        boost::intrusive::list_member_hook<>,
+	        &ProcessGroup::sessionHook_>>
+	    groups_;
 
 	ProcessGroup *foregroundGroup_ = nullptr;
 
@@ -740,6 +647,6 @@ struct ControllingTerminalState {
 
 	TerminalSession *getSession() { return associatedSession_; }
 
-private:
+  private:
 	TerminalSession *associatedSession_ = nullptr;
 };

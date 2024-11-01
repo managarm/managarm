@@ -1,7 +1,7 @@
 #pragma once
 
-#include <async/oneshot-event.hpp>
 #include <arch/dma_structs.hpp>
+#include <async/oneshot-event.hpp>
 #include <core/queue.hpp>
 #include <stddef.h>
 

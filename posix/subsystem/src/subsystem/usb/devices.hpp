@@ -6,12 +6,12 @@
 namespace usb_subsystem {
 
 struct UsbBase : drvcore::Device, std::enable_shared_from_this<UsbBase> {
-protected:
+  protected:
 	UsbBase(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
-	: drvcore::Device{parent, std::move(sysfs_name), nullptr},
-			mbusId{mbus_id} { }
+	    : drvcore::Device{parent, std::move(sysfs_name), nullptr},
+	      mbusId{mbus_id} {}
 
-public:
+  public:
 	protocols::usb::DeviceDescriptor *desc() {
 		return reinterpret_cast<protocols::usb::DeviceDescriptor *>(descriptors.data());
 	}
@@ -26,7 +26,7 @@ public:
 
 struct UsbController final : UsbBase {
 	UsbController(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
-		: UsbBase{sysfs_name, mbus_id, parent} { }
+	    : UsbBase{sysfs_name, mbus_id, parent} {}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char product[15];
@@ -54,9 +54,8 @@ struct UsbController final : UsbBase {
 
 struct UsbEndpoint final : sysfs::Object {
 	UsbEndpoint(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
-		: Object{parent, sysfs_name}, sysfs_name{sysfs_name} {
-
-	}
+	    : Object{parent, sysfs_name},
+	      sysfs_name{sysfs_name} {}
 
 	protocols::usb::Device &device();
 
@@ -71,9 +70,8 @@ struct UsbEndpoint final : sysfs::Object {
 
 struct UsbInterface final : UsbBase {
 	UsbInterface(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
-		: UsbBase{sysfs_name, mbus_id, parent}, sysfs_name{sysfs_name} {
-
-	}
+	    : UsbBase{sysfs_name, mbus_id, parent},
+	      sysfs_name{sysfs_name} {}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char product[15], interface[9];
@@ -102,10 +100,14 @@ struct UsbInterface final : UsbBase {
 };
 
 struct UsbDevice final : UsbBase {
-	UsbDevice(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent, protocols::usb::Device device)
-		: UsbBase{sysfs_name, mbus_id, parent}, _device{device} {
-
-	}
+	UsbDevice(
+	    std::string sysfs_name,
+	    int64_t mbus_id,
+	    std::shared_ptr<drvcore::Device> parent,
+	    protocols::usb::Device device
+	)
+	    : UsbBase{sysfs_name, mbus_id, parent},
+	      _device{device} {}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char product[15];
@@ -126,9 +128,7 @@ struct UsbDevice final : UsbBase {
 		ue.set("MBUS_ID", std::to_string(mbusId));
 	}
 
-	protocols::usb::Device &device() {
-		return _device;
-	}
+	protocols::usb::Device &device() { return _device; }
 
 	std::vector<std::shared_ptr<UsbInterface>> interfaces;
 
@@ -136,7 +136,7 @@ struct UsbDevice final : UsbBase {
 	uint8_t bmAttributes = 0;
 	uint8_t numInterfaces = 0;
 
-private:
+  private:
 	protocols::usb::Device _device;
 };
 

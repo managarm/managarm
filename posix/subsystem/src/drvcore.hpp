@@ -1,8 +1,8 @@
 #pragma once
 
+#include <protocols/mbus/client.hpp>
 #include <string>
 #include <unordered_map>
-#include <protocols/mbus/client.hpp>
 
 #include "device.hpp"
 #include "sysfs.hpp"
@@ -10,19 +10,13 @@
 namespace drvcore {
 
 struct UeventProperties {
-	auto begin() {
-		return map.begin();
-	}
+	auto begin() { return map.begin(); }
 
-	auto end() {
-		return map.end();
-	}
+	auto end() { return map.end(); }
 
-	void set(std::string name, std::string value) {
-		map[name] = value;
-	}
+	void set(std::string name, std::string value) { map[name] = value; }
 
-private:
+  private:
 	std::unordered_map<std::string, std::string> map;
 };
 
@@ -33,25 +27,17 @@ struct ClassDevice;
 struct Device : sysfs::Object {
 	Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device);
 
-protected:
+  protected:
 	~Device() = default;
 
-public:
-	void setupDevicePtr(std::weak_ptr<Device> self) {
-		_devicePtr = std::move(self);
-	}
+  public:
+	void setupDevicePtr(std::weak_ptr<Device> self) { _devicePtr = std::move(self); }
 
-	std::shared_ptr<Device> devicePtr() {
-		return std::shared_ptr<Device>(_devicePtr);
-	}
+	std::shared_ptr<Device> devicePtr() { return std::shared_ptr<Device>(_devicePtr); }
 
-	std::shared_ptr<Device> parentDevice() {
-		return _parentDevice;
-	}
+	std::shared_ptr<Device> parentDevice() { return _parentDevice; }
 
-	UnixDevice *unixDevice() {
-		return _unixDevice;
-	}
+	UnixDevice *unixDevice() { return _unixDevice; }
 
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> &classDevices() {
 		return _classDevices;
@@ -66,7 +52,7 @@ public:
 
 	virtual void composeUevent(UeventProperties &) = 0;
 
-private:
+  private:
 	std::weak_ptr<Device> _devicePtr;
 	UnixDevice *_unixDevice;
 	std::shared_ptr<Device> _parentDevice;
@@ -81,67 +67,77 @@ struct BusSubsystem {
 	std::shared_ptr<sysfs::Object> devicesObject() { return _devicesObject; }
 	std::shared_ptr<sysfs::Object> driversObject() { return _driversObject; }
 
-private:
+  private:
 	std::shared_ptr<sysfs::Object> _object;
 	std::shared_ptr<sysfs::Object> _devicesObject;
 	std::shared_ptr<sysfs::Object> _driversObject;
 };
 
 struct BusDevice : Device {
-	BusDevice(BusSubsystem *subsystem, std::string name,
-			UnixDevice *unix_device, std::shared_ptr<Device> parent = nullptr);
+	BusDevice(
+	    BusSubsystem *subsystem,
+	    std::string name,
+	    UnixDevice *unix_device,
+	    std::shared_ptr<Device> parent = nullptr
+	);
 
-protected:
+  protected:
 	~BusDevice() = default;
 
-public:
+  public:
 	void linkToSubsystem() override;
 
-private:
+  private:
 	BusSubsystem *_subsystem;
 };
 
 struct BusDriver : sysfs::Object {
 	BusDriver(std::shared_ptr<BusSubsystem> parent, std::string name)
-	: sysfs::Object(parent->driversObject(), name) {}
+	    : sysfs::Object(parent->driversObject(), name) {}
 };
 
 struct ClassSubsystem {
 	ClassSubsystem(std::string name);
 
-	std::shared_ptr<sysfs::Object> object() {
-		return _object;
-	}
+	std::shared_ptr<sysfs::Object> object() { return _object; }
 
-private:
+  private:
 	std::shared_ptr<sysfs::Object> _object;
 };
 
 struct ClassDevice : Device {
-	ClassDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
-			std::string name, UnixDevice *unix_device);
+	ClassDevice(
+	    ClassSubsystem *subsystem,
+	    std::shared_ptr<Device> parent,
+	    std::string name,
+	    UnixDevice *unix_device
+	);
 
-protected:
+  protected:
 	~ClassDevice() = default;
 
-public:
+  public:
 	void linkToSubsystem() override;
 
-private:
+  private:
 	ClassSubsystem *_subsystem;
 };
 
 struct BlockDevice : Device {
-	BlockDevice(ClassSubsystem *subsystem, std::shared_ptr<Device> parent,
-			std::string name, UnixDevice *unix_device);
+	BlockDevice(
+	    ClassSubsystem *subsystem,
+	    std::shared_ptr<Device> parent,
+	    std::string name,
+	    UnixDevice *unix_device
+	);
 
-protected:
+  protected:
 	~BlockDevice() = default;
 
-public:
+  public:
 	void linkToSubsystem() override;
 
-private:
+  private:
 	ClassSubsystem *_subsystem;
 };
 

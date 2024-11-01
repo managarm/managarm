@@ -9,6 +9,6 @@ struct Checksum {
 	void update(arch::dma_buffer_view area);
 	uint16_t finalize();
 
-private:
+  private:
 	uint32_t state_ = 0;
 };

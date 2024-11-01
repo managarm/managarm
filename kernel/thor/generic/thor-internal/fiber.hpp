@@ -1,10 +1,10 @@
 #pragma once
 
 #include <frg/container_of.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/schedule.hpp>
-#include <initgraph.hpp>
 
 namespace thor {
 
@@ -21,28 +21,29 @@ struct FiberBlocker {
 
 	void setup();
 
-private:
+  private:
 	KernelFiber *_fiber;
 	bool _done;
 };
 
 struct KernelFiber final : ScheduleEntity {
-private:
+  private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: WorkQueue{&fiber->_executorContext}, fiber_{fiber} { }
+		    : WorkQueue{&fiber->_executorContext},
+		      fiber_{fiber} {}
 
 		void wakeup() override;
 
-	private:
+	  private:
 		KernelFiber *fiber_;
 	};
 
-public:
+  public:
 	static void blockCurrent(FiberBlocker *blocker);
 
-	template<typename Sender>
-	requires std::is_same_v<typename Sender::value_type, void>
+	template <typename Sender>
+	    requires std::is_same_v<typename Sender::value_type, void>
 	static void asyncBlockCurrent(Sender s) {
 		struct Closure {
 			FiberBlocker blocker;
@@ -53,22 +54,20 @@ public:
 				// Do nothing (there is no value to store).
 			}
 
-			void set_value_noinline() {
-				KernelFiber::unblockOther(&closure->blocker);
-			}
+			void set_value_noinline() { KernelFiber::unblockOther(&closure->blocker); }
 
 			Closure *closure;
 		};
 
 		closure.blocker.setup();
 		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
-		if(async::execution::start_inline(operation))
+		if (async::execution::start_inline(operation))
 			return;
 		KernelFiber::blockCurrent(&closure.blocker);
 	}
 
-	template<typename Sender>
-	requires (!std::is_same_v<typename Sender::value_type, void>)
+	template <typename Sender>
+	    requires(!std::is_same_v<typename Sender::value_type, void>)
 	static typename Sender::value_type asyncBlockCurrent(Sender s) {
 		struct Closure {
 			frg::optional<typename Sender::value_type> value;
@@ -90,7 +89,7 @@ public:
 
 		closure.blocker.setup();
 		auto operation = async::execution::connect(std::move(s), Receiver{&closure});
-		if(async::execution::start_inline(operation))
+		if (async::execution::start_inline(operation))
 			return std::move(*closure.value);
 		KernelFiber::blockCurrent(&closure.blocker);
 		return std::move(*closure.value);
@@ -100,9 +99,8 @@ public:
 
 	static void unblockOther(FiberBlocker *blocker);
 
-	template<typename F>
-	static void run(F functor, Scheduler *scheduler = localScheduler()) {
-		auto frame = [] (void *argument) {
+	template <typename F> static void run(F functor, Scheduler *scheduler = localScheduler()) {
+		auto frame = [](void *argument) {
 			auto object = reinterpret_cast<F *>(argument);
 			(*object)();
 			exitCurrent();
@@ -112,9 +110,9 @@ public:
 		run(std::move(stack), frame, target, scheduler);
 	}
 
-	template<typename F>
+	template <typename F>
 	static KernelFiber *post(F functor, Scheduler *scheduler = localScheduler()) {
-		auto frame = [] (void *argument) {
+		auto frame = [](void *argument) {
 			auto object = reinterpret_cast<F *>(argument);
 			(*object)();
 			exitCurrent();
@@ -124,20 +122,27 @@ public:
 		return post(std::move(stack), frame, target, scheduler);
 	}
 
-	static void run(UniqueKernelStack stack, void (*function)(void *), void *argument, Scheduler* = localScheduler());
-	static KernelFiber *post(UniqueKernelStack stack, void (*function)(void *), void *argument, Scheduler* = localScheduler());
+	static void
+	run(UniqueKernelStack stack,
+	    void (*function)(void *),
+	    void *argument,
+	    Scheduler * = localScheduler());
+	static KernelFiber *post(
+	    UniqueKernelStack stack,
+	    void (*function)(void *),
+	    void *argument,
+	    Scheduler * = localScheduler()
+	);
 
 	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
 
-	[[ noreturn ]] void invoke() override;
+	[[noreturn]] void invoke() override;
 
 	void handlePreemption(IrqImageAccessor) override;
 
-	WorkQueue *associatedWorkQueue() {
-		return _associatedWorkQueue.get();
-	}
+	WorkQueue *associatedWorkQueue() { return _associatedWorkQueue.get(); }
 
-private:
+  private:
 	frg::ticket_spinlock _mutex;
 	bool _blocked;
 

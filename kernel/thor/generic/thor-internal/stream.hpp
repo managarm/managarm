@@ -1,14 +1,14 @@
 #pragma once
 
-#include <stddef.h>
-#include <string.h>
 #include <atomic>
 #include <optional>
+#include <stddef.h>
+#include <string.h>
 
 #include <async/oneshot-event.hpp>
 #include <async/queue.hpp>
-#include <frg/container_of.hpp>
 #include <frg/array.hpp>
+#include <frg/container_of.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
@@ -22,18 +22,15 @@ struct StreamPacket {
 	friend struct Stream;
 	friend struct StreamNode;
 
-	StreamPacket()
-	: _incompleteCount{0} { }
+	StreamPacket() : _incompleteCount{0} {}
 
-	void setup(unsigned int count) {
-		_incompleteCount.store(count, std::memory_order_relaxed);
-	}
+	void setup(unsigned int count) { _incompleteCount.store(count, std::memory_order_relaxed); }
 
-protected:
+  protected:
 	virtual void completePacket() = 0;
 	~StreamPacket() = default;
 
-private:
+  private:
 	std::atomic<unsigned int> _incompleteCount;
 };
 
@@ -53,7 +50,7 @@ enum {
 };
 
 inline int getStreamOrientation(int tag) {
-	switch(tag) {
+	switch (tag) {
 	case kTagAccept:
 	case kTagExtractCredentials:
 	case kTagRecvKernelBuffer:
@@ -70,9 +67,7 @@ inline int getStreamOrientation(int tag) {
 	return 0;
 }
 
-inline bool usesFlowProtocol(int tag) {
-	return tag == kTagSendFlow || tag == kTagRecvFlow;
-}
+inline bool usesFlowProtocol(int tag) { return tag == kTagSendFlow || tag == kTagRecvFlow; }
 
 struct FlowPacket {
 	void *data = nullptr;
@@ -88,11 +83,9 @@ struct StreamNode {
 
 	StreamNode(const StreamNode &) = delete;
 
-	StreamNode &operator= (const StreamNode &) = delete;
+	StreamNode &operator=(const StreamNode &) = delete;
 
-	int tag() const {
-		return _tag;
-	}
+	int tag() const { return _tag; }
 
 	void setup(int tag, StreamPacket *packet) {
 		_tag = tag;
@@ -104,7 +97,7 @@ struct StreamNode {
 	void complete() {
 		auto n = _packet->_incompleteCount.fetch_sub(1, std::memory_order_acq_rel);
 		assert(n > 0);
-		if(n == 1)
+		if (n == 1)
 			_packet->completePacket();
 	}
 
@@ -113,7 +106,7 @@ struct StreamNode {
 	int _tag;
 	StreamPacket *_packet;
 
-public:
+  public:
 	// ------------------------------------------------------------------------
 	// Transmission inputs.
 	// ------------------------------------------------------------------------
@@ -130,49 +123,34 @@ public:
 
 	// List of StreamNodes that will be submitted to the ancillary lane on offer/accept.
 	frg::intrusive_list<
-		StreamNode,
-		frg::locate_member<
-			StreamNode,
-			frg::default_list_hook<StreamNode>,
-			&StreamNode::processQueueItem
-		>
-	> ancillaryChain;
+	    StreamNode,
+	    frg::locate_member<
+	        StreamNode,
+	        frg::default_list_hook<StreamNode>,
+	        &StreamNode::processQueueItem>>
+	    ancillaryChain;
 
 	// ------------------------------------------------------------------------
 	// Transmission outputs.
 	// ------------------------------------------------------------------------
 
 	// TODO: Initialize outputs to zero to avoid leaks to usermode.
-public:
-	Error error() {
-		return _error;
-	}
+  public:
+	Error error() { return _error; }
 
-	frg::array<char, 16> credentials() {
-		return _transmitCredentials;
-	}
+	frg::array<char, 16> credentials() { return _transmitCredentials; }
 
-	size_t actualLength() {
-		return _actualLength;
-	}
+	size_t actualLength() { return _actualLength; }
 
-	frg::unique_memory<KernelAlloc> transmitBuffer() {
-		return std::move(_transmitBuffer);
-	}
+	frg::unique_memory<KernelAlloc> transmitBuffer() { return std::move(_transmitBuffer); }
 
-	const frg::array<char, 16> &transmitCredentials() {
-		return _transmitCredentials;
-	}
+	const frg::array<char, 16> &transmitCredentials() { return _transmitCredentials; }
 
-	LaneHandle lane() {
-		return std::move(_lane);
-	}
+	LaneHandle lane() { return std::move(_lane); }
 
-	AnyDescriptor descriptor() {
-		return std::move(_descriptor);
-	}
+	AnyDescriptor descriptor() { return std::move(_descriptor); }
 
-public:
+  public:
 	Error _error{};
 	frg::array<char, 16> _transmitCredentials;
 	size_t _actualLength = 0;
@@ -182,13 +160,11 @@ public:
 };
 
 using StreamList = frg::intrusive_list<
-	StreamNode,
-	frg::locate_member<
-		StreamNode,
-		frg::default_list_hook<StreamNode>,
-		&StreamNode::processQueueItem
-	>
->;
+    StreamNode,
+    frg::locate_member<
+        StreamNode,
+        frg::default_list_hook<StreamNode>,
+        &StreamNode::processQueueItem>>;
 
 struct Stream final {
 	struct Submitter {
@@ -196,7 +172,7 @@ struct Stream final {
 
 		void run();
 
-	private:
+	  private:
 		StreamList _pending;
 	};
 
@@ -224,7 +200,7 @@ struct Stream final {
 		return _creds.value();
 	}
 
-private:
+  private:
 	static void _cancelItem(StreamNode *item, Error error);
 
 	std::atomic<int> _peerCount[2];
@@ -235,13 +211,12 @@ private:
 
 	// protected by _mutex.
 	frg::intrusive_list<
-		StreamNode,
-		frg::locate_member<
-			StreamNode,
-			frg::default_list_hook<StreamNode>,
-			&StreamNode::processQueueItem
-		>
-	> _processQueue[2];
+	    StreamNode,
+	    frg::locate_member<
+	        StreamNode,
+	        frg::default_list_hook<StreamNode>,
+	        &StreamNode::processQueueItem>>
+	    _processQueue[2];
 
 	// Protected by _mutex.
 	// Further submissions cannot happen (lane went out-of-scope).
@@ -265,8 +240,7 @@ struct DismissSender {
 	LaneHandle lane;
 };
 
-template<typename R>
-struct DismissOperation final : private StreamPacket, private StreamNode {
+template <typename R> struct DismissOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagDismiss, this);
@@ -277,28 +251,25 @@ struct DismissOperation final : private StreamPacket, private StreamNode {
 	}
 
 	DismissOperation(DismissSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
 	DismissOperation(const DismissOperation &) = delete;
 
-	DismissOperation &operator= (const DismissOperation &) = delete;
+	DismissOperation &operator=(const DismissOperation &) = delete;
 
-private:
-	void completePacket() override {
-		async::execution::set_value(receiver_, error());
-	}
+  private:
+	void completePacket() override { async::execution::set_value(receiver_, error()); }
 
 	DismissSender s_;
 	R receiver_;
 };
 
-template<typename R>
-inline DismissOperation<R> connect(DismissSender s, R receiver) {
+template <typename R> inline DismissOperation<R> connect(DismissSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline async::sender_awaiter<DismissSender, Error>
-operator co_await(DismissSender s) {
+inline async::sender_awaiter<DismissSender, Error> operator co_await(DismissSender s) {
 	return {std::move(s)};
 }
 
@@ -308,8 +279,7 @@ struct OfferSender {
 	LaneHandle lane;
 };
 
-template<typename R>
-struct OfferOperation final : private StreamPacket, private StreamNode {
+template <typename R> struct OfferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagOffer, this);
@@ -319,25 +289,22 @@ struct OfferOperation final : private StreamPacket, private StreamNode {
 		Stream::transmit(s_.lane, list);
 	}
 
-	OfferOperation(OfferSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	OfferOperation(OfferSender s, R receiver) : s_{std::move(s)}, receiver_{std::move(receiver)} {}
 
 	OfferOperation(const OfferOperation &) = delete;
 
-	OfferOperation &operator= (const OfferOperation &) = delete;
+	OfferOperation &operator=(const OfferOperation &) = delete;
 
-private:
+  private:
 	void completePacket() override {
-		async::execution::set_value(receiver_,
-				frg::make_tuple(error(), lane()));
+		async::execution::set_value(receiver_, frg::make_tuple(error(), lane()));
 	}
 
 	OfferSender s_;
 	R receiver_;
 };
 
-template<typename R>
-inline OfferOperation<R> connect(OfferSender s, R receiver) {
+template <typename R> inline OfferOperation<R> connect(OfferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
@@ -352,8 +319,7 @@ struct AcceptSender {
 	LaneHandle lane;
 };
 
-template<typename R>
-struct AcceptOperation final : private StreamPacket, private StreamNode {
+template <typename R> struct AcceptOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagAccept, this);
@@ -364,24 +330,23 @@ struct AcceptOperation final : private StreamPacket, private StreamNode {
 	}
 
 	AcceptOperation(AcceptSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
 	AcceptOperation(const AcceptOperation &) = delete;
 
-	AcceptOperation &operator= (const AcceptOperation &) = delete;
+	AcceptOperation &operator=(const AcceptOperation &) = delete;
 
-private:
+  private:
 	void completePacket() override {
-		async::execution::set_value(receiver_,
-				frg::make_tuple(error(), lane()));
+		async::execution::set_value(receiver_, frg::make_tuple(error(), lane()));
 	}
 
 	AcceptSender s_;
 	R receiver_;
 };
 
-template<typename R>
-inline AcceptOperation<R> connect(AcceptSender s, R receiver) {
+template <typename R> inline AcceptOperation<R> connect(AcceptSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
@@ -396,7 +361,7 @@ struct ExtractCredentialsSender {
 	LaneHandle lane;
 };
 
-template<typename R>
+template <typename R>
 struct ExtractCredentialsOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
@@ -408,19 +373,19 @@ struct ExtractCredentialsOperation final : private StreamPacket, private StreamN
 	}
 
 	ExtractCredentialsOperation(ExtractCredentialsSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
-private:
+  private:
 	void completePacket() override {
-		async::execution::set_value(receiver_,
-				frg::make_tuple(error(), credentials()));
+		async::execution::set_value(receiver_, frg::make_tuple(error(), credentials()));
 	}
 
 	ExtractCredentialsSender s_;
 	R receiver_;
 };
 
-template<typename R>
+template <typename R>
 inline ExtractCredentialsOperation<R> connect(ExtractCredentialsSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
@@ -437,8 +402,7 @@ struct SendBufferSender {
 	frg::unique_memory<KernelAlloc> buffer;
 };
 
-template<typename R>
-struct SendBufferOperation final : private StreamPacket, private StreamNode {
+template <typename R> struct SendBufferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagSendKernelBuffer, this);
@@ -450,24 +414,21 @@ struct SendBufferOperation final : private StreamPacket, private StreamNode {
 	}
 
 	SendBufferOperation(SendBufferSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
-private:
-	void completePacket() override {
-		async::execution::set_value(receiver_, error());
-	}
+  private:
+	void completePacket() override { async::execution::set_value(receiver_, error()); }
 
 	SendBufferSender s_;
 	R receiver_;
 };
 
-template<typename R>
-inline SendBufferOperation<R> connect(SendBufferSender s, R receiver) {
+template <typename R> inline SendBufferOperation<R> connect(SendBufferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline async::sender_awaiter<SendBufferSender, Error>
-operator co_await(SendBufferSender s) {
+inline async::sender_awaiter<SendBufferSender, Error> operator co_await(SendBufferSender s) {
 	return {std::move(s)};
 }
 
@@ -477,8 +438,7 @@ struct RecvBufferSender {
 	LaneHandle lane;
 };
 
-template<typename R>
-struct RecvBufferOperation final : private StreamPacket, private StreamNode {
+template <typename R> struct RecvBufferOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
 		StreamNode::setup(kTagRecvKernelBuffer, this);
@@ -490,20 +450,19 @@ struct RecvBufferOperation final : private StreamPacket, private StreamNode {
 	}
 
 	RecvBufferOperation(RecvBufferSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
-private:
+  private:
 	void completePacket() override {
-		async::execution::set_value(receiver_,
-				frg::make_tuple(error(), transmitBuffer()));
+		async::execution::set_value(receiver_, frg::make_tuple(error(), transmitBuffer()));
 	}
 
 	RecvBufferSender s_;
 	R receiver_;
 };
 
-template<typename R>
-inline RecvBufferOperation<R> connect(RecvBufferSender s, R receiver) {
+template <typename R> inline RecvBufferOperation<R> connect(RecvBufferSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
@@ -519,7 +478,7 @@ struct PushDescriptorSender {
 	AnyDescriptor descriptor;
 };
 
-template<typename R>
+template <typename R>
 struct PushDescriptorOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
@@ -532,24 +491,23 @@ struct PushDescriptorOperation final : private StreamPacket, private StreamNode 
 	}
 
 	PushDescriptorOperation(PushDescriptorSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
-private:
-	void completePacket() override {
-		async::execution::set_value(receiver_, error());
-	}
+  private:
+	void completePacket() override { async::execution::set_value(receiver_, error()); }
 
 	PushDescriptorSender s_;
 	R receiver_;
 };
 
-template<typename R>
+template <typename R>
 inline PushDescriptorOperation<R> connect(PushDescriptorSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
 
-inline async::sender_awaiter<PushDescriptorSender, Error>
-operator co_await(PushDescriptorSender s) {
+inline async::sender_awaiter<PushDescriptorSender, Error> operator co_await(PushDescriptorSender s
+) {
 	return {std::move(s)};
 }
 
@@ -559,7 +517,7 @@ struct PullDescriptorSender {
 	LaneHandle lane;
 };
 
-template<typename R>
+template <typename R>
 struct PullDescriptorOperation final : private StreamPacket, private StreamNode {
 	void start() {
 		StreamPacket::setup(1);
@@ -571,19 +529,19 @@ struct PullDescriptorOperation final : private StreamPacket, private StreamNode 
 	}
 
 	PullDescriptorOperation(PullDescriptorSender s, R receiver)
-	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
+	    : s_{std::move(s)},
+	      receiver_{std::move(receiver)} {}
 
-private:
+  private:
 	void completePacket() override {
-		async::execution::set_value(receiver_,
-				frg::make_tuple(error(), descriptor()));
+		async::execution::set_value(receiver_, frg::make_tuple(error(), descriptor()));
 	}
 
 	PullDescriptorSender s_;
 	R receiver_;
 };
 
-template<typename R>
+template <typename R>
 inline PullDescriptorOperation<R> connect(PullDescriptorSender s, R receiver) {
 	return {std::move(s), std::move(receiver)};
 }
@@ -597,14 +555,13 @@ operator co_await(PullDescriptorSender s) {
 
 // Returns true if an IPC error is caused by the remote side not following the protocol.
 inline bool isRemoteIpcError(Error e) {
-	switch(e) {
-		case Error::bufferTooSmall:
-		case Error::transmissionMismatch:
-			return true;
-		default:
-			return false;
+	switch (e) {
+	case Error::bufferTooSmall:
+	case Error::transmissionMismatch:
+		return true;
+	default:
+		return false;
 	}
 }
-
 
 } // namespace thor

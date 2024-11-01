@@ -1,16 +1,13 @@
 
-#include <async/recurring-event.hpp>
 #include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <blockfs.hpp>
 #include <boost/intrusive/list.hpp>
 
-enum Signatures {
-	kSignCbw = 0x43425355,
-	kSignCsw = 0x53425355
-};
+enum Signatures { kSignCbw = 0x43425355, kSignCsw = 0x53425355 };
 
-struct [[ gnu::packed ]] CommandBlockWrapper {
+struct [[gnu::packed]] CommandBlockWrapper {
 	uint32_t signature;
 	uint32_t tag;
 	uint32_t transferLength;
@@ -21,7 +18,7 @@ struct [[ gnu::packed ]] CommandBlockWrapper {
 };
 static_assert(sizeof(CommandBlockWrapper) == 31);
 
-struct [[ gnu::packed ]] CommandStatusWrapper {
+struct [[gnu::packed]] CommandStatusWrapper {
 	uint32_t signature;
 	uint32_t tag;
 	uint32_t dataResidue;
@@ -96,24 +93,27 @@ struct Read32 {
 } // namespace scsi
 
 struct StorageDevice : blockfs::BlockDevice {
-	//TODO(geert): hook up USB to sysfs too
+	// TODO(geert): hook up USB to sysfs too
 	StorageDevice(protocols::usb::Device usb_device)
-	: blockfs::BlockDevice(512, -1), _usbDevice(std::move(usb_device)) { }
+	    : blockfs::BlockDevice(512, -1),
+	      _usbDevice(std::move(usb_device)) {}
 
 	async::detached run(int config_num, int intf_num);
 
-	async::result<void> readSectors(uint64_t sector,
-			void *buffer, size_t numSectors) override;
+	async::result<void> readSectors(uint64_t sector, void *buffer, size_t numSectors) override;
 
-	async::result<void> writeSectors(uint64_t sector,
-			const void *buffer, size_t numSectors) override;
+	async::result<void>
+	writeSectors(uint64_t sector, const void *buffer, size_t numSectors) override;
 
 	async::result<size_t> getSize() override;
 
-private:
+  private:
 	struct Request {
 		Request(bool isWrite, uint64_t sector, void *buffer, size_t numSectors)
-		: isWrite{isWrite}, sector{sector}, buffer{buffer}, numSectors{numSectors} { }
+		    : isWrite{isWrite},
+		      sector{sector},
+		      buffer{buffer},
+		      numSectors{numSectors} {}
 
 		bool isWrite;
 		uint64_t sector;
@@ -127,12 +127,8 @@ private:
 	async::recurring_event _doorbell;
 
 	boost::intrusive::list<
-		Request,
-		boost::intrusive::member_hook<
-			Request,
-			boost::intrusive::list_member_hook<>,
-			&Request::requestHook
-		>
-	> _queue;
+	    Request,
+	    boost::intrusive::
+	        member_hook<Request, boost::intrusive::list_member_hook<>, &Request::requestHook>>
+	    _queue;
 };
-

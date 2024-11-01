@@ -1,7 +1,7 @@
 #include <assert.h>
 
-#include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/schedule.hpp>
@@ -10,45 +10,51 @@
 namespace thor {
 
 namespace {
-	constexpr bool logScheduling = false;
-	constexpr bool logNextBest = false;
-	constexpr bool logUpdates = false;
-	constexpr bool logIdle = false;
+constexpr bool logScheduling = false;
+constexpr bool logNextBest = false;
+constexpr bool logUpdates = false;
+constexpr bool logIdle = false;
 
-	constexpr bool disablePreemption = false;
+constexpr bool disablePreemption = false;
 
-	// Minimum length of a preemption time slice in ns.
-	constexpr int64_t sliceGranularity = 10'000'000;
+// Minimum length of a preemption time slice in ns.
+constexpr int64_t sliceGranularity = 10'000'000;
 
-	struct IdleTask final : ScheduleEntity {
-		IdleTask()
-		: ScheduleEntity{ScheduleType::idle} { }
+struct IdleTask final : ScheduleEntity {
+	IdleTask() : ScheduleEntity{ScheduleType::idle} {}
 
-		[[noreturn]] void invoke() override {
-			runOnStack([] (Continuation) {
-				if(logIdle)
-					infoLogger() << "System is idle" << frg::endlog;
-				suspendSelf();
-				__builtin_trap();
-			}, getCpuData()->idleStack.base());
-			__builtin_trap();
+	[[noreturn]] void invoke() override {
+		runOnStack(
+		    [](Continuation) {
+			    if (logIdle)
+				    infoLogger() << "System is idle" << frg::endlog;
+			    suspendSelf();
+			    __builtin_trap();
+		    },
+		    getCpuData()->idleStack.base()
+		);
+		__builtin_trap();
+	}
+
+	void handlePreemption(IrqImageAccessor image) override {
+		localScheduler()->update();
+		if (localScheduler()->maybeReschedule()) {
+			runOnStack(
+			    [](Continuation cont, IrqImageAccessor image) {
+				    scrubStack(image, cont);
+				    localScheduler()->commitReschedule();
+			    },
+			    getCpuData()->detachedStack.base(),
+			    image
+			);
+		} else {
+			localScheduler()->renewSchedule();
 		}
+	}
+};
 
-		void handlePreemption(IrqImageAccessor image) override {
-			localScheduler()->update();
-			if(localScheduler()->maybeReschedule()) {
-				runOnStack([] (Continuation cont, IrqImageAccessor image) {
-					scrubStack(image, cont);
-					localScheduler()->commitReschedule();
-				}, getCpuData()->detachedStack.base(), image);
-			}else{
-				localScheduler()->renewSchedule();
-			}
-		}
-	};
-
-	frg::eternal<IdleTask> globalIdleTask;
-}
+frg::eternal<IdleTask> globalIdleTask;
+} // namespace
 
 int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity *b) {
 	assert(a->type() == ScheduleType::regular);
@@ -59,22 +65,25 @@ int ScheduleEntity::orderPriority(const ScheduleEntity *a, const ScheduleEntity 
 bool ScheduleEntity::scheduleBefore(const ScheduleEntity *a, const ScheduleEntity *b) {
 	assert(a->type() == ScheduleType::regular);
 	assert(b->type() == ScheduleType::regular);
-	return a->baseUnfairness - a->refProgress
-			> b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
+	return a->baseUnfairness - a->refProgress >
+	       b->baseUnfairness - b->refProgress; // Prefer greater unfairness.
 }
 
 ScheduleEntity::ScheduleEntity(ScheduleType type)
-: type_{type}, state{ScheduleState::null}, priority{0}, _refClock{0}, _runTime{0},
-		refProgress{0}, baseUnfairness{0} { }
+    : type_{type},
+      state{ScheduleState::null},
+      priority{0},
+      _refClock{0},
+      _runTime{0},
+      refProgress{0},
+      baseUnfairness{0} {}
 
-ScheduleEntity::~ScheduleEntity() {
-	assert(state == ScheduleState::null);
-}
+ScheduleEntity::~ScheduleEntity() { assert(state == ScheduleState::null); }
 
 void Scheduler::associate(ScheduleEntity *entity, Scheduler *scheduler) {
 	assert(entity->type() == ScheduleType::regular);
 
-//	infoLogger() << "associate " << entity << frg::endlog;
+	//	infoLogger() << "associate " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::null);
 	entity->_scheduler = scheduler;
 	entity->state = ScheduleState::attached;
@@ -112,7 +121,7 @@ void Scheduler::setPriority(ScheduleEntity *entity, int priority) {
 void Scheduler::resume(ScheduleEntity *entity) {
 	assert(entity->type() == ScheduleType::regular);
 
-//	infoLogger() << "resume " << entity << frg::endlog;
+	//	infoLogger() << "resume " << entity << frg::endlog;
 	assert(entity->state == ScheduleState::attached);
 
 	auto self = entity->_scheduler;
@@ -129,10 +138,10 @@ void Scheduler::resume(ScheduleEntity *entity) {
 		self->_pendingList.push_back(entity);
 	}
 
-	if(wasEmpty) {
-		if(self == &getCpuData()->scheduler) {
+	if (wasEmpty) {
+		if (self == &getCpuData()->scheduler) {
 			sendPingIpi(self->_cpuContext->cpuIndex);
-		}else{
+		} else {
 			sendPingIpi(self->_cpuContext->cpuIndex);
 		}
 	}
@@ -145,7 +154,7 @@ void Scheduler::suspendCurrent() {
 	auto entity = self->_current;
 	assert(entity);
 	assert(entity->type() == ScheduleType::regular);
-//	infoLogger() << "suspend " << entity << frg::endlog;
+	//	infoLogger() << "suspend " << entity << frg::endlog;
 
 	// Update the unfairness on suspend.
 	self->_updateEntityStats(entity);
@@ -155,16 +164,17 @@ void Scheduler::suspendCurrent() {
 }
 
 Scheduler::Scheduler(CpuData *cpuContext)
-: _cpuContext{cpuContext}, _current{&globalIdleTask.get()} { }
+    : _cpuContext{cpuContext},
+      _current{&globalIdleTask.get()} {}
 
 Progress Scheduler::_liveUnfairness(const ScheduleEntity *entity) {
 	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active);
 
 	auto delta_progress = _systemProgress - entity->refProgress;
-	if(entity == _current) {
+	if (entity == _current) {
 		return entity->baseUnfairness - _numWaiting * delta_progress;
-	}else{
+	} else {
 		return entity->baseUnfairness + delta_progress;
 	}
 }
@@ -173,16 +183,16 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 	assert(entity->type() == ScheduleType::regular);
 	assert(entity->state == ScheduleState::active);
 
-	if(entity == _current) {
+	if (entity == _current) {
 		return entity->_runTime + (_refClock - entity->_refClock);
-	}else{
+	} else {
 		return entity->_runTime;
 	}
 }
 
 void Scheduler::update() {
 	// Returns the reciprocal in 0.8 fixed point format.
-	auto fixedInverse = [] (uint32_t x) -> uint32_t {
+	auto fixedInverse = [](uint32_t x) -> uint32_t {
 		assert(x < (1 << 6));
 		return (1 << 8) / x;
 	};
@@ -191,34 +201,33 @@ void Scheduler::update() {
 
 	// Number of waiting/running threads.
 	auto n = _numWaiting;
-	if(_current->type() == ScheduleType::regular)
+	if (_current->type() == ScheduleType::regular)
 		n++;
 
 	assert(haveTimer());
 	auto now = systemClockSource()->currentNanos();
 	auto deltaTime = now - _refClock;
 	_refClock = now;
-	if(n)
+	if (n)
 		_systemProgress += deltaTime * fixedInverse(n);
 
 	_updateCurrentEntity();
 
 	// Finally, process all pending entities.
 	frg::intrusive_list<
-		ScheduleEntity,
-		frg::locate_member<
-			ScheduleEntity,
-			frg::default_list_hook<ScheduleEntity>,
-			&ScheduleEntity::listHook
-		>
-	> pendingSnapshot;
+	    ScheduleEntity,
+	    frg::locate_member<
+	        ScheduleEntity,
+	        frg::default_list_hook<ScheduleEntity>,
+	        &ScheduleEntity::listHook>>
+	    pendingSnapshot;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
 		pendingSnapshot.splice(pendingSnapshot.end(), _pendingList);
 	}
-	while(!pendingSnapshot.empty()) {
+	while (!pendingSnapshot.empty()) {
 		auto entity = pendingSnapshot.pop_front();
 		assert(entity->state == ScheduleState::pending);
 
@@ -236,31 +245,31 @@ bool Scheduler::maybeReschedule() {
 	assert(!intsAreEnabled());
 	assert(_current);
 
-	auto wantToSchedule = [this] () -> bool {
+	auto wantToSchedule = [this]() -> bool {
 		// If there are no waiters, we keep the current entity.
 		// Otherwise, if the current entity is not active anymore, we always switch.
-		if(_waitQueue.empty())
+		if (_waitQueue.empty())
 			return false;
 
-		if(_current->type() == ScheduleType::idle)
+		if (_current->type() == ScheduleType::idle)
 			return true;
 		assert(_current->type() == ScheduleType::regular);
 		assert(_current->state == ScheduleState::active);
 
 		// Switch based on entity priority.
-		if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
+		if (auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po > 0) {
 			return true;
-		}else if(po < 0) {
+		} else if (po < 0) {
 			return false;
 		}
 
 		// Switch based on unfairness.
-		auto diff = _liveUnfairness(_current) + sliceGranularity * 256
-				- _liveUnfairness(_waitQueue.top());
+		auto diff =
+		    _liveUnfairness(_current) + sliceGranularity * 256 - _liveUnfairness(_waitQueue.top());
 		return diff < 0;
 	};
 
-	if(!wantToSchedule())
+	if (!wantToSchedule())
 		return false;
 
 	_unschedule();
@@ -271,7 +280,7 @@ bool Scheduler::maybeReschedule() {
 void Scheduler::forceReschedule() {
 	assert(!intsAreEnabled());
 
-	if(_current)
+	if (_current)
 		_unschedule();
 	_schedule();
 }
@@ -284,14 +293,14 @@ void Scheduler::forceReschedule() {
 	_scheduled = nullptr;
 	_sliceClock = _refClock;
 
-	if(!preemptionIsArmed())
+	if (!preemptionIsArmed())
 		_updatePreemption();
 
 	currentRunnable()->invoke();
 }
 
 void Scheduler::renewSchedule() {
-	if(!preemptionIsArmed())
+	if (!preemptionIsArmed())
 		_updatePreemption();
 }
 
@@ -306,8 +315,7 @@ void Scheduler::_unschedule() {
 	// Decrease the unfairness at the end of the time slice.
 	_updateEntityStats(_current);
 
-	if(_current->type() == ScheduleType::regular
-			|| _current->state == ScheduleState::active) {
+	if (_current->type() == ScheduleType::regular || _current->state == ScheduleState::active) {
 		_waitQueue.push(_current);
 		_numWaiting++;
 	}
@@ -319,8 +327,8 @@ void Scheduler::_schedule() {
 	assert(!_current);
 	assert(!_scheduled);
 
-	if(_waitQueue.empty()) {
-		if(logScheduling)
+	if (_waitQueue.empty()) {
+		if (logScheduling)
 			infoLogger() << "No entities to schedule" << frg::endlog;
 		_scheduled = &globalIdleTask.get();
 		return;
@@ -335,30 +343,31 @@ void Scheduler::_schedule() {
 	_updateWaitingEntity(entity);
 	_updateEntityStats(entity);
 
-	if(logScheduling) {
-//		infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
-//				<< " ms" << frg::endlog;
+	if (logScheduling) {
+		//		infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
+		//				<< " ms" << frg::endlog;
 		infoLogger() << "Running entity with priority: " << entity->priority
-				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
-				<< " ms (" << (_numWaiting + 1) << " active threads)" << frg::endlog;
+		             << ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
+		             << " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000) << " ms ("
+		             << (_numWaiting + 1) << " active threads)" << frg::endlog;
 	}
-	if(logNextBest && !_waitQueue.empty())
+	if (logNextBest && !_waitQueue.empty())
 		infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
-				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
-				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
-				<< " ms" << frg::endlog;
+		             << ", unfairness: "
+		             << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
+		             << " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000) << " ms"
+		             << frg::endlog;
 
 	_scheduled = entity;
 }
 
 // Returns true if preemption should be done immediately.
 void Scheduler::_updatePreemption() {
-	if(disablePreemption)
+	if (disablePreemption)
 		return;
 
 	// Disable preemption if there are no other threads.
-	if(_waitQueue.empty())
+	if (_waitQueue.empty())
 		return;
 
 	// If there was no current entity, we would have rescheduled.
@@ -366,10 +375,10 @@ void Scheduler::_updatePreemption() {
 	assert(_current->type() == ScheduleType::regular);
 	assert(_current->state == ScheduleState::active);
 
-	if(auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po < 0) {
+	if (auto po = ScheduleEntity::orderPriority(_current, _waitQueue.top()); po < 0) {
 		// Disable preemption if we have higher priority.
 		return;
-	}else{
+	} else {
 		// If there was an entity with higher priority, we would have rescheduled.
 		assert(!po);
 	}
@@ -379,15 +388,15 @@ void Scheduler::_updatePreemption() {
 
 void Scheduler::_updateCurrentEntity() {
 	assert(_current);
-	if(_current->type() == ScheduleType::idle)
+	if (_current->type() == ScheduleType::idle)
 		return;
 	assert(_current->type() == ScheduleType::regular);
 
 	auto delta_progress = _systemProgress - _current->refProgress;
-	if(logUpdates)
+	if (logUpdates)
 		infoLogger() << "Running thread unfairness decreases by: "
-				<< ((_numWaiting * delta_progress) / 256) / 1000
-				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
+		             << ((_numWaiting * delta_progress) / 256) / 1000 << " us (" << _numWaiting
+		             << " waiting threads)" << frg::endlog;
 	_current->baseUnfairness -= _numWaiting * delta_progress;
 	_current->refProgress = _systemProgress;
 }
@@ -397,33 +406,27 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 	assert(entity->state == ScheduleState::active);
 	assert(entity != _current);
 
-	if(logUpdates)
+	if (logUpdates)
 		infoLogger() << "Waiting thread unfairness increases by: "
-				<< ((_systemProgress - entity->refProgress) / 256) / 1000
-				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
+		             << ((_systemProgress - entity->refProgress) / 256) / 1000 << " us ("
+		             << _numWaiting << " waiting threads)" << frg::endlog;
 	entity->baseUnfairness += _systemProgress - entity->refProgress;
 	entity->refProgress = _systemProgress;
 }
 
 void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
-	if(entity->type() == ScheduleType::idle)
+	if (entity->type() == ScheduleType::idle)
 		return;
 	assert(entity->type() == ScheduleType::regular);
-	assert(entity->state == ScheduleState::active
-			|| entity == _current);
+	assert(entity->state == ScheduleState::active || entity == _current);
 
-	if(entity == _current)
+	if (entity == _current)
 		entity->_runTime += _refClock - entity->_refClock;
 	entity->_refClock = _refClock;
 }
 
-Scheduler *localScheduler() {
-	return &getCpuData()->scheduler;
-}
+Scheduler *localScheduler() { return &getCpuData()->scheduler; }
 
-smarter::borrowed_ptr<Thread> getCurrentThread() {
-	return activeExecutor();
-}
+smarter::borrowed_ptr<Thread> getCurrentThread() { return activeExecutor(); }
 
 } // namespace thor
-

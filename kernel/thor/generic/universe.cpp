@@ -3,14 +3,13 @@
 namespace thor {
 
 namespace {
-	constexpr bool logCleanup = false;
+constexpr bool logCleanup = false;
 }
 
-Universe::Universe()
-: _descriptorMap{frg::hash<Handle>{}, *kernelAlloc}, _nextHandle{1} { }
+Universe::Universe() : _descriptorMap{frg::hash<Handle>{}, *kernelAlloc}, _nextHandle{1} {}
 
 Universe::~Universe() {
-	if(logCleanup)
+	if (logCleanup)
 		debugLogger() << "thor: Universe is deallocated" << frg::endlog;
 }
 

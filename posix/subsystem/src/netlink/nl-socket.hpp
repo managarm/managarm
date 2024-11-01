@@ -4,8 +4,8 @@
 #include <linux/netlink.h>
 #include <map>
 
-#include "core/netlink.hpp"
 #include "../file.hpp"
+#include "core/netlink.hpp"
 
 namespace netlink::nl_socket {
 
@@ -14,7 +14,9 @@ void setupProtocols();
 struct OpenFile;
 
 struct ops {
-	async::result<protocols::fs::Error> (*sendMsg)(nl_socket::OpenFile *f, core::netlink::Packet packet, struct sockaddr_nl *sa);
+	async::result<protocols::fs::Error> (*sendMsg)(
+	    nl_socket::OpenFile *f, core::netlink::Packet packet, struct sockaddr_nl *sa
+	);
 };
 
 extern std::map<int, const ops *> globalProtocolOpsMap;
@@ -22,14 +24,15 @@ extern std::map<std::pair<int, uint8_t>, std::unique_ptr<core::netlink::Group>> 
 extern std::map<uint32_t, OpenFile *> globalPortMap;
 
 struct OpenFile : File, core::netlink::NetlinkFile {
-public:
+  public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
-//TODO:		assert(!file->_passthrough);
+		// TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &File::fileOperations, file->_cancelServe));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), file, &File::fileOperations, file->_cancelServe
+		));
 	}
 
 	OpenFile(int protocol, bool nonBlock = false);
@@ -48,15 +51,26 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
-	async::result<protocols::fs::RecvResult>
-	recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
-			void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) override;
+	async::result<protocols::fs::RecvResult> recvMsg(
+	    Process *,
+	    uint32_t flags,
+	    void *data,
+	    size_t max_length,
+	    void *addr_ptr,
+	    size_t max_addr_length,
+	    size_t max_ctrl_length
+	) override;
 
-	async::result<frg::expected<protocols::fs::Error, size_t>>
-	sendMsg(Process *process, uint32_t flags,
-			const void *data, size_t max_length,
-			const void *addr_ptr, size_t addr_length,
-			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override;
+	async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(
+	    Process *process,
+	    uint32_t flags,
+	    const void *data,
+	    size_t max_length,
+	    const void *addr_ptr,
+	    size_t addr_length,
+	    std::vector<smarter::shared_ptr<File, FileHandle>> files,
+	    struct ucred ucreds
+	) override;
 
 	async::result<void> setOption(int option, int value) override {
 		assert(option == SO_PASSCRED);
@@ -64,36 +78,32 @@ public:
 		co_return;
 	};
 
-	async::result<frg::expected<Error, PollWaitResult>>
-	pollWait(Process *, uint64_t past_seq, int mask,
-			async::cancellation_token cancellation) override;
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(
+	    Process *, uint64_t past_seq, int mask, async::cancellation_token cancellation
+	) override;
 
-	async::result<frg::expected<Error, PollStatusResult>>
-	pollStatus(Process *) override;
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override;
 
-	async::result<protocols::fs::Error>
-	bind(Process *, const void *, size_t) override;
+	async::result<protocols::fs::Error> bind(Process *, const void *, size_t) override;
 
 	async::result<size_t> sockname(void *, size_t) override;
 
 	async::result<frg::expected<protocols::fs::Error>>
 	setSocketOption(int layer, int number, std::vector<char> optbuf) override;
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
 	async::result<void> setFileFlags(int flags) override;
 	async::result<int> getFileFlags() override;
 
 	uint32_t socketPort() {
-		if(!_socketPort)
+		if (!_socketPort)
 			_associatePort();
 
 		return _socketPort;
 	}
 
-private:
+  private:
 	void _associatePort();
 
 	int _protocol;
@@ -132,4 +142,3 @@ bool protocol_supported(int protocol);
 smarter::shared_ptr<File, FileHandle> createSocketFile(int proto_idx, bool nonBlock);
 
 } // namespace netlink::nl_socket
-

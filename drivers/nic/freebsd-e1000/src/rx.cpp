@@ -35,7 +35,7 @@
 
 void E1000Nic::em_eth_rx_ack() {
 	uint32_t n = _rxIndex();
-	union e1000_rx_desc_extended* desc = (union e1000_rx_desc_extended*)&_rxd[n];
+	union e1000_rx_desc_extended *desc = (union e1000_rx_desc_extended *)&_rxd[n];
 
 	/* Zero out the receive descriptors status. */
 	desc->read.buffer_addr = helix::ptrToPhysical(&_rxdbuf[n]);
@@ -43,7 +43,7 @@ void E1000Nic::em_eth_rx_ack() {
 }
 
 void E1000Nic::em_rxd_setup() {
-	union e1000_rx_desc_extended* rxd = (union e1000_rx_desc_extended*) &_rxd[0];
+	union e1000_rx_desc_extended *rxd = (union e1000_rx_desc_extended *)&_rxd[0];
 
 	for (size_t n = 0; n < RX_QUEUE_SIZE; n++) {
 		rxd[n].read.buffer_addr = helix::ptrToPhysical(&_rxdbuf[n]);
@@ -53,7 +53,7 @@ void E1000Nic::em_rxd_setup() {
 }
 
 bool E1000Nic::eth_rx_pop() {
-	if(_requests.empty()) {
+	if (_requests.empty()) {
 		printf("e1000: no requests queued\n");
 		return false;
 	}
@@ -61,10 +61,10 @@ bool E1000Nic::eth_rx_pop() {
 	auto req = _requests.front();
 	assert(req);
 
-	if(_hw.mac.type >= em_mac_min) {
-		union e1000_rx_desc_extended* desc = (union e1000_rx_desc_extended*) &_rxd[_rxIndex];
+	if (_hw.mac.type >= em_mac_min) {
+		union e1000_rx_desc_extended *desc = (union e1000_rx_desc_extended *)&_rxd[_rxIndex];
 
-		if(!(desc->wb.upper.status_error & E1000_RXD_STAT_DD)) {
+		if (!(desc->wb.upper.status_error & E1000_RXD_STAT_DD)) {
 			return false;
 		}
 
@@ -73,9 +73,9 @@ bool E1000Nic::eth_rx_pop() {
 
 		em_eth_rx_ack();
 	} else {
-		struct e1000_rx_desc* desc = &_rxd[_rxIndex];
+		struct e1000_rx_desc *desc = &_rxd[_rxIndex];
 
-		if(!(desc->status & E1000_RXD_STAT_DD)) {
+		if (!(desc->status & E1000_RXD_STAT_DD)) {
 			return false;
 		}
 
@@ -99,8 +99,8 @@ bool E1000Nic::eth_rx_pop() {
 #define EM_RADV 64
 #define EM_RDTR 0
 
-#define IGB_RX_PTHRESH \
-  ((_hw.mac.type == e1000_i354) ? 12 : ((_hw.mac.type <= e1000_82576) ? 16 : 8))
+#define IGB_RX_PTHRESH                                                                             \
+	((_hw.mac.type == e1000_i354) ? 12 : ((_hw.mac.type <= e1000_82576) ? 16 : 8))
 #define IGB_RX_HTHRESH 8
 #define IGB_RX_WTHRESH ((_hw.mac.type == e1000_82576) ? 1 : 4)
 #define IGB_TX_PTHRESH ((_hw.mac.type == e1000_i354) ? 20 : 8)
@@ -112,9 +112,9 @@ bool E1000Nic::eth_rx_pop() {
 
 async::result<void> E1000Nic::rxInit() {
 	/*
-	* Make sure receives are disabled while setting
-	* up the descriptor ring
-	*/
+	 * Make sure receives are disabled while setting
+	 * up the descriptor ring
+	 */
 	u32 rctl = E1000_READ_REG(&_hw, E1000_RCTL);
 
 	/* Do not disable if ever enabled on this hardware */
@@ -124,7 +124,8 @@ async::result<void> E1000Nic::rxInit() {
 
 	/* Setup the Receive Control Register */
 	rctl &= ~(3 << E1000_RCTL_MO_SHIFT);
-	rctl |= E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_LBM_NO | E1000_RCTL_RDMTS_HALF | (_hw.mac.mc_filter_type << E1000_RCTL_MO_SHIFT);
+	rctl |= E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_LBM_NO | E1000_RCTL_RDMTS_HALF |
+	        (_hw.mac.mc_filter_type << E1000_RCTL_MO_SHIFT);
 
 	/* Do not store bad packets */
 	rctl &= ~E1000_RCTL_SBP;
@@ -135,7 +136,7 @@ async::result<void> E1000Nic::rxInit() {
 	/* Strip the CRC */
 	rctl |= E1000_RCTL_SECRC;
 
-	if(_hw.mac.type >= e1000_82540) {
+	if (_hw.mac.type >= e1000_82540) {
 		E1000_WRITE_REG(&_hw, E1000_RADV, EM_RADV);
 		/*
 		 * Set the interrupt throttling rate. Value is calculated
@@ -151,9 +152,9 @@ async::result<void> E1000Nic::rxInit() {
 	rfctl |= E1000_RFCTL_EXTEN;
 
 	/*
-	* When using MSIX interrupts we need to throttle
-	* using the EITR register (82574 only)
-	*/
+	 * When using MSIX interrupts we need to throttle
+	 * using the EITR register (82574 only)
+	 */
 	if (_hw.mac.type == e1000_82574) {
 		for (int i = 0; i < 4; i++) {
 			E1000_WRITE_REG(&_hw, E1000_EITR_82574(i), DEFAULT_ITR);
@@ -168,12 +169,12 @@ async::result<void> E1000Nic::rxInit() {
 	E1000_WRITE_REG(&_hw, E1000_RXCSUM, rxcsum);
 
 	/*
-	* XXX TEMPORARY WORKAROUND: on some systems with 82573
-	* long latencies are observed, like Lenovo X60. This
-	* change eliminates the problem, but since having positive
-	* values in RDTR is a known source of problems on other
-	* platforms another solution is being sought.
-	*/
+	 * XXX TEMPORARY WORKAROUND: on some systems with 82573
+	 * long latencies are observed, like Lenovo X60. This
+	 * change eliminates the problem, but since having positive
+	 * values in RDTR is a known source of problems on other
+	 * platforms another solution is being sought.
+	 */
 	if (_hw.mac.type == e1000_82573) {
 		E1000_WRITE_REG(&_hw, E1000_RDTR, 0x20);
 	}

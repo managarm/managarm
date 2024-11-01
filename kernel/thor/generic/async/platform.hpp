@@ -5,7 +5,7 @@
 #define LIBASYNC_THREAD_LOCAL
 
 namespace async::platform {
-	using mutex = thor::IrqSpinlock;
+using mutex = thor::IrqSpinlock;
 
-	inline void panic(const char *) { __builtin_trap(); }
-};
+inline void panic(const char *) { __builtin_trap(); }
+}; // namespace async::platform

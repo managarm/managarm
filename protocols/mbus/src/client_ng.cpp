@@ -1,39 +1,38 @@
 
 #include <iostream>
 
-#include <protocols/mbus/client.hpp>
-#include <protocols/posix/supercalls.hpp>
-#include <protocols/posix/data.hpp>
-#include <bragi/helpers-std.hpp>
-#include <bragi/helpers-all.hpp>
 #include "helix/ipc-structs.hpp"
 #include "helix/ipc.hpp"
 #include "mbus.bragi.hpp"
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-std.hpp>
+#include <protocols/mbus/client.hpp>
+#include <protocols/posix/data.hpp>
+#include <protocols/posix/supercalls.hpp>
 
 #include <span>
 
 namespace {
-	HelHandle getMbusClientLane() {
-		posix::ManagarmProcessData data;
+HelHandle getMbusClientLane() {
+	posix::ManagarmProcessData data;
 
-		HEL_CHECK(helSyscall1(kHelCallSuper + posix::superGetProcessData,
-						reinterpret_cast<HelWord>(&data)));
+	HEL_CHECK(
+	    helSyscall1(kHelCallSuper + posix::superGetProcessData, reinterpret_cast<HelWord>(&data))
+	);
 
-		return data.mbusLane;
-	}
+	return data.mbusLane;
+}
 
-	bool recreateInstance = false;
+bool recreateInstance = false;
 
-	static mbus_ng::Instance makeGlobal() {
-		return mbus_ng::Instance(helix::BorrowedLane(getMbusClientLane()).dup());
-	}
-} // namespace anonymous
+static mbus_ng::Instance makeGlobal() {
+	return mbus_ng::Instance(helix::BorrowedLane(getMbusClientLane()).dup());
+}
+} // namespace
 
 namespace mbus_ng {
 
-void recreateInstance() {
-	::recreateInstance = true;
-}
+void recreateInstance() { ::recreateInstance = true; }
 
 Instance Instance::global() {
 	static Instance instance{makeGlobal()};
@@ -44,20 +43,18 @@ Instance Instance::global() {
 	return instance;
 }
 
-async::result<Entity> Instance::getEntity(int64_t id) {
-	co_return Entity{connection_, id};
-}
+async::result<Entity> Instance::getEntity(int64_t id) { co_return Entity{connection_, id}; }
 
 managarm::mbus::AnyItem encodeItem(mbus_ng::AnyItem item) {
 	managarm::mbus::AnyItem ret{};
 
-	if(std::holds_alternative<StringItem>(item)) {
+	if (std::holds_alternative<StringItem>(item)) {
 		ret.set_type(managarm::mbus::ItemType::STRING);
 		ret.set_string_item({std::get<StringItem>(item).value});
-	} else if(std::holds_alternative<ArrayItem>(item)) {
+	} else if (std::holds_alternative<ArrayItem>(item)) {
 		ret.set_type(managarm::mbus::ItemType::ARRAY);
 		auto arr = std::get<ArrayItem>(item);
-		for(auto &arr_item : arr.items) {
+		for (auto &arr_item : arr.items) {
 			ret.add_items(encodeItem(arr_item));
 		}
 	} else {
@@ -70,21 +67,21 @@ managarm::mbus::AnyItem encodeItem(mbus_ng::AnyItem item) {
 mbus_ng::AnyItem decodeItem(managarm::mbus::AnyItem item) {
 	mbus_ng::AnyItem ret{};
 
-	switch(item.type()) {
-		case managarm::mbus::ItemType::STRING: {
-			return StringItem{item.string_item()};
-		}
-		case managarm::mbus::ItemType::ARRAY: {
-			ArrayItem ret;
+	switch (item.type()) {
+	case managarm::mbus::ItemType::STRING: {
+		return StringItem{item.string_item()};
+	}
+	case managarm::mbus::ItemType::ARRAY: {
+		ArrayItem ret;
 
-			for(auto &arr_item : item.items()) {
-				ret.items.push_back(decodeItem(arr_item));
-			}
-
-			return ret;
+		for (auto &arr_item : item.items()) {
+			ret.items.push_back(decodeItem(arr_item));
 		}
-		default:
-			assert(!"unhandled item type in decode");
+
+		return ret;
+	}
+	default:
+		assert(!"unhandled item type in decode");
 	}
 }
 
@@ -93,22 +90,21 @@ Instance::createEntity(std::string_view name, const Properties &properties) {
 	managarm::mbus::CreateObjectRequest req;
 	req.set_name(std::string{name});
 
-	for(auto &[name, value] : properties) {
+	for (auto &[name, value] : properties) {
 		managarm::mbus::Property prop;
 		prop.set_name(name);
 		prop.set_item(encodeItem(value));
 		req.add_properties(prop);
 	}
 
-	auto [offer, sendHead, sendTail, recvResp, pullLane] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
-			)
-		);
+	auto [offer, sendHead, sendTail, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
+	    connection_->lane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+	        helix_ng::recvInline(),
+	        helix_ng::pullDescriptor()
+	    )
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendHead.error());
@@ -137,15 +133,14 @@ async::result<Result<Properties>> Entity::getProperties() const {
 	managarm::mbus::GetPropertiesRequest req;
 	req.set_id(id_);
 
-	auto [offer, sendReq, recvHead] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
+	auto [offer, sendReq, recvHead] = co_await helix_ng::exchangeMsgs(
+	    connection_->lane,
+	    helix_ng::offer(
+	        helix_ng::want_lane,
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	        helix_ng::recvInline()
+	    )
+	);
 
 	auto conversation = offer.descriptor();
 
@@ -154,15 +149,14 @@ async::result<Result<Properties>> Entity::getProperties() const {
 	HEL_CHECK(recvHead.error());
 
 	auto preamble = bragi::read_preamble(recvHead);
-	if (preamble.error() || preamble.id() != bragi::message_id<managarm::mbus::GetPropertiesResponse>)
+	if (preamble.error() ||
+	    preamble.id() != bragi::message_id<managarm::mbus::GetPropertiesResponse>)
 		co_return Error::protocolViolation;
 
 	std::vector<std::byte> tail(preamble.tail_size());
-	auto [recvTail] =
-		co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::recvBuffer(tail.data(), tail.size())
-		);
+	auto [recvTail] = co_await helix_ng::exchangeMsgs(
+	    conversation, helix_ng::recvBuffer(tail.data(), tail.size())
+	);
 	HEL_CHECK(recvTail.error());
 
 	auto maybeResp = bragi::parse_head_tail<managarm::mbus::GetPropertiesResponse>(recvHead, tail);
@@ -176,8 +170,8 @@ async::result<Result<Properties>> Entity::getProperties() const {
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
 	Properties properties;
-	for(auto &kv : resp.properties())
-		properties.insert({ kv.name(), decodeItem(kv.item()) });
+	for (auto &kv : resp.properties())
+		properties.insert({kv.name(), decodeItem(kv.item())});
 
 	co_return properties;
 }
@@ -185,7 +179,7 @@ async::result<Result<Properties>> Entity::getProperties() const {
 async::result<Error> Entity::updateProperties(Properties properties) {
 	managarm::mbus::UpdatePropertiesRequest req;
 	req.set_id(id_);
-	for(auto &[name, value] : properties) {
+	for (auto &[name, value] : properties) {
 		managarm::mbus::Property prop;
 		prop.set_name(name);
 		prop.set_item(encodeItem(value));
@@ -193,15 +187,14 @@ async::result<Error> Entity::updateProperties(Properties properties) {
 	}
 	assert(req.properties_size());
 
-	auto [offer, sendHead, sendTail, recvResp] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
+	auto [offer, sendHead, sendTail, recvResp] = co_await helix_ng::exchangeMsgs(
+	    connection_->lane,
+	    helix_ng::offer(
+	        helix_ng::want_lane,
+	        helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+	        helix_ng::recvInline()
+	    )
+	);
 
 	auto conversation = offer.descriptor();
 
@@ -227,15 +220,14 @@ async::result<Result<helix::UniqueLane>> Entity::getRemoteLane() const {
 	managarm::mbus::GetRemoteLaneRequest req;
 	req.set_id(id_);
 
-	auto [offer, sendReq, recvResp, pullLane] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
-			)
-		);
+	auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
+	    connection_->lane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	        helix_ng::recvInline(),
+	        helix_ng::pullDescriptor()
+	    )
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
@@ -262,15 +254,14 @@ async::result<Result<helix::UniqueLane>> Entity::getRemoteLane() const {
 async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lane) const {
 	managarm::mbus::ServeRemoteLaneRequest req;
 
-	auto [offer, sendReq, pushLane, recvResp] =
-		co_await helix_ng::exchangeMsgs(
-			mgmtLane_,
-			helix_ng::offer(
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(lane),
-				helix_ng::recvInline()
-			)
-		);
+	auto [offer, sendReq, pushLane, recvResp] = co_await helix_ng::exchangeMsgs(
+	    mgmtLane_,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	        helix_ng::pushDescriptor(lane),
+	        helix_ng::recvInline()
+	    )
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
@@ -278,7 +269,8 @@ async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lan
 	HEL_CHECK(recvResp.error());
 
 	auto preamble = bragi::read_preamble(recvResp);
-	if (preamble.error() || preamble.id() != bragi::message_id<managarm::mbus::ServeRemoteLaneResponse>)
+	if (preamble.error() ||
+	    preamble.id() != bragi::message_id<managarm::mbus::ServeRemoteLaneResponse>)
 		co_return Error::protocolViolation;
 
 	auto maybeResp = bragi::parse_head_only<managarm::mbus::ServeRemoteLaneResponse>(recvResp);
@@ -301,21 +293,21 @@ async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lan
 static const managarm::mbus::AnyFilter encodeFilter(const AnyFilter &filter) {
 	managarm::mbus::AnyFilter flt;
 
-	if(auto alt = std::get_if<EqualsFilter>(&filter); alt) {
+	if (auto alt = std::get_if<EqualsFilter>(&filter); alt) {
 		flt.set_type(managarm::mbus::FilterType::EQUALS);
 		flt.set_path(alt->path());
 		flt.set_value(alt->value());
-	}else if(auto alt = std::get_if<Conjunction>(&filter); alt) {
+	} else if (auto alt = std::get_if<Conjunction>(&filter); alt) {
 		flt.set_type(managarm::mbus::FilterType::CONJUNCTION);
-		for(auto &operand : alt->operands()) {
+		for (auto &operand : alt->operands()) {
 			flt.add_operands(encodeFilter(operand));
 		}
-	}else if(auto alt = std::get_if<Disjunction>(&filter); alt) {
+	} else if (auto alt = std::get_if<Disjunction>(&filter); alt) {
 		flt.set_type(managarm::mbus::FilterType::DISJUNCTION);
-		for(auto &operand : alt->operands()) {
+		for (auto &operand : alt->operands()) {
 			flt.add_operands(encodeFilter(operand));
 		}
-	}else{
+	} else {
 		throw std::runtime_error("Unexpected filter type");
 	}
 
@@ -327,15 +319,14 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 	req.set_seq(curSeq_);
 	req.set_filter(encodeFilter(filter_));
 
-	auto [offer, sendHead, sendTail, recvRespHead] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
+	auto [offer, sendHead, sendTail, recvRespHead] = co_await helix_ng::exchangeMsgs(
+	    connection_->lane,
+	    helix_ng::offer(
+	        helix_ng::want_lane,
+	        helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+	        helix_ng::recvInline()
+	    )
+	);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendHead.error());
@@ -349,11 +340,9 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 		co_return Error::protocolViolation;
 
 	std::vector<std::byte> tail(preamble.tail_size());
-	auto [recvRespTail] =
-		co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::recvBuffer(tail.data(), tail.size())
-		);
+	auto [recvRespTail] = co_await helix_ng::exchangeMsgs(
+	    conversation, helix_ng::recvBuffer(tail.data(), tail.size())
+	);
 	HEL_CHECK(recvRespTail.error());
 
 	auto maybeResp = bragi::parse_head_tail<managarm::mbus::EnumerateResponse>(recvRespHead, tail);
@@ -378,8 +367,8 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 		event.id = entity.id();
 		event.name = entity.name();
 		event.type = unseen ? created : propertiesChanged;
-		for(auto &kv : entity.properties())
-			event.properties.insert({ kv.name(), decodeItem(kv.item()) });
+		for (auto &kv : entity.properties())
+			event.properties.insert({kv.name(), decodeItem(kv.item())});
 
 		result.events.push_back(std::move(event));
 	}
@@ -393,34 +382,20 @@ async::result<Result<EnumerationResult>> Enumerator::nextEvents() {
 // mbus Conjunction class.
 // ------------------------------------------------------------------------
 
-Conjunction::Conjunction(std::vector<AnyFilter> &&operands)
-	: operands_{std::move(operands)} {
+Conjunction::Conjunction(std::vector<AnyFilter> &&operands) : operands_{std::move(operands)} {}
 
-}
+std::vector<AnyFilter> &Conjunction::operands() & { return operands_; }
 
-std::vector<AnyFilter> &Conjunction::operands() & {
-	return operands_;
-}
-
-const std::vector<AnyFilter> &Conjunction::operands() const & {
-	return operands_;
-}
+const std::vector<AnyFilter> &Conjunction::operands() const & { return operands_; }
 
 // ------------------------------------------------------------------------
 // mbus Disjunction class.
 // ------------------------------------------------------------------------
 
-Disjunction::Disjunction(std::vector<AnyFilter> &&operands)
-	: operands_{std::move(operands)} {
+Disjunction::Disjunction(std::vector<AnyFilter> &&operands) : operands_{std::move(operands)} {}
 
-}
+std::vector<AnyFilter> &Disjunction::operands() & { return operands_; }
 
-std::vector<AnyFilter> &Disjunction::operands() & {
-	return operands_;
-}
+const std::vector<AnyFilter> &Disjunction::operands() const & { return operands_; }
 
-const std::vector<AnyFilter> &Disjunction::operands() const & {
-	return operands_;
-}
-
-}  // namespace mbus_ng
+} // namespace mbus_ng

@@ -3,6 +3,7 @@
 
 namespace eventfd {
 
-smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool nonBlock, bool semaphore);
+smarter::shared_ptr<File, FileHandle>
+createFile(unsigned int initval, bool nonBlock, bool semaphore);
 
 }

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #include "../controller.hpp"
 
@@ -16,7 +16,7 @@ struct Ft232 final : Controller {
 
 	static bool valid(std::string vendor, std::string product);
 
-private:
+  private:
 	std::optional<uint32_t> encodeBaud(size_t baud);
 
 	enum class Type {

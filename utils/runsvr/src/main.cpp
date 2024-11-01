@@ -15,19 +15,16 @@
 
 int heloutFd;
 
-template <typename ...Ts>
-void print_to(int fd, const char *format, Ts &&...ts) {
+template <typename... Ts> void print_to(int fd, const char *format, Ts &&...ts) {
 	dprintf(heloutFd, format, ts...);
 	dprintf(fd, format, ts...);
 }
 
-template <typename ...Ts>
-void log(const char *format, Ts &&...ts) {
+template <typename... Ts> void log(const char *format, Ts &&...ts) {
 	print_to(STDOUT_FILENO, format, std::forward<Ts>(ts)...);
 }
 
-template <typename ...Ts>
-void err(const char *format, Ts &&...ts) {
+template <typename... Ts> void err(const char *format, Ts &&...ts) {
 	print_to(STDERR_FILENO, format, std::forward<Ts>(ts)...);
 }
 
@@ -35,25 +32,25 @@ static std::vector<std::byte> readEntireFile(const char *path) {
 	constexpr size_t bytesPerChunk = 8192;
 
 	auto fd = open(path, O_RDONLY);
-	if(fd < 0)
+	if (fd < 0)
 		throw std::runtime_error("Could not open file");
 
 	std::vector<std::byte> buffer;
 
 	struct stat st;
-	if(!fstat(fd, &st)) {
+	if (!fstat(fd, &st)) {
 		buffer.reserve(st.st_size);
-	}else{
+	} else {
 		log("runsvr: fstat() failed on %s\n", path);
 	}
 
 	off_t progress = 0;
-	while(true) {
+	while (true) {
 		buffer.resize(progress + bytesPerChunk);
 		auto chunk = read(fd, buffer.data() + progress, bytesPerChunk);
-		if(!chunk)
+		if (!chunk)
 			break;
-		if(chunk < 0)
+		if (chunk < 0)
 			throw std::runtime_error("Error while reading file");
 		progress += chunk;
 	}
@@ -72,9 +69,7 @@ helix::UniqueLane svrctlLane;
 async::oneshot_event foundSvrctl;
 
 async::result<void> enumerateSvrctl() {
-	auto filter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter("class", "svrctl")
-	});
+	auto filter = mbus_ng::Conjunction({mbus_ng::EqualsFilter("class", "svrctl")});
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -91,11 +86,12 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 
 	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp, pull_server] = co_await helix_ng::exchangeMsgs(
-		svrctlLane,
-		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::recvInline(),
-			helix_ng::pullDescriptor())
+	    svrctlLane,
+	    helix_ng::offer(
+	        helix_ng::sendBuffer(ser.data(), ser.size()),
+	        helix_ng::recvInline(),
+	        helix_ng::pullDescriptor()
+	    )
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -112,17 +108,15 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 async::result<void> uploadFile(const char *name) {
 	std::vector<std::byte> buffer;
 
-	auto optimisticUpload = [&] () -> async::result<bool> {
+	auto optimisticUpload = [&]() -> async::result<bool> {
 		managarm::svrctl::CntRequest req;
 		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD);
 		req.set_name(name);
 
 		auto ser = req.SerializeAsString();
 		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-			svrctlLane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::recvInline())
+		    svrctlLane,
+		    helix_ng::offer(helix_ng::sendBuffer(ser.data(), ser.size()), helix_ng::recvInline())
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -131,24 +125,25 @@ async::result<void> uploadFile(const char *name) {
 		managarm::svrctl::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		if(resp.error() == managarm::svrctl::Error::DATA_REQUIRED)
+		if (resp.error() == managarm::svrctl::Error::DATA_REQUIRED)
 			co_return false;
 		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
 		co_return true;
 	};
 
-	auto uploadWithData = [&] () -> async::result<void> {
+	auto uploadWithData = [&]() -> async::result<void> {
 		managarm::svrctl::CntRequest req;
 		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD_DATA);
 		req.set_name(name);
 
 		auto ser = req.SerializeAsString();
 		auto [offer, send_req, send_data, recv_resp] = co_await helix_ng::exchangeMsgs(
-			svrctlLane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::sendBuffer(buffer.data(), buffer.size()),
-				helix_ng::recvInline())
+		    svrctlLane,
+		    helix_ng::offer(
+		        helix_ng::sendBuffer(ser.data(), ser.size()),
+		        helix_ng::sendBuffer(buffer.data(), buffer.size()),
+		        helix_ng::recvInline()
+		    )
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
@@ -162,7 +157,7 @@ async::result<void> uploadFile(const char *name) {
 	};
 
 	// Try to avoid reading the file at first.
-	if(co_await optimisticUpload())
+	if (co_await optimisticUpload())
 		co_return;
 
 	// The kernel does not know the file; we have to read the entire contents.
@@ -177,10 +172,7 @@ async::result<int> bindServer(helix::UniqueLane &lane, int mbusId) {
 
 	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-		lane,
-		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::recvInline())
+	    lane, helix_ng::offer(helix_ng::sendBuffer(ser.data(), ser.size()), helix_ng::recvInline())
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
@@ -189,80 +181,78 @@ async::result<int> bindServer(helix::UniqueLane &lane, int mbusId) {
 	managarm::svrctl::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
-	if(resp.error() == managarm::svrctl::Error::SUCCESS)
+	if (resp.error() == managarm::svrctl::Error::SUCCESS)
 		co_return 0;
 	else
-	 	co_return 1;
+		co_return 1;
 }
 
 // ----------------------------------------------------------------
 // Freestanding mbus functions.
 // ----------------------------------------------------------------
 
-enum class action {
-	runsvr, run, bind, upload
-};
+enum class action { runsvr, run, bind, upload };
 
 async::result<int> asyncMain(action act, std::string path) {
 	co_await enumerateSvrctl();
 
 	switch (act) {
-		case action::runsvr: {
-			log("runsvr: Running %s\n", path.c_str());
-			co_await runServer(path.c_str());
+	case action::runsvr: {
+		log("runsvr: Running %s\n", path.c_str());
+		co_await runServer(path.c_str());
 
-			break;
-		}
+		break;
+	}
 
-		case action::run: {
-			auto buffer = readEntireFile(path.c_str());
+	case action::run: {
+		auto buffer = readEntireFile(path.c_str());
 
-			managarm::svrctl::Description desc;
-			bragi::limited_reader rd{buffer.data(), buffer.size()};
-			auto deser = bragi::deserializer{};
-			desc.decode_body(rd, deser);
+		managarm::svrctl::Description desc;
+		bragi::limited_reader rd{buffer.data(), buffer.size()};
+		auto deser = bragi::deserializer{};
+		desc.decode_body(rd, deser);
 
-			log("runsvr: Running %s\n", desc.name().c_str());
+		log("runsvr: Running %s\n", desc.name().c_str());
 
-			for(auto &file : desc.files())
-				co_await uploadFile(file.path().c_str());
+		for (auto &file : desc.files())
+			co_await uploadFile(file.path().c_str());
 
-			co_await runServer(desc.exec().c_str());
+		co_await runServer(desc.exec().c_str());
 
-			break;
-		}
+		break;
+	}
 
-		case action::bind: {
-			auto buffer = readEntireFile(path.c_str());
+	case action::bind: {
+		auto buffer = readEntireFile(path.c_str());
 
-			managarm::svrctl::Description desc;
-			bragi::limited_reader rd{buffer.data(), buffer.size()};
-			auto deser = bragi::deserializer{};
-			desc.decode_body(rd, deser);
+		managarm::svrctl::Description desc;
+		bragi::limited_reader rd{buffer.data(), buffer.size()};
+		auto deser = bragi::deserializer{};
+		desc.decode_body(rd, deser);
 
-			auto id_str = getenv("MBUS_ID");
-			log("runsvr: Binding driver %s to mbus ID %s\n", desc.name().c_str(), id_str);
+		auto id_str = getenv("MBUS_ID");
+		log("runsvr: Binding driver %s to mbus ID %s\n", desc.name().c_str(), id_str);
 
-			for(auto &file : desc.files())
-				co_await uploadFile(file.path().c_str());
+		for (auto &file : desc.files())
+			co_await uploadFile(file.path().c_str());
 
-			auto lane = co_await runServer(desc.exec().c_str());
-			co_await bindServer(lane, std::stoi(id_str));
+		auto lane = co_await runServer(desc.exec().c_str());
+		co_await bindServer(lane, std::stoi(id_str));
 
-			break;
-		}
+		break;
+	}
 
-		case action::upload: {
-			log("runsvr: Uploading %s\n", path.c_str());
-			co_await uploadFile(path.c_str());
+	case action::upload: {
+		log("runsvr: Uploading %s\n", path.c_str());
+		co_await uploadFile(path.c_str());
 
-			break;
-		}
+		break;
+	}
 
-		default: {
-			err("runsvr: Invalid action (this should be unreachable)\n");
-			abort();
-		}
+	default: {
+		err("runsvr: Invalid action (this should be unreachable)\n");
+		abort();
+	}
 	}
 
 	co_return 0;

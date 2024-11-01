@@ -1,17 +1,17 @@
 #include <algorithm>
 #include <eir/interface.hpp>
-#include <frg/string.hpp>
 #include <elf.h>
+#include <frg/string.hpp>
 #include <hel.h>
+#include <initgraph.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
-#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kerncfg.hpp>
-#include <thor-internal/kernlet.hpp>
 #include <thor-internal/kernel-log.hpp>
+#include <thor-internal/kernlet.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -59,22 +59,27 @@ extern "C" InitializerPtr __init_array_end[];
 extern "C" void thorInitialize() {
 	initializeArchitecture();
 
-	if(thorBootInfoPtr->debugFlags & eirDebugSerial)
+	if (thorBootInfoPtr->debugFlags & eirDebugSerial)
 		debugToSerial = true;
-	if(thorBootInfoPtr->debugFlags & eirDebugBochs)
+	if (thorBootInfoPtr->debugFlags & eirDebugBochs)
 		debugToBochs = true;
 	setupDebugging();
 
-	initializeBootFb(thorBootInfoPtr->frameBuffer.fbAddress, thorBootInfoPtr->frameBuffer.fbPitch,
-			thorBootInfoPtr->frameBuffer.fbWidth, thorBootInfoPtr->frameBuffer.fbHeight,
-			thorBootInfoPtr->frameBuffer.fbBpp, thorBootInfoPtr->frameBuffer.fbType,
-			reinterpret_cast<void *>(thorBootInfoPtr->frameBuffer.fbEarlyWindow));
+	initializeBootFb(
+	    thorBootInfoPtr->frameBuffer.fbAddress,
+	    thorBootInfoPtr->frameBuffer.fbPitch,
+	    thorBootInfoPtr->frameBuffer.fbWidth,
+	    thorBootInfoPtr->frameBuffer.fbHeight,
+	    thorBootInfoPtr->frameBuffer.fbBpp,
+	    thorBootInfoPtr->frameBuffer.fbType,
+	    reinterpret_cast<void *>(thorBootInfoPtr->frameBuffer.fbEarlyWindow)
+	);
 
 	infoLogger() << "Starting Thor" << frg::endlog;
 
-	if(thorBootInfoPtr->signature == eirSignatureValue) {
+	if (thorBootInfoPtr->signature == eirSignatureValue) {
 		infoLogger() << "thor: Bootstrap information signature matches" << frg::endlog;
-	}else{
+	} else {
 		panicLogger() << "thor: Bootstrap information signature mismatch!" << frg::endlog;
 	}
 
@@ -84,11 +89,15 @@ extern "C" void thorInitialize() {
 	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
 	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
-	for(size_t i = 0; i < thorBootInfoPtr->numRegions; i++)
-		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
-				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
-	infoLogger() << "thor: Number of available pages: "
-			<< physicalAllocator->numFreePages() << frg::endlog;
+	for (size_t i = 0; i < thorBootInfoPtr->numRegions; i++)
+		physicalAllocator->bootstrapRegion(
+		    region[i].address,
+		    region[i].order,
+		    region[i].numRoots,
+		    reinterpret_cast<int8_t *>(region[i].buddyTree)
+		);
+	infoLogger() << "thor: Number of available pages: " << physicalAllocator->numFreePages()
+	             << frg::endlog;
 
 	kernelVirtualAlloc.initialize();
 	kernelHeap.initialize(*kernelVirtualAlloc);
@@ -98,10 +107,10 @@ extern "C" void thorInitialize() {
 }
 
 extern "C" void thorRunConstructors() {
-	infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
-	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-			(*p)();
+	infoLogger() << "There are " << (__init_array_end - __init_array_start) << " constructors"
+	             << frg::endlog;
+	for (InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
+		(*p)();
 }
 
 // GlobalInitEngine implementation.
@@ -109,52 +118,49 @@ extern "C" void thorRunConstructors() {
 static constexpr bool printDotAnnotations = false;
 
 void GlobalInitEngine::onRealizeNode(initgraph::Node *node) {
-	if(node->type() == initgraph::NodeType::stage) {
-		infoLogger() << "thor: Registering stage " << node->displayName()
-				<< frg::endlog;
-	}else if(node->type() == initgraph::NodeType::task) {
-		infoLogger() << "thor: Registering task " << node->displayName()
-				<< frg::endlog;
+	if (node->type() == initgraph::NodeType::stage) {
+		infoLogger() << "thor: Registering stage " << node->displayName() << frg::endlog;
+	} else if (node->type() == initgraph::NodeType::task) {
+		infoLogger() << "thor: Registering task " << node->displayName() << frg::endlog;
 	}
 
-	if(printDotAnnotations) {
-		if(node->type() == initgraph::NodeType::stage) {
-			infoLogger() << "thor, initgraph.dot: n" << node
-					<< " [label=\"" << node->displayName() << "\", shape=box];" << frg::endlog;
-		}else if(node->type() == initgraph::NodeType::task) {
-			infoLogger() << "thor, initgraph.dot: n" << node
-					<< " [label=\"" << node->displayName() << "\"];" << frg::endlog;
+	if (printDotAnnotations) {
+		if (node->type() == initgraph::NodeType::stage) {
+			infoLogger() << "thor, initgraph.dot: n" << node << " [label=\"" << node->displayName()
+			             << "\", shape=box];" << frg::endlog;
+		} else if (node->type() == initgraph::NodeType::task) {
+			infoLogger() << "thor, initgraph.dot: n" << node << " [label=\"" << node->displayName()
+			             << "\"];" << frg::endlog;
 		}
 	}
 }
 
 void GlobalInitEngine::onRealizeEdge(initgraph::Edge *edge) {
-	if(printDotAnnotations)
-		infoLogger() << "thor, initgraph.dot: n" << edge->source()
-				<< " -> n" << edge->target() << ";" << frg::endlog;
+	if (printDotAnnotations)
+		infoLogger() << "thor, initgraph.dot: n" << edge->source() << " -> n" << edge->target()
+		             << ";" << frg::endlog;
 }
 
 void GlobalInitEngine::preActivate(initgraph::Node *node) {
-	if(node->type() == initgraph::NodeType::task)
-		infoLogger() << "thor: Running task " << node->displayName()
-				<< frg::endlog;
+	if (node->type() == initgraph::NodeType::task)
+		infoLogger() << "thor: Running task " << node->displayName() << frg::endlog;
 }
 
 void GlobalInitEngine::postActivate(initgraph::Node *node) {
-	if(node->type() == initgraph::NodeType::stage)
-		infoLogger() << "thor: Reached stage " << node->displayName()
-				<< frg::endlog;
+	if (node->type() == initgraph::NodeType::stage)
+		infoLogger() << "thor: Reached stage " << node->displayName() << frg::endlog;
 }
 
 void GlobalInitEngine::reportUnreached(initgraph::Node *node) {
-	if(node->type() == initgraph::NodeType::stage)
-		infoLogger() << "thor: Initialization stage "
-				<< node->displayName() << " could not be reached" << frg::endlog;
+	if (node->type() == initgraph::NodeType::stage)
+		infoLogger() << "thor: Initialization stage " << node->displayName()
+		             << " could not be reached" << frg::endlog;
 }
 
 void GlobalInitEngine::onUnreached() {
 	panicLogger() << "thor: There are initialization nodes"
-			" that could not be reached (circular dependencies?)" << frg::endlog;
+	                 " that could not be reached (circular dependencies?)"
+	              << frg::endlog;
 }
 
 constinit GlobalInitEngine globalInitEngine;
@@ -165,16 +171,14 @@ initgraph::Stage *getTaskingAvailableStage() {
 }
 
 // Since we boot on a fiber, fibers must be available before we enter tasking mode.
-initgraph::Edge fibersTaskingEdge{
-	getFibersAvailableStage(),
-	getTaskingAvailableStage()
-};
+initgraph::Edge fibersTaskingEdge{getFibersAvailableStage(), getTaskingAvailableStage()};
 
 extern "C" void thorMain() {
-	kernelCommandLine.initialize(*kernelAlloc,
-			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
+	kernelCommandLine.initialize(
+	    *kernelAlloc, reinterpret_cast<const char *>(thorBootInfoPtr->commandLine)
+	);
 
-	for(int i = 0; i < numIrqSlots; i++)
+	for (int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
 
 	// Run the initgraph tasks that we need for tasking.
@@ -182,16 +186,15 @@ extern "C" void thorMain() {
 
 	initializeRandom();
 
-	if(logInitialization)
-		infoLogger() << "thor: Bootstrap processor initialized successfully."
-				<< frg::endlog;
+	if (logInitialization)
+		infoLogger() << "thor: Bootstrap processor initialized successfully." << frg::endlog;
 
 	// This has to be done after the scheduler is available.
-	if(thorBootInfoPtr->debugFlags & eirDebugKernelProfile)
+	if (thorBootInfoPtr->debugFlags & eirDebugKernelProfile)
 		wantKernelProfile = true;
 	initializeProfile();
 
-	KernelFiber::run([=] () mutable {
+	KernelFiber::run([=]() mutable {
 		// Complete the system initialization.
 		initializeMbusStream();
 
@@ -210,11 +213,16 @@ extern "C" void thorMain() {
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
 			assert(modules[0].physicalBase % kPageSize == 0);
-			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(
-					modules[0].length));
-			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
-				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
-						modules[0].physicalBase + pg, 0, CachingMode::null);
+			auto base =
+			    static_cast<const char *>(KernelVirtualMemory::global().allocate(modules[0].length)
+			    );
+			for (size_t pg = 0; pg < modules[0].length; pg += kPageSize)
+				KernelPageSpace::global().mapSingle4k(
+				    reinterpret_cast<VirtualAddr>(base) + pg,
+				    modules[0].physicalBase + pg,
+				    0,
+				    CachingMode::null
+				);
 
 			struct Header {
 				char magic[6];
@@ -237,19 +245,19 @@ extern "C" void thorMain() {
 			constexpr uint32_t regular_type = 0100000;
 			constexpr uint32_t directory_type = 0040000;
 
-			auto parseHex = [] (const char *c, int n) {
+			auto parseHex = [](const char *c, int n) {
 				uint32_t v = 0;
-				for(int i = 0; i < n; i++) {
+				for (int i = 0; i < n; i++) {
 					uint32_t d;
-					if(*c >= 'a' && *c <= 'f') {
+					if (*c >= 'a' && *c <= 'f') {
 						d = *c++ - 'a' + 10;
-					}else if(*c >= 'A' && *c <= 'F') {
+					} else if (*c >= 'A' && *c <= 'F') {
 						d = *c++ - 'A' + 10;
-					}else if(*c >= '0' && *c <= '9') {
+					} else if (*c >= '0' && *c <= '9') {
 						d = *c++ - '0';
-					}else{
+					} else {
 						panicLogger() << "Unexpected character 0x" << frg::hex_fmt(*c)
-								<< " in CPIO header" << frg::endlog;
+						              << " in CPIO header" << frg::endlog;
 						__builtin_unreachable();
 					}
 					v = (v << 4) | d;
@@ -259,7 +267,7 @@ extern "C" void thorMain() {
 
 			auto p = base;
 			auto limit = base + modules[0].length;
-			while(true) {
+			while (true) {
 				Header header;
 				assert(p + sizeof(Header) <= limit);
 				memcpy(&header, p, sizeof(Header));
@@ -273,15 +281,15 @@ extern "C" void thorMain() {
 				auto data = p + ((sizeof(Header) + name_size + 3) & ~uint32_t{3});
 
 				frg::string_view path{p + sizeof(Header), name_size - 1};
-				if(path == "TRAILER!!!")
+				if (path == "TRAILER!!!")
 					break;
 
 				MfsDirectory *dir = mfsRoot;
 				const char *it = path.data();
 				const char *end = path.data() + path.size();
-				while(true) {
+				while (true) {
 					auto slash = std::find(it, end, '/');
-					if(slash == end)
+					if (slash == end)
 						break;
 
 					auto segment = path.sub_string(it - path.data(), slash - it);
@@ -292,39 +300,45 @@ extern "C" void thorMain() {
 					dir = static_cast<MfsDirectory *>(child);
 				}
 
-				if((mode & type_mask) == directory_type) {
+				if ((mode & type_mask) == directory_type) {
 					infoLogger() << "thor: initrd directory " << path << frg::endlog;
 
-					auto name = frg::string<KernelAlloc>{*kernelAlloc,
-							path.sub_string(it - path.data(), end - it)};
-					dir->link(frg::string<KernelAlloc>{*kernelAlloc, std::move(name)},
-							frg::construct<MfsDirectory>(*kernelAlloc));
-				}else{
+					auto name = frg::string<KernelAlloc>{
+					    *kernelAlloc, path.sub_string(it - path.data(), end - it)
+					};
+					dir->link(
+					    frg::string<KernelAlloc>{*kernelAlloc, std::move(name)},
+					    frg::construct<MfsDirectory>(*kernelAlloc)
+					);
+				} else {
 					assert((mode & type_mask) == regular_type);
-	//				if(logInitialization)
-						debugLogger() << "thor: initrd file " << path << frg::endlog;
+					//				if(logInitialization)
+					debugLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
-							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
+					auto memory = smarter::allocate_shared<AllocatedMemory>(
+					    *kernelAlloc, (file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1}
+					);
 					memory->selfPtr = memory;
-					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
-							data, file_size,
-							thisFiber()->associatedWorkQueue()->take()));
+					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(
+					    0, data, file_size, thisFiber()->associatedWorkQueue()->take()
+					));
 					assert(copyOutcome);
 
-					auto name = frg::string<KernelAlloc>{*kernelAlloc,
-							path.sub_string(it - path.data(), end - it)};
-					dir->link(std::move(name), frg::construct<MfsRegular>(*kernelAlloc,
-							std::move(memory), file_size));
+					auto name = frg::string<KernelAlloc>{
+					    *kernelAlloc, path.sub_string(it - path.data(), end - it)
+					};
+					dir->link(
+					    std::move(name),
+					    frg::construct<MfsRegular>(*kernelAlloc, std::move(memory), file_size)
+					);
 				}
 
 				p = data + ((file_size + 3) & ~uint32_t{3});
 			}
 		}
 
-		if(logInitialization)
-			infoLogger() << "thor: Modules are set up successfully."
-					<< frg::endlog;
+		if (logInitialization)
+			infoLogger() << "thor: Modules are set up successfully." << frg::endlog;
 
 		// Launch initial user space programs.
 		initializeKerncfg();
@@ -346,9 +360,7 @@ extern "C" void thorMain() {
 	localScheduler()->commitReschedule();
 }
 
-extern "C" void handleStubInterrupt() {
-	panicLogger() << "Fault or IRQ from stub" << frg::endlog;
-}
+extern "C" void handleStubInterrupt() { panicLogger() << "Fault or IRQ from stub" << frg::endlog; }
 extern "C" void handleBadDomain() {
 	panicLogger() << "Fault or IRQ from bad domain" << frg::endlog;
 }
@@ -360,8 +372,7 @@ extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleDebugFault(FaultImageAccessor image) {
-	infoLogger() << "Debug fault at "
-			<< (void *)*image.ip() << frg::endlog;
+	infoLogger() << "Debug fault at " << (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleOpcodeFault(FaultImageAccessor image) {
@@ -371,19 +382,17 @@ extern "C" void handleOpcodeFault(FaultImageAccessor image) {
 }
 
 extern "C" void handleNoFpuFault(FaultImageAccessor image) {
-	panicLogger() << "FPU invoked at "
-			<< (void *)*image.ip() << frg::endlog;
+	panicLogger() << "FPU invoked at " << (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleDoubleFault(FaultImageAccessor image) {
-	panicLogger() << "Double fault at "
-			<< (void *)*image.ip() << frg::endlog;
+	panicLogger() << "Double fault at " << (void *)*image.ip() << frg::endlog;
 }
 
 extern "C" void handleProtectionFault(FaultImageAccessor image) {
 	panicLogger() << "General protection fault\n"
-			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
-			<< "    Faulting segment: " << (void *)*image.code() << frg::endlog;
+	              << "    Faulting IP: " << (void *)*image.ip() << "\n"
+	              << "    Faulting segment: " << (void *)*image.code() << frg::endlog;
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
@@ -399,84 +408,83 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 	auto logFault = [&] {
 		auto msg = infoLogger();
-		msg << "thor: Page fault at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << "\n";
+		msg << "thor: Page fault at " << (void *)address << ", faulting ip: " << (void *)*image.ip()
+		    << "\n";
 		msg << "Errors:";
-		if(errorCode & kPfUser) {
+		if (errorCode & kPfUser) {
 			msg << " (User)";
-		}else{
+		} else {
 			msg << " (Supervisor)";
 		}
-		if(errorCode & kPfAccess) {
+		if (errorCode & kPfAccess) {
 			msg << " (Access violation)";
-		}else{
+		} else {
 			msg << " (Page not present)";
 		}
-		if(errorCode & kPfWrite) {
+		if (errorCode & kPfWrite) {
 			msg << " (Write)";
-		}else if(errorCode & kPfInstruction) {
+		} else if (errorCode & kPfInstruction) {
 			msg << " (Instruction fetch)";
-		}else{
+		} else {
 			msg << " (Read)";
 		}
 		msg << frg::endlog;
 	};
 
-	if(logEveryPageFault)
+	if (logEveryPageFault)
 		logFault();
 
 	// Panic on SMAP violations.
-	if(image.inKernelDomain()) {
+	if (image.inKernelDomain()) {
 		assert(!(errorCode & kPfUser));
 
-		if(!image.allowUserPages()) {
-			if(!logEveryPageFault)
+		if (!image.allowUserPages()) {
+			if (!logEveryPageFault)
 				logFault();
 			panicLogger() << "thor: SMAP fault." << frg::endlog;
 		}
-	}else{
+	} else {
 		assert(errorCode & kPfUser);
 	}
 
 	// Try to handle the page fault.
 	uint32_t flags = 0;
-	if(errorCode & kPfWrite)
+	if (errorCode & kPfWrite)
 		flags |= AddressSpace::kFaultWrite;
-	if(errorCode & kPfInstruction)
+	if (errorCode & kPfInstruction)
 		flags |= AddressSpace::kFaultExecute;
 
 	auto wq = this_thread->pagingWorkQueue();
-	if(Thread::asyncBlockCurrent(
-			address_space->handleFault(address, flags, wq->take()), wq))
+	if (Thread::asyncBlockCurrent(address_space->handleFault(address, flags, wq->take()), wq))
 		return;
 
 	// If we get here, the page fault could not be handled.
 
-	if(logUnhandledPageFaults) {
+	if (logUnhandledPageFaults) {
 		infoLogger() << "thor: Unhandled page fault"
-				<< " at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+		             << " at " << (void *)address << ", faulting ip: " << (void *)*image.ip()
+		             << frg::endlog;
 		logFault();
 	}
 
 	// Let the UAR error out if it is active.
 	// Otherwise, panic on page faults in the kernel.
-	if(image.inKernelDomain()) {
-		if(handleUserAccessFault(address, errorCode & kPfWrite, image))
+	if (image.inKernelDomain()) {
+		if (handleUserAccessFault(address, errorCode & kPfWrite, image))
 			return;
 
-		if(!logEveryPageFault)
+		if (!logEveryPageFault)
 			logFault();
 		panicLogger() << "thor: Page fault in kernel, at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+		              << ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
 
 	// Otherwise, interrupt the current thread.
-	if(this_thread->flags & Thread::kFlagServer) {
-		if(!logEveryPageFault)
+	if (this_thread->flags & Thread::kFlagServer) {
+		if (!logEveryPageFault)
 			logFault();
 		urgentLogger() << "thor: Page fault in server, at " << (void *)address
-				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+		               << ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
 	Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
 }
@@ -485,25 +493,33 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 
 	const char *name;
-	switch(fault) {
-	case kIntrDivByZero: name = "div-by-zero"; break;
-	case kIntrBreakpoint: name = "breakpoint"; break;
-	case kIntrGeneralFault: name = "general"; break;
-	case kIntrIllegalInstruction: name = "illegal-instruction"; break;
+	switch (fault) {
+	case kIntrDivByZero:
+		name = "div-by-zero";
+		break;
+	case kIntrBreakpoint:
+		name = "breakpoint";
+		break;
+	case kIntrGeneralFault:
+		name = "general";
+		break;
+	case kIntrIllegalInstruction:
+		name = "illegal-instruction";
+		break;
 	default:
 		panicLogger() << "Unexpected fault code" << frg::endlog;
 	}
 
-	if(logOtherFaults)
+	if (logOtherFaults)
 		infoLogger() << "thor: Unhandled " << name << " fault"
-				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
+		             << ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 
-	if(this_thread->flags & Thread::kFlagServer) {
+	if (this_thread->flags & Thread::kFlagServer) {
 		urgentLogger() << "thor: " << name << " fault in server.\n"
-				<< "Last ip: " << (void *)*image.ip() << frg::endlog;
+		               << "Last ip: " << (void *)*image.ip() << frg::endlog;
 		// TODO: Trigger a more-specific interrupt.
 		Thread::interruptCurrent(kIntrPanic, image);
-	}else{
+	} else {
 		Thread::interruptCurrent(fault, image);
 	}
 }
@@ -512,7 +528,7 @@ void handleIrq(IrqImageAccessor image, int number) {
 	assert(!intsAreEnabled());
 	auto cpuData = getCpuData();
 
-	if(logEveryIrq)
+	if (logEveryIrq)
 		infoLogger() << "thor: IRQ slot #" << number << frg::endlog;
 
 	globalIrqSlots[number]->raise();
@@ -530,39 +546,38 @@ void handleIrq(IrqImageAccessor image, int number) {
 	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
 
 	assert(image.inPreemptibleDomain());
-	if(!noScheduleOnIrq)
+	if (!noScheduleOnIrq)
 		localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
 void handlePreemption(IrqImageAccessor image) {
 	assert(!intsAreEnabled());
 
-	if(logPreemptionIrq)
+	if (logPreemptionIrq)
 		infoLogger() << "thor: Preemption IRQ" << frg::endlog;
 
 	assert(image.inPreemptibleDomain());
 	localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
-extern "C" void thorImplementNoThreadIrqs() {
-	assert(!"Implement no-thread IRQ stubs");
-}
+extern "C" void thorImplementNoThreadIrqs() { assert(!"Implement no-thread IRQ stubs"); }
 
 void handleSyscall(SyscallImageAccessor image) {
 	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto cpuData = getCpuData();
-	if(logEverySyscall && *image.number() != kHelCallLog)
-		infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex
-				<< " syscall #" << *image.number() << frg::endlog;
+	if (logEverySyscall && *image.number() != kHelCallLog)
+		infoLogger() << this_thread.get() << " on CPU " << cpuData->cpuIndex << " syscall #"
+		             << *image.number() << frg::endlog;
 
 	// Run worklets before we run the syscall.
 	// This avoids useless FutexWait calls on IPC queues.
 	this_thread->mainWorkQueue()->run();
 
 	// TODO: The return in this code path prevents us from checking for signals!
-	if(*image.number() >= kHelCallSuper) {
-		Thread::interruptCurrent(static_cast<Interrupt>(kIntrSuperCall
-				+ (*image.number() - kHelCallSuper)), image);
+	if (*image.number() >= kHelCallSuper) {
+		Thread::interruptCurrent(
+		    static_cast<Interrupt>(kIntrSuperCall + (*image.number() - kHelCallSuper)), image
+		);
 		return;
 	}
 
@@ -573,7 +588,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	Word arg4 = *image.in4();
 	Word arg5 = *image.in5();
 
-	switch(*image.number()) {
+	switch (*image.number()) {
 	case kHelCallLog: {
 		*image.error() = helLog((HelLogSeverity)arg0, (const char *)arg1, (size_t)arg2);
 	} break;
@@ -595,8 +610,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallTransferDescriptor: {
 		HelHandle out_handle;
-		*image.error() = helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
-				&out_handle);
+		*image.error() = helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1, &out_handle);
 		*image.out0() = out_handle;
 	} break;
 	case kHelCallDescriptorInfo: {
@@ -620,8 +634,8 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
-		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1,
-				(HelAllocRestrictions *)arg2, &handle);
+		*image.error() =
+		    helAllocateMemory((size_t)arg0, (uint32_t)arg1, (HelAllocRestrictions *)arg2, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallResizeMemory: {
@@ -629,8 +643,8 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCreateManagedMemory: {
 		HelHandle backing_handle, frontal_handle;
-		*image.error() = helCreateManagedMemory((size_t)arg0, (uint32_t)arg1,
-				&backing_handle, &frontal_handle);
+		*image.error() =
+		    helCreateManagedMemory((size_t)arg0, (uint32_t)arg1, &backing_handle, &frontal_handle);
 		*image.out0() = backing_handle;
 		*image.out1() = frontal_handle;
 	} break;
@@ -650,13 +664,15 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = handle;
 	} break;
 	case kHelCallAlterMemoryIndirection: {
-		*image.error() = helAlterMemoryIndirection((HelHandle)arg0, (size_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3, (size_t)arg4);
+		*image.error() = helAlterMemoryIndirection(
+		    (HelHandle)arg0, (size_t)arg1, (HelHandle)arg2, (uintptr_t)arg3, (size_t)arg4
+		);
 	} break;
 	case kHelCallCreateSliceView: {
 		HelHandle handle;
-		*image.error() = helCreateSliceView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
-				(uint32_t)arg3, &handle);
+		*image.error() = helCreateSliceView(
+		    (HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, (uint32_t)arg3, &handle
+		);
 		*image.out0() = handle;
 	} break;
 	case kHelCallForkMemory: {
@@ -671,20 +687,34 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallMapMemory: {
 		void *actual_pointer;
-		*image.error() = helMapMemory((HelHandle)arg0, (HelHandle)arg1,
-				(void *)arg2, (uintptr_t)arg3, (size_t)arg4, (uint32_t)arg5, &actual_pointer);
+		*image.error() = helMapMemory(
+		    (HelHandle)arg0,
+		    (HelHandle)arg1,
+		    (void *)arg2,
+		    (uintptr_t)arg3,
+		    (size_t)arg4,
+		    (uint32_t)arg5,
+		    &actual_pointer
+		);
 		*image.out0() = (Word)actual_pointer;
 	} break;
 	case kHelCallSubmitProtectMemory: {
-		*image.error() = helSubmitProtectMemory((HelHandle)arg0,
-				(void *)arg1, (size_t)arg2, (uint32_t)arg3, (HelHandle)arg4, (uintptr_t)arg5);
+		*image.error() = helSubmitProtectMemory(
+		    (HelHandle)arg0,
+		    (void *)arg1,
+		    (size_t)arg2,
+		    (uint32_t)arg3,
+		    (HelHandle)arg4,
+		    (uintptr_t)arg5
+		);
 	} break;
 	case kHelCallUnmapMemory: {
 		*image.error() = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
 	} break;
 	case kHelCallSubmitSynchronizeSpace: {
-		*image.error() = helSubmitSynchronizeSpace((HelHandle)arg0, (void *)arg1, (size_t)arg2,
-				(HelHandle)arg3, (uintptr_t)arg4);
+		*image.error() = helSubmitSynchronizeSpace(
+		    (HelHandle)arg0, (void *)arg1, (size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4
+		);
 	} break;
 	case kHelCallPointerPhysical: {
 		uintptr_t physical;
@@ -692,14 +722,24 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = physical;
 	} break;
 	case kHelCallSubmitReadMemory: {
-		*image.error() = helSubmitReadMemory((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (void *)arg3,
-				(HelHandle)arg4, (uintptr_t)arg5);
+		*image.error() = helSubmitReadMemory(
+		    (HelHandle)arg0,
+		    (uintptr_t)arg1,
+		    (size_t)arg2,
+		    (void *)arg3,
+		    (HelHandle)arg4,
+		    (uintptr_t)arg5
+		);
 	} break;
 	case kHelCallSubmitWriteMemory: {
-		*image.error() = helSubmitWriteMemory((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (const void *)arg3,
-				(HelHandle)arg4, (uintptr_t)arg5);
+		*image.error() = helSubmitWriteMemory(
+		    (HelHandle)arg0,
+		    (uintptr_t)arg1,
+		    (size_t)arg2,
+		    (const void *)arg3,
+		    (HelHandle)arg4,
+		    (uintptr_t)arg5
+		);
 	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
@@ -707,16 +747,15 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = size;
 	} break;
 	case kHelCallSubmitManageMemory: {
-		*image.error() = helSubmitManageMemory((HelHandle)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2);
+		*image.error() = helSubmitManageMemory((HelHandle)arg0, (HelHandle)arg1, (uintptr_t)arg2);
 	} break;
 	case kHelCallUpdateMemory: {
-		*image.error() = helUpdateMemory((HelHandle)arg0, (int)arg1,
-				(uintptr_t)arg2, (size_t)arg3);
+		*image.error() = helUpdateMemory((HelHandle)arg0, (int)arg1, (uintptr_t)arg2, (size_t)arg3);
 	} break;
 	case kHelCallSubmitLockMemoryView: {
-		*image.error() = helSubmitLockMemoryView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
-				(HelHandle)arg3, (uintptr_t)arg4);
+		*image.error() = helSubmitLockMemoryView(
+		    (HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4
+		);
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
@@ -733,7 +772,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		break;
 	}
 	case kHelCallRunVirtualizedCpu: {
-		*image.error() = helRunVirtualizedCpu((HelHandle)arg0, (HelVmexitReason*)arg1);
+		*image.error() = helRunVirtualizedCpu((HelHandle)arg0, (HelVmexitReason *)arg1);
 		break;
 	}
 	case kHelCallGetRandomBytes: {
@@ -743,8 +782,15 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallCreateThread: {
 		HelHandle handle;
-		*image.error() = helCreateThread((HelHandle)arg0, (HelHandle)arg1,
-				(int)arg2, (void *)arg3, (void *)arg4, (uint32_t)arg5, &handle);
+		*image.error() = helCreateThread(
+		    (HelHandle)arg0,
+		    (HelHandle)arg1,
+		    (int)arg2,
+		    (void *)arg3,
+		    (void *)arg4,
+		    (uint32_t)arg5,
+		    &handle
+		);
 		*image.out0() = handle;
 	} break;
 	case kHelCallQueryThreadStats: {
@@ -757,8 +803,8 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helYield();
 	} break;
 	case kHelCallSubmitObserve: {
-		*image.error() = helSubmitObserve((HelHandle)arg0, (uint64_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3);
+		*image.error() =
+		    helSubmitObserve((HelHandle)arg0, (uint64_t)arg1, (HelHandle)arg2, (uintptr_t)arg3);
 	} break;
 	case kHelCallKillThread: {
 		*image.error() = helKillThread((HelHandle)arg0);
@@ -798,21 +844,27 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallSubmitAwaitClock: {
 		uint64_t async_id;
-		*image.error() = helSubmitAwaitClock((uint64_t)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2, &async_id);
+		*image.error() =
+		    helSubmitAwaitClock((uint64_t)arg0, (HelHandle)arg1, (uintptr_t)arg2, &async_id);
 		*image.out0() = async_id;
 	} break;
 
 	case kHelCallCreateStream: {
 		HelHandle lane1;
 		HelHandle lane2;
-		*image.error() = helCreateStream(&lane1, &lane2, (uint32_t) arg0);
+		*image.error() = helCreateStream(&lane1, &lane2, (uint32_t)arg0);
 		*image.out0() = lane1;
 		*image.out1() = lane2;
 	} break;
 	case kHelCallSubmitAsync: {
-		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
-				(size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4, (uint32_t)arg5);
+		*image.error() = helSubmitAsync(
+		    (HelHandle)arg0,
+		    (HelAction *)arg1,
+		    (size_t)arg2,
+		    (HelHandle)arg3,
+		    (uintptr_t)arg4,
+		    (uint32_t)arg5
+		);
 	} break;
 	case kHelCallShutdownLane: {
 		*image.error() = helShutdownLane((HelHandle)arg0);
@@ -847,8 +899,8 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAcknowledgeIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2);
 	} break;
 	case kHelCallSubmitAwaitEvent: {
-		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3);
+		*image.error() =
+		    helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1, (HelHandle)arg2, (uintptr_t)arg3);
 	} break;
 	case kHelCallAutomateIrq: {
 		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);
@@ -868,13 +920,15 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallBindKernlet: {
 		HelHandle bound_handle;
-		*image.error() = helBindKernlet((HelHandle)arg0, (const HelKernletData *)arg1,
-				(size_t)arg2, &bound_handle);
+		*image.error() = helBindKernlet(
+		    (HelHandle)arg0, (const HelKernletData *)arg1, (size_t)arg2, &bound_handle
+		);
 		*image.out0() = bound_handle;
 	} break;
 
 	case kHelCallGetAffinity: {
-		*image.error() = helGetAffinity((HelHandle)arg0, (uint8_t *)arg1, (size_t)arg2, (size_t*)arg3);
+		*image.error() =
+		    helGetAffinity((HelHandle)arg0, (uint8_t *)arg1, (size_t)arg2, (size_t *)arg3);
 	} break;
 	case kHelCallSetAffinity: {
 		*image.error() = helSetAffinity((HelHandle)arg0, (uint8_t *)arg1, (size_t)arg2);
@@ -904,7 +958,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	Thread::raiseSignals(image);
 
-//	infoLogger() << "exit syscall" << frg::endlog;
+	//	infoLogger() << "exit syscall" << frg::endlog;
 }
 
 } // namespace thor

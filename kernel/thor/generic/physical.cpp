@@ -14,13 +14,9 @@ static bool logPhysicalAllocs = false;
 
 frg::manual_box<SkeletalRegion> skeletalSingleton;
 
-void SkeletalRegion::initialize() {
-	skeletalSingleton.initialize();
-}
+void SkeletalRegion::initialize() { skeletalSingleton.initialize(); }
 
-SkeletalRegion &SkeletalRegion::global() {
-	return *skeletalSingleton;
-}
+SkeletalRegion &SkeletalRegion::global() { return *skeletalSingleton; }
 
 void *SkeletalRegion::access(PhysicalAddr physical) {
 	assert(!(physical & (kPageSize - 1)));
@@ -31,22 +27,20 @@ void *SkeletalRegion::access(PhysicalAddr physical) {
 // PhysicalChunkAllocator
 // --------------------------------------------------------
 
-PhysicalChunkAllocator::PhysicalChunkAllocator() {
-}
+PhysicalChunkAllocator::PhysicalChunkAllocator() {}
 
-void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
-		int order, size_t numRoots, int8_t *buddyTree) {
-	if(_numRegions >= 8) {
-		infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)"
-				<< frg::endlog;
+void PhysicalChunkAllocator::bootstrapRegion(
+    PhysicalAddr address, int order, size_t numRoots, int8_t *buddyTree
+) {
+	if (_numRegions >= 8) {
+		infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)" << frg::endlog;
 		return;
 	}
 
 	int n = _numRegions++;
 	_allRegions[n].physicalBase = address;
 	_allRegions[n].regionSize = numRoots << (order + kPageShift);
-	_allRegions[n].buddyAccessor = BuddyAccessor{address, kPageShift,
-			buddyTree, numRoots, order};
+	_allRegions[n].buddyAccessor = BuddyAccessor{address, kPageShift, buddyTree, numRoots, order};
 
 	auto currentTotal = _totalPages.load(std::memory_order_relaxed);
 	auto currentFree = _freePages.load(std::memory_order_relaxed);
@@ -66,21 +60,21 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 
 	// TODO: This could be solved better.
 	int target = 0;
-	while(size > (size_t(kPageSize) << target))
+	while (size > (size_t(kPageSize) << target))
 		target++;
 	assert(size == (size_t(kPageSize) << target));
 
-	if(logPhysicalAllocs)
-		infoLogger() << "thor: Allocating physical memory of order "
-					<< (target + kPageShift) << frg::endlog;
-	for(int i = 0; i < _numRegions; i++) {
-		if(target > _allRegions[i].buddyAccessor.tableOrder())
+	if (logPhysicalAllocs)
+		infoLogger() << "thor: Allocating physical memory of order " << (target + kPageShift)
+		             << frg::endlog;
+	for (int i = 0; i < _numRegions; i++) {
+		if (target > _allRegions[i].buddyAccessor.tableOrder())
 			continue;
 
 		auto physical = _allRegions[i].buddyAccessor.allocate(target, addressBits);
-		if(physical == BuddyAccessor::illegalAddress)
+		if (physical == BuddyAccessor::illegalAddress)
 			continue;
-	//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
+		//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
 		assert(!(physical % (size_t(kPageSize) << target)));
 		return physical;
 	}
@@ -91,15 +85,15 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
-	
+
 	int target = 0;
-	while(size > (size_t(kPageSize) << target))
+	while (size > (size_t(kPageSize) << target))
 		target++;
 
-	for(int i = 0; i < _numRegions; i++) {
-		if(address < _allRegions[i].physicalBase)
+	for (int i = 0; i < _numRegions; i++) {
+		if (address < _allRegions[i].physicalBase)
 			continue;
-		if(address + size - _allRegions[i].physicalBase > _allRegions[i].regionSize)
+		if (address + size - _allRegions[i].physicalBase > _allRegions[i].regionSize)
 			continue;
 
 		_allRegions[i].buddyAccessor.free(address, target);

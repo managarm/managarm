@@ -47,9 +47,9 @@ async::result<void> E1000Nic::txInit() {
 	E1000_WRITE_REG(&_hw, E1000_TDT(0), 0);
 	E1000_WRITE_REG(&_hw, E1000_TDH(0), 0);
 
-	u32 txdctl = 0; /* clear txdctl */
-	txdctl |= 0x1f; /* PTHRESH */
-	txdctl |= 1 << 8; /* HTHRESH */
+	u32 txdctl = 0;    /* clear txdctl */
+	txdctl |= 0x1f;    /* PTHRESH */
+	txdctl |= 1 << 8;  /* HTHRESH */
 	txdctl |= 1 << 16; /* WTHRESH */
 	txdctl |= 1 << 22; /* Reserved bit 22 must always be 1 */
 	txdctl |= E1000_TXDCTL_GRAN;
@@ -61,23 +61,23 @@ async::result<void> E1000Nic::txInit() {
 
 	/* Set the default values for the Tx Inter Packet Gap timer */
 	switch (_hw.mac.type) {
-		case e1000_80003es2lan:
-			tipg = DEFAULT_82543_TIPG_IPGR1;
-			tipg |= DEFAULT_80003ES2LAN_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
-			break;
-		case e1000_82542:
-			tipg = DEFAULT_82542_TIPG_IPGT;
-			tipg |= DEFAULT_82542_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT;
-			tipg |= DEFAULT_82542_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
-			break;
-		default:
-			if ((_hw.phy.media_type == e1000_media_type_fiber) ||
-			(_hw.phy.media_type == e1000_media_type_internal_serdes))
-				tipg = DEFAULT_82543_TIPG_IPGT_FIBER;
-			else
-				tipg = DEFAULT_82543_TIPG_IPGT_COPPER;
-			tipg |= DEFAULT_82543_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT;
-			tipg |= DEFAULT_82543_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
+	case e1000_80003es2lan:
+		tipg = DEFAULT_82543_TIPG_IPGR1;
+		tipg |= DEFAULT_80003ES2LAN_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
+		break;
+	case e1000_82542:
+		tipg = DEFAULT_82542_TIPG_IPGT;
+		tipg |= DEFAULT_82542_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT;
+		tipg |= DEFAULT_82542_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
+		break;
+	default:
+		if ((_hw.phy.media_type == e1000_media_type_fiber) ||
+		    (_hw.phy.media_type == e1000_media_type_internal_serdes))
+			tipg = DEFAULT_82543_TIPG_IPGT_FIBER;
+		else
+			tipg = DEFAULT_82543_TIPG_IPGT_COPPER;
+		tipg |= DEFAULT_82543_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT;
+		tipg |= DEFAULT_82543_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT;
 	}
 
 	E1000_WRITE_REG(&_hw, E1000_TIPG, tipg);
@@ -109,7 +109,9 @@ async::result<void> E1000Nic::txInit() {
 	/* Program the Transmit Control Register */
 	u32 tctl = E1000_READ_REG(&_hw, E1000_TCTL);
 	tctl &= ~E1000_TCTL_CT;
-	tctl |= (E1000_TCTL_PSP | E1000_TCTL_RTLC | E1000_TCTL_EN | (E1000_COLLISION_THRESHOLD << E1000_CT_SHIFT));
+	tctl |=
+	    (E1000_TCTL_PSP | E1000_TCTL_RTLC | E1000_TCTL_EN |
+	     (E1000_COLLISION_THRESHOLD << E1000_CT_SHIFT));
 
 	if (_hw.mac.type >= e1000_82571)
 		tctl |= E1000_TCTL_MULR;
@@ -138,9 +140,9 @@ void E1000Nic::reap_tx_buffers() {
 	auto n = _txIndex;
 
 	for (;;) {
-		struct e1000_tx_desc* desc = &_txd[n];
+		struct e1000_tx_desc *desc = &_txd[n];
 
-		if(!(desc->upper.fields.status & E1000_TXD_STAT_DD)) {
+		if (!(desc->upper.fields.status & E1000_TXD_STAT_DD)) {
 			break;
 		}
 

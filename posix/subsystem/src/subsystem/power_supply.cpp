@@ -8,64 +8,55 @@ namespace {
 drvcore::ClassSubsystem *sysfsSubsystem;
 
 struct TypeAttribute : sysfs::Attribute {
-	TypeAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	TypeAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct StatusAttribute : sysfs::Attribute {
-	StatusAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	StatusAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct CurrentNowAttribute : sysfs::Attribute {
-	CurrentNowAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	CurrentNowAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct PowerNowAttribute : sysfs::Attribute {
-	PowerNowAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	PowerNowAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EnergyNowAttribute : sysfs::Attribute {
-	EnergyNowAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EnergyNowAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EnergyFullAttribute : sysfs::Attribute {
-	EnergyFullAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EnergyFullAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EnergyFullDesignAttribute : sysfs::Attribute {
-	EnergyFullDesignAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EnergyFullDesignAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct VoltageNowAttribute : sysfs::Attribute {
-	VoltageNowAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	VoltageNowAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct VoltageMinDesignAttribute : sysfs::Attribute {
-	VoltageMinDesignAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	VoltageMinDesignAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
@@ -81,11 +72,14 @@ VoltageNowAttribute voltageNowAttr{"voltage_now"};
 VoltageMinDesignAttribute voltageMinDesignAttr{"voltage_min_design"};
 
 struct Device final : drvcore::ClassDevice {
-	Device(drvcore::ClassSubsystem *subsystem, std::string name, protocols::hw::Device hwDevice,
-		std::shared_ptr<drvcore::Device> parent)
-		: drvcore::ClassDevice{subsystem, parent, std::move(name), nullptr},
-		_hwDevice{std::move(hwDevice)} {
-	}
+	Device(
+	    drvcore::ClassSubsystem *subsystem,
+	    std::string name,
+	    protocols::hw::Device hwDevice,
+	    std::shared_ptr<drvcore::Device> parent
+	)
+	    : drvcore::ClassDevice{subsystem, parent, std::move(name), nullptr},
+	      _hwDevice{std::move(hwDevice)} {}
 
 	async::result<void> init() {
 		co_await _hwDevice.getBatteryState(_state);
@@ -94,7 +88,7 @@ struct Device final : drvcore::ClassDevice {
 	}
 
 	async::detached run() {
-		while(true) {
+		while (true) {
 			co_await _hwDevice.getBatteryState(_state, true);
 
 			drvcore::UeventProperties ue;
@@ -110,23 +104,25 @@ struct Device final : drvcore::ClassDevice {
 		ue.set("POWER_SUPPLY_NAME", name());
 		ue.set("POWER_SUPPLY_TYPE", "Battery");
 		ue.set("POWER_SUPPLY_STATUS", _state.charging ? "Charging\n" : "Discharging\n");
-		if(_state.voltage_min_design)
-			ue.set("POWER_SUPPLY_VOLTAGE_MIN_DESIGN", std::to_string(*_state.voltage_min_design * 1000));
-		if(_state.voltage_now)
+		if (_state.voltage_min_design)
+			ue.set(
+			    "POWER_SUPPLY_VOLTAGE_MIN_DESIGN", std::to_string(*_state.voltage_min_design * 1000)
+			);
+		if (_state.voltage_now)
 			ue.set("POWER_SUPPLY_VOLTAGE_NOW", std::to_string(*_state.voltage_now * 1000));
-		if(_state.current_now)
+		if (_state.current_now)
 			ue.set("POWER_SUPPLY_CURRENT_NOW", std::to_string(*_state.current_now * 1000));
-		if(_state.energy_now)
+		if (_state.energy_now)
 			ue.set("POWER_SUPPLY_ENERGY_NOW", std::to_string(*_state.energy_now * 1000));
-		if(_state.energy_full)
+		if (_state.energy_full)
 			ue.set("POWER_SUPPLY_ENERGY_FULL", std::to_string(*_state.energy_full * 1000));
-		if(_state.energy_full_design)
-			ue.set("POWER_SUPPLY_ENERGY_FULL_DESIGN", std::to_string(*_state.energy_full_design * 1000));
+		if (_state.energy_full_design)
+			ue.set(
+			    "POWER_SUPPLY_ENERGY_FULL_DESIGN", std::to_string(*_state.energy_full_design * 1000)
+			);
 	}
 
-	std::optional<std::string> getClassPath() override {
-		return "power_supply";
-	};
+	std::optional<std::string> getClassPath() override { return "power_supply"; };
 
 	protocols::hw::Device _hwDevice;
 	protocols::hw::BatteryState _state;
@@ -167,7 +163,8 @@ async::result<frg::expected<Error, std::string>> EnergyFullAttribute::show(sysfs
 	co_return std::format("{}\n", *device->_state.energy_full);
 }
 
-async::result<frg::expected<Error, std::string>> EnergyFullDesignAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>>
+EnergyFullDesignAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	assert(device->_state.energy_full_design);
 	co_return std::format("{}\n", *device->_state.energy_full_design);
@@ -179,7 +176,8 @@ async::result<frg::expected<Error, std::string>> VoltageNowAttribute::show(sysfs
 	co_return std::format("{}\n", *device->_state.voltage_now);
 }
 
-async::result<frg::expected<Error, std::string>> VoltageMinDesignAttribute::show(sysfs::Object *object) {
+async::result<frg::expected<Error, std::string>>
+VoltageMinDesignAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	assert(device->_state.voltage_min_design);
 	co_return std::format("{}\n", *device->_state.voltage_min_design);
@@ -192,9 +190,7 @@ namespace power_supply_subsystem {
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"power_supply"};
 
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "power_supply"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "power_supply"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -207,35 +203,38 @@ async::detached run() {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 			protocols::hw::Device hwDevice((co_await entity.getRemoteLane()).unwrap());
 
-			auto parent_id = std::get<mbus_ng::StringItem>(event.properties.at("drvcore.mbus-parent")).value;
+			auto parent_id =
+			    std::get<mbus_ng::StringItem>(event.properties.at("drvcore.mbus-parent")).value;
 			auto parent_dev = drvcore::getMbusDevice(std::stoi(parent_id));
-			auto power_type = std::get<mbus_ng::StringItem>(event.properties.at("power_supply.type")).value;
+			auto power_type =
+			    std::get<mbus_ng::StringItem>(event.properties.at("power_supply.type")).value;
 			auto id = std::get<mbus_ng::StringItem>(event.properties.at("power_supply.id")).value;
 
-			if(power_type != "battery")
+			if (power_type != "battery")
 				continue;
 
 			auto devname = std::format("BAT{}", id);
-			auto dev = std::make_shared<Device>(sysfsSubsystem, devname, std::move(hwDevice), parent_dev);
+			auto dev =
+			    std::make_shared<Device>(sysfsSubsystem, devname, std::move(hwDevice), parent_dev);
 			co_await dev->init();
 
 			drvcore::installDevice(dev);
 
 			dev->realizeAttribute(&typeAttr);
 			dev->realizeAttribute(&statusAttr);
-			if(dev->_state.current_now)
+			if (dev->_state.current_now)
 				dev->realizeAttribute(&currentNowAttr);
-			if(dev->_state.power_now)
+			if (dev->_state.power_now)
 				dev->realizeAttribute(&powerNowAttr);
-			if(dev->_state.energy_now)
+			if (dev->_state.energy_now)
 				dev->realizeAttribute(&energyNowAttr);
-			if(dev->_state.energy_full)
+			if (dev->_state.energy_full)
 				dev->realizeAttribute(&energyFullAttr);
-			if(dev->_state.energy_full_design)
+			if (dev->_state.energy_full_design)
 				dev->realizeAttribute(&energyFullDesignAttr);
-			if(dev->_state.voltage_now)
+			if (dev->_state.voltage_now)
 				dev->realizeAttribute(&voltageNowAttr);
-			if(dev->_state.voltage_min_design)
+			if (dev->_state.voltage_min_design)
 				dev->realizeAttribute(&voltageMinDesignAttr);
 
 			mbusMap.insert({entity.id(), dev});

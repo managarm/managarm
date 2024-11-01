@@ -1,5 +1,5 @@
-#include <string.h>
 #include <iostream>
+#include <string.h>
 
 #include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
@@ -16,24 +16,21 @@ id_allocator<uint32_t> minorAllocator{0};
 
 struct Device final : UnixDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
-	: UnixDevice{type},
-			_name{std::move(name)}, _lane{std::move(lane)} { }
+	    : UnixDevice{type},
+	      _name{std::move(name)},
+	      _lane{std::move(lane)} {}
 
-	std::string nodePath() override {
-		return _name;
-	}
-	
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	std::string nodePath() override { return _name; }
+
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
-		return mountExternalDevice(_lane);
-	}
+	FutureMaybe<std::shared_ptr<FsLink>> mount() override { return mountExternalDevice(_lane); }
 
-private:
+  private:
 	std::string _name;
 	helix::UniqueLane _lane;
 };
@@ -42,7 +39,7 @@ std::unordered_map<std::string, id_allocator<uint64_t>> deviceIdAllocators;
 std::unordered_map<mbus_ng::EntityId, std::pair<std::string, uint64_t>> deviceIdMap;
 
 uint64_t allocateDeviceIds(mbus_ng::EntityId entity_id, std::string prefix) {
-	if(!deviceIdAllocators.contains(prefix)) {
+	if (!deviceIdAllocators.contains(prefix)) {
 		id_allocator<uint64_t> new_alloc{0};
 		deviceIdAllocators.insert({prefix, new_alloc});
 	}
@@ -56,9 +53,7 @@ uint64_t allocateDeviceIds(mbus_ng::EntityId entity_id, std::string prefix) {
 async::detached observeDevices(VfsType devType, auto &registry, int major) {
 	const char *typeStr = devType == VfsType::blockDevice ? "block" : "char";
 
-	auto filter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter {"generic.devtype", typeStr}
-	});
+	auto filter = mbus_ng::Conjunction({mbus_ng::EqualsFilter{"generic.devtype", typeStr}});
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -75,12 +70,10 @@ async::detached observeDevices(VfsType devType, auto &registry, int major) {
 
 			auto sysfs_name = name.value + std::to_string(id);
 
-			std::cout << "POSIX: Installing " << typeStr << " device "
-					<< sysfs_name << std::endl;
+			std::cout << "POSIX: Installing " << typeStr << " device " << sysfs_name << std::endl;
 
 			auto lane = (co_await entity.getRemoteLane()).unwrap();
-			auto device = std::make_shared<Device>(devType,
-					sysfs_name, std::move(lane));
+			auto device = std::make_shared<Device>(devType, sysfs_name, std::move(lane));
 
 			// We use a fixed major here, and allocate minors sequentially.
 			device->assignId({major, minorAllocator.allocate()});
@@ -89,10 +82,10 @@ async::detached observeDevices(VfsType devType, auto &registry, int major) {
 	}
 }
 
-} // anonymous namepsace
+} // namespace
 
 std::optional<std::pair<std::string, uint64_t>> getDeviceName(mbus_ng::EntityId id) {
-	if(deviceIdMap.contains(id)) {
+	if (deviceIdMap.contains(id)) {
 		return deviceIdMap.at(id);
 	}
 

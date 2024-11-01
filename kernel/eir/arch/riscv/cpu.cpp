@@ -2,7 +2,6 @@
 
 namespace eir {
 
-void initProcessorEarly() {
-}
+void initProcessorEarly() {}
 
 } // namespace eir

@@ -5,17 +5,19 @@
 #include "file.hpp"
 
 struct MemoryFile final : File {
-public:
+  public:
 	static void serve(smarter::shared_ptr<MemoryFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &fileOperations, file->_cancelServe));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), file, &fileOperations, file->_cancelServe
+		));
 	}
 
 	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool allowSealing)
-	: File{StructName::get("memfd-file"), mount, link}, _offset{0} {
-		if(!allowSealing) {
+	    : File{StructName::get("memfd-file"), mount, link},
+	      _offset{0} {
+		if (!allowSealing) {
 			_seals = F_SEAL_SEAL;
 		}
 	}
@@ -23,7 +25,8 @@ public:
 	void handleClose() override;
 
 	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
-	async::result<frg::expected<protocols::fs::Error>> allocate(int64_t offset, size_t size) override;
+	async::result<frg::expected<protocols::fs::Error>>
+	allocate(int64_t offset, size_t size) override;
 
 	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override;
 
@@ -32,11 +35,9 @@ public:
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
-private:
+  private:
 	void _resizeFile(size_t new_size);
 
 	helix::UniqueLane _passthrough;

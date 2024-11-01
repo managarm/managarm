@@ -1,10 +1,10 @@
 #pragma once
 
+#include <optional>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,11 +37,7 @@ struct Display {
 struct Emulator {
 	Emulator(Display *display);
 
-	enum Status {
-		kStatusNormal,
-		kStatusEscape,
-		kStatusCsi
-	};
+	enum Status { kStatusNormal, kStatusEscape, kStatusCsi };
 
 	void setChar(int x, int y, char c, Attribute attribute);
 	void handleControlSeq(char character);

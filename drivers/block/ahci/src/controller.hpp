@@ -9,17 +9,23 @@
 
 class Controller {
 
-public:
-	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq, bool useMsis);
+  public:
+	Controller(
+	    int64_t parentId,
+	    protocols::hw::Device hwDevice,
+	    helix::Mapping hbaRegs,
+	    helix::UniqueDescriptor irq,
+	    bool useMsis
+	);
 
 	async::detached run();
 
-private:
+  private:
 	async::result<bool> initPorts_(size_t numCommandSlots, bool staggeredSpinUp);
 	async::detached handleIrqs_();
 	void dumpState_();
 
-private:
+  private:
 	protocols::hw::Device hwDevice_;
 	helix::Mapping regsMapping_;
 	arch::mem_space regs_;

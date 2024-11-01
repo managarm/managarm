@@ -10,14 +10,14 @@ namespace thor {
 // --------------------------------------------------------
 
 struct IoSpace {
-public:
+  public:
 	IoSpace();
 
 	void addPort(uintptr_t port);
 
 	void enableInThread(smarter::borrowed_ptr<Thread> thread);
 
-private:
+  private:
 	frg::vector<uintptr_t, KernelAlloc> p_ports;
 };
 

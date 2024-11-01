@@ -7,12 +7,7 @@
 // Fields.
 // -----------------------------------------------------
 
-enum class FieldType {
-	null,
-	padding,
-	variable,
-	array
-};
+enum class FieldType { null, padding, variable, array };
 
 struct Field {
 	FieldType type;
@@ -28,9 +23,7 @@ struct Field {
 // -----------------------------------------------------
 
 struct Element {
-	Element()
-	: usageId{0}, usagePage{0}, isAbsolute{false},
-			inputType{-1}, inputCode{-1} { }
+	Element() : usageId{0}, usagePage{0}, isAbsolute{false}, inputType{-1}, inputCode{-1} {}
 
 	uint32_t usageId;
 	uint16_t usagePage;
@@ -50,12 +43,12 @@ struct Element {
 
 struct HidDevice {
 	HidDevice();
-	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
+	void parseReportDescriptor(protocols::usb::Device device, uint8_t *p, uint8_t *limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
 	std::vector<Field> fields;
 	std::vector<Element> elements;
 
-private:
+  private:
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;
 };

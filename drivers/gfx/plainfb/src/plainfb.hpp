@@ -1,13 +1,13 @@
 #pragma once
 
-#include <queue>
 #include <map>
+#include <queue>
 #include <unordered_map>
 
 #include <arch/mem_space.hpp>
-#include <async/recurring-event.hpp>
-#include <async/oneshot-event.hpp>
 #include <async/mutex.hpp>
+#include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <core/drm/device.hpp>
 #include <helix/ipc.hpp>
@@ -18,14 +18,16 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	struct FrameBuffer;
 
 	struct Configuration : drm_core::Configuration {
-		Configuration(GfxDevice *device)
-		: _device(device) { };
+		Configuration(GfxDevice *device) : _device(device) {};
 
-		bool capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state) override;
+		bool capture(
+		    std::vector<drm_core::Assignment> assignment,
+		    std::unique_ptr<drm_core::AtomicState> &state
+		) override;
 		void dispose() override;
 		void commit(std::unique_ptr<drm_core::AtomicState> state) override;
 
-	private:
+	  private:
 		async::detached _dispatch(std::unique_ptr<drm_core::AtomicState> state);
 
 		GfxDevice *_device;
@@ -36,15 +38,20 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(GfxDevice *device, size_t size, helix::UniqueDescriptor memory,
-			uint32_t width, uint32_t height);
+		BufferObject(
+		    GfxDevice *device,
+		    size_t size,
+		    helix::UniqueDescriptor memory,
+		    uint32_t width,
+		    uint32_t height
+		);
 
 		std::shared_ptr<drm_core::BufferObject> sharedBufferObject() override;
 		size_t getSize() override;
 		std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() override;
 		void *accessMapping();
 
-	private:
+	  private:
 		size_t _size;
 		helix::UniqueDescriptor _memory;
 		helix::Mapping _bufferMapping;
@@ -64,13 +71,12 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		drm_core::Plane *primaryPlane() override;
 		// cursorPlane
 
-	private:
+	  private:
 		GfxDevice *_device;
 	};
 
 	struct FrameBuffer final : drm_core::FrameBuffer {
-		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo,
-				size_t pitch);
+		FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo, size_t pitch);
 
 		size_t getPitch();
 		bool fastScanout() { return _fastScanout; }
@@ -80,29 +86,37 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		uint32_t getWidth() override;
 		uint32_t getHeight() override;
 
-	private:
+	  private:
 		GfxDevice *_device;
 		std::shared_ptr<GfxDevice::BufferObject> _bo;
 		size_t _pitch;
 		bool _fastScanout = true;
 	};
 
-	GfxDevice(protocols::hw::Device hw_device,
-			unsigned int screen_width, unsigned int screen_height,
-			size_t screen_pitch, helix::Mapping fb_mapping);
+	GfxDevice(
+	    protocols::hw::Device hw_device,
+	    unsigned int screen_width,
+	    unsigned int screen_height,
+	    size_t screen_pitch,
+	    helix::Mapping fb_mapping
+	);
 
 	async::result<std::unique_ptr<drm_core::Configuration>> initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;
-	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> createDumb(uint32_t width,
-			uint32_t height, uint32_t bpp) override;
-	std::shared_ptr<drm_core::FrameBuffer>
-			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
-			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
+	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
+	createDumb(uint32_t width, uint32_t height, uint32_t bpp) override;
+	std::shared_ptr<drm_core::FrameBuffer> createFrameBuffer(
+	    std::shared_ptr<drm_core::BufferObject> bo,
+	    uint32_t width,
+	    uint32_t height,
+	    uint32_t format,
+	    uint32_t pitch
+	) override;
 
 	std::tuple<int, int, int> driverVersion() override;
 	std::tuple<std::string, std::string, std::string> driverInfo() override;
 
-private:
+  private:
 	protocols::hw::Device _hwDevice;
 	unsigned int _screenWidth;
 	unsigned int _screenHeight;

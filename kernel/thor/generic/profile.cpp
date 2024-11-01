@@ -13,34 +13,37 @@ namespace thor {
 bool wantKernelProfile = false;
 
 namespace {
-	frg::manual_box<LogRingBuffer> globalProfileRing;
+frg::manual_box<LogRingBuffer> globalProfileRing;
 
-	initgraph::Task initProfilingSinks{&globalInitEngine, "generic.init-profiling-sinks",
-		initgraph::Requires{getFibersAvailableStage(),
-			getIoChannelsDiscoveredStage()},
-		[] {
-			if(!wantKernelProfile)
-				return;
+initgraph::Task initProfilingSinks{
+    &globalInitEngine,
+    "generic.init-profiling-sinks",
+    initgraph::Requires{getFibersAvailableStage(), getIoChannelsDiscoveredStage()},
+    [] {
+	    if (!wantKernelProfile)
+		    return;
 
-			auto channel = solicitIoChannel("kernel-profile");
-			if(channel) {
-				infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
-				async::detach_with_allocator(*kernelAlloc,
-						dumpRingToChannel(globalProfileRing.get(), std::move(channel), 2048));
-			}
-		}
-	};
-}
+	    auto channel = solicitIoChannel("kernel-profile");
+	    if (channel) {
+		    infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
+		    async::detach_with_allocator(
+		        *kernelAlloc, dumpRingToChannel(globalProfileRing.get(), std::move(channel), 2048)
+		    );
+	    }
+    }
+};
+} // namespace
 
 void initializeProfile() {
 #ifdef __x86_64__
-	if(!wantKernelProfile)
+	if (!wantKernelProfile)
 		return;
 
-	if(!(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported)
-			&& !(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported)) {
+	if (!(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported) &&
+	    !(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported)) {
 		urgentLogger() << "thor: Kernel profiling was requested but"
-				" no hardware support is available" << frg::endlog;
+		                  " no hardware support is available"
+		               << frg::endlog;
 		return;
 	}
 
@@ -52,25 +55,27 @@ void initializeProfile() {
 	KernelFiber::run([=] {
 		getCpuData()->localProfileRing = frg::construct<SingleContextRecordRing>(*kernelAlloc);
 
-		if(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported) {
+		if (getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported) {
 			initializeIntelPmc();
-			getCpuData()->profileMechanism.store(ProfileMechanism::intelPmc,
-					std::memory_order_release);
+			getCpuData()->profileMechanism.store(
+			    ProfileMechanism::intelPmc, std::memory_order_release
+			);
 			setIntelPmc();
-		}else{
+		} else {
 			assert(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileAmdSupported);
-			getCpuData()->profileMechanism.store(ProfileMechanism::amdPmc,
-					std::memory_order_release);
+			getCpuData()->profileMechanism.store(
+			    ProfileMechanism::amdPmc, std::memory_order_release
+			);
 			setAmdPmc();
 		}
 
 		uint64_t deqPtr = 0;
-		while(true) {
+		while (true) {
 			char buffer[128];
-			auto [success, recordPtr, newPtr, size] = getCpuData()->localProfileRing->dequeueAt(
-					deqPtr, buffer, 128);
+			auto [success, recordPtr, newPtr, size] =
+			    getCpuData()->localProfileRing->dequeueAt(deqPtr, buffer, 128);
 			deqPtr = newPtr;
-			if(!success) {
+			if (!success) {
 				KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(1'000'000));
 				continue;
 			}
@@ -83,8 +88,6 @@ void initializeProfile() {
 #endif
 }
 
-LogRingBuffer *getGlobalProfileRing() {
-	return globalProfileRing.get();
-}
+LogRingBuffer *getGlobalProfileRing() { return globalProfileRing.get(); }
 
 } // namespace thor

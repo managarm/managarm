@@ -1,19 +1,17 @@
 #include "net.hpp"
 
 #include <async/oneshot-event.hpp>
-#include <protocols/mbus/client.hpp>
 #include <protocols/fs/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 namespace net {
 namespace {
 helix::UniqueLane netserverLane;
 async::oneshot_event foundNetserver;
-} // namespace anonymous
+} // namespace
 
 async::result<void> enumerateNetserver() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "netserver"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "netserver"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -29,10 +27,7 @@ async::result<void> enumerateNetserver() {
 	auto req_data = req.SerializeAsString();
 
 	auto [offer, send_req] = co_await helix_ng::exchangeMsgs(
-		netserverLane,
-		helix_ng::offer(
-			helix_ng::sendBuffer(req_data.data(), req_data.size())
-		)
+	    netserverLane, helix_ng::offer(helix_ng::sendBuffer(req_data.data(), req_data.size()))
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());

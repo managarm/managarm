@@ -1,22 +1,22 @@
-#include <thor-internal/main.hpp>
-#include <thor-internal/acpi/acpi.hpp>
-#include <thor-internal/debug.hpp>
-#include <thor-internal/arch/ints.hpp>
 #include <stdlib.h>
+#include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/debug.hpp>
+#include <thor-internal/main.hpp>
 
 #include <frg/optional.hpp>
 
-#include <uacpi/kernel_api.h>
 #include <uacpi/acpi.h>
+#include <uacpi/event.h>
+#include <uacpi/io.h>
+#include <uacpi/kernel_api.h>
+#include <uacpi/notify.h>
+#include <uacpi/opregion.h>
+#include <uacpi/resources.h>
+#include <uacpi/sleep.h>
+#include <uacpi/tables.h>
 #include <uacpi/uacpi.h>
 #include <uacpi/utilities.h>
-#include <uacpi/tables.h>
-#include <uacpi/event.h>
-#include <uacpi/resources.h>
-#include <uacpi/io.h>
-#include <uacpi/opregion.h>
-#include <uacpi/sleep.h>
-#include <uacpi/notify.h>
 
 namespace thor::acpi {
 
@@ -65,13 +65,9 @@ struct ECDevice {
 	acpi_gas control;
 	acpi_gas data;
 
-	void pollIbf() {
-		waitForBit(control, EC_IBF, false);
-	}
+	void pollIbf() { waitForBit(control, EC_IBF, false); }
 
-	void pollObf() {
-		waitForBit(control, EC_OBF, true);
-	}
+	void pollObf() { waitForBit(control, EC_OBF, true); }
 
 	void writeOne(acpi_gas &reg, uint8_t value) {
 		pollIbf();
@@ -110,7 +106,7 @@ struct ECDevice {
 		auto status = regRead(control);
 
 		// We get an extra EC event when disabling burst, that's ok.
-		if(!(status & EC_SCI_EVT))
+		if (!(status & EC_SCI_EVT))
 			return false;
 
 		burstEnable();
@@ -126,7 +122,7 @@ static frg::manual_box<ECDevice> ecDevice;
 static uacpi_status ecDoRw(uacpi_region_op op, uacpi_region_rw_data *data) {
 	auto *ecDevice = reinterpret_cast<ECDevice *>(data->handler_context);
 
-	if(data->byte_width != 1) {
+	if (data->byte_width != 1) {
 		infoLogger() << "thor: invalid EC access width " << data->byte_width << frg::endlog;
 		return UACPI_STATUS_INVALID_ARGUMENT;
 	}
@@ -135,15 +131,15 @@ static uacpi_status ecDoRw(uacpi_region_op op, uacpi_region_rw_data *data) {
 
 	ecDevice->burstEnable();
 
-	switch(op) {
-		case UACPI_REGION_OP_READ:
-			data->value = ecDevice->read(data->offset);
-			break;
-		case UACPI_REGION_OP_WRITE:
-			ecDevice->write(data->offset, data->value);
-			break;
-		default:
-			return UACPI_STATUS_INVALID_ARGUMENT;
+	switch (op) {
+	case UACPI_REGION_OP_READ:
+		data->value = ecDevice->read(data->offset);
+		break;
+	case UACPI_REGION_OP_WRITE:
+		ecDevice->write(data->offset, data->value);
+		break;
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
 	}
 
 	ecDevice->burstDisable();
@@ -151,12 +147,12 @@ static uacpi_status ecDoRw(uacpi_region_op op, uacpi_region_rw_data *data) {
 }
 
 static uacpi_status handleEcRegion(uacpi_region_op op, uacpi_handle op_data) {
-	switch(op) {
-		case UACPI_REGION_OP_ATTACH:
-		case UACPI_REGION_OP_DETACH:
-			return UACPI_STATUS_OK;
-		default:
-			return ecDoRw(op, reinterpret_cast<uacpi_region_rw_data *>(op_data));
+	switch (op) {
+	case UACPI_REGION_OP_ATTACH:
+	case UACPI_REGION_OP_DETACH:
+		return UACPI_STATUS_OK;
+	default:
+		return ecDoRw(op, reinterpret_cast<uacpi_region_rw_data *>(op_data));
 	}
 }
 
@@ -169,7 +165,7 @@ void handleEcQuery(uacpi_handle opaque) {
 	static const char *hexChars = "0123456789ABCDEF";
 
 	auto *query = reinterpret_cast<ECQuery *>(opaque);
-	char methodName[5] = { '_', 'Q', hexChars[(query->idx >> 4) & 0xF], hexChars[query->idx & 0xF] };
+	char methodName[5] = {'_', 'Q', hexChars[(query->idx >> 4) & 0xF], hexChars[query->idx & 0xF]};
 
 	infoLogger() << "thor: evaluating EC query " << methodName << frg::endlog;
 
@@ -179,17 +175,17 @@ void handleEcQuery(uacpi_handle opaque) {
 	frg::destruct(*kernelAlloc, query);
 }
 
-uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node*, uacpi_u16) {
+uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node *, uacpi_u16) {
 	auto *ecDevice = reinterpret_cast<ECDevice *>(ctx);
 	uacpi_interrupt_ret ret = UACPI_GPE_REENABLE | UACPI_INTERRUPT_HANDLED;
 
 	auto guard = frg::guard(&ecDevice->lock);
 
 	uint8_t idx;
-	if(!ecDevice->checkEvent(idx))
+	if (!ecDevice->checkEvent(idx))
 		return ret;
 
-	if(idx == 0) {
+	if (idx == 0) {
 		infoLogger() << "thor: EC indicates no outstanding events" << frg::endlog;
 		return ret;
 	}
@@ -209,7 +205,7 @@ static bool initFromEcdt() {
 	uacpi_table ecdtTbl;
 
 	auto ret = uacpi_table_find_by_signature("ECDT", &ecdtTbl);
-	if(ret != UACPI_STATUS_OK) {
+	if (ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: no ECDT detected" << frg::endlog;
 		return false;
 	}
@@ -218,7 +214,7 @@ static bool initFromEcdt() {
 	infoLogger() << "thor: found ECDT, EC@" << ecdt->ec_id << frg::endlog;
 
 	auto *ecNode = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id);
-	if(ecNode == UACPI_NULL) {
+	if (ecNode == UACPI_NULL) {
 		infoLogger() << "thor: invalid EC path " << ecdt->ec_id << frg::endlog;
 		return false;
 	}
@@ -231,71 +227,77 @@ static bool initFromEcdt() {
 }
 
 static void initFromNamespace() {
-	uacpi_find_devices(ACPI_HID_EC, [](void*, uacpi_namespace_node *node) {
-		uacpi_resources *resources;
+	uacpi_find_devices(
+	    ACPI_HID_EC,
+	    [](void *, uacpi_namespace_node *node) {
+		    uacpi_resources *resources;
 
-		auto ret = uacpi_get_current_resources(node, &resources);
-		if(ret != UACPI_STATUS_OK)
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+		    auto ret = uacpi_get_current_resources(node, &resources);
+		    if (ret != UACPI_STATUS_OK)
+			    return UACPI_NS_ITERATION_DECISION_CONTINUE;
 
-		struct initCtx {
-			acpi_gas control, data;
-			size_t idx;
-		} ctx {};
+		    struct initCtx {
+			    acpi_gas control, data;
+			    size_t idx;
+		    } ctx{};
 
-		ret = uacpi_for_each_resource(resources,
-			[](void *opaque, uacpi_resource *res){
-				auto *ctx = reinterpret_cast<initCtx*>(opaque);
-				auto *reg = ctx->idx ? &ctx->control : &ctx->data;
+		    ret = uacpi_for_each_resource(
+		        resources,
+		        [](void *opaque, uacpi_resource *res) {
+			        auto *ctx = reinterpret_cast<initCtx *>(opaque);
+			        auto *reg = ctx->idx ? &ctx->control : &ctx->data;
 
-				switch(res->type) {
-					case UACPI_RESOURCE_TYPE_IO:
-						reg->address = res->io.minimum;
-						reg->register_bit_width = res->io.length * 8;
-						break;
-					case UACPI_RESOURCE_TYPE_FIXED_IO:
-						reg->address = res->fixed_io.address;
-						reg->register_bit_width = res->fixed_io.length * 8;
-						break;
-					default:
-						return UACPI_RESOURCE_ITERATION_CONTINUE;
-				}
+			        switch (res->type) {
+			        case UACPI_RESOURCE_TYPE_IO:
+				        reg->address = res->io.minimum;
+				        reg->register_bit_width = res->io.length * 8;
+				        break;
+			        case UACPI_RESOURCE_TYPE_FIXED_IO:
+				        reg->address = res->fixed_io.address;
+				        reg->register_bit_width = res->fixed_io.length * 8;
+				        break;
+			        default:
+				        return UACPI_RESOURCE_ITERATION_CONTINUE;
+			        }
 
-				reg->address_space_id = UACPI_ADDRESS_SPACE_SYSTEM_IO;
+			        reg->address_space_id = UACPI_ADDRESS_SPACE_SYSTEM_IO;
 
-				if(++ctx->idx == 2)
-					return UACPI_RESOURCE_ITERATION_ABORT;
-				return UACPI_RESOURCE_ITERATION_CONTINUE;
-			}, &ctx);
-		uacpi_free_resources(resources);
+			        if (++ctx->idx == 2)
+				        return UACPI_RESOURCE_ITERATION_ABORT;
+			        return UACPI_RESOURCE_ITERATION_CONTINUE;
+		        },
+		        &ctx
+		    );
+		    uacpi_free_resources(resources);
 
-		if(ctx.idx != 2) {
-			infoLogger() << "thor: didn't find all needed resources for EC" << frg::endlog;
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
-		}
+		    if (ctx.idx != 2) {
+			    infoLogger() << "thor: didn't find all needed resources for EC" << frg::endlog;
+			    return UACPI_NS_ITERATION_DECISION_CONTINUE;
+		    }
 
-		ecDevice.initialize();
-		ecDevice->node = node;
-		ecDevice->control = ctx.control;
-		ecDevice->data = ctx.data;
+		    ecDevice.initialize();
+		    ecDevice->node = node;
+		    ecDevice->control = ctx.control;
+		    ecDevice->data = ctx.data;
 
-		auto *full_path = uacpi_namespace_node_generate_absolute_path(node);
-		infoLogger() << "thor: found an EC@" << full_path << frg::endlog;
-		uacpi_kernel_free(const_cast<char*>(full_path));
+		    auto *full_path = uacpi_namespace_node_generate_absolute_path(node);
+		    infoLogger() << "thor: found an EC@" << full_path << frg::endlog;
+		    uacpi_kernel_free(const_cast<char *>(full_path));
 
-		return UACPI_NS_ITERATION_DECISION_BREAK;
-	}, nullptr);
+		    return UACPI_NS_ITERATION_DECISION_BREAK;
+	    },
+	    nullptr
+	);
 }
 
 static void installEcHandlers() {
 	uacpi_install_address_space_handler(
-		ecDevice->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER,
-		handleEcRegion, ecDevice.get()
+	    ecDevice->node, UACPI_ADDRESS_SPACE_EMBEDDED_CONTROLLER, handleEcRegion, ecDevice.get()
 	);
 
 	uint64_t value = 0;
 	uacpi_eval_integer(ecDevice->node, "_GLK", UACPI_NULL, &value);
-	if(value)
+	if (value)
 		infoLogger() << "thor: EC requires locking (this is a TODO)" << frg::endlog;
 
 	auto ret = uacpi_eval_integer(ecDevice->node, "_GPE", UACPI_NULL, &value);
@@ -306,8 +308,7 @@ static void installEcHandlers() {
 
 	ecDevice->gpeIdx = value;
 	ret = uacpi_install_gpe_handler(
-		nullptr, *ecDevice->gpeIdx, UACPI_GPE_TRIGGERING_EDGE,
-		handleEcEvent, ecDevice.get()
+	    nullptr, *ecDevice->gpeIdx, UACPI_GPE_TRIGGERING_EDGE, handleEcEvent, ecDevice.get()
 	);
 	assert(ret == UACPI_STATUS_OK);
 
@@ -317,12 +318,12 @@ static void installEcHandlers() {
 void initEc() {
 	bool earlyReg = true;
 
-	if(!initFromEcdt()) {
+	if (!initFromEcdt()) {
 		earlyReg = false;
 		initFromNamespace();
 	}
 
-	if(!ecDevice) {
+	if (!ecDevice) {
 		infoLogger() << "thor: no EC devices on the system" << frg::endlog;
 		return;
 	}
@@ -359,16 +360,14 @@ static uacpi_interrupt_ret handlePowerButton(uacpi_handle) {
 	return UACPI_INTERRUPT_HANDLED;
 }
 
-static uacpi_status handlePowerButtonNotify(uacpi_handle, uacpi_namespace_node*, uacpi_u64 value) {
+static uacpi_status handlePowerButtonNotify(uacpi_handle, uacpi_namespace_node *, uacpi_u64 value) {
 	// 0x80: S0 Power Button Pressed
 	if (value != 0x80) {
-		infoLogger() << "thor: ignoring unknown power button notify value " << value
-					<< frg::endlog;
+		infoLogger() << "thor: ignoring unknown power button notify value " << value << frg::endlog;
 		return UACPI_STATUS_OK;
 	}
 
-	infoLogger() << "thor: shutting down because of power button notification"
-				<< frg::endlog;
+	infoLogger() << "thor: shutting down because of power button notification" << frg::endlog;
 
 	// We're already in an async callback, so no need to schedule this. Just call right away.
 	asyncShutdown(nullptr);
@@ -383,29 +382,30 @@ void initEvents() {
 	 */
 	uacpi_finalize_gpe_initialization();
 
-	if(ecDevice) {
-		if(!ecDevice->initialized)
+	if (ecDevice) {
+		if (!ecDevice->initialized)
 			installEcHandlers();
 
-		if(ecDevice->gpeIdx) {
+		if (ecDevice->gpeIdx) {
 			infoLogger() << "thor: enabling EC GPE " << *ecDevice->gpeIdx << frg::endlog;
 			uacpi_enable_gpe(ecDevice->gpeNode, *ecDevice->gpeIdx);
 		}
 	}
 
-	uacpi_install_fixed_event_handler(
-		UACPI_FIXED_EVENT_POWER_BUTTON,
-		handlePowerButton, nullptr
-	);
+	uacpi_install_fixed_event_handler(UACPI_FIXED_EVENT_POWER_BUTTON, handlePowerButton, nullptr);
 
 	/*
 	 * Modern hardware uses power button devices instead of the fixed event.
 	 * Search for them here and hook AML notifications.
 	 */
-	uacpi_find_devices(ACPI_HID_POWER_BUTTON, [](void*, uacpi_namespace_node *node) {
-		uacpi_install_notify_handler(node, handlePowerButtonNotify, nullptr);
-		return UACPI_NS_ITERATION_DECISION_CONTINUE;
-	}, nullptr);
+	uacpi_find_devices(
+	    ACPI_HID_POWER_BUTTON,
+	    [](void *, uacpi_namespace_node *node) {
+		    uacpi_install_notify_handler(node, handlePowerButtonNotify, nullptr);
+		    return UACPI_NS_ITERATION_DECISION_CONTINUE;
+	    },
+	    nullptr
+	);
 }
 
-}
+} // namespace thor::acpi

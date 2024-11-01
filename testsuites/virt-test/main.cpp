@@ -1,8 +1,7 @@
-#include <hel.h>
-#include <hel-syscalls.h>
-#include <iostream>
 #include <assert.h>
-
+#include <hel-syscalls.h>
+#include <hel.h>
+#include <iostream>
 
 int main() {
 	HelHandle vspace, vcpu, mem;
@@ -11,11 +10,21 @@ int main() {
 	HEL_CHECK(helAllocateMemory(0x10000, 0, nullptr, &mem));
 
 	void *fake_ptr;
-	HEL_CHECK(helMapMemory(mem, vspace, nullptr, 0x0, 0x10000, kHelMapFixed | kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute, &fake_ptr));
+	HEL_CHECK(helMapMemory(
+	    mem,
+	    vspace,
+	    nullptr,
+	    0x0,
+	    0x10000,
+	    kHelMapFixed | kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute,
+	    &fake_ptr
+	));
 	assert(fake_ptr == nullptr);
 
 	void *actual_ptr;
-	HEL_CHECK(helMapMemory(mem, kHelNullHandle, nullptr, 0, 0x10000, kHelMapProtRead | kHelMapProtWrite, &actual_ptr));
+	HEL_CHECK(helMapMemory(
+	    mem, kHelNullHandle, nullptr, 0, 0x10000, kHelMapProtRead | kHelMapProtWrite, &actual_ptr
+	));
 
 	uint8_t code[] = {0xF4};
 	memcpy((uint8_t *)actual_ptr + 0x7C00, code, sizeof(code));
@@ -27,8 +36,19 @@ int main() {
 
 	regs.rip = 0x7C00;
 	regs.rflags = (1 << 1);
-	regs.cs = {.base = 0, .limit = 0xFFFF, .selector = 0, .type = 3, .present = 1, .dpl = {},
-		.db = {}, .s = 1, .l = {}, .g = {}, .avl = {} };
+	regs.cs = {
+	    .base = 0,
+	    .limit = 0xFFFF,
+	    .selector = 0,
+	    .type = 3,
+	    .present = 1,
+	    .dpl = {},
+	    .db = {},
+	    .s = 1,
+	    .l = {},
+	    .g = {},
+	    .avl = {}
+	};
 
 	HelX86SegmentRegister seg{};
 	seg.limit = 0xFFFF;
@@ -58,13 +78,14 @@ int main() {
 	HEL_CHECK(helRunVirtualizedCpu(vcpu, &reason));
 
 	int32_t exitReason = static_cast<int32_t>(reason.exitReason);
-	if(exitReason == kHelVmexitHlt)
+	if (exitReason == kHelVmexitHlt)
 		std::cout << "HLT Instruction" << std::endl;
-	else if(exitReason == kHelVmexitError)
+	else if (exitReason == kHelVmexitError)
 		std::cout << "VMExit error" << std::endl;
-	else if(exitReason == kHelVmexitUnknownPlatformSpecificExitCode)
-		std::cout << "Unknown platform specific exit code: 0x" << std::hex << reason.code << std::dec << std::endl;
-	else if(exitReason == kHelVmexitTranslationFault)
+	else if (exitReason == kHelVmexitUnknownPlatformSpecificExitCode)
+		std::cout << "Unknown platform specific exit code: 0x" << std::hex << reason.code
+		          << std::dec << std::endl;
+	else if (exitReason == kHelVmexitTranslationFault)
 		std::cout << "Translation fault: 0x" << std::hex << reason.address << std::dec << std::endl;
 	else
 		std::cout << "Unknown reason: " << exitReason << std::endl;

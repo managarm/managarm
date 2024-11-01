@@ -6,56 +6,64 @@
 #include "port.hpp"
 
 namespace regs {
-	constexpr arch::scalar_register<uint32_t> clBase{0x0};
-	constexpr arch::scalar_register<uint32_t> clBaseUpper{0x4};
-	constexpr arch::scalar_register<uint32_t> fisBase{0x8};
-	constexpr arch::scalar_register<uint32_t> fisBaseUpper{0xC};
-	constexpr arch::scalar_register<uint32_t> interruptStatus{0x10};
-	constexpr arch::scalar_register<uint32_t> interruptEnable{0x14};
-	constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18};
-	constexpr arch::scalar_register<uint32_t> tfd{0x20};
-	constexpr arch::scalar_register<uint32_t> status{0x28};
-	constexpr arch::scalar_register<uint32_t> sataControl{0x2C};
-	constexpr arch::scalar_register<uint32_t> sErr{0x30};
-	constexpr arch::scalar_register<uint32_t> sataActive{0x34};
-	constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
-}
+constexpr arch::scalar_register<uint32_t> clBase{0x0};
+constexpr arch::scalar_register<uint32_t> clBaseUpper{0x4};
+constexpr arch::scalar_register<uint32_t> fisBase{0x8};
+constexpr arch::scalar_register<uint32_t> fisBaseUpper{0xC};
+constexpr arch::scalar_register<uint32_t> interruptStatus{0x10};
+constexpr arch::scalar_register<uint32_t> interruptEnable{0x14};
+constexpr arch::scalar_register<uint32_t> commandAndStatus{0x18};
+constexpr arch::scalar_register<uint32_t> tfd{0x20};
+constexpr arch::scalar_register<uint32_t> status{0x28};
+constexpr arch::scalar_register<uint32_t> sataControl{0x2C};
+constexpr arch::scalar_register<uint32_t> sErr{0x30};
+constexpr arch::scalar_register<uint32_t> sataActive{0x34};
+constexpr arch::scalar_register<uint32_t> commandIssue{0x38};
+} // namespace regs
 
 namespace flags {
-	namespace cmd {
-		constexpr int cmdListRunning    = 1 << 15;
-		constexpr int fisReceiveRunning = 1 << 14;
-		constexpr int fisReceiveEnable  = 1 << 4;
-		constexpr int spinUpDevice      = 1 << 1;
-		constexpr int start             = 1;
-	}
+namespace cmd {
+constexpr int cmdListRunning = 1 << 15;
+constexpr int fisReceiveRunning = 1 << 14;
+constexpr int fisReceiveEnable = 1 << 4;
+constexpr int spinUpDevice = 1 << 1;
+constexpr int start = 1;
+} // namespace cmd
 
-	namespace is {
-		constexpr int taskFileError   = 1 << 30;
-		constexpr int hostFatalError  = 1 << 29;
-		constexpr int hostDataError   = 1 << 28;
-		constexpr int ifFatalError    = 1 << 27;
-		constexpr int ifNonFatalError = 1 << 26;
-		constexpr int d2hFis          = 1;
-	}
+namespace is {
+constexpr int taskFileError = 1 << 30;
+constexpr int hostFatalError = 1 << 29;
+constexpr int hostDataError = 1 << 28;
+constexpr int ifFatalError = 1 << 27;
+constexpr int ifNonFatalError = 1 << 26;
+constexpr int d2hFis = 1;
+} // namespace is
 
-	namespace tfd {
-		constexpr int bsy = 1 << 7;
-		constexpr int drq = 1 << 3;
-	}
-}
+namespace tfd {
+constexpr int bsy = 1 << 7;
+constexpr int drq = 1 << 3;
+} // namespace tfd
+} // namespace flags
 
 namespace {
-	constexpr size_t sectorSize = 512;
+constexpr size_t sectorSize = 512;
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
-Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
-	: BlockDevice{::sectorSize, parentId},  regs_{regs}, deviceSize_{0},
-	numCommandSlots_{numCommandSlots}, commandsInFlight_{0}, portIndex_{portIndex}, 
-	staggeredSpinUp_{staggeredSpinUp}
-{
-}
+Port::Port(
+    int64_t parentId,
+    int portIndex,
+    size_t numCommandSlots,
+    bool staggeredSpinUp,
+    arch::mem_space regs
+)
+    : BlockDevice{::sectorSize, parentId},
+      regs_{regs},
+      deviceSize_{0},
+      numCommandSlots_{numCommandSlots},
+      commandsInFlight_{0},
+      portIndex_{portIndex},
+      staggeredSpinUp_{staggeredSpinUp} {}
 
 async::result<bool> Port::init() {
 	// If PxSSTS.DET != 3, PxSSTS.IPM != 1 at this point, then ignore the device for now
@@ -71,8 +79,9 @@ async::result<bool> Port::init() {
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::start);
 
 	// Wait until PxCMD.CR = 0 with 500ms timeout
-	auto success = co_await helix::kindaBusyWait(500'000'000, [&](){
-		return !(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning); });
+	auto success = co_await helix::kindaBusyWait(500'000'000, [&]() {
+		return !(regs_.load(regs::commandAndStatus) & flags::cmd::cmdListRunning);
+	});
 	assert(success);
 
 	// Clear PxCMD.FRE (must be done before rebase)
@@ -80,8 +89,9 @@ async::result<bool> Port::init() {
 	regs_.store(regs::commandAndStatus, cas & ~flags::cmd::fisReceiveEnable);
 
 	// Wait until PxCMD.FR = 0 with 500ms timeout
-	success = co_await helix::kindaBusyWait(500'000'000, [&](){
-			return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning); });
+	success = co_await helix::kindaBusyWait(500'000'000, [&]() {
+		return !(regs_.load(regs::commandAndStatus) & flags::cmd::fisReceiveRunning);
+	});
 	assert(success);
 
 	if (staggeredSpinUp_) {
@@ -106,7 +116,9 @@ async::result<bool> Port::init() {
 	status = regs_.load(regs::status);
 	ipm = (status >> 8) & 0xF;
 	det = status & 0xF;
-	printf("block/ahci: Discovered port %d, PxSSTS.IPM %#x, PxSSTS.DET %#x\n", portIndex_, ipm, det);
+	printf(
+	    "block/ahci: Discovered port %d, PxSSTS.IPM %#x, PxSSTS.DET %#x\n", portIndex_, ipm, det
+	);
 
 	co_return true;
 }
@@ -123,7 +135,12 @@ void Port::dumpState() {
 	printf("  PxIS: %#x\n", regs_.load(regs::interruptStatus));
 	printf("  PxIE: %#x\n", regs_.load(regs::interruptEnable));
 	printf("  commandsInFlight: %zu\n", commandsInFlight_);
-	printf("  submittedCmds slots used: %zu\n", std::count_if(submittedCmds_.begin(), submittedCmds_.end(), [](auto &p){ return p != nullptr; }));
+	printf(
+	    "  submittedCmds slots used: %zu\n",
+	    std::count_if(
+	        submittedCmds_.begin(), submittedCmds_.end(), [](auto &p) { return p != nullptr; }
+	    )
+	);
 }
 
 // Start port (10.3.1).
@@ -141,8 +158,8 @@ async::result<bool> Port::run() {
 	receivedFis_ = arch::dma_object<receivedFis>{&dmaPool_};
 
 	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
-			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
-			  rfPhys = helix::ptrToPhysical(receivedFis_.data());
+	          ctPhys = helix::ptrToPhysical(&commandTables_[0]),
+	          rfPhys = helix::ptrToPhysical(receivedFis_.data());
 	assert((clPhys & 0x3FF) == 0 && clPhys < std::numeric_limits<uint32_t>::max());
 	assert((ctPhys & 0x7F) == 0 && ctPhys < std::numeric_limits<uint32_t>::max());
 	assert((rfPhys & 0xFF) == 0 && rfPhys < std::numeric_limits<uint32_t>::max());
@@ -157,7 +174,7 @@ async::result<bool> Port::run() {
 	regs_.store(regs::commandAndStatus, cas | flags::cmd::fisReceiveEnable);
 
 	// Check that the BSY and DRQ bits are clear (necessary as per 10.3.1)
-	auto success = co_await helix::kindaBusyWait(10'000'000'000, [&](){
+	auto success = co_await helix::kindaBusyWait(10'000'000'000, [&]() {
 		auto tfd = regs_.load(regs::tfd);
 		return (tfd & flags::tfd::bsy) == 0 && (tfd & flags::tfd::drq) == 0;
 	});
@@ -181,8 +198,9 @@ async::result<bool> Port::run() {
 	regs_.store(regs::commandIssue, 1 << slot);
 
 	// For simplicity, poll for completion (500ms)
-	success = co_await helix::kindaBusyWait(500'000'000,
-			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
+	success = co_await helix::kindaBusyWait(500'000'000, [&]() {
+		return !(regs_.load(regs::commandIssue) & (1 << slot));
+	});
 	if (!success) {
 		printf("\e[31mblock/ahci: Port %d identify failed\n", portIndex_);
 		dumpState();
@@ -195,22 +213,27 @@ async::result<bool> Port::run() {
 	auto model = identify->getModel();
 	deviceSize_ = logicalSize * sectorCount;
 
-	printf("block/ahci: Started port %d, model %s, size %.1fGiB (sectors: logical %zu, physical %zu, count %" PRIu64 ")\n",
-			portIndex_, model.c_str(), static_cast<float>(deviceSize_ / (1 << 30)),
-			logicalSize, physicalSize, sectorCount);
+	printf(
+	    "block/ahci: Started port %d, model %s, size %.1fGiB (sectors: logical %zu, physical %zu, "
+	    "count %" PRIu64 ")\n",
+	    portIndex_,
+	    model.c_str(),
+	    static_cast<float>(deviceSize_ / (1 << 30)),
+	    logicalSize,
+	    physicalSize,
+	    sectorCount
+	);
 	assert(logicalSize == 512 && "block/ahci: logical sector size > 512 is not supported");
 
 	// Clear and enable interrupts on this port
 	auto is = regs_.load(regs::interruptStatus);
 	regs_.store(regs::interruptStatus, is);
 	auto ie = regs_.load(regs::interruptEnable);
-	regs_.store(regs::interruptEnable, ie
-			| flags::is::d2hFis
-			| flags::is::taskFileError
-			| flags::is::hostDataError
-			| flags::is::hostFatalError
-			| flags::is::ifFatalError
-			| flags::is::ifNonFatalError);
+	regs_.store(
+	    regs::interruptEnable,
+	    ie | flags::is::d2hFis | flags::is::taskFileError | flags::is::hostDataError |
+	        flags::is::hostFatalError | flags::is::ifFatalError | flags::is::ifNonFatalError
+	);
 
 	submitPendingLoop_();
 
@@ -264,9 +287,16 @@ void Port::handleIrq() {
 	auto is = regs_.load(regs::interruptStatus);
 
 	if (logCommands) {
-		printf("block/ahci: Port %d handling IRQ: PxIS %#x, PxIE %#x, PxTFD %#x, PxCI %#x, PxCAS %#x\n",
-				portIndex_, is, regs_.load(regs::interruptEnable), regs_.load(regs::tfd),
-				regs_.load(regs::commandIssue), regs_.load(regs::commandAndStatus));
+		printf(
+		    "block/ahci: Port %d handling IRQ: PxIS %#x, PxIE %#x, PxTFD %#x, PxCI %#x, PxCAS "
+		    "%#x\n",
+		    portIndex_,
+		    is,
+		    regs_.load(regs::interruptEnable),
+		    regs_.load(regs::tfd),
+		    regs_.load(regs::commandIssue),
+		    regs_.load(regs::commandAndStatus)
+		);
 	}
 
 	checkErrors();
@@ -325,15 +355,15 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 }
 
 async::result<void> Port::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
-	Command cmd{sector, numSectors, numSectors * sectorSize,
-			buffer, CommandType::read};
+	Command cmd{sector, numSectors, numSectors * sectorSize, buffer, CommandType::read};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }
 
 async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
-	Command cmd{sector, numSectors, numSectors * sectorSize,
-			const_cast<void *>(buffer), CommandType::write};
+	Command cmd{
+	    sector, numSectors, numSectors * sectorSize, const_cast<void *>(buffer), CommandType::write
+	};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }

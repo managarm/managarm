@@ -1,19 +1,14 @@
 #pragma once
 
-#include <frg/vector.hpp>
 #include <frg/variant.hpp>
+#include <frg/vector.hpp>
 #include <thor-internal/event.hpp>
 
 namespace thor {
 
 struct BoundKernlet;
 
-enum class KernletParameterType {
-	null,
-	offset,
-	memoryView,
-	bitsetEvent
-};
+enum class KernletParameterType { null, offset, memoryView, bitsetEvent };
 
 struct KernletParameterDefn {
 	KernletParameterType type;
@@ -31,7 +26,7 @@ struct KernletObject {
 	size_t numberOfBindParameters();
 	const KernletParameterDefn &defnOfBindParameter(size_t index);
 
-private:
+  private:
 	void *_entry;
 	frg::vector<KernletParameterDefn, KernelAlloc> _bindDefns;
 	size_t _instanceSize;
@@ -40,13 +35,9 @@ private:
 struct BoundKernlet {
 	BoundKernlet(smarter::shared_ptr<KernletObject> object);
 
-	KernletObject *object() {
-		return _object.get();
-	}
+	KernletObject *object() { return _object.get(); }
 
-	const void *instanceStruct() {
-		return _instance;
-	}
+	const void *instanceStruct() { return _instance; }
 
 	void setupOffsetBinding(size_t index, uint32_t offset);
 	void setupMemoryViewBinding(size_t index, void *p);
@@ -54,7 +45,7 @@ struct BoundKernlet {
 
 	int invokeIrqAutomation();
 
-private:
+  private:
 	smarter::shared_ptr<KernletObject> _object;
 	char *_instance;
 };

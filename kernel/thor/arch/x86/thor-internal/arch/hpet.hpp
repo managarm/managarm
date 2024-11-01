@@ -3,8 +3,8 @@
 #include <stdint.h>
 
 #include <initgraph.hpp>
-#include <thor-internal/types.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/types.hpp>
 
 namespace thor {
 

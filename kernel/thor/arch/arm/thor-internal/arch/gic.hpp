@@ -1,9 +1,9 @@
 #pragma once
 
+#include <arch/mem_space.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/irq.hpp>
-#include <arch/mem_space.hpp>
 
 namespace thor {
 
@@ -22,8 +22,7 @@ struct Gic {
 	struct Pin : public IrqPin {
 		virtual ~Pin() = default;
 
-		Pin(frg::string<KernelAlloc> name)
-		: IrqPin{std::move(name)} {}
+		Pin(frg::string<KernelAlloc> name) : IrqPin{std::move(name)} {}
 
 		virtual bool setMode(TriggerMode trigger, Polarity polarity) = 0;
 
@@ -45,4 +44,4 @@ void initGicOnThisCpu();
 
 extern Gic *gic;
 
-}
+} // namespace thor

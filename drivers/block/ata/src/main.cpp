@@ -1,15 +1,15 @@
-#include <stdlib.h>
-#include <string.h>
 #include <assert.h>
 #include <iostream>
-#include <queue>
 #include <memory>
+#include <queue>
+#include <stdlib.h>
+#include <string.h>
 
-#include <async/result.hpp>
-#include <async/recurring-event.hpp>
-#include <async/oneshot-event.hpp>
 #include <arch/io_space.hpp>
 #include <arch/register.hpp>
+#include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
+#include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 #include <protocols/hw/client.hpp>
@@ -18,62 +18,60 @@
 #include <blockfs.hpp>
 
 namespace {
-	constexpr bool logIrqs = false;
-	constexpr bool logRequests = false;
-}
+constexpr bool logIrqs = false;
+constexpr bool logRequests = false;
+} // namespace
 
 // --------------------------------------------------------
 // Controller class
 // --------------------------------------------------------
 
 namespace regs {
-	inline constexpr arch::scalar_register<uint16_t> ioData{0};
-	inline constexpr arch::scalar_register<uint8_t> inStatus{7};
+inline constexpr arch::scalar_register<uint16_t> ioData{0};
+inline constexpr arch::scalar_register<uint8_t> inStatus{7};
 
-	inline constexpr arch::scalar_register<uint8_t> outSectorCount{2};
-	inline constexpr arch::scalar_register<uint8_t> outLba1{3};
-	inline constexpr arch::scalar_register<uint8_t> outLba2{4};
-	inline constexpr arch::scalar_register<uint8_t> outLba3{5};
-	inline constexpr arch::scalar_register<uint8_t> outDevice{6};
-	inline constexpr arch::scalar_register<uint8_t> outCommand{7};
-}
+inline constexpr arch::scalar_register<uint8_t> outSectorCount{2};
+inline constexpr arch::scalar_register<uint8_t> outLba1{3};
+inline constexpr arch::scalar_register<uint8_t> outLba2{4};
+inline constexpr arch::scalar_register<uint8_t> outLba3{5};
+inline constexpr arch::scalar_register<uint8_t> outDevice{6};
+inline constexpr arch::scalar_register<uint8_t> outCommand{7};
+} // namespace regs
 
 namespace alt_regs {
-	inline constexpr arch::scalar_register<uint8_t> inStatus{0};
+inline constexpr arch::scalar_register<uint8_t> inStatus{0};
 }
 
 class Controller : public blockfs::BlockDevice {
-	enum class IoResult {
-		none,
-		timeout,
-		notReady,
-		noData,
-		withData
-	};
+	enum class IoResult { none, timeout, notReady, noData, withData };
 
-public:
-	Controller(int64_t parentId, uint16_t mainOffset, uint16_t altOffset,
-			helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
-			helix::UniqueDescriptor irq);
+  public:
+	Controller(
+	    int64_t parentId,
+	    uint16_t mainOffset,
+	    uint16_t altOffset,
+	    helix::UniqueDescriptor mainBar,
+	    helix::UniqueDescriptor altBar,
+	    helix::UniqueDescriptor irq
+	);
 
-public:
+  public:
 	async::detached run();
 
-private:
+  private:
 	async::detached _doRequestLoop();
 	async::result<IoResult> _pollForBsy();
 	async::result<IoResult> _waitForBsyIrq();
 
-public:
-	async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) override;
+  public:
+	async::result<void> readSectors(uint64_t sector, void *buffer, size_t num_sectors) override;
 
-	async::result<void> writeSectors(uint64_t sector, const void *buffer,
-			size_t num_sectors) override;
+	async::result<void>
+	writeSectors(uint64_t sector, const void *buffer, size_t num_sectors) override;
 
 	async::result<size_t> getSize() override;
 
-private:
+  private:
 	enum Commands {
 		kCommandReadSectors = 0x20,
 		kCommandReadSectorsExt = 0x24,
@@ -117,11 +115,19 @@ private:
 	uint64_t _irqSequence;
 };
 
-Controller::Controller(int64_t parentId, uint16_t mainOffset, uint16_t altOffset,
-		helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
-		helix::UniqueDescriptor irq)
-: BlockDevice{512, parentId}, _irq{std::move(irq)},
-		_ioSpace{mainOffset}, _altSpace{altOffset}, _supportsLBA48{false} {
+Controller::Controller(
+    int64_t parentId,
+    uint16_t mainOffset,
+    uint16_t altOffset,
+    helix::UniqueDescriptor mainBar,
+    helix::UniqueDescriptor altBar,
+    helix::UniqueDescriptor irq
+)
+    : BlockDevice{512, parentId},
+      _irq{std::move(irq)},
+      _ioSpace{mainOffset},
+      _altSpace{altOffset},
+      _supportsLBA48{false} {
 	HEL_CHECK(helEnableIo(mainBar.getHandle()));
 	HEL_CHECK(helEnableIo(altBar.getHandle()));
 }
@@ -142,8 +148,8 @@ async::detached Controller::run() {
 }
 
 async::detached Controller::_doRequestLoop() {
-	while(true) {
-		if(_requestQueue.empty()) {
+	while (true) {
+		if (_requestQueue.empty()) {
 			co_await _doorbell.async_wait();
 			continue;
 		}
@@ -156,12 +162,12 @@ async::detached Controller::_doRequestLoop() {
 }
 
 auto Controller::_pollForBsy() -> async::result<IoResult> {
-	while(true) {
+	while (true) {
 		auto altStatus = _altSpace.load(alt_regs::inStatus);
-		if(altStatus & kStatusBsy)
+		if (altStatus & kStatusBsy)
 			continue; // TODO: sleep some time before continuing.
 		// TODO: Report those errors to the caller.
-		if(!(altStatus & kStatusRdy)) // Device was disconnected?
+		if (!(altStatus & kStatusRdy)) // Device was disconnected?
 			co_return IoResult::notReady;
 		assert(!(altStatus & kStatusErr));
 		assert(!(altStatus & kStatusDf));
@@ -170,13 +176,13 @@ auto Controller::_pollForBsy() -> async::result<IoResult> {
 }
 
 auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
-	while(true) {
-		if(logIrqs)
+	while (true) {
+		if (logIrqs)
 			std::cout << "block/ata: Awaiting IRQ." << std::endl;
 		auto await = co_await helix_ng::awaitEvent(_irq, _irqSequence);
 		HEL_CHECK(await.error());
 		_irqSequence = await.sequence();
-		if(logIrqs)
+		if (logIrqs)
 			std::cout << "block/ata: IRQ fired." << std::endl;
 
 		// Since ATA has no internal ISR register, we check BSY to see if the IRQ was likely
@@ -185,25 +191,27 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 		// Otherwise, if BSY is set, check an external ISR (e.g., PCI confiuration space),
 		// or error out below.
 		auto altStatus = _altSpace.load(alt_regs::inStatus);
-		if(altStatus & kStatusBsy) {
+		if (altStatus & kStatusBsy) {
 			// TODO: Check the PCI registers if the IRQ is pending.
 			//       This is the only situation where we should loop.
-			if(false) {
+			if (false) {
 				HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckNack, _irqSequence));
 				continue;
 			}
-			std::cout << "\e[31m" "block/ata: Drive asserted IRQ without clearing BSY"
-					"\e[39m" << std::endl;
+			std::cout << "\e[31m"
+			             "block/ata: Drive asserted IRQ without clearing BSY"
+			             "\e[39m"
+			          << std::endl;
 		}
 
 		// Clear and acknowledge the IRQ.
 		auto status = _ioSpace.load(regs::inStatus);
 		HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, _irqSequence));
 		// When BSY is still set, all other bits are meaningless.
-		if(status & kStatusBsy)
+		if (status & kStatusBsy)
 			co_return IoResult::timeout; // TODO: properly implement the timeout!
 		// TODO: Report those errors to the caller.
-		if(!(status & kStatusRdy)) // Device was disconnected?
+		if (!(status & kStatusRdy)) // Device was disconnected?
 			co_return IoResult::notReady;
 		assert(!(status & kStatusErr));
 		assert(!(status & kStatusDf));
@@ -211,8 +219,7 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 	}
 }
 
-async::result<void> Controller::readSectors(uint64_t sector,
-		void *buffer, size_t numSectors) {
+async::result<void> Controller::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
 	Request request{};
 	request.isWrite = false;
 	request.sector = sector;
@@ -225,8 +232,8 @@ async::result<void> Controller::readSectors(uint64_t sector,
 	co_await request.event.wait();
 }
 
-async::result<void> Controller::writeSectors(uint64_t sector,
-		const void *buffer, size_t numSectors) {
+async::result<void>
+Controller::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
 	Request request{};
 	request.isWrite = true;
 	request.sector = sector;
@@ -260,19 +267,19 @@ async::result<bool> Controller::_detectDevice() {
 	// In principle, we would have to wait for 30s.
 	// Let us hope that 5s are enough on real hardware.
 	bool isRdy = false;
-	for(int i = 0; i < 5; ++i) {
+	for (int i = 0; i < 5; ++i) {
 		auto altStatus = _altSpace.load(alt_regs::inStatus);
 		// We cannot trust RDY is BSY is set.
-		if(altStatus & kStatusBsy)
+		if (altStatus & kStatusBsy)
 			continue;
-		if(altStatus & kStatusRdy) {
+		if (altStatus & kStatusRdy) {
 			isRdy = true;
 			break;
 		}
 		co_await helix::sleepFor(1'000'000'000);
 	}
 
-	if(!isRdy)
+	if (!isRdy)
 		co_return false;
 
 	_ioSpace.store(regs::outCommand, kCommandIdentify);
@@ -295,18 +302,21 @@ async::result<bool> Controller::_detectDevice() {
 		model[i + 1] = tmp;
 	}
 
-	_supportsLBA48 = (ident_data[167] & (1 << 2))
-			&& (ident_data[173] & (1 << 2));
+	_supportsLBA48 = (ident_data[167] & (1 << 2)) && (ident_data[173] & (1 << 2));
 
-	printf("block/ata: detected device, model: '%s', %s 48-bit LBA\n", model, _supportsLBA48 ? "supports" : "doesn't support");
+	printf(
+	    "block/ata: detected device, model: '%s', %s 48-bit LBA\n",
+	    model,
+	    _supportsLBA48 ? "supports" : "doesn't support"
+	);
 
 	co_return true;
 }
 
 async::result<void> Controller::_performRequest(Request *request) {
-	if(logRequests)
-		std::cout << "block/ata: Reading/writing " << request->numSectors
-				<< " sectors from " << request->sector << std::endl;
+	if (logRequests)
+		std::cout << "block/ata: Reading/writing " << request->numSectors << " sectors from "
+		          << request->sector << std::endl;
 
 	assert(!(request->sector & ~((size_t(1) << 48) - 1)));
 	assert(request->numSectors <= 255);
@@ -326,14 +336,14 @@ async::result<void> Controller::_performRequest(Request *request) {
 	_ioSpace.store(regs::outLba2, (request->sector >> 8) & 0xFF);
 	_ioSpace.store(regs::outLba3, (request->sector >> 16) & 0xFF);
 
-	if(!request->isWrite) {
+	if (!request->isWrite) {
 		if (_supportsLBA48)
 			_ioSpace.store(regs::outCommand, kCommandReadSectorsExt);
 		else
 			_ioSpace.store(regs::outCommand, kCommandReadSectors);
 
 		// Receive the result for each sector.
-		for(size_t k = 0; k < request->numSectors; k++) {
+		for (size_t k = 0; k < request->numSectors; k++) {
 			auto ioRes = co_await _waitForBsyIrq();
 			assert(ioRes == IoResult::withData);
 
@@ -344,7 +354,7 @@ async::result<void> Controller::_performRequest(Request *request) {
 			*static_cast<volatile uint8_t *>(chunk); // Fault in the page.
 			_ioSpace.load_iterative(regs::ioData, reinterpret_cast<uint16_t *>(chunk), 256);
 		}
-	}else{
+	} else {
 		if (_supportsLBA48)
 			_ioSpace.store(regs::outCommand, kCommandWriteSectorsExt);
 		else
@@ -355,7 +365,7 @@ async::result<void> Controller::_performRequest(Request *request) {
 		assert(ioRes == IoResult::withData);
 
 		// Receive the result for each sector.
-		for(size_t k = 0; k < request->numSectors; k++) {
+		for (size_t k = 0; k < request->numSectors; k++) {
 			// Read the data.
 			// TODO: Do we have to be careful with endianess here?
 			auto chunk = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
@@ -365,17 +375,17 @@ async::result<void> Controller::_performRequest(Request *request) {
 
 			// Wait for the device to process the sector.
 			auto ioRes = co_await _waitForBsyIrq();
-			if(k + 1 < request->numSectors) {
+			if (k + 1 < request->numSectors) {
 				assert(ioRes == IoResult::withData);
-			}else{
+			} else {
 				assert(ioRes == IoResult::noData);
 			}
 		}
 	}
 
-	if(logRequests)
-		std::cout << "block/ata: Reading/writing from " << request->sector
-				<< " complete" << std::endl;
+	if (logRequests)
+		std::cout << "block/ata: Reading/writing from " << request->sector << " complete"
+		          << std::endl;
 }
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
@@ -393,18 +403,20 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 	auto altBar = co_await device.accessBar(1);
 	auto irq = co_await device.accessIrq();
 
-	auto controller = std::make_shared<Controller>(hwEntity.id(),
-			info.barInfo[0].address, info.barInfo[1].address,
-			std::move(mainBar), std::move(altBar),
-			std::move(irq));
+	auto controller = std::make_shared<Controller>(
+	    hwEntity.id(),
+	    info.barInfo[0].address,
+	    info.barInfo[1].address,
+	    std::move(mainBar),
+	    std::move(altBar),
+	    std::move(irq)
+	);
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"legacy", "ata"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"legacy", "ata"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {

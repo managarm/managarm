@@ -1,7 +1,7 @@
 #include <iostream>
 
-#include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "controller.hpp"
 
@@ -18,18 +18,19 @@ async::detached bindController(mbus_ng::Entity entity) {
 
 	helix::Mapping mapping{bar0, barInfo.offset, barInfo.length};
 
-	auto controller = std::make_unique<Controller>(entity.id(), std::move(device), std::move(mapping),
-			std::move(bar0), std::move(irq));
+	auto controller = std::make_unique<Controller>(
+	    entity.id(), std::move(device), std::move(mapping), std::move(bar0), std::move(irq)
+	);
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"pci-class", "01"},
-		mbus_ng::EqualsFilter{"pci-subclass", "08"},
-		mbus_ng::EqualsFilter{"pci-interface", "02"}
-	}};
+	auto filter = mbus_ng::Conjunction{
+	    {mbus_ng::EqualsFilter{"pci-class", "01"},
+	     mbus_ng::EqualsFilter{"pci-subclass", "08"},
+	     mbus_ng::EqualsFilter{"pci-interface", "02"}}
+	};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {

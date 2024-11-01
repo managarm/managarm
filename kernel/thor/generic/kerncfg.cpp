@@ -1,20 +1,20 @@
 #include <frg/string.hpp>
 
-#include <thor-internal/universe.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kerncfg.hpp>
-#include <thor-internal/ostrace.hpp>
 #include <thor-internal/kernel-log.hpp>
+#include <thor-internal/mbus.hpp>
+#include <thor-internal/ostrace.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/timer.hpp>
-#include <thor-internal/mbus.hpp>
-#include <thor-internal/physical.hpp>
+#include <thor-internal/universe.hpp>
 
-#include <bragi/helpers-frigg.hpp>
-#include <bragi/helpers-all.hpp>
 #include "kerncfg.frigg_bragi.hpp"
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
 
 #include <thor-internal/ring-buffer.hpp>
 
@@ -38,22 +38,24 @@ struct KerncfgBusObject : private KernelBusObject {
 		(co_await createObject("kerncfg", std::move(properties))).unwrap();
 	}
 
-private:
+  private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
 		auto [acceptError, lane] = co_await AcceptSender{boundLane};
-		if(acceptError != Error::success)
+		if (acceptError != Error::success)
 			co_return acceptError;
 
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-		if(reqError != Error::success)
+		if (reqError != Error::success)
 			co_return reqError;
 
 		auto preamble = bragi::read_preamble(reqBuffer);
 		if (preamble.error())
 			co_return Error::protocolViolation;
 
-		if(preamble.id() == bragi::message_id<managarm::kerncfg::GetCmdlineRequest>) {
-			auto req = bragi::parse_head_only<managarm::kerncfg::GetCmdlineRequest>(reqBuffer, *kernelAlloc);
+		if (preamble.id() == bragi::message_id<managarm::kerncfg::GetCmdlineRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetCmdlineRequest>(
+			    reqBuffer, *kernelAlloc
+			);
 
 			if (!req)
 				co_return Error::protocolViolation;
@@ -65,16 +67,19 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
+			if (respError != Error::success)
 				co_return respError;
 
 			frg::unique_memory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
 			memcpy(cmdlineBuffer.data(), kernelCommandLine->data(), kernelCommandLine->size());
 			auto cmdlineError = co_await SendBufferSender{lane, std::move(cmdlineBuffer)};
-			if(cmdlineError != Error::success)
+			if (cmdlineError != Error::success)
 				co_return cmdlineError;
-		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetMemoryInformationRequest>) {
-			auto req = bragi::parse_head_only<managarm::kerncfg::GetMemoryInformationRequest>(reqBuffer, *kernelAlloc);
+		} else if (preamble.id() ==
+		           bragi::message_id<managarm::kerncfg::GetMemoryInformationRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetMemoryInformationRequest>(
+			    reqBuffer, *kernelAlloc
+			);
 
 			if (!req)
 				co_return Error::protocolViolation;
@@ -88,10 +93,12 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
+			if (respError != Error::success)
 				co_return respError;
-		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetNumCpuRequest>) {
-			auto req = bragi::parse_head_only<managarm::kerncfg::GetNumCpuRequest>(reqBuffer, *kernelAlloc);
+		} else if (preamble.id() == bragi::message_id<managarm::kerncfg::GetNumCpuRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetNumCpuRequest>(
+			    reqBuffer, *kernelAlloc
+			);
 
 			if (!req) {
 				co_return Error::protocolViolation;
@@ -104,17 +111,17 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success) {
+			if (respError != Error::success) {
 				co_return respError;
 			}
-		}else{
+		} else {
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
+			if (respError != Error::success)
 				co_return respError;
 		}
 
@@ -124,36 +131,41 @@ private:
 
 struct ByteRingBusObject : private KernelBusObject {
 	ByteRingBusObject(LogRingBuffer *buffer, frg::string_view purpose)
-	: buffer_{buffer}, purpose_{purpose} { }
+	    : buffer_{buffer},
+	      purpose_{purpose} {}
 
 	coroutine<void> run() {
 		Properties properties;
-		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "kerncfg-byte-ring"));
+		properties.stringProperty(
+		    "class", frg::string<KernelAlloc>(*kernelAlloc, "kerncfg-byte-ring")
+		);
 		properties.stringProperty("purpose", frg::string<KernelAlloc>(*kernelAlloc, purpose_));
 
 		// TODO(qookie): Better error handling here.
 		(co_await createObject("kerncfg-byte-ring", std::move(properties))).unwrap();
 	}
 
-private:
+  private:
 	LogRingBuffer *buffer_;
 	frg::string_view purpose_;
 
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
 		auto [acceptError, lane] = co_await AcceptSender{boundLane};
-		if(acceptError != Error::success)
+		if (acceptError != Error::success)
 			co_return acceptError;
 
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
-		if(reqError != Error::success)
+		if (reqError != Error::success)
 			co_return reqError;
 
 		auto preamble = bragi::read_preamble(reqBuffer);
 		if (preamble.error())
 			co_return Error::protocolViolation;
 
-		if(preamble.id() == bragi::message_id<managarm::kerncfg::GetBufferContentsRequest>) {
-			auto maybeReq = bragi::parse_head_only<managarm::kerncfg::GetBufferContentsRequest>(reqBuffer, *kernelAlloc);
+		if (preamble.id() == bragi::message_id<managarm::kerncfg::GetBufferContentsRequest>) {
+			auto maybeReq = bragi::parse_head_only<managarm::kerncfg::GetBufferContentsRequest>(
+			    reqBuffer, *kernelAlloc
+			);
 
 			if (!maybeReq)
 				co_return Error::protocolViolation;
@@ -169,20 +181,21 @@ private:
 			// Extract the first record. We stop on success.
 			uint64_t effectivePtr;
 			uint64_t currentPtr;
-			while(true) {
-				auto [success, recordPtr, nextPtr, actualSize] = buffer_->dequeueAt(
-						req.dequeue(), dataBuffer.data(), req.size());
-				if(success) {
+			while (true) {
+				auto [success, recordPtr, nextPtr, actualSize] =
+				    buffer_->dequeueAt(req.dequeue(), dataBuffer.data(), req.size());
+				if (success) {
 					assert(actualSize); // For now, we do not support size zero records.
-					if(actualSize == req.size())
-						infoLogger() << "thor: kerncfg truncates a ring buffer record" << frg::endlog;
+					if (actualSize == req.size())
+						infoLogger()
+						    << "thor: kerncfg truncates a ring buffer record" << frg::endlog;
 					effectivePtr = recordPtr;
 					currentPtr = nextPtr;
 					progress += actualSize;
 					break;
 				}
 
-				if(!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT))
+				if (!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT))
 					co_await buffer_->wait(nextPtr);
 				else {
 					resp.set_error(managarm::kerncfg::Error::WOULD_BLOCK);
@@ -190,24 +203,27 @@ private:
 				}
 			}
 
-			if(!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD)) {
+			if (!(req.flags() & managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD)) {
 				// Extract further records. We stop on failure, or if we miss records.
-				while(true) {
+				while (true) {
 					auto [success, recordPtr, nextPtr, actualSize] = buffer_->dequeueAt(
-							currentPtr, static_cast<std::byte *>(dataBuffer.data()) + progress,
-							req.size() - progress);
-					if(recordPtr != currentPtr)
+					    currentPtr,
+					    static_cast<std::byte *>(dataBuffer.data()) + progress,
+					    req.size() - progress
+					);
+					if (recordPtr != currentPtr)
 						break;
-					if(success) {
+					if (success) {
 						assert(actualSize); // For now, we do not support size zero records.
-						if(actualSize == req.size() - progress)
+						if (actualSize == req.size() - progress)
 							break;
 						currentPtr = nextPtr;
 						progress += actualSize;
 						continue;
 					}
 
-					if(progress >= req.watermark() || req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT)
+					if (progress >= req.watermark() ||
+					    req.flags() & managarm::kerncfg::GetBufferContentsFlags::NO_WAIT)
 						break;
 
 					co_await buffer_->wait(nextPtr);
@@ -221,21 +237,21 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
+			if (respError != Error::success)
 				co_return respError;
 
 			auto dataError = co_await SendBufferSender{lane, std::move(dataBuffer)};
 
-			if(dataError != Error::success)
+			if (dataError != Error::success)
 				co_return dataError;
-		}else{
+		} else {
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
+			if (respError != Error::success)
 				co_return respError;
 		}
 
@@ -252,7 +268,8 @@ void initializeKerncfg() {
 		async::detach_with_allocator(*kernelAlloc, kerncfg->run());
 
 		{
-			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalLogRing(), "kernel-log");
+			auto ring =
+			    frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalLogRing(), "kernel-log");
 			async::detach_with_allocator(*kernelAlloc, ring->run());
 		}
 
@@ -262,12 +279,15 @@ void initializeKerncfg() {
 #endif
 
 		if (wantKernelProfile) {
-			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalProfileRing(), "kernel-profile");
+			auto ring = frg::construct<ByteRingBusObject>(
+			    *kernelAlloc, getGlobalProfileRing(), "kernel-profile"
+			);
 			async::detach_with_allocator(*kernelAlloc, ring->run());
 		}
 
 		if (wantOsTrace) {
-			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalOsTraceRing(), "os-trace");
+			auto ring =
+			    frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalOsTraceRing(), "os-trace");
 			async::detach_with_allocator(*kernelAlloc, ring->run());
 		}
 	});

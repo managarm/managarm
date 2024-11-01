@@ -1,21 +1,20 @@
 
-#include <string.h>
-#include <time.h>
-#include <optional>
 #include <memory>
 #include <optional>
+#include <protocols/fs/file-locks.hpp>
+#include <string.h>
+#include <time.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <protocols/fs/file-locks.hpp>
 
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
 #include <hel.h>
 
-#include <blockfs.hpp>
 #include "common.hpp"
 #include "fs.bragi.hpp"
+#include <blockfs.hpp>
 
 namespace blockfs {
 namespace ext2fs {
@@ -131,16 +130,9 @@ struct DiskInode {
 };
 static_assert(sizeof(DiskInode) == 128, "Bad DiskInode struct size");
 
-enum {
-	EXT2_ROOT_INO = 2
-};
+enum { EXT2_ROOT_INO = 2 };
 
-enum {
-	EXT2_S_IFMT = 0xF000,
-	EXT2_S_IFLNK = 0xA000,
-	EXT2_S_IFREG = 0x8000,
-	EXT2_S_IFDIR = 0x4000
-};
+enum { EXT2_S_IFMT = 0xF000, EXT2_S_IFLNK = 0xA000, EXT2_S_IFREG = 0x8000, EXT2_S_IFDIR = 0x4000 };
 
 struct DiskDirEntry {
 	uint32_t inode;
@@ -150,11 +142,7 @@ struct DiskDirEntry {
 	char name[];
 };
 
-enum {
-	EXT2_FT_REG_FILE = 1,
-	EXT2_FT_DIR = 2,
-	EXT2_FT_SYMLINK = 7
-};
+enum { EXT2_FT_REG_FILE = 1, EXT2_FT_DIR = 2, EXT2_FT_SYMLINK = 7 };
 
 // --------------------------------------------------------
 // DirEntry
@@ -174,26 +162,24 @@ struct FileSystem;
 struct Inode : std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
-	DiskInode *diskInode() {
-		return reinterpret_cast<DiskInode *>(diskMapping.get());
-	}
+	DiskInode *diskInode() { return reinterpret_cast<DiskInode *>(diskMapping.get()); }
 
 	// Returns the size of the file in bytes.
-	uint64_t fileSize() {
-		return diskInode()->size;
-	}
+	uint64_t fileSize() { return diskInode()->size; }
 
 	void setFileSize(uint64_t size);
 
 	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 	findEntry(std::string name);
 
-	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
+	async::result<std::optional<DirEntry>>
+	link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
 	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
-	async::result<protocols::fs::Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
+	async::result<protocols::fs::Error>
+	utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
 
 	FileSystem &fs;
 
@@ -256,24 +242,24 @@ struct FileSystem {
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 
-	async::result<void> write(Inode *inode, uint64_t offset,
-			const void *buffer, size_t length);
+	async::result<void> write(Inode *inode, uint64_t offset, const void *buffer, size_t length);
 
 	async::detached initiateInode(std::shared_ptr<Inode> inode);
 	async::detached manageFileData(std::shared_ptr<Inode> inode);
-	async::detached manageIndirect(std::shared_ptr<Inode> inode, int order,
-			helix::UniqueDescriptor memory);
+	async::detached
+	manageIndirect(std::shared_ptr<Inode> inode, int order, helix::UniqueDescriptor memory);
 
 	async::result<uint32_t> allocateBlock();
 	async::result<uint32_t> allocateInode();
 
-	async::result<void> assignDataBlocks(Inode *inode,
-			uint64_t block_offset, size_t num_blocks);
+	async::result<void> assignDataBlocks(Inode *inode, uint64_t block_offset, size_t num_blocks);
 
-	async::result<void> readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, void *buffer);
-	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, const void *buffer);
+	async::result<void> readDataBlocks(
+	    std::shared_ptr<Inode> inode, uint64_t block_offset, size_t num_blocks, void *buffer
+	);
+	async::result<void> writeDataBlocks(
+	    std::shared_ptr<Inode> inode, uint64_t block_offset, size_t num_blocks, const void *buffer
+	);
 
 	async::result<void> truncate(Inode *inode, size_t size);
 
@@ -315,5 +301,5 @@ struct OpenFile {
 	bool append;
 };
 
-} } // namespace blockfs::ext2fs
-
+} // namespace ext2fs
+} // namespace blockfs

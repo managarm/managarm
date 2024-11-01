@@ -24,18 +24,20 @@ managarm::fs::Errors Raw::serveSocket(helix::UniqueLane lane, int type, int prot
 }
 
 void Raw::feedPacket(arch::dma_buffer_view frame) {
-	for(auto s = sockets_.begin(); s != sockets_.end(); s++) {
+	for (auto s = sockets_.begin(); s != sockets_.end(); s++) {
 		size_t accept_bytes = SIZE_MAX;
 
-		if((*s)->filter_) {
+		if ((*s)->filter_) {
 			Bpf bpf{(*s)->filter_.value()};
 			accept_bytes = bpf.run(frame);
 
-			if(!accept_bytes)
+			if (!accept_bytes)
 				continue;
 		}
 
-		RawSocket::PacketInfo info{frame.size(), frame.subview(0, std::min(frame.size(), accept_bytes))};
+		RawSocket::PacketInfo info{
+		    frame.size(), frame.subview(0, std::min(frame.size(), accept_bytes))
+		};
 
 		(*s)->queue_.emplace(info);
 		(*s)->_inSeq = ++(*s)->_currentSeq;
@@ -43,52 +45,59 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 	}
 }
 
-async::result<protocols::fs::Error> RawSocket::bind(void* obj,
-		const char *creds, const void *addr_ptr, size_t addr_size) {
-	if(!addr_ptr || addr_size < sizeof(sockaddr))
+async::result<protocols::fs::Error>
+RawSocket::bind(void *obj, const char *creds, const void *addr_ptr, size_t addr_size) {
+	if (!addr_ptr || addr_size < sizeof(sockaddr))
 		co_return protocols::fs::Error::illegalArguments;
 
 	auto self = static_cast<RawSocket *>(obj);
 	self->parent->binds_.push_back(self->holder_.lock());
 
 	auto sa = reinterpret_cast<const sockaddr *>(addr_ptr);
-	if(sa->sa_family != PF_PACKET && addr_size < sizeof(sockaddr_ll))
+	if (sa->sa_family != PF_PACKET && addr_size < sizeof(sockaddr_ll))
 		co_return protocols::fs::Error::illegalArguments;
 	auto sa_ll = reinterpret_cast<const sockaddr_ll *>(addr_ptr);
 
 	assert(sa_ll->sll_protocol == htons(ETH_P_ALL));
-	if(sa_ll->sll_ifindex == 0) {
+	if (sa_ll->sll_ifindex == 0) {
 		self->link = nic::Link::getLinks().begin()->second;
 	} else {
 		self->link = nic::Link::byIndex(sa_ll->sll_ifindex);
 	}
 
-	if(!self->link)
+	if (!self->link)
 		co_return protocols::fs::Error::noBackingDevice;
 
 	co_return protocols::fs::Error::none;
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> RawSocket::write(void *obj,
-		const char *credentials, const void *buffer, size_t length) {
+async::result<frg::expected<protocols::fs::Error, size_t>>
+RawSocket::write(void *obj, const char *credentials, const void *buffer, size_t length) {
 	auto self = static_cast<RawSocket *>(obj);
 	assert(self->link);
 
 	auto buf = self->link->allocateFrame(length);
-	arch::dma_buffer_view view{ buf.frame };
+	arch::dma_buffer_view view{buf.frame};
 	memcpy(view.data(), buffer, length);
 	co_await self->link->send(view);
 
 	co_return length;
 }
 
-async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
-			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
-	(void) creds;
-	(void) flags;
-	(void) addr_buf;
-	(void) addr_size;
+async::result<protocols::fs::RecvResult> RawSocket::recvmsg(
+    void *obj,
+    const char *creds,
+    uint32_t flags,
+    void *data,
+    size_t len,
+    void *addr_buf,
+    size_t addr_size,
+    size_t max_ctrl_len
+) {
+	(void)creds;
+	(void)flags;
+	(void)addr_buf;
+	(void)addr_size;
 
 	auto self = static_cast<RawSocket *>(obj);
 
@@ -100,45 +109,45 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
 
-	if(self->packetAuxData_) {
+	if (self->packetAuxData_) {
 		ctrl.message(SOL_PACKET, PACKET_AUXDATA, sizeof(struct tpacket_auxdata));
 		ctrl.write<struct tpacket_auxdata>({
-			.tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
-			.tp_len = static_cast<uint32_t>(element->len),
-			.tp_snaplen = static_cast<uint32_t>(element->view.size()),
+		    .tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
+		    .tp_len = static_cast<uint32_t>(element->len),
+		    .tp_snaplen = static_cast<uint32_t>(element->view.size()),
 		});
 	}
 
 	co_return protocols::fs::RecvData{ctrl.buffer(), data_len, 0, 0};
 }
 
-async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(void *obj,
-		int layer, int number, std::vector<char> optbuf) {
+async::result<frg::expected<protocols::fs::Error>>
+RawSocket::setSocketOption(void *obj, int layer, int number, std::vector<char> optbuf) {
 	auto self = static_cast<RawSocket *>(obj);
 
-	if(layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
+	if (layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
 		assert(optbuf.size() % sizeof(struct sock_filter) == 0);
 
-		if(self->filterLocked_)
+		if (self->filterLocked_)
 			co_return protocols::fs::Error::insufficientPermissions;
 
 		Bpf bpf{optbuf};
-		if(!bpf.validate())
+		if (!bpf.validate())
 			co_return protocols::fs::Error::illegalArguments;
 
 		self->filter_ = optbuf;
-	} else if(layer == SOL_SOCKET && number == SO_DETACH_FILTER) {
-		if(self->filterLocked_)
+	} else if (layer == SOL_SOCKET && number == SO_DETACH_FILTER) {
+		if (self->filterLocked_)
 			co_return protocols::fs::Error::insufficientPermissions;
 
 		self->filter_ = std::nullopt;
-	} else if(layer == SOL_SOCKET && number == SO_LOCK_FILTER) {
+	} else if (layer == SOL_SOCKET && number == SO_LOCK_FILTER) {
 		auto opt = *reinterpret_cast<int *>(optbuf.data());
-		if(!opt && self->filterLocked_)
+		if (!opt && self->filterLocked_)
 			co_return protocols::fs::Error::insufficientPermissions;
 		else
 			self->filterLocked_ = true;
-	} else if(layer == SOL_PACKET && number == PACKET_AUXDATA) {
+	} else if (layer == SOL_PACKET && number == PACKET_AUXDATA) {
 		auto opt = *reinterpret_cast<int *>(optbuf.data());
 		self->packetAuxData_ = (opt != 0);
 	} else {
@@ -149,27 +158,30 @@ async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(vo
 	co_return {};
 }
 
-async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> RawSocket::pollWait(
-		void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+RawSocket::pollWait(
+    void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation
+) {
 	auto self = static_cast<RawSocket *>(obj);
 	(void)mask; // TODO: utilize mask.
 
 	assert(past_seq <= self->_currentSeq);
-	while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
+	while (past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
 		co_await self->_statusBell.async_wait(cancellation);
 
 	// For now making sockets always writable is sufficient.
 	int edges = EPOLLOUT;
-	if(self->_inSeq > past_seq)
+	if (self->_inSeq > past_seq)
 		edges |= EPOLLIN;
 
 	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
 }
 
-async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>> RawSocket::pollStatus(void *obj) {
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+RawSocket::pollStatus(void *obj) {
 	auto self = static_cast<RawSocket *>(obj);
 	int events = EPOLLOUT;
-	if(!self->queue_.empty())
+	if (!self->queue_.empty())
 		events |= EPOLLIN;
 
 	co_return protocols::fs::PollStatusResult(self->_currentSeq, events);

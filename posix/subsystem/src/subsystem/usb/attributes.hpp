@@ -5,260 +5,223 @@
 namespace usb_subsystem {
 
 struct VendorAttribute : sysfs::Attribute {
-	VendorAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	VendorAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceAttribute : sysfs::Attribute {
-	DeviceAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DeviceAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceClassAttribute : sysfs::Attribute {
-	DeviceClassAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DeviceClassAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceSubClassAttribute : sysfs::Attribute {
-	DeviceSubClassAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DeviceSubClassAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceProtocolAttribute : sysfs::Attribute {
-	DeviceProtocolAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DeviceProtocolAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct BcdDeviceAttribute : sysfs::Attribute {
-	BcdDeviceAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	BcdDeviceAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ManufacturerNameAttribute : sysfs::Attribute {
-	ManufacturerNameAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ManufacturerNameAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ProductNameAttribute : sysfs::Attribute {
-	ProductNameAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ProductNameAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct VersionAttribute : sysfs::Attribute {
-	VersionAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	VersionAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct SpeedAttribute : sysfs::Attribute {
-	SpeedAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	SpeedAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DeviceMaxPowerAttribute : sysfs::Attribute {
-	DeviceMaxPowerAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DeviceMaxPowerAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ControllerMaxPowerAttribute : sysfs::Attribute {
-	ControllerMaxPowerAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ControllerMaxPowerAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct MaxChildAttribute : sysfs::Attribute {
-	MaxChildAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	MaxChildAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct NumInterfacesAttribute : sysfs::Attribute {
-	NumInterfacesAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	NumInterfacesAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct BusNumAttribute : sysfs::Attribute {
-	BusNumAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	BusNumAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DevNumAttribute : sysfs::Attribute {
-	DevNumAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DevNumAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DescriptorsAttribute : sysfs::Attribute {
-	DescriptorsAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DescriptorsAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct RxLanesAttribute : sysfs::Attribute {
-	RxLanesAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	RxLanesAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct TxLanesAttribute : sysfs::Attribute {
-	TxLanesAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	TxLanesAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ConfigValueAttribute : sysfs::Attribute {
-	ConfigValueAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ConfigValueAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct MaxPacketSize0Attribute : sysfs::Attribute {
-	MaxPacketSize0Attribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	MaxPacketSize0Attribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ConfigurationAttribute : sysfs::Attribute {
-	ConfigurationAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ConfigurationAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct BmAttributesAttribute : sysfs::Attribute {
-	BmAttributesAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	BmAttributesAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct NumConfigurationsAttribute : sysfs::Attribute {
-	NumConfigurationsAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	NumConfigurationsAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct InterfaceClassAttribute : sysfs::Attribute {
-	InterfaceClassAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	InterfaceClassAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct InterfaceSubClassAttribute : sysfs::Attribute {
-	InterfaceSubClassAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	InterfaceSubClassAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct InterfaceProtocolAttribute : sysfs::Attribute {
-	InterfaceProtocolAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	InterfaceProtocolAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct AlternateSettingAttribute : sysfs::Attribute {
-	AlternateSettingAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	AlternateSettingAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct InterfaceNumberAttribute : sysfs::Attribute {
-	InterfaceNumberAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	InterfaceNumberAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EndpointNumAttribute : sysfs::Attribute {
-	EndpointNumAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EndpointNumAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EndpointAddressAttribute : sysfs::Attribute {
-	EndpointAddressAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EndpointAddressAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct PrettyIntervalAttribute : sysfs::Attribute {
-	PrettyIntervalAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	PrettyIntervalAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct IntervalAttribute : sysfs::Attribute {
-	IntervalAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	IntervalAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct LengthAttribute : sysfs::Attribute {
-	LengthAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	LengthAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EpAttributesAttribute : sysfs::Attribute {
-	EpAttributesAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EpAttributesAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EpMaxPacketSizeAttribute : sysfs::Attribute {
-	EpMaxPacketSizeAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EpMaxPacketSizeAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct EpTypeAttribute : sysfs::Attribute {
-	EpTypeAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	EpTypeAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };

@@ -12,18 +12,14 @@ struct KernelFiber;
 struct SingleContextRecordRing;
 struct WorkQueue;
 
-enum class ProfileMechanism {
-	none,
-	intelPmc,
-	amdPmc
-};
+enum class ProfileMechanism { none, intelPmc, amdPmc };
 
 struct CpuData : public PlatformCpuData {
 	CpuData();
 
 	CpuData(const CpuData &) = delete;
 
-	CpuData &operator= (const CpuData &) = delete;
+	CpuData &operator=(const CpuData &) = delete;
 
 	IrqMutex irqMutex;
 	UniqueKernelStack detachedStack;
@@ -48,16 +44,10 @@ struct CpuData : public PlatformCpuData {
 CpuData *getCpuData(size_t k);
 size_t getCpuCount();
 
-inline CpuData *getCpuData() {
-	return static_cast<CpuData *>(getPlatformCpuData());
-}
+inline CpuData *getCpuData() { return static_cast<CpuData *>(getPlatformCpuData()); }
 
-inline IrqMutex &irqMutex() {
-	return getCpuData()->irqMutex;
-}
+inline IrqMutex &irqMutex() { return getCpuData()->irqMutex; }
 
-inline ExecutorContext *currentExecutorContext() {
-	return getCpuData()->executorContext;
-}
+inline ExecutorContext *currentExecutorContext() { return getCpuData()->executorContext; }
 
 } // namespace thor

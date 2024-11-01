@@ -22,8 +22,8 @@ struct FutexRealm;
 // This struct uniquely identifies a futex.
 struct FutexIdentity {
 	struct Hash {
-		size_t operator() (FutexIdentity id) const {
-			auto h = [] (uintptr_t x) -> uintptr_t {
+		size_t operator()(FutexIdentity id) const {
+			auto h = [](uintptr_t x) -> uintptr_t {
 				static_assert(sizeof(uintptr_t) == 8);
 				x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
 				x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
@@ -35,7 +35,7 @@ struct FutexIdentity {
 		}
 	};
 
-	bool operator== (const FutexIdentity &) const = default;
+	bool operator==(const FutexIdentity &) const = default;
 
 	// Both of these values are opaque to the futex code.
 	uintptr_t spaceQualifier = 0;
@@ -45,7 +45,7 @@ struct FutexIdentity {
 // This concept allows access to a futex.
 // The FutexRealm code calls retire() after it is done with the futex. For example, retire()
 // can be used to unpin the memory page that contains the futex.
-template<typename F>
+template <typename F>
 concept Futex = requires(F f) {
 	// TODO: We would like to enfore return type here but we do not have the <concepts> header
 	//       in our current libstdc++ installation.
@@ -55,28 +55,27 @@ concept Futex = requires(F f) {
 };
 
 struct FutexRealm {
-private:
+  private:
 	// Represents a single waiter.
 	struct Node {
 		friend struct FutexRealm;
 
-		Node(FutexRealm *realm, FutexIdentity id)
-		: realm_{realm}, id_{id}, cobs_{this} { }
+		Node(FutexRealm *realm, FutexIdentity id) : realm_{realm}, id_{id}, cobs_{this} {}
 
-	protected:
+	  protected:
 		virtual void complete() = 0;
 
 		~Node() = default;
 
-	private:
+	  private:
 		void cancel_() {
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&realm_->_mutex);
 
-				if(!result_) {
+				if (!result_) {
 					auto sit = realm_->_slots.get(id_);
-					assert(sit);			
+					assert(sit);
 
 					// Invariant: If the slot exists then its queue is not empty.
 					assert(!sit->queue.empty());
@@ -85,9 +84,9 @@ private:
 					sit->queue.erase(nit);
 					result_ = Error::cancelled;
 
-					if(sit->queue.empty())
+					if (sit->queue.empty())
 						realm_->_slots.remove(id_);
-				}else{
+				} else {
 					assert(!queueHook_.in_list);
 				}
 			}
@@ -104,37 +103,33 @@ private:
 
 	struct Slot {
 		frg::intrusive_list<
-			Node,
-			frg::locate_member<
-				Node,
-				frg::default_list_hook<Node>,
-				&Node::queueHook_
-			>
-		> queue;
+		    Node,
+		    frg::locate_member<Node, frg::default_list_hook<Node>, &Node::queueHook_>>
+		    queue;
 	};
 
-public:
-	FutexRealm()
-	: _slots{FutexIdentity::Hash{}, *kernelAlloc} { }
+  public:
+	FutexRealm() : _slots{FutexIdentity::Hash{}, *kernelAlloc} {}
 
-	bool empty() {
-		return _slots.empty();
-	}
+	bool empty() { return _slots.empty(); }
 
 	// ----------------------------------------------------------------------------------
 	// wait().
 	// ----------------------------------------------------------------------------------
 
-	template<Futex F, typename R>
-	struct WaitOperation final : private Node {
-		WaitOperation(FutexRealm *self, F f, unsigned int expected,
-				async::cancellation_token ct, R receiver)
-		: Node{self, f.getIdentity()}, f_{std::move(f)}, expected_{expected}, ct_{ct},
-				receiver_{std::move(receiver)} { }
+	template <Futex F, typename R> struct WaitOperation final : private Node {
+		WaitOperation(
+		    FutexRealm *self, F f, unsigned int expected, async::cancellation_token ct, R receiver
+		)
+		    : Node{self, f.getIdentity()},
+		      f_{std::move(f)},
+		      expected_{expected},
+		      ct_{ct},
+		      receiver_{std::move(receiver)} {}
 
 		WaitOperation(const WaitOperation &) = delete;
 
-		WaitOperation &operator= (const WaitOperation &) = delete;
+		WaitOperation &operator=(const WaitOperation &) = delete;
 
 		bool start_inline() {
 			// We still need the futex after unlocking in the lambda below. However,
@@ -146,18 +141,18 @@ public:
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&realm_->_mutex);
 
-				if(f.read() != expected_) {
+				if (f.read() != expected_) {
 					result_ = Error::futexRace;
 					return true;
 				}
 
-				if(!cobs_.try_set(ct_)) {
+				if (!cobs_.try_set(ct_)) {
 					result_ = Error::cancelled;
 					return true;
 				}
 
 				auto sit = realm_->_slots.get(id_);
-				if(!sit) {
+				if (!sit) {
 					realm_->_slots.insert(id_, Slot());
 					sit = realm_->_slots.get(id_);
 				}
@@ -170,17 +165,15 @@ public:
 			// Retire up the Futex after installing the waiter.
 			f.retire();
 
-			if(fastPath) {
+			if (fastPath) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
 			return false;
 		}
 
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
+	  private:
+		void complete() override { async::execution::set_value_noinline(receiver_); }
 
 		F f_;
 		unsigned int expected_;
@@ -188,18 +181,14 @@ public:
 		R receiver_;
 	};
 
-	template<Futex F>
-	struct [[nodiscard]] WaitSender {
+	template <Futex F> struct [[nodiscard]] WaitSender {
 		using value_type = void;
 
-		template<typename R>
-		WaitOperation<F, R> connect(R receiver) {
+		template <typename R> WaitOperation<F, R> connect(R receiver) {
 			return {self, std::move(f), expected, ct, std::move(receiver)};
 		}
 
-		async::sender_awaiter<WaitSender> operator co_await() {
-			return {std::move(*this)};
-		}
+		async::sender_awaiter<WaitSender> operator co_await() { return {std::move(*this)}; }
 
 		FutexRealm *self;
 		F f;
@@ -207,7 +196,7 @@ public:
 		async::cancellation_token ct;
 	};
 
-	template<Futex F>
+	template <Futex F>
 	WaitSender<F> wait(F f, unsigned int expected, async::cancellation_token ct = {}) {
 		return {this, std::move(f), expected, ct};
 	}
@@ -216,58 +205,49 @@ public:
 
 	void wake(FutexIdentity id) {
 		frg::intrusive_list<
-			Node,
-			frg::locate_member<
-				Node,
-				frg::default_list_hook<Node>,
-				&Node::queueHook_
-			>
-		> pending;
+		    Node,
+		    frg::locate_member<Node, frg::default_list_hook<Node>, &Node::queueHook_>>
+		    pending;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_mutex);
 
 			auto sit = _slots.get(id);
-			if(!sit)
+			if (!sit)
 				return;
 			// Invariant: If the slot exists then its queue is not empty.
 			assert(!sit->queue.empty());
 
 			// TODO: Enable users to only wake a certain number of waiters.
-			while(!sit->queue.empty()) {
+			while (!sit->queue.empty()) {
 				auto node = sit->queue.front();
 				assert(!node->result_);
 				sit->queue.pop_front();
 
 				node->result_ = Error::success;
-				if(node->cobs_.try_reset()) {
+				if (node->cobs_.try_reset()) {
 					pending.push_back(node);
 				}
 			}
 
-			if(sit->queue.empty())
+			if (sit->queue.empty())
 				_slots.remove(id);
 		}
 
-		while(!pending.empty()) {
+		while (!pending.empty()) {
 			auto node = pending.pop_front();
 			node->complete();
 		}
 	}
 
-private:
+  private:
 	using Mutex = frg::ticket_spinlock;
 
 	// TODO: use a scalable hash table with fine-grained locks to
 	// improve the scalability of the futex algorithm.
 	Mutex _mutex;
 
-	frg::hash_map<
-		FutexIdentity,
-		Slot,
-		FutexIdentity::Hash,
-		KernelAlloc
-	> _slots;
+	frg::hash_map<FutexIdentity, Slot, FutexIdentity::Hash, KernelAlloc> _slots;
 };
 
 } // namespace thor

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <stdint.h>
-#include <stddef.h>
-#include <frg/array.hpp>
 #include <assert.h>
+#include <frg/array.hpp>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace common::x86 {
 
@@ -28,9 +28,9 @@ enum {
 
 inline frg::array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
 	frg::array<uint32_t, 4> out;
-	asm volatile ( "cpuid"
-			: "=a" (out[0]), "=b" (out[1]), "=c" (out[2]), "=d" (out[3])
-			: "a" (eax), "c" (ecx) );
+	asm volatile("cpuid"
+	             : "=a"(out[0]), "=b"(out[1]), "=c"(out[2]), "=d"(out[3])
+	             : "a"(eax), "c"(ecx));
 	return out;
 }
 
@@ -48,11 +48,9 @@ enum {
 	kMsrIndexVmCr = 0xC0010114,
 };
 
-enum {
-	kMsrSyscallEnable = 1
-};
+enum { kMsrSyscallEnable = 1 };
 
-inline void xsave(uint8_t* area, uint64_t rfbm){
+inline void xsave(uint8_t *area, uint64_t rfbm) {
 	assert(!((uintptr_t)area & 0x3F));
 
 	uintptr_t low = rfbm & 0xFFFFFFFF;
@@ -60,7 +58,7 @@ inline void xsave(uint8_t* area, uint64_t rfbm){
 	asm volatile("xsave %0" : : "m"(*area), "a"(low), "d"(high) : "memory");
 }
 
-inline void xrstor(uint8_t* area, uint64_t rfbm){
+inline void xrstor(uint8_t *area, uint64_t rfbm) {
 	assert(!((uintptr_t)area & 0x3F));
 
 	uintptr_t low = rfbm & 0xFFFFFFFF;
@@ -71,54 +69,52 @@ inline void xrstor(uint8_t* area, uint64_t rfbm){
 inline void wrmsr(uint32_t index, uint64_t value) {
 	uint32_t low = value;
 	uint32_t high = value >> 32;
-	asm volatile ( "wrmsr" : : "c" (index),
-			"a" (low), "d" (high) : "memory" );
+	asm volatile("wrmsr" : : "c"(index), "a"(low), "d"(high) : "memory");
 }
 
 inline uint64_t rdmsr(uint32_t index) {
 	uint32_t low, high;
-	asm volatile ( "rdmsr" : "=a" (low), "=d" (high)
-			: "c" (index) : "memory" );
+	asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(index) : "memory");
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }
 
-inline void wrxcr(uint32_t index, uint64_t value){
+inline void wrxcr(uint32_t index, uint64_t value) {
 	uint32_t low = value;
 	uint32_t high = value >> 32;
-	asm volatile ( "xsetbv" : : "c" (index),
-			"a" (low), "d" (high) : "memory" );
+	asm volatile("xsetbv" : : "c"(index), "a"(low), "d"(high) : "memory");
 }
 
 inline uint64_t rdxcr(uint32_t index) {
 	uint32_t low, high;
-	asm volatile ( "xgetbv" : "=a" (low), "=d" (high)
-			: "c" (index) : "memory" );
+	asm volatile("xgetbv" : "=a"(low), "=d"(high) : "c"(index) : "memory");
 	return ((uint64_t)high << 32) | (uint64_t)low;
 }
 
 inline uint8_t ioInByte(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t out_value asm("al");
-	asm volatile ( "inb %%dx, %%al" : "=r" (out_value) : "r" (in_port) );
+	asm volatile("inb %%dx, %%al" : "=r"(out_value) : "r"(in_port));
 	return out_value;
 }
 
 inline uint16_t ioInShort(uint16_t port) {
 	register uint16_t in_port asm("dx") = port;
 	register uint16_t out_value asm("ax");
-	asm volatile ( "inw %%dx, %%ax" : "=r" (out_value) : "r" (in_port) );
+	asm volatile("inw %%dx, %%ax" : "=r"(out_value) : "r"(in_port));
 	return out_value;
 }
 
 inline void ioPeekMultiple(uint16_t port, uint16_t *dest, size_t count) {
-	asm volatile ( "cld\n"
-			"\trep insw" : : "d" (port), "D" (dest), "c" (count) );
+	asm volatile("cld\n"
+	             "\trep insw"
+	             :
+	             : "d"(port), "D"(dest), "c"(count));
 }
 
 inline void ioOutByte(uint16_t port, uint8_t value) {
 	register uint16_t in_port asm("dx") = port;
 	register uint8_t in_value asm("al") = value;
-	asm volatile ( "outb %%al, %%dx" : : "r" (in_port), "r" (in_value) );
+	asm volatile("outb %%al, %%dx" : : "r"(in_port), "r"(in_value));
 }
 
 } // namespace common::x86

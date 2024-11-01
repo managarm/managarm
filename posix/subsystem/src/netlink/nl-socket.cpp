@@ -1,20 +1,20 @@
 #include <core/bpf.hpp>
+#include <format>
+#include <iostream>
+#include <linux/filter.h>
 #include <linux/netlink.h>
+#include <map>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include <linux/filter.h>
-#include <iostream>
-#include <map>
-#include <format>
 
-#include <async/recurring-event.hpp>
-#include <helix/ipc.hpp>
-#include <protocols/fs/common.hpp>
+#include "../process.hpp"
 #include "nl-socket.hpp"
 #include "nlctrl.hpp"
 #include "uevent.hpp"
-#include "../process.hpp"
+#include <async/recurring-event.hpp>
+#include <helix/ipc.hpp>
+#include <protocols/fs/common.hpp>
 
 namespace netlink::nl_socket {
 
@@ -37,20 +37,25 @@ std::map<uint32_t, OpenFile *> globalPortMap;
 // ----------------------------------------------------------------------------
 
 OpenFile::OpenFile(int protocol, bool nonBlock)
-		: File{StructName::get("nl-socket"), nullptr,
-		SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek},
-		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
-		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
+    : File{StructName::get("nl-socket"), nullptr, SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek},
+      _protocol{protocol},
+      ops_(globalProtocolOpsMap.at(protocol)),
+      _currentSeq{1},
+      _inSeq{0},
+      _socketPort{0},
+      _passCreds{false},
+      nonBlock_{nonBlock} {}
 
 void OpenFile::deliver(core::netlink::Packet packet) {
-	if(filter_) {
+	if (filter_) {
 		Bpf bpf{filter_.value()};
-		size_t accept_bytes = bpf.run(arch::dma_buffer_view{nullptr, packet.buffer.data(), packet.buffer.size()});
+		size_t accept_bytes =
+		    bpf.run(arch::dma_buffer_view{nullptr, packet.buffer.data(), packet.buffer.size()});
 
-		if(!accept_bytes)
+		if (!accept_bytes)
 			return;
 
-		if(accept_bytes < packet.buffer.size())
+		if (accept_bytes < packet.buffer.size())
 			packet.buffer.resize(accept_bytes);
 	}
 
@@ -61,16 +66,16 @@ void OpenFile::deliver(core::netlink::Packet packet) {
 
 async::result<frg::expected<Error, size_t>>
 OpenFile::readSome(Process *, void *data, size_t max_length) {
-	if(logSockets)
+	if (logSockets)
 		std::cout << "posix: Read from socket " << this << std::endl;
 
-	if(_recvQueue.empty() && nonBlock_) {
-		if(logSockets)
+	if (_recvQueue.empty() && nonBlock_) {
+		if (logSockets)
 			std::cout << "posix: netlink socket would block" << std::endl;
 		co_return Error::wouldBlock;
 	}
 
-	while(_recvQueue.empty())
+	while (_recvQueue.empty())
 		co_await _statusBell.async_wait();
 
 	// TODO: Truncate packets (for SOCK_DGRAM) here.
@@ -84,43 +89,49 @@ OpenFile::readSome(Process *, void *data, size_t max_length) {
 
 async::result<frg::expected<Error, size_t>>
 OpenFile::writeAll(Process *, const void *data, size_t length) {
-	(void) data;
-	(void) length;
+	(void)data;
+	(void)length;
 
 	throw std::runtime_error("posix: Fix netlink send()");
-/*
-	if(logSockets)
-		std::cout << "posix: Write to socket " << this << std::endl;
+	/*
+	    if(logSockets)
+	        std::cout << "posix: Write to socket " << this << std::endl;
 
-	Packet packet;
-	packet.buffer.resize(length);
-	memcpy(packet.buffer.data(), data, length);
+	    Packet packet;
+	    packet.buffer.resize(length);
+	    memcpy(packet.buffer.data(), data, length);
 
-	_remote->deliver(std::move(packet));
-*/
+	    _remote->deliver(std::move(packet));
+	*/
 
 	co_return {};
 }
 
-async::result<protocols::fs::RecvResult>
-OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
-		void *addr_ptr, size_t max_addr_length, size_t max_ctrl_length) {
-	(void) max_addr_length;
+async::result<protocols::fs::RecvResult> OpenFile::recvMsg(
+    Process *,
+    uint32_t flags,
+    void *data,
+    size_t max_length,
+    void *addr_ptr,
+    size_t max_addr_length,
+    size_t max_ctrl_length
+) {
+	(void)max_addr_length;
 
 	using namespace protocols::fs;
-	if(logSockets)
+	if (logSockets)
 		std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
-	if(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_PEEK | MSG_TRUNC)) {
+	if (flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_PEEK | MSG_TRUNC)) {
 		std::cout << std::format("posix: Unsupported flags 0x{:x} in recvMsg", flags) << std::endl;
 	}
 
-	if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
-		if(logSockets)
+	if (_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
+		if (logSockets)
 			std::cout << "posix: netlink socket would block" << std::endl;
-		co_return RecvResult { protocols::fs::Error::wouldBlock };
+		co_return RecvResult{protocols::fs::Error::wouldBlock};
 	}
 
-	while(_recvQueue.empty())
+	while (_recvQueue.empty())
 		co_await _statusBell.async_wait();
 
 	// TODO: Truncate packets (for SOCK_DGRAM) here.
@@ -131,11 +142,11 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
-	if(!(flags & MSG_PEEK)) {
+	if (!(flags & MSG_PEEK)) {
 		packet->offset += chunk;
 	}
 
-	if(addr_ptr) {
+	if (addr_ptr) {
 		struct sockaddr_nl sa;
 		memset(&sa, 0, sizeof(struct sockaddr_nl));
 		sa.nl_family = AF_NETLINK;
@@ -146,41 +157,51 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
-	if(_passCreds) {
+	if (_passCreds) {
 		struct ucred creds;
 		memset(&creds, 0, sizeof(struct ucred));
 		creds.pid = packet->senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+		if (!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
 			throw std::runtime_error("posix: Implement CMSG truncation");
 		ctrl.write<struct ucred>(creds);
 	}
 
-	if(!(flags & MSG_PEEK)) {
+	if (!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
 	}
 
 	uint32_t reply_flags = 0;
 
-	if(truncated_size < size) {
+	if (truncated_size < size) {
 		reply_flags |= MSG_TRUNC;
 	}
 
-	co_return RecvData{ctrl.buffer(), (flags & MSG_TRUNC) ? size : truncated_size,
-		sizeof(struct sockaddr_nl), reply_flags};
+	co_return RecvData{
+	    ctrl.buffer(),
+	    (flags & MSG_TRUNC) ? size : truncated_size,
+	    sizeof(struct sockaddr_nl),
+	    reply_flags
+	};
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>>
-OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
-		const void *addr_ptr, size_t addr_length,
-		std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred) {
-	if(logSockets)
+async::result<frg::expected<protocols::fs::Error, size_t>> OpenFile::sendMsg(
+    Process *process,
+    uint32_t flags,
+    const void *data,
+    size_t max_length,
+    const void *addr_ptr,
+    size_t addr_length,
+    std::vector<smarter::shared_ptr<File, FileHandle>> files,
+    struct ucred
+) {
+	if (logSockets)
 		std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 	assert(!flags);
 	assert(files.empty());
 
 	struct sockaddr_nl sa;
-	if(addr_length >= sizeof(struct sockaddr_nl) && addr_ptr) {
+	if (addr_length >= sizeof(struct sockaddr_nl) && addr_ptr) {
 		memcpy(&sa, addr_ptr, sizeof(struct sockaddr_nl));
 	} else {
 		memset(&sa, 0, sizeof(sa));
@@ -188,7 +209,7 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	}
 
 	size_t grp_idx = 0;
-	if(sa.nl_groups) {
+	if (sa.nl_groups) {
 		// Linux allows multicast only to a single group at a time.
 		grp_idx = __builtin_ffs(sa.nl_groups);
 	}
@@ -203,10 +224,10 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 	packet.buffer.resize(max_length);
 	memcpy(packet.buffer.data(), data, max_length);
 
-	if(ops_ && ops_->sendMsg) {
+	if (ops_ && ops_->sendMsg) {
 		auto res = co_await ops_->sendMsg(this, packet, &sa);
 
-		if(res != protocols::fs::Error::none)
+		if (res != protocols::fs::Error::none)
 			co_return res;
 	} else {
 		co_return protocols::fs::Error::illegalOperationTarget;
@@ -216,48 +237,48 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 }
 
 async::result<frg::expected<Error, PollWaitResult>>
-OpenFile::pollWait(Process *, uint64_t past_seq, int mask,
-		async::cancellation_token cancellation) {
+OpenFile::pollWait(Process *, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
 	(void)mask; // TODO: utilize mask.
-	if(_isClosed)
+	if (_isClosed)
 		co_return Error::fileClosed;
 
 	assert(past_seq <= _currentSeq);
-	while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
+	while (past_seq == _currentSeq && !cancellation.is_cancellation_requested())
 		co_await _statusBell.async_wait(cancellation);
 
-	if(_isClosed)
+	if (_isClosed)
 		co_return Error::fileClosed;
 
 	// For now making sockets always writable is sufficient.
 	int edges = EPOLLOUT;
-	if(_inSeq > past_seq)
+	if (_inSeq > past_seq)
 		edges |= EPOLLIN;
 
-//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _currentSeq
-//				<< ", " << edges << ")" << std::endl;
+	//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() <<
+	//"\e[0m"
+	//				<< " returns (" << _currentSeq
+	//				<< ", " << edges << ")" << std::endl;
 
 	co_return PollWaitResult(_currentSeq, edges);
 }
 
 async::result<frg::expected<Error, PollStatusResult>> OpenFile::pollStatus(Process *) {
 	int events = EPOLLOUT;
-	if(!_recvQueue.empty())
+	if (!_recvQueue.empty())
 		events |= EPOLLIN;
 
 	co_return PollStatusResult(_currentSeq, events);
 }
 
-async::result<protocols::fs::Error> OpenFile::bind(Process *,
-		const void *addr_ptr, size_t addr_length) {
-	if(addr_length < sizeof(struct sockaddr_nl))
+async::result<protocols::fs::Error>
+OpenFile::bind(Process *, const void *addr_ptr, size_t addr_length) {
+	if (addr_length < sizeof(struct sockaddr_nl))
 		co_return protocols::fs::Error::illegalArguments;
 
 	struct sockaddr_nl sa;
 	memcpy(&sa, addr_ptr, addr_length);
 
-	if(!sa.nl_pid) {
+	if (!sa.nl_pid) {
 		_associatePort();
 	} else {
 		_socketPort = sa.nl_pid;
@@ -265,12 +286,11 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 		assert(res.second);
 	}
 
-	if(sa.nl_groups) {
-		for(int i = 0; i < 32; i++) {
-			if(!(sa.nl_groups & (1 << i)))
+	if (sa.nl_groups) {
+		for (int i = 0; i < 32; i++) {
+			if (!(sa.nl_groups & (1 << i)))
 				continue;
-			std::cout << "posix: Join netlink group "
-					<< _protocol << "." << (i + 1) << std::endl;
+			std::cout << "posix: Join netlink group " << _protocol << "." << (i + 1) << std::endl;
 
 			auto it = globalGroupMap.find({_protocol, i + 1});
 			assert(it != globalGroupMap.end());
@@ -296,20 +316,19 @@ async::result<size_t> OpenFile::sockname(void *addr_ptr, size_t max_addr_length)
 	co_return sizeof(struct sockaddr_nl);
 }
 
-async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int layer, int number,
-		std::vector<char> optbuf) {
-	if(layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
+async::result<frg::expected<protocols::fs::Error>>
+OpenFile::setSocketOption(int layer, int number, std::vector<char> optbuf) {
+	if (layer == SOL_SOCKET && number == SO_ATTACH_FILTER) {
 		assert(optbuf.size() % sizeof(struct sock_filter) == 0);
 
 		Bpf bpf{optbuf};
-		if(!bpf.validate())
+		if (!bpf.validate())
 			co_return protocols::fs::Error::illegalArguments;
 
 		filter_ = optbuf;
-	} else if(layer == SOL_NETLINK && number == NETLINK_ADD_MEMBERSHIP) {
+	} else if (layer == SOL_NETLINK && number == NETLINK_ADD_MEMBERSHIP) {
 		auto val = *reinterpret_cast<int *>(optbuf.data());
-		std::cout << "posix: Join netlink group "
-					<< _protocol << "." << val << std::endl;
+		std::cout << "posix: Join netlink group " << _protocol << "." << val << std::endl;
 		auto it = globalGroupMap.find({_protocol, val});
 		assert(it != globalGroupMap.end());
 		auto group = it->second.get();
@@ -324,7 +343,8 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 
 async::result<void> OpenFile::setFileFlags(int flags) {
 	if (flags & ~O_NONBLOCK) {
-		std::cout << "posix: setFileFlags on netlink socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+		std::cout << "posix: setFileFlags on netlink socket \e[1;34m" << structName()
+		          << "\e[0m called with unknown flags" << std::endl;
 		co_return;
 	}
 	if (flags & O_NONBLOCK)
@@ -335,7 +355,7 @@ async::result<void> OpenFile::setFileFlags(int flags) {
 }
 
 async::result<int> OpenFile::getFileFlags() {
-	if(nonBlock_)
+	if (nonBlock_)
 		co_return O_NONBLOCK;
 	co_return 0;
 }
@@ -361,7 +381,7 @@ void configure(int protocol, size_t num_groups, const ops *ops) {
 
 	globalProtocolOpsMap.insert({protocol, ops});
 
-	for(size_t i = 0; i < num_groups; i++) {
+	for (size_t i = 0; i < num_groups; i++) {
 		std::pair<int, int> idx{protocol, i + 1};
 		auto res = globalGroupMap.insert(std::make_pair(idx, std::make_unique<Group>()));
 		assert(res.second);
@@ -370,7 +390,7 @@ void configure(int protocol, size_t num_groups, const ops *ops) {
 
 void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
 	core::netlink::Packet packet{
-		.group = grp_idx,
+	    .group = grp_idx,
 	};
 	packet.buffer.resize(buffer.size());
 	memcpy(packet.buffer.data(), buffer.data(), buffer.size());
@@ -381,9 +401,7 @@ void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
 	group->carbonCopy(packet);
 }
 
-bool protocol_supported(int protocol) {
-	return globalProtocolOpsMap.contains(protocol);
-}
+bool protocol_supported(int protocol) { return globalProtocolOpsMap.contains(protocol); }
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, bool nonBlock) {
 	auto file = smarter::make_shared<OpenFile>(protocol, nonBlock);
@@ -393,4 +411,3 @@ smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, bool nonBlo
 }
 
 } // namespace netlink::nl_socket
-

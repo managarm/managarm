@@ -10,7 +10,10 @@
 #include "efi.hpp"
 #include "helpers.hpp"
 
-static_assert(sizeof(char16_t) == sizeof(wchar_t), "Strings are not UTF-16-ish, are you missing -fshort-wchar?");
+static_assert(
+    sizeof(char16_t) == sizeof(wchar_t),
+    "Strings are not UTF-16-ish, are you missing -fshort-wchar?"
+);
 extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t) __attribute__((sysv_abi));
 
 namespace eir {
@@ -22,8 +25,8 @@ efi_handle handle = nullptr;
 namespace {
 
 void uefiBootServicesLogHandler(const char c) {
-	if(bs) {
-		if(c == '\n') {
+	if (bs) {
+		if (c == '\n') {
 			frg::array<char16_t, 3> newline = {u"\r\n"};
 			st->con_out->output_string(st->con_out, newline.data());
 			return;
@@ -56,14 +59,16 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	// Convert the command line to ASCII.
 	char *cmdLine = nullptr;
 	{
-		EFI_CHECK(bs->allocate_pool(EfiLoaderData,
-			(loadedImage->load_options_size / sizeof(uint16_t)) + 1,
-			reinterpret_cast<void **>(&cmdLine)));
+		EFI_CHECK(bs->allocate_pool(
+		    EfiLoaderData,
+		    (loadedImage->load_options_size / sizeof(uint16_t)) + 1,
+		    reinterpret_cast<void **>(&cmdLine)
+		));
 		size_t i = 0;
-		for(; i < loadedImage->load_options_size / sizeof(char16_t); i++) {
+		for (; i < loadedImage->load_options_size / sizeof(char16_t); i++) {
 			auto c = reinterpret_cast<char16_t *>(loadedImage->load_options)[i];
 			// we only use printable ASCII characters, everything else gets discarded
-			if(c >= 0x20 && c <= 0x7E) {
+			if (c >= 0x20 && c <= 0x7E) {
 				cmdLine[i] = c;
 			} else {
 				cmdLine[i] = '\0';
@@ -79,11 +84,11 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	frg::string_view initrd_path = "managarm\\initrd.cpio";
 
 	frg::array args = {
-		// allow for attaching GDB to eir
-		frg::option{"eir.efidebug", frg::store_false(eir_gdb_ready_val)},
-		frg::option{"bochs", frg::store_true(log_e9)},
-		frg::option{"eir.thor", frg::as_string_view(thor_path)},
-		frg::option{"eir.initrd", frg::as_string_view(initrd_path)},
+	    // allow for attaching GDB to eir
+	    frg::option{"eir.efidebug", frg::store_false(eir_gdb_ready_val)},
+	    frg::option{"bochs", frg::store_true(log_e9)},
+	    frg::option{"eir.thor", frg::as_string_view(thor_path)},
+	    frg::option{"eir.initrd", frg::as_string_view(initrd_path)},
 	};
 	frg::parse_arguments(cmdLine, args);
 
@@ -92,12 +97,12 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	// this needs to be volatile as GDB sets this to true on attach
 	volatile bool eir_gdb_ready = eir_gdb_ready_val;
 
-	if(!eir_gdb_ready_val) {
+	if (!eir_gdb_ready_val) {
 		// exfiltrate our base address for use with gdb
 		constexpr arch::scalar_register<uint8_t> offset{0};
 		auto port = arch::global_io.subspace(0xCB7);
 
-		for(size_t i = 0; i < sizeof(uintptr_t); i++) {
+		for (size_t i = 0; i < sizeof(uintptr_t); i++) {
 			uint8_t b = reinterpret_cast<uintptr_t>(loadedImage->image_base) >> (i * 8);
 			port.store(offset, b);
 		}
@@ -105,14 +110,15 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 		eir::infoLogger() << "eir: Waiting for GDB to attach" << frg::endlog;
 	}
 
-	while(!eir_gdb_ready);
+	while (!eir_gdb_ready)
+		;
 
 	// acquire ACPI table info
 	efi_guid acpi_guid = ACPI_20_TABLE_GUID;
 	const efi_configuration_table *t = st->configuration_table;
 	uintptr_t rsdp = 0;
-	for(size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
-		if(!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid)))
+	for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
+		if (!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid)))
 			rsdp = reinterpret_cast<uintptr_t>(t->vendor_table);
 
 	// Load the kernel and initrd.
@@ -120,7 +126,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	EFI_CHECK(fsOpen(&kernelFile, asciiToUcs2(thor_path)));
 	auto kernel_info = fsGetInfo(kernelFile);
 	efi_physical_addr thor = 0;
-	EFI_CHECK(bs->allocate_pages(AllocateAnyPages, EfiLoaderData, (kernel_info->file_size >> 12) + 1, &thor));
+	EFI_CHECK(bs->allocate_pages(
+	    AllocateAnyPages, EfiLoaderData, (kernel_info->file_size >> 12) + 1, &thor
+	));
 	fsRead(kernelFile, kernel_info->file_size, 0, thor);
 
 	efi_file_protocol *initrdFile = nullptr;
@@ -129,7 +137,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 
 	// Read initrd.
 	efi_physical_addr initrd = 0;
-	EFI_CHECK(bs->allocate_pages(AllocateAnyPages, EfiLoaderData, (initrdInfo->file_size >> 12) + 1, &initrd));
+	EFI_CHECK(bs->allocate_pages(
+	    AllocateAnyPages, EfiLoaderData, (initrdInfo->file_size >> 12) + 1, &initrd
+	));
 	EFI_CHECK(fsRead(initrdFile, initrdInfo->file_size, 0, initrd));
 
 	// Get the frame buffer.
@@ -137,17 +147,17 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 
 	{
 		efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-		efi_status status = bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop));
+		efi_status status =
+		    bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop));
 
-		if(gop->mode->info->version != 0)
-			eir::panicLogger() << "error: unsupported EFI_GRAPHICS_OUTPUT_MODE_INFORMATION version!" << frg::endlog;
+		if (gop->mode->info->version != 0)
+			eir::panicLogger() << "error: unsupported EFI_GRAPHICS_OUTPUT_MODE_INFORMATION version!"
+			                   << frg::endlog;
 
-		if(status == EFI_SUCCESS) {
-			eir::infoLogger() << "eir: framebuffer "
-				<< gop->mode->info->horizontal_resolution << "x"
-				<< gop->mode->info->vertical_resolution << " address=0x"
-				<< frg::hex_fmt{gop->mode->framebuffer_base}
-				<< frg::endlog;
+		if (status == EFI_SUCCESS) {
+			eir::infoLogger() << "eir: framebuffer " << gop->mode->info->horizontal_resolution
+			                  << "x" << gop->mode->info->vertical_resolution << " address=0x"
+			                  << frg::hex_fmt{gop->mode->framebuffer_base} << frg::endlog;
 		} else {
 			// the spec claims that the `void **interface` argument will be a nullptr on
 			// spec-listed error returns, but only lists two error codes; there are more
@@ -164,7 +174,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	efi_memory_descriptor dummy;
 
 	// First get the size of the memory map buffer to allocate.
-	efi_status status = bs->get_memory_map(&memMapSize, &dummy, &mapKey, &descriptorSize, &descriptorVersion);
+	efi_status status =
+	    bs->get_memory_map(&memMapSize, &dummy, &mapKey, &descriptorSize, &descriptorVersion);
 	assert(status == EFI_BUFFER_TOO_SMALL);
 
 	// over-allocate a bit to accomodate the allocation we have to make here
@@ -175,15 +186,19 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	EFI_CHECK(bs->allocate_pool(EfiLoaderData, memMapSize, &memMap));
 
 	// Now, get the actual memory map.
-	EFI_CHECK(bs->get_memory_map(&memMapSize,
-		reinterpret_cast<efi_memory_descriptor*>(memMap),
-		&mapKey, &descriptorSize, &descriptorVersion));
+	EFI_CHECK(bs->get_memory_map(
+	    &memMapSize,
+	    reinterpret_cast<efi_memory_descriptor *>(memMap),
+	    &mapKey,
+	    &descriptorSize,
+	    &descriptorVersion
+	));
 
 	// Exit boot services.
 	EFI_CHECK(bs->exit_boot_services(handle, mapKey));
 	bs = nullptr;
 #if defined(__x86_64__)
-	asm volatile ("cli");
+	asm volatile("cli");
 #else
 #error "Unsupported architecture!"
 #endif
@@ -191,7 +206,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	frg::array<InitialRegion, 4> reservedRegions = {};
 	size_t nReservedRegions = 0;
 
-	reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size};
+	reservedRegions[nReservedRegions++] = {
+	    reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size
+	};
 	reservedRegions[nReservedRegions++] = {thor, kernel_info->file_size};
 	reservedRegions[nReservedRegions++] = {initrd, initrdInfo->file_size};
 
@@ -204,10 +221,12 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	auto nextEntry = [&](efi_physical_addr addr) {
 		const efi_memory_descriptor *lowest = nullptr;
 
-		for(size_t i = 0; i < entries; i++) {
-			auto e = reinterpret_cast<const efi_memory_descriptor *>(uintptr_t(memMap) + (i * descriptorSize));
-			if(e->physical_start >= addr) {
-				if(!lowest || e->physical_start < lowest->physical_start) {
+		for (size_t i = 0; i < entries; i++) {
+			auto e = reinterpret_cast<const efi_memory_descriptor *>(
+			    uintptr_t(memMap) + (i * descriptorSize)
+			);
+			if (e->physical_start >= addr) {
+				if (!lowest || e->physical_start < lowest->physical_start) {
 					lowest = e;
 				}
 			}
@@ -217,50 +236,48 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	};
 
 	auto isContiguous = [](const efi_memory_descriptor *a, const efi_memory_descriptor *b) {
-		if(a->physical_start + (a->number_of_pages * eir::pageSize) == b->physical_start)
+		if (a->physical_start + (a->number_of_pages * eir::pageSize) == b->physical_start)
 			return true;
 		return false;
 	};
 
 	auto isUsable = [](const efi_memory_descriptor *e) {
-		switch(e->type) {
-			case EfiConventionalMemory:
-			case EfiBootServicesCode:
-			case EfiBootServicesData:
-				return true;
-			default:
-				return false;
+		switch (e->type) {
+		case EfiConventionalMemory:
+		case EfiBootServicesCode:
+		case EfiBootServicesData:
+			return true;
+		default:
+			return false;
 		}
 	};
 
 	eir::infoLogger() << "Memory map:" << frg::endlog;
 	auto entry = nextEntry(0);
 
-	while(entry) {
+	while (entry) {
 		auto lastContiguousEntry = entry;
 
-		while(true) {
+		while (true) {
 			auto next = nextEntry(endAddr(lastContiguousEntry));
 
-			if(!next || !isContiguous(lastContiguousEntry, next))
+			if (!next || !isContiguous(lastContiguousEntry, next))
 				break;
 
-			if(isUsable(lastContiguousEntry) != isUsable(next))
+			if (isUsable(lastContiguousEntry) != isUsable(next))
 				break;
 
 			lastContiguousEntry = next;
 		}
 
-		eir::infoLogger()
-			<< "\tbase=0x" << frg::hex_fmt{entry->physical_start}
-			<< " length=0x" << frg::hex_fmt{endAddr(lastContiguousEntry) - entry->physical_start}
-			<< " usable=" << (isUsable(entry) ? "true" : "false")
-			<< frg::endlog;
+		eir::infoLogger() << "\tbase=0x" << frg::hex_fmt{entry->physical_start} << " length=0x"
+		                  << frg::hex_fmt{endAddr(lastContiguousEntry) - entry->physical_start}
+		                  << " usable=" << (isUsable(entry) ? "true" : "false") << frg::endlog;
 
-		if(isUsable(entry)) {
+		if (isUsable(entry)) {
 			createInitialRegions(
-				{entry->physical_start, endAddr(lastContiguousEntry) - entry->physical_start},
-				{reservedRegions.data(), nReservedRegions}
+			    {entry->physical_start, endAddr(lastContiguousEntry) - entry->physical_start},
+			    {reservedRegions.data(), nReservedRegions}
 			);
 		}
 
@@ -293,44 +310,48 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	auto base = reinterpret_cast<uintptr_t>(loadedImage->image_base);
 	auto pages = (loadedImage->image_size >> 12) + 1;
 
-	for(size_t i = 0; i < pages; i++) {
+	for (size_t i = 0; i < pages; i++) {
 		mapSingle4kPage(base + (i << 12), base + (i << 12), PageFlags::write | PageFlags::execute);
 	}
 
-	if(gop && gop->mode->info->pixel_format != PixelBltOnly) {
+	if (gop && gop->mode->info->pixel_format != PixelBltOnly) {
 		auto fb = &info_ptr->frameBuffer;
 
-		switch(gop->mode->info->pixel_format) {
-			case PixelBlueGreenRedReserved8BitPerColor:
-				fb->fbBpp = 32;
-				break;
-			case PixelRedGreenBlueReserved8BitPerColor:
-				fb->fbBpp = 32;
-				break;
-			case PixelBitMask: {
-				assert(gop->mode->info->pixel_information.red_mask);
-				assert(gop->mode->info->pixel_information.green_mask);
-				assert(gop->mode->info->pixel_information.blue_mask);
+		switch (gop->mode->info->pixel_format) {
+		case PixelBlueGreenRedReserved8BitPerColor:
+			fb->fbBpp = 32;
+			break;
+		case PixelRedGreenBlueReserved8BitPerColor:
+			fb->fbBpp = 32;
+			break;
+		case PixelBitMask: {
+			assert(gop->mode->info->pixel_information.red_mask);
+			assert(gop->mode->info->pixel_information.green_mask);
+			assert(gop->mode->info->pixel_information.blue_mask);
 
-				size_t hbred = (sizeof(uint32_t) * 8) - __builtin_clz(gop->mode->info->pixel_information.red_mask);
-				size_t hbgreen = (sizeof(uint32_t) * 8) - __builtin_clz(gop->mode->info->pixel_information.green_mask);
-				size_t hbblue = (sizeof(uint32_t) * 8) - __builtin_clz(gop->mode->info->pixel_information.blue_mask);
+			size_t hbred =
+			    (sizeof(uint32_t) * 8) - __builtin_clz(gop->mode->info->pixel_information.red_mask);
+			size_t hbgreen = (sizeof(uint32_t) * 8) -
+			                 __builtin_clz(gop->mode->info->pixel_information.green_mask);
+			size_t hbblue = (sizeof(uint32_t) * 8) -
+			                __builtin_clz(gop->mode->info->pixel_information.blue_mask);
 
-				frg::optional<size_t> hbres = {};
-				if(gop->mode->info->pixel_information.reserved_mask)
-					hbres = (sizeof(uint32_t) * 8) - __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
+			frg::optional<size_t> hbres = {};
+			if (gop->mode->info->pixel_information.reserved_mask)
+				hbres = (sizeof(uint32_t) * 8) -
+				        __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
 
-				size_t highest_bit = frg::max(hbred, hbgreen);
-				highest_bit = frg::max(highest_bit, hbblue);
-				if(hbres)
-					highest_bit = frg::max(highest_bit, hbres.value());
+			size_t highest_bit = frg::max(hbred, hbgreen);
+			highest_bit = frg::max(highest_bit, hbblue);
+			if (hbres)
+				highest_bit = frg::max(highest_bit, hbres.value());
 
-				assert(highest_bit % 8 == 0);
-				fb->fbBpp = highest_bit;
-				break;
-			}
-			default:
-				eir::panicLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
+			assert(highest_bit % 8 == 0);
+			fb->fbBpp = highest_bit;
+			break;
+		}
+		default:
+			eir::panicLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
 		}
 
 		fb->fbAddress = gop->mode->framebuffer_base;
@@ -341,9 +362,13 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 
 		// Map the framebuffer.
 		assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
-		for(address_t pg = 0; pg < gop->mode->framebuffer_size; pg += 0x1000)
-			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, fb->fbAddress + pg,
-					PageFlags::write, CachingMode::writeCombine);
+		for (address_t pg = 0; pg < gop->mode->framebuffer_size; pg += 0x1000)
+			mapSingle4kPage(
+			    0xFFFF'FE00'4000'0000 + pg,
+			    fb->fbAddress + pg,
+			    PageFlags::write,
+			    CachingMode::writeCombine
+			);
 		mapKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
 		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
 		fb->fbEarlyWindow = 0xFFFF'FE00'4000'0000;

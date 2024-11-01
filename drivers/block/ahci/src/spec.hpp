@@ -2,16 +2,16 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <utility>
 #include <string>
+#include <utility>
 
 namespace limits {
-	constexpr size_t maxCmdSlots = 32;
-	constexpr size_t maxPorts    = 32;
-}
+constexpr size_t maxCmdSlots = 32;
+constexpr size_t maxPorts = 32;
+} // namespace limits
 
 namespace {
-	constexpr bool logCommands = false;
+constexpr bool logCommands = false;
 }
 
 struct receivedFis {
@@ -104,10 +104,10 @@ struct identifyDevice {
 		char modelNative[41];
 		memcpy(modelNative, model, 40);
 		modelNative[40] = 0;
-		
+
 		// Model name is returned as big endian, swap each two byte pair to fix that
 		for (int i = 0; i < 40; i += 2) {
-			std::swap(modelNative[i], modelNative[i + 1]); 
+			std::swap(modelNative[i], modelNative[i + 1]);
 		}
 
 		std::string out{modelNative};
@@ -133,15 +133,13 @@ struct identifyDevice {
 
 			auto physical = (1 << (sectorSizeInfo & 0xF)) * logical;
 			assert(physical <= 4096);
-			return { logical, physical };
+			return {logical, physical};
 		} else {
 			// Word is invalid, just assume 512 / 512
-			return { 512, 512 };
+			return {512, 512};
 		}
 	}
 
-	bool supportsLba48() const {
-		return capabilities & (1 << 10);
-	}
+	bool supportsLba48() const { return capabilities & (1 << 10); }
 };
 static_assert(sizeof(identifyDevice) == 512);

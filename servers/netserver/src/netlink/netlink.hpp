@@ -1,15 +1,15 @@
 #pragma once
 
-#include <async/result.hpp>
 #include <async/recurring-event.hpp>
-#include <protocols/fs/server.hpp>
-#include <netserver/nic.hpp>
+#include <async/result.hpp>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <netserver/nic.hpp>
+#include <protocols/fs/server.hpp>
 
 #include "core/netlink.hpp"
-#include "ip/ip4.hpp"
 #include "ip/arp.hpp"
+#include "ip/ip4.hpp"
 
 #include <deque>
 #include <vector>
@@ -19,20 +19,34 @@ namespace nl {
 void initialize();
 
 class NetlinkSocket final : core::netlink::NetlinkFile {
-public:
+  public:
 	NetlinkSocket(int flags);
 
-	static async::result<protocols::fs::RecvResult> recvMsg(void *obj,
-			const char *creds, uint32_t flags, void *data,
-			size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len);
+	static async::result<protocols::fs::RecvResult> recvMsg(
+	    void *obj,
+	    const char *creds,
+	    uint32_t flags,
+	    void *data,
+	    size_t len,
+	    void *addr_buf,
+	    size_t addr_size,
+	    size_t max_ctrl_len
+	);
 
-	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
-			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred ucreds);
+	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(
+	    void *obj,
+	    const char *creds,
+	    uint32_t flags,
+	    void *data,
+	    size_t len,
+	    void *addr_ptr,
+	    size_t addr_size,
+	    std::vector<uint32_t> fds,
+	    struct ucred ucreds
+	);
 
-
-	static async::result<protocols::fs::Error> bind(void *obj, const char *creds,
-			const void *addr_ptr, size_t addr_length);
+	static async::result<protocols::fs::Error>
+	bind(void *obj, const char *creds, const void *addr_ptr, size_t addr_length);
 
 	static async::result<void> setOption(void *, int option, int value);
 
@@ -50,22 +64,22 @@ public:
 	static async::result<void> setFileFlags(void *object, int flags);
 	static async::result<int> getFileFlags(void *object);
 
-	constexpr static protocols::fs::FileOperations ops {
-		.setOption = &setOption,
-		.pollWait = &pollWait,
-		.pollStatus = &pollStatus,
-		.bind = &bind,
-		.sockname = &sockname,
-		.getFileFlags = &getFileFlags,
-		.setFileFlags = &setFileFlags,
-		.recvMsg = &recvMsg,
-		.sendMsg = &sendMsg,
-		.setSocketOption = &setSocketOption,
+	constexpr static protocols::fs::FileOperations ops{
+	    .setOption = &setOption,
+	    .pollWait = &pollWait,
+	    .pollStatus = &pollStatus,
+	    .bind = &bind,
+	    .sockname = &sockname,
+	    .getFileFlags = &getFileFlags,
+	    .setFileFlags = &setFileFlags,
+	    .recvMsg = &recvMsg,
+	    .sendMsg = &sendMsg,
+	    .setSocketOption = &setSocketOption,
 	};
 
 	void deliver(core::netlink::Packet packet) override;
 
-private:
+  private:
 	void broadcast(core::netlink::Packet packet);
 
 	void getRoute(struct nlmsghdr *hdr);
@@ -80,7 +94,8 @@ private:
 	void getNeighbor(struct nlmsghdr *hdr);
 
 	void sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h);
-	void sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
+	void
+	sendAddrPacket(const struct nlmsghdr *hdr, const struct ifaddrmsg *msg, std::shared_ptr<nic::Link>);
 	void sendRoutePacket(const struct nlmsghdr *hdr, Ip4Router::Route &route);
 	void sendNeighPacket(const struct nlmsghdr *hdr, uint32_t addr, Neighbours::Entry &entry);
 

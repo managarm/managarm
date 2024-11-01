@@ -1,14 +1,14 @@
 
 #include <fcntl.h>
-#include <sys/stat.h>
 #include <iostream>
+#include <sys/stat.h>
 
-#include <async/oneshot-event.hpp>
-#include <helix/memory.hpp>
-#include <protocols/mbus/client.hpp>
-#include <bragi/helpers-std.hpp>
-#include <kernlet.bragi.hpp>
 #include "common.hpp"
+#include <async/oneshot-event.hpp>
+#include <bragi/helpers-std.hpp>
+#include <helix/memory.hpp>
+#include <kernlet.bragi.hpp>
+#include <protocols/mbus/client.hpp>
 
 static bool dumpHex = false;
 
@@ -19,9 +19,7 @@ static bool dumpHex = false;
 helix::UniqueLane kernletCtlLane;
 
 async::result<void> enumerateCtl() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "kernletctl"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "kernletctl"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -31,16 +29,22 @@ async::result<void> enumerateCtl() {
 	kernletCtlLane = (co_await entity.getRemoteLane()).unwrap();
 }
 
-async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
-		std::vector<BindType> bind_types) {
+async::result<helix::UniqueDescriptor>
+upload(const void *elf, size_t size, std::vector<BindType> bind_types) {
 	managarm::kernlet::UploadRequest req;
 
-	for(auto bt : bind_types) {
+	for (auto bt : bind_types) {
 		managarm::kernlet::ParameterType proto;
-		switch(bt) {
-		case BindType::offset: proto = managarm::kernlet::ParameterType::OFFSET; break;
-		case BindType::memoryView: proto = managarm::kernlet::ParameterType::MEMORY_VIEW; break;
-		case BindType::bitsetEvent: proto = managarm::kernlet::ParameterType::BITSET_EVENT; break;
+		switch (bt) {
+		case BindType::offset:
+			proto = managarm::kernlet::ParameterType::OFFSET;
+			break;
+		case BindType::memoryView:
+			proto = managarm::kernlet::ParameterType::MEMORY_VIEW;
+			break;
+		case BindType::bitsetEvent:
+			proto = managarm::kernlet::ParameterType::BITSET_EVENT;
+			break;
 		default:
 			assert(!"Unexpected binding type");
 			__builtin_unreachable();
@@ -49,14 +53,16 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 	}
 
 	auto ser = req.SerializeAsString();
-	auto [offer, sendHead, sendTail, sendData, recvResp, pullKernlet] = co_await helix_ng::exchangeMsgs(
-		kernletCtlLane,
-		helix_ng::offer(
-			helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-			helix_ng::sendBuffer(elf, size),
-			helix_ng::recvInline(),
-			helix_ng::pullDescriptor())
-	);
+	auto [offer, sendHead, sendTail, sendData, recvResp, pullKernlet] =
+	    co_await helix_ng::exchangeMsgs(
+	        kernletCtlLane,
+	        helix_ng::offer(
+	            helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+	            helix_ng::sendBuffer(elf, size),
+	            helix_ng::recvInline(),
+	            helix_ng::pullDescriptor()
+	        )
+	    );
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendHead.error());
 	HEL_CHECK(sendTail.error());
@@ -78,13 +84,10 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 // ----------------------------------------------------------------------------
 
 async::detached serveCompiler(helix::UniqueLane lane) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
-		if(accept.error() == kHelErrEndOfLane) {
+	while (true) {
+		auto [accept, recvHead] =
+		    co_await helix_ng::exchangeMsgs(lane, helix_ng::accept(helix_ng::recvInline()));
+		if (accept.error() == kHelErrEndOfLane) {
 			std::cout << "kernletcc: Client closed its connection" << std::endl;
 			co_return;
 		}
@@ -98,16 +101,17 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 
 		std::vector<std::byte> tailBuffer(preamble.tail_size());
 		auto [recvTail, recvCode] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
-			helix_ng::recvInline() // TODO(qookie): What about kernlets larger than 128 bytes?
+		    conversation,
+		    helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+		    helix_ng::recvInline() // TODO(qookie): What about kernlets larger than 128 bytes?
 		);
 
 		HEL_CHECK(recvTail.error());
 		HEL_CHECK(recvCode.error());
 
-		if(preamble.id() == bragi::message_id<managarm::kernlet::CompileRequest>) {
-			auto maybeReq = bragi::parse_head_tail<managarm::kernlet::CompileRequest>(recvHead, tailBuffer);
+		if (preamble.id() == bragi::message_id<managarm::kernlet::CompileRequest>) {
+			auto maybeReq =
+			    bragi::parse_head_tail<managarm::kernlet::CompileRequest>(recvHead, tailBuffer);
 
 			if (!maybeReq) {
 				std::cout << "kernletcc: Ignoring request due to decoding failure.\n";
@@ -117,29 +121,36 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 			auto &req = *maybeReq;
 
 			std::vector<BindType> bind_types;
-			for(size_t i = 0; i < req.bind_types_size(); i++) {
+			for (size_t i = 0; i < req.bind_types_size(); i++) {
 				auto proto = req.bind_types(i);
 				BindType bt;
-				switch(proto) {
-				case managarm::kernlet::ParameterType::OFFSET: bt = BindType::offset; break;
-				case managarm::kernlet::ParameterType::MEMORY_VIEW: bt = BindType::memoryView; break;
-				case managarm::kernlet::ParameterType::BITSET_EVENT: bt = BindType::bitsetEvent; break;
+				switch (proto) {
+				case managarm::kernlet::ParameterType::OFFSET:
+					bt = BindType::offset;
+					break;
+				case managarm::kernlet::ParameterType::MEMORY_VIEW:
+					bt = BindType::memoryView;
+					break;
+				case managarm::kernlet::ParameterType::BITSET_EVENT:
+					bt = BindType::bitsetEvent;
+					break;
 				default:
 					assert(!"Unexpected binding type");
 				}
 				bind_types.push_back(bt);
 			}
 
-			auto elf = compileFafnir(reinterpret_cast<const uint8_t *>(recvCode.data()),
-					recvCode.length(), bind_types);
+			auto elf = compileFafnir(
+			    reinterpret_cast<const uint8_t *>(recvCode.data()), recvCode.length(), bind_types
+			);
 			recvCode.reset();
 
-			if(dumpHex) {
-				for(size_t i = 0; i < elf.size(); i++) {
+			if (dumpHex) {
+				for (size_t i = 0; i < elf.size(); i++) {
 					printf("%02x", elf[i]);
-					if((i % 32) == 31)
+					if ((i % 32) == 31)
 						putchar('\n');
-					else if((i % 8) == 7)
+					else if ((i % 8) == 7)
 						putchar(' ');
 				}
 				putchar('\n');
@@ -151,18 +162,20 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 			resp.set_error(managarm::kernlet::Error::SUCCESS);
 
 			auto [sendResp, pushKernlet] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(object)
+			    conversation,
+			    helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			    helix_ng::pushDescriptor(object)
 			);
-			if(sendResp.error() == kHelErrEndOfLane) {
-				std::cout << "\e[31m" "kernletcc: Client unexpectedly closed its connection"
-						"\e[39m" << std::endl;
+			if (sendResp.error() == kHelErrEndOfLane) {
+				std::cout << "\e[31m"
+				             "kernletcc: Client unexpectedly closed its connection"
+				             "\e[39m"
+				          << std::endl;
 				co_return;
 			}
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushKernlet.error());
-		}else{
+		} else {
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
@@ -170,13 +183,13 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 
 async::result<void> createCompilerObject() {
 	mbus_ng::Properties descriptor{
-		{"class", mbus_ng::StringItem{"kernletcc"}},
+	    {"class", mbus_ng::StringItem{"kernletcc"}},
 	};
 
-	auto entity = (co_await mbus_ng::Instance::global().createEntity(
-		"kernletcc", descriptor)).unwrap();
+	auto entity =
+	    (co_await mbus_ng::Instance::global().createEntity("kernletcc", descriptor)).unwrap();
 
-	[] (mbus_ng::EntityManager entity) -> async::detached {
+	[](mbus_ng::EntityManager entity) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
@@ -193,7 +206,7 @@ async::result<void> createCompilerObject() {
 // ----------------------------------------------------------------
 
 async::detached asyncMain(const char **args) {
-	(void) args;
+	(void)args;
 
 	co_await enumerateCtl();
 	co_await createCompilerObject();
@@ -205,4 +218,3 @@ int main(int, const char **argv) {
 	asyncMain(argv);
 	async::run_forever(helix::currentDispatcher);
 }
-

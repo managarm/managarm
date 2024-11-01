@@ -1,15 +1,15 @@
 
-#include <queue>
 #include <arch/dma_pool.hpp>
 #include <arch/io_space.hpp>
-#include <async/recurring-event.hpp>
-#include <async/promise.hpp>
 #include <async/mutex.hpp>
+#include <async/promise.hpp>
+#include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/hub.hpp>
+#include <queue>
 
 #include <frg/std_compat.hpp>
 
@@ -23,19 +23,24 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 	friend struct ConfigurationState;
 
 	struct RootHub final : proto::Hub {
-		RootHub(Controller *controller)
-		: Hub{nullptr, 0}, _controller{controller} { }
+		RootHub(Controller *controller) : Hub{nullptr, 0}, _controller{controller} {}
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port
+		) override;
 
-	private:
+	  private:
 		Controller *_controller;
 	};
 
-	Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager entity,
-			uintptr_t base, arch::io_space space, helix::UniqueIrq irq);
+	Controller(
+	    protocols::hw::Device hw_device,
+	    mbus_ng::EntityManager entity,
+	    uintptr_t base,
+	    arch::io_space space,
+	    helix::UniqueIrq irq
+	);
 
 	void initialize();
 	async::detached _handleIrqs();
@@ -44,7 +49,7 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 	async::result<frg::expected<proto::UsbError>>
 	enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
-private:
+  private:
 	protocols::hw::Device _hwDevice;
 	uintptr_t _ioBase;
 	arch::io_space _ioSpace;
@@ -67,22 +72,22 @@ private:
 	// All those classes are linked into a list that represents a part of the schedule.
 	// They need to be freed through the reclaim mechansim.
 	struct ScheduleItem : boost::intrusive::list_base_hook<> {
-		ScheduleItem()
-		: reclaimFrame(-1) { }
+		ScheduleItem() : reclaimFrame(-1) {}
 
-		virtual ~ScheduleItem() {
-			assert(reclaimFrame != -1);
-		}
+		virtual ~ScheduleItem() { assert(reclaimFrame != -1); }
 
 		int64_t reclaimFrame;
 	};
 
 	struct Transaction : ScheduleItem {
-		explicit Transaction(arch::dma_array<TransferDescriptor> transfers,
-				bool allow_short_packets = false)
-		: transfers{std::move(transfers)}, autoToggle{false},
-				numComplete{0}, lengthComplete{0},
-				allowShortPackets{allow_short_packets} { }
+		explicit Transaction(
+		    arch::dma_array<TransferDescriptor> transfers, bool allow_short_packets = false
+		)
+		    : transfers{std::move(transfers)},
+		      autoToggle{false},
+		      numComplete{0},
+		      lengthComplete{0},
+		      allowShortPackets{allow_short_packets} {}
 
 		arch::dma_array<TransferDescriptor> transfers;
 		bool autoToggle;
@@ -94,7 +99,8 @@ private:
 
 	struct QueueEntity : ScheduleItem {
 		QueueEntity(arch::dma_object<QueueHead> the_head)
-		: head{std::move(the_head)}, toggleState{false} {
+		    : head{std::move(the_head)},
+		      toggleState{false} {
 			head->_linkPointer = QueueHead::LinkPointer();
 			head->_elementPointer = QueueHead::ElementPointer();
 		}
@@ -124,30 +130,43 @@ private:
 	std::queue<int> _addressStack;
 	DeviceSlot _activeDevices[128];
 
-public:
+  public:
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor(int address);
-	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(int address, uint8_t configuration);
+	async::result<frg::expected<proto::UsbError, std::string>>
+	configurationDescriptor(int address, uint8_t configuration);
 
-	async::result<frg::expected<proto::UsbError>>
-	useConfiguration(int address, int configuration);
+	async::result<frg::expected<proto::UsbError>> useConfiguration(int address, int configuration);
 
-	async::result<frg::expected<proto::UsbError>>
-	useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative);
+	async::result<frg::expected<proto::UsbError>> useInterface(
+	    int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative
+	);
 
 	// ------------------------------------------------------------------------
 	// Transfer functions.
 	// ------------------------------------------------------------------------
 
-	static Transaction *_buildControl(int address, int pipe, proto::XferFlags dir,
-			arch::dma_object_view<proto::SetupPacket> setup, arch::dma_buffer_view buffer,
-			bool low_speed, size_t max_packet_size);
-	static Transaction *_buildInterruptOrBulk(int address, int pipe, proto::XferFlags dir,
-			arch::dma_buffer_view buffer,
-			bool low_speed, size_t max_packet_size,
-			bool allow_short_packets);
+	static Transaction *_buildControl(
+	    int address,
+	    int pipe,
+	    proto::XferFlags dir,
+	    arch::dma_object_view<proto::SetupPacket> setup,
+	    arch::dma_buffer_view buffer,
+	    bool low_speed,
+	    size_t max_packet_size
+	);
+	static Transaction *_buildInterruptOrBulk(
+	    int address,
+	    int pipe,
+	    proto::XferFlags dir,
+	    arch::dma_buffer_view buffer,
+	    bool low_speed,
+	    size_t max_packet_size,
+	    bool allow_short_packets
+	);
 
-public:
-	async::result<frg::expected<proto::UsbError, size_t>> transfer(int address, int pipe, proto::ControlTransfer info);
+  public:
+	async::result<frg::expected<proto::UsbError, size_t>>
+	transfer(int address, int pipe, proto::ControlTransfer info);
 
 	async::result<frg::expected<proto::UsbError, size_t>>
 	transfer(int address, proto::PipeType type, int pipe, proto::InterruptTransfer info);
@@ -155,12 +174,17 @@ public:
 	async::result<frg::expected<proto::UsbError, size_t>>
 	transfer(int address, proto::PipeType type, int pipe, proto::BulkTransfer info);
 
-private:
-	async::result<frg::expected<proto::UsbError, size_t>>
-	_directTransfer(int address, int pipe, proto::ControlTransfer info,
-			QueueEntity *queue, bool low_speed, size_t max_packet_size);
+  private:
+	async::result<frg::expected<proto::UsbError, size_t>> _directTransfer(
+	    int address,
+	    int pipe,
+	    proto::ControlTransfer info,
+	    QueueEntity *queue,
+	    bool low_speed,
+	    size_t max_packet_size
+	);
 
-private:
+  private:
 	// ------------------------------------------------------------------------
 	// Schedule management.
 	// ------------------------------------------------------------------------
@@ -203,11 +227,14 @@ struct DeviceState final : proto::DeviceData {
 	arch::dma_pool *bufferPool() override;
 
 	async::result<frg::expected<proto::UsbError, std::string>> deviceDescriptor() override;
-	async::result<frg::expected<proto::UsbError, std::string>> configurationDescriptor(uint8_t configuration) override;
-	async::result<frg::expected<proto::UsbError, proto::Configuration>> useConfiguration(uint8_t index, uint8_t value) override;
-	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
+	async::result<frg::expected<proto::UsbError, std::string>>
+	configurationDescriptor(uint8_t configuration) override;
+	async::result<frg::expected<proto::UsbError, proto::Configuration>>
+	useConfiguration(uint8_t index, uint8_t value) override;
+	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info
+	) override;
 
-private:
+  private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
 };
@@ -217,13 +244,14 @@ private:
 // ----------------------------------------------------------------------------
 
 struct ConfigurationState final : proto::ConfigurationData {
-	explicit ConfigurationState(std::shared_ptr<Controller> controller,
-			int device, uint8_t index, uint8_t value);
+	explicit ConfigurationState(
+	    std::shared_ptr<Controller> controller, int device, uint8_t index, uint8_t value
+	);
 
 	async::result<frg::expected<proto::UsbError, proto::Interface>>
 	useInterface(int number, int alternative) override;
 
-private:
+  private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
 	uint8_t _index;
@@ -235,13 +263,12 @@ private:
 // ----------------------------------------------------------------------------
 
 struct InterfaceState final : proto::InterfaceData {
-	explicit InterfaceState(std::shared_ptr<Controller> controller,
-			int device, int configuration);
+	explicit InterfaceState(std::shared_ptr<Controller> controller, int device, int configuration);
 
 	async::result<frg::expected<proto::UsbError, proto::Endpoint>>
 	getEndpoint(proto::PipeType type, int number) override;
 
-private:
+  private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
 	int _interface;
@@ -252,17 +279,20 @@ private:
 // ----------------------------------------------------------------------------
 
 struct EndpointState final : proto::EndpointData {
-	explicit EndpointState(std::shared_ptr<Controller> controller,
-			int device, proto::PipeType type, int endpoint);
+	explicit EndpointState(
+	    std::shared_ptr<Controller> controller, int device, proto::PipeType type, int endpoint
+	);
 
-	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info) override;
-	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info) override;
-	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::BulkTransfer info) override;
+	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::ControlTransfer info
+	) override;
+	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::InterruptTransfer info
+	) override;
+	async::result<frg::expected<proto::UsbError, size_t>> transfer(proto::BulkTransfer info
+	) override;
 
-private:
+  private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
 	proto::PipeType _type;
 	int _endpoint;
 };
-

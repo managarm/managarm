@@ -1,14 +1,14 @@
-#include <thor-internal/io.hpp>
-#include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/address-space.hpp>
-#include <thor-internal/pci/pci.hpp>
-#include <thor-internal/main.hpp>
-#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/io.hpp>
+#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/main.hpp>
+#include <thor-internal/pci/pci.hpp>
 
-#include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/pci/pcie_brcmstb.hpp>
+#include <thor-internal/pci/pcie_ecam.hpp>
 
 namespace thor {
 
@@ -24,16 +24,18 @@ struct DtbPciIrqRouter : PciIrqRouter {
 	PciIrqRouter *makeDownstreamRouter(PciBus *bus) override;
 };
 
-DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
-		DeviceTreeNode *node)
-: PciIrqRouter{parent_, associatedBus_} {
+DtbPciIrqRouter::DtbPciIrqRouter(
+    PciIrqRouter *parent_, PciBus *associatedBus_, DeviceTreeNode *node
+)
+    : PciIrqRouter{parent_, associatedBus_} {
 	if (!node) {
-		for(int i = 0; i < 4; i++) {
+		for (int i = 0; i < 4; i++) {
 			bridgeIrqs[i] = parent->resolveIrqRoute(
-					associatedBus->associatedBridge->slot, static_cast<IrqIndex>(i + 1));
-			if(bridgeIrqs[i])
-				infoLogger() << "thor:     Bridge IRQ [" << i << "]: "
-						<< bridgeIrqs[i]->name() << frg::endlog;
+			    associatedBus->associatedBridge->slot, static_cast<IrqIndex>(i + 1)
+			);
+			if (bridgeIrqs[i])
+				infoLogger() << "thor:     Bridge IRQ [" << i << "]: " << bridgeIrqs[i]->name()
+				             << frg::endlog;
 		}
 
 		routingModel = RoutingModel::expansionBridge;
@@ -70,10 +72,9 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 
 			assert(bus == associatedBus->busId);
 			assert(!func && "TODO: support routing of individual functions");
-			infoLogger() << "    Route for slot " << slot
-					<< ", " << nameOf(index) << ": "
-					<< "IRQ " << ent.parentIrq.id << " on "
-					<< ent.interruptController->path() << frg::endlog;
+			infoLogger() << "    Route for slot " << slot << ", " << nameOf(index) << ": "
+			             << "IRQ " << ent.parentIrq.id << " on " << ent.interruptController->path()
+			             << frg::endlog;
 
 			// TODO: care about polarity
 			auto irq = ent.parentIrq.id;
@@ -107,24 +108,24 @@ void initPciNode(DeviceTreeNode *node) {
 		infoLogger() << "thor:\tIt's a generic controller with ECAM IO." << frg::endlog;
 		assert(node->reg().size() == 1);
 
-		io = frg::construct<EcamPcieConfigIo>(*kernelAlloc,
-			node->reg()[0].addr, 0,
-			range.from, range.to);
+		io = frg::construct<EcamPcieConfigIo>(
+		    *kernelAlloc, node->reg()[0].addr, 0, range.from, range.to
+		);
 
 	} else if (node->isCompatible<1>({"brcm,bcm2711-pcie"})) {
 		infoLogger() << "thor:\tIt's a Broadcom STB PCIe controller." << frg::endlog;
 
-		io = frg::construct<BrcmStbPcie>(*kernelAlloc,
-			node, 0,
-			range.from, range.to);
+		io = frg::construct<BrcmStbPcie>(*kernelAlloc, node, 0, range.from, range.to);
 	}
 
 	if (!io) {
-		infoLogger() << "thor: Unsupported PCI(e) controller \"" << node->path() << "\"" << frg::endlog;
+		infoLogger() << "thor: Unsupported PCI(e) controller \"" << node->path() << "\""
+		             << frg::endlog;
 		return;
 	}
 
-	auto rootBus = frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, nullptr, 0, range.from);
+	auto rootBus =
+	    frg::construct<PciBus>(*kernelAlloc, nullptr, nullptr, io, nullptr, 0, range.from);
 	rootBus->irqRouter = frg::construct<DtbPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
 
 	for (auto &r : node->ranges()) {
@@ -135,59 +136,61 @@ void initPciNode(DeviceTreeNode *node) {
 		uint32_t resFlags = 0;
 
 		switch (type) {
-			case 1:
-				resFlags = PciBusResource::io;
-				break;
-			case 3:
-			case 2:
-				resFlags = PciBusResource::memory;
+		case 1:
+			resFlags = PciBusResource::io;
+			break;
+		case 3:
+		case 2:
+			resFlags = PciBusResource::memory;
 
-				if (r.childAddrHi & (1 << 30))
-					resFlags = PciBusResource::prefMemory;
+			if (r.childAddrHi & (1 << 30))
+				resFlags = PciBusResource::prefMemory;
 
-				break;
-			default:
-				infoLogger()
-					<< "Unexpected range type "
-					<< type << frg::endlog;
+			break;
+		default:
+			infoLogger() << "Unexpected range type " << type << frg::endlog;
 		}
 
-		infoLogger() << "thor: Adding resource " << (void *)r.childAddr << " with flags " << resFlags << frg::endlog;
+		infoLogger() << "thor: Adding resource " << (void *)r.childAddr << " with flags "
+		             << resFlags << frg::endlog;
 
-		rootBus->resources.push_back({r.childAddr, r.size,
-				r.parentAddr, resFlags, true});
+		rootBus->resources.push_back({r.childAddr, r.size, r.parentAddr, resFlags, true});
 	}
 
 	addRootBus(rootBus);
 }
 
-} // namespace anonymous
+} // namespace
 
-static initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nodes",
-	initgraph::Requires{getDeviceTreeParsedStage()},
-	[] {
-		size_t i = 0;
+static initgraph::Task discoverDtbNodes{
+    &globalInitEngine,
+    "pci.discover-dtb-nodes",
+    initgraph::Requires{getDeviceTreeParsedStage()},
+    [] {
+	    size_t i = 0;
 
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			if (node->isCompatible(dtPciCompatible)) {
-				initPciNode(node);
-				i++;
-			}
+	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+		    if (node->isCompatible(dtPciCompatible)) {
+			    initPciNode(node);
+			    i++;
+		    }
 
-			return false;
-		});
+		    return false;
+	    });
 
-		infoLogger() << "thor: Found " << i << " PCI nodes in total." << frg::endlog;
-	}
+	    infoLogger() << "thor: Found " << i << " PCI nodes in total." << frg::endlog;
+    }
 };
 
-static initgraph::Task enumerateRootBuses{&globalInitEngine, "pci.enumerate-buses",
-	initgraph::Requires{getTaskingAvailableStage()},
-	initgraph::Entails{getDevicesEnumeratedStage()},
-	[] {
-		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
-		enumerateAll();
-	}
+static initgraph::Task enumerateRootBuses{
+    &globalInitEngine,
+    "pci.enumerate-buses",
+    initgraph::Requires{getTaskingAvailableStage()},
+    initgraph::Entails{getDevicesEnumeratedStage()},
+    [] {
+	    infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
+	    enumerateAll();
+    }
 };
 
 } // namespace thor::pci

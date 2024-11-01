@@ -1,10 +1,10 @@
 
-#include <thor-internal/cpu-data.hpp>
-#include <thor-internal/profile.hpp>
-#include <thor-internal/thread.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
+#include <thor-internal/cpu-data.hpp>
+#include <thor-internal/profile.hpp>
+#include <thor-internal/thread.hpp>
 
 extern char stubsPtr[], stubsLimit[];
 
@@ -118,34 +118,34 @@ uint32_t earlyIdt[256 * 4];
 
 extern "C" void handleEarlyDivideByZeroFault(void *rip) {
 	panicLogger() << "Division by zero during boot\n"
-			<< "Faulting IP: " << rip << frg::endlog;
+	              << "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyOpcodeFault(void *rip) {
 	panicLogger() << "Invalid opcode during boot\n"
-			<< "Faulting IP: " << rip << frg::endlog;
+	              << "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyDoubleFault(uint64_t errcode, void *rip) {
 	(void)errcode;
 
 	panicLogger() << "Double fault during boot\n"
-			<< "Faulting IP: " << rip << frg::endlog;
+	              << "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyProtectionFault(uint64_t errcode, void *rip) {
 	panicLogger() << "Protection fault during boot\n"
-			<< "Segment: " << errcode << "\n"
-			<< "Faulting IP: " << rip << frg::endlog;
+	              << "Segment: " << errcode << "\n"
+	              << "Faulting IP: " << rip << frg::endlog;
 }
 
 extern "C" void handleEarlyPageFault(uint64_t errcode, void *rip) {
 	(void)errcode;
 	uintptr_t pfAddress;
-	asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
+	asm volatile("mov %%cr2, %0" : "=r"(pfAddress));
 
 	panicLogger() << "Page fault at " << (void *)pfAddress << " during boot\n"
-			<< "Faulting IP: " << rip << frg::endlog;
+	              << "Faulting IP: " << rip << frg::endlog;
 }
 
 void setupEarlyInterruptHandlers() {
@@ -158,30 +158,30 @@ void setupEarlyInterruptHandlers() {
 	common::x86::Gdtr gdtr;
 	gdtr.limit = 3 * 8;
 	gdtr.pointer = earlyGdt;
-	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
+	asm volatile("lgdt (%0)" : : "r"(&gdtr));
 
-	asm volatile ( "pushq $0x8\n"
-			"\rpushq $.L_reloadEarlyCs\n"
-			"\rlretq\n"
-			".L_reloadEarlyCs:" );
-	
+	asm volatile("pushq $0x8\n"
+	             "\rpushq $.L_reloadEarlyCs\n"
+	             "\rlretq\n"
+	             ".L_reloadEarlyCs:");
+
 	// setup the idt
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);
-	
+
 	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
 	idtr.pointer = earlyIdt;
-	asm volatile ( "lidt (%0)" : : "r"( &idtr ) : "memory" );
+	asm volatile("lidt (%0)" : : "r"(&idtr) : "memory");
 }
 
 void setupIdt(uint32_t *table) {
 	using common::x86::makeIdt64IntSystemGate;
 	using common::x86::makeIdt64IntUserGate;
-	
+
 	int fault_selector = kSelExecutorFaultCode;
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
@@ -271,22 +271,20 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 125, irq_selector, (void *)&thorRtIsrIrq61, 1);
 	makeIdt64IntSystemGate(table, 126, irq_selector, (void *)&thorRtIsrIrq62, 1);
 	makeIdt64IntSystemGate(table, 127, irq_selector, (void *)&thorRtIsrIrq63, 1);
-	
+
 	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
 	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 1);
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
-	
+
 	int nmi_selector = kSelSystemNmiCode;
 	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 3);
 
-	//FIXME
-//	common::x86::makeIdt64IntSystemGate(table, 0x82,
-//			0x8, (void *)&thorRtIsrPreempted, 0);
+	// FIXME
+	//	common::x86::makeIdt64IntSystemGate(table, 0x82,
+	//			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
-bool inStub(uintptr_t ip) {
-	return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit;
-}
+bool inStub(uintptr_t ip) { return ip >= (uintptr_t)stubsPtr && ip < (uintptr_t)stubsLimit; }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
@@ -301,39 +299,36 @@ void handleDebugFault(FaultImageAccessor image) {
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	// For page faults: we need to get the address *before* re-enabling IRQs.
 	uintptr_t pfAddress;
-	if(number == 14)
-		asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
+	if (number == 14)
+		asm volatile("mov %%cr2, %0" : "=r"(pfAddress));
 
 	enableInts();
 
 	uint16_t cs = *image.cs();
-	if(logEveryFault)
+	if (logEveryFault)
 		infoLogger() << "Fault #" << number << ", from cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+		             << ", ip: " << (void *)*image.ip() << frg::endlog;
 
-	if(inStub(*image.ip()))
-		panicLogger() << "Fault #" << number
-				<< " in stub section, cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
-	if(cs != kSelSystemIrqCode && cs != kSelClientUserCode
-			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
-		panicLogger() << "Fault #" << number
-				<< ", from unexpected cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frg::hex_fmt(*image.code())
-				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
-	if(!(*image.rflags() & 0x200))
-		panicLogger() << "Fault #" << number
-				<< ", with IF=0, cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frg::hex_fmt(*image.code())
-				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
+	if (inStub(*image.ip()))
+		panicLogger() << "Fault #" << number << " in stub section, cs: 0x" << frg::hex_fmt(cs)
+		              << ", ip: " << (void *)*image.ip() << frg::endlog;
+	if (cs != kSelSystemIrqCode && cs != kSelClientUserCode && cs != kSelExecutorFaultCode &&
+	    cs != kSelExecutorSyscallCode)
+		panicLogger() << "Fault #" << number << ", from unexpected cs: 0x" << frg::hex_fmt(cs)
+		              << ", ip: " << (void *)*image.ip() << "\n"
+		              << "Error code: 0x" << frg::hex_fmt(*image.code()) << ", SS: 0x"
+		              << frg::hex_fmt(*image.ss()) << ", RSP: " << (void *)*image.sp()
+		              << frg::endlog;
+	if (!(*image.rflags() & 0x200))
+		panicLogger() << "Fault #" << number << ", with IF=0, cs: 0x" << frg::hex_fmt(cs)
+		              << ", ip: " << (void *)*image.ip() << "\n"
+		              << "Error code: 0x" << frg::hex_fmt(*image.code()) << ", SS: 0x"
+		              << frg::hex_fmt(*image.ss()) << ", RSP: " << (void *)*image.sp()
+		              << frg::endlog;
 
 	disableUserAccess();
 
-	switch(number) {
+	switch (number) {
 	case 0: {
 		handleOtherFault(image, kIntrDivByZero);
 	} break;
@@ -353,27 +348,26 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handlePageFault(image, pfAddress, *image.code());
 	} break;
 	default:
-		panicLogger() << "Unexpected fault number " << number
-				<< ", from cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << "\n"
-				<< "Error code: 0x" << frg::hex_fmt(*image.code())
-				<< ", SS: 0x" << frg::hex_fmt(*image.ss())
-				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
+		panicLogger() << "Unexpected fault number " << number << ", from cs: 0x" << frg::hex_fmt(cs)
+		              << ", ip: " << (void *)*image.ip() << "\n"
+		              << "Error code: 0x" << frg::hex_fmt(*image.code()) << ", SS: 0x"
+		              << frg::hex_fmt(*image.ss()) << ", RSP: " << (void *)*image.sp()
+		              << frg::endlog;
 	}
 
 	disableInts();
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
-	if(inStub(*image.ip()))
-		panicLogger() << "IRQ " << number
-				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+	if (inStub(*image.ip()))
+		panicLogger() << "IRQ " << number << " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+		              << ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(
+	    cs == kSelSystemIdleCode || cs == kSelSystemFiberCode || cs == kSelClientUserCode ||
+	    cs == kSelExecutorSyscallCode || cs == kSelExecutorFaultCode
+	);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -382,43 +376,43 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 }
 
 extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
-	if(inStub(*image.ip()))
-		panicLogger() << "IRQ " << number
-				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+	if (inStub(*image.ip()))
+		panicLogger() << "IRQ " << number << " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+		              << ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(
+	    cs == kSelSystemIdleCode || cs == kSelSystemFiberCode || cs == kSelClientUserCode ||
+	    cs == kSelExecutorSyscallCode || cs == kSelExecutorFaultCode
+	);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	if(checkLegacyPicIsr(number)) {
-		urgentLogger() << "thor: Spurious IRQ " << number
-				<< " of legacy PIC" << frg::endlog;
-	}else{
-		urgentLogger() << "thor: Ignoring non-spurious IRQ " << number
-				<< " of legacy PIC" << frg::endlog;
+	if (checkLegacyPicIsr(number)) {
+		urgentLogger() << "thor: Spurious IRQ " << number << " of legacy PIC" << frg::endlog;
+	} else {
+		urgentLogger() << "thor: Ignoring non-spurious IRQ " << number << " of legacy PIC"
+		               << frg::endlog;
 	}
 }
 
 extern "C" void onPlatformPreemption(IrqImageAccessor image) {
-	if(inStub(*image.ip()))
+	if (inStub(*image.ip()))
 		panicLogger() << "Preemption IRQ"
-				" in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
-	
-	uint16_t cs = *image.cs();
-	if(logEveryPreemption)
-		infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: Preemption from cs: 0x" << frg::hex_fmt(cs)
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+		                 " in stub section, cs: 0x"
+		              << frg::hex_fmt(*image.cs()) << ", ip: " << (void *)*image.ip()
+		              << frg::endlog;
 
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	uint16_t cs = *image.cs();
+	if (logEveryPreemption)
+		infoLogger() << "thor [CPU " << getLocalApicId() << "]: Preemption from cs: 0x"
+		             << frg::hex_fmt(cs) << ", ip: " << (void *)*image.ip() << frg::endlog;
+
+	assert(
+	    cs == kSelSystemIdleCode || cs == kSelSystemFiberCode || cs == kSelClientUserCode ||
+	    cs == kSelExecutorSyscallCode || cs == kSelExecutorFaultCode
+	);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -444,20 +438,21 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {
-	if(inStub(*image.ip()))
+	if (inStub(*image.ip()))
 		panicLogger() << "Shootdown IPI"
-				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+		              << " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+		              << ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(
+	    cs == kSelSystemIdleCode || cs == kSelSystemFiberCode || cs == kSelClientUserCode ||
+	    cs == kSelExecutorSyscallCode || cs == kSelExecutorFaultCode
+	);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	for(int i = 0; i < maxPcidCount; i++)
+	for (int i = 0; i < maxPcidCount; i++)
 		getCpuData()->pcidBindings[i].shootdown();
 
 	getCpuData()->globalBinding.shootdown();
@@ -466,15 +461,16 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 }
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
-	if(inStub(*image.ip()))
+	if (inStub(*image.ip()))
 		panicLogger() << "Ping IPI"
-				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+		              << " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+		              << ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(
+	    cs == kSelSystemIdleCode || cs == kSelSystemFiberCode || cs == kSelClientUserCode ||
+	    cs == kSelExecutorSyscallCode || cs == kSelExecutorFaultCode
+	);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -485,10 +481,10 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 }
 
 extern "C" void onPlatformWork() {
-//	if(inStub(*image.ip()))
-//		panicLogger() << "Work interrupt " << number
-//				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
-//				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+	//	if(inStub(*image.ip()))
+	//		panicLogger() << "Work interrupt " << number
+	//				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+	//				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	assert(!irqMutex().nesting());
 	// TODO: User-access should already be disabled here.
@@ -502,42 +498,40 @@ extern "C" void onPlatformWork() {
 extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	// If we interrupted user space or a kernel stub, we might need to update GS.
 	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
-	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
-			reinterpret_cast<uintptr_t>(*image.expectedGs()));
+	common::x86::wrmsr(
+	    common::x86::kMsrIndexGsBase, reinterpret_cast<uintptr_t>(*image.expectedGs())
+	);
 
 	auto cpuData = getCpuData();
 
 	bool explained = false;
 	auto pmcMechanism = cpuData->profileMechanism.load(std::memory_order_acquire);
-	if(pmcMechanism == ProfileMechanism::intelPmc && checkIntelPmcOverflow()) {
+	if (pmcMechanism == ProfileMechanism::intelPmc && checkIntelPmcOverflow()) {
 		uintptr_t ip = *image.ip();
 		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
 		setIntelPmc();
 		explained = true;
-	}else if(pmcMechanism == ProfileMechanism::amdPmc && checkAmdPmcOverflow()) {
+	} else if (pmcMechanism == ProfileMechanism::amdPmc && checkAmdPmcOverflow()) {
 		uintptr_t ip = *image.ip();
 		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
 		setAmdPmc();
 		explained = true;
 	}
 
-	if(!explained) {
-		infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: NMI triggered at heartbeat "
-				<< cpuData->heartbeat.load(std::memory_order_relaxed) << frg::endlog;
-		infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: From CS: 0x" << frg::hex_fmt(*image.cs())
-				<< ", IP: " << (void *)*image.ip() << frg::endlog;
-		infoLogger() << "thor [CPU " << getLocalApicId()
-				<< "]: RFLAGS is " << (void *)*image.rflags() << frg::endlog;
+	if (!explained) {
+		infoLogger() << "thor [CPU " << getLocalApicId() << "]: NMI triggered at heartbeat "
+		             << cpuData->heartbeat.load(std::memory_order_relaxed) << frg::endlog;
+		infoLogger() << "thor [CPU " << getLocalApicId() << "]: From CS: 0x"
+		             << frg::hex_fmt(*image.cs()) << ", IP: " << (void *)*image.ip() << frg::endlog;
+		infoLogger() << "thor [CPU " << getLocalApicId() << "]: RFLAGS is "
+		             << (void *)*image.rflags() << frg::endlog;
 
-		if(!getLocalApicId())
+		if (!getLocalApicId())
 			sendGlobalNmi();
 	}
 
 	// Restore the old value of GS.
-	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
-			reinterpret_cast<uintptr_t>(gs));
+	common::x86::wrmsr(common::x86::kMsrIndexGsBase, reinterpret_cast<uintptr_t>(gs));
 }
 
 extern "C" void enableIntsAndHaltForever();
@@ -548,4 +542,3 @@ void suspendSelf() {
 }
 
 } // namespace thor
-

@@ -1,5 +1,5 @@
-#include <initgraph.hpp>
 #include <eir-internal/debug.hpp>
+#include <initgraph.hpp>
 
 namespace eir {
 
@@ -11,7 +11,8 @@ struct GlobalInitEngine final : initgraph::Engine {
 	void onUnreached() override {
 		infoLogger() << "eir: initgraph has cycles" << frg::endlog;
 
-		while(1) { }
+		while (1) {
+		}
 	}
 };
 
@@ -38,9 +39,7 @@ initgraph::Stage *getBootInfoBuildableStage() {
 }
 
 struct GlobalCtorTest {
-	GlobalCtorTest() {
-		infoLogger() << "Hello world from global ctor" << frg::endlog;
-	}
+	GlobalCtorTest() { infoLogger() << "Hello world from global ctor" << frg::endlog; }
 };
 
 GlobalCtorTest globalCtorTest;
@@ -50,10 +49,10 @@ extern "C" InitializerPtr __init_array_start[];
 extern "C" InitializerPtr __init_array_end[];
 
 extern "C" void eirRunConstructors() {
-	infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
-	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-			(*p)();
+	infoLogger() << "There are " << (__init_array_end - __init_array_start) << " constructors"
+	             << frg::endlog;
+	for (InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
+		(*p)();
 }
 
 extern "C" void eirMain() {
@@ -61,7 +60,8 @@ extern "C" void eirMain() {
 
 	globalInitEngine.run();
 
-	while(1) { }
+	while (1) {
+	}
 }
 
 } // namespace eir

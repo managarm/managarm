@@ -1,11 +1,11 @@
 #pragma once
 
-#include <string.h>
 #include <atomic>
+#include <string.h>
 
 #include <frg/container_of.hpp>
-#include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/credentials.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/universe.hpp>
@@ -27,8 +27,8 @@ enum Interrupt {
 
 struct Thread;
 
-template <template<typename, typename> typename Ptr, typename T, typename H>
-	requires (!std::is_same_v<H, void>)
+template <template <typename, typename> typename Ptr, typename T, typename H>
+    requires(!std::is_same_v<H, void>)
 Ptr<T, void> remove_tag_cast(const Ptr<T, H> &other) {
 	other.ctr()->holder()->increment();
 	auto ret = Ptr<T, void>{smarter::adopt_rc, other.get(), other.ctr()->holder()};
@@ -37,48 +37,53 @@ Ptr<T, void> remove_tag_cast(const Ptr<T, H> &other) {
 
 smarter::borrowed_ptr<Thread> getCurrentThread();
 
-struct ActiveHandle { };
+struct ActiveHandle {};
 
 struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntity, Credentials {
 	// Silence Clang warning about hidden overloads.
 	using smarter::crtp_counter<Thread, ActiveHandle>::dispose;
 
-private:
+  private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(Thread *thread)
-		: WorkQueue{&thread->_executorContext}, _thread{thread} { }
+		    : WorkQueue{&thread->_executorContext},
+		      _thread{thread} {}
 
 		void wakeup() override;
 
-	private:
+	  private:
 		Thread *_thread;
 	};
 
-public:
-	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
-			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
-			AbiParameters abi) {
-		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
-				std::move(universe), std::move(address_space), abi);
+  public:
+	static smarter::shared_ptr<Thread, ActiveHandle> create(
+	    smarter::shared_ptr<Universe> universe,
+	    smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
+	    AbiParameters abi
+	) {
+		auto thread = smarter::allocate_shared<Thread>(
+		    *kernelAlloc, std::move(universe), std::move(address_space), abi
+		);
 		auto ptr = thread.get();
 		ptr->setup(smarter::adopt_rc, thread.ctr(), 1);
 		thread.release();
 		smarter::shared_ptr<Thread, ActiveHandle> sptr{smarter::adopt_rc, ptr, ptr};
 
-		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(
-				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_mainWorkQueue});
+		ptr->_mainWorkQueue.selfPtr =
+		    remove_tag_cast(smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_mainWorkQueue}
+		    );
 		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(
-				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_pagingWorkQueue});
+		    smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_pagingWorkQueue}
+		);
 		return sptr;
 	}
 
-	template<typename Sender>
-	static auto asyncBlockCurrent(Sender s) {
+	template <typename Sender> static auto asyncBlockCurrent(Sender s) {
 		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue);
 	}
 
-	template<typename Sender>
-	requires std::is_same_v<typename Sender::value_type, void>
+	template <typename Sender>
+	    requires std::is_same_v<typename Sender::value_type, void>
 	static void asyncBlockCurrent(Sender s, WorkQueue *wq) {
 		auto thisThread = getCurrentThread();
 
@@ -88,7 +93,7 @@ public:
 			smarter::shared_ptr<Thread> thread;
 			// Acquire-release semantics to publish the result of the async operation.
 			std::atomic<bool> done{false};
-		} bls {.thread = thisThread.lock()};
+		} bls{.thread = thisThread.lock()};
 
 		struct Receiver {
 			void set_value_inline() {
@@ -106,12 +111,12 @@ public:
 		};
 
 		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
-		if(async::execution::start_inline(operation))
+		if (async::execution::start_inline(operation))
 			return;
-		while(true) {
-			if(bls.done.load(std::memory_order_acquire))
+		while (true) {
+			if (bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
+			if (wq->check()) {
 				wq->run();
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
@@ -121,8 +126,8 @@ public:
 		}
 	}
 
-	template<typename Sender>
-	requires (!std::is_same_v<typename Sender::value_type, void>)
+	template <typename Sender>
+	    requires(!std::is_same_v<typename Sender::value_type, void>)
 	static typename Sender::value_type asyncBlockCurrent(Sender s, WorkQueue *wq) {
 		auto thisThread = getCurrentThread();
 
@@ -152,12 +157,12 @@ public:
 		};
 
 		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
-		if(async::execution::start_inline(operation))
+		if (async::execution::start_inline(operation))
 			return std::move(*bls.value);
-		while(true) {
-			if(bls.done.load(std::memory_order_acquire))
+		while (true) {
+			if (bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
+			if (wq->check()) {
 				wq->run();
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
@@ -189,26 +194,19 @@ public:
 	// These signals let the thread change its RunState.
 	// Do not confuse them with POSIX signals!
 	// TODO: Interrupt signals should be queued.
-	enum Signal {
-		kSigNone,
-		kSigInterrupt
-	};
+	enum Signal { kSigNone, kSigInterrupt };
 
-	enum Flags : uint32_t {
-		kFlagServer = 1
-	};
+	enum Flags : uint32_t { kFlagServer = 1 };
 
-	Thread(smarter::shared_ptr<Universe> universe,
-			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
-			AbiParameters abi);
+	Thread(
+	    smarter::shared_ptr<Universe> universe,
+	    smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
+	    AbiParameters abi
+	);
 	~Thread();
 
-	WorkQueue *mainWorkQueue() {
-		return &_mainWorkQueue;
-	}
-	WorkQueue *pagingWorkQueue() {
-		return &_pagingWorkQueue;
-	}
+	WorkQueue *mainWorkQueue() { return &_mainWorkQueue; }
+	WorkQueue *pagingWorkQueue() { return &_pagingWorkQueue; }
 
 	UserContext &getContext();
 	smarter::borrowed_ptr<Universe> getUniverse();
@@ -217,7 +215,7 @@ public:
 	// ----------------------------------------------------------------------------------
 	// observe() and its boilerplate.
 	// ----------------------------------------------------------------------------------
-private:
+  private:
 	struct ObserveNode {
 		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
 		frg::default_list_hook<ObserveNode> hook = {};
@@ -225,17 +223,16 @@ private:
 
 	void observe_(uint64_t inSeq, ObserveNode *node);
 
-public:
-	template<typename Receiver>
-	struct [[nodiscard]] ObserveOperation {
+  public:
+	template <typename Receiver> struct [[nodiscard]] ObserveOperation {
 		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
-		: self_{self}, inSeq_{inSeq}, node_{.receiver = std::move(receiver)} { }
+		    : self_{self},
+		      inSeq_{inSeq},
+		      node_{.receiver = std::move(receiver)} {}
 
-		void start() {
-			self_->observe_(inSeq_, &node_);
-		}
+		void start() { self_->observe_(inSeq_, &node_); }
 
-	private:
+	  private:
 		Thread *self_;
 		uint64_t inSeq_;
 		ObserveNode node_;
@@ -249,8 +246,7 @@ public:
 			return {std::move(*this)};
 		}
 
-		template<typename Receiver>
-		ObserveOperation<Receiver> connect(Receiver receiver) {
+		template <typename Receiver> ObserveOperation<Receiver> connect(Receiver receiver) {
 			return {self, inSeq, std::move(receiver)};
 		}
 
@@ -258,24 +254,22 @@ public:
 		uint64_t inSeq;
 	};
 
-	ObserveSender observe(uint64_t inSeq) {
-		return {this, inSeq};
-	}
+	ObserveSender observe(uint64_t inSeq) { return {this, inSeq}; }
 
 	// ----------------------------------------------------------------------------------
 
 	// TODO: Do not expose these functions publically.
 	void dispose(ActiveHandle); // Called when shared_ptr refcount reaches zero.
 
-	[[ noreturn ]] void invoke() override;
+	[[noreturn]] void invoke() override;
 
 	void handlePreemption(IrqImageAccessor accessor) override;
 
-private:
+  private:
 	void _uninvoke();
 	void _kill();
 
-public:
+  public:
 	frg::vector<uint8_t, KernelAlloc> getAffinityMask() {
 		auto lock = frg::guard(&_mutex);
 		return _affinityMask;
@@ -291,7 +285,7 @@ public:
 
 	uint32_t flags;
 
-private:
+  private:
 	typedef frg::ticket_spinlock Mutex;
 
 	enum RunState {
@@ -346,22 +340,18 @@ private:
 
 	UserContext _userContext;
 	ExecutorContext _executorContext;
-public:
+
+  public:
 	// TODO: This should be private.
 	Executor _executor;
 
-private:
+  private:
 	smarter::shared_ptr<Universe> _universe;
 	smarter::shared_ptr<AddressSpace, BindableHandle> _addressSpace;
 
 	using ObserveQueue = frg::intrusive_list<
-		ObserveNode,
-		frg::locate_member<
-			ObserveNode,
-			frg::default_list_hook<ObserveNode>,
-			&ObserveNode::hook
-		>
-	>;
+	    ObserveNode,
+	    frg::locate_member<ObserveNode, frg::default_list_hook<ObserveNode>, &ObserveNode::hook>>;
 
 	ObserveQueue _observeQueue;
 	frg::vector<uint8_t, KernelAlloc> _affinityMask;

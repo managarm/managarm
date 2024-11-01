@@ -39,8 +39,10 @@
 #include <unistd.h>
 
 E1000Nic::E1000Nic(protocols::hw::Device device)
-	: nic::Link(1500, &_dmaPool), _device{std::move(device)},
-	_rxIndex(0, RX_QUEUE_SIZE), _txIndex(0, TX_QUEUE_SIZE) {
+    : nic::Link(1500, &_dmaPool),
+      _device{std::move(device)},
+      _rxIndex(0, RX_QUEUE_SIZE),
+      _txIndex(0, TX_QUEUE_SIZE) {
 	async::run(this->init(), helix::currentDispatcher);
 }
 
@@ -102,18 +104,19 @@ async::result<void> E1000Nic::init() {
 	 * must happen after the MAC is
 	 * identified
 	 */
-	if((_hw.mac.type == e1000_ich8lan) || (_hw.mac.type == e1000_ich9lan) ||
-		(_hw.mac.type == e1000_ich10lan) || (_hw.mac.type == e1000_pchlan) ||
-		(_hw.mac.type == e1000_pch2lan) || (_hw.mac.type == e1000_pch_lpt)) {
+	if ((_hw.mac.type == e1000_ich8lan) || (_hw.mac.type == e1000_ich9lan) ||
+	    (_hw.mac.type == e1000_ich10lan) || (_hw.mac.type == e1000_pchlan) ||
+	    (_hw.mac.type == e1000_pch2lan) || (_hw.mac.type == e1000_pch_lpt)) {
 		printf("e1000: Mapping of flash unimplemented\n");
 		goto fail;
 	} else if (_hw.mac.type >= e1000_pch_spt) {
 		/**
 		 * In the new SPT device flash is not a separate BAR, rather it is also in BAR0,
-		 * so use the same tag and an offset handle for the FLASH read/write macros in the shared code.
+		 * so use the same tag and an offset handle for the FLASH read/write macros in the shared
+		 * code.
 		 */
 
-		hw2flashbase(&_hw) = ((struct e1000_osdep *) _hw.back)->membase + E1000_FLASH_BASE_ADDR;
+		hw2flashbase(&_hw) = ((struct e1000_osdep *)_hw.back)->membase + E1000_FLASH_BASE_ADDR;
 	}
 
 	{
@@ -125,7 +128,9 @@ async::result<void> E1000Nic::init() {
 
 	_hw.mac.autoneg = 1;
 	_hw.phy.autoneg_wait_to_complete = false;
-	_hw.phy.autoneg_advertised = (ADVERTISE_10_HALF | ADVERTISE_10_FULL | ADVERTISE_100_HALF | ADVERTISE_100_FULL | ADVERTISE_1000_FULL);
+	_hw.phy.autoneg_advertised =
+	    (ADVERTISE_10_HALF | ADVERTISE_10_FULL | ADVERTISE_100_HALF | ADVERTISE_100_FULL |
+	     ADVERTISE_1000_FULL);
 
 	if (_hw.phy.media_type == e1000_media_type_copper) {
 		_hw.phy.mdix = 0;
@@ -135,7 +140,7 @@ async::result<void> E1000Nic::init() {
 
 	_hw.mac.report_tx_early = 1;
 
-	if(e1000_check_reset_block(&_hw)) {
+	if (e1000_check_reset_block(&_hw)) {
 		DEBUGOUT("PHY reset is blocked due to SOL/IDER session.");
 	}
 
@@ -147,19 +152,19 @@ async::result<void> E1000Nic::init() {
 	e1000_reset_hw(&_hw);
 	e1000_power_up_phy(&_hw);
 
-	if(e1000_validate_nvm_checksum(&_hw) < 0) {
-		if(e1000_validate_nvm_checksum(&_hw) < 0) {
+	if (e1000_validate_nvm_checksum(&_hw) < 0) {
+		if (e1000_validate_nvm_checksum(&_hw) < 0) {
 			std::cout << "e1000: EEPROM checksum not valid\n";
 			goto fail;
 		}
 	}
 
-	if(e1000_read_mac_addr(&_hw) < 0) {
+	if (e1000_read_mac_addr(&_hw) < 0) {
 		std::cout << "e1000: error while reading MAC address" << std::endl;
 		goto fail;
 	}
 
-	for(size_t i = 0; i < ETHER_ADDR_LEN; i++) {
+	for (size_t i = 0; i < ETHER_ADDR_LEN; i++) {
 		mac_[i] = _hw.mac.addr[i];
 	}
 
@@ -170,10 +175,10 @@ async::result<void> E1000Nic::init() {
 
 	memset(_rxd.data(), 0, RX_QUEUE_SIZE * sizeof(struct e1000_rx_desc));
 
-	if(_hw.mac.type >= em_mac_min) {
+	if (_hw.mac.type >= em_mac_min) {
 		em_rxd_setup();
 	} else {
-		for(size_t i = 0; i < RX_QUEUE_SIZE; i++) {
+		for (size_t i = 0; i < RX_QUEUE_SIZE; i++) {
 			_rxd[i].buffer_addr = helix_ng::ptrToPhysical(&_rxdbuf[i]);
 			_rxd[i].length = 2048;
 		}
@@ -184,7 +189,7 @@ async::result<void> E1000Nic::init() {
 
 	memset(_txd.data(), 0, TX_QUEUE_SIZE * sizeof(struct e1000_tx_desc));
 
-	for(size_t i = 0; i < TX_QUEUE_SIZE; i++) {
+	for (size_t i = 0; i < TX_QUEUE_SIZE; i++) {
 		_txd[i].buffer_addr = helix_ng::ptrToPhysical(&_txdbuf[i]);
 		_txd[i].lower.data = 0;
 		_txd[i].upper.data = 0;
@@ -226,7 +231,7 @@ async::result<void> E1000Nic::send(const arch::dma_buffer_view buf) {
 	reap_tx_buffers();
 
 	memcpy(&_txdbuf[_txIndex], buf.data(), buf.size());
-	struct e1000_tx_desc* desc = &_txd[_txIndex];
+	struct e1000_tx_desc *desc = &_txd[_txIndex];
 	desc->lower.data = E1000_TXD_CMD_EOP | E1000_TXD_CMD_IFCS | E1000_TXD_CMD_RS | buf.size();
 
 	++_txIndex;
@@ -282,4 +287,4 @@ std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
 	return std::make_shared<E1000Nic>(std::move(device));
 }
 
-} // namespace nic::intel8254x
+} // namespace nic::e1000

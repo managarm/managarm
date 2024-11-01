@@ -13,7 +13,6 @@
 extern "C" {
 
 #include <e1000_api.h>
-
 }
 
 constexpr size_t RX_QUEUE_SIZE = 32;
@@ -47,7 +46,7 @@ struct E1000Nic : nic::Link {
 	void pciRead(u32 reg, u16 *value);
 	void pciRead(u32 reg, u8 *value);
 
-private:
+  private:
 	async::detached processIrqs();
 
 	async::result<void> identifyHardware();
@@ -81,7 +80,7 @@ private:
 
 	std::queue<Request *> _requests;
 
-public:
+  public:
 	struct e1000_hw _hw;
 	struct e1000_osdep _osdep;
 

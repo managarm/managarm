@@ -1,19 +1,19 @@
 
 #include <assert.h>
-#include <stdio.h>
 #include <deque>
-#include <optional>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <numeric>
+#include <optional>
+#include <stdio.h>
 
 #include <async/result.hpp>
+#include <core/drm/core.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
-#include <core/drm/core.hpp>
 
 #include <libdrm/drm.h>
 #include <libdrm/drm_mode.h>
@@ -25,15 +25,24 @@
 // GfxDevice.
 // ----------------------------------------------------------------
 
-GfxDevice::GfxDevice(protocols::hw::Device hw_device,
-		unsigned int screen_width, unsigned int screen_height,
-		size_t screen_pitch, helix::Mapping fb_mapping)
-: _hwDevice{std::move(hw_device)},
-		_screenWidth{screen_width}, _screenHeight{screen_height},
-		_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)} {
-	if((reinterpret_cast<uintptr_t>(fb_mapping.get()) & 15)) {
-		std::cout << "\e[31m" "gfx/plainfb: Hardware framebuffer is not aligned;"
-				" expect perfomance degradation!" "\e[39m" << std::endl;
+GfxDevice::GfxDevice(
+    protocols::hw::Device hw_device,
+    unsigned int screen_width,
+    unsigned int screen_height,
+    size_t screen_pitch,
+    helix::Mapping fb_mapping
+)
+    : _hwDevice{std::move(hw_device)},
+      _screenWidth{screen_width},
+      _screenHeight{screen_height},
+      _screenPitch{screen_pitch},
+      _fbMapping{std::move(fb_mapping)} {
+	if ((reinterpret_cast<uintptr_t>(fb_mapping.get()) & 15)) {
+		std::cout << "\e[31m"
+		             "gfx/plainfb: Hardware framebuffer is not aligned;"
+		             " expect perfomance degradation!"
+		             "\e[39m"
+		          << std::endl;
 		_hardwareFbIsAligned = false;
 	}
 }
@@ -98,14 +107,19 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	setupMaxDimensions(_screenWidth, _screenHeight);
 
 	assignments.push_back(drm_core::Assignment::withInt(_theConnector, dpmsProperty(), 3));
-	assignments.push_back(drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc));
+	assignments.push_back(
+	    drm_core::Assignment::withModeObj(_theConnector, crtcIdProperty(), _theCrtc)
+	);
 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, _screenWidth, _screenHeight);
-	std::sort(supported_modes.begin(), supported_modes.end(),
-			[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
-		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
-	});
+	std::sort(
+	    supported_modes.begin(),
+	    supported_modes.end(),
+	    [](const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
+		    return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
+	    }
+	);
 	_theConnector->setModeList(supported_modes);
 
 	auto info_ptr = reinterpret_cast<char *>(&supported_modes.front());
@@ -126,8 +140,13 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 	return std::make_unique<Configuration>(this);
 }
 
-std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
+std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(
+    std::shared_ptr<drm_core::BufferObject> base_bo,
+    uint32_t width,
+    uint32_t height,
+    uint32_t,
+    uint32_t pitch
+) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	assert(pitch % 4 == 0);
@@ -141,9 +160,7 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	return fb;
 }
 
-std::tuple<int, int, int> GfxDevice::driverVersion() {
-	return {0, 0, 1};
-}
+std::tuple<int, int, int> GfxDevice::driverVersion() { return {0, 0, 1}; }
 
 std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 	return {"plainfb_gpu", "plainfb gpu", "0"};
@@ -155,8 +172,8 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	auto size = ((width * height * bpp / 8) + (4096 - 1)) & ~(4096 - 1);
 	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
 
-	auto bo = std::make_shared<BufferObject>(this, size,
-			helix::UniqueDescriptor(handle), width, height);
+	auto bo =
+	    std::make_shared<BufferObject>(this, size, helix::UniqueDescriptor(handle), width, height);
 	uint32_t pitch = width * bpp / 8;
 
 	auto mapping = installMapping(bo.get());
@@ -169,8 +186,10 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 // GfxDevice::Configuration.
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignments, std::unique_ptr<drm_core::AtomicState> &state) {
-	for(auto &assign : assignments) {
+bool GfxDevice::Configuration::capture(
+    std::vector<drm_core::Assignment> assignments, std::unique_ptr<drm_core::AtomicState> &state
+) {
+	for (auto &assign : assignments) {
 		assert(assign.property->validate(assign));
 		assign.property->writeToState(assign, state);
 	}
@@ -178,7 +197,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	auto plane_state = state->plane(_device->_plane->id());
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-	if(crtc_state->mode != nullptr) {
+	if (crtc_state->mode != nullptr) {
 		// TODO: Consider current width/height if FB did not change.
 		drm_mode_modeinfo mode_info;
 		memcpy(&mode_info, crtc_state->mode->data(), sizeof(drm_mode_modeinfo));
@@ -186,17 +205,17 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		plane_state->src_w = mode_info.hdisplay;
 
 		// TODO: Check max dimensions: plane_state->width > 1024 || plane_state->height > 768
-		if(plane_state->src_w <= 0 || plane_state->src_h <= 0) {
-			std::cout << "\e[31m" "gfx/plainfb: invalid state width of height" << "\e[39m" << std::endl;
+		if (plane_state->src_w <= 0 || plane_state->src_h <= 0) {
+			std::cout << "\e[31m"
+			             "gfx/plainfb: invalid state width of height"
+			          << "\e[39m" << std::endl;
 			return false;
 		}
 	}
 	return true;
 }
 
-void GfxDevice::Configuration::dispose() {
-
-}
+void GfxDevice::Configuration::dispose() {}
 
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	_device->_theCrtc->setDrmState(state->crtc(_device->_theCrtc->id()));
@@ -209,15 +228,15 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> sta
 async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::AtomicState> state) {
 	auto crtc_state = state->crtc(_device->_theCrtc->id());
 
-	if(crtc_state->mode != nullptr) {
-		if(!_device->_claimedDevice) {
+	if (crtc_state->mode != nullptr) {
+		if (!_device->_claimedDevice) {
 			co_await _device->_hwDevice.claimDevice();
 			_device->_claimedDevice = true;
 		}
 
 		auto plane_state = state->plane(_device->_plane->id());
 
-		if(plane_state->fb != nullptr) {
+		if (plane_state->fb != nullptr) {
 			auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(plane_state->fb);
 
 			auto bo = fb->getBufferObject();
@@ -227,14 +246,14 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 			auto minWidth = std::min(bo->getWidth(), _device->_screenWidth);
 			auto minHeight = std::min(bo->getHeight(), _device->_screenHeight);
 
-			if(fb->fastScanout()) {
-				for(unsigned int k = 0; k < minHeight; k++) {
+			if (fb->fastScanout()) {
+				for (unsigned int k = 0; k < minHeight; k++) {
 					drm_core::fastCopy16(dest, src, minWidth * 4);
 					dest += _device->_screenPitch;
 					src += fb->getPitch();
 				}
-			}else{
-				for(unsigned int k = 0; k < minHeight; k++) {
+			} else {
+				for (unsigned int k = 0; k < minHeight; k++) {
 					memcpy(dest, src, minWidth * 4);
 					dest += _device->_screenPitch;
 					src += fb->getPitch();
@@ -253,8 +272,8 @@ async::detached GfxDevice::Configuration::_dispatch(std::unique_ptr<drm_core::At
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *device)
-	: drm_core::Connector { device, device->allocator.allocate() } {
-//	_encoders.push_back(device->_theEncoder.get());
+    : drm_core::Connector{device, device->allocator.allocate()} {
+	//	_encoders.push_back(device->_theEncoder.get());
 }
 
 // ----------------------------------------------------------------
@@ -262,75 +281,71 @@ GfxDevice::Connector::Connector(GfxDevice *device)
 // ----------------------------------------------------------------
 
 GfxDevice::Encoder::Encoder(GfxDevice *device)
-	:drm_core::Encoder { device, device->allocator.allocate() } {
-}
+    : drm_core::Encoder{device, device->allocator.allocate()} {}
 
 // ----------------------------------------------------------------
 // GfxDevice::Crtc.
 // ----------------------------------------------------------------
 
-GfxDevice::Crtc::Crtc(GfxDevice *device)
-: drm_core::Crtc{device, device->allocator.allocate()} {
+GfxDevice::Crtc::Crtc(GfxDevice *device) : drm_core::Crtc{device, device->allocator.allocate()} {
 	_device = device;
 }
 
-drm_core::Plane *GfxDevice::Crtc::primaryPlane() {
-	return _device->_plane.get();
-}
+drm_core::Plane *GfxDevice::Crtc::primaryPlane() { return _device->_plane.get(); }
 
 // ----------------------------------------------------------------
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
-		std::shared_ptr<GfxDevice::BufferObject> bo, size_t pitch)
-: drm_core::FrameBuffer{device, device->allocator.allocate()},
-		_device{device}, _bo{std::move(bo)}, _pitch{pitch} {
-	if(!_device->_hardwareFbIsAligned) {
+GfxDevice::FrameBuffer::FrameBuffer(
+    GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo, size_t pitch
+)
+    : drm_core::FrameBuffer{device, device->allocator.allocate()},
+      _device{device},
+      _bo{std::move(bo)},
+      _pitch{pitch} {
+	if (!_device->_hardwareFbIsAligned) {
 		_fastScanout = false;
-	}else if((reinterpret_cast<uintptr_t>(_bo->accessMapping()) & 15)
-			|| ((_bo->getWidth() * 4) & 15)) {
-		std::cout << "\e[31m" "gfx/plainfb: Framebuffer is not aligned!" "\e[39m" << std::endl;
+	} else if ((reinterpret_cast<uintptr_t>(_bo->accessMapping()) & 15) ||
+	           ((_bo->getWidth() * 4) & 15)) {
+		std::cout << "\e[31m"
+		             "gfx/plainfb: Framebuffer is not aligned!"
+		             "\e[39m"
+		          << std::endl;
 		_fastScanout = false;
 	}
 }
 
-size_t GfxDevice::FrameBuffer::getPitch() {
-	return _pitch;
-}
+size_t GfxDevice::FrameBuffer::getPitch() { return _pitch; }
 
-GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
-	return _bo.get();
-}
+GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() { return _bo.get(); }
 
 void GfxDevice::FrameBuffer::notifyDirty() {
 	// TODO: Re-blit the FrameBuffer if it is currently displayed.
 	std::cout << "gfx/plainfb: notifyDirty() is not implemented correctly" << std::endl;
 }
 
-uint32_t GfxDevice::FrameBuffer::getWidth() {
-	return _bo->getWidth();
-}
+uint32_t GfxDevice::FrameBuffer::getWidth() { return _bo->getWidth(); }
 
-uint32_t GfxDevice::FrameBuffer::getHeight() {
-	return _bo->getHeight();
-}
+uint32_t GfxDevice::FrameBuffer::getHeight() { return _bo->getHeight(); }
 
 // ----------------------------------------------------------------
 // GfxDevice: Plane.
 // ----------------------------------------------------------------
 
 GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type)
-: drm_core::Plane{device, device->allocator.allocate(), type} { }
+    : drm_core::Plane{device, device->allocator.allocate(), type} {}
 
 // ----------------------------------------------------------------
 // GfxDevice: BufferObject.
 // ----------------------------------------------------------------
 
-GfxDevice::BufferObject::BufferObject(GfxDevice *device,
-		size_t size, helix::UniqueDescriptor memory,
-		uint32_t width, uint32_t height)
-: drm_core::BufferObject{width, height}, _size{size}, _memory{std::move(memory)} {
+GfxDevice::BufferObject::BufferObject(
+    GfxDevice *device, size_t size, helix::UniqueDescriptor memory, uint32_t width, uint32_t height
+)
+    : drm_core::BufferObject{width, height},
+      _size{size},
+      _memory{std::move(memory)} {
 	(void)device;
 	_bufferMapping = helix::Mapping{_memory, 0, getSize()};
 }
@@ -339,13 +354,9 @@ std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObj
 	return this->shared_from_this();
 }
 
-size_t GfxDevice::BufferObject::getSize() {
-	return _size;
-}
+size_t GfxDevice::BufferObject::getSize() { return _size; }
 
-void *GfxDevice::BufferObject::accessMapping() {
-	return _bufferMapping.get();
-}
+void *GfxDevice::BufferObject::accessMapping() { return _bufferMapping.get(); }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
 	return std::make_pair(helix::BorrowedDescriptor(_memory), 0);
@@ -360,29 +371,32 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 
 	auto info = co_await hwDevice.getFbInfo();
 	auto fbMemory = co_await hwDevice.accessFbMemory();
-	std::cout << "gfx/plainfb: Resolution " << info.width
-			<< "x" << info.height << " (" << info.bpp
-			<< " bpp, pitch: " << info.pitch << ")" << std::endl;
+	std::cout << "gfx/plainfb: Resolution " << info.width << "x" << info.height << " (" << info.bpp
+	          << " bpp, pitch: " << info.pitch << ")" << std::endl;
 	assert(info.bpp == 32);
 
-	auto gfxDevice = std::make_shared<GfxDevice>(std::move(hwDevice),
-			info.width, info.height, info.pitch,
-			helix::Mapping{fbMemory, 0, info.pitch * info.height});
+	auto gfxDevice = std::make_shared<GfxDevice>(
+	    std::move(hwDevice),
+	    info.width,
+	    info.height,
+	    info.pitch,
+	    helix::Mapping{fbMemory, 0, info.pitch * info.height}
+	);
 	auto config = co_await gfxDevice->initialize();
 
 	// Create an mbus object for the device.
 	mbus_ng::Properties descriptor{
-		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
-		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
-		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
+	    {"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
+	    {"unix.subsystem", mbus_ng::StringItem{"drm"}},
+	    {"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
 	co_await config->waitForCompletion();
 
-	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
-		"gfx_plainfb", descriptor)).unwrap();
+	auto gfxEntity =
+	    (co_await mbus_ng::Instance::global().createEntity("gfx_plainfb", descriptor)).unwrap();
 
-	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+	[](auto device, mbus_ng::EntityManager entity) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
@@ -395,9 +409,7 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "framebuffer"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "framebuffer"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -420,4 +432,3 @@ int main() {
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);
 }
-

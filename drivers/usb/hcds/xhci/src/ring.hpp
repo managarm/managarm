@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <protocols/usb/api.hpp>
@@ -49,12 +49,18 @@ inline frg::expected<protocols::usb::UsbError> completionToError(Event ev) {
 	using protocols::usb::UsbError;
 
 	switch (ev.completionCode) {
-		case 1: return frg::success;
-		case 13: return frg::success;
-		case 3: return UsbError::babble;
-		case 6: return UsbError::stall;
-		case 22: return UsbError::unsupported;
-		default: return UsbError::other;
+	case 1:
+		return frg::success;
+	case 13:
+		return frg::success;
+	case 3:
+		return UsbError::babble;
+	case 6:
+		return UsbError::stall;
+	case 22:
+		return UsbError::unsupported;
+	default:
+		return UsbError::other;
 	}
 }
 
@@ -83,7 +89,7 @@ struct EventRing {
 
 	void processRing();
 
-private:
+  private:
 	arch::dma_object<EventRingEntries> _eventRing;
 	arch::dma_array<ErstEntry> _erst;
 
@@ -97,16 +103,15 @@ struct ProducerRing {
 	constexpr static size_t ringSize = 128;
 
 	struct Transaction {
-		async::result<frg::expected<protocols::usb::UsbError, size_t>>
-		control(bool hasData);
+		async::result<frg::expected<protocols::usb::UsbError, size_t>> control(bool hasData);
 
-		async::result<frg::expected<protocols::usb::UsbError, size_t>>
-		normal();
+		async::result<frg::expected<protocols::usb::UsbError, size_t>> normal();
 
 		async::result<Event> command();
 
 		void onEvent(Controller *controller, Event event, RawTrb associatedTrb);
-	private:
+
+	  private:
 		std::vector<std::pair<RawTrb, Event>> events_;
 		async::sequenced_event progressEvent_;
 		uint64_t progressSeq_ = 0;
@@ -133,7 +138,7 @@ struct ProducerRing {
 
 	void processEvent(Event ev);
 
-private:
+  private:
 	std::array<Transaction *, ringSize> _transactions;
 	arch::dma_object<RingEntries> _ring;
 	Controller *_controller;

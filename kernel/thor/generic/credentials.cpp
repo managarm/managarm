@@ -13,9 +13,8 @@ Credentials::Credentials() {
 	// XXX(qookie): Verify that there indeed are no collisions?
 	//              Although that seems like a waste of time...
 	while (progress < 16) {
-		progress += generateRandomBytes(
-			_credentials.data() + progress,
-			_credentials.size() - progress);
+		progress +=
+		    generateRandomBytes(_credentials.data() + progress, _credentials.size() - progress);
 	}
 
 	// Set the UUID to version 4 ...

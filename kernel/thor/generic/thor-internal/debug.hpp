@@ -42,7 +42,7 @@ struct LogHandler {
 
 	void *context;
 
-protected:
+  protected:
 	~LogHandler() = default;
 };
 
@@ -59,31 +59,31 @@ void copyLogMessage(size_t sequence, LogMessage &msg);
 struct DebugSink {
 	constexpr DebugSink() = default;
 
-	void operator() (const char *msg);
+	void operator()(const char *msg);
 };
 
 struct WarningSink {
 	constexpr WarningSink() = default;
 
-	void operator() (const char *msg);
+	void operator()(const char *msg);
 };
 
 struct InfoSink {
 	constexpr InfoSink() = default;
 
-	void operator() (const char *msg);
+	void operator()(const char *msg);
 };
 
 struct UrgentSink {
 	constexpr UrgentSink() = default;
 
-	void operator() (const char *msg);
+	void operator()(const char *msg);
 };
 
 struct PanicSink {
 	constexpr PanicSink() = default;
 
-	void operator() (const char *msg);
+	void operator()(const char *msg);
 	void finalize(bool);
 };
 

@@ -28,17 +28,16 @@ struct Bpf {
 	};
 
 	Bpf(std::span<char> fprog)
-		: prog_{
-			reinterpret_cast<struct sock_filter *>(fprog.data()),
-			fprog.size() / sizeof(struct sock_filter)
-		} {
-
-	}
+	    : prog_{
+	          reinterpret_cast<struct sock_filter *>(fprog.data()),
+	          fprog.size() / sizeof(struct sock_filter)
+	      } {}
 
 	bool validate();
 
 	uint32_t run(arch::dma_buffer_view buffer);
-private:
+
+  private:
 	std::span<struct sock_filter> prog_;
 
 	// accumulator register
