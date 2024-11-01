@@ -182,7 +182,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	assert(usbControllerMap.find(bus) != usbControllerMap.end());
 	auto bus_num = usbControllerMap[bus];
 
-	auto sysfs_name = std::to_string(bus_num) + "-" + std::to_string(std::stoi(address.value, 0, 16));
+	auto sysfs_name = std::to_string(bus_num) + "-" + std::to_string(std::stoi(address.value, nullptr, 16));
 
 	std::cout << "POSIX: Installing USB device " << sysfs_name << " (mbus ID: " << entity.id() << ")" << std::endl;
 

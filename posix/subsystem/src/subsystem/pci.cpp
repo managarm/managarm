@@ -273,20 +273,20 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 
 		auto device = std::make_shared<Device>(sysfs_name, entity.id(), std::move(hwDevice), parentObj);
 		device->pciBus = std::stoi(std::get<mbus_ng::StringItem>(
-				properties["pci-bus"]).value, 0, 16);
+				properties["pci-bus"]).value, nullptr, 16);
 		device->pciSlot = std::stoi(std::get<mbus_ng::StringItem>(
-				properties["pci-slot"]).value, 0, 16);
+				properties["pci-slot"]).value, nullptr, 16);
 		device->pciFunction = std::stoi(std::get<mbus_ng::StringItem>(
-				properties["pci-function"]).value, 0, 16);
+				properties["pci-function"]).value, nullptr, 16);
 		device->vendorId = std::stoi(std::get<mbus_ng::StringItem>(
-				properties["pci-vendor"]).value, 0, 16);
+				properties["pci-vendor"]).value, nullptr, 16);
 		device->deviceId = std::stoi(std::get<mbus_ng::StringItem>(
-				properties["pci-device"]).value, 0, 16);
+				properties["pci-device"]).value, nullptr, 16);
 		if(type == "pci-device") {
 			device->subsystemVendorId = std::stoi(std::get<mbus_ng::StringItem>(
-					properties["pci-subsystem-vendor"]).value, 0, 16);
+					properties["pci-subsystem-vendor"]).value, nullptr, 16);
 			device->subsystemDeviceId = std::stoi(std::get<mbus_ng::StringItem>(
-					properties["pci-subsystem-device"]).value, 0, 16);
+					properties["pci-subsystem-device"]).value, nullptr, 16);
 		}
 
 		if(properties.find("class") != properties.end()

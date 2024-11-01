@@ -1016,7 +1016,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
 			process->vmContext()->getSpace().getHandle(), kHelAbiSystemV,
-			0, 0, kHelThreadStopped, &new_thread));
+			nullptr, nullptr, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 	process->_posixLane = std::move(server_lane);
 

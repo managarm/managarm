@@ -11,7 +11,7 @@ int main() {
 	HEL_CHECK(helAllocateMemory(0x10000, 0, nullptr, &mem));
 
 	void *fake_ptr;
-	HEL_CHECK(helMapMemory(mem, vspace, 0x0, 0x0, 0x10000, kHelMapFixed | kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute, &fake_ptr));
+	HEL_CHECK(helMapMemory(mem, vspace, nullptr, 0x0, 0x10000, kHelMapFixed | kHelMapProtRead | kHelMapProtWrite | kHelMapProtExecute, &fake_ptr));
 	assert(fake_ptr == nullptr);
 
 	void *actual_ptr;

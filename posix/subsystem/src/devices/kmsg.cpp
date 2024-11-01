@@ -63,7 +63,7 @@ private:
 		auto handlePrefix = [&](size_t digits) {
 			assert(digits > 0 && digits <= 3);
 
-			char *endptr = 0;
+			char *endptr = nullptr;
 			auto val = std::strtoul(&msg[1], &endptr, 10);
 			assert(endptr == &msg[1 + digits]);
 			auto level = val & 0x7;
