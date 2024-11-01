@@ -1,0 +1,13 @@
+---
+Checks:
+  - '-*'
+  - 'modernize-use-nullptr'
+HeaderFileExtensions:
+  - h
+  - hpp
+ImplementationFileExtensions:
+  - c
+  - cpp
+FormatStyle: none
+SystemHeaders: false
+UseColor: true
