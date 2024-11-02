@@ -26,4 +26,6 @@ eirEnterKernel:
 	movabs $0xFFFFFE8000010000, %rdi
 	jmp *%rsi
 
+#ifndef __clang__
 	.section .note.GNU-stack,"",%progbits
+#endif

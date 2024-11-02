@@ -30,4 +30,6 @@ eirEnterKernel:
 	mov x0, x4
 	br x2
 
+#ifndef __clang__
 	.section .note.GNU-stack,"",%progbits
+#endif

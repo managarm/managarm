@@ -46,6 +46,11 @@ If:
   PathMatch: kernel/.*
 CompileFlags:
   CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-kernel
+---
+If:
+  PathMatch: kernel/eir/protos/uefi/.*
+CompileFlags:
+  CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-kernel-uefi
 
 # vim: set ft=yaml :
 ```

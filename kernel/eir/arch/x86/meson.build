@@ -30,5 +30,7 @@ eir64_dependencies = eir_dependencies
 eir64_extra_objects = []
 eir64_link_depends = files('generic64_link.x')
 
-subdir('multiboot1')
-subdir('multiboot2')
+if not build_uefi
+	subdir('multiboot1')
+	subdir('multiboot2')
+endif

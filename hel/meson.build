@@ -22,7 +22,7 @@ endif
 inc = [ 'include' ]
 
 if not provide_deps and not build_kernel
-	deps = [ coroutines, bragi_dep, frigg, posix_extra_dep ]
+	deps = [ bragi_dep, frigg, posix_extra_dep ]
 
 	helix = shared_library('helix', src,
 		dependencies : deps,

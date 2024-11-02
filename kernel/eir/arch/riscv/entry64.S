@@ -13,4 +13,6 @@ eirStackBase:
 	.space 0x10000
 eirStackTop:
 
+#ifndef __clang__
 	.section .note.GNU-stack,"",%progbits
+#endif
