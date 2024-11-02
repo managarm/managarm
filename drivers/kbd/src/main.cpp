@@ -1169,10 +1169,15 @@ async::detached observeControllers() {
 		mbus_ng::EqualsFilter{"acpi.status", "ps2.init_complete"},
 	});
 
-	for(auto v : keyboardPnpIds)
+	for(auto v : keyboardPnpIds) {
 		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.hid", v});
-	for(auto v : mousePnpIds)
+		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.cid", v});
+	}
+
+	for(auto v : mousePnpIds) {
 		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.hid", v});
+		devlist.operands().push_back(mbus_ng::EqualsFilter{"acpi.cid", v});
+	}
 
 	auto filter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "acpi"},
