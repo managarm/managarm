@@ -355,6 +355,7 @@ async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> en
 
 		if(preamble.id() == bragi::message_id<managarm::mbus::ServeRemoteLaneRequest>) {
 			/* Don't care about the request contents */
+			recvHead.reset();
 
 			auto [pullLane] =
 				co_await helix_ng::exchangeMsgs(
@@ -399,6 +400,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 		if(preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesRequest>) {
 			auto req = bragi::parse_head_only<managarm::mbus::GetPropertiesRequest>(recvHead);
+			recvHead.reset();
 
 			managarm::mbus::GetPropertiesResponse resp;
 			auto entity = getEntityById(req->id());
@@ -424,6 +426,8 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(sendTail.error());
 		} else if(preamble.id() == bragi::message_id<managarm::mbus::GetRemoteLaneRequest>) {
 			auto req = bragi::parse_head_only<managarm::mbus::GetRemoteLaneRequest>(recvHead);
+			recvHead.reset();
+
 			auto entity = getEntityById(req->id());
 			if(!entity) {
 				managarm::mbus::GetRemoteLaneResponse resp;
@@ -448,6 +452,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::EnumerateRequest>(recvHead, tail);
+			recvHead.reset();
 
 			doEnumerate(std::move(conversation), req->seq(),
 					decodeFilter(req->filter()));
@@ -460,6 +465,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
+			recvHead.reset();
 
 			std::unordered_map<std::string, mbus_ng::AnyItem> properties;
 			for(auto &kv : req->properties()) {
@@ -505,6 +511,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
+			recvHead.reset();
 			auto entity = getEntityById(req->id());
 			managarm::mbus::UpdatePropertiesResponse resp;
 
