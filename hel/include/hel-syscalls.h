@@ -3,6 +3,7 @@
 #define HEL_SYSCALLS_H
 
 #include <stddef.h>
+#include <hel.h>
 #include <hel-types.h>
 #include <hel-stubs.h>
 
