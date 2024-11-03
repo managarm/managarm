@@ -1,9 +1,10 @@
 #pragma once
 
+#include <assert.h>
 #include <frg/string.hpp>
 #include <frg/span.hpp>
 
-struct CpioHeader { 
+struct CpioHeader {
 	char magic[6];
 	char inode[8];
 	char mode[8];
