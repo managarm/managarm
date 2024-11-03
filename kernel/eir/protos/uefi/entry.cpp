@@ -268,7 +268,6 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	initrd_module->namePtr = mapBootstrapData(name_ptr);
 	initrd_module->nameLength = name_length;
 
-	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
 	info_ptr->acpiRsdp = rsdp;

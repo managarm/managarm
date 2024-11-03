@@ -295,7 +295,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdpPtr);
 	}
 
-	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
 	if(framebuffer) {
