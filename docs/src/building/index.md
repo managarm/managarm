@@ -19,9 +19,9 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```sh
     mkdir ~/managarm && cd ~/managarm
     ```
-1.  Install the `xbstrap` build system via `pip3`:
+1.  Install the `xbstrap` build system via `pip3`, as well as the `y4` DSL:
     ```bash
-    pip3 install xbstrap
+    pip3 install xbstrap y4
     ```
 1.  The `git`, `subversion` and `mercurial` tools are required on the host (whether you build in a container or not). Install these via your package manager.
 1.  Clone this repository into a `src` directory and create a `build` directory:
@@ -45,6 +45,8 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```
 1.  **Inside the `build` directory**, create a file named `bootstrap-site.yml` with the following contents:
     ```yml
+    auto_pull: true
+
     pkg_management:
       format: xbps
 
@@ -73,22 +75,19 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     * `base-devel`: same as `base` plus some extra development tools (such as `gcc` and `binutils`)
     * `weston-desktop`: full managarm experience with a selection of terminal and GUI software
 
-1.  To actually execute the build, we recommend that you install the necessary tools and packages as binaries from our build server.
-	This can save you multiple hours of compilation, depending on your machine.
+    You can install these meta-packages by doing:
 
-	> Note: **this only works if you build in a container** (though this is untested with Docker). Containerless builds must do a full build from source (see below).
+    ```bash
+    xbstrap install weston-desktop
+    ```
+
+    This command will download binary packages from our build servers.
+
+1.  In order to rebuild parts of the system locally (e.g., after making changes to the source code), use the `--rebuild` flag:
 
 	```bash
-	xbstrap pull-pack --deps-of <meta-package> mlibc mlibc-headers # e.g xbstrap pull-pack --deps-of base mlibc mlibc-headers
-	xbstrap install --deps-of <meta-package>
-
-	# The following two commands fetch managarm and mlibc (plus their required tools) to enable local development:
-	xbstrap download-tool-archive --build-deps-of managarm-system --build-deps-of managarm-kernel --build-deps-of mlibc
 	xbstrap install --rebuild managarm-system managarm-kernel mlibc mlibc-headers
 	```
-
-	If instead you want to build everything from source, simply run `xbstrap install <group>`, e.g `xbstrap install weston-desktop`.
-	Note that this can take multiple hours, depending on your machine.
 
 ### Creating Images
 After managarm's packages have been built, building a HDD image of the system is straightforward. 
