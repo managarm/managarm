@@ -283,9 +283,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			localScheduler()->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
-	}
-	
-	if(this_thread->_pendingSignal == kSigInterrupt) {
+	}else if(this_thread->_pendingSignal == kSigInterrupt) {
 		if(logRunStates)
 			infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) interrupted" << frg::endlog;
