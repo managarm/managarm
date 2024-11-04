@@ -434,11 +434,12 @@ async::detached run() {
 				continue;
 
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto entity_mbus_id = entity.id();
 
 			auto id = usbControllerAllocator.allocate();
-			usbControllerMap.insert({entity.id(), id});
+			usbControllerMap.insert({entity_mbus_id, id});
 			bindController(std::move(entity), std::move(event.properties), id);
-			observeDevicesOnController(entity.id());
+			observeDevicesOnController(entity_mbus_id);
 		}
 	}
 }

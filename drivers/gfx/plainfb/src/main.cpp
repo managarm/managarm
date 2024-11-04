@@ -31,7 +31,7 @@ GfxDevice::GfxDevice(protocols::hw::Device hw_device,
 : _hwDevice{std::move(hw_device)},
 		_screenWidth{screen_width}, _screenHeight{screen_height},
 		_screenPitch{screen_pitch},_fbMapping{std::move(fb_mapping)} {
-	if((reinterpret_cast<uintptr_t>(fb_mapping.get()) & 15)) {
+	if((reinterpret_cast<uintptr_t>(_fbMapping.get()) & 15)) {
 		std::cout << "\e[31m" "gfx/plainfb: Hardware framebuffer is not aligned;"
 				" expect perfomance degradation!" "\e[39m" << std::endl;
 		_hardwareFbIsAligned = false;
