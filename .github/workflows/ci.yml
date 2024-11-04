@@ -103,3 +103,9 @@ jobs:
             run: |
                 ../src/scripts/test-image.py
             working-directory: build/
+          - name: Run clang-tidy on ${{ matrix.pkg }}
+            run: |
+                xbstrap run --pkg $CI_BUILD_PKG clang-tidy
+            working-directory: build/
+            env:
+                CI_BUILD_PKG: ${{ matrix.pkg }}
