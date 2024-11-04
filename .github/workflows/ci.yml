@@ -11,42 +11,7 @@ jobs:
             matrix:
                 include:
                   - pkg: managarm-kernel
-                    tool_deps: >-
-                        cross-binutils
-                        host-autoconf-v2.69
-                        host-automake-v1.11
-                        host-automake-v1.15
-                        host-libtool
-                        host-llvm-toolchain
-                        host-managarm-tools
-                        host-pkg-config
-                        kernel-gcc
-                        system-gcc
-                    pkg_deps: >-
-                        libdrm-headers
-                        linux-headers
-                        mlibc
-                        mlibc-headers
                   - pkg: managarm-system
-                    tool_deps: >-
-                        cross-binutils
-                        host-autoconf-v2.69
-                        host-automake-v1.11
-                        host-automake-v1.15
-                        host-libtool
-                        host-llvm-toolchain
-                        host-managarm-tools
-                        host-mold
-                        host-pkg-config
-                        host-xorg-macros
-                        system-gcc
-                    pkg_deps: >-
-                        boost
-                        eudev
-                        libdrm-headers
-                        linux-headers
-                        mlibc
-                        mlibc-headers
         name: Build ${{ matrix.pkg }}
         runs-on: ubuntu-24.04
         steps:
@@ -94,6 +59,8 @@ jobs:
                 touch src/managarm/checkedout.xbstrap
                 mkdir build/
                 cat << EOF > build/bootstrap-site.yml
+                    auto_pull: true
+
                     define_options:
                         arch: x86_64
                         arch-triple: x86_64-managarm
@@ -114,13 +81,9 @@ jobs:
             run: |
                 set -x
                 xbstrap init ../src
-                xbstrap download-tool-archive $CI_TOOL_DEPS
-                xbstrap pull-pack $CI_PKG_DEPS
                 xbstrap pack $CI_BUILD_PKG
             env:
                 CI_BUILD_PKG: ${{ matrix.pkg }}
-                CI_TOOL_DEPS: ${{ matrix.tool_deps }}
-                CI_PKG_DEPS: ${{ matrix.pkg_deps }}
             working-directory: build/
           - name: Generate image
             run: |
