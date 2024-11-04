@@ -19,15 +19,15 @@ struct DirectoryNode;
 // ----------------------------------------------------------------------------
 
 struct LinkCompare {
-	struct is_transparent { };
+	struct is_transparent {};
 
-	bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const;
-	bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const;
-	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const;
+	bool operator()(const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const;
+	bool operator()(const std::shared_ptr<Link> &link, const std::string &name) const;
+	bool operator()(const std::string &name, const std::shared_ptr<Link> &link) const;
 };
 
 struct RegularFile final : File {
-public:
+  public:
 	static void serve(smarter::shared_ptr<RegularFile> file);
 
 	explicit RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
@@ -44,7 +44,7 @@ public:
 
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
-private:
+  private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
@@ -54,7 +54,7 @@ private:
 };
 
 struct DirectoryFile final : File {
-public:
+  public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
 	explicit DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link);
@@ -64,7 +64,7 @@ public:
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
-private:
+  private:
 	// TODO: Remove this and extract it from the associatedLink().
 	DirectoryNode *_node;
 
@@ -77,14 +77,13 @@ private:
 struct Link final : FsLink, std::enable_shared_from_this<Link> {
 	explicit Link(std::shared_ptr<FsNode> target);
 
-	explicit Link(std::shared_ptr<FsNode> owner,
-			std::string name, std::shared_ptr<FsNode> target);
+	explicit Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target);
 
 	std::shared_ptr<FsNode> getOwner() override;
 	std::string getName() override;
 	std::shared_ptr<FsNode> getTarget() override;
 
-private:
+  private:
 	std::shared_ptr<FsNode> _owner;
 	std::string _name;
 	std::shared_ptr<FsNode> _target;
@@ -98,24 +97,24 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override;
 
-protected:
+  protected:
 	virtual async::result<std::string> show() = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
 };
 
 struct SuperBlock final : FsSuperblock {
-public:
+  public:
 	SuperBlock() = default;
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) override;
+	rename(FsLink *source, FsNode *directory, std::string name) override;
 };
 
 struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {
@@ -125,10 +124,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 
 	DirectoryNode();
 
-	std::shared_ptr<Link> directMkregular(std::string name,
-			std::shared_ptr<RegularNode> regular);
-	std::shared_ptr<Link> directMknode(std::string name,
-			std::shared_ptr<FsNode> node);
+	std::shared_ptr<Link> directMkregular(std::string name, std::shared_ptr<RegularNode> regular);
+	std::shared_ptr<Link> directMknode(std::string name, std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
 	std::shared_ptr<Link> createProcDirectory(std::string name, Process *process);
 
@@ -136,16 +133,16 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
-			std::shared_ptr<FsNode> target) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	link(std::string name, std::shared_ptr<FsNode> target) override;
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;
 
-private:
+  private:
 	Link *_treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
@@ -167,49 +164,45 @@ struct SelfThreadLink final : FsNode, std::enable_shared_from_this<SelfThreadLin
 };
 
 struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
-	ExeLink(Process *process)
-	: _process(process)
-	{ }
+	ExeLink(Process *process) : _process(process) {}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
-private:
+
+  private:
 	Process *_process;
 };
 
 struct RootLink final : FsNode, std::enable_shared_from_this<RootLink> {
-	RootLink(Process *process)
-	: _process(process)
-	{ }
+	RootLink(Process *process) : _process(process) {}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
-private:
+
+  private:
 	Process *_process;
 };
 
 struct CwdLink final : FsNode, std::enable_shared_from_this<CwdLink> {
-	CwdLink(Process *process)
-	: _process(process)
-	{ }
+	CwdLink(Process *process) : _process(process) {}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
-private:
+
+  private:
 	Process *_process;
 };
 
 struct MapNode final : RegularNode {
-	MapNode(Process *process)
-	: _process(process)
-	{ }
+	MapNode(Process *process) : _process(process) {}
 
 	async::result<std::string> show() override;
 	async::result<void> store(std::string) override;
-private:
+
+  private:
 	Process *_process;
 };
 
@@ -242,61 +235,59 @@ struct ArchNode final : RegularNode {
 };
 
 struct CommNode final : RegularNode {
-	CommNode(Process *process)
-	: _process(process)
-	{ }
+	CommNode(Process *process) : _process(process) {}
 
 	async::result<std::string> show() override;
 	async::result<void> store(std::string) override;
-private:
+
+  private:
 	Process *_process;
 };
 
 struct StatNode final : RegularNode {
-	StatNode(Process *process)
-	: _process(process)
-	{ }
+	StatNode(Process *process) : _process(process) {}
 
 	async::result<std::string> show() override;
 	async::result<void> store(std::string) override;
-private:
+
+  private:
 	Process *_process;
 };
 
 struct StatmNode final : RegularNode {
-	StatmNode(Process *process)
-        : _process(process)
-        { }
-
-        async::result<std::string> show() override;
-        async::result<void> store(std::string) override;
-private:
-        Process *_process;
-};
-
-struct StatusNode final : RegularNode {
-	StatusNode(Process *process)
-	: _process(process)
-	{ }
+	StatmNode(Process *process) : _process(process) {}
 
 	async::result<std::string> show() override;
 	async::result<void> store(std::string) override;
-private:
+
+  private:
+	Process *_process;
+};
+
+struct StatusNode final : RegularNode {
+	StatusNode(Process *process) : _process(process) {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+
+  private:
 	Process *_process;
 };
 
 struct FdDirectoryFile final : File {
-public:
+  public:
 	static void serve(smarter::shared_ptr<FdDirectoryFile> file);
 
-	explicit FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process);
+	explicit FdDirectoryFile(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process
+	);
 
 	void handleClose() override;
 
 	FutureMaybe<ReadEntriesResult> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
-private:
+  private:
 	Process *_process;
 
 	helix::UniqueLane _passthrough;
@@ -307,16 +298,17 @@ private:
 };
 
 struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
-public:
+  public:
 	explicit FdDirectoryNode(Process *process);
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
-private:
+
+  private:
 	Process *_process;
 };
 

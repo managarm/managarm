@@ -13,20 +13,20 @@ constexpr int enable1stPort = 0xAE;
 constexpr int write2ndNextByte = 0xD4;
 
 namespace kbd_register {
-	// R/W on the first (data) port
-	arch::scalar_register<uint8_t> data(0);
-	// RO on the second (command/status) port
-	arch::bit_register<uint8_t> status(0);
-	// WO on the second (command/status) port
-	arch::scalar_register<uint8_t> command(0);
-}
+// R/W on the first (data) port
+arch::scalar_register<uint8_t> data(0);
+// RO on the second (command/status) port
+arch::bit_register<uint8_t> status(0);
+// WO on the second (command/status) port
+arch::scalar_register<uint8_t> command(0);
+} // namespace kbd_register
 
 namespace status_bits {
-	arch::field<uint8_t, bool> outBufferStatus(0, 1);
-	arch::field<uint8_t, bool> inBufferStatus(1, 1);
-	arch::field<uint8_t, bool> sysFlag(2, 1);
-	arch::field<uint8_t, bool> cmdData(3, 1);
-	arch::field<uint8_t, bool> secondPort(5, 1);
-	arch::field<uint8_t, bool> timeoutError(6, 1);
-	arch::field<uint8_t, bool> parityError(7, 1);
-}
+arch::field<uint8_t, bool> outBufferStatus(0, 1);
+arch::field<uint8_t, bool> inBufferStatus(1, 1);
+arch::field<uint8_t, bool> sysFlag(2, 1);
+arch::field<uint8_t, bool> cmdData(3, 1);
+arch::field<uint8_t, bool> secondPort(5, 1);
+arch::field<uint8_t, bool> timeoutError(6, 1);
+arch::field<uint8_t, bool> parityError(7, 1);
+} // namespace status_bits

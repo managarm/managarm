@@ -8,11 +8,7 @@
 namespace protocols {
 namespace hw {
 
-enum IoType {
-	kIoTypeNone = 0,
-	kIoTypePort = 1,
-	kIoTypeMemory = 2
-};
+enum IoType { kIoTypeNone = 0, kIoTypePort = 1, kIoTypeMemory = 2 };
 
 struct BarInfo {
 	IoType ioType;
@@ -63,8 +59,7 @@ struct AcpiResources {
 };
 
 struct Device {
-	Device(helix::UniqueLane lane)
-	:_lane(std::move(lane)) { };
+	Device(helix::UniqueLane lane) : _lane(std::move(lane)) {};
 
 	async::result<PciInfo> getPciInfo();
 	async::result<helix::UniqueDescriptor> accessBar(int index);
@@ -88,8 +83,9 @@ struct Device {
 
 	async::result<std::shared_ptr<AcpiResources>> getResources();
 
-private:
+  private:
 	helix::UniqueLane _lane;
 };
 
-} } // namespace protocols::hw
+} // namespace hw
+} // namespace protocols

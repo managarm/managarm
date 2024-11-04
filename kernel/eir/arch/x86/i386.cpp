@@ -1,6 +1,6 @@
 #include <stdint.h>
-#include <x86/machine.hpp>
 #include <x86/gdt.hpp>
+#include <x86/machine.hpp>
 
 namespace arch = common::x86;
 
@@ -20,4 +20,4 @@ void initArchCpu() {
 	eirLoadGdt(gdtEntries, 4 * 8 - 1);
 }
 
-}
+} // namespace eir

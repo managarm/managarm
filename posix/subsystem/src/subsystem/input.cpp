@@ -1,8 +1,8 @@
 
-#include <linux/input.h>
-#include <string.h>
 #include <iostream>
+#include <linux/input.h>
 #include <sstream>
+#include <string.h>
 
 #include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
@@ -22,11 +22,13 @@ id_allocator<uint32_t> evdevAllocator{0};
 
 struct CapabilityAttribute : sysfs::Attribute {
 	CapabilityAttribute(std::string name, int index, size_t bits)
-	: sysfs::Attribute{std::move(name), false}, _index{index}, _bits{bits} { }
+	    : sysfs::Attribute{std::move(name), false},
+	      _index{index},
+	      _bits{bits} {}
 
 	virtual async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 
-private:
+  private:
 	int _index;
 	size_t _bits;
 };
@@ -38,29 +40,24 @@ CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
 struct Device final : UnixDevice, drvcore::ClassDevice {
 	Device(VfsType type, int index, helix::UniqueLane lane)
-	: UnixDevice{type},
-			drvcore::ClassDevice{sysfsSubsystem, nullptr, "event" + std::to_string(index), this},
-			_index{index}, _lane{std::move(lane)} { }
+	    : UnixDevice{type},
+	      drvcore::ClassDevice{sysfsSubsystem, nullptr, "event" + std::to_string(index), this},
+	      _index{index},
+	      _lane{std::move(lane)} {}
 
-	std::string nodePath() override {
-		return "input/event" + std::to_string(_index);
-	}
+	std::string nodePath() override { return "input/event" + std::to_string(_index); }
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	void composeUevent(drvcore::UeventProperties &ue) override {
-		ue.set("SUBSYSTEM", "input");
-	}
+	void composeUevent(drvcore::UeventProperties &ue) override { ue.set("SUBSYSTEM", "input"); }
 
-	std::optional<std::string> getClassPath() override {
-		return "input";
-	};
+	std::optional<std::string> getClassPath() override { return "input"; };
 
-private:
+  private:
 	int _index;
 	helix::UniqueLane _lane;
 };
@@ -68,11 +65,12 @@ private:
 async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<Device *>(object);
 	auto fileMaybe = co_await device->open(nullptr, nullptr, 0);
-	if(!fileMaybe){
+	if (!fileMaybe) {
 		std::cout << "\e[31mposix: show(): open() error\e[39m" << std::endl;
-		while(true);
+		while (true)
+			;
 	}
-	auto file = fileMaybe.value(); //TODO: properly handle error returns here
+	auto file = fileMaybe.value(); // TODO: properly handle error returns here
 	auto lane = file->getPassthroughLane();
 
 	std::vector<uint64_t> buffer;
@@ -80,23 +78,23 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 
 	managarm::fs::IoctlRequest ioctl_req;
 	managarm::fs::GenericIoctlRequest req;
-	if(_index) {
+	if (_index) {
 		req.set_command(EVIOCGBIT(1, 0));
 		req.set_input_type(_index);
-	}else{
+	} else {
 		req.set_command(EVIOCGBIT(0, 0));
 	}
 	req.set_size(buffer.size() * sizeof(uint64_t));
 
 	auto ser = req.SerializeAsString();
-	auto [offer, send_ioctl_req, send_req, recv_resp, recv_data]
-			= co_await helix_ng::exchangeMsgs(lane,
-		helix_ng::offer(
-			helix_ng::sendBragiHeadOnly(ioctl_req, frg::stl_allocator{}),
-			helix_ng::sendBuffer(ser.data(), ser.size()),
-			helix_ng::recvInline(),
-			helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
-		)
+	auto [offer, send_ioctl_req, send_req, recv_resp, recv_data] = co_await helix_ng::exchangeMsgs(
+	    lane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(ioctl_req, frg::stl_allocator{}),
+	        helix_ng::sendBuffer(ser.data(), ser.size()),
+	        helix_ng::recvInline(),
+	        helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
+	    )
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_ioctl_req.error());
@@ -112,10 +110,10 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 	std::stringstream ss;
 	ss << std::hex;
 	bool suffix = false;
-	for(auto it = buffer.rbegin(); it != buffer.rend(); it++) {
-		if(!(*it) && !suffix)
+	for (auto it = buffer.rbegin(); it != buffer.rend(); it++) {
+		if (!(*it) && !suffix)
 			continue;
-		if(it != buffer.rbegin())
+		if (it != buffer.rbegin())
 			ss << ' ';
 		ss << *it;
 		suffix = true;
@@ -124,14 +122,12 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 	co_return ss.str();
 }
 
-} // anonymous namepsace
+} // namespace
 
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"input"};
 
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"unix.subsystem", "input"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"unix.subsystem", "input"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -147,8 +143,7 @@ async::detached run() {
 			std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 
 			auto lane = (co_await entity.getRemoteLane()).unwrap();
-			auto device = std::make_shared<Device>(VfsType::charDevice,
-					index, std::move(lane));
+			auto device = std::make_shared<Device>(VfsType::charDevice, index, std::move(lane));
 			device->assignId({13, 64 + index}); // evdev devices start at minor 64.
 
 			charRegistry.install(device);

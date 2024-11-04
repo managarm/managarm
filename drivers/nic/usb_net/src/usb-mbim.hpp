@@ -1,10 +1,10 @@
 #pragma once
 
-#include <async/recurring-event.hpp>
 #include <async/queue.hpp>
+#include <async/recurring-event.hpp>
 #include <protocols/mbus/client.hpp>
-#include <vector>
 #include <smarter.hpp>
+#include <vector>
 
 #include "usb-net.hpp"
 
@@ -21,10 +21,17 @@ struct CdcWdmDevice {
 struct UsbMbimNic : UsbNic {
 	friend CdcWdmDevice;
 
-	UsbMbimNic(mbus_ng::EntityId entity, protocols::usb::Device hw_device, nic::MacAddress mac,
-		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
-		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
-		size_t config_index);
+	UsbMbimNic(
+	    mbus_ng::EntityId entity,
+	    protocols::usb::Device hw_device,
+	    nic::MacAddress mac,
+	    protocols::usb::Interface ctrl_intf,
+	    protocols::usb::Endpoint ctrl_ep,
+	    protocols::usb::Interface intf,
+	    protocols::usb::Endpoint in,
+	    protocols::usb::Endpoint out,
+	    size_t config_index
+	);
 
 	async::result<void> initialize() override;
 	async::detached receiveEncapsulated();
@@ -34,7 +41,8 @@ struct UsbMbimNic : UsbNic {
 	async::result<void> send(const arch::dma_buffer_view) override;
 
 	async::result<void> writeCommand(arch::dma_buffer_view request);
-private:
+
+  private:
 	mbus_ng::EntityId entity_;
 	size_t config_index_;
 
@@ -42,24 +50,21 @@ private:
 
 	struct PacketInfo {
 		PacketInfo(arch::dma_buffer buffer, size_t result_length)
-		: buffer_{std::move(buffer)}, size_{result_length} {}
+		    : buffer_{std::move(buffer)},
+		      size_{result_length} {}
 
-		size_t size() const {
-			return size_;
-		}
+		size_t size() const { return size_; }
 
-		arch::dma_buffer_view view() {
-			return buffer_.subview(0, size());
-		}
+		arch::dma_buffer_view view() { return buffer_.subview(0, size()); }
 
-	private:
+	  private:
 		arch::dma_buffer buffer_;
 		size_t size_;
 	};
 
 	smarter::shared_ptr<CdcWdmDevice> cdcWdmDev_;
 
-public:
+  public:
 	uint16_t wMaxControlMessage;
 
 	async::queue<PacketInfo, frg::stl_allocator> queue_;

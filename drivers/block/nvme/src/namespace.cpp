@@ -1,12 +1,13 @@
 #include <arch/bit.hpp>
 
-#include "namespace.hpp"
 #include "controller.hpp"
+#include "namespace.hpp"
 
 Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
-	: BlockDevice{(size_t)1 << lbaShift, controller->getParentId()}, controller_(controller), nsid_(nsid),
-	  lbaShift_(lbaShift) {
-}
+    : BlockDevice{(size_t)1 << lbaShift, controller->getParentId()},
+      controller_(controller),
+      nsid_(nsid),
+      lbaShift_(lbaShift) {}
 
 async::detached Namespace::run() {
 	blockfs::runDevice(this);
@@ -30,7 +31,8 @@ async::result<void> Namespace::readSectors(uint64_t sector, void *buffer, size_t
 	co_await controller_->submitIoCommand(std::move(cmd));
 }
 
-async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
+async::result<void>
+Namespace::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
 	using arch::convert_endian;
 	using arch::endian;
 

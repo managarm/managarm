@@ -1,7 +1,7 @@
 #pragma once
 
-#include <helix/ipc.hpp>
 #include "api.hpp"
+#include <helix/ipc.hpp>
 
 namespace protocols::usb {
 

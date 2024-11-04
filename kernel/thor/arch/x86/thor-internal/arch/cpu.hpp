@@ -5,15 +5,15 @@
 #include <utility>
 
 #include <frg/tuple.hpp>
+#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch/pic.hpp>
+#include <thor-internal/kernel-stack.hpp>
+#include <thor-internal/types.hpp>
 #include <x86/gdt.hpp>
 #include <x86/idt.hpp>
 #include <x86/machine.hpp>
 #include <x86/tss.hpp>
-#include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/paging.hpp>
-#include <thor-internal/arch/pic.hpp>
-#include <thor-internal/types.hpp>
-#include <thor-internal/kernel-stack.hpp>
 
 namespace thor {
 
@@ -46,9 +46,7 @@ enum {
 	kGdtIndexSystemNmiCode = 13
 };
 
-constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
-	return (segment << 3) | rpl;
-}
+constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) { return (segment << 3) | rpl; }
 
 enum {
 	kSelInitialCode = selectorFor(kGdtIndexInitialCode, 0),
@@ -85,15 +83,12 @@ struct FaultImageAccessor {
 	Word *code() { return &_frame()->code; }
 
 	bool inKernelDomain() {
-		if(*cs() == kSelSystemIrqCode
-				|| *cs() == kSelSystemIdleCode
-				|| *cs() == kSelSystemFiberCode
-				|| *cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode) {
+		if (*cs() == kSelSystemIrqCode || *cs() == kSelSystemIdleCode ||
+		    *cs() == kSelSystemFiberCode || *cs() == kSelExecutorFaultCode ||
+		    *cs() == kSelExecutorSyscallCode) {
 			return true;
-		}else{
-			assert(*cs() == kSelClientUserCompat
-					|| *cs() == kSelClientUserCode);
+		} else {
+			assert(*cs() == kSelClientUserCompat || *cs() == kSelClientUserCode);
 			return false;
 		}
 	}
@@ -102,7 +97,7 @@ struct FaultImageAccessor {
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
-private:
+  private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
@@ -131,9 +126,7 @@ private:
 		Word ss;
 	};
 
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
+	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
 	char *_pointer;
 };
@@ -149,33 +142,29 @@ struct IrqImageAccessor {
 	Word *ss() { return &_frame()->ss; }
 
 	bool inPreemptibleDomain() {
-		assert(*cs() == kSelSystemIdleCode
-				|| *cs() == kSelSystemFiberCode
-				|| *cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode
-				|| *cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode);
+		assert(
+		    *cs() == kSelSystemIdleCode || *cs() == kSelSystemFiberCode ||
+		    *cs() == kSelExecutorFaultCode || *cs() == kSelExecutorSyscallCode ||
+		    *cs() == kSelClientUserCompat || *cs() == kSelClientUserCode
+		);
 		return true;
 	}
 
 	bool inThreadDomain() {
 		assert(inPreemptibleDomain());
-		if(*cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode
-				|| *cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode) {
+		if (*cs() == kSelExecutorFaultCode || *cs() == kSelExecutorSyscallCode ||
+		    *cs() == kSelClientUserCompat || *cs() == kSelClientUserCode) {
 			return true;
-		}else{
+		} else {
 			return false;
 		}
 	}
 
 	bool inManipulableDomain() {
 		assert(inThreadDomain());
-		if(*cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode) {
+		if (*cs() == kSelClientUserCompat || *cs() == kSelClientUserCode) {
 			return true;
-		}else{
+		} else {
 			return false;
 		}
 	}
@@ -192,7 +181,7 @@ struct IrqImageAccessor {
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
-private:
+  private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
@@ -220,9 +209,7 @@ private:
 		Word ss;
 	};
 
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
+	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
 	char *_pointer;
 };
@@ -247,7 +234,7 @@ struct SyscallImageAccessor {
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
-private:
+  private:
 	// this struct is accessed from assembly.
 	// do not randomly change its contents.
 	struct Frame {
@@ -268,23 +255,19 @@ private:
 		Word rflags;
 	};
 
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
+	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
 	char *_pointer;
 };
 
 struct NmiImageAccessor {
-	void **expectedGs() {
-		return &_frame()->expectedGs;
-	}
+	void **expectedGs() { return &_frame()->expectedGs; }
 
 	Word *ip() { return &_frame()->rip; }
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
 
-private:
+  private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
@@ -314,9 +297,7 @@ private:
 		void *expectedGs;
 	};
 
-	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
-	}
+	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
 	char *_pointer;
 };
@@ -337,7 +318,7 @@ struct UserContext {
 
 	UserContext(const UserContext &other) = delete;
 
-	UserContext &operator= (const UserContext &other) = delete;
+	UserContext &operator=(const UserContext &other) = delete;
 
 	void enableIoPort(uintptr_t port);
 
@@ -354,7 +335,7 @@ struct FiberContext {
 
 	FiberContext(const FiberContext &other) = delete;
 
-	FiberContext &operator= (const FiberContext &other) = delete;
+	FiberContext &operator=(const FiberContext &other) = delete;
 
 	// TODO: This should be private.
 	UniqueKernelStack stack;
@@ -386,11 +367,9 @@ struct Executor {
 
 	~Executor();
 
-	Executor &operator= (const Executor &other) = delete;
+	Executor &operator=(const Executor &other) = delete;
 
-	void *getSyscallStack() {
-		return _syscallStack;
-	}
+	void *getSyscallStack() { return _syscallStack; }
 
 	// FIXME: remove or refactor the rdi / rflags accessors
 	// as they are platform specific and need to be abstracted here
@@ -406,41 +385,41 @@ struct Executor {
 	Word *result0() { return &general()->rdi; }
 	Word *result1() { return &general()->rsi; }
 
-private:
+  private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct General {
-		Word rax;			// offset 0x00
-		Word rbx;			// offset 0x08
-		Word rcx;			// offset 0x10
-		Word rdx;			// offset 0x18
-		Word rsi;			// offset 0x20
-		Word rdi;			// offset 0x28
-		Word rbp;			// offset 0x30
+		Word rax; // offset 0x00
+		Word rbx; // offset 0x08
+		Word rcx; // offset 0x10
+		Word rdx; // offset 0x18
+		Word rsi; // offset 0x20
+		Word rdi; // offset 0x28
+		Word rbp; // offset 0x30
 
-		Word r8;			// offset 0x38
-		Word r9;			// offset 0x40
-		Word r10;			// offset 0x48
-		Word r11;			// offset 0x50
-		Word r12;			// offset 0x58
-		Word r13;			// offset 0x60
-		Word r14;			// offset 0x68
-		Word r15;			// offset 0x70
+		Word r8;  // offset 0x38
+		Word r9;  // offset 0x40
+		Word r10; // offset 0x48
+		Word r11; // offset 0x50
+		Word r12; // offset 0x58
+		Word r13; // offset 0x60
+		Word r14; // offset 0x68
+		Word r15; // offset 0x70
 
-		Word rip;			// offset 0x78
-		Word cs;			// offset 0x80
-		Word rflags;		// offset 0x88
-		Word rsp;			// offset 0x90
-		Word ss;			// offset 0x98
-		Word clientFs;		// offset 0xA0
-		Word clientGs;		// offset 0xA8
+		Word rip;      // offset 0x78
+		Word cs;       // offset 0x80
+		Word rflags;   // offset 0x88
+		Word rsp;      // offset 0x90
+		Word ss;       // offset 0x98
+		Word clientFs; // offset 0xA0
+		Word clientGs; // offset 0xA8
 	};
 	static_assert(sizeof(General) == 0xB0, "Bad sizeof(General)");
 
 	struct FxState {
 		uint16_t fcw; // x87 control word
 		uint16_t fsw; // x87 status word
-		uint8_t ftw; // x87 tag word
+		uint8_t ftw;  // x87 tag word
 		uint8_t reserved0;
 		uint16_t fop;
 		uint64_t fpuIp;
@@ -483,17 +462,16 @@ private:
 		uint8_t available[48];
 	};
 	static_assert(sizeof(FxState) == 512, "Bad sizeof(FxState)");
-public:
-	General *general() {
-		return reinterpret_cast<General *>(_pointer);
-	}
+
+  public:
+	General *general() { return reinterpret_cast<General *>(_pointer); }
 
 	FxState *_fxState() {
 		// fxState is offset from General by 0x10 bytes to make it aligned
 		return reinterpret_cast<FxState *>(_pointer + sizeof(General) + 0x10);
 	}
 
-private:
+  private:
 	char *_pointer;
 	void *_syscallStack;
 	common::x86::Tss64 *_tss;
@@ -597,55 +575,56 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 inline PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data;
-	asm volatile ("mov %%gs:0, %0" : "=r"(cpu_data));
+	asm volatile("mov %%gs:0, %0" : "=r"(cpu_data));
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
-inline bool inHigherHalf(uintptr_t address) {
-	return address & (static_cast<uintptr_t>(1) << 63);
-}
+inline bool inHigherHalf(uintptr_t address) { return address & (static_cast<uintptr_t>(1) << 63); }
 
 void enableUserAccess();
 void disableUserAccess();
 bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
 
-template<typename F, typename... Args>
-void runOnStack(F functor, StackBase stack, Args... args) {
+template <typename F, typename... Args> void runOnStack(F functor, StackBase stack, Args... args) {
 	struct Context {
-		Context(F functor, Args... args)
-		: functor(std::move(functor)), args(std::move(args)...) { }
+		Context(F functor, Args... args) : functor(std::move(functor)), args(std::move(args)...) {}
 
 		F functor;
 		frg::tuple<Args...> args;
 	};
 
 	Context original(std::move(functor), std::forward<Args>(args)...);
-	doRunOnStack([] (void *context, void *previousSp) {
-		Context stolen = std::move(*static_cast<Context *>(context));
-		frg::apply(std::move(stolen.functor),
-				frg::tuple_cat(frg::make_tuple(Continuation{previousSp}), std::move(stolen.args)));
-	}, stack.sp, &original);
+	doRunOnStack(
+	    [](void *context, void *previousSp) {
+		    Context stolen = std::move(*static_cast<Context *>(context));
+		    frg::apply(
+		        std::move(stolen.functor),
+		        frg::tuple_cat(frg::make_tuple(Continuation{previousSp}), std::move(stolen.args))
+		    );
+	    },
+	    stack.sp,
+	    &original
+	);
 }
 
 // Calls the given function on the given stack.
-void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument);
+void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument);
 
 void setupBootCpuContext();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);
 
-template<typename F>
-void forkExecutor(F functor, Executor *executor) {
-	auto delegate = [] (void *p) {
+template <typename F> void forkExecutor(F functor, Executor *executor) {
+	auto delegate = [](void *p) {
 		auto fp = static_cast<F *>(p);
 		(*fp)();
 	};
 
-	if(getGlobalCpuFeatures()->haveXsave) {
-		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
+	if (getGlobalCpuFeatures()->haveXsave) {
+		common::x86::xsave((uint8_t *)executor->_fxState(), ~0);
 	} else {
-		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
+		asm volatile("fxsaveq %0" : : "m"(*executor->_fxState()));
 	}
 
 	doForkExecutor(executor, delegate, &functor);
@@ -663,8 +642,6 @@ bool preemptionIsArmed();
 
 uint64_t getRawTimestampCounter();
 
-inline void pause() {
-	asm volatile ("pause");
-}
+inline void pause() { asm volatile("pause"); }
 
 } // namespace thor

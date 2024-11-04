@@ -1,29 +1,45 @@
 #pragma once
 
-#include <thor-internal/pci/pci.hpp>
-#include <thor-internal/dtb/dtb.hpp>
 #include <arch/mem_space.hpp>
+#include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/pci/pci.hpp>
 
 namespace thor::pci {
 
 struct BrcmStbPcie final : PciConfigIo {
 	BrcmStbPcie(DeviceTreeNode *node, uint16_t seg, uint8_t busStart, uint8_t busEnd);
 
-	uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) override;
-	uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) override;
-	uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset) override;
+	uint8_t readConfigByte(
+	    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint16_t offset
+	) override;
+	uint16_t readConfigHalf(
+	    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint16_t offset
+	) override;
+	uint32_t readConfigWord(
+	    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint16_t offset
+	) override;
 
-	void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint8_t value) override;
-	void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint16_t value) override;
-	void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-			uint32_t function, uint16_t offset, uint32_t value) override;
+	void writeConfigByte(
+	    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint16_t offset, uint8_t value
+	) override;
+	void writeConfigHalf(
+	    uint32_t seg,
+	    uint32_t bus,
+	    uint32_t slot,
+	    uint32_t function,
+	    uint16_t offset,
+	    uint16_t value
+	) override;
+	void writeConfigWord(
+	    uint32_t seg,
+	    uint32_t bus,
+	    uint32_t slot,
+	    uint32_t function,
+	    uint16_t offset,
+	    uint32_t value
+	) override;
 
-private:
+  private:
 	void init_();
 	void reset_();
 	void enable_();

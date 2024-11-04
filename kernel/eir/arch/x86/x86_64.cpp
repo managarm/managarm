@@ -1,8 +1,8 @@
 
 namespace eir {
 
-void initArchCpu(){
-    // We don't need to do anything for x86_64
+void initArchCpu() {
+	// We don't need to do anything for x86_64
 }
 
-}
+} // namespace eir

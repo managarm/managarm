@@ -1,9 +1,9 @@
 #pragma once
 
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <memory>
 #include <vector>
 
 #include <arch/dma_structs.hpp>
@@ -13,8 +13,8 @@
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 #include <arch/variable.hpp>
-#include <async/recurring-event.hpp>
 #include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 
@@ -44,33 +44,25 @@ inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_MSIX_VECTOR(26);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_ENABLE(28);
 inline constexpr arch::scalar_register<uint16_t> PCI_QUEUE_NOTIFY(30);
 inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_TABLE[] = {
-		arch::scalar_register<uint32_t>{32},
-		arch::scalar_register<uint32_t>{36}};
+    arch::scalar_register<uint32_t>{32}, arch::scalar_register<uint32_t>{36}
+};
 inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_AVAILABLE[] = {
-		arch::scalar_register<uint32_t>{40},
-		arch::scalar_register<uint32_t>{44}};
+    arch::scalar_register<uint32_t>{40}, arch::scalar_register<uint32_t>{44}
+};
 inline constexpr arch::scalar_register<uint32_t> PCI_QUEUE_USED[] = {
-		arch::scalar_register<uint32_t>{48},
-		arch::scalar_register<uint32_t>{52}};
+    arch::scalar_register<uint32_t>{48}, arch::scalar_register<uint32_t>{52}
+};
 
 inline constexpr arch::scalar_register<uint8_t> PCI_ISR(0);
 
-enum {
-	PCI_L_DEVICE_SPECIFIC = 20
-};
+enum { PCI_L_DEVICE_SPECIFIC = 20 };
 
 // bits of the device status register
-enum {
-	ACKNOWLEDGE = 1,
-	DRIVER = 2,
-	FEATURES_OK = 8,
-	DRIVER_OK = 4,
-	DEVICE_NEEDS_RESET = 64
-};
+enum { ACKNOWLEDGE = 1, DRIVER = 2, FEATURES_OK = 8, DRIVER_OK = 4, DEVICE_NEEDS_RESET = 64 };
 
 enum {
 	// Bits of the spec::Descriptor::flags field.
-	VIRTQ_DESC_F_NEXT = 1, // descriptor is part of a chain
+	VIRTQ_DESC_F_NEXT = 1,  // descriptor is part of a chain
 	VIRTQ_DESC_F_WRITE = 2, // buffer is written by device
 
 	// Bits of the spec::UsedRing::flags field.
@@ -78,51 +70,51 @@ enum {
 };
 
 namespace spec {
-	struct Descriptor {
-		arch::scalar_variable<uint64_t> address;
-		arch::scalar_variable<uint32_t> length;
-		arch::scalar_variable<uint16_t> flags;
-		arch::scalar_variable<uint16_t> next;
-	};
-	static_assert(sizeof(Descriptor) == 16);
-
-	struct AvailableRing {
-		arch::scalar_variable<uint16_t> flags;
-		arch::scalar_variable<uint16_t> headIndex;
-
-		struct Element {
-			arch::scalar_variable<uint16_t> tableIndex;
-		} elements[];
-	};
-	static_assert(sizeof(AvailableRing) == 4);
-
-	struct AvailableExtra {
-		static AvailableExtra *get(AvailableRing *ring, size_t queue_size) {
-			return reinterpret_cast<AvailableExtra *>(ring->elements + queue_size);
-		}
-
-		arch::scalar_variable<uint16_t> eventIndex;
-	};
-
-	struct UsedRing {
-		arch::scalar_variable<uint16_t> flags;
-		arch::scalar_variable<uint16_t> headIndex;
-
-		struct Element {
-			arch::scalar_variable<uint32_t> tableIndex;
-			arch::scalar_variable<uint32_t> written;
-		} elements[];
-	};
-	static_assert(sizeof(UsedRing) == 4);
-
-	struct UsedExtra {
-		static UsedExtra *get(UsedRing *ring, size_t queue_size) {
-			return reinterpret_cast<UsedExtra *>(ring->elements + queue_size);
-		}
-
-		arch::scalar_variable<uint16_t> eventIndex;
-	};
+struct Descriptor {
+	arch::scalar_variable<uint64_t> address;
+	arch::scalar_variable<uint32_t> length;
+	arch::scalar_variable<uint16_t> flags;
+	arch::scalar_variable<uint16_t> next;
 };
+static_assert(sizeof(Descriptor) == 16);
+
+struct AvailableRing {
+	arch::scalar_variable<uint16_t> flags;
+	arch::scalar_variable<uint16_t> headIndex;
+
+	struct Element {
+		arch::scalar_variable<uint16_t> tableIndex;
+	} elements[];
+};
+static_assert(sizeof(AvailableRing) == 4);
+
+struct AvailableExtra {
+	static AvailableExtra *get(AvailableRing *ring, size_t queue_size) {
+		return reinterpret_cast<AvailableExtra *>(ring->elements + queue_size);
+	}
+
+	arch::scalar_variable<uint16_t> eventIndex;
+};
+
+struct UsedRing {
+	arch::scalar_variable<uint16_t> flags;
+	arch::scalar_variable<uint16_t> headIndex;
+
+	struct Element {
+		arch::scalar_variable<uint32_t> tableIndex;
+		arch::scalar_variable<uint32_t> written;
+	} elements[];
+};
+static_assert(sizeof(UsedRing) == 4);
+
+struct UsedExtra {
+	static UsedExtra *get(UsedRing *ring, size_t queue_size) {
+		return reinterpret_cast<UsedExtra *>(ring->elements + queue_size);
+	}
+
+	arch::scalar_variable<uint16_t> eventIndex;
+};
+}; // namespace spec
 
 struct DeviceSpace;
 struct Queue;
@@ -137,7 +129,7 @@ struct QueueInfo {
 };
 
 /* This class represents a virtio device.
- * 
+ *
  * Usual initialization works as follows:
  * - Call discover() to obtain a transport.
  * - Negotiate features via Transport::checkDeviceFeature() / acknowledgeDriverFeature().
@@ -169,11 +161,9 @@ struct Transport {
 };
 
 struct DeviceSpace {
-	DeviceSpace(Transport *transport)
-	: _transport{transport} { }
+	DeviceSpace(Transport *transport) : _transport{transport} {}
 
-	template<typename RT>
-	typename RT::rep_type load(RT r) const {
+	template <typename RT> typename RT::rep_type load(RT r) const {
 		if constexpr (sizeof(typename RT::rep_type) == 1) {
 			auto v = _transport->loadConfig8(r.offset());
 			return static_cast<typename RT::rep_type>(v);
@@ -181,55 +171,44 @@ struct DeviceSpace {
 			auto v = _transport->loadConfig16(r.offset());
 			return static_cast<typename RT::rep_type>(v);
 		} else {
-			static_assert(sizeof(typename RT::rep_type) == 4,
-					"Unsupported size for DeviceSpace::load()");
+			static_assert(
+			    sizeof(typename RT::rep_type) == 4, "Unsupported size for DeviceSpace::load()"
+			);
 			auto v = _transport->loadConfig16(r.offset());
 			return static_cast<typename RT::rep_type>(v);
 		}
 	}
 
-private:
+  private:
 	Transport *_transport;
 };
 
-inline DeviceSpace Transport::space() {
-	return DeviceSpace{this};
-}
+inline DeviceSpace Transport::space() { return DeviceSpace{this}; }
 
-enum class DiscoverMode {
-	null,
-	legacyOnly,
-	transitional,
-	modernOnly
-};
+enum class DiscoverMode { null, legacyOnly, transitional, modernOnly };
 
-async::result<std::unique_ptr<Transport>> discover(protocols::hw::Device hw_device,
-		DiscoverMode mode);
+async::result<std::unique_ptr<Transport>>
+discover(protocols::hw::Device hw_device, DiscoverMode mode);
 
 // --------------------------------------------------------
 // Queue
 // --------------------------------------------------------
 
-struct HostToDeviceType { };
-struct DeviceToHostType { };
+struct HostToDeviceType {};
+struct DeviceToHostType {};
 
 inline constexpr HostToDeviceType hostToDevice;
 inline constexpr DeviceToHostType deviceToHost;
 
 // Handle to a virtq descriptor.
 struct Handle {
-	Handle()
-	: _queue{nullptr}, _tableIndex{0} { }
+	Handle() : _queue{nullptr}, _tableIndex{0} {}
 
 	Handle(Queue *queue, size_t table_index);
 
-	explicit operator bool() {
-		return _queue;
-	}
+	explicit operator bool() { return _queue; }
 
-	size_t tableIndex() {
-		return _tableIndex;
-	}
+	size_t tableIndex() { return _tableIndex; }
 
 	// setupBuffer() assumes that the buffer is contiguous in physical memory.
 	// Use scatterGather() for a more convenient API.
@@ -238,7 +217,7 @@ struct Handle {
 
 	void setupLink(Handle other);
 
-private:
+  private:
 	Queue *_queue;
 	size_t _tableIndex;
 };
@@ -249,21 +228,19 @@ struct Chain {
 
 	Chain(const Chain &) = delete;
 
-	Chain &operator= (const Chain &) = delete;
+	Chain &operator=(const Chain &) = delete;
 
 	void append(Handle handle) {
-		if(_front) {
+		if (_front) {
 			_back.setupLink(handle);
 			_back = handle;
-		}else{
+		} else {
 			_front = handle;
 			_back = handle;
 		}
 	}
 
-	Handle front() {
-		return _front;
-	}
+	Handle front() { return _front; }
 
 	// Note the remarks on Handle::setupBuffer().
 	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
@@ -273,16 +250,16 @@ struct Chain {
 		_back.setupBuffer(deviceToHost, view);
 	}
 
-private:
+  private:
 	Handle _front;
 	Handle _back;
 };
 
 // Helper functions that obtain descriptor from a queue as needed.
-async::result<void> scatterGather(HostToDeviceType, Chain &chain, Queue *queue,
-		arch::dma_buffer_view view);
-async::result<void> scatterGather(DeviceToHostType, Chain &chain, Queue *queue,
-		arch::dma_buffer_view view);
+async::result<void>
+scatterGather(HostToDeviceType, Chain &chain, Queue *queue, arch::dma_buffer_view view);
+async::result<void>
+scatterGather(DeviceToHostType, Chain &chain, Queue *queue, arch::dma_buffer_view view);
 
 struct Request {
 	void (*complete)(Request *);
@@ -294,28 +271,29 @@ struct Request {
 struct Queue {
 	friend struct Handle;
 
-	Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *table,
-			spec::AvailableRing *available, spec::UsedRing *used);
-protected:
+	Queue(
+	    unsigned int queue_index,
+	    size_t queue_size,
+	    spec::Descriptor *table,
+	    spec::AvailableRing *available,
+	    spec::UsedRing *used
+	);
+
+  protected:
 	~Queue() = default;
 
-public:
-	unsigned int queueIndex() {
-		return _queueIndex;
-	}
+  public:
+	unsigned int queueIndex() { return _queueIndex; }
 
 	// Returns the number of descriptors in this virtq.
-	size_t numDescriptors() {
-		return _queueSize;
-	}
+	size_t numDescriptors() { return _queueSize; }
 
 	// Allocates a single descriptor.
 	// The descriptor is automatically freed when the device returns it.
 	async::result<Handle> obtainDescriptor();
 
 	// Posts a descriptor to the virtq's available ring.
-	void postDescriptor(Handle descriptor, Request *request,
-			void (*complete)(Request *));
+	void postDescriptor(Handle descriptor, Request *request, void (*complete)(Request *));
 
 	// Notifies the device that new descriptors have been posted.
 	void notify();
@@ -325,8 +303,7 @@ public:
 			async::oneshot_event event;
 		} ev_req;
 
-		postDescriptor(descriptor, &ev_req,
-				[] (virtio_core::Request *base_request) {
+		postDescriptor(descriptor, &ev_req, [](virtio_core::Request *base_request) {
 			auto request = static_cast<OneshotRequest *>(base_request);
 			request->event.raise();
 		});
@@ -340,10 +317,10 @@ public:
 	// Calls retrieveDescriptor() to complete individual requests.
 	void processInterrupt();
 
-protected:
+  protected:
 	virtual void notifyTransport() = 0;
 
-private:
+  private:
 	// Index of this queue as part of its owning device.
 	unsigned int _queueIndex;
 
@@ -369,4 +346,3 @@ private:
 };
 
 } // namespace virtio_core
-

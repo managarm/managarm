@@ -5,7 +5,7 @@
 #include "ft232.hpp"
 
 const std::set<std::pair<std::string, std::string>> devices = {
-	{"0403", "6001"},
+    {"0403", "6001"},
 };
 
 bool Ft232::valid(std::string vendor, std::string product) {
@@ -15,18 +15,19 @@ bool Ft232::valid(std::string vendor, std::string product) {
 async::result<void> Ft232::initialize() {
 	auto deviceDescriptor = co_await hw().deviceDescriptor();
 	assert(deviceDescriptor);
-	auto desc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(deviceDescriptor.value().data());
+	auto desc =
+	    reinterpret_cast<protocols::usb::DeviceDescriptor *>(deviceDescriptor.value().data());
 
-	switch(desc->bcdDevice) {
-		case 0x400:
-			type_ = Type::FT232B;
-			break;
-		case 0x600:
-			type_ = Type::FT232R;
-			break;
-		default:
-			printf("usb-serial: FTDI FT232 bcdDevice 0x%04x is unsupported\n", desc->bcdDevice);
-			assert(!"unsupported");
+	switch (desc->bcdDevice) {
+	case 0x400:
+		type_ = Type::FT232B;
+		break;
+	case 0x600:
+		type_ = Type::FT232R;
+		break;
+	default:
+		printf("usb-serial: FTDI FT232 bcdDevice 0x%04x is unsupported\n", desc->bcdDevice);
+		assert(!"unsupported");
 	}
 
 	auto descriptorOrError = co_await hw().configurationDescriptor(0);
@@ -36,28 +37,33 @@ async::result<void> Ft232::initialize() {
 	std::optional<int> in_endp_number;
 	std::optional<int> out_endp_number;
 
-	protocols::usb::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *descriptor, const auto &info) {
-		if(type == protocols::usb::descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber.value();
-		} else if(type == protocols::usb::descriptor_type::interface) {
-			intfNumber_ = info.interfaceNumber.value();
-		} else if(type == protocols::usb::descriptor_type::endpoint) {
-			auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
+	protocols::usb::walkConfiguration(
+	    descriptorOrError.value(),
+	    [&](int type, size_t, void *descriptor, const auto &info) {
+		    if (type == protocols::usb::descriptor_type::configuration) {
+			    assert(!config_number);
+			    config_number = info.configNumber.value();
+		    } else if (type == protocols::usb::descriptor_type::interface) {
+			    intfNumber_ = info.interfaceNumber.value();
+		    } else if (type == protocols::usb::descriptor_type::endpoint) {
+			    auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
 
-			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber.value();
-			} else {
-				out_endp_number = info.endpointNumber.value();
-				outMaxPacketSize_ = desc->maxPacketSize;
-			}
-		}
-	});
+			    if (info.endpointIn.value()) {
+				    in_endp_number = info.endpointNumber.value();
+			    } else {
+				    out_endp_number = info.endpointNumber.value();
+				    outMaxPacketSize_ = desc->maxPacketSize;
+			    }
+		    }
+	    }
+	);
 
 	auto config = (co_await hw().useConfiguration(0, *config_number)).unwrap();
 	if_ = (co_await config.useInterface(intfNumber_.value(), 0)).unwrap();
-	in_ = (co_await if_->getEndpoint(protocols::usb::PipeType::in, in_endp_number.value())).unwrap();
-	out_ = (co_await if_->getEndpoint(protocols::usb::PipeType::out, out_endp_number.value())).unwrap();
+	in_ =
+	    (co_await if_->getEndpoint(protocols::usb::PipeType::in, in_endp_number.value())).unwrap();
+	out_ = (co_await if_->getEndpoint(protocols::usb::PipeType::out, out_endp_number.value()))
+	           .unwrap();
 
 	co_await setConfiguration(activeSettings);
 }
@@ -66,12 +72,12 @@ std::optional<uint32_t> Ft232::encodeBaud(size_t baud) {
 	std::array<const uint8_t, 8> encoded_fraction = {0, 3, 2, 4, 1, 5, 6, 7};
 	uint32_t clk = 3000000;
 
-	if(baud < (clk >> 14) || baud > clk)
+	if (baud < (clk >> 14) || baud > clk)
 		return std::nullopt;
 
 	uint32_t divisor = (clk << 4) / baud;
 
-	if((divisor & 0xF) == 1)
+	if ((divisor & 0xF) == 1)
 		divisor &= ~7U;
 	else
 		divisor += 1;
@@ -81,8 +87,8 @@ std::optional<uint32_t> Ft232::encodeBaud(size_t baud) {
 	uint32_t frac = divisor & 0x7;
 	divisor >>= 3;
 
-	if(divisor == 1) {
-		if(frac == 0)
+	if (divisor == 1) {
+		if (frac == 0)
 			divisor = 0;
 		else
 			frac = 0;
@@ -143,9 +149,25 @@ async::result<void> Ft232::setConfiguration(struct termios &new_config) {
 		v_flow = uint8_t(ft232::FlowControl::Disable);
 	}
 
-	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetBaudRate), baud_setting & 0xFFFF, baud_setting >> 16, {});
+	co_await transferControl(
+	    hw_,
+	    pool_,
+	    false,
+	    uint8_t(ft232::Request::SetBaudRate),
+	    baud_setting & 0xFFFF,
+	    baud_setting >> 16,
+	    {}
+	);
 	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetData), lcr, 0, {});
-	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetFlowControl), v_stop | (v_start << 8), v_flow, {});
+	co_await transferControl(
+	    hw_,
+	    pool_,
+	    false,
+	    uint8_t(ft232::Request::SetFlowControl),
+	    v_stop | (v_start << 8),
+	    v_flow,
+	    {}
+	);
 
 	ttyCopyTermios(new_config, activeSettings);
 
@@ -156,6 +178,4 @@ async::result<protocols::usb::UsbError> Ft232::send(protocols::usb::BulkTransfer
 	co_return (co_await out_->transfer(std::move(transfer))).maybe_error();
 }
 
-size_t Ft232::sendFifoSize() {
-	return outMaxPacketSize_;
-}
+size_t Ft232::sendFifoSize() { return outMaxPacketSize_; }

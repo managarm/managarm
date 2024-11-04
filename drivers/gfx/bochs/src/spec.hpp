@@ -17,16 +17,16 @@ enum class RegisterIndex : uint16_t {
 };
 
 namespace enable_bits {
-	inline constexpr uint16_t enable = 0x01;
-	inline constexpr uint16_t lfb = 0x40;
-	inline constexpr uint16_t noMemClear = 0x80;
-};
+inline constexpr uint16_t enable = 0x01;
+inline constexpr uint16_t lfb = 0x40;
+inline constexpr uint16_t noMemClear = 0x80;
+}; // namespace enable_bits
 
 //-------------------------------------------------
 // registers
 //-------------------------------------------------
 
 namespace regs {
-	arch::scalar_register<uint16_t> index(0x01CE);
-	arch::scalar_register<uint16_t> data(0x01CF);
-}
+arch::scalar_register<uint16_t> index(0x01CE);
+arch::scalar_register<uint16_t> data(0x01CF);
+} // namespace regs

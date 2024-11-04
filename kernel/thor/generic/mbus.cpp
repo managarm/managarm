@@ -1,5 +1,5 @@
-#include <thor-internal/stream.hpp>
 #include <thor-internal/mbus.hpp>
+#include <thor-internal/stream.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
@@ -11,7 +11,8 @@ namespace thor {
 // TODO: Move this to a header file.
 extern frg::manual_box<LaneHandle> mbusClient;
 
-coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::string_view name, Properties &&properties) {
+coroutine<frg::expected<Error, size_t>>
+KernelBusObject::createObject(frg::string_view name, Properties &&properties) {
 	auto [offerError, conversation] = co_await OfferSender{*mbusClient};
 	if (offerError != Error::success)
 		co_return offerError;
@@ -53,14 +54,16 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (!descriptor.is<LaneDescriptor>())
 		co_return Error::protocolViolation;
 
-	auto resp = bragi::parse_head_only<managarm::mbus::CreateObjectResponse>(respBuffer, *kernelAlloc);
+	auto resp =
+	    bragi::parse_head_only<managarm::mbus::CreateObjectResponse>(respBuffer, *kernelAlloc);
 	if (!resp)
 		co_return Error::protocolViolation;
 	if (resp->error() != managarm::mbus::Error::SUCCESS)
 		co_return Error::illegalState;
 
-	async::detach_with_allocator(*kernelAlloc,
-			handleMbusComms_(descriptor.get<LaneDescriptor>().handle));
+	async::detach_with_allocator(
+	    *kernelAlloc, handleMbusComms_(descriptor.get<LaneDescriptor>().handle)
+	);
 
 	co_return resp->id();
 }
@@ -89,8 +92,7 @@ coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_(LaneHand
 
 	auto lane = initiateClient();
 
-	auto descError = co_await PushDescriptorSender{conversation,
-		LaneDescriptor{lane}};
+	auto descError = co_await PushDescriptorSender{conversation, LaneDescriptor{lane}};
 
 	if (descError != Error::success)
 		co_return descError;
@@ -100,7 +102,8 @@ coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_(LaneHand
 	if (respError != Error::success)
 		co_return respError;
 
-	auto resp = bragi::parse_head_only<managarm::mbus::ServeRemoteLaneResponse>(respBuffer, *kernelAlloc);
+	auto resp =
+	    bragi::parse_head_only<managarm::mbus::ServeRemoteLaneResponse>(respBuffer, *kernelAlloc);
 	if (!resp)
 		co_return Error::protocolViolation;
 	if (resp->error() != managarm::mbus::Error::SUCCESS)

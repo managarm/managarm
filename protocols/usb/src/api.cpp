@@ -1,6 +1,6 @@
-#include <string>
-#include <locale>
 #include <codecvt>
+#include <locale>
+#include <string>
 
 #include "protocols/usb/api.hpp"
 
@@ -10,42 +10,37 @@ namespace protocols::usb {
 // Device.
 // ----------------------------------------------------------------------------
 
-Device::Device(std::shared_ptr<DeviceData> state)
-: _state(std::move(state)) { }
+Device::Device(std::shared_ptr<DeviceData> state) : _state(std::move(state)) {}
 
-arch::dma_pool *Device::setupPool() const {
-	return _state->setupPool();
-}
+arch::dma_pool *Device::setupPool() const { return _state->setupPool(); }
 
-arch::dma_pool *Device::bufferPool() const {
-	return _state->bufferPool();
-}
+arch::dma_pool *Device::bufferPool() const { return _state->bufferPool(); }
 
 async::result<frg::expected<UsbError, std::string>> Device::deviceDescriptor() const {
 	return _state->deviceDescriptor();
 }
 
-async::result<frg::expected<UsbError, std::string>> Device::configurationDescriptor(uint8_t configuration) const {
+async::result<frg::expected<UsbError, std::string>>
+Device::configurationDescriptor(uint8_t configuration) const {
 	return _state->configurationDescriptor(configuration);
 }
 
 async::result<frg::expected<UsbError, uint8_t>> Device::currentConfigurationValue() const {
 	arch::dma_object<SetupPacket> get{setupPool()};
-	get->type = setup_type::targetDevice | setup_type::byStandard
-			| setup_type::toHost;
+	get->type = setup_type::targetDevice | setup_type::byStandard | setup_type::toHost;
 	get->request = request_type::getConfig;
 	get->value = 0;
 	get->index = 0;
 	get->length = 1;
 
 	arch::dma_object<uint8_t> descriptor{bufferPool()};
-	FRG_CO_TRY(co_await transfer(ControlTransfer{kXferToHost,
-			get, descriptor.view_buffer()}));
+	FRG_CO_TRY(co_await transfer(ControlTransfer{kXferToHost, get, descriptor.view_buffer()}));
 
 	co_return *descriptor.data();
 }
 
-async::result<frg::expected<UsbError, Configuration>> Device::useConfiguration(uint8_t index, uint8_t value) const {
+async::result<frg::expected<UsbError, Configuration>>
+Device::useConfiguration(uint8_t index, uint8_t value) const {
 	return _state->useConfiguration(index, value);
 }
 
@@ -65,9 +60,11 @@ async::result<frg::expected<UsbError, std::string>> Device::getString(size_t num
 	arch::dma_buffer buffer{bufferPool(), header->length};
 	FRG_CO_TRY(co_await transfer(ControlTransfer(kXferToHost, desc, buffer)));
 
-	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>,char16_t> convert;
+	std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
 	auto res = reinterpret_cast<StringDescriptor *>(buffer.data());
-	co_return convert.to_bytes(std::u16string{res->data, (res->length - sizeof(StringDescriptor)) / 2});
+	co_return convert.to_bytes(
+	    std::u16string{res->data, (res->length - sizeof(StringDescriptor)) / 2}
+	);
 }
 
 async::result<frg::expected<UsbError, size_t>> Device::transfer(ControlTransfer info) const {
@@ -78,11 +75,10 @@ async::result<frg::expected<UsbError, size_t>> Device::transfer(ControlTransfer 
 // Configuration.
 // ----------------------------------------------------------------------------
 
-Configuration::Configuration(std::shared_ptr<ConfigurationData> state)
-: _state(std::move(state)) { }
+Configuration::Configuration(std::shared_ptr<ConfigurationData> state) : _state(std::move(state)) {}
 
-async::result<frg::expected<UsbError, Interface>> Configuration::useInterface(int number,
-		int alternative) const {
+async::result<frg::expected<UsbError, Interface>>
+Configuration::useInterface(int number, int alternative) const {
 	return _state->useInterface(number, alternative);
 }
 
@@ -90,8 +86,7 @@ async::result<frg::expected<UsbError, Interface>> Configuration::useInterface(in
 // Interface.
 // ----------------------------------------------------------------------------
 
-Interface::Interface(std::shared_ptr<InterfaceData> state)
-: _state(std::move(state)) { }
+Interface::Interface(std::shared_ptr<InterfaceData> state) : _state(std::move(state)) {}
 
 async::result<frg::expected<UsbError, Endpoint>>
 Interface::getEndpoint(PipeType type, int number) const {
@@ -102,8 +97,7 @@ Interface::getEndpoint(PipeType type, int number) const {
 // Endpoint.
 // ----------------------------------------------------------------------------
 
-Endpoint::Endpoint(std::shared_ptr<EndpointData> state)
-: _state(std::move(state)) { }
+Endpoint::Endpoint(std::shared_ptr<EndpointData> state) : _state(std::move(state)) {}
 
 async::result<frg::expected<UsbError, size_t>> Endpoint::transfer(InterruptTransfer info) const {
 	return _state->transfer(info);

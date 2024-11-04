@@ -1,15 +1,15 @@
 
-#include <string.h>
 #include <iostream>
-#include <string_view>
 #include <linux/fs.h>
+#include <string.h>
+#include <string_view>
 
 #include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
 #include "../device.hpp"
-#include "../vfs.hpp"
 #include "../drvcore.hpp"
+#include "../vfs.hpp"
 #include "pci.hpp"
 
 namespace block_subsystem {
@@ -23,30 +23,30 @@ id_allocator<uint32_t> diskAllocator{0};
 std::unordered_map<int64_t, char> diskNames;
 
 struct Device final : UnixDevice, drvcore::BlockDevice {
-	Device(VfsType type, std::string name, helix::UniqueLane lane,
-			std::shared_ptr<drvcore::Device> parent, size_t size)
-	: UnixDevice{type},
-			drvcore::BlockDevice{sysfsSubsystem, std::move(parent), name,
-					this},
-			_name{std::move(name)}, _lane{std::move(lane)}, _size{size} { }
+	Device(
+	    VfsType type,
+	    std::string name,
+	    helix::UniqueLane lane,
+	    std::shared_ptr<drvcore::Device> parent,
+	    size_t size
+	)
+	    : UnixDevice{type},
+	      drvcore::BlockDevice{sysfsSubsystem, std::move(parent), name, this},
+	      _name{std::move(name)},
+	      _lane{std::move(lane)},
+	      _size{size} {}
 
-	std::string nodePath() override {
-		return _name;
-	}
+	std::string nodePath() override { return _name; }
 
-	size_t size() {
-		return _size;
-	}
+	size_t size() { return _size; }
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
-		return mountExternalDevice(_lane);
-	}
+	FutureMaybe<std::shared_ptr<FsLink>> mount() override { return mountExternalDevice(_lane); }
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		std::pair<int, int> dev = getId();
@@ -55,39 +55,35 @@ struct Device final : UnixDevice, drvcore::BlockDevice {
 		ue.set("MINOR", std::to_string(dev.second));
 	}
 
-private:
+  private:
 	std::string _name;
 	helix::UniqueLane _lane;
 
 	size_t _size;
 };
 
-} // anonymous namepsace
+} // namespace
 
 struct ReadOnlyAttribute : sysfs::Attribute {
-	ReadOnlyAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ReadOnlyAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct DevAttribute : sysfs::Attribute {
-	DevAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	DevAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct SizeAttribute : sysfs::Attribute {
-	SizeAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	SizeAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
 struct ManagarmRootAttribute : sysfs::Attribute {
-	ManagarmRootAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
+	ManagarmRootAttribute(std::string name) : sysfs::Attribute{std::move(name), false} {}
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
@@ -98,7 +94,7 @@ SizeAttribute sizeAttr{"size"};
 ManagarmRootAttribute managarmRootAttr{"managarm-root"};
 
 async::result<frg::expected<Error, std::string>> ReadOnlyAttribute::show(sysfs::Object *object) {
-	(void) object;
+	(void)object;
 	// The format is 0\n\0.
 	// Hardcode to zero as we don't support ro mounts yet.
 	co_return "0\n";
@@ -121,10 +117,10 @@ async::result<frg::expected<Error, std::string>> ManagarmRootAttribute::show(sys
 }
 
 async::detached observePartitions() {
-	auto filter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter{"unix.devtype", "block"},
-		mbus_ng::EqualsFilter{"unix.blocktype", "partition"}
-	});
+	auto filter = mbus_ng::Conjunction(
+	    {mbus_ng::EqualsFilter{"unix.devtype", "block"},
+	     mbus_ng::EqualsFilter{"unix.blocktype", "partition"}}
+	);
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -137,13 +133,16 @@ async::detached observePartitions() {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 			auto &properties = event.properties;
 
-			auto diskId = std::stoll(std::get<mbus_ng::StringItem>(properties.at("unix.diskid")).value);
+			auto diskId =
+			    std::stoll(std::get<mbus_ng::StringItem>(properties.at("unix.diskid")).value);
 			auto diskName = diskNames.at(diskId);
 
-			auto name = std::string("sd") + diskName + std::get<mbus_ng::StringItem>(properties.at("unix.partid")).value;
+			auto name = std::string("sd") + diskName +
+			            std::get<mbus_ng::StringItem>(properties.at("unix.partid")).value;
 			std::cout << "POSIX: Installing block device " << name << std::endl;
 
-			auto parent_property = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
+			auto parent_property =
+			    std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
 			auto mbus_parent = std::stoi(parent_property.value);
 			std::shared_ptr<drvcore::Device> parent_device;
 			if (mbus_parent != -1) {
@@ -157,11 +156,11 @@ async::detached observePartitions() {
 			req.set_command(BLKGETSIZE64);
 
 			auto ser = req.SerializeAsString();
-			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::recvInline()
-					)
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			    lane,
+			    helix_ng::offer(
+			        helix_ng::sendBuffer(ser.data(), ser.size()), helix_ng::recvInline()
+			    )
 			);
 			HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
@@ -174,11 +173,9 @@ async::detached observePartitions() {
 
 			size_t size = resp.size();
 
-			auto device = std::make_shared<Device>(VfsType::blockDevice,
-					name,
-					std::move(lane),
-					parent_device,
-					size);
+			auto device = std::make_shared<Device>(
+			    VfsType::blockDevice, name, std::move(lane), parent_device, size
+			);
 			// We use 8 here, the major for SCSI devices and allocate minors sequentially.
 			// Note that this is not really correct as the minor of a partition
 			// depends on the minor of the whole device (see Linux devices.txt documentation).
@@ -201,10 +198,10 @@ async::detached run() {
 
 	observePartitions();
 
-	auto filter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter{"unix.devtype", "block"},
-		mbus_ng::EqualsFilter{"unix.blocktype", "disk"}
-	});
+	auto filter = mbus_ng::Conjunction(
+	    {mbus_ng::EqualsFilter{"unix.devtype", "block"},
+	     mbus_ng::EqualsFilter{"unix.blocktype", "disk"}}
+	);
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {

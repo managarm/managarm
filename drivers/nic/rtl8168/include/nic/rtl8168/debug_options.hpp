@@ -7,4 +7,4 @@ constexpr bool logTXDescriptor = false;
 constexpr bool logRXDescriptor = false;
 constexpr bool logDriverStart = false;
 
-}
+} // namespace

@@ -1,6 +1,6 @@
-#include <thor-internal/arch/debug.hpp>
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
+#include <thor-internal/arch/debug.hpp>
 
 namespace thor {
 
@@ -14,18 +14,18 @@ void setupDebugging() {
 }
 
 namespace {
-	namespace reg {
-		static constexpr arch::scalar_register<uint32_t> data{0x00};
-		static constexpr arch::bit_register<uint32_t> status{0x18};
-	}
+namespace reg {
+static constexpr arch::scalar_register<uint32_t> data{0x00};
+static constexpr arch::bit_register<uint32_t> status{0x18};
+} // namespace reg
 
-	namespace status {
-		static constexpr arch::field<uint32_t, bool> tx_full{5, 1};
-	};
+namespace status {
+static constexpr arch::field<uint32_t, bool> tx_full{5, 1};
+};
 
-	static constexpr arch::mem_space space{0xFFFF000000000000};
+static constexpr arch::mem_space space{0xFFFF000000000000};
 
-} // namespace anonymous
+} // namespace
 
 void UartLogHandler::printChar(char c) {
 	// Here we depend on a few things:
@@ -39,11 +39,8 @@ void UartLogHandler::printChar(char c) {
 	space.store(reg::data, c);
 }
 
-void UartLogHandler::setPriority(Severity prio) {
-	(void)prio;
-}
+void UartLogHandler::setPriority(Severity prio) { (void)prio; }
 
-void UartLogHandler::resetPriority() {
-}
+void UartLogHandler::resetPriority() {}
 
 } // namespace thor

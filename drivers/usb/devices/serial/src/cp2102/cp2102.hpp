@@ -1,7 +1,7 @@
 #pragma once
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #include "../controller.hpp"
 
@@ -9,14 +9,15 @@ struct Cp2102 : Controller {
 	Cp2102(protocols::usb::Device hw) : Controller{std::move(hw)} {};
 
 	virtual async::result<void> initialize() override;
-	virtual async::result<protocols::usb::UsbError> send(protocols::usb::BulkTransfer transfer) override;
+	virtual async::result<protocols::usb::UsbError> send(protocols::usb::BulkTransfer transfer
+	) override;
 	virtual async::result<void> setConfiguration(struct termios &new_config) override;
 
 	virtual size_t sendFifoSize() override;
 
 	static bool valid(std::string vendor, std::string product);
 
-private:
+  private:
 	enum class Partnum : uint8_t {
 		CP2101 = 1,
 		CP2102 = 2,
@@ -91,4 +92,4 @@ struct specialChars {
 	uint8_t bXoffChar;
 };
 
-}
+} // namespace cp2102

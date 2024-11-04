@@ -10,65 +10,59 @@
 namespace {
 
 struct UrandomFile final : File {
-private:
+  private:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t length) override {
 		auto p = reinterpret_cast<char *>(data);
 		size_t n = 0;
-		while(n < length) {
+		while (n < length) {
 			size_t chunk;
 			HEL_CHECK(helGetRandomBytes(p + n, length - n, &chunk));
-			n+= chunk;
+			n += chunk;
 		}
 
 		co_return n;
 	}
 
-	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *, const void *, size_t length) override {
 		co_return length;
 	}
 
-	async::result<frg::expected<Error, off_t>> seek(off_t, VfsSeek) override {
-		co_return 0;
-	}
+	async::result<frg::expected<Error, off_t>> seek(off_t, VfsSeek) override { co_return 0; }
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
-public:
+  public:
 	static void serve(smarter::shared_ptr<UrandomFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &fileOperations, file->_cancelServe));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), file, &fileOperations, file->_cancelServe
+		));
 	}
 
 	UrandomFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("urandom-file"), std::move(mount), std::move(link)} { }
+	    : File{StructName::get("urandom-file"), std::move(mount), std::move(link)} {}
 };
 
 struct UrandomDevice final : UnixDevice {
-	UrandomDevice()
-	: UnixDevice(VfsType::charDevice) {
-		assignId({1, 9});
-	}
+	UrandomDevice() : UnixDevice(VfsType::charDevice) { assignId({1, 9}); }
 
-	std::string nodePath() override {
-		return "urandom";
-	}
+	std::string nodePath() override { return "urandom"; }
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
-		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
+		if (semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)) {
 			std::cout << "\e[31mposix: UrandomFile open() received illegal arguments:"
-				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticNonBlock (0x01), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-				<< std::endl;
+			          << std::bitset<32>(semantic_flags)
+			          << "\nOnly semanticNonBlock (0x01), semanticRead (0x2) and "
+			             "semanticWrite(0x4) are allowed.\e[39m"
+			          << std::endl;
 			co_return Error::illegalArguments;
 		}
 
@@ -81,6 +75,4 @@ struct UrandomDevice final : UnixDevice {
 
 } // anonymous namespace
 
-std::shared_ptr<UnixDevice> createUrandomDevice() {
-	return std::make_shared<UrandomDevice>();
-}
+std::shared_ptr<UnixDevice> createUrandomDevice() { return std::make_shared<UrandomDevice>(); }

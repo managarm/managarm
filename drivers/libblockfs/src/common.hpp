@@ -4,14 +4,8 @@
 
 namespace blockfs {
 
-enum FileType {
-	kTypeNone,
-	kTypeRegular,
-	kTypeDirectory,
-	kTypeSymlink
-};
+enum FileType { kTypeNone, kTypeRegular, kTypeDirectory, kTypeSymlink };
 
 } // namespace blockfs
 
 #endif // LIBFS_COMMON_H
-

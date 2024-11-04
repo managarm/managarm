@@ -1,8 +1,8 @@
 #pragma once
 
 #include <arch/dma_pool.hpp>
-#include <async/recurring-event.hpp>
 #include <async/queue.hpp>
+#include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include <netserver/nic.hpp>
 #include <protocols/fs/server.hpp>
@@ -14,7 +14,7 @@ struct Raw {
 	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto, int flags);
 	void feedPacket(arch::dma_buffer_view frame);
 
-private:
+  private:
 	friend RawSocket;
 
 	std::vector<smarter::shared_ptr<RawSocket>> sockets_;
@@ -24,34 +24,42 @@ private:
 struct RawSocket {
 	explicit RawSocket(Raw *parent, int proto) : parent{parent}, proto(proto) {}
 
-	static async::result<protocols::fs::Error> bind(void* obj,
-			const char *creds, const void *addr_ptr, size_t addr_size);
+	static async::result<protocols::fs::Error>
+	bind(void *obj, const char *creds, const void *addr_ptr, size_t addr_size);
 
-	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object,
-			const char *credentials, const void *buffer, size_t length);
+	static async::result<frg::expected<protocols::fs::Error, size_t>>
+	write(void *object, const char *credentials, const void *buffer, size_t length);
 
-	static async::result<protocols::fs::RecvResult> recvmsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
-			void *addr_buf, size_t addr_size, size_t max_ctrl_len);
+	static async::result<protocols::fs::RecvResult> recvmsg(
+	    void *obj,
+	    const char *creds,
+	    uint32_t flags,
+	    void *data,
+	    size_t len,
+	    void *addr_buf,
+	    size_t addr_size,
+	    size_t max_ctrl_len
+	);
 
 	static async::result<frg::expected<protocols::fs::Error>>
-			setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
+	setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
-			pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation);
+	pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
-			pollStatus(void *obj);
+	pollStatus(void *obj);
 
-	constexpr static protocols::fs::FileOperations ops {
-		.write = &write,
-		.pollWait = &pollWait,
-		.pollStatus = &pollStatus,
-		.bind = &bind,
-		.recvMsg = &recvmsg,
-		.setSocketOption = &setSocketOption,
+	constexpr static protocols::fs::FileOperations ops{
+	    .write = &write,
+	    .pollWait = &pollWait,
+	    .pollStatus = &pollStatus,
+	    .bind = &bind,
+	    .recvMsg = &recvmsg,
+	    .setSocketOption = &setSocketOption,
 	};
-private:
+
+  private:
 	friend Raw;
 
 	Raw *parent;

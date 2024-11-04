@@ -1,9 +1,9 @@
 #pragma once
 
-#include <string.h>
+#include <deque>
 #include <iostream>
 #include <set>
-#include <deque>
+#include <string.h>
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
@@ -24,10 +24,14 @@ struct MountView : std::enable_shared_from_this<MountView> {
 	static std::shared_ptr<MountView> createRoot(std::shared_ptr<FsLink> origin);
 
 	// TODO: This is an implementation detail that could be hidden.
-	explicit MountView(std::shared_ptr<MountView> parent, std::shared_ptr<FsLink> anchor,
-			std::shared_ptr<FsLink> origin)
-	: _parent{std::move(parent)}, _anchor{std::move(anchor)}, _origin{std::move(origin)} { }
-
+	explicit MountView(
+	    std::shared_ptr<MountView> parent,
+	    std::shared_ptr<FsLink> anchor,
+	    std::shared_ptr<FsLink> origin
+	)
+	    : _parent{std::move(parent)},
+	      _anchor{std::move(anchor)},
+	      _origin{std::move(origin)} {}
 
 	std::shared_ptr<MountView> getParent() const;
 	std::shared_ptr<FsLink> getAnchor() const;
@@ -37,21 +41,21 @@ struct MountView : std::enable_shared_from_this<MountView> {
 
 	std::shared_ptr<MountView> getMount(std::shared_ptr<FsLink> link) const;
 
-private:
+  private:
 	struct Compare {
-		struct is_transparent { };
+		struct is_transparent {};
 
-		bool operator() (const std::shared_ptr<MountView> &a,
-				const std::shared_ptr<FsLink> &b) const {
+		bool
+		operator()(const std::shared_ptr<MountView> &a, const std::shared_ptr<FsLink> &b) const {
 			return a->getAnchor() < b;
 		}
-		bool operator() (const std::shared_ptr<FsLink> &a,
-				const std::shared_ptr<MountView> &b) const {
+		bool
+		operator()(const std::shared_ptr<FsLink> &a, const std::shared_ptr<MountView> &b) const {
 			return a < b->getAnchor();
 		}
 
-		bool operator() (const std::shared_ptr<MountView> &a,
-				const std::shared_ptr<MountView> &b) const {
+		bool
+		operator()(const std::shared_ptr<MountView> &a, const std::shared_ptr<MountView> &b) const {
 			return a->getAnchor() < b->getAnchor();
 		}
 	};
@@ -68,7 +72,7 @@ struct ViewPath : public ViewPathPair {
 	ViewPath() = default;
 
 	ViewPath(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: ViewPathPair(mount, link) {}
+	    : ViewPathPair(mount, link) {}
 
 	std::string getPath(ViewPath root) const;
 };
@@ -78,24 +82,18 @@ struct PathResolver {
 
 	async::result<frg::expected<protocols::fs::Error, void>> resolve(ResolveFlags flags = 0);
 
-	bool hasComponent() {
-		return !_components.empty();
-	}
+	bool hasComponent() { return !_components.empty(); }
 
 	std::string nextComponent() {
 		assert(!_components.empty());
 		return _components.front();
 	}
 
-	std::shared_ptr<MountView> currentView() {
-		return _currentPath.first;
-	}
+	std::shared_ptr<MountView> currentView() { return _currentPath.first; }
 
-	std::shared_ptr<FsLink> currentLink() {
-		return _currentPath.second;
-	}
+	std::shared_ptr<FsLink> currentLink() { return _currentPath.second; }
 
-private:
+  private:
 	ViewPath _rootPath;
 	Process *_process;
 
@@ -109,9 +107,15 @@ async::result<void> populateRootView();
 ViewPath rootPath();
 
 // TODO: Switch to PathResolver instead of using this function.
-async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(ViewPath root, ViewPath workdir,
-		std::string name, Process *process, ResolveFlags flags = 0);
+async::result<frg::expected<protocols::fs::Error, ViewPath>> resolve(
+    ViewPath root, ViewPath workdir, std::string name, Process *process, ResolveFlags flags = 0
+);
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(ViewPath root,
-		ViewPath workdir, std::string name, Process *process, ResolveFlags resolve_flags = 0,
-		SemanticFlags semantic_flags = 0);
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+    ViewPath root,
+    ViewPath workdir,
+    std::string name,
+    Process *process,
+    ResolveFlags resolve_flags = 0,
+    SemanticFlags semantic_flags = 0
+);

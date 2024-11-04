@@ -1,7 +1,7 @@
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include <async/recurring-event.hpp>
 #include <frg/tuple.hpp>
@@ -13,12 +13,13 @@ namespace thor {
 
 struct LogRingBuffer {
 	LogRingBuffer(uintptr_t storage, size_t size)
-	: ringSize_{size}, buffer_{reinterpret_cast<char *>(storage)} {
+	    : ringSize_{size},
+	      buffer_{reinterpret_cast<char *>(storage)} {
 		assert(ringSize_ && (ringSize_ & (ringSize_ - 1)) == 0);
 	}
 
 	auto wait(uint64_t deqPtr) {
-		return event_.async_wait_if([=, this] () -> bool {
+		return event_.async_wait_if([=, this]() -> bool {
 			return headPtr_.load(std::memory_order_relaxed) == deqPtr;
 		});
 	}
@@ -35,7 +36,7 @@ struct LogRingBuffer {
 
 			// Compute the invalidated part of the ring buffer.
 			auto invalPtr = tailPtr_.load(std::memory_order_relaxed);
-			while(invalPtr + ringSize_ < enqPtr + headerSize + recordSize) {
+			while (invalPtr + ringSize_ < enqPtr + headerSize + recordSize) {
 				assert(invalPtr < enqPtr);
 				auto tailOffset = invalPtr & (ringSize_ - 1);
 				// Alignment guarantees that the header fits contiguously.
@@ -67,13 +68,11 @@ struct LogRingBuffer {
 			headPtr_.store(commitPtr, std::memory_order_release);
 		}
 
-		if(!suppressWakeup)
+		if (!suppressWakeup)
 			event_.raise();
 	}
 
-	void enqueue(char c) {
-		enqueue(&c, 1);
-	}
+	void enqueue(char c) { enqueue(&c, 1); }
 
 	frg::tuple<bool, uint64_t, uint64_t, size_t>
 	dequeueAt(uint64_t deqPtr, void *data, size_t maxSize) {
@@ -82,11 +81,11 @@ struct LogRingBuffer {
 	tryAgain:
 		// Find a valid position to dequeue from.
 		auto beforePtr = tailPtr_.load(std::memory_order_relaxed);
-		if(deqPtr < beforePtr)
+		if (deqPtr < beforePtr)
 			deqPtr = beforePtr;
 
 		auto validPtr = headPtr_.load(std::memory_order_acquire);
-		if(deqPtr == validPtr)
+		if (deqPtr == validPtr)
 			return {false, deqPtr, deqPtr, 0};
 		assert(deqPtr < validPtr);
 
@@ -98,7 +97,7 @@ struct LogRingBuffer {
 		size_t recordSize;
 		memcpy(&recordSize, buffer_ + recordOffset, sizeof(size_t));
 		// Alignment guarantees that the header fits contiguously.
-		if(recordSize > ringSize_ - headerSize)
+		if (recordSize > ringSize_ - headerSize)
 			goto tryAgain;
 		auto chunkSize = frg::min(recordSize, maxSize);
 		auto preWrapSize = frg::min(ringSize_ - (recordOffset + headerSize), chunkSize);
@@ -107,14 +106,14 @@ struct LogRingBuffer {
 
 		// Validate the data *after* copying.
 		auto afterPtr = tailPtr_.load(std::memory_order_acquire);
-		if(deqPtr < afterPtr)
+		if (deqPtr < afterPtr)
 			goto tryAgain;
 
 		size_t newPtr = deqPtr + effectiveSize(recordSize);
 		return {true, deqPtr, newPtr, chunkSize};
 	}
 
-private:
+  private:
 	static constexpr size_t headerSize = sizeof(size_t);
 	static constexpr size_t recordAlign = sizeof(size_t);
 
@@ -143,7 +142,7 @@ struct SingleContextRecordRing {
 
 		// Compute the invalidated part of the ring buffer.
 		auto invalPtr = tailPtr_.load(std::memory_order_relaxed);
-		while(invalPtr + ringSize < enqPtr + headerSize + recordSize) {
+		while (invalPtr + ringSize < enqPtr + headerSize + recordSize) {
 			assert(invalPtr < enqPtr);
 			auto tailOffset = invalPtr & (ringSize - 1);
 			// Alignment guarantees that the header fits contiguously.
@@ -183,11 +182,11 @@ struct SingleContextRecordRing {
 	tryAgain:
 		// Find a valid position to dequeue from.
 		auto beforePtr = tailPtr_.load(std::memory_order_relaxed);
-		if(deqPtr < beforePtr)
+		if (deqPtr < beforePtr)
 			deqPtr = beforePtr;
 
 		auto validPtr = headPtr_.load(std::memory_order_acquire);
-		if(deqPtr == validPtr)
+		if (deqPtr == validPtr)
 			return {false, deqPtr, deqPtr, 0};
 		assert(deqPtr < validPtr);
 
@@ -199,7 +198,7 @@ struct SingleContextRecordRing {
 		size_t recordSize;
 		memcpy(&recordSize, buffer_ + recordOffset, sizeof(size_t));
 		// Alignment guarantees that the header fits contiguously.
-		if(recordSize > ringSize - headerSize)
+		if (recordSize > ringSize - headerSize)
 			goto tryAgain;
 		auto chunkSize = frg::min(recordSize, maxSize);
 		auto preWrapSize = frg::min(ringSize - (recordOffset + headerSize), chunkSize);
@@ -208,14 +207,14 @@ struct SingleContextRecordRing {
 
 		// Validate the data *after* copying.
 		auto afterPtr = tailPtr_.load(std::memory_order_acquire);
-		if(deqPtr < afterPtr)
+		if (deqPtr < afterPtr)
 			goto tryAgain;
 
 		size_t newPtr = deqPtr + effectiveSize(recordSize);
 		return {true, deqPtr, newPtr, chunkSize};
 	}
 
-private:
+  private:
 	static constexpr size_t headerSize = sizeof(size_t);
 	static constexpr size_t recordAlign = sizeof(size_t);
 

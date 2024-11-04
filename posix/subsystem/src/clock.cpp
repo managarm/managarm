@@ -1,9 +1,9 @@
 
 #include <async/oneshot-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
-#include <bragi/helpers-std.hpp>
 
 #include "clock.hpp"
 #include <clock.bragi.hpp>
@@ -20,12 +20,12 @@ async::result<void> fetchTrackerPage() {
 	managarm::clock::AccessPageRequest req;
 
 	auto [offer, sendReq, recvResp, pullMemory] = co_await helix_ng::exchangeMsgs(
-		trackerLane,
-		helix_ng::offer(
-			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-			helix_ng::recvInline(),
-			helix_ng::pullDescriptor()
-		)
+	    trackerLane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	        helix_ng::recvInline(),
+	        helix_ng::pullDescriptor()
+	    )
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
@@ -44,14 +44,10 @@ async::result<void> fetchTrackerPage() {
 
 } // anonymous namespace
 
-helix::BorrowedDescriptor trackerPageMemory() {
-	return globalTrackerPageMemory;
-}
+helix::BorrowedDescriptor trackerPageMemory() { return globalTrackerPageMemory; }
 
 async::result<void> enumerateTracker() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "clocktracker"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "clocktracker"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();

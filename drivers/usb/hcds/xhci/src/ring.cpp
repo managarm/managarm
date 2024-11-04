@@ -6,50 +6,50 @@
 // ------------------------------------------------------------------------
 
 constexpr const char *trbTypeNames[] = {
-	"Reserved",
+    "Reserved",
 
-	"Normal",
-	"Setup stage",
-	"Data stage",
-	"Status stage",
-	"Isochronous",
-	"Link",
-	"Event data",
-	"No Op (transfer)",
+    "Normal",
+    "Setup stage",
+    "Data stage",
+    "Status stage",
+    "Isochronous",
+    "Link",
+    "Event data",
+    "No Op (transfer)",
 
-	"Enable slot",
-	"Disable slot",
-	"Address device",
-	"Configure endpoint",
-	"Evaluate context",
-	"Reset endpoint",
-	"Stop endpoint",
-	"Set TR dequeue pointer",
-	"Reset device",
-	"Force event",
-	"Negotiate bandwidth",
-	"Set latency tolerance value",
-	"Get port bandwidth",
-	"Force header",
-	"No Op (command)",
-	"Get extended property",
-	"Set extended property",
+    "Enable slot",
+    "Disable slot",
+    "Address device",
+    "Configure endpoint",
+    "Evaluate context",
+    "Reset endpoint",
+    "Stop endpoint",
+    "Set TR dequeue pointer",
+    "Reset device",
+    "Force event",
+    "Negotiate bandwidth",
+    "Set latency tolerance value",
+    "Get port bandwidth",
+    "Force header",
+    "No Op (command)",
+    "Get extended property",
+    "Set extended property",
 
-	"Reserved",
-	"Reserved",
-	"Reserved",
-	"Reserved",
-	"Reserved",
-	"Reserved",
+    "Reserved",
+    "Reserved",
+    "Reserved",
+    "Reserved",
+    "Reserved",
+    "Reserved",
 
-	"Transfer event",
-	"Command completion event",
-	"Port status change event",
-	"Bandwidth request event",
-	"Doorbell event",
-	"Host controller event",
-	"Device notification event",
-	"MFINDEX wrap event"
+    "Transfer event",
+    "Command completion event",
+    "Port status change event",
+    "Bandwidth request event",
+    "Doorbell event",
+    "Host controller event",
+    "Device notification event",
+    "MFINDEX wrap event"
 };
 
 Event Event::fromRawTrb(RawTrb trb) {
@@ -60,36 +60,34 @@ Event Event::fromRawTrb(RawTrb trb) {
 	ev.slotId = (trb.val[3] >> 24) & 0xFF;
 	ev.raw = trb;
 
-	switch(ev.type) {
-		case TrbType::transferEvent:
-			ev.trbPointer = trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32);
-			ev.transferLen = trb.val[2] & 0xFFFFFF;
-			ev.endpointId = (trb.val[3] >> 16) & 0x1F;
-			ev.eventData = trb.val[3] & (1 << 2);
-			break;
+	switch (ev.type) {
+	case TrbType::transferEvent:
+		ev.trbPointer = trb.val[0] | (static_cast<uintptr_t>(trb.val[1]) << 32);
+		ev.transferLen = trb.val[2] & 0xFFFFFF;
+		ev.endpointId = (trb.val[3] >> 16) & 0x1F;
+		ev.eventData = trb.val[3] & (1 << 2);
+		break;
 
-		case TrbType::commandCompletionEvent:
-			ev.trbPointer = trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32);
+	case TrbType::commandCompletionEvent:
+		ev.trbPointer = trb.val[0] | (static_cast<uintptr_t>(trb.val[1]) << 32);
 
-			ev.commandCompletionParameter = trb.val[2] & 0xFFFFFF;
-			break;
+		ev.commandCompletionParameter = trb.val[2] & 0xFFFFFF;
+		break;
 
-		case TrbType::portStatusChangeEvent:
-			ev.portId = (trb.val[0] >> 24) & 0xFF;
-			break;
+	case TrbType::portStatusChangeEvent:
+		ev.portId = (trb.val[0] >> 24) & 0xFF;
+		break;
 
-		case TrbType::deviceNotificationEvent:
-			ev.notificationData = (trb.val[0] |
-				(static_cast<uintptr_t>(trb.val[1]) << 32))
-				>> 8;
-			ev.notificationType = (trb.val[0] >> 4) & 0xF;
-			break;
+	case TrbType::deviceNotificationEvent:
+		ev.notificationData = (trb.val[0] | (static_cast<uintptr_t>(trb.val[1]) << 32)) >> 8;
+		ev.notificationType = (trb.val[0] >> 4) & 0xF;
+		break;
 
-		default:
-			printf("xhci: Unexpected event 0x%02x in Event::fromRawTrb, ignoring...\n",
-					static_cast<uint32_t>(ev.type));
+	default:
+		printf(
+		    "xhci: Unexpected event 0x%02x in Event::fromRawTrb, ignoring...\n",
+		    static_cast<uint32_t>(ev.type)
+		);
 	}
 
 	return ev;
@@ -97,42 +95,40 @@ Event Event::fromRawTrb(RawTrb trb) {
 
 void Event::printInfo() {
 	printf("xhci: --- Event dump ---\n");
-	printf("xhci: Raw: %08x %08x %08x %08x\n",
-			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: Type: %s (%u)\n", trbTypeNames[static_cast<unsigned int>(type)], static_cast<unsigned int>(type));
+	printf("xhci: Raw: %08x %08x %08x %08x\n", raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
+	printf(
+	    "xhci: Type: %s (%u)\n",
+	    trbTypeNames[static_cast<unsigned int>(type)],
+	    static_cast<unsigned int>(type)
+	);
 	printf("xhci: Slot ID: %d\n", slotId);
-	printf("xhci: Completion code: %s (%d)\n",
-			completionCodeNames[completionCode],
-			completionCode);
+	printf("xhci: Completion code: %s (%d)\n", completionCodeNames[completionCode], completionCode);
 
-	switch(type) {
-		case TrbType::transferEvent:
-			printf("xhci: TRB pointer: %016lx, transfer length %lu\n", trbPointer,
-					transferLen);
-			printf("xhci: Endpoint ID: %lu, has event data? %s\n",
-					endpointId, eventData ? "yes" : "no");
-			break;
-		case TrbType::commandCompletionEvent:
-			printf("xhci: TRB pointer: %016lx\n", trbPointer);
-			printf("xhci: Command completion parameter: %d\n",
-					commandCompletionParameter);
-			break;
-		case TrbType::portStatusChangeEvent:
-			printf("xhci: Port ID: %lu\n", portId);
-			break;
-		case TrbType::bandwidthRequestEvent:
-		case TrbType::doorbellEvent:
-		case TrbType::hostControllerEvent:
-		case TrbType::mfindexWrapEvent:
-			break;
-		case TrbType::deviceNotificationEvent:
-			printf("xhci: Notification data: %lx\n",
-					notificationData);
-			printf("xhci: Notification type: %lu\n",
-					notificationType);
-			break;
-		default:
-			printf("xhci: Invalid event\n");
+	switch (type) {
+	case TrbType::transferEvent:
+		printf("xhci: TRB pointer: %016lx, transfer length %lu\n", trbPointer, transferLen);
+		printf(
+		    "xhci: Endpoint ID: %lu, has event data? %s\n", endpointId, eventData ? "yes" : "no"
+		);
+		break;
+	case TrbType::commandCompletionEvent:
+		printf("xhci: TRB pointer: %016lx\n", trbPointer);
+		printf("xhci: Command completion parameter: %d\n", commandCompletionParameter);
+		break;
+	case TrbType::portStatusChangeEvent:
+		printf("xhci: Port ID: %lu\n", portId);
+		break;
+	case TrbType::bandwidthRequestEvent:
+	case TrbType::doorbellEvent:
+	case TrbType::hostControllerEvent:
+	case TrbType::mfindexWrapEvent:
+		break;
+	case TrbType::deviceNotificationEvent:
+		printf("xhci: Notification data: %lx\n", notificationData);
+		printf("xhci: Notification type: %lu\n", notificationType);
+		break;
+	default:
+		printf("xhci: Invalid event\n");
 	}
 
 	printf("xhci: --- End of event dump ---\n");
@@ -143,8 +139,11 @@ void Event::printInfo() {
 // ------------------------------------------------------------------------
 
 EventRing::EventRing(Controller *controller)
-: _eventRing{controller->memoryPool()}, _erst{controller->memoryPool(), 1},
-	_dequeuePtr{0}, _controller{controller}, _ccs{1} {
+    : _eventRing{controller->memoryPool()},
+      _erst{controller->memoryPool(), 1},
+      _dequeuePtr{0},
+      _controller{controller},
+      _ccs{1} {
 
 	for (size_t i = 0; i < eventRingSize; i++) {
 		_eventRing->ent[i] = {{0, 0, 0, 0}};
@@ -156,20 +155,16 @@ EventRing::EventRing(Controller *controller)
 	_erst[0].reserved = 0;
 }
 
-uintptr_t EventRing::getErstPtr() {
-	return helix::ptrToPhysical(_erst.data());
-}
+uintptr_t EventRing::getErstPtr() { return helix::ptrToPhysical(_erst.data()); }
 
 uintptr_t EventRing::getEventRingPtr() {
 	return helix::ptrToPhysical(_eventRing.data()) + _dequeuePtr * sizeof(RawTrb);
 }
 
-size_t EventRing::getErstSize() {
-	return _erst.size();
-}
+size_t EventRing::getErstSize() { return _erst.size(); }
 
 void EventRing::processRing() {
-	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
+	while ((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
 		RawTrb rawEv = _eventRing->ent[_dequeuePtr];
 
 		int oldCcs = _ccs;
@@ -177,7 +172,7 @@ void EventRing::processRing() {
 		_dequeuePtr++;
 		if (_dequeuePtr >= eventRingSize) {
 			_dequeuePtr = 0; // Wrap around
-			_ccs = !_ccs; // Invert cycle state
+			_ccs = !_ccs;    // Invert cycle state
 		}
 
 		if ((rawEv.val[3] & 1) != oldCcs)
@@ -193,7 +188,11 @@ void EventRing::processRing() {
 // ------------------------------------------------------------------------
 
 ProducerRing::ProducerRing(Controller *controller)
-: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}, _enqueuePtr{0}, _pcs{true} {
+    : _transactions{},
+      _ring{controller->memoryPool()},
+      _controller{controller},
+      _enqueuePtr{0},
+      _pcs{true} {
 	for (uint32_t i = 0; i < ringSize; i++) {
 		_ring->ent[i] = {{0, 0, 0, 0}};
 	}
@@ -201,9 +200,7 @@ ProducerRing::ProducerRing(Controller *controller)
 	updateLink();
 }
 
-uintptr_t ProducerRing::getPtr() {
-	return helix::ptrToPhysical(_ring.data());
-}
+uintptr_t ProducerRing::getPtr() { return helix::ptrToPhysical(_ring.data()); }
 
 void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
 	_ring->ent[_enqueuePtr] = cmd;
@@ -225,8 +222,7 @@ void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
 }
 
 void ProducerRing::processEvent(Event ev) {
-	assert(ev.type == TrbType::commandCompletionEvent
-			|| ev.type == TrbType::transferEvent);
+	assert(ev.type == TrbType::commandCompletionEvent || ev.type == TrbType::transferEvent);
 
 	size_t idx = (ev.trbPointer - getPtr()) / sizeof(RawTrb);
 	assert(idx < ringSize);
@@ -239,12 +235,12 @@ void ProducerRing::processEvent(Event ev) {
 }
 
 void ProducerRing::updateLink() {
-	_ring->ent[ringSize - 1] = {{
-		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getPtr() >> 32),
-		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
-	}};
+	_ring->ent[ringSize - 1] = {
+	    {static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
+	     static_cast<uint32_t>(getPtr() >> 32),
+	     0,
+	     static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))}
+	};
 }
 
 // NOTE(qookie): The logic as far as I understand is as follows.
@@ -271,9 +267,7 @@ ProducerRing::Transaction::control(bool hasData) {
 	FRG_CO_TRY(co_await nextEvent_());
 
 	// Data stage
-	auto txSize = hasData
-		? FRG_CO_TRY(co_await normal())
-		: 0;
+	auto txSize = hasData ? FRG_CO_TRY(co_await normal()) : 0;
 
 	// Status stage
 	FRG_CO_TRY(co_await nextEvent_());
@@ -287,8 +281,7 @@ ProducerRing::Transaction::control(bool hasData) {
 // an isoch TD fails, the controller carries on (as it should), but no
 // event is generated for the final TRB in the chain (the one with IOC
 // set). Other controllers do generate two events though.
-async::result<frg::expected<protocols::usb::UsbError, size_t>>
-ProducerRing::Transaction::normal() {
+async::result<frg::expected<protocols::usb::UsbError, size_t>> ProducerRing::Transaction::normal() {
 	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
 	// If we are in the middle of a chain, wait for the final
@@ -314,12 +307,16 @@ void ProducerRing::Transaction::onEvent(Controller *controller, Event event, Raw
 
 		// Ignore short packet completions for transfers
 		if (event.type == TrbType::transferEvent && event.completionCode != 13) {
-			std::cout << controller << "Transfer TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'"
-				<< " (Slot " << event.slotId << ", EP " << event.endpointId << ")" << std::endl;
+			std::cout << controller << "Transfer TRB '"
+			          << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
+			          << " completed with '" << completionCodeNames[event.completionCode] << "'"
+			          << " (Slot " << event.slotId << ", EP " << event.endpointId << ")"
+			          << std::endl;
 		} else if (event.type == TrbType::commandCompletionEvent) {
-			std::cout << controller << "Command TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'" << std::endl;
+			std::cout << controller << "Command TRB '"
+			          << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
+			          << " completed with '" << completionCodeNames[event.completionCode] << "'"
+			          << std::endl;
 		}
 	}
 

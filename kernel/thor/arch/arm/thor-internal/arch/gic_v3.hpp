@@ -1,7 +1,7 @@
 #pragma once
 
-#include <thor-internal/arch/gic.hpp>
 #include <frg/manual_box.hpp>
+#include <thor-internal/arch/gic.hpp>
 
 namespace thor {
 
@@ -16,7 +16,7 @@ struct GicDistributorV3 {
 
 	frg::string<KernelAlloc> buildPinName(uint32_t irq);
 
-private:
+  private:
 	friend struct GicV3;
 	friend struct GicPinV3;
 
@@ -31,15 +31,14 @@ struct GicRedistributorV3 {
 	void initOnThisCpu();
 	bool ownedBy(uint32_t affinity) const;
 
-private:
+  private:
 	friend struct GicPinV3;
 
 	arch::mem_space space_;
 };
 
 struct GicPinV3 : public Gic::Pin {
-	GicPinV3(GicDistributorV3 *dist, uint32_t irq)
-		: Gic::Pin {dist->buildPinName(irq)}, irq_ {irq} {}
+	GicPinV3(GicDistributorV3 *dist, uint32_t irq) : Gic::Pin{dist->buildPinName(irq)}, irq_{irq} {}
 
 	bool setMode(TriggerMode trigger, Polarity polarity) override;
 
@@ -50,7 +49,7 @@ struct GicPinV3 : public Gic::Pin {
 
 	void sendEoi() override;
 
-private:
+  private:
 	friend struct GicV3;
 	friend void initGicOnThisCpuV3();
 
@@ -72,11 +71,11 @@ struct GicV3 : public Gic {
 	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
 	Pin *getPin(uint32_t irq) override;
 
-private:
+  private:
 	frg::vector<GicPinV3 *, KernelAlloc> irqPins_;
 };
 
 bool initGicV3();
 void initGicOnThisCpuV3();
 
-}
+} // namespace thor

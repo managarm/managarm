@@ -1,22 +1,22 @@
+#include <iostream>
 #include <string.h>
 #include <sys/epoll.h>
-#include <sys/ioctl.h>
 #include <sys/inotify.h>
-#include <iostream>
+#include <sys/ioctl.h>
 
-#include <async/recurring-event.hpp>
-#include <bragi/helpers-std.hpp>
-#include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "inotify.hpp"
 #include "process.hpp"
+#include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
+#include <helix/ipc.hpp>
 
 namespace inotify {
 
 namespace {
 
 struct OpenFile : File {
-public:
+  public:
 	struct Packet {
 		int descriptor;
 		uint32_t events;
@@ -26,16 +26,18 @@ public:
 
 	struct Watch final : FsObserver {
 		Watch(OpenFile *file_, int descriptor, uint32_t mask)
-		: file{file_}, descriptor{descriptor}, mask{mask} { }
+		    : file{file_},
+		      descriptor{descriptor},
+		      mask{mask} {}
 
-		void observeNotification(uint32_t events,
-				const std::string &name, uint32_t cookie) override {
+		void
+		observeNotification(uint32_t events, const std::string &name, uint32_t cookie) override {
 			uint32_t inotifyEvents = 0;
-			if(events & FsObserver::deleteEvent)
+			if (events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
-			if(events & FsObserver::createEvent)
+			if (events & FsObserver::createEvent)
 				inotifyEvents |= IN_CREATE;
-			if(!(inotifyEvents & mask))
+			if (!(inotifyEvents & mask))
 				return;
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
 			file->_inSeq = ++file->_currentSeq;
@@ -50,16 +52,24 @@ public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), smarter::shared_ptr<File>{file}, &File::fileOperations
+		));
 	}
 
 	OpenFile()
-	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)} { }
+	    : File{
+	          StructName::get("inotify"),
+	          nullptr,
+	          SpecialLink::makeSpecialLink(VfsType::regular, 0777)
+	      } {}
 
 	~OpenFile() {
 		// TODO: Properly keep track of watches.
-		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
+		std::cout << "\e[31m"
+		             "posix: Destruction of inotify leaks watches"
+		             "\e[39m"
+		          << std::endl;
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -68,7 +78,7 @@ public:
 		Packet packet = std::move(_queue.front());
 		_queue.pop_front();
 
-		if(maxLength < sizeof(inotify_event) + packet.name.size() + 1)
+		if (maxLength < sizeof(inotify_event) + packet.name.size() + 1)
 			co_return Error::illegalArguments;
 
 		inotify_event e;
@@ -79,45 +89,44 @@ public:
 		e.len = packet.name.size();
 
 		memcpy(data, &e, sizeof(inotify_event));
-		memcpy(reinterpret_cast<char *>(data) + sizeof(inotify_event),
-				packet.name.c_str(), packet.name.size() + 1);
+		memcpy(
+		    reinterpret_cast<char *>(data) + sizeof(inotify_event),
+		    packet.name.c_str(),
+		    packet.name.size() + 1
+		);
 		co_return sizeof(inotify_event) + packet.name.size() + 1;
 	}
 
-	async::result<frg::expected<Error, PollWaitResult>>
-	pollWait(Process *, uint64_t sequence, int mask,
-	async::cancellation_token cancellation) override {
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(
+	    Process *, uint64_t sequence, int mask, async::cancellation_token cancellation
+	) override {
 		(void)mask; // TODO: utilize mask.
 		// TODO: Return Error::fileClosed as appropriate.
 
 		assert(sequence <= _currentSeq);
-		while(sequence == _currentSeq
-				&& !cancellation.is_cancellation_requested())
+		while (sequence == _currentSeq && !cancellation.is_cancellation_requested())
 			co_await _statusBell.async_wait(cancellation);
 
 		int edges = 0;
-		if(_inSeq > sequence)
+		if (_inSeq > sequence)
 			edges |= EPOLLIN;
 
 		co_return PollWaitResult(_currentSeq, edges);
 	}
 
-	async::result<frg::expected<Error, PollStatusResult>>
-	pollStatus(Process *) override {
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override {
 		int events = 0;
-		if(!_queue.empty())
+		if (!_queue.empty())
 			events |= EPOLLIN;
 
 		co_return PollStatusResult(_currentSeq, events);
 	}
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
 		// TODO: Coalesce watch descriptors for the same inode.
-		if(mask & ~(IN_DELETE | IN_CREATE))
+		if (mask & ~(IN_DELETE | IN_CREATE))
 			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
 		auto descriptor = _nextDescriptor++;
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);
@@ -125,45 +134,45 @@ public:
 		return descriptor;
 	}
 
-	async::result<void>
-	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+	async::result<void> ioctl(
+	    Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation
+	) override {
 		managarm::fs::GenericIoctlReply resp;
 
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+		if (id == managarm::fs::GenericIoctlRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 			assert(req);
 
-			switch(req->command()) {
-				case FIONREAD: {
-					resp.set_error(managarm::fs::Errors::SUCCESS);
+			switch (req->command()) {
+			case FIONREAD: {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
 
-					if(_queue.empty()) {
-						resp.set_fionread_count(0);
-					} else {
-						auto packet = &_queue.front();
-						auto size = sizeof(Packet) + packet->name.size() + 1;
-						resp.set_fionread_count(size);
-					}
-					break;
+				if (_queue.empty()) {
+					resp.set_fionread_count(0);
+				} else {
+					auto packet = &_queue.front();
+					auto size = sizeof(Packet) + packet->name.size() + 1;
+					resp.set_fionread_count(size);
 				}
-				default: {
-					std::cout << "Invalid ioctl for inotify" << std::endl;
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					break;
-				}
+				break;
+			}
+			default: {
+				std::cout << "Invalid ioctl for inotify" << std::endl;
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				break;
+			}
 			}
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+			    conversation, helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}
 	}
 
-private:
+  private:
 	helix::UniqueLane _passthrough;
 	std::deque<Packet> _queue;
 

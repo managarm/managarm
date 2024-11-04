@@ -3,29 +3,29 @@
 #include <stdlib.h>
 
 #include <async/result.hpp>
-#include <hel.h>
 #include <hel-syscalls.h>
+#include <hel.h>
 #include <helix/ipc.hpp>
-#include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "console.hpp"
 
 async::detached bindDevice(mbus_ng::Entity hwEntity) {
 	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
 	co_await hwDevice.enableBusmaster();
-	auto transport = co_await virtio_core::discover(std::move(hwDevice),
-			virtio_core::DiscoverMode::transitional);
+	auto transport = co_await virtio_core::discover(
+	    std::move(hwDevice), virtio_core::DiscoverMode::transitional
+	);
 
 	auto device = new tty::virtio_console::Device{std::move(transport)};
 	device->runDevice();
 }
 
 async::detached observeDevices() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"pci-vendor", "1af4"},
-		mbus_ng::EqualsFilter{"pci-device", "1003"}
-	}};
+	auto filter = mbus_ng::Conjunction{
+	    {mbus_ng::EqualsFilter{"pci-vendor", "1af4"}, mbus_ng::EqualsFilter{"pci-device", "1003"}}
+	};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {

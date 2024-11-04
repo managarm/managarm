@@ -1,7 +1,7 @@
 #pragma once
 
-#include <async/result.hpp>
 #include "../drvcore.hpp"
+#include <async/result.hpp>
 
 namespace pci_subsystem {
 

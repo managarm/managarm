@@ -1,12 +1,12 @@
 #pragma once
 
-#include <type_traits>
 #include <frg/array.hpp>
 #include <frg/tuple.hpp>
 #include <frg/vector.hpp>
+#include <type_traits>
 
-#include <hel.h>
 #include <hel-syscalls.h>
+#include <hel.h>
 
 #include <frg/macros.hpp>
 
@@ -20,73 +20,57 @@ struct UniqueDescriptor {
 		swap(a._handle, b._handle);
 	}
 
-	UniqueDescriptor()
-	: _handle(kHelNullHandle) { }
+	UniqueDescriptor() : _handle(kHelNullHandle) {}
 
 	UniqueDescriptor(const UniqueDescriptor &other) = delete;
 
-	UniqueDescriptor(UniqueDescriptor &&other)
-	: UniqueDescriptor() {
-		swap(*this, other);
-	}
+	UniqueDescriptor(UniqueDescriptor &&other) : UniqueDescriptor() { swap(*this, other); }
 
-	explicit UniqueDescriptor(HelHandle handle)
-	: _handle(handle) { }
+	explicit UniqueDescriptor(HelHandle handle) : _handle(handle) {}
 
 	~UniqueDescriptor() {
-		if(_handle != kHelNullHandle)
+		if (_handle != kHelNullHandle)
 			HEL_CHECK(helCloseDescriptor(kHelThisUniverse, _handle));
 	}
 
-	explicit operator bool () const {
-		return _handle != kHelNullHandle;
-	}
+	explicit operator bool() const { return _handle != kHelNullHandle; }
 
-	UniqueDescriptor &operator= (UniqueDescriptor other) {
+	UniqueDescriptor &operator=(UniqueDescriptor other) {
 		swap(*this, other);
 		return *this;
 	}
 
-	HelHandle getHandle() const {
-		return _handle;
-	}
+	HelHandle getHandle() const { return _handle; }
 
-	void release() {
-		_handle = kHelNullHandle;
-	}
+	void release() { _handle = kHelNullHandle; }
 
 	UniqueDescriptor dup() const {
-		if(!_handle)
+		if (!_handle)
 			return {};
 		HelHandle newHandle;
 		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &newHandle));
 		return UniqueDescriptor(newHandle);
 	}
 
-private:
+  private:
 	HelHandle _handle;
 };
 
 struct BorrowedDescriptor {
-	BorrowedDescriptor()
-	: _handle(kHelNullHandle) { }
+	BorrowedDescriptor() : _handle(kHelNullHandle) {}
 
 	BorrowedDescriptor(const BorrowedDescriptor &other) = default;
 	BorrowedDescriptor(BorrowedDescriptor &&other) = default;
 
-	explicit BorrowedDescriptor(HelHandle handle)
-	: _handle(handle) { }
+	explicit BorrowedDescriptor(HelHandle handle) : _handle(handle) {}
 
-	BorrowedDescriptor(const UniqueDescriptor &other)
-	: BorrowedDescriptor(other.getHandle()) { }
+	BorrowedDescriptor(const UniqueDescriptor &other) : BorrowedDescriptor(other.getHandle()) {}
 
 	~BorrowedDescriptor() = default;
 
-	BorrowedDescriptor &operator= (const BorrowedDescriptor &) = default;
+	BorrowedDescriptor &operator=(const BorrowedDescriptor &) = default;
 
-	HelHandle getHandle() const {
-		return _handle;
-	}
+	HelHandle getHandle() const { return _handle; }
 
 	UniqueDescriptor dup() const {
 		HelHandle new_handle;
@@ -94,10 +78,9 @@ struct BorrowedDescriptor {
 		return UniqueDescriptor(new_handle);
 	}
 
-private:
+  private:
 	HelHandle _handle;
 };
-
 
 } // namespace helix
 
@@ -106,7 +89,7 @@ namespace helix_ng {
 using namespace helix;
 
 struct DismissResult {
-	DismissResult() :_valid{false} {}
+	DismissResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -120,13 +103,13 @@ struct DismissResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct OfferResult {
-	OfferResult() :_valid{false} {}
+	OfferResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -147,14 +130,14 @@ struct OfferResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	UniqueDescriptor _descriptor;
 };
 
 struct AcceptResult {
-	AcceptResult() :_valid{false} {}
+	AcceptResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -175,14 +158,14 @@ struct AcceptResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	UniqueDescriptor _descriptor;
 };
 
 struct ImbueCredentialsResult {
-	ImbueCredentialsResult() :_valid{false} {}
+	ImbueCredentialsResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -196,13 +179,13 @@ struct ImbueCredentialsResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct ExtractCredentialsResult {
-	ExtractCredentialsResult() :_valid{false} {}
+	ExtractCredentialsResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -222,14 +205,14 @@ struct ExtractCredentialsResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	char _credentials[16];
 };
 
 struct SendBufferResult {
-	SendBufferResult() :_valid{false} {}
+	SendBufferResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -243,13 +226,13 @@ struct SendBufferResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct SendBufferSgResult {
-	SendBufferSgResult() :_valid{false} {}
+	SendBufferSgResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -263,13 +246,13 @@ struct SendBufferSgResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct RecvBufferResult {
-	RecvBufferResult() :_valid{false} {}
+	RecvBufferResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -290,14 +273,14 @@ struct RecvBufferResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	size_t _length;
 };
 
 struct RecvInlineResult {
-	RecvInlineResult() :_valid{false} {}
+	RecvInlineResult() : _valid{false} {}
 
 	HelError error() const {
 		FRG_ASSERT(_valid);
@@ -322,9 +305,7 @@ struct RecvInlineResult {
 		return _length;
 	}
 
-	size_t size() const {
-		return length();
-	}
+	size_t size() const { return length(); }
 
 	void parse(void *&ptr, ElementHandle element) {
 		auto result = reinterpret_cast<HelInlineResult *>(ptr);
@@ -334,16 +315,13 @@ struct RecvInlineResult {
 
 		_element = element;
 
-		ptr = (char *)ptr + sizeof(HelInlineResult)
-			+ ((_length + 7) & ~size_t(7));
+		ptr = (char *)ptr + sizeof(HelInlineResult) + ((_length + 7) & ~size_t(7));
 		_valid = true;
 	}
 
-	void reset() {
-		_element = {};
-	}
+	void reset() { _element = {}; }
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	ElementHandle _element;
@@ -352,7 +330,7 @@ private:
 };
 
 struct PushDescriptorResult {
-	PushDescriptorResult() :_valid{false} {}
+	PushDescriptorResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -366,13 +344,13 @@ struct PushDescriptorResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct PullDescriptorResult {
-	PullDescriptorResult() :_valid{false} {}
+	PullDescriptorResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -393,27 +371,24 @@ struct PullDescriptorResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 	UniqueDescriptor _descriptor;
 };
 
-
 // --------------------------------------------------------------------
 // Items
 // --------------------------------------------------------------------
 
-struct Dismiss { };
+struct Dismiss {};
 
-template <typename ...T>
-struct Offer {
+template <typename... T> struct Offer {
 	frg::tuple<T...> nested_actions;
 	bool wants_lane;
 };
 
-template <typename ...T>
-struct Accept {
+template <typename... T> struct Accept {
 	frg::tuple<T...> nested_actions;
 };
 
@@ -421,7 +396,7 @@ struct ImbueCredentials {
 	HelHandle handle;
 };
 
-struct ExtractCredentials { };
+struct ExtractCredentials {};
 
 struct SendBuffer {
 	const void *buf;
@@ -438,18 +413,16 @@ struct RecvBuffer {
 	size_t size;
 };
 
-struct RecvInline { };
+struct RecvInline {};
 
 struct PushDescriptor {
 	HelHandle handle;
 };
 
-struct PullDescriptor { };
+struct PullDescriptor {};
 
-template <typename Allocator>
-struct SendBragiHeadTail {
-	SendBragiHeadTail(Allocator allocator)
-	: head{allocator}, tail{allocator} { }
+template <typename Allocator> struct SendBragiHeadTail {
+	SendBragiHeadTail(Allocator allocator) : head{allocator}, tail{allocator} {}
 
 	SendBragiHeadTail(const SendBragiHeadTail &) = delete;
 	SendBragiHeadTail &operator=(const SendBragiHeadTail &) = delete;
@@ -461,10 +434,8 @@ struct SendBragiHeadTail {
 	frg::vector<uint8_t, Allocator> tail;
 };
 
-template <typename Allocator>
-struct SendBragiHeadOnly {
-	SendBragiHeadOnly(Allocator allocator)
-	: head{allocator} { }
+template <typename Allocator> struct SendBragiHeadOnly {
+	SendBragiHeadOnly(Allocator allocator) : head{allocator} {}
 
 	SendBragiHeadOnly(const SendBragiHeadOnly &) = delete;
 	SendBragiHeadOnly &operator=(const SendBragiHeadOnly &) = delete;
@@ -479,67 +450,44 @@ struct SendBragiHeadOnly {
 // Construction functions
 // --------------------------------------------------------------------
 
-inline auto dismiss() {
-	return Dismiss{};
-}
+inline auto dismiss() { return Dismiss{}; }
 
-template <typename ...T>
-inline auto offer(T &&...args) {
+template <typename... T> inline auto offer(T &&...args) {
 	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), false};
 }
 
 struct want_lane_t {};
 constexpr inline want_lane_t want_lane;
 
-template <typename ...T>
-inline auto offer(want_lane_t, T &&...args) {
+template <typename... T> inline auto offer(want_lane_t, T &&...args) {
 	return Offer<T...>{frg::make_tuple(std::forward<T>(args)...), true};
 }
 
-template <typename ...T>
-inline auto accept(T &&...args) {
+template <typename... T> inline auto accept(T &&...args) {
 	return Accept<T...>{frg::make_tuple(std::forward<T>(args)...)};
 }
 
-inline auto imbueCredentials() {
-	return ImbueCredentials{kHelThisThread};
-}
+inline auto imbueCredentials() { return ImbueCredentials{kHelThisThread}; }
 
-inline auto imbueCredentials(BorrowedDescriptor desc) {
-	return ImbueCredentials{desc.getHandle()};
-}
+inline auto imbueCredentials(BorrowedDescriptor desc) { return ImbueCredentials{desc.getHandle()}; }
 
-inline auto imbueCredentials(HelHandle handle) {
-	return ImbueCredentials{handle};
-}
+inline auto imbueCredentials(HelHandle handle) { return ImbueCredentials{handle}; }
 
-inline auto extractCredentials() {
-	return ExtractCredentials{};
-}
+inline auto extractCredentials() { return ExtractCredentials{}; }
 
-inline auto sendBuffer(const void *data, size_t length) {
-	return SendBuffer{data, length};
-}
+inline auto sendBuffer(const void *data, size_t length) { return SendBuffer{data, length}; }
 
 inline auto sendBufferSg(const HelSgItem *data, size_t length) {
 	return SendBufferSg{data, length};
 }
 
-inline auto recvBuffer(void *data, size_t length) {
-	return RecvBuffer{data, length};
-}
+inline auto recvBuffer(void *data, size_t length) { return RecvBuffer{data, length}; }
 
-inline auto recvInline() {
-	return RecvInline{};
-}
+inline auto recvInline() { return RecvInline{}; }
 
-inline auto pushDescriptor(BorrowedDescriptor desc) {
-	return PushDescriptor{desc.getHandle()};
-}
+inline auto pushDescriptor(BorrowedDescriptor desc) { return PushDescriptor{desc.getHandle()}; }
 
-inline auto pullDescriptor() {
-	return PullDescriptor{};
-}
+inline auto pullDescriptor() { return PullDescriptor{}; }
 
 template <typename Message, typename Allocator>
 inline auto sendBragiHeadTail(Message &msg, Allocator allocator = Allocator()) {
@@ -568,22 +516,15 @@ inline auto sendBragiHeadOnly(Message &msg, Allocator allocator = Allocator()) {
 // --------------------------------------------------------------------
 
 struct {
-	template <typename T, typename ...Ts>
-	auto operator() (const T &arg, const Ts &...args) {
-		return frg::array_concat<HelAction>(
-			createActionsArrayFor(true, arg),
-			(*this)(args...)
-		);
+	template <typename T, typename... Ts> auto operator()(const T &arg, const Ts &...args) {
+		return frg::array_concat<HelAction>(createActionsArrayFor(true, arg), (*this)(args...));
 	}
 
-	template <typename T>
-	auto operator() (const T &arg) {
+	template <typename T> auto operator()(const T &arg) {
 		return createActionsArrayFor(false, arg);
 	}
 
-	auto operator() () {
-		return frg::array<HelAction, 0>{};
-	}
+	auto operator()() { return frg::array<HelAction, 0>{}; }
 } chainActionArrays;
 
 inline auto createActionsArrayFor(bool chain, const Dismiss &) {
@@ -594,30 +535,26 @@ inline auto createActionsArrayFor(bool chain, const Dismiss &) {
 	return frg::array<HelAction, 1>{action};
 }
 
-template <typename ...T>
-inline auto createActionsArrayFor(bool chain, const Offer<T...> &o) {
+template <typename... T> inline auto createActionsArrayFor(bool chain, const Offer<T...> &o) {
 	HelAction action{};
 	action.type = kHelActionOffer;
-	action.flags = (chain ? kHelItemChain : 0)
-			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0)
-			| (o.wants_lane ? kHelItemWantLane : 0);
+	action.flags = (chain ? kHelItemChain : 0) |
+	               (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0) |
+	               (o.wants_lane ? kHelItemWantLane : 0);
 
 	return frg::array_concat<HelAction>(
-		frg::array<HelAction, 1>{action},
-		frg::apply(chainActionArrays, o.nested_actions)
+	    frg::array<HelAction, 1>{action}, frg::apply(chainActionArrays, o.nested_actions)
 	);
 }
 
-template <typename ...T>
-inline auto createActionsArrayFor(bool chain, const Accept<T...> &o) {
+template <typename... T> inline auto createActionsArrayFor(bool chain, const Accept<T...> &o) {
 	HelAction action{};
 	action.type = kHelActionAccept;
-	action.flags = (chain ? kHelItemChain : 0)
-			| (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0);
+	action.flags = (chain ? kHelItemChain : 0) |
+	               (std::tuple_size_v<decltype(o.nested_actions)> > 0 ? kHelItemAncillary : 0);
 
 	return frg::array_concat<HelAction>(
-		frg::array<HelAction, 1>{action},
-		frg::apply(chainActionArrays, o.nested_actions)
+	    frg::array<HelAction, 1>{action}, frg::apply(chainActionArrays, o.nested_actions)
 	);
 }
 
@@ -726,20 +663,17 @@ inline auto createActionsArrayFor(bool chain, const SendBragiHeadOnly<Allocator>
 // --------------------------------------------------------------------
 
 // Offer/Accept helper
-template <typename Type, typename ...T>
-using HelperResultTypeTuple = decltype(frg::tuple_cat(frg::tuple<Type>{}, resultTypeTuple(std::declval<T>())...));
+template <typename Type, typename... T>
+using HelperResultTypeTuple =
+    decltype(frg::tuple_cat(frg::tuple<Type>{}, resultTypeTuple(std::declval<T>())...));
 
-inline auto resultTypeTuple(const Dismiss &) {
-	return HelperResultTypeTuple<DismissResult>{};
-}
+inline auto resultTypeTuple(const Dismiss &) { return HelperResultTypeTuple<DismissResult>{}; }
 
-template <typename ...T>
-inline auto resultTypeTuple(const Offer<T...> &) {
+template <typename... T> inline auto resultTypeTuple(const Offer<T...> &) {
 	return HelperResultTypeTuple<OfferResult, T...>{};
 }
 
-template <typename ...T>
-inline auto resultTypeTuple(const Accept<T...> &) {
+template <typename... T> inline auto resultTypeTuple(const Accept<T...> &) {
 	return HelperResultTypeTuple<AcceptResult, T...>{};
 }
 
@@ -751,42 +685,27 @@ inline auto resultTypeTuple(const ExtractCredentials &) {
 	return frg::tuple<ExtractCredentialsResult>{};
 }
 
-inline auto resultTypeTuple(const SendBuffer &) {
-	return frg::tuple<SendBufferResult>{};
-}
+inline auto resultTypeTuple(const SendBuffer &) { return frg::tuple<SendBufferResult>{}; }
 
-inline auto resultTypeTuple(const SendBufferSg &) {
-	return frg::tuple<SendBufferSgResult>{};
-}
+inline auto resultTypeTuple(const SendBufferSg &) { return frg::tuple<SendBufferSgResult>{}; }
 
-inline auto resultTypeTuple(const RecvBuffer &) {
-	return frg::tuple<RecvBufferResult>{};
-}
+inline auto resultTypeTuple(const RecvBuffer &) { return frg::tuple<RecvBufferResult>{}; }
 
-inline auto resultTypeTuple(const RecvInline &) {
-	return frg::tuple<RecvInlineResult>{};
-}
+inline auto resultTypeTuple(const RecvInline &) { return frg::tuple<RecvInlineResult>{}; }
 
-inline auto resultTypeTuple(const PushDescriptor &) {
-	return frg::tuple<PushDescriptorResult>{};
-}
+inline auto resultTypeTuple(const PushDescriptor &) { return frg::tuple<PushDescriptorResult>{}; }
 
-inline auto resultTypeTuple(const PullDescriptor &) {
-	return frg::tuple<PullDescriptorResult>{};
-}
+inline auto resultTypeTuple(const PullDescriptor &) { return frg::tuple<PullDescriptorResult>{}; }
 
-template <typename Allocator>
-inline auto resultTypeTuple(const SendBragiHeadTail<Allocator> &) {
+template <typename Allocator> inline auto resultTypeTuple(const SendBragiHeadTail<Allocator> &) {
 	return frg::tuple<SendBufferResult, SendBufferResult>{};
 }
 
-template <typename Allocator>
-inline auto resultTypeTuple(const SendBragiHeadOnly<Allocator> &) {
+template <typename Allocator> inline auto resultTypeTuple(const SendBragiHeadOnly<Allocator> &) {
 	return frg::tuple<SendBufferResult>{};
 }
 
-template <typename ...T>
-inline auto createResultsTuple(T &&...args) {
+template <typename... T> inline auto createResultsTuple(T &&...args) {
 	return frg::tuple_cat(resultTypeTuple(std::forward<T>(args))...);
 }
 
@@ -795,7 +714,7 @@ inline auto createResultsTuple(T &&...args) {
 // --------------------------------------------------------------------
 
 struct AsyncNopResult {
-	AsyncNopResult() :_valid{false} {}
+	AsyncNopResult() : _valid{false} {}
 
 	HelError error() {
 		FRG_ASSERT(_valid);
@@ -809,13 +728,13 @@ struct AsyncNopResult {
 		_valid = true;
 	}
 
-private:
+  private:
 	bool _valid;
 	HelError _error;
 };
 
 struct AwaitEventResult {
-	AwaitEventResult() :valid_{false} {}
+	AwaitEventResult() : valid_{false} {}
 
 	HelError error() {
 		FRG_ASSERT(valid_);
@@ -841,7 +760,7 @@ struct AwaitEventResult {
 		valid_ = true;
 	}
 
-private:
+  private:
 	bool valid_;
 	HelError error_;
 	uint32_t bitset_;

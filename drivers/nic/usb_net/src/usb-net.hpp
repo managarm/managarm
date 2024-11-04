@@ -4,14 +4,21 @@
 #include <protocols/usb/client.hpp>
 
 struct UsbNic : nic::Link {
-	UsbNic(protocols::usb::Device hw_device, nic::MacAddress mac,
-		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
-		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out);
+	UsbNic(
+	    protocols::usb::Device hw_device,
+	    nic::MacAddress mac,
+	    protocols::usb::Interface ctrl_intf,
+	    protocols::usb::Endpoint ctrl_ep,
+	    protocols::usb::Interface intf,
+	    protocols::usb::Endpoint in,
+	    protocols::usb::Endpoint out
+	);
 
 	virtual async::result<void> initialize() = 0;
 
 	~UsbNic() override = default;
-protected:
+
+  protected:
 	virtual async::detached listenForNotifications() = 0;
 
 	arch::contiguous_pool dmaPool_;

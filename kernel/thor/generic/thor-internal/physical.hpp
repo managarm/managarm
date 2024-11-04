@@ -2,15 +2,15 @@
 
 #include <atomic>
 
-#include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
+#include <frg/spinlock.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
 
 struct SkeletalRegion {
-public:
+  public:
 	static void initialize();
 
 	static SkeletalRegion &global();
@@ -19,34 +19,28 @@ public:
 	SkeletalRegion() = default;
 
 	SkeletalRegion(const SkeletalRegion &other) = delete;
-	
-	SkeletalRegion &operator= (const SkeletalRegion &other) = delete;
+
+	SkeletalRegion &operator=(const SkeletalRegion &other) = delete;
 
 	void *access(PhysicalAddr physical);
 };
 
 class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
-public:
+
+  public:
 	PhysicalChunkAllocator();
-	
-	void bootstrapRegion(PhysicalAddr address,
-			int order, size_t numRoots, int8_t *buddyTree);
+
+	void bootstrapRegion(PhysicalAddr address, int order, size_t numRoots, int8_t *buddyTree);
 
 	PhysicalAddr allocate(size_t size, int addressBits = 64);
 	void free(PhysicalAddr address, size_t size);
 
-	size_t numTotalPages() {
-		return _totalPages.load(std::memory_order_relaxed);
-	}
-	size_t numUsedPages() {
-		return _usedPages.load(std::memory_order_relaxed);
-	}
-	size_t numFreePages() {
-		return _freePages.load(std::memory_order_relaxed);
-	}
+	size_t numTotalPages() { return _totalPages.load(std::memory_order_relaxed); }
+	size_t numUsedPages() { return _usedPages.load(std::memory_order_relaxed); }
+	size_t numFreePages() { return _freePages.load(std::memory_order_relaxed); }
 
-private:
+  private:
 	Mutex _mutex;
 
 	struct Region {

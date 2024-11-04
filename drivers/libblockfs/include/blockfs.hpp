@@ -10,8 +10,7 @@ struct BlockDevice {
 
 	virtual ~BlockDevice() = default;
 
-	virtual async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) = 0;
+	virtual async::result<void> readSectors(uint64_t sector, void *buffer, size_t num_sectors) = 0;
 
 	virtual async::result<void> writeSectors(uint64_t, const void *, size_t) {
 		throw std::runtime_error("BlockDevice does not support writeSectors()");
@@ -23,7 +22,7 @@ struct BlockDevice {
 	const size_t sectorSize;
 	const int64_t parentId;
 
-protected:
+  protected:
 };
 
 async::detached runDevice(BlockDevice *device);

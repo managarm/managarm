@@ -1,24 +1,24 @@
 
 #include <assert.h>
-#include <stdio.h>
 #include <deque>
-#include <optional>
 #include <functional>
 #include <iostream>
 #include <memory>
 #include <numeric>
+#include <optional>
+#include <stdio.h>
 
 #include <arch/bits.hpp>
-#include <arch/register.hpp>
 #include <arch/io_space.hpp>
+#include <arch/register.hpp>
 #include <async/result.hpp>
+#include <core/drm/core.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/svrctl/server.hpp>
-#include <core/drm/core.hpp>
 
 #include <libdrm/drm.h>
 #include <libdrm/drm_mode.h>
@@ -43,11 +43,18 @@ void GfxDevice::writeRegister(register_index reg, uint32_t val) {
 	_operational.store(ports::value_port, val);
 }
 
-GfxDevice::GfxDevice(protocols::hw::Device hw_dev,
-			helix::Mapping fb_mapping,
-			helix::Mapping fifo_mapping,
-			helix::UniqueDescriptor io_bar, uint16_t io_base)
-		: _hwDev(std::move(hw_dev)), _fifo{this, std::move(fifo_mapping)},_fbMapping{std::move(fb_mapping)}, _isClaimed{false}, _deviceVersion{0} {
+GfxDevice::GfxDevice(
+    protocols::hw::Device hw_dev,
+    helix::Mapping fb_mapping,
+    helix::Mapping fifo_mapping,
+    helix::UniqueDescriptor io_bar,
+    uint16_t io_base
+)
+    : _hwDev(std::move(hw_dev)),
+      _fifo{this, std::move(fifo_mapping)},
+      _fbMapping{std::move(fb_mapping)},
+      _isClaimed{false},
+      _deviceVersion{0} {
 	HEL_CHECK(helEnableIo(io_bar.getHandle()));
 	_operational = arch::io_space{io_base};
 }
@@ -124,7 +131,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	}
 
 	assignments.push_back(drm_core::Assignment::withModeObj(_connector, crtcIdProperty(), nullptr));
-	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _crtc));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, crtcIdProperty(), _crtc)
+	);
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcWProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcHProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcWProperty(), 0));
@@ -133,7 +141,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, srcYProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcXProperty(), 0));
 	assignments.push_back(drm_core::Assignment::withInt(_primaryPlane, crtcYProperty(), 0));
-	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, fbIdProperty(), nullptr));
+	assignments.push_back(drm_core::Assignment::withModeObj(_primaryPlane, fbIdProperty(), nullptr)
+	);
 
 	_encoder->setCurrentCrtc(_crtc.get());
 	_connector->setupPossibleEncoders({_encoder.get()});
@@ -146,8 +155,12 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	if (hasCapability(caps::cursor)) {
 		_cursorPlane->setupPossibleCrtcs({_crtc.get()});
 
-		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), _crtc));
-		assignments.push_back(drm_core::Assignment::withModeObj(_cursorPlane, fbIdProperty(), nullptr));
+		assignments.push_back(
+		    drm_core::Assignment::withModeObj(_cursorPlane, crtcIdProperty(), _crtc)
+		);
+		assignments.push_back(
+		    drm_core::Assignment::withModeObj(_cursorPlane, fbIdProperty(), nullptr)
+		);
 	}
 
 	setupCrtc(_crtc.get());
@@ -177,8 +190,9 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	co_return std::move(config);
 }
 
-std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t w, uint32_t, uint32_t, uint32_t) {
+std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(
+    std::shared_ptr<drm_core::BufferObject> base_bo, uint32_t w, uint32_t, uint32_t, uint32_t
+) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, w * 4);
@@ -187,25 +201,24 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	return fb;
 }
 
-std::tuple<int, int, int> GfxDevice::driverVersion() {
-	return {1, 0, 0};
-}
+std::tuple<int, int, int> GfxDevice::driverVersion() { return {1, 0, 0}; }
 
 std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 	return {"vmware-drm", "vmware svga interface", "20190505"};
 }
 
-bool GfxDevice::hasCapability(caps capability) {
-	return (_deviceCaps & (uint32_t)capability) != 0;
-}
+bool GfxDevice::hasCapability(caps capability) { return (_deviceCaps & (uint32_t)capability) != 0; }
 
-std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t> GfxDevice::createDumb(uint32_t w, uint32_t h, uint32_t bpp) {
+std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
+GfxDevice::createDumb(uint32_t w, uint32_t h, uint32_t bpp) {
 	auto size = ((w * h * bpp / 8) + 4095) & ~4095;
 
 	HelHandle handle;
 	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
 
-	auto bo = std::make_shared<GfxDevice::BufferObject>(this, size, helix::UniqueDescriptor(handle), w, h);
+	auto bo = std::make_shared<GfxDevice::BufferObject>(
+	    this, size, helix::UniqueDescriptor(handle), w, h
+	);
 
 	auto mapping = installMapping(bo.get());
 	bo->setupMapping(mapping);
@@ -247,7 +260,6 @@ async::result<void> GfxDevice::waitIrq(uint32_t irq_mask) {
 		writeRegister(register_index::sync, 1);
 		readRegister(register_index::busy);
 	}
-
 }
 
 // ----------------------------------------------------------------
@@ -255,8 +267,9 @@ async::result<void> GfxDevice::waitIrq(uint32_t irq_mask) {
 // ----------------------------------------------------------------
 
 GfxDevice::DeviceFifo::DeviceFifo(GfxDevice *device, helix::Mapping fifoMapping)
-	:_device{device}, _fifoMapping{std::move(fifoMapping)}, _fifoSize{0} {
-}
+    : _device{device},
+      _fifoMapping{std::move(fifoMapping)},
+      _fifoSize{0} {}
 
 void inline GfxDevice::DeviceFifo::writeRegister(fifo_index idx, uint32_t value) {
 	auto mem = static_cast<volatile uint32_t *>(_fifoMapping.get());
@@ -302,13 +315,13 @@ async::result<void *> GfxDevice::DeviceFifo::reserve(size_t size) {
 
 	_usingBounceBuf = false;
 
-	while(1) {
+	while (1) {
 		uint32_t stop = readRegister(fifo_index::stop);
 		bool in_place = false;
 
 		if (next_cmd >= stop) {
-			if (next_cmd + bytes < max ||
-				(next_cmd + bytes == max && stop > min)) in_place = true;
+			if (next_cmd + bytes < max || (next_cmd + bytes == max && stop > min))
+				in_place = true;
 
 			else if ((max - next_cmd) + (stop - min) <= bytes) {
 				co_await _device->waitIrq(2); // TODO: add a definiton for the mask
@@ -316,8 +329,10 @@ async::result<void *> GfxDevice::DeviceFifo::reserve(size_t size) {
 				_usingBounceBuf = true;
 			}
 		} else {
-			if (next_cmd + bytes < stop) in_place = true;
-			else co_await _device->waitIrq(2); // TODO: add a definiton for the mask
+			if (next_cmd + bytes < stop)
+				in_place = true;
+			else
+				co_await _device->waitIrq(2); // TODO: add a definiton for the mask
 		}
 
 		if (in_place) {
@@ -382,20 +397,20 @@ void GfxDevice::DeviceFifo::commit(size_t bytes) {
 		writeRegister(fifo_index::reserved, 0);
 }
 
-void GfxDevice::DeviceFifo::commitAll() {
-	commit(_reservedSize);
-}
+void GfxDevice::DeviceFifo::commitAll() { commit(_reservedSize); }
 
-#define SVGA_BITMAP_SIZE(w, h)      ((((w) + 31) >> 5) * (h))
+#define SVGA_BITMAP_SIZE(w, h) ((((w) + 31) >> 5) * (h))
 #define SVGA_PIXMAP_SIZE(w, h, bpp) (((((w) * (bpp)) + 31) >> 5) * (h))
 
-async::result<void> GfxDevice::DeviceFifo::defineCursor(int width, int height, GfxDevice::BufferObject *bo) {
+async::result<void>
+GfxDevice::DeviceFifo::defineCursor(int width, int height, GfxDevice::BufferObject *bo) {
 
 	if (!_device->hasCapability(caps::cursor))
 		co_return;
 
 	// size in dwords
-	size_t size = sizeof(commands::define_cursor) / 4 + 1 + SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32);
+	size_t size = sizeof(commands::define_cursor) / 4 + 1 + SVGA_BITMAP_SIZE(width, height) +
+	              SVGA_PIXMAP_SIZE(width, height, 32);
 
 	auto ptr = static_cast<uint32_t *>(co_await reserve(size));
 
@@ -416,7 +431,11 @@ async::result<void> GfxDevice::DeviceFifo::defineCursor(int width, int height, G
 		auto pixels = static_cast<uint32_t *>(bitmap.get());
 		auto mask = reinterpret_cast<uint8_t *>(cmd->pixel_data);
 
-		memset(cmd->pixel_data, 0x00, (SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32)) * 4);
+		memset(
+		    cmd->pixel_data,
+		    0x00,
+		    (SVGA_BITMAP_SIZE(width, height) + SVGA_PIXMAP_SIZE(width, height, 32)) * 4
+		);
 
 		for (int i = 0; i < height; i++) {
 			for (int j = 0; j < width; j++) {
@@ -479,7 +498,9 @@ async::result<void> GfxDevice::DeviceFifo::updateRectangle(int x, int y, int w, 
 // GfxDevice::Configuration
 // ----------------------------------------------------------------
 
-bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> & state) {
+bool GfxDevice::Configuration::capture(
+    std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> &state
+) {
 	drm_mode_modeinfo current_mode;
 	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
 
@@ -494,58 +515,59 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 		assign.property->writeToState(assign, state);
 		using namespace drm_core;
 
-		switch(assign.property->id()) {
-			case srcW: {
-				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorUpdate = true;
-				}
-				break;
+		switch (assign.property->id()) {
+		case srcW: {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+				_cursorUpdate = true;
 			}
-			case srcH: {
-				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorUpdate = true;
-				}
-				break;
+			break;
+		}
+		case srcH: {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+				_cursorUpdate = true;
 			}
-			case crtcX: {
-				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorMove = true;
-				}
-				break;
+			break;
+		}
+		case crtcX: {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+				_cursorMove = true;
 			}
-			case crtcY: {
-				if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorMove = true;
-				}
-				break;
+			break;
+		}
+		case crtcY: {
+			if (assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
+				_cursorMove = true;
 			}
-			case fbId: {
-				if (assign.objectValue && assign.object == _device->_cursorPlane && _device->hasCapability(caps::cursor)) {
-					_cursorUpdate = true;
-				}
-				break;
+			break;
+		}
+		case fbId: {
+			if (assign.objectValue && assign.object == _device->_cursorPlane &&
+			    _device->hasCapability(caps::cursor)) {
+				_cursorUpdate = true;
 			}
-			case modeId: {
-				if(assign.blobValue) {
-					drm_mode_modeinfo new_mode;
-					memcpy(&new_mode, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
-					primary_plane_state->src_w = new_mode.hdisplay;
-					primary_plane_state->src_h = new_mode.vdisplay;
-				}
-				break;
+			break;
+		}
+		case modeId: {
+			if (assign.blobValue) {
+				drm_mode_modeinfo new_mode;
+				memcpy(&new_mode, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
+				primary_plane_state->src_w = new_mode.hdisplay;
+				primary_plane_state->src_h = new_mode.vdisplay;
 			}
-			// Ignore any property that is unsupported by this driver
-			default: {
-				break;
-			}
+			break;
+		}
+		// Ignore any property that is unsupported by this driver
+		default: {
+			break;
+		}
 		}
 	}
 
 	auto crtc_state = state->crtc(_device->_crtc->id());
 
-	if(crtc_state->mode != nullptr) {
+	if (crtc_state->mode != nullptr) {
 		if (primary_plane_state->src_w <= 0 || primary_plane_state->src_h <= 0 ||
-			primary_plane_state->src_w > 1024 || primary_plane_state->src_h > 768) {
+		    primary_plane_state->src_w > 1024 || primary_plane_state->src_h > 768) {
 			return false;
 		}
 	}
@@ -553,9 +575,7 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 	return true;
 }
 
-void GfxDevice::Configuration::dispose() {
-
-}
+void GfxDevice::Configuration::dispose() {}
 
 void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> state) {
 	_device->_crtc->setDrmState(state->crtc(_device->_crtc->id()));
@@ -565,7 +585,8 @@ void GfxDevice::Configuration::commit(std::unique_ptr<drm_core::AtomicState> sta
 	commitConfiguration(std::move(state));
 }
 
-async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> state) {
+async::detached
+GfxDevice::Configuration::commitConfiguration(std::unique_ptr<drm_core::AtomicState> state) {
 	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
 	auto cursor_plane_state = state->plane(_device->_cursorPlane->id());
 	auto crtc_state = state->crtc(_device->_crtc->id());
@@ -575,11 +596,12 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 	if (_device->_crtc->drmState()->mode != nullptr)
 		memcpy(&last_mode, _device->_crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
 
-	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w || last_mode.vdisplay != primary_plane_state->src_h;
+	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w ||
+	                   last_mode.vdisplay != primary_plane_state->src_h;
 
 	_device->_primaryPlane->setCurrentFrameBuffer(primary_plane_state->fb.get());
 
-	if(crtc_state->mode != nullptr) {
+	if (crtc_state->mode != nullptr) {
 		if (!_device->_isClaimed) {
 			co_await _device->_hwDev.claimDevice();
 			_device->_isClaimed = true;
@@ -599,7 +621,9 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 		if (cursor_plane_state->src_w != 0 && cursor_plane_state->src_h != 0) {
 			_device->_fifo.setCursorState(true);
 			auto cursor_fb = static_pointer_cast<GfxDevice::FrameBuffer>(cursor_plane_state->fb);
-			co_await _device->_fifo.defineCursor(cursor_plane_state->src_w, cursor_plane_state->src_h, cursor_fb->getBufferObject());
+			co_await _device->_fifo.defineCursor(
+			    cursor_plane_state->src_w, cursor_plane_state->src_h, cursor_fb->getBufferObject()
+			);
 			_device->_fifo.setCursorState(true);
 		} else {
 			_device->_fifo.setCursorState(false);
@@ -612,10 +636,14 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 
 	if (primary_plane_state->fb != nullptr) {
 		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb);
-		helix::Mapping user_fb{fb->getBufferObject()->getMemory().first, 0, fb->getBufferObject()->getSize()};
-		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), fb->getBufferObject()->getSize());
+		helix::Mapping user_fb{
+		    fb->getBufferObject()->getMemory().first, 0, fb->getBufferObject()->getSize()
+		};
+		drm_core::fastCopy16(
+		    _device->_fbMapping.get(), user_fb.get(), fb->getBufferObject()->getSize()
+		);
 		int w = _device->readRegister(register_index::width),
-			h = _device->readRegister(register_index::height);
+		    h = _device->readRegister(register_index::height);
 
 		co_await _device->_fifo.updateRectangle(0, 0, w, h);
 	}
@@ -628,7 +656,7 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 // ----------------------------------------------------------------
 
 GfxDevice::Connector::Connector(GfxDevice *dev)
-	: drm_core::Connector { dev, dev->allocator.allocate() } {
+    : drm_core::Connector{dev, dev->allocator.allocate()} {
 	_encoders.push_back(dev->_encoder.get());
 }
 
@@ -636,72 +664,59 @@ GfxDevice::Connector::Connector(GfxDevice *dev)
 // GfxDevice::Encoder
 // ----------------------------------------------------------------
 
-GfxDevice::Encoder::Encoder(GfxDevice *dev)
-	: drm_core::Encoder { dev, dev->allocator.allocate() } {
-}
+GfxDevice::Encoder::Encoder(GfxDevice *dev) : drm_core::Encoder{dev, dev->allocator.allocate()} {}
 
 // ----------------------------------------------------------------
 // GfxDevice::Crtc
 // ----------------------------------------------------------------
 
-GfxDevice::Crtc::Crtc(GfxDevice *dev)
-	: drm_core::Crtc { dev, dev->allocator.allocate() } {
+GfxDevice::Crtc::Crtc(GfxDevice *dev) : drm_core::Crtc{dev, dev->allocator.allocate()} {
 	_device = dev;
 }
 
-drm_core::Plane *GfxDevice::Crtc::Crtc::primaryPlane() {
-	return _device->_primaryPlane.get();
-}
+drm_core::Plane *GfxDevice::Crtc::Crtc::primaryPlane() { return _device->_primaryPlane.get(); }
 
-drm_core::Plane *GfxDevice::Crtc::Crtc::cursorPlane() {
-	return _device->_cursorPlane.get();
-}
+drm_core::Plane *GfxDevice::Crtc::Crtc::cursorPlane() { return _device->_cursorPlane.get(); }
 
 // ----------------------------------------------------------------
 // GfxDevice::FrameBuffer
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *dev,
-		std::shared_ptr<GfxDevice::BufferObject> bo, uint32_t pixel_pitch)
-	: drm_core::FrameBuffer { dev, dev->allocator.allocate() } {
+GfxDevice::FrameBuffer::FrameBuffer(
+    GfxDevice *dev, std::shared_ptr<GfxDevice::BufferObject> bo, uint32_t pixel_pitch
+)
+    : drm_core::FrameBuffer{dev, dev->allocator.allocate()} {
 	_bo = bo;
 	_pixelPitch = pixel_pitch;
 }
 
-GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
-	return _bo.get();
-}
+GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() { return _bo.get(); }
 
-uint32_t GfxDevice::FrameBuffer::getPixelPitch() {
-	return _pixelPitch;
-}
+uint32_t GfxDevice::FrameBuffer::getPixelPitch() { return _pixelPitch; }
 
-void GfxDevice::FrameBuffer::notifyDirty() {
+void GfxDevice::FrameBuffer::notifyDirty() {}
 
-}
+uint32_t GfxDevice::FrameBuffer::getWidth() { return _bo->getWidth(); }
 
-uint32_t GfxDevice::FrameBuffer::getWidth() {
-	return _bo->getWidth();
-}
-
-uint32_t GfxDevice::FrameBuffer::getHeight() {
-	return _bo->getHeight();
-}
+uint32_t GfxDevice::FrameBuffer::getHeight() { return _bo->getHeight(); }
 
 // ----------------------------------------------------------------
 // GfxDevice::Plane
 // ----------------------------------------------------------------
 
 GfxDevice::Plane::Plane(GfxDevice *dev, PlaneType type)
-	:drm_core::Plane { dev, dev->allocator.allocate(), type } {
-}
+    : drm_core::Plane{dev, dev->allocator.allocate(), type} {}
 
 // ----------------------------------------------------------------
 // GfxDevice::BufferObject
 // ----------------------------------------------------------------
 
-GfxDevice::BufferObject::BufferObject(GfxDevice *dev, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height)
-: drm_core::BufferObject{width, height}, _size{size}, _mem{std::move(mem)} {
+GfxDevice::BufferObject::BufferObject(
+    GfxDevice *dev, size_t size, helix::UniqueDescriptor mem, uint32_t width, uint32_t height
+)
+    : drm_core::BufferObject{width, height},
+      _size{size},
+      _mem{std::move(mem)} {
 	(void)dev;
 }
 
@@ -709,9 +724,7 @@ std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObj
 	return this->shared_from_this();
 }
 
-size_t GfxDevice::BufferObject::getSize() {
-	return _size;
-}
+size_t GfxDevice::BufferObject::getSize() { return _size; }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
 	return std::make_pair(helix::BorrowedDescriptor{_mem}, 0);
@@ -737,26 +750,29 @@ async::result<void> setupDevice(mbus_ng::Entity hwEntity) {
 	auto fb_bar_info = info.barInfo[1];
 	auto fifo_bar_info = info.barInfo[2];
 
-	auto gfxDevice = std::make_shared<GfxDevice>(std::move(pci_device),
-			helix::Mapping{fb_bar, 0, fb_bar_info.length},
-			helix::Mapping{fifo_bar, 0, fifo_bar_info.length},
-			std::move(io_bar), io_bar_info.address);
+	auto gfxDevice = std::make_shared<GfxDevice>(
+	    std::move(pci_device),
+	    helix::Mapping{fb_bar, 0, fb_bar_info.length},
+	    helix::Mapping{fifo_bar, 0, fifo_bar_info.length},
+	    std::move(io_bar),
+	    io_bar_info.address
+	);
 
 	auto config = co_await gfxDevice->initialize();
 
 	// Create an mbus object for the device.
 	mbus_ng::Properties descriptor{
-		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
-		{"unix.subsystem", mbus_ng::StringItem{"drm"}},
-		{"unix.devname", mbus_ng::StringItem{"dri/card"}}
+	    {"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(hwEntity.id())}},
+	    {"unix.subsystem", mbus_ng::StringItem{"drm"}},
+	    {"unix.devname", mbus_ng::StringItem{"dri/card"}}
 	};
 
 	co_await config->waitForCompletion();
 
-	auto gfxEntity = (co_await mbus_ng::Instance::global().createEntity(
-		"gfx_vmware", descriptor)).unwrap();
+	auto gfxEntity =
+	    (co_await mbus_ng::Instance::global().createEntity("gfx_vmware", descriptor)).unwrap();
 
-	[] (auto device, mbus_ng::EntityManager entity) -> async::detached {
+	[](auto device, mbus_ng::EntityManager entity) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
@@ -775,25 +791,23 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
 	// Do not bind to devices that are already bound to this driver.
-	if(baseDeviceMap.find(baseEntity.id()) != baseDeviceMap.end())
+	if (baseDeviceMap.find(baseEntity.id()) != baseDeviceMap.end())
 		co_return protocols::svrctl::Error::success;
 
 	// Make sure that we only bind to supported devices.
 	auto properties = (co_await baseEntity.getProperties()).unwrap();
-	if(auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
-			!vendor_str || vendor_str->value != "15ad")
+	if (auto vendor_str = std::get_if<mbus_ng::StringItem>(&properties["pci-vendor"]);
+	    !vendor_str || vendor_str->value != "15ad")
 		co_return protocols::svrctl::Error::deviceNotSupported;
-	if(auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
-			!device_str || device_str->value != "0405")
+	if (auto device_str = std::get_if<mbus_ng::StringItem>(&properties["pci-device"]);
+	    !device_str || device_str->value != "0405")
 		co_return protocols::svrctl::Error::deviceNotSupported;
 
 	co_await setupDevice(std::move(baseEntity));
 	co_return protocols::svrctl::Error::success;
 }
 
-static constexpr protocols::svrctl::ControlOperations controlOps = {
-	.bind = bindDevice
-};
+static constexpr protocols::svrctl::ControlOperations controlOps = {.bind = bindDevice};
 
 int main() {
 	printf("gfx/vmware: starting driver\n");
@@ -801,4 +815,3 @@ int main() {
 	async::detach(protocols::svrctl::serveControl(&controlOps));
 	async::run_forever(helix::currentDispatcher);
 }
-

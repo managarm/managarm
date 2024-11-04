@@ -9,7 +9,7 @@
 namespace {
 
 struct FullFile final : File {
-private:
+  private:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t length) override {
 		memset(data, 0, length);
@@ -20,47 +20,39 @@ private:
 		co_return Error::noSpaceLeft;
 	}
 
-	async::result<frg::expected<Error, off_t>> seek(off_t, VfsSeek) override {
-		co_return 0;
-	}
+	async::result<frg::expected<Error, off_t>> seek(off_t, VfsSeek) override { co_return 0; }
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
-public:
+  public:
 	static void serve(smarter::shared_ptr<FullFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &fileOperations, file->_cancelServe));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), file, &fileOperations, file->_cancelServe
+		));
 	}
 
 	FullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("full-file"), std::move(mount), std::move(link)} { }
+	    : File{StructName::get("full-file"), std::move(mount), std::move(link)} {}
 };
 
 struct FullDevice final : UnixDevice {
-	FullDevice()
-	: UnixDevice(VfsType::charDevice) {
-		assignId({1, 7});
-	}
+	FullDevice() : UnixDevice(VfsType::charDevice) { assignId({1, 7}); }
 
-	std::string nodePath() override {
-		return "full";
-	}
+	std::string nodePath() override { return "full"; }
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
-		if(semantic_flags & ~(semanticRead | semanticWrite)){
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
+		if (semantic_flags & ~(semanticRead | semanticWrite)) {
 			std::cout << "\e[31mposix: FullFile open() received illegal arguments:"
-				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-				<< std::endl;
+			          << std::bitset<32>(semantic_flags)
+			          << "\nOnly semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			          << std::endl;
 			co_return Error::illegalArguments;
 		}
 
@@ -73,6 +65,4 @@ struct FullDevice final : UnixDevice {
 
 } // anonymous namespace
 
-std::shared_ptr<UnixDevice> createFullDevice() {
-	return std::make_shared<FullDevice>();
-}
+std::shared_ptr<UnixDevice> createFullDevice() { return std::make_shared<FullDevice>(); }

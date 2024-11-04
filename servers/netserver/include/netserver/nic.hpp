@@ -1,11 +1,11 @@
 #pragma once
 
-#include <array>
 #include <arch/dma_pool.hpp>
+#include <array>
 #include <async/result.hpp>
-#include <frg/logging.hpp>
-#include <frg/formatting.hpp>
 #include <cstdint>
+#include <frg/formatting.hpp>
+#include <frg/logging.hpp>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -19,28 +19,24 @@ struct MacAddress {
 
 	uint8_t &operator[](size_t idx);
 	const uint8_t &operator[](size_t idx) const;
-	inline uint8_t *data() {
-		return mac_.data();
-	}
-	inline const uint8_t *data() const {
-		return mac_.data();
-	}
+	inline uint8_t *data() { return mac_.data(); }
+	inline const uint8_t *data() const { return mac_.data(); }
 
 	friend bool operator==(const MacAddress &l, const MacAddress &r);
 	friend bool operator!=(const MacAddress &l, const MacAddress &r);
 
 	explicit operator bool() const {
-		return !(mac_[0] == 0 && mac_[1] == 0 && mac_[2] == 0 && mac_[3] == 0 && mac_[4] == 0 && mac_[5] == 0);
+		return !(
+		    mac_[0] == 0 && mac_[1] == 0 && mac_[2] == 0 && mac_[3] == 0 && mac_[4] == 0 &&
+		    mac_[5] == 0
+		);
 	}
 
-	inline friend uint8_t *begin(MacAddress &m) {
-		return m.mac_.begin();
-	}
+	inline friend uint8_t *begin(MacAddress &m) { return m.mac_.begin(); }
 
-	inline friend uint8_t *end(MacAddress &m) {
-		return m.mac_.end();
-	}
-private:
+	inline friend uint8_t *end(MacAddress &m) { return m.mac_.end(); }
+
+  private:
 	std::array<uint8_t, 6> mac_ = {};
 };
 
@@ -65,8 +61,7 @@ struct Link {
 	virtual async::result<void> send(const arch::dma_buffer_view) = 0;
 	arch::dma_pool *dmaPool();
 	AllocatedBuffer allocateFrame(size_t payloadSize);
-	AllocatedBuffer allocateFrame(MacAddress to, EtherType type,
-		size_t payloadSize);
+	AllocatedBuffer allocateFrame(MacAddress to, EtherType type, size_t payloadSize);
 
 	MacAddress deviceMac();
 	int index();
@@ -77,14 +72,12 @@ struct Link {
 	unsigned int max_mtu;
 	unsigned int iff_flags();
 
-	bool rawIp() {
-		return raw_ip_;
-	}
+	bool rawIp() { return raw_ip_; }
 
 	mbus_ng::Properties mbusNetworkProperties() {
 		return {
-			{"net.ifname", mbus_ng::StringItem{name()}},
-			{"net.ifindex", mbus_ng::StringItem{std::to_string(index())}},
+		    {"net.ifname", mbus_ng::StringItem{name()}},
+		    {"net.ifindex", mbus_ng::StringItem{std::to_string(index())}},
 		};
 	}
 
@@ -92,7 +85,8 @@ struct Link {
 	static std::shared_ptr<Link> byName(std::string name);
 
 	static std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &getLinks();
-protected:
+
+  protected:
 	arch::dma_pool *dmaPool_;
 	MacAddress mac_;
 	int index_;
@@ -112,6 +106,8 @@ async::detached runDevice(std::shared_ptr<Link> dev);
 } // namespace nic
 
 inline std::ostream &operator<<(std::ostream &os, const nic::MacAddress &mac) {
-    frg::to(os) << frg::fmt("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    return os;
+	frg::to(os) << frg::fmt(
+	    "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+	);
+	return os;
 }

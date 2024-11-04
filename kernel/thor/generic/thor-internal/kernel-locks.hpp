@@ -1,19 +1,18 @@
 #pragma once
 
-#include <thor-internal/arch/ints.hpp>
+#include <assert.h>
 #include <atomic>
 #include <frg/mutex.hpp>
-#include <assert.h>
+#include <thor-internal/arch/ints.hpp>
 
 namespace thor {
 
 struct IrqMutex {
-private:
+  private:
 	static constexpr unsigned int enableBit = 0x8000'0000;
 
-public:
-	IrqMutex()
-	: _state{0} { }
+  public:
+	IrqMutex() : _state{0} {}
 
 	IrqMutex(const IrqMutex &) = delete;
 
@@ -25,15 +24,15 @@ public:
 		// NMIs and faults can always interrupt us but that is
 		// not a problem because of the first invariant.
 		auto s = _state.load(std::memory_order_acquire);
-		if(!s) {
+		if (!s) {
 			auto e = intsAreEnabled();
-			if(e) {
+			if (e) {
 				disableInts();
 				_state.store(enableBit | 1, std::memory_order_relaxed);
-			}else{
+			} else {
 				_state.store(1, std::memory_order_relaxed);
 			}
-		}else{
+		} else {
 			// Because of the second invariant we do not need to examine the IRQ state here.
 			assert(s & ~enableBit);
 			_state.store(s + 1, std::memory_order_release);
@@ -43,40 +42,34 @@ public:
 	void unlock() {
 		auto s = _state.load(std::memory_order_relaxed);
 		assert(s & ~enableBit);
-		if((s & ~enableBit) == 1) {
+		if ((s & ~enableBit) == 1) {
 			_state.store(0, std::memory_order_release);
-			if(s & enableBit)
+			if (s & enableBit)
 				enableInts();
-		}else{
+		} else {
 			_state.store(s - 1, std::memory_order_release);
 		}
 	}
 
-	unsigned int nesting() {
-		return _state.load(std::memory_order_relaxed) & ~enableBit;
-	}
+	unsigned int nesting() { return _state.load(std::memory_order_relaxed) & ~enableBit; }
 
-private:
+  private:
 	std::atomic<unsigned int> _state;
 };
 
 struct StatelessIrqLock {
-	StatelessIrqLock()
-	: _locked{false} {
-		lock();
-	}
+	StatelessIrqLock() : _locked{false} { lock(); }
 
-	StatelessIrqLock(frg::dont_lock_t)
-	: _locked{false} { }
+	StatelessIrqLock(frg::dont_lock_t) : _locked{false} {}
 
 	StatelessIrqLock(const StatelessIrqLock &) = delete;
 
 	~StatelessIrqLock() {
-		if(_locked)
+		if (_locked)
 			unlock();
 	}
 
-	StatelessIrqLock &operator= (const StatelessIrqLock &) = delete;
+	StatelessIrqLock &operator=(const StatelessIrqLock &) = delete;
 
 	void lock() {
 		assert(!_locked);
@@ -87,12 +80,12 @@ struct StatelessIrqLock {
 
 	void unlock() {
 		assert(_locked);
-		if(_enabled)
+		if (_enabled)
 			enableInts();
 		_locked = false;
 	}
 
-private:
+  private:
 	bool _locked;
 	bool _enabled;
 };

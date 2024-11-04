@@ -8,11 +8,11 @@ struct TextDisplay {
 	virtual size_t getWidth() = 0;
 	virtual size_t getHeight() = 0;
 
-	virtual void setChars(unsigned int x, unsigned int y,
-			const char *c, int count, int fg, int bg) = 0;
+	virtual void
+	setChars(unsigned int x, unsigned int y, const char *c, int count, int fg, int bg) = 0;
 	virtual void setBlanks(unsigned int x, unsigned int y, int count, int bg) = 0;
 
-protected:
+  protected:
 	~TextDisplay() = default;
 };
 
@@ -22,7 +22,7 @@ struct BootScreen final : public LogHandler {
 
 		void print(const char *c);
 
-	private:
+	  private:
 		BootScreen *_screen;
 
 		int _csiState;
@@ -44,7 +44,7 @@ struct BootScreen final : public LogHandler {
 
 	void printString(const char *string);
 
-private:
+  private:
 	TextDisplay *_display;
 	size_t _width;
 	size_t _height;

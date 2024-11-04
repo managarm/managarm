@@ -1,8 +1,8 @@
 #pragma once
 
+#include "api.hpp"
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
-#include "api.hpp"
 
 namespace protocols::usb {
 

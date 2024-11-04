@@ -12,28 +12,16 @@
 
 namespace drm_core {
 
-struct IntPropertyType {
+struct IntPropertyType {};
 
-};
+struct ObjectPropertyType {};
 
-struct ObjectPropertyType {
+struct BlobPropertyType {};
 
-};
+struct EnumPropertyType {};
 
-struct BlobPropertyType {
-
-};
-
-struct EnumPropertyType {
-
-};
-
-using PropertyType = std::variant<
-	IntPropertyType,
-	ObjectPropertyType,
-	BlobPropertyType,
-	EnumPropertyType
->;
+using PropertyType =
+    std::variant<IntPropertyType, ObjectPropertyType, BlobPropertyType, EnumPropertyType>;
 
 enum PropertyId {
 	invalid,
@@ -61,62 +49,68 @@ struct Property {
 	struct ObjectProperty {};
 	struct BlobProperty {};
 
-private:
-	Property(PropertyId id, PropertyType property_type, std::string name) : Property(id, property_type, name, 0) { }
+  private:
+	Property(PropertyId id, PropertyType property_type, std::string name)
+	    : Property(id, property_type, name, 0) {}
 
 	Property(PropertyId id, PropertyType property_type, std::string name, uint32_t flags)
-	: _id(id), _flags(flags), _propertyType(property_type), _name(name) {
+	    : _id(id),
+	      _flags(flags),
+	      _propertyType(property_type),
+	      _name(name) {
 		assert(name.length() < DRM_PROP_NAME_LEN);
 	}
 
-public:
+  public:
 	Property(PropertyId id, BlobProperty, std::string name, uint32_t flags)
-	: Property{id, drm_core::BlobPropertyType{}, name, flags | DRM_MODE_PROP_BLOB} { }
+	    : Property{id, drm_core::BlobPropertyType{}, name, flags | DRM_MODE_PROP_BLOB} {}
 
 	Property(PropertyId id, ObjectProperty, std::string name, uint32_t flags, uint32_t type)
-	: Property{id, drm_core::ObjectPropertyType{}, name, flags | DRM_MODE_PROP_OBJECT} {
+	    : Property{id, drm_core::ObjectPropertyType{}, name, flags | DRM_MODE_PROP_OBJECT} {
 		_type = type;
 	}
 
 	Property(PropertyId id, EnumProperty, std::string name, uint32_t flags)
-	: Property{id, drm_core::EnumPropertyType{}, name, flags | DRM_MODE_PROP_ENUM} { }
+	    : Property{id, drm_core::EnumPropertyType{}, name, flags | DRM_MODE_PROP_ENUM} {}
 
-	Property(PropertyId id, EnumProperty p, std::string name)
-	: Property{id, p, name, 0} { }
+	Property(PropertyId id, EnumProperty p, std::string name) : Property{id, p, name, 0} {}
 
-	Property(PropertyId id, RangeProperty, std::string name, uint32_t flags, uint32_t min, uint32_t max)
-	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_RANGE} {
+	Property(
+	    PropertyId id, RangeProperty, std::string name, uint32_t flags, uint32_t min, uint32_t max
+	)
+	    : Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_RANGE} {
 		_rangeMin = min;
 		_rangeMax = max;
 	}
 
 	Property(PropertyId id, SignedRangeProperty, std::string name, uint32_t flags)
-	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {	}
+	    : Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {}
 
-	Property(PropertyId id, SignedRangeProperty, std::string name, uint32_t flags, int32_t min, int32_t max)
-	: Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {
+	Property(
+	    PropertyId id,
+	    SignedRangeProperty,
+	    std::string name,
+	    uint32_t flags,
+	    int32_t min,
+	    int32_t max
+	)
+	    : Property{id, drm_core::IntPropertyType{}, name, flags | DRM_MODE_PROP_SIGNED_RANGE} {
 		_signedRangeMin = min;
 		_signedRangeMax = max;
 	}
 
 	virtual ~Property() = default;
 
-	virtual bool validate(const Assignment& assignment);
+	virtual bool validate(const Assignment &assignment);
 
 	PropertyId id();
 	uint32_t flags();
 
-	uint32_t typeFlags() {
-		return _type;
-	}
+	uint32_t typeFlags() { return _type; }
 
-	uint64_t rangeMin() {
-		return _rangeMin;
-	}
+	uint64_t rangeMin() { return _rangeMin; }
 
-	uint64_t rangeMax() {
-		return _rangeMax;
-	}
+	uint64_t rangeMax() { return _rangeMax; }
 
 	int64_t signedRangeMin() {
 		assert((_flags & DRM_MODE_PROP_EXTENDED_TYPE) == DRM_MODE_PROP_SIGNED_RANGE);
@@ -131,7 +125,7 @@ public:
 	PropertyType propertyType();
 	std::string name();
 	void addEnumInfo(uint64_t value, std::string name);
-	const std::unordered_map<uint64_t, std::string>& enumInfo();
+	const std::unordered_map<uint64_t, std::string> &enumInfo();
 
 	/**
 	 * Applies an Assignment to a AtomicState.
@@ -142,11 +136,12 @@ public:
 	 * @param assignment
 	 * @param state
 	 */
-	virtual void writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
+	virtual void
+	writeToState(const Assignment assignment, std::unique_ptr<drm_core::AtomicState> &state);
 	virtual uint32_t intFromState(std::shared_ptr<ModeObject> obj);
 	virtual std::shared_ptr<ModeObject> modeObjFromState(std::shared_ptr<ModeObject> obj);
 
-private:
+  private:
 	PropertyId _id;
 	uint32_t _flags;
 	uint32_t _type;
@@ -198,15 +193,16 @@ struct AtomicState {
 	 * i.e. has already been modified/touched, it is simply returned.
 	 *
 	 * @param id The ModeObject id of the Connector.
-	 * @return std::shared_ptr<drm_core::ConnectorState> ConnectorState for the @p id in the AtomicState
+	 * @return std::shared_ptr<drm_core::ConnectorState> ConnectorState for the @p id in the
+	 * AtomicState
 	 */
 	std::shared_ptr<ConnectorState> connector(uint32_t id);
 
-	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>>& crtc_states(void);
-	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>>& plane_states(void);
-	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>>& connector_states(void);
+	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> &crtc_states(void);
+	std::unordered_map<uint32_t, std::shared_ptr<PlaneState>> &plane_states(void);
+	std::unordered_map<uint32_t, std::shared_ptr<ConnectorState>> &connector_states(void);
 
-private:
+  private:
 	Device *_device;
 
 	std::unordered_map<uint32_t, std::shared_ptr<CrtcState>> _crtcStates;
@@ -224,8 +220,10 @@ struct Assignment {
 	 * @return drm_core::Assignment Assignment instance to be used for committing the Configuration.
 	 */
 	static Assignment withInt(std::shared_ptr<ModeObject>, Property *property, uint64_t val);
-	static Assignment withModeObj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
-	static Assignment withBlob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
+	static Assignment
+	withModeObj(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<ModeObject>);
+	static Assignment
+	withBlob(std::shared_ptr<ModeObject>, Property *property, std::shared_ptr<Blob>);
 
 	std::shared_ptr<ModeObject> object;
 	Property *property;
@@ -234,4 +232,4 @@ struct Assignment {
 	std::shared_ptr<Blob> blobValue;
 };
 
-} //namespace drm_core
+} // namespace drm_core

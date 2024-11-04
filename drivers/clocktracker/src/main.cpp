@@ -2,11 +2,11 @@
 #include <iostream>
 
 #include <async/oneshot-event.hpp>
+#include <bragi/helpers-std.hpp>
+#include <clock.bragi.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
-#include <bragi/helpers-std.hpp>
-#include <clock.bragi.hpp>
 
 // ----------------------------------------------------------------------------
 // RTC handling.
@@ -19,9 +19,7 @@ helix::UniqueLane rtcLane;
 async::oneshot_event foundRtc;
 
 async::result<void> enumerateRtc() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"class", "rtc"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"class", "rtc"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
@@ -36,10 +34,10 @@ async::result<RtcTime> getRtcTime() {
 
 	auto ser = req.SerializeAsString();
 	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
-		rtcLane,
-		helix_ng::offer(
-			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-			helix_ng::recvInline())
+	    rtcLane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}), helix_ng::recvInline()
+	    )
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
@@ -59,21 +57,16 @@ async::result<RtcTime> getRtcTime() {
 helix::UniqueDescriptor trackerPageMemory;
 helix::Mapping trackerPageMapping;
 
-TrackerPage *accessPage() {
-	return reinterpret_cast<TrackerPage *>(trackerPageMapping.get());
-}
+TrackerPage *accessPage() { return reinterpret_cast<TrackerPage *>(trackerPageMapping.get()); }
 
 // ----------------------------------------------------------------------------
 // clocktracker mbus interface.
 // ----------------------------------------------------------------------------
 
 async::detached serve(helix::UniqueLane lane) {
-	while(true) {
-		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
+	while (true) {
+		auto [accept, recvReq] =
+		    co_await helix_ng::exchangeMsgs(lane, helix_ng::accept(helix_ng::recvInline()));
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recvReq.error());
 
@@ -85,7 +78,8 @@ async::detached serve(helix::UniqueLane lane) {
 		if (preamble.id() == bragi::message_id<managarm::clock::AccessPageRequest>) {
 			auto req = bragi::parse_head_only<managarm::clock::AccessPageRequest>(recvReq);
 			if (!req) {
-				std::cout << "clocktracker: Ignoring IPC request due to decoding error." << std::endl;
+				std::cout << "clocktracker: Ignoring IPC request due to decoding error."
+				          << std::endl;
 				continue;
 			}
 
@@ -93,9 +87,9 @@ async::detached serve(helix::UniqueLane lane) {
 			resp.set_error(managarm::clock::Error::SUCCESS);
 
 			auto [sendResp, sendMemory] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(trackerPageMemory)
+			    conversation,
+			    helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			    helix_ng::pushDescriptor(trackerPageMemory)
 			);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(sendMemory.error());
@@ -105,8 +99,7 @@ async::detached serve(helix::UniqueLane lane) {
 			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 
 			HEL_CHECK(sendResp.error());
@@ -145,20 +138,19 @@ async::detached initializeDriver() {
 	auto result = co_await getRtcTime(); // TODO: Use the seqlock.
 #endif
 
-	std::cout << "drivers/clocktracker: Initializing time to "
-			<< std::get<1>(result) << std::endl;
+	std::cout << "drivers/clocktracker: Initializing time to " << std::get<1>(result) << std::endl;
 	accessPage()->refClock = std::get<0>(result);
 	accessPage()->baseRealtime = std::get<1>(result);
 
 	// Create an mbus object for the device.
 	mbus_ng::Properties descriptor{
-		{"class", mbus_ng::StringItem{"clocktracker"}},
+	    {"class", mbus_ng::StringItem{"clocktracker"}},
 	};
 
-	auto entity = (co_await mbus_ng::Instance::global().createEntity(
-		"clocktracker", descriptor)).unwrap();
+	auto entity =
+	    (co_await mbus_ng::Instance::global().createEntity("clocktracker", descriptor)).unwrap();
 
-	[] (mbus_ng::EntityManager entity) -> async::detached {
+	[](mbus_ng::EntityManager entity) -> async::detached {
 		while (true) {
 			auto [localLane, remoteLane] = helix::createStream();
 
@@ -181,5 +173,3 @@ int main() {
 
 	return 0;
 }
-
-

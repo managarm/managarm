@@ -11,10 +11,7 @@
 
 namespace thor {
 
-enum {
-	kPageSize = 0x1000,
-	kPageShift = 12
-};
+enum { kPageSize = 0x1000, kPageShift = 12 };
 
 constexpr Word kPfAccess = 1;
 constexpr Word kPfWrite = 2;
@@ -41,8 +38,7 @@ struct PageAccessor {
 		swap(a._pointer, b._pointer);
 	}
 
-	PageAccessor()
-	: _pointer{nullptr} { }
+	PageAccessor() : _pointer{nullptr} {}
 
 	PageAccessor(PhysicalAddr physical) {
 		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
@@ -53,27 +49,20 @@ struct PageAccessor {
 
 	PageAccessor(const PageAccessor &) = delete;
 
-	PageAccessor(PageAccessor &&other)
-	: PageAccessor{} {
-		swap(*this, other);
-	}
+	PageAccessor(PageAccessor &&other) : PageAccessor{} { swap(*this, other); }
 
-	~PageAccessor() { }
+	~PageAccessor() {}
 
-	PageAccessor &operator= (PageAccessor other) {
+	PageAccessor &operator=(PageAccessor other) {
 		swap(*this, other);
 		return *this;
 	}
 
-	explicit operator bool () {
-		return _pointer;
-	}
+	explicit operator bool() { return _pointer; }
 
-	void *get() {
-		return _pointer;
-	}
+	void *get() { return _pointer; }
 
-private:
+  private:
 	void *_pointer;
 };
 
@@ -83,7 +72,7 @@ struct RetireNode {
 
 	virtual void complete() = 0;
 
-protected:
+  protected:
 	virtual ~RetireNode() = default;
 };
 
@@ -98,10 +87,10 @@ struct ShootNode {
 
 	virtual void complete() = 0;
 
-protected:
+  protected:
 	virtual ~ShootNode() = default;
 
-private:
+  private:
 	// This CPU already performed synchronous shootdown,
 	// hence it can ignore this request during asynchronous shootdown.
 	void *_initiatorCpu;
@@ -130,9 +119,9 @@ struct PageContext {
 
 	PageContext(const PageContext &) = delete;
 
-	PageContext &operator= (const PageContext &) = delete;
+	PageContext &operator=(const PageContext &) = delete;
 
-private:
+  private:
 	// Timestamp for the LRU mechansim of ASIDs.
 	uint64_t _nextStamp;
 
@@ -145,24 +134,18 @@ struct PageBinding {
 
 	PageBinding(const PageBinding &) = delete;
 
-	PageBinding &operator= (const PageBinding &) = delete;
+	PageBinding &operator=(const PageBinding &) = delete;
 
-	smarter::shared_ptr<PageSpace> boundSpace() {
-		return _boundSpace;
-	}
+	smarter::shared_ptr<PageSpace> boundSpace() { return _boundSpace; }
 
 	void setupAsid(int asid) {
 		assert(!_asid);
 		_asid = asid;
 	}
 
-	int getAsid() {
-		return _asid;
-	}
+	int getAsid() { return _asid; }
 
-	uint64_t primaryStamp() {
-		return _primaryStamp;
-	}
+	uint64_t primaryStamp() { return _primaryStamp; }
 
 	bool isPrimary();
 
@@ -174,7 +157,7 @@ struct PageBinding {
 
 	void shootdown();
 
-private:
+  private:
 	int _asid;
 
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
@@ -192,13 +175,13 @@ struct GlobalPageBinding {
 
 	GlobalPageBinding(const GlobalPageBinding &) = delete;
 
-	GlobalPageBinding &operator= (const GlobalPageBinding &) = delete;
+	GlobalPageBinding &operator=(const GlobalPageBinding &) = delete;
 
 	void bind();
 
 	void shootdown();
 
-private:
+  private:
 	uint64_t _alreadyShotSequence;
 };
 
@@ -211,20 +194,18 @@ struct PageSpace {
 
 	~PageSpace();
 
-	PhysicalAddr rootTable() {
-		return _rootTable;
-	}
+	PhysicalAddr rootTable() { return _rootTable; }
 
 	void retire(RetireNode *node);
 
 	bool submitShootdown(ShootNode *node);
 
-private:
+  private:
 	PhysicalAddr _rootTable;
 
 	std::atomic<bool> _wantToRetire = false;
 
-	RetireNode * _retireNode = nullptr;
+	RetireNode *_retireNode = nullptr;
 
 	frg::ticket_spinlock _mutex;
 
@@ -233,39 +214,31 @@ private:
 	uint64_t _shootSequence;
 
 	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> _shootQueue;
+	    ShootNode,
+	    frg::locate_member<ShootNode, frg::default_list_hook<ShootNode>, &ShootNode::_queueNode>>
+	    _shootQueue;
 };
 
 namespace page_mode {
-	static constexpr uint32_t remap = 1;
+static constexpr uint32_t remap = 1;
 }
 
-enum class PageMode {
-	null,
-	normal,
-	remap
-};
+enum class PageMode { null, normal, remap };
 
 using PageFlags = uint32_t;
 
 namespace page_access {
-	static constexpr uint32_t write = 1;
-	static constexpr uint32_t execute = 2;
-	static constexpr uint32_t read = 4;
-}
+static constexpr uint32_t write = 1;
+static constexpr uint32_t execute = 2;
+static constexpr uint32_t read = 4;
+} // namespace page_access
 
 using PageStatus = uint32_t;
 
 namespace page_status {
-	static constexpr PageStatus present = 1;
-	static constexpr PageStatus dirty = 2;
-};
+static constexpr PageStatus present = 1;
+static constexpr PageStatus dirty = 2;
+}; // namespace page_status
 
 enum class CachingMode {
 	null,
@@ -279,7 +252,8 @@ enum class CachingMode {
 
 struct KernelPageSpace {
 	friend struct GlobalPageBinding;
-public:
+
+  public:
 	static void initialize();
 
 	static KernelPageSpace &global();
@@ -289,28 +263,24 @@ public:
 
 	KernelPageSpace(const KernelPageSpace &) = delete;
 
-	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
+	KernelPageSpace &operator=(const KernelPageSpace &) = delete;
 
-	PhysicalAddr rootTable() {
-		return ttbr1_;
-	}
+	PhysicalAddr rootTable() { return ttbr1_; }
 
 	bool submitShootdown(ShootNode *node);
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode caching_mode);
+	void mapSingle4k(
+	    VirtualAddr pointer, PhysicalAddr physical, uint32_t flags, CachingMode caching_mode
+	);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
 
-
-	template<typename R>
-	struct ShootdownOperation;
+	template <typename R> struct ShootdownOperation;
 
 	struct [[nodiscard]] ShootdownSender {
 		using value_type = void;
 
-		template<typename R>
-		friend ShootdownOperation<R>
-		connect(ShootdownSender sender, R receiver) {
+		template <typename R>
+		friend ShootdownOperation<R> connect(ShootdownSender sender, R receiver) {
 			return {sender, std::move(receiver)};
 		}
 
@@ -319,46 +289,39 @@ public:
 		size_t size;
 	};
 
-	ShootdownSender shootdown(VirtualAddr address, size_t size) {
-		return {this, address, size};
-	}
+	ShootdownSender shootdown(VirtualAddr address, size_t size) { return {this, address, size}; }
 
-	template<typename R>
-	struct ShootdownOperation : private ShootNode {
-		ShootdownOperation(ShootdownSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
+	template <typename R> struct ShootdownOperation : private ShootNode {
+		ShootdownOperation(ShootdownSender s, R receiver) : s_{s}, receiver_{std::move(receiver)} {}
 
 		virtual ~ShootdownOperation() = default;
 
 		ShootdownOperation(const ShootdownOperation &) = delete;
 
-		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
+		ShootdownOperation &operator=(const ShootdownOperation &) = delete;
 
 		bool start_inline() {
 			ShootNode::address = s_.address;
 			ShootNode::size = s_.size;
-			if(s_.self->submitShootdown(this)) {
+			if (s_.self->submitShootdown(this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
 			}
 			return false;
 		}
 
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
+	  private:
+		void complete() override { async::execution::set_value_noinline(receiver_); }
 
 		ShootdownSender s_;
 		R receiver_;
 	};
 
-	friend async::sender_awaiter<ShootdownSender>
-	operator co_await(ShootdownSender sender) {
+	friend async::sender_awaiter<ShootdownSender> operator co_await(ShootdownSender sender) {
 		return {sender};
 	}
 
-private:
+  private:
 	PhysicalAddr ttbr1_;
 
 	frg::ticket_spinlock _mutex;
@@ -370,17 +333,13 @@ private:
 	uint64_t _shootSequence;
 
 	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> _shootQueue;
+	    ShootNode,
+	    frg::locate_member<ShootNode, frg::default_list_hook<ShootNode>, &ShootNode::_queueNode>>
+	    _shootQueue;
 };
 
 struct ClientPageSpace : PageSpace {
-public:
+  public:
 	struct Walk {
 		Walk(ClientPageSpace *space);
 
@@ -388,14 +347,14 @@ public:
 
 		~Walk();
 
-		Walk &operator= (const Walk &) = delete;
+		Walk &operator=(const Walk &) = delete;
 
 		void walkTo(uintptr_t address);
 
 		PageFlags peekFlags();
 		PhysicalAddr peekPhysical();
 
-	private:
+	  private:
 		ClientPageSpace *_space;
 
 		void _update();
@@ -415,16 +374,21 @@ public:
 
 	~ClientPageSpace();
 
-	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
+	ClientPageSpace &operator=(const ClientPageSpace &) = delete;
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
-			uint32_t flags, CachingMode caching_mode);
+	void mapSingle4k(
+	    VirtualAddr pointer,
+	    PhysicalAddr physical,
+	    bool user_access,
+	    uint32_t flags,
+	    CachingMode caching_mode
+	);
 	PageStatus unmapSingle4k(VirtualAddr pointer);
 	PageStatus cleanSingle4k(VirtualAddr pointer);
 	bool isMapped(VirtualAddr pointer);
 	bool updatePageAccess(VirtualAddr pointer);
 
-private:
+  private:
 	frg::ticket_spinlock _mutex;
 };
 

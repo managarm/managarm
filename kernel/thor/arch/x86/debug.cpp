@@ -24,7 +24,7 @@ extern bool debugToSerial;
 extern bool debugToBochs;
 
 void setupDebugging() {
-	if(debugToSerial) {
+	if (debugToSerial) {
 		auto base = arch::global_io.subspace(0x3F8);
 
 		// Set the baud rate.
@@ -45,7 +45,7 @@ void PIOLogHandler::printChar(char c) {
 
 		serialBuffer[serialBufferIndex++] = val;
 		if (serialBufferIndex == 16) {
-			while(!(base.load(lineStatus) & txReady)) {
+			while (!(base.load(lineStatus) & txReady)) {
 				// do nothing until the UART is ready to transmit.
 			}
 			base.store_iterative(data, serialBuffer, 16);
@@ -53,15 +53,15 @@ void PIOLogHandler::printChar(char c) {
 		}
 	};
 
-	if(debugToSerial) {
-		if(c == '\n') {
+	if (debugToSerial) {
+		if (c == '\n') {
 			sendByteSerial('\r');
 		}
 
 		sendByteSerial(c);
 	}
 
-	if(debugToBochs) {
+	if (debugToBochs) {
 		auto base = arch::global_io.subspace(0xE9);
 		base.store(data, c);
 	}
@@ -70,23 +70,23 @@ void PIOLogHandler::printChar(char c) {
 void PIOLogHandler::setPriority(Severity prio) {
 	int c = 9;
 
-	switch(prio) {
-		case Severity::emergency:
-		case Severity::alert:
-		case Severity::critical:
-		case Severity::error:
-			c = 1;
-			break;
-		case Severity::warning:
-			c = 3;
-			break;
-		case Severity::notice:
-		case Severity::info:
-			c = 9;
-			break;
-		case Severity::debug:
-			c = 5;
-			break;
+	switch (prio) {
+	case Severity::emergency:
+	case Severity::alert:
+	case Severity::critical:
+	case Severity::error:
+		c = 1;
+		break;
+	case Severity::warning:
+		c = 3;
+		break;
+	case Severity::notice:
+	case Severity::info:
+		c = 9;
+		break;
+	case Severity::debug:
+		c = 5;
+		break;
 	}
 
 	printChar('\e');

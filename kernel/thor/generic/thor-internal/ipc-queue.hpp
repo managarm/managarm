@@ -53,23 +53,18 @@ struct QueueSource {
 struct IpcNode {
 	friend struct IpcQueue;
 
-	IpcNode()
-	: _context{0}, _source{nullptr} { }
+	IpcNode() : _context{0}, _source{nullptr} {}
 
 	// Users of IpcQueue::submit() have to set this up first.
-	void setupContext(uintptr_t context) {
-		_context = context;
-	}
-	void setupSource(QueueSource *source) {
-		_source = source;
-	}
+	void setupContext(uintptr_t context) { _context = context; }
+	void setupSource(QueueSource *source) { _source = source; }
 
 	virtual void complete() = 0;
 
-protected:
+  protected:
 	~IpcNode() = default;
 
-private:
+  private:
 	uintptr_t _context;
 	const QueueSource *_source;
 
@@ -78,34 +73,29 @@ private:
 };
 
 struct IpcQueue : CancelRegistry {
-private:
+  private:
 	using Address = uintptr_t;
 
 	using NodeList = frg::intrusive_list<
-		IpcNode,
-		frg::locate_member<
-			IpcNode,
-			frg::default_list_hook<IpcNode>,
-			&IpcNode::_queueNode
-		>
-	>;
+	    IpcNode,
+	    frg::locate_member<IpcNode, frg::default_list_hook<IpcNode>, &IpcNode::_queueNode>>;
 
 	using Mutex = frg::ticket_spinlock;
 
-public:
+  public:
 	IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize);
 
 	IpcQueue(const IpcQueue &) = delete;
 
-	IpcQueue &operator= (const IpcQueue &) = delete;
+	IpcQueue &operator=(const IpcQueue &) = delete;
 
-	smarter::shared_ptr<MemoryView> getMemory() {
-		return _memory;
-	}
+	smarter::shared_ptr<MemoryView> getMemory() { return _memory; }
 
 	bool validSize(size_t size);
 
-	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
+	void setupChunk(
+	    size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer
+	);
 
 	void submit(IpcNode *node);
 
@@ -113,13 +103,10 @@ public:
 	// Sender boilerplate for submit()
 	// ----------------------------------------------------------------------------------
 
-	template<typename R>
-	struct SubmitOperation;
+	template <typename R> struct SubmitOperation;
 
 	struct [[nodiscard]] SubmitSender {
-		template<typename R>
-		friend SubmitOperation<R>
-		connect(SubmitSender sender, R receiver) {
+		template <typename R> friend SubmitOperation<R> connect(SubmitSender sender, R receiver) {
 			return {sender, std::move(receiver)};
 		}
 
@@ -128,18 +115,14 @@ public:
 		uintptr_t context;
 	};
 
-	SubmitSender submit(QueueSource *source, uintptr_t context) {
-		return {this, source, context};
-	}
+	SubmitSender submit(QueueSource *source, uintptr_t context) { return {this, source, context}; }
 
-	template<typename R>
-	struct SubmitOperation final : private IpcNode {
-		SubmitOperation(SubmitSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
+	template <typename R> struct SubmitOperation final : private IpcNode {
+		SubmitOperation(SubmitSender s, R receiver) : s_{s}, receiver_{std::move(receiver)} {}
 
 		SubmitOperation(const SubmitOperation &) = delete;
 
-		SubmitOperation &operator= (const SubmitOperation &) = delete;
+		SubmitOperation &operator=(const SubmitOperation &) = delete;
 
 		void start() {
 			setupSource(s_.source);
@@ -147,26 +130,23 @@ public:
 			s_.self->submit(this);
 		}
 
-	private:
-		void complete() override {
-			async::execution::set_value(receiver_);
-		}
+	  private:
+		void complete() override { async::execution::set_value(receiver_); }
 
 		SubmitSender s_;
 		R receiver_;
 	};
 
-	friend async::sender_awaiter<SubmitSender>
-	operator co_await(SubmitSender sender) {
+	friend async::sender_awaiter<SubmitSender> operator co_await(SubmitSender sender) {
 		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------
 
-private:
+  private:
 	coroutine<void> _runQueue();
 
-private:
+  private:
 	Mutex _mutex;
 
 	smarter::shared_ptr<ImmediateMemory> _memory;
@@ -184,13 +164,9 @@ private:
 	async::recurring_event _doorbell;
 
 	frg::intrusive_list<
-		IpcNode,
-		frg::locate_member<
-			IpcNode,
-			frg::default_list_hook<IpcNode>,
-			&IpcNode::_queueNode
-		>
-	> _nodeQueue;
+	    IpcNode,
+	    frg::locate_member<IpcNode, frg::default_list_hook<IpcNode>, &IpcNode::_queueNode>>
+	    _nodeQueue;
 
 	// Stores whether any nodes are in the queue.
 	// Written only when _mutex is held (but read outside of _mutex).

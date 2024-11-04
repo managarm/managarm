@@ -1,9 +1,9 @@
-#include <stdint.h>
 #include <assert.h>
-#include <eir/interface.hpp>
 #include <eir-internal/arch.hpp>
-#include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/generic.hpp>
+#include <eir/interface.hpp>
+#include <stdint.h>
 
 #include <uacpi/acpi.h>
 
@@ -60,21 +60,21 @@ struct MbMemoryMap {
 static bool findAcpiRsdp(EirInfo *info) {
 	auto doChecksum = [](void *ptr, size_t len) {
 		uint8_t checksum = 0;
-		for(size_t i = 0; i < len; i++)
+		for (size_t i = 0; i < len; i++)
 			checksum += reinterpret_cast<uint8_t *>(ptr)[i];
 		return checksum;
 	};
 
 	auto scanZone = [info, doChecksum](uintptr_t base, size_t len) {
 		uint8_t *region = reinterpret_cast<uint8_t *>(base);
-	
-		for(size_t off = 0; off < len; off += 16) {
+
+		for (size_t off = 0; off < len; off += 16) {
 			auto *rsdp = reinterpret_cast<acpi_rsdp *>(region + off);
 
-			if(memcmp(rsdp->signature, "RSD PTR ", 8))
+			if (memcmp(rsdp->signature, "RSD PTR ", 8))
 				continue;
 
-			if(doChecksum(static_cast<void *>(rsdp), offsetof(acpi_rsdp, length)) != 0)
+			if (doChecksum(static_cast<void *>(rsdp), offsetof(acpi_rsdp, length)) != 0)
 				continue;
 
 			info->acpiRsdp = reinterpret_cast<uint64_t>(rsdp);
@@ -88,34 +88,36 @@ static bool findAcpiRsdp(EirInfo *info) {
 	uintptr_t ebdaBase = ((uintptr_t)bdaData) << 4;
 
 	// Next, try the EDBA
-	if(scanZone(ebdaBase, 0x400))
+	if (scanZone(ebdaBase, 0x400))
 		return true;
 
 	// Finally, try the BIOS memory
-	if(scanZone(0xE0000, 0x20000))
+	if (scanZone(0xE0000, 0x20000))
 		return true;
-  
+
 	return false;
 }
 
 extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
-extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
-	if(magic != 0x2BADB002)
+extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic) {
+	if (magic != 0x2BADB002)
 		eir::panicLogger() << "eir: Invalid multiboot1 signature, halting..." << frg::endlog;
 
-	MbInfo* mb_info = reinterpret_cast<MbInfo*>(info);
+	MbInfo *mb_info = reinterpret_cast<MbInfo *>(info);
 
-	if(mb_info->flags & kMbInfoFramebuffer) {
-		if(mb_info->fbAddress + mb_info->fbWidth * mb_info->fbPitch >= UINTPTR_MAX) {
-			eir::infoLogger() << "eir: Framebuffer outside of addressable memory!"
-					<< frg::endlog;
-		}else if(mb_info->fbBpp != 32) {
-			eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!"
-					<< frg::endlog;
-		}else{
-			setFbInfo(reinterpret_cast<void *>(mb_info->fbAddress), mb_info->fbWidth,
-					mb_info->fbHeight, mb_info->fbPitch);
+	if (mb_info->flags & kMbInfoFramebuffer) {
+		if (mb_info->fbAddress + mb_info->fbWidth * mb_info->fbPitch >= UINTPTR_MAX) {
+			eir::infoLogger() << "eir: Framebuffer outside of addressable memory!" << frg::endlog;
+		} else if (mb_info->fbBpp != 32) {
+			eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!" << frg::endlog;
+		} else {
+			setFbInfo(
+			    reinterpret_cast<void *>(mb_info->fbAddress),
+			    mb_info->fbWidth,
+			    mb_info->fbHeight,
+			    mb_info->fbPitch
+			);
 		}
 	}
 
@@ -127,8 +129,8 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
 	reservedRegions[nReservedRegions++] = {0, eirEnd};
 
-	if((mb_info->flags & kMbInfoModules) != 0) {
-		for(unsigned int i = 0; i < mb_info->numModules; i++) {
+	if ((mb_info->flags & kMbInfoModules) != 0) {
+		for (unsigned int i = 0; i < mb_info->numModules; i++) {
 			uintptr_t start = (uintptr_t)mb_info->modulesPtr[i].startAddress;
 			uintptr_t end = (uintptr_t)mb_info->modulesPtr[i].endAddress;
 			reservedRegions[nReservedRegions++] = {start, end - start};
@@ -138,37 +140,39 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	// Walk the memory map and retrieve all useable regions.
 	assert(mb_info->flags & kMbInfoMemoryMap);
 	eir::infoLogger() << "Memory map:" << frg::endlog;
-	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
+	for (size_t offset = 0; offset < mb_info->memoryMapLength;) {
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 
 		eir::infoLogger() << "    Type " << map->type << " mapping."
-				<< " Base: 0x" << frg::hex_fmt{map->baseAddress}
-				<< ", length: 0x" << frg::hex_fmt{map->length} << frg::endlog;
+		                  << " Base: 0x" << frg::hex_fmt{map->baseAddress} << ", length: 0x"
+		                  << frg::hex_fmt{map->length} << frg::endlog;
 
 		offset += map->size + 4;
 	}
 
-	for(size_t offset = 0; offset < mb_info->memoryMapLength; ) {
+	for (size_t offset = 0; offset < mb_info->memoryMapLength;) {
 		auto map = (MbMemoryMap *)((uintptr_t)mb_info->memoryMapPtr + offset);
 
-		if(map->type == 1)
-			createInitialRegions({map->baseAddress, map->length}, {reservedRegions, nReservedRegions});
+		if (map->type == 1)
+			createInitialRegions(
+			    {map->baseAddress, map->length}, {reservedRegions, nReservedRegions}
+			);
 
 		offset += map->size + 4;
 	}
 	setupRegionStructs();
 
 	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
-	for(size_t i = 0; i < numRegions; ++i) {
-		if(regions[i].regionType == RegionType::null)
+	for (size_t i = 0; i < numRegions; ++i) {
+		if (regions[i].regionType == RegionType::null)
 			continue;
 		eir::infoLogger() << "    Memory region [" << i << "]."
-				<< " Base: 0x" << frg::hex_fmt{regions[i].address}
-				<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
-		if(regions[i].regionType == RegionType::allocatable)
+		                  << " Base: 0x" << frg::hex_fmt{regions[i].address} << ", length: 0x"
+		                  << frg::hex_fmt{regions[i].size} << frg::endlog;
+		if (regions[i].regionType == RegionType::allocatable)
 			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
-					<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
-					<< frg::endlog;
+			                  << ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
+			                  << frg::endlog;
 	}
 
 	assert((mb_info->flags & kMbInfoModules) != 0);
@@ -182,11 +186,10 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	auto *info_ptr = generateInfo(mb_info->commandLine);
 
 	auto modules = bootAlloc<EirModule>(mb_info->numModules - 1);
-	for(size_t i = 0; i < mb_info->numModules - 1; i++) {
+	for (size_t i = 0; i < mb_info->numModules - 1; i++) {
 		MbModule &image_module = mb_info->modulesPtr[i + 1];
 		modules[i].physicalBase = (EirPtr)image_module.startAddress;
-		modules[i].length = (EirPtr)image_module.endAddress
-				- (EirPtr)image_module.startAddress;
+		modules[i].length = (EirPtr)image_module.endAddress - (EirPtr)image_module.startAddress;
 
 		size_t name_length = strlen(image_module.string);
 		char *name_ptr = bootAlloc<char>(name_length);
@@ -199,11 +202,12 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 	info_ptr->moduleInfo = mapBootstrapData(modules);
 
 	// Manually probe for ACPI tables in EBDA/BIOS memory
-	if(!findAcpiRsdp(info_ptr))
-		eir::panicLogger() << "eir: unable to find ACPI RSDP in low memory, halting..." << frg::endlog;
+	if (!findAcpiRsdp(info_ptr))
+		eir::panicLogger() << "eir: unable to find ACPI RSDP in low memory, halting..."
+		                   << frg::endlog;
 
-	if((mb_info->flags & kMbInfoFramebuffer)
-			&& (mb_info->fbType == 1)) { // For now, only linear framebuffer is supported.
+	if ((mb_info->flags & kMbInfoFramebuffer) &&
+	    (mb_info->fbType == 1)) { // For now, only linear framebuffer is supported.
 		auto framebuf = &info_ptr->frameBuffer;
 		framebuf->fbAddress = mb_info->fbAddress;
 		framebuf->fbPitch = mb_info->fbPitch;
@@ -213,9 +217,13 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 		framebuf->fbType = mb_info->fbType;
 
 		assert(mb_info->fbAddress & ~(pageSize - 1));
-		for(address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
-			mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, mb_info->fbAddress + pg,
-					PageFlags::write, CachingMode::writeCombine);
+		for (address_t pg = 0; pg < mb_info->fbPitch * mb_info->fbHeight; pg += 0x1000)
+			mapSingle4kPage(
+			    0xFFFF'FE00'4000'0000 + pg,
+			    mb_info->fbAddress + pg,
+			    PageFlags::write,
+			    CachingMode::writeCombine
+			);
 		mapKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
 		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, mb_info->fbPitch * mb_info->fbHeight);
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
@@ -223,8 +231,7 @@ extern "C" void eirMultiboot1Main(uint32_t info, uint32_t magic){
 
 	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
-	eirEnterKernel(eirPml4Pointer, kernel_entry,
-			0xFFFF'FE80'0001'0000);  
+	eirEnterKernel(eirPml4Pointer, kernel_entry, 0xFFFF'FE80'0001'0000);
 }
 
 } // namespace eir

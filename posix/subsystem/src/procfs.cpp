@@ -1,11 +1,11 @@
-#include <string.h>
-#include <sstream>
 #include <iomanip>
+#include <sstream>
+#include <string.h>
 
 #include "clock.hpp"
 #include "common.hpp"
-#include "procfs.hpp"
 #include "process.hpp"
+#include "procfs.hpp"
 
 #include <bitset>
 
@@ -17,15 +17,15 @@ SuperBlock procfs_superblock;
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+bool LinkCompare::operator()(const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
 	return a->getName() < b->getName();
 }
 
-bool LinkCompare::operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
+bool LinkCompare::operator()(const std::shared_ptr<Link> &link, const std::string &name) const {
 	return link->getName() < name;
 }
 
-bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+bool LinkCompare::operator()(const std::string &name, const std::shared_ptr<Link> &link) const {
 	return name < link->getName();
 }
 
@@ -34,28 +34,28 @@ bool LinkCompare::operator() (const std::string &name, const std::shared_ptr<Lin
 // ----------------------------------------------------------------------------
 
 void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
-//TODO:		assert(!file->_passthrough);
+	// TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	async::detach(protocols::fs::servePassthrough(std::move(lane),
-			file, &File::fileOperations, file->_cancelServe));
+	async::detach(protocols::fs::servePassthrough(
+	    std::move(lane), file, &File::fileOperations, file->_cancelServe
+	));
 }
 
 RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.attr"), std::move(mount), std::move(link)},
-		_cached{false}, _offset{0} { }
+    : File{StructName::get("procfs.attr"), std::move(mount), std::move(link)},
+      _cached{false},
+      _offset{0} {}
 
-void RegularFile::handleClose() {
-	_cancelServe.cancel();
-}
+void RegularFile::handleClose() { _cancelServe.cancel(); }
 
 async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSeek whence) {
-	if(whence == VfsSeek::relative)
+	if (whence == VfsSeek::relative)
 		_offset = _offset + offset;
-	else if(whence == VfsSeek::absolute)
+	else if (whence == VfsSeek::absolute)
 		_offset = offset;
-	else if(whence == VfsSeek::eof)
+	else if (whence == VfsSeek::eof)
 		// TODO: Unimplemented!
 		assert(whence == VfsSeek::eof);
 	co_return _offset;
@@ -65,7 +65,7 @@ async::result<frg::expected<Error, size_t>>
 RegularFile::readSome(Process *, void *data, size_t max_length) {
 	assert(max_length > 0);
 
-	if(!_cached) {
+	if (!_cached) {
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
 		_buffer = co_await node->show();
@@ -88,63 +88,57 @@ RegularFile::writeAll(Process *, const void *data, size_t length) {
 	co_return length;
 }
 
-helix::BorrowedDescriptor RegularFile::getPassthroughLane() {
-	return _passthrough;
-}
+helix::BorrowedDescriptor RegularFile::getPassthroughLane() { return _passthrough; }
 
 // ----------------------------------------------------------------------------
 // DirectoryFile implementation.
 // ----------------------------------------------------------------------------
 
 void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
-//TODO:		assert(!file->_passthrough);
+	// TODO:		assert(!file->_passthrough);
 
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	async::detach(protocols::fs::servePassthrough(std::move(lane),
-			file, &File::fileOperations, file->_cancelServe));
+	async::detach(protocols::fs::servePassthrough(
+	    std::move(lane), file, &File::fileOperations, file->_cancelServe
+	));
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.dir"), std::move(mount), std::move(link)},
-		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
-		_iter{_node->_entries.begin()} { }
+    : File{StructName::get("procfs.dir"), std::move(mount), std::move(link)},
+      _node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
+      _iter{_node->_entries.begin()} {}
 
-void DirectoryFile::handleClose() {
-	_cancelServe.cancel();
-}
+void DirectoryFile::handleClose() { _cancelServe.cancel(); }
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<ReadEntriesResult> DirectoryFile::readEntries() {
-	if(_iter != _node->_entries.end()) {
+	if (_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
 		_iter++;
 		co_return name;
-	}else{
+	} else {
 		co_return std::nullopt;
 	}
 }
 
-helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
-	return _passthrough;
-}
+helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() { return _passthrough; }
 
 // ----------------------------------------------------------------------------
 // Link implementation.
 // ----------------------------------------------------------------------------
 
-Link::Link(std::shared_ptr<FsNode> target)
-: _target{std::move(target)} { }
+Link::Link(std::shared_ptr<FsNode> target) : _target{std::move(target)} {}
 
 Link::Link(std::shared_ptr<FsNode> owner, std::string name, std::shared_ptr<FsNode> target)
-: _owner{std::move(owner)}, _name{std::move(name)}, _target{std::move(target)} {
+    : _owner{std::move(owner)},
+      _name{std::move(name)},
+      _target{std::move(target)} {
 	assert(_owner);
 	assert(!_name.empty());
 }
 
-std::shared_ptr<FsNode> Link::getOwner() {
-	return _owner;
-}
+std::shared_ptr<FsNode> Link::getOwner() { return _owner; }
 
 std::string Link::getName() {
 	// The root link does not have a name.
@@ -152,9 +146,7 @@ std::string Link::getName() {
 	return _name;
 }
 
-std::shared_ptr<FsNode> Link::getTarget() {
-	return _target;
-}
+std::shared_ptr<FsNode> Link::getTarget() { return _target; }
 
 // ----------------------------------------------------------------------------
 // RegularNode implementation.
@@ -162,9 +154,7 @@ std::shared_ptr<FsNode> Link::getTarget() {
 
 RegularNode::RegularNode() = default;
 
-VfsType RegularNode::getType() {
-	return VfsType::regular;
-}
+VfsType RegularNode::getType() { return VfsType::regular; }
 
 async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	// TODO: Store a file creation time.
@@ -174,7 +164,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	stats.inodeNumber = 0; // FIXME
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
-	stats.mode = 0666; // TODO: Some files can be written.
+	stats.mode = 0666;     // TODO: Some files can be written.
 	stats.uid = 0;
 	stats.gid = 0;
 	stats.atimeSecs = now.tv_sec;
@@ -186,14 +176,15 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	co_return stats;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> RegularNode::open(
+    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+) {
+	if (semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)) {
 		std::cout << "\e[31mposix: open() received illegal arguments:"
-			<< std::bitset<32>(semantic_flags)
-			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-			<< std::endl;
+		          << std::bitset<32>(semantic_flags)
+		          << "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are "
+		             "allowed.\e[39m"
+		          << std::endl;
 		co_return Error::illegalArguments;
 	}
 
@@ -203,13 +194,9 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
-	co_return nullptr;
-}
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) { co_return nullptr; }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() {
-	co_return nullptr;
-}
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() { co_return nullptr; }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 SuperBlock::rename(FsLink *, FsNode *, std::string) {
@@ -226,10 +213,13 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 
-	auto self_link = std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
+	auto self_link =
+	    std::make_shared<Link>(the_node->shared_from_this(), "self", std::make_shared<SelfLink>());
 	the_node->_entries.insert(std::move(self_link));
 
-	auto self_thread_link = std::make_shared<Link>(the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>());
+	auto self_thread_link = std::make_shared<Link>(
+	    the_node->shared_from_this(), "thread-self", std::make_shared<SelfThreadLink>()
+	);
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
@@ -246,11 +236,10 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	return link;
 }
 
-DirectoryNode::DirectoryNode()
-: FsNode{&procfs_superblock}, _treeLink{nullptr} { }
+DirectoryNode::DirectoryNode() : FsNode{&procfs_superblock}, _treeLink{nullptr} {}
 
-std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
-		std::shared_ptr<RegularNode> regular) {
+std::shared_ptr<Link>
+DirectoryNode::directMkregular(std::string name, std::shared_ptr<RegularNode> regular) {
 	assert(_entries.find(name) == _entries.end());
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(regular));
 	_entries.insert(link);
@@ -274,10 +263,9 @@ std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
-		Process *process) {
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name, Process *process) {
 	auto link = directMkdir(name);
-	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
+	auto proc_dir = static_cast<DirectoryNode *>(link->getTarget().get());
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
@@ -290,22 +278,20 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
-	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
+	auto task_dir = static_cast<DirectoryNode *>(task_link->getTarget().get());
 
 	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
-	auto tid_dir = static_cast<DirectoryNode*>(tid_link->getTarget().get());
+	auto tid_dir = static_cast<DirectoryNode *>(tid_link->getTarget().get());
 
 	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
-}
+VfsType DirectoryNode::getType() { return VfsType::directory; }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,
-		std::shared_ptr<FsNode>) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+DirectoryNode::link(std::string, std::shared_ptr<FsNode>) {
 	co_return Error::noSuchFile;
 }
 
@@ -319,14 +305,15 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> DirectoryNode::open(
+    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+) {
+	if (semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)) {
 		std::cout << "\e[31mposix: open() received illegal arguments:"
-			<< std::bitset<32>(semantic_flags)
-			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-			<< std::endl;
+		          << std::bitset<32>(semantic_flags)
+		          << "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are "
+		             "allowed.\e[39m"
+		          << std::endl;
 		co_return Error::illegalArguments;
 	}
 
@@ -336,9 +323,10 @@ DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> li
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::getLink(std::string name
+) {
 	auto it = _entries.find(name);
-	if(it != _entries.end())
+	if (it != _entries.end())
 		co_return *it;
 	co_return nullptr; // TODO: Return an error code.
 }
@@ -357,7 +345,8 @@ async::result<std::string> UptimeNode::show() {
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	// TODO: Add time spent in the idle thread here.
 	std::stringstream stream;
-	stream << uptime.tv_sec << "." << std::setw(2) << std::setfill('0') << (uptime.tv_nsec / 10000000) << std::setw(1) << "0.00" << "\n";
+	stream << uptime.tv_sec << "." << std::setw(2) << std::setfill('0')
+	       << (uptime.tv_nsec / 10000000) << std::setw(1) << "0.00" << "\n";
 	co_return stream.str();
 }
 
@@ -407,7 +396,7 @@ async::result<std::string> ArchNode::show() {
 #elif defined(__riscv) && __riscv_xlen == 64
 	stream << "riscv64";
 #else
-	#error "Unknown architecture"
+#error "Unknown architecture"
 #endif
 	co_return stream.str();
 }
@@ -418,9 +407,7 @@ async::result<void> ArchNode::store(std::string) {
 	co_return;
 }
 
-VfsType SelfLink::getType() {
-	return VfsType::symlink;
-}
+VfsType SelfLink::getType() { return VfsType::symlink; }
 
 expected<std::string> SelfLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid());
@@ -431,9 +418,7 @@ async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	co_return FileStats{};
 }
 
-VfsType SelfThreadLink::getType() {
-	return VfsType::symlink;
-}
+VfsType SelfThreadLink::getType() { return VfsType::symlink; }
 
 expected<std::string> SelfThreadLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
@@ -444,13 +429,9 @@ async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
 	co_return FileStats{};
 }
 
-VfsType ExeLink::getType() {
-	return VfsType::symlink;
-}
+VfsType ExeLink::getType() { return VfsType::symlink; }
 
-expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
-	co_return _process->path();
-}
+expected<std::string> ExeLink::readSymlink(FsLink *, Process *) { co_return _process->path(); }
 
 async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
@@ -471,18 +452,20 @@ async::result<std::string> MapNode::show() {
 		stream << (area.isPrivate() ? "p" : "-");
 		stream << " ";
 		auto backingFile = area.backingFile();
-		if(backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
+		if (backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
 			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
 			stream << " ";
 			auto fsNode = backingFile->associatedLink()->getTarget();
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
 			DeviceId deviceId{};
-			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
+			if (fsNode->getType() == VfsType::charDevice ||
+			    fsNode->getType() == VfsType::blockDevice)
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
-			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":" << deviceId.second;
+			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":"
+			       << deviceId.second;
 			stream << " ";
 			stream << std::setw(0) << fileStats.value().inodeNumber;
 			stream << "    ";
@@ -516,9 +499,7 @@ async::result<void> CommNode::store(std::string name) {
 	co_return;
 }
 
-VfsType RootLink::getType() {
-	return VfsType::symlink;
-}
+VfsType RootLink::getType() { return VfsType::symlink; }
 
 expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
@@ -534,63 +515,63 @@ async::result<std::string> StatNode::show() {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << _process->pid(); // Pid
+	stream << _process->pid();                  // Pid
 	stream << " (" << _process->name() << ") "; // Name
-	stream << "R "; // State
+	stream << "R ";                             // State
 	// This avoids a crash when asking for the parent of init.
-	if(_process->getParent()) {
+	if (_process->getParent()) {
 		stream << _process->getParent()->pid() << " ";
 	} else {
 		stream << "0 ";
 	}
-	stream << _process->pgPointer()->getHull()->getPid() << " "; // Pgrp
+	stream << _process->pgPointer()->getHull()->getPid() << " ";          // Pgrp
 	stream << _process->pgPointer()->getSession()->getSessionId() << " "; // SID
-	stream << "0 "; // tty_nr
-	stream << "0 "; // tpgid
-	stream << "0 "; // flags
-	stream << "0 "; // minflt
-	stream << "0 "; // cminflt
-	stream << "0 "; // majflt
-	stream << "0 "; // cmajflt
-	stream << _process->accumulatedUsage().userTime << " "; // utime
-	stream << "0 "; // stime
-	stream << "0 "; // cutime
-	stream << "0 "; // cstime
-	stream << "0 "; // priority
-	stream << "0 "; // nice
-	stream << "1 "; // num_threads
-	stream << "0 "; // itrealvalue
-	stream << "0 "; // starttime
-	stream << "0 "; // vsize
-	stream << "0 "; // rss
-	stream << "0 "; // rsslim
-	stream << "0 "; // startcode
-	stream << "0 "; // endcode
-	stream << "0 "; // startstack
-	stream << "0 "; // kstkesp
-	stream << "0 "; // kstkeip
-	stream << "0 "; // signal
-	stream << "0 "; // blocked
-	stream << "0 "; // sigignore
-	stream << "0 "; // sigcatch
-	stream << "0 "; // wchan
-	stream << "0 "; // nswap
-	stream << "0 "; // cnswap
-	stream << "0 "; // exit_signal
-	stream << "0 "; // processor
-	stream << "0 "; // rt_priority
-	stream << "0 "; // policy
-	stream << "0 "; // delayacct_blkio_ticks
-	stream << "0 "; // guest_time
-	stream << "0 "; // cguest_time
-	stream << "0 "; // start_data
-	stream << "0 "; // end_data
-	stream << "0 "; // start_brk
-	stream << "0 "; // arg_start
-	stream << "0 "; // arg_end
-	stream << "0 "; // env_start
-	stream << "0 "; // env_end
-	stream << "0\n"; // exitcode
+	stream << "0 ";                                                       // tty_nr
+	stream << "0 ";                                                       // tpgid
+	stream << "0 ";                                                       // flags
+	stream << "0 ";                                                       // minflt
+	stream << "0 ";                                                       // cminflt
+	stream << "0 ";                                                       // majflt
+	stream << "0 ";                                                       // cmajflt
+	stream << _process->accumulatedUsage().userTime << " ";               // utime
+	stream << "0 ";                                                       // stime
+	stream << "0 ";                                                       // cutime
+	stream << "0 ";                                                       // cstime
+	stream << "0 ";                                                       // priority
+	stream << "0 ";                                                       // nice
+	stream << "1 ";                                                       // num_threads
+	stream << "0 ";                                                       // itrealvalue
+	stream << "0 ";                                                       // starttime
+	stream << "0 ";                                                       // vsize
+	stream << "0 ";                                                       // rss
+	stream << "0 ";                                                       // rsslim
+	stream << "0 ";                                                       // startcode
+	stream << "0 ";                                                       // endcode
+	stream << "0 ";                                                       // startstack
+	stream << "0 ";                                                       // kstkesp
+	stream << "0 ";                                                       // kstkeip
+	stream << "0 ";                                                       // signal
+	stream << "0 ";                                                       // blocked
+	stream << "0 ";                                                       // sigignore
+	stream << "0 ";                                                       // sigcatch
+	stream << "0 ";                                                       // wchan
+	stream << "0 ";                                                       // nswap
+	stream << "0 ";                                                       // cnswap
+	stream << "0 ";                                                       // exit_signal
+	stream << "0 ";                                                       // processor
+	stream << "0 ";                                                       // rt_priority
+	stream << "0 ";                                                       // policy
+	stream << "0 ";                                                       // delayacct_blkio_ticks
+	stream << "0 ";                                                       // guest_time
+	stream << "0 ";                                                       // cguest_time
+	stream << "0 ";                                                       // start_data
+	stream << "0 ";                                                       // end_data
+	stream << "0 ";                                                       // start_brk
+	stream << "0 ";                                                       // arg_start
+	stream << "0 ";                                                       // arg_end
+	stream << "0 ";                                                       // env_start
+	stream << "0 ";                                                       // env_end
+	stream << "0\n";                                                      // exitcode
 	co_return stream.str();
 }
 
@@ -605,12 +586,12 @@ async::result<std::string> StatmNode::show() {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << "0 "; // size
-	stream << "0 "; // resident
-	stream << "0 "; // shared
-	stream << "0 "; // text
-	stream << "0 "; // lib
-	stream << "0 "; // data
+	stream << "0 ";  // size
+	stream << "0 ";  // resident
+	stream << "0 ";  // shared
+	stream << "0 ";  // text
+	stream << "0 ";  // lib
+	stream << "0 ";  // data
 	stream << "0\n"; // dt
 	co_return stream.str();
 }
@@ -625,14 +606,15 @@ async::result<std::string> StatusNode::show() {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << "Name: " << _process->name() << "\n"; // Name is hardcoded to be the last part of the path
+	stream << "Name: " << _process->name()
+	       << "\n";            // Name is hardcoded to be the last part of the path
 	stream << "Umask: 0022\n"; // Hardcoded to 0022, which is what we hardcode in the mlibc sysdeps.
-	stream << "State: R\n"; // Hardcoded to R, running.
+	stream << "State: R\n";    // Hardcoded to R, running.
 	stream << "Tgid: " << _process->pid() << "\n"; // Thread group id, same as gid for now
-	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
+	stream << "NGid: 0\n";                         // NUMA Group ID, 0 if none.
 	stream << "Pid: " << _process->pid() << "\n";
 	// This avoids a crash when asking for the parent of init.
-	if(_process->getParent()) {
+	if (_process->getParent()) {
 		stream << "PPid: " << _process->getParent()->pid() << "\n";
 	} else {
 		stream << "PPid: 0\n";
@@ -641,7 +623,7 @@ async::result<std::string> StatusNode::show() {
 	stream << "Uid: " << _process->uid() << "\n";
 	stream << "Gid: " << _process->gid() << "\n";
 	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
-	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
+	stream << "Groups: 0\n";   // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
 	stream << "NStgid: N/A\n";
 	stream << "NSpid: N/A\n";
@@ -706,12 +688,12 @@ async::result<void> StatusNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/status file!");
 }
 
-VfsType CwdLink::getType() {
-	return VfsType::symlink;
-}
+VfsType CwdLink::getType() { return VfsType::symlink; }
 
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
-	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
+	co_return _process->fsContext()->getWorkingDirectory().getPath(
+	    _process->fsContext()->getWorkingDirectory()
+	);
 }
 
 async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
@@ -722,50 +704,49 @@ async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
-	async::detach(protocols::fs::servePassthrough(std::move(lane),
-			file, &File::fileOperations, file->_cancelServe));
+	async::detach(protocols::fs::servePassthrough(
+	    std::move(lane), file, &File::fileOperations, file->_cancelServe
+	));
 }
 
-FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
-: File{StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
-		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+FdDirectoryFile::FdDirectoryFile(
+    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process
+)
+    : File{StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
+      _process{process},
+      _fileTable{_process->fileContext()->fileTable()},
+      _iter{_fileTable.begin()} {}
 
-void FdDirectoryFile::handleClose() {
-	_cancelServe.cancel();
-}
+void FdDirectoryFile::handleClose() { _cancelServe.cancel(); }
 
 FutureMaybe<ReadEntriesResult> FdDirectoryFile::readEntries() {
-	if(_iter != _fileTable.end()) {
+	if (_iter != _fileTable.end()) {
 		co_return std::to_string((_iter++)->first);
-	}else{
+	} else {
 		co_return std::nullopt;
 	}
 }
 
-helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
-	return _passthrough;
-}
+helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() { return _passthrough; }
 
-FdDirectoryNode::FdDirectoryNode(Process *process)
-: _process{process} {}
+FdDirectoryNode::FdDirectoryNode(Process *process) : _process{process} {}
 
-VfsType FdDirectoryNode::getType() {
-	return VfsType::directory;
-}
+VfsType FdDirectoryNode::getType() { return VfsType::directory; }
 
 async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix procfs FdDirectoryNode::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
 }
 
-async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		SemanticFlags semantic_flags) {
-	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> FdDirectoryNode::open(
+    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+) {
+	if (semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)) {
 		std::cout << "\e[31mposix: open() received illegal arguments:"
-			<< std::bitset<32>(semantic_flags)
-			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-			<< std::endl;
+		          << std::bitset<32>(semantic_flags)
+		          << "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are "
+		             "allowed.\e[39m"
+		          << std::endl;
 		co_return Error::illegalArguments;
 	}
 
@@ -775,11 +756,14 @@ FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> 
 	co_return File::constructHandle(std::move(file));
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
-	for(const auto &[fdnum, fd] : _process->fileContext()->fileTable()) {
-		if(name != std::to_string(fdnum))
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+FdDirectoryNode::getLink(std::string name) {
+	for (const auto &[fdnum, fd] : _process->fileContext()->fileTable()) {
+		if (name != std::to_string(fdnum))
 			continue;
-		co_return std::make_shared<Link>(shared_from_this(), std::move(name), fd.file->associatedLink()->getTarget());
+		co_return std::make_shared<Link>(
+		    shared_from_this(), std::move(name), fd.file->associatedLink()->getTarget()
+		);
 	}
 	co_return Error::noSuchFile;
 }

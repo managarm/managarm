@@ -5,8 +5,8 @@
 #define HEL_H
 
 #include <stddef.h>
-#include <string.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "hel-types.h"
 
@@ -176,20 +176,11 @@ struct HelX86VirtualizationRegs {
 	uint64_t apic_base;
 };
 
-enum {
-	kHelNullHandle = 0,
-	kHelThisUniverse = -1,
-	kHelThisThread = -2,
-	kHelZeroMemory = -3
-};
+enum { kHelNullHandle = 0, kHelThisUniverse = -1, kHelThisThread = -2, kHelZeroMemory = -3 };
 
-enum {
-	kHelWaitInfinite = -1
-};
+enum { kHelWaitInfinite = -1 };
 
-enum {
-	kHelAbiSystemV = 1
-};
+enum { kHelAbiSystemV = 1 };
 
 enum {
 	kHelActionDismiss = 11,
@@ -238,14 +229,9 @@ struct HelAllocRestrictions {
 	int addressBits;
 };
 
-enum HelManagedFlags {
-	kHelManagedReadahead = 1
-};
+enum HelManagedFlags { kHelManagedReadahead = 1 };
 
-enum HelManageRequests {
-	kHelManageInitialize = 1,
-	kHelManageWriteback = 2
-};
+enum HelManageRequests { kHelManageInitialize = 1, kHelManageWriteback = 2 };
 
 enum HelMapFlags {
 	// Additional flags that may be set.
@@ -257,9 +243,7 @@ enum HelMapFlags {
 	kHelMapFixedNoReplace = 4096
 };
 
-enum HelThreadFlags {
-	kHelThreadStopped = 1
-};
+enum HelThreadFlags { kHelThreadStopped = 1 };
 
 enum HelObservation {
 	kHelObserveNull = 0,
@@ -515,10 +499,10 @@ struct HelThreadStats {
 };
 
 enum {
-  kHelVmexitHlt = 0,
-  kHelVmexitTranslationFault = 1,
-  kHelVmexitError = -1,
-  kHelVmexitUnknownPlatformSpecificExitCode = -2,
+	kHelVmexitHlt = 0,
+	kHelVmexitTranslationFault = 1,
+	kHelVmexitError = -1,
+	kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
 
 struct HelVmexitReason {
@@ -557,8 +541,7 @@ HEL_C_LINKAGE HelError helLog(const HelLogSeverity severity, const char *string,
 //!    	Text to be written.
 //! @param[in] length
 //! 	Size of the text in bytes.
-HEL_C_LINKAGE void helPanic(const char *string, size_t length)
-		__attribute__ (( noreturn ));
+HEL_C_LINKAGE void helPanic(const char *string, size_t length) __attribute__((noreturn));
 
 //! @}
 //! @name Debugging
@@ -588,8 +571,8 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 //!    	Handle to the destination universe.
 //! @param[out] outHandle
 //!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
-HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
-		HelHandle *outHandle);
+HEL_C_LINKAGE HelError
+helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelHandle *outHandle);
 
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 
@@ -598,8 +581,7 @@ HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorI
 //!    	Handle to the descriptor.
 //!    @param[out] credentials
 //!    	Credentials, i.e., a 16-byte binary string.
-HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags,
-		char *credentials);
+HEL_C_LINKAGE HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials);
 
 //! Closes a descriptor.
 //! @param[in] universeHandle
@@ -613,8 +595,7 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //! @{
 
 //! Creates an IPC queue.
-HEL_C_LINKAGE HelError helCreateQueue(struct HelQueueParameters *params,
-		HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateQueue(struct HelQueueParameters *params, HelHandle *handle);
 
 //! Cancels an ongoing asynchronous operation.
 //! @param[in] queueHandle
@@ -636,8 +617,9 @@ HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
 //!    	May be @p NULL if there are no restrictions.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
-		struct HelAllocRestrictions *restrictions, HelHandle *handle);
+HEL_C_LINKAGE HelError helAllocateMemory(
+    size_t size, uint32_t flags, struct HelAllocRestrictions *restrictions, HelHandle *handle
+);
 
 //! Resizes a memory object.
 //! @param[in] handle
@@ -658,8 +640,9 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!    	Handle to the new memory object (for management)
 //! @param[out] frontalHandle
 //!    	Handle to the new memory object (for consumers).
-HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
-		HelHandle *backingHandle, HelHandle *frontalHandle);
+HEL_C_LINKAGE HelError helCreateManagedMemory(
+    size_t size, uint32_t flags, HelHandle *backingHandle, HelHandle *frontalHandle
+);
 
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
 //! @param[in] memory
@@ -671,11 +654,10 @@ HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 //!    	Must be aligned to the system's page size.
 //! @param[out] handle
 //!    	Handle to the new memory object.
-HEL_C_LINKAGE HelError helCopyOnWrite(HelHandle memory,
-		uintptr_t offset, size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError
+helCopyOnWrite(HelHandle memory, uintptr_t offset, size_t size, HelHandle *handle);
 
-HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical,
-		size_t size, HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle);
 
 //! Creates a memory object that obtains its memory by delegating to other memory objects.
 //! @param[in] numSlots
@@ -700,11 +682,17 @@ HEL_C_LINKAGE HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handl
 //! @param[in] size
 //!    	Size of the indirection in bytes.
 //!    	Must be aligned to the system's page size.
-HEL_C_LINKAGE HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slotIndex,
-		HelHandle memoryHandle, uintptr_t offset, size_t size);
+HEL_C_LINKAGE HelError helAlterMemoryIndirection(
+    HelHandle indirectHandle,
+    size_t slotIndex,
+    HelHandle memoryHandle,
+    uintptr_t offset,
+    size_t size
+);
 
-HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, size_t size,
-		uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateSliceView(
+    HelHandle bundle, uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle
+);
 
 //! Forks memory objects, i.e., copies them using copy-on-write.
 //!
@@ -737,8 +725,15 @@ HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 //! @param[out] actualPointer
 //!    	Pointer to which the memory is mapped.
 //!     Differs from @p pointer only if @p pointer was specified as @p NULL.
-HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandle,
-		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actualPointer);
+HEL_C_LINKAGE HelError helMapMemory(
+    HelHandle memoryHandle,
+    HelHandle spaceHandle,
+    void *pointer,
+    uintptr_t offset,
+    size_t size,
+    uint32_t flags,
+    void **actualPointer
+);
 
 //! Changes protection attributes of a memory mapping.
 //!
@@ -751,9 +746,14 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandl
 //! @param[in] size
 //!    	Size of the mapping that is modified.
 //!    	Must be aligned to the system's page size.
-HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle spaceHandle,
-		void *pointer, size_t size, uint32_t flags,
-		HelHandle queueHandle, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitProtectMemory(
+    HelHandle spaceHandle,
+    void *pointer,
+    size_t size,
+    uint32_t flags,
+    HelHandle queueHandle,
+    uintptr_t context
+);
 
 //! Notifies the kernel of dirty pages in a memory mapping.
 //!
@@ -770,9 +770,9 @@ HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle spaceHandle,
 //! @param[in] size
 //!    	Size of the mapping that is synchronized.
 //!    	Must be aligned to the system's page size.
-HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle spaceHandle,
-		void *pointer, size_t size,
-		HelHandle queueHandle, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(
+    HelHandle spaceHandle, void *pointer, size_t size, HelHandle queueHandle, uintptr_t context
+);
 
 //! Unmaps memory from an address space.
 //!
@@ -799,9 +799,14 @@ HEL_C_LINKAGE HelError helPointerPhysical(const void *pointer, uintptr_t *physic
 //!     Address that is accessed, relative to @p handle.
 //! @param[in] length
 //!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
-		size_t length, void *buffer,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitReadMemory(
+    HelHandle handle,
+    uintptr_t address,
+    size_t length,
+    void *buffer,
+    HelHandle queue,
+    uintptr_t context
+);
 
 //! Store memory (i.e., bytes) to a descriptor.
 //!
@@ -814,20 +819,24 @@ HEL_C_LINKAGE HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 //!     Address that is accessed, relative to @p handle.
 //! @param[in] length
 //!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
-		size_t length, const void *buffer,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitWriteMemory(
+    HelHandle handle,
+    uintptr_t address,
+    size_t length,
+    const void *buffer,
+    HelHandle queue,
+    uintptr_t context
+);
 
-HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
-		size_t *size);
+HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle, size_t *size);
 
-HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle, HelHandle queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helUpdateMemory(HelHandle handle, int type, uintptr_t offset, size_t length);
 
-HEL_C_LINKAGE HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError helSubmitLockMemoryView(
+    HelHandle handle, uintptr_t offset, size_t size, HelHandle queue, uintptr_t context
+);
 
 //! Notifies the kernel that a certain range of memory should be preloaded.
 //!
@@ -860,8 +869,15 @@ HEL_C_LINKAGE HelError helCreateVirtualizedSpace(HelHandle *handle);
 //!     Stack pointer of the new thread.
 //! @param[out] handle
 //!     Handle to the new thread.
-HEL_C_LINKAGE HelError helCreateThread(HelHandle universe, HelHandle spaceHandle,
-		HelAbi abi, void *ip, void *sp, uint32_t flags, HelHandle *handle);
+HEL_C_LINKAGE HelError helCreateThread(
+    HelHandle universe,
+    HelHandle spaceHandle,
+    HelAbi abi,
+    void *ip,
+    void *sp,
+    uint32_t flags,
+    HelHandle *handle
+);
 
 //! Query run-time statistics of a thread.
 //! @param[in] handle
@@ -890,8 +906,8 @@ HEL_C_LINKAGE HelError helYield();
 //!     Handle to the thread.
 //! @param[in] sequence
 //!     Previous sequence number.
-HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t sequence,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError
+helSubmitObserve(HelHandle handle, uint64_t sequence, HelHandle queue, uintptr_t context);
 
 //! Kill (i.e., terminate) a thread.
 //! @param[in] handle
@@ -963,8 +979,8 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 //!     Deadline (absolute, see ::helGetClock).
 //! @param[out] asyncId
 //!     ID to identify the asynchronous operation (absolute, see ::helCancelAsync).
-HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *asyncId);
+HEL_C_LINKAGE HelError
+helSubmitAwaitClock(uint64_t counter, HelHandle queue, uintptr_t context, uint64_t *asyncId);
 
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
@@ -981,7 +997,8 @@ HEL_C_LINKAGE HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t
 //!     Size of bit mask buffer.
 //! @param[out] actual_size
 //!     Amount of bytes actually written to mask.
-HEL_C_LINKAGE HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *actualSize);
+HEL_C_LINKAGE HelError
+helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *actualSize);
 
 //! Set a thread's CPU affinity mask.
 //! @param[in] handle
@@ -1003,7 +1020,8 @@ HEL_C_LINKAGE HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t si
 //!     Handle to the second lane of the new stream.
 //! @param[in] attach_credentials
 //!     Enable or disable credentials for the new stream.
-HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2, uint32_t attach_credentials);
+HEL_C_LINKAGE HelError
+helCreateStream(HelHandle *lane1, HelHandle *lane2, uint32_t attach_credentials);
 
 //! Pass messages on a stream.
 //! @param[in] handle
@@ -1012,8 +1030,14 @@ HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2, uint3
 //!     Pointer to array of message items.
 //! @param[in] count
 //!     Number of elements in @p actions.
-HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const struct HelAction *actions,
-		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
+HEL_C_LINKAGE HelError helSubmitAsync(
+    HelHandle handle,
+    const struct HelAction *actions,
+    size_t count,
+    HelHandle queue,
+    uintptr_t context,
+    uint32_t flags
+);
 
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
@@ -1075,8 +1099,8 @@ HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint6
 //!     Handle to the event that will be awaited.
 //! @param[in] sequence
 //!     Previous sequence number.
-HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue, uintptr_t context);
+HEL_C_LINKAGE HelError
+helSubmitAwaitEvent(HelHandle handle, uint64_t sequence, HelHandle queue, uintptr_t context);
 
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
 
@@ -1084,8 +1108,7 @@ HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandl
 //! @name Input/Output
 //! @{
 
-HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
-		HelHandle *handle);
+HEL_C_LINKAGE HelError helAccessIo(uintptr_t *port_array, size_t num_ports, HelHandle *handle);
 
 //! Enable userspace access to hardware I/O resources.
 //! @param[in] handle
@@ -1107,13 +1130,14 @@ HEL_C_LINKAGE HelError helEnableFullIo();
 //!     Number of binding parameters in @p data.
 //! @param[out] boundHandle
 //!     Handle to the bound kernlet.
-HEL_C_LINKAGE HelError helBindKernlet(HelHandle handle,
-		const union HelKernletData *data, size_t numData, HelHandle *boundHandle);
+HEL_C_LINKAGE HelError helBindKernlet(
+    HelHandle handle, const union HelKernletData *data, size_t numData, HelHandle *boundHandle
+);
 
 //! @}
 
-extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelError code) {
-	switch(code) {
+extern inline __attribute__((always_inline)) const char *_helErrorString(HelError code) {
+	switch (code) {
 	case kHelErrNone:
 		return "Success";
 	case kHelErrIllegalSyscall:
@@ -1159,29 +1183,44 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 	}
 }
 
-extern inline __attribute__ (( always_inline )) void _helCheckFailed(HelError err_code,
-		const char *string, int fatal) {
+extern inline __attribute__((always_inline)) void
+_helCheckFailed(HelError err_code, const char *string, int fatal) {
 	helLog(kHelLogSeverityError, string, strlen(string));
 
 	const char *err_string = _helErrorString(err_code);
-	if(err_string == 0)
+	if (err_string == 0)
 		err_string = "(Unexpected error code)";
 	helLog(kHelLogSeverityError, err_string, strlen(err_string));
 	helLog(kHelLogSeverityError, "\n", 1);
 
-	if(fatal)
+	if (fatal)
 		helPanic(0, 0);
 }
 
 #define HEL_STRINGIFY_AUX(x) #x
 #define HEL_STRINGIFY(x) HEL_STRINGIFY_AUX(x)
 
-#define HEL_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
-		_helCheckFailed(__error, "HEL_CHECK failed: " #expr "\n" \
-		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 1); } while(0)
-#define HEL_SOFT_CHECK(expr) do { HelError __error = expr; if(__error != kHelErrNone) \
-		_helCheckFailed(__error, "HEL_SOFT_CHECK failed: " #expr "\n" \
-		"    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n", 0); } while(0)
+#define HEL_CHECK(expr)                                                                            \
+	do {                                                                                           \
+		HelError __error = expr;                                                                   \
+		if (__error != kHelErrNone)                                                                \
+			_helCheckFailed(                                                                       \
+			    __error,                                                                           \
+			    "HEL_CHECK failed: " #expr "\n"                                                    \
+			    "    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n",                  \
+			    1                                                                                  \
+			);                                                                                     \
+	} while (0)
+#define HEL_SOFT_CHECK(expr)                                                                       \
+	do {                                                                                           \
+		HelError __error = expr;                                                                   \
+		if (__error != kHelErrNone)                                                                \
+			_helCheckFailed(                                                                       \
+			    __error,                                                                           \
+			    "HEL_SOFT_CHECK failed: " #expr "\n"                                               \
+			    "    In file " __FILE__ " on line " HEL_STRINGIFY(__LINE__) "\n",                  \
+			    0                                                                                  \
+			);                                                                                     \
+	} while (0)
 
 #endif // HEL_H
-

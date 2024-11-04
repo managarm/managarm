@@ -2,10 +2,10 @@
 #include <string.h>
 #include <sys/epoll.h>
 
-#include <async/recurring-event.hpp>
-#include <helix/ipc.hpp>
 #include "eventfd.hpp"
 #include "process.hpp"
+#include <async/recurring-event.hpp>
+#include <helix/ipc.hpp>
 
 namespace eventfd {
 
@@ -13,17 +13,22 @@ namespace {
 
 struct OpenFile : File {
 	OpenFile(unsigned int initval, bool nonBlock, bool semaphore)
-	: File{StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
-		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock}, _semaphore{semaphore} { }
+	    : File{StructName::get("eventfd")},
+	      _currentSeq{1},
+	      _readableSeq{0},
+	      _writeableSeq{0},
+	      _counter{initval},
+	      _nonBlock{nonBlock},
+	      _semaphore{semaphore} {}
 
-	~OpenFile() {
-	}
+	~OpenFile() {}
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+		async::detach(protocols::fs::servePassthrough(
+		    std::move(lane), smarter::shared_ptr<File>{file}, &File::fileOperations
+		));
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -33,7 +38,7 @@ struct OpenFile : File {
 
 		while (1) {
 			if (_counter) {
-				if(_semaphore) {
+				if (_semaphore) {
 					auto ptr = reinterpret_cast<uint64_t *>(data);
 					*ptr = 1;
 					_counter--;
@@ -76,14 +81,13 @@ struct OpenFile : File {
 		co_return length;
 	}
 
-	async::result<frg::expected<Error, PollWaitResult>>
-	pollWait(Process *, uint64_t sequence, int mask,
-			async::cancellation_token cancellation) override {
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(
+	    Process *, uint64_t sequence, int mask, async::cancellation_token cancellation
+	) override {
 		(void)mask; // TODO: utilize mask.
 
 		assert(sequence <= _currentSeq);
-		while (_currentSeq == sequence &&
-				!cancellation.is_cancellation_requested())
+		while (_currentSeq == sequence && !cancellation.is_cancellation_requested())
 			co_await _doorbell.async_wait(cancellation);
 
 		int edges = 0;
@@ -95,8 +99,7 @@ struct OpenFile : File {
 		co_return PollWaitResult(_currentSeq, edges);
 	}
 
-	async::result<frg::expected<Error, PollStatusResult>>
-	pollStatus(Process *) override {
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override {
 		int events = 0;
 		if (_counter > 0)
 			events |= EPOLLIN;
@@ -106,11 +109,9 @@ struct OpenFile : File {
 		co_return PollStatusResult(_currentSeq, events);
 	}
 
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
+	helix::BorrowedDescriptor getPassthroughLane() override { return _passthrough; }
 
-private:
+  private:
 	helix::UniqueLane _passthrough;
 	async::recurring_event _doorbell;
 
@@ -123,13 +124,14 @@ private:
 	bool _semaphore;
 };
 
-}
+} // namespace
 
-smarter::shared_ptr<File, FileHandle> createFile(unsigned int initval, bool nonBlock, bool semaphore) {
+smarter::shared_ptr<File, FileHandle>
+createFile(unsigned int initval, bool nonBlock, bool semaphore) {
 	auto file = smarter::make_shared<OpenFile>(initval, nonBlock, semaphore);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }
 
-}
+} // namespace eventfd

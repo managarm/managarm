@@ -31,24 +31,24 @@ struct {
 	int pci_vendor;
 	void (*func)(smarter::shared_ptr<pci::PciDevice> dev);
 } quirks[] = {
-	{0x0C, 0x03, 0x00, -1, uhciSmiDisable},
-	{0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
+    {0x0C, 0x03, 0x00, -1, uhciSmiDisable},
+    {0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
 };
 
 } // namespace
 
 void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev) {
-	for(auto [class_id, subclass, interface, vendor, handler] : quirks) {
-		if(class_id >= 0 && dev->classCode != class_id)
+	for (auto [class_id, subclass, interface, vendor, handler] : quirks) {
+		if (class_id >= 0 && dev->classCode != class_id)
 			continue;
 
-		if(subclass >= 0 && dev->subClass != subclass)
+		if (subclass >= 0 && dev->subClass != subclass)
 			continue;
 
-		if(interface >= 0 && dev->interface != interface)
+		if (interface >= 0 && dev->interface != interface)
 			continue;
 
-		if(vendor >= 0 && dev->vendor != vendor)
+		if (vendor >= 0 && dev->vendor != vendor)
 			continue;
 
 		handler(dev);

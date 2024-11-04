@@ -1,8 +1,8 @@
 #pragma once
 
+#include <deque>
 #include <iostream>
 #include <set>
-#include <deque>
 #include <unordered_map>
 
 #include <async/result.hpp>
@@ -19,7 +19,14 @@ using DeviceId = std::pair<int, int>;
 enum class VfsType {
 	// null means that the file type is undefined in stat().
 	// Avoid using null in favor of a more appropriate type.
-	null, directory, regular, symlink, charDevice, blockDevice, socket, fifo
+	null,
+	directory,
+	regular,
+	symlink,
+	charDevice,
+	blockDevice,
+	socket,
+	fifo
 };
 
 struct FileStats {
@@ -33,7 +40,6 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
-
 // Forward declarations.
 struct FsLink;
 struct FsNode;
@@ -44,10 +50,10 @@ struct FsNode;
 
 // Represents a directory entry on an actual file system (i.e. not in the VFS).
 struct FsLink {
-protected:
+  protected:
 	~FsLink() = default;
 
-public:
+  public:
 	virtual std::shared_ptr<FsNode> getOwner() = 0;
 	virtual std::string getName() = 0;
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
@@ -55,15 +61,15 @@ public:
 };
 
 struct FsSuperblock {
-protected:
+  protected:
 	~FsSuperblock() = default;
 
-public:
+  public:
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) = 0;
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createSocket() = 0;
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
-			rename(FsLink *source, FsNode *directory, std::string name) = 0;
+	rename(FsLink *source, FsNode *directory, std::string name) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -71,15 +77,14 @@ public:
 // ----------------------------------------------------------------------------
 
 struct FsObserver {
-protected:
+  protected:
 	~FsObserver() = default;
 
-public:
+  public:
 	static constexpr uint32_t deleteEvent = 1;
 	static constexpr uint32_t createEvent = 2;
 
-	virtual void observeNotification(uint32_t events,
-			const std::string &name, uint32_t cookie) = 0;
+	virtual void observeNotification(uint32_t events, const std::string &name, uint32_t cookie) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -98,20 +103,18 @@ struct FsNode {
 	static inline constexpr DefaultOps defaultSupportsObservers = 1 << 1;
 
 	// TODO: Remove this constructor once every FS has a superblock.
-	FsNode(DefaultOps default_ops = 0)
-	: _superblock{nullptr}, _defaultOps{default_ops} { }
+	FsNode(DefaultOps default_ops = 0) : _superblock{nullptr}, _defaultOps{default_ops} {}
 
 	FsNode(FsSuperblock *superblock, DefaultOps default_ops = 0)
-	: _superblock{superblock}, _defaultOps{default_ops} { }
+	    : _superblock{superblock},
+	      _defaultOps{default_ops} {}
 
-	FsSuperblock *superblock() {
-		return _superblock;
-	}
+	FsSuperblock *superblock() { return _superblock; }
 
-protected:
+  protected:
 	~FsNode() = default;
 
-public:
+  public:
 	virtual VfsType getType();
 
 	// TODO: This should be async.
@@ -129,22 +132,22 @@ public:
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
 
 	//! Links an existing node to this directory (directories only).
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
-			std::shared_ptr<FsNode> target);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	link(std::string name, std::shared_ptr<FsNode> target);
 
 	//! Creates a new directory (directories only).
-	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name);
+	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>> mkdir(std::string name);
 
 	//! Creates a new symlink (directories only).
 	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path);
 
 	//! Creates a new device file (directories only).
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkdev(std::string name,
-			VfsType type, DeviceId id);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	mkdev(std::string name, VfsType type, DeviceId id);
 
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mkfifo(std::string name, mode_t mode);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	mkfifo(std::string name, mode_t mode);
 
 	virtual async::result<frg::expected<Error>> unlink(std::string name);
 
@@ -152,9 +155,9 @@ public:
 
 	//! Opens the file (regular files only).
 	// TODO: Move this to the link instead of the inode?
-	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags);
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	);
 
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
@@ -167,19 +170,21 @@ public:
 	virtual async::result<Error> chmod(int mode);
 
 	// Changes timestamps on a node
-	virtual async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
+	virtual async::result<Error>
+	utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
 
 	// Creates an socket
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();
-	virtual async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
+	virtual async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
+	traverseLinks(std::deque<std::string> path);
 
-protected:
+  protected:
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);
 
-private:
+  private:
 	FsSuperblock *_superblock;
 	DefaultOps _defaultOps;
 
@@ -194,31 +199,24 @@ private:
 // This class can be used to construct FsLinks for anonymous special files
 // such as epoll, signalfd, timerfd, etc.
 struct SpecialLink final : FsLink, std::enable_shared_from_this<SpecialLink> {
-private:
-	struct PrivateTag { }; // To tag-dispatch to private methods.
+  private:
+	struct PrivateTag {}; // To tag-dispatch to private methods.
 
-public:
+  public:
 	static std::shared_ptr<SpecialLink> makeSpecialLink(VfsType fileType, int mode) {
 		return std::make_shared<SpecialLink>(PrivateTag{}, fileType, mode);
 	}
 
-	SpecialLink(PrivateTag, VfsType fileType, int mode)
-	: fileType_{fileType}, mode_{mode} { }
+	SpecialLink(PrivateTag, VfsType fileType, int mode) : fileType_{fileType}, mode_{mode} {}
 
-public:
-	std::shared_ptr<FsNode> getTarget() override {
-		return {shared_from_this(), &embeddedNode_};
-	}
+  public:
+	std::shared_ptr<FsNode> getTarget() override { return {shared_from_this(), &embeddedNode_}; }
 
-	std::shared_ptr<FsNode> getOwner() override {
-		return nullptr;
-	}
+	std::shared_ptr<FsNode> getOwner() override { return nullptr; }
 
-	std::string getName() override {
-		throw std::runtime_error("SpecialLink has no name");
-	}
+	std::string getName() override { throw std::runtime_error("SpecialLink has no name"); }
 
-private:
+  private:
 	// SpecialLinks can never be linked into "real" file systems,
 	// hence the can only ever be one link per node.
 	struct EmbeddedNode final : FsNode {

@@ -1,18 +1,18 @@
 
 #include <assert.h>
-#include <string.h>
 #include <iostream>
 #include <memory>
+#include <string.h>
 
 #include <arch/mem_space.hpp>
 #include <async/result.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 
-#include "spec.hpp"
 #include "intel.hpp"
+#include "spec.hpp"
 
-struct [[ gnu::packed ]] DisplayData {
+struct [[gnu::packed]] DisplayData {
 	uint8_t magic[8];
 	uint16_t vendorId;
 	uint16_t productId;
@@ -68,34 +68,40 @@ Mode edidToMode(DisplayData edid) {
 	assert(!edid.detailTimings[0].horzBorder);
 	assert(!edid.detailTimings[0].vertBorder);
 
-	auto horz_active = edid.detailTimings[0].horzActive
-			| (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb >> 4) << 8);
-	auto horz_blank = edid.detailTimings[0].horzBlank
-			| (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb & 0xF) << 8);
-	auto horz_sync_offset = edid.detailTimings[0].horzSyncOffset
-			| (static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 6) << 8);
-	auto horz_sync_pulse = edid.detailTimings[0].horzSyncPulse
-			| ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 4) & 0x3) << 8);
+	auto horz_active =
+	    edid.detailTimings[0].horzActive |
+	    (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb >> 4) << 8);
+	auto horz_blank =
+	    edid.detailTimings[0].horzBlank |
+	    (static_cast<unsigned int>(edid.detailTimings[0].horzActiveBlankMsb & 0xF) << 8);
+	auto horz_sync_offset = edid.detailTimings[0].horzSyncOffset |
+	                        (static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 6) << 8);
+	auto horz_sync_pulse =
+	    edid.detailTimings[0].horzSyncPulse |
+	    ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 4) & 0x3) << 8);
 
-	std::cout << "horizontal: " << horz_active << ", " << horz_blank
-			<< ", " << horz_sync_offset << ", " << horz_sync_pulse << std::endl;
+	std::cout << "horizontal: " << horz_active << ", " << horz_blank << ", " << horz_sync_offset
+	          << ", " << horz_sync_pulse << std::endl;
 	mode.horizontal.active = horz_active;
 	mode.horizontal.syncStart = horz_active + horz_sync_offset;
 	mode.horizontal.syncEnd = horz_active + horz_sync_offset + horz_sync_pulse;
 	mode.horizontal.total = horz_active + horz_blank;
 	mode.horizontal.dump();
 
-	auto vert_active =  edid.detailTimings[0].vertActive
-			| (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb >> 4) << 8);
-	auto vert_blank = edid.detailTimings[0].vertBlank
-			| (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb & 0xF) << 8);
-	auto vert_sync_offset = (edid.detailTimings[0].vertSync >> 4)
-			| ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 2) & 0x3) << 4);
-	auto vert_sync_pulse = (edid.detailTimings[0].vertSync & 0xF)
-			| (static_cast<unsigned int>(edid.detailTimings[0].syncMsb & 0x3) << 4);
-	
-	std::cout << "vertical: " << vert_active << ", " << vert_blank
-			<< ", " << vert_sync_offset << ", " << vert_sync_pulse << std::endl;
+	auto vert_active =
+	    edid.detailTimings[0].vertActive |
+	    (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb >> 4) << 8);
+	auto vert_blank =
+	    edid.detailTimings[0].vertBlank |
+	    (static_cast<unsigned int>(edid.detailTimings[0].vertActiveBlankMsb & 0xF) << 8);
+	auto vert_sync_offset =
+	    (edid.detailTimings[0].vertSync >> 4) |
+	    ((static_cast<unsigned int>(edid.detailTimings[0].syncMsb >> 2) & 0x3) << 4);
+	auto vert_sync_pulse = (edid.detailTimings[0].vertSync & 0xF) |
+	                       (static_cast<unsigned int>(edid.detailTimings[0].syncMsb & 0x3) << 4);
+
+	std::cout << "vertical: " << vert_active << ", " << vert_blank << ", " << vert_sync_offset
+	          << ", " << vert_sync_pulse << std::endl;
 	mode.vertical.active = vert_active;
 	mode.vertical.syncStart = vert_active + vert_sync_offset;
 	mode.vertical.syncEnd = vert_active + vert_sync_offset + vert_sync_pulse;
@@ -106,34 +112,34 @@ Mode edidToMode(DisplayData edid) {
 }
 
 bool checkParams(PllParams params, int refclock, PllLimits limits) {
-	if(params.n < limits.n.min || params.n > limits.n.max)
+	if (params.n < limits.n.min || params.n > limits.n.max)
 		return false;
-	if(params.m1 < limits.m1.min || params.m1 > limits.m1.max)
+	if (params.m1 < limits.m1.min || params.m1 > limits.m1.max)
 		return false;
-	if(params.m2 < limits.m2.min || params.m2 > limits.m2.max)
+	if (params.m2 < limits.m2.min || params.m2 > limits.m2.max)
 		return false;
-	if(params.p1 < limits.p1.min || params.p1 > limits.p1.max)
+	if (params.p1 < limits.p1.min || params.p1 > limits.p1.max)
 		return false;
-	
-	if(params.m1 <= params.m2)
+
+	if (params.m1 <= params.m2)
 		return false;
 
 	auto m = params.computeM();
 	auto p = params.computeP();
 
-	if(m < limits.m.min || m > limits.m.max)
+	if (m < limits.m.min || m > limits.m.max)
 		return false;
-	if(p < limits.p.min || p > limits.p.max)
+	if (p < limits.p.min || p > limits.p.max)
 		return false;
 
 	auto dot = params.computeDot(refclock);
 	auto vco = params.computeVco(refclock);
 
-	if(dot < limits.dot.min || dot > limits.dot.max)
+	if (dot < limits.dot.min || dot > limits.dot.max)
 		return false;
-	if(vco < limits.vco.min || dot > limits.vco.max)
+	if (vco < limits.vco.min || dot > limits.vco.max)
 		return false;
-	
+
 	return true;
 }
 
@@ -143,14 +149,14 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 	// TODO: This is fine for G4x.
 	params.p2 = 10;
 
-	for(params.n = limits.n.min; params.n <= limits.n.max; ++params.n) {
-		for(params.m1 = limits.m1.max; params.m1 >= limits.m1.min; --params.m1) {
-			for(params.m2 = limits.m2.max; params.m2 >= limits.m2.min; --params.m2) {
-				for(params.p1 = limits.p1.max; params.p1 >= limits.p1.min; --params.p1) {
-					if(!checkParams(params, refclock, limits))
+	for (params.n = limits.n.min; params.n <= limits.n.max; ++params.n) {
+		for (params.m1 = limits.m1.max; params.m1 >= limits.m1.min; --params.m1) {
+			for (params.m2 = limits.m2.max; params.m2 >= limits.m2.min; --params.m2) {
+				for (params.p1 = limits.p1.max; params.p1 >= limits.p1.min; --params.p1) {
+					if (!checkParams(params, refclock, limits))
 						continue;
 
-					if(params.computeDot(refclock) == target)
+					if (params.computeDot(refclock) == target)
 						return params;
 				}
 			}
@@ -161,23 +167,22 @@ PllParams findParams(int target, int refclock, PllLimits limits) {
 }
 
 int computeSdvoMultiplier(int pixel_clock) {
-	if(pixel_clock >= 100000) {
+	if (pixel_clock >= 100000) {
 		return 1;
-	}else if(pixel_clock >= 50000) {
+	} else if (pixel_clock >= 50000) {
 		return 2;
-	}else{
+	} else {
 		assert(pixel_clock >= 25000);
 		return 4;
 	}
 }
 
 struct Controller {
-	Controller(arch::mem_space ctrl, void *memory)
-	: _ctrl{ctrl}, _memory{memory} { }
+	Controller(arch::mem_space ctrl, void *memory) : _ctrl{ctrl}, _memory{memory} {}
 
 	void run();
 
-private:
+  private:
 	// ------------------------------------------------------------------------
 	// GMBUS functions.
 	// ------------------------------------------------------------------------
@@ -202,14 +207,14 @@ private:
 	void disablePipe();
 	void programPipe(Mode mode);
 	void dumpPipe();
-	
+
 	// ------------------------------------------------------------------------
 	// Plane handling functions.
 	// ------------------------------------------------------------------------
 
 	void disablePlane();
 	void enablePlane(Framebuffer *fb);
-	
+
 	// ------------------------------------------------------------------------
 	// Port handling functions.
 	// ------------------------------------------------------------------------
@@ -223,7 +228,7 @@ private:
 
 	void relinquishVga();
 
-private:
+  private:
 	arch::mem_space _ctrl;
 	void *_memory;
 };
@@ -246,14 +251,14 @@ void Controller::run() {
 	fb.address = 0;
 
 	auto plane = reinterpret_cast<uint32_t *>(_memory);
-	for(size_t x = 0; x < fb.width; x++)
-		for(size_t y = 0; y < fb.height; y++)
+	for (size_t x = 0; x < fb.width; x++)
+		for (size_t y = 0; y < fb.height; y++)
 			plane[y * fb.width + x] = (x / 5) | ((y / 4) << 8);
 
 	// Perform the mode setting.
 	auto multiplier = computeSdvoMultiplier(mode.dot);
 	auto params = findParams(mode.dot * multiplier, 96000, limitsG45);
-	
+
 	disableDac();
 	disablePipe();
 	disableDpll();
@@ -277,8 +282,8 @@ void Controller::i2cWrite(unsigned int address, const void *buffer, size_t size)
 	auto view = reinterpret_cast<const unsigned char *>(buffer);
 	auto stream = [&] {
 		uint32_t data = 0;
-		for(size_t i = 0; i < 4; ++i) {
-			if(progress == size)
+		for (size_t i = 0; i < 4; ++i) {
+			if (progress == size)
 				break;
 			data |= uint32_t{view[progress++]} << (8 * i);
 		}
@@ -287,18 +292,20 @@ void Controller::i2cWrite(unsigned int address, const void *buffer, size_t size)
 
 	// Asymmetry to i2cRead(): We fill the data buffer before issuing the cycle.
 	stream();
-	_ctrl.store(regs::gmbusCommand, gmbus_command::address(address)
-			| gmbus_command::byteCount(size) | gmbus_command::cycleSelect(BusCycle::wait)
-			| gmbus_command::softwareReady(true));
-//	std::cout << "gfx_intel i2c: Wait" << std::endl;
+	_ctrl.store(
+	    regs::gmbusCommand,
+	    gmbus_command::address(address) | gmbus_command::byteCount(size) |
+	        gmbus_command::cycleSelect(BusCycle::wait) | gmbus_command::softwareReady(true)
+	);
+	//	std::cout << "gfx_intel i2c: Wait" << std::endl;
 	_waitForGmbusProgress();
-//	std::cout << "gfx_intel i2c: OK" << std::endl;
+	//	std::cout << "gfx_intel i2c: OK" << std::endl;
 
-	while(progress < size) {
+	while (progress < size) {
 		stream();
 		_waitForGmbusProgress();
 	}
-	
+
 	_waitForGmbusCompletion();
 }
 
@@ -307,22 +314,24 @@ void Controller::i2cRead(unsigned int address, void *buffer, size_t size) {
 	auto view = reinterpret_cast<unsigned char *>(buffer);
 	auto stream = [&] {
 		uint32_t data = _ctrl.load(regs::gmbusData);
-		for(size_t i = 0; i < 4; ++i) {
-			if(progress == size)
+		for (size_t i = 0; i < 4; ++i) {
+			if (progress == size)
 				break;
 			view[progress++] = data >> (8 * i);
 		}
 	};
 
-	_ctrl.store(regs::gmbusCommand, gmbus_command::issueRead(true)
-			| gmbus_command::address(address)
-			| gmbus_command::byteCount(size) | gmbus_command::cycleSelect(BusCycle::wait)
-			| gmbus_command::softwareReady(true));
+	_ctrl.store(
+	    regs::gmbusCommand,
+	    gmbus_command::issueRead(true) | gmbus_command::address(address) |
+	        gmbus_command::byteCount(size) | gmbus_command::cycleSelect(BusCycle::wait) |
+	        gmbus_command::softwareReady(true)
+	);
 
-	while(progress < size) {
-//		std::cout << "gfx_intel i2c: Wait" << std::endl;
+	while (progress < size) {
+		//		std::cout << "gfx_intel i2c: Wait" << std::endl;
 		_waitForGmbusProgress();
-//		std::cout << "gfx_intel i2c: Done" << std::endl;
+		//		std::cout << "gfx_intel i2c: Done" << std::endl;
 		stream();
 	}
 
@@ -330,21 +339,21 @@ void Controller::i2cRead(unsigned int address, void *buffer, size_t size) {
 }
 
 void Controller::_waitForGmbusProgress() {
-	while(true) {
+	while (true) {
 		auto status = _ctrl.load(regs::gmbusStatus);
 		assert(!(status & gmbus_status::nakIndicator));
-		if(status & gmbus_status::hardwareReady)
+		if (status & gmbus_status::hardwareReady)
 			break;
-	}	
+	}
 }
 
 void Controller::_waitForGmbusCompletion() {
-	while(true) {
+	while (true) {
 		auto status = _ctrl.load(regs::gmbusStatus);
 		assert(!(status & gmbus_status::nakIndicator));
-		if(status & gmbus_status::waitPhase)
+		if (status & gmbus_status::waitPhase)
 			break;
-	}	
+	}
 }
 
 // ------------------------------------------------------------------------
@@ -358,46 +367,56 @@ void Controller::disableDpll() {
 }
 
 void Controller::programDpll(PllParams params, int multiplier) {
-	_ctrl.store(regs::pllDivisor1, pll_divisor::m2(params.m2)
-			| pll_divisor::m1(params.m1) | pll_divisor::n(params.n));
-	_ctrl.store(regs::pllDivisor2, pll_divisor::m2(params.m2)
-			| pll_divisor::m1(params.m1) | pll_divisor::n(params.n));
-	
+	_ctrl.store(
+	    regs::pllDivisor1,
+	    pll_divisor::m2(params.m2) | pll_divisor::m1(params.m1) | pll_divisor::n(params.n)
+	);
+	_ctrl.store(
+	    regs::pllDivisor2,
+	    pll_divisor::m2(params.m2) | pll_divisor::m1(params.m1) | pll_divisor::n(params.n)
+	);
+
 	_ctrl.store(regs::pllControl, pll_control::enablePll(false));
 
-	_ctrl.store(regs::pllControl, pll_control::phase(6)
-			| pll_control::encodedP1(1 << (params.p1 - 1))
-			| pll_control::modeSelect(1) | pll_control::disableVga(true)
-			| pll_control::enablePll(true));
+	_ctrl.store(
+	    regs::pllControl,
+	    pll_control::phase(6) | pll_control::encodedP1(1 << (params.p1 - 1)) |
+	        pll_control::modeSelect(1) | pll_control::disableVga(true) |
+	        pll_control::enablePll(true)
+	);
 	_ctrl.load(regs::pllControl);
 
 	uint64_t ticks, now;
 	HEL_CHECK(helGetClock(&ticks));
 	do {
 		HEL_CHECK(helGetClock(&now));
-	} while(now - ticks <= 150000);
-	
-	std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll)
-			<< std::endl;
+	} while (now - ticks <= 150000);
 
-	_ctrl.store(regs::busMultiplier, bus_multiplier::vgaMultiplier(multiplier - 1)
-			| bus_multiplier::dacMultiplier(multiplier - 1));
-	
-	for(int i = 0; i < 3; i++) {
-		_ctrl.store(regs::pllControl, pll_control::phase(6)
-				| pll_control::encodedP1(1 << (params.p1 - 1))
-				| pll_control::modeSelect(1) | pll_control::disableVga(true)
-				| pll_control::enablePll(true));
+	std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll) << std::endl;
+
+	_ctrl.store(
+	    regs::busMultiplier,
+	    bus_multiplier::vgaMultiplier(multiplier - 1) |
+	        bus_multiplier::dacMultiplier(multiplier - 1)
+	);
+
+	for (int i = 0; i < 3; i++) {
+		_ctrl.store(
+		    regs::pllControl,
+		    pll_control::phase(6) | pll_control::encodedP1(1 << (params.p1 - 1)) |
+		        pll_control::modeSelect(1) | pll_control::disableVga(true) |
+		        pll_control::enablePll(true)
+		);
 		_ctrl.load(regs::pllControl);
 
 		uint64_t ticks, now;
 		HEL_CHECK(helGetClock(&ticks));
 		do {
 			HEL_CHECK(helGetClock(&now));
-		} while(now - ticks <= 150000);
-	
+		} while (now - ticks <= 150000);
+
 		std::cout << "State: " << (_ctrl.load(regs::pllControl) & pll_control::enablePll)
-				<< std::endl;
+		          << std::endl;
 	}
 }
 
@@ -405,9 +424,9 @@ void Controller::dumpDpll() {
 	auto control = _ctrl.load(regs::pllControl);
 	auto divisor1 = _ctrl.load(regs::pllDivisor1);
 
-	if(control & pll_control::enablePll) {
+	if (control & pll_control::enablePll) {
 		std::cout << "gfx_intel: DPLL is running." << std::endl;
-	}else{
+	} else {
 		std::cout << "gfx_intel: DPLL is disabled." << std::endl;
 	}
 
@@ -430,10 +449,10 @@ void Controller::disablePipe() {
 	assert(bits & pipe_config::enablePipe);
 	assert(bits & pipe_config::pipeStatus);
 	_ctrl.store(regs::pipeConfig, bits & ~pipe_config::enablePipe);
-	
-	std::cout << "After disable: " << (_ctrl.load(regs::pipeConfig)
-			& pipe_config::pipeStatus) << std::endl;
-	while(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus) {
+
+	std::cout << "After disable: " << (_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus)
+	          << std::endl;
+	while (_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus) {
 		// Busy wait until the pipe is shut off.
 	}
 
@@ -442,30 +461,47 @@ void Controller::disablePipe() {
 
 void Controller::programPipe(Mode mode) {
 	// Program the display timings.
-	_ctrl.store(regs::htotal, hvtotal::active(mode.horizontal.active - 1)
-			| hvtotal::total(mode.horizontal.total - 1));
-	_ctrl.store(regs::hblank, hvblank::start(mode.horizontal.blankingStart() - 1)
-			| hvblank::end(mode.horizontal.blankingEnd() - 1));
-	_ctrl.store(regs::hsync, hvsync::start(mode.horizontal.syncStart - 1)
-			| hvsync::end(mode.horizontal.syncEnd - 1));
-	
-	_ctrl.store(regs::vtotal, hvtotal::active(mode.vertical.active - 1)
-			| hvtotal::total(mode.vertical.total - 1));
-	_ctrl.store(regs::vblank, hvblank::start(mode.vertical.blankingStart() - 1)
-			| hvblank::end(mode.vertical.blankingEnd() - 1));
-	_ctrl.store(regs::vsync, hvsync::start(mode.vertical.syncStart - 1)
-			| hvsync::end(mode.vertical.syncEnd - 1));
-	
-	_ctrl.store(regs::sourceSize, source_size::vertical(mode.vertical.active - 1)
-			| source_size::horizontal(mode.horizontal.active - 1));
-	
+	_ctrl.store(
+	    regs::htotal,
+	    hvtotal::active(mode.horizontal.active - 1) | hvtotal::total(mode.horizontal.total - 1)
+	);
+	_ctrl.store(
+	    regs::hblank,
+	    hvblank::start(mode.horizontal.blankingStart() - 1) |
+	        hvblank::end(mode.horizontal.blankingEnd() - 1)
+	);
+	_ctrl.store(
+	    regs::hsync,
+	    hvsync::start(mode.horizontal.syncStart - 1) | hvsync::end(mode.horizontal.syncEnd - 1)
+	);
+
+	_ctrl.store(
+	    regs::vtotal,
+	    hvtotal::active(mode.vertical.active - 1) | hvtotal::total(mode.vertical.total - 1)
+	);
+	_ctrl.store(
+	    regs::vblank,
+	    hvblank::start(mode.vertical.blankingStart() - 1) |
+	        hvblank::end(mode.vertical.blankingEnd() - 1)
+	);
+	_ctrl.store(
+	    regs::vsync,
+	    hvsync::start(mode.vertical.syncStart - 1) | hvsync::end(mode.vertical.syncEnd - 1)
+	);
+
+	_ctrl.store(
+	    regs::sourceSize,
+	    source_size::vertical(mode.vertical.active - 1) |
+	        source_size::horizontal(mode.horizontal.active - 1)
+	);
+
 	// Enable the pipe.
 	auto bits = _ctrl.load(regs::pipeConfig);
 	assert(!(bits & pipe_config::enablePipe));
 	assert(!(bits & pipe_config::pipeStatus));
 	_ctrl.store(regs::pipeConfig, bits | pipe_config::enablePipe(true));
-	
-	while(!(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus)) {
+
+	while (!(_ctrl.load(regs::pipeConfig) & pipe_config::pipeStatus)) {
 		// Busy wait until the pipe is ready.
 	}
 
@@ -492,11 +528,11 @@ void Controller::dumpPipe() {
 	vertical.total = (vtotal & hvtotal::total) + 1;
 
 	horizontal.dump();
-	std::cout << ((hblank & hvblank::start) + 1)
-			<< ", " << ((hblank & hvblank::end) + 1) << std::endl;
+	std::cout << ((hblank & hvblank::start) + 1) << ", " << ((hblank & hvblank::end) + 1)
+	          << std::endl;
 	vertical.dump();
-	std::cout << ((vblank & hvblank::start) + 1)
-			<< ", " << ((vblank & hvblank::end) + 1) << std::endl;
+	std::cout << ((vblank & hvblank::start) + 1) << ", " << ((vblank & hvblank::end) + 1)
+	          << std::endl;
 }
 
 // ------------------------------------------------------------------------
@@ -518,9 +554,11 @@ void Controller::enablePlane(Framebuffer *fb) {
 	auto bits = _ctrl.load(regs::planeControl);
 	std::cout << "Plane control: " << static_cast<uint32_t>(bits) << std::endl;
 	assert(!(bits & plane_control::enablePlane));
-	_ctrl.store(regs::planeControl, (bits & ~plane_control::pixelFormat)
-			| plane_control::pixelFormat(PrimaryFormat::RGBX8888)
-			| plane_control::enablePlane(true));
+	_ctrl.store(
+	    regs::planeControl,
+	    (bits & ~plane_control::pixelFormat) | plane_control::pixelFormat(PrimaryFormat::RGBX8888) |
+	        plane_control::enablePlane(true)
+	);
 }
 
 // ------------------------------------------------------------------------
@@ -547,8 +585,9 @@ void Controller::enableDac() {
 void Controller::relinquishVga() {
 	auto bits = _ctrl.load(regs::vgaControl);
 	assert(!(bits & vga_control::disableVga));
-	_ctrl.store(regs::vgaControl, (bits & ~vga_control::centeringMode)
-			| vga_control::disableVga(true));
+	_ctrl.store(
+	    regs::vgaControl, (bits & ~vga_control::centeringMode) | vga_control::disableVga(true)
+	);
 }
 
 // ----------------------------------------------------------------
@@ -564,25 +603,36 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 	assert(!info.barInfo[2].offset);
 	auto ctrl_bar = co_await device.accessBar(0);
 	auto memory_bar = co_await device.accessBar(2);
-//	auto irq = co_await device.accessIrq();
-	
+	//	auto irq = co_await device.accessIrq();
+
 	void *ctrl_window, *memory_window;
-	HEL_CHECK(helMapMemory(ctrl_bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x8'0000, kHelMapProtRead | kHelMapProtWrite,
-			&ctrl_window));
-	HEL_CHECK(helMapMemory(memory_bar.getHandle(), kHelNullHandle, nullptr,
-			0, 0x1000'0000, kHelMapProtRead | kHelMapProtWrite,
-			&memory_window));
+	HEL_CHECK(helMapMemory(
+	    ctrl_bar.getHandle(),
+	    kHelNullHandle,
+	    nullptr,
+	    0,
+	    0x8'0000,
+	    kHelMapProtRead | kHelMapProtWrite,
+	    &ctrl_window
+	));
+	HEL_CHECK(helMapMemory(
+	    memory_bar.getHandle(),
+	    kHelNullHandle,
+	    nullptr,
+	    0,
+	    0x1000'0000,
+	    kHelMapProtRead | kHelMapProtWrite,
+	    &memory_window
+	));
 
 	Controller controller{arch::mem_space(ctrl_window), memory_window};
 	controller.run();
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"pci-vendor", "8086"},
-		mbus_ng::EqualsFilter{"pci-device", "2e32"}
-	}};
+	auto filter = mbus_ng::Conjunction{
+	    {mbus_ng::EqualsFilter{"pci-vendor", "8086"}, mbus_ng::EqualsFilter{"pci-device", "2e32"}}
+	};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -609,4 +659,3 @@ int main() {
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);
 }
- 

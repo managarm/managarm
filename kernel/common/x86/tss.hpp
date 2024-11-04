@@ -21,12 +21,12 @@ struct Tss64 {
 	uint16_t ioMapOffset;
 	uint8_t ioBitmap[8192];
 	uint8_t ioAllOnes;
-} __attribute__ (( packed ));
+} __attribute__((packed));
 
 inline void initializeTss64(Tss64 *tss) {
 	tss->ioMapOffset = __builtin_offsetof(Tss64, ioBitmap);
 
-	for(int i = 0; i < 8192; i++)
+	for (int i = 0; i < 8192; i++)
 		tss->ioBitmap[i] = 0xFF;
 	tss->ioAllOnes = 0xFF;
 }

@@ -2,8 +2,8 @@
 
 #include <arch/dma_pool.hpp>
 #include <async/oneshot-event.hpp>
-#include <smarter.hpp>
 #include <protocols/usb/client.hpp>
+#include <smarter.hpp>
 #include <span>
 #include <termios.h>
 #include <unistd.h>
@@ -11,23 +11,31 @@
 namespace {
 
 [[maybe_unused]]
-async::result<void> transferControl(protocols::usb::Device &device, arch::contiguous_pool &pool,
-		bool read, uint8_t request, uint16_t value, uint16_t interface, arch::dma_buffer_view buf) {
+async::result<void> transferControl(
+    protocols::usb::Device &device,
+    arch::contiguous_pool &pool,
+    bool read,
+    uint8_t request,
+    uint16_t value,
+    uint16_t interface,
+    arch::dma_buffer_view buf
+) {
 	arch::dma_object<protocols::usb::SetupPacket> ctrl_msg{&pool};
-	ctrl_msg->type = protocols::usb::setup_type::byVendor |
-					(read ? protocols::usb::setup_type::toHost : protocols::usb::setup_type::toDevice);
+	ctrl_msg->type =
+	    protocols::usb::setup_type::byVendor |
+	    (read ? protocols::usb::setup_type::toHost : protocols::usb::setup_type::toDevice);
 	ctrl_msg->request = uint8_t(request);
 	ctrl_msg->value = value;
 	ctrl_msg->index = interface;
 	ctrl_msg->length = buf.size();
 
-	(co_await device.transfer(
-		protocols::usb::ControlTransfer{(read ? protocols::usb::kXferToHost : protocols::usb::kXferToDevice),
-		ctrl_msg, buf})
-	).unwrap();
+	(co_await device.transfer(protocols::usb::ControlTransfer{
+	     (read ? protocols::usb::kXferToHost : protocols::usb::kXferToDevice), ctrl_msg, buf
+	 }))
+	    .unwrap();
 }
 
-}
+} // namespace
 
 struct Controller {
 	Controller(protocols::usb::Device hw);
@@ -41,9 +49,7 @@ struct Controller {
 
 	async::detached flushSends();
 
-	protocols::usb::Device &hw() {
-		return hw_;
-	}
+	protocols::usb::Device &hw() { return hw_; }
 
 	struct termios activeSettings = {};
 	bool nonBlock_;
@@ -53,7 +59,9 @@ struct Controller {
 
 struct WriteRequest {
 	WriteRequest(std::span<const uint8_t> buffer, Controller *controller)
-	: buffer(buffer), progress(0), controller{controller} { }
+	    : buffer(buffer),
+	      progress(0),
+	      controller{controller} {}
 
 	std::span<const uint8_t> buffer;
 	size_t progress;

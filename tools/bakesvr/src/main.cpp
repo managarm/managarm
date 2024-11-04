@@ -1,10 +1,10 @@
 #include <CLI/App.hpp>
-#include <CLI/Formatter.hpp>
 #include <CLI/Config.hpp>
+#include <CLI/Formatter.hpp>
 #include <string>
+#include <svrctl.bragi.hpp>
 #include <vector>
 #include <yaml-cpp/yaml.h>
-#include <svrctl.bragi.hpp>
 
 int main(int argc, char **argv) {
 	std::string input{};
@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 	managarm::svrctl::Description data{};
 	data.set_name(config["name"].as<std::string>());
 	data.set_exec(config["exec"].as<std::string>());
-	for(size_t i = 0; i < config["files"].size(); i++) {
+	for (size_t i = 0; i < config["files"].size(); i++) {
 		managarm::svrctl::File f{};
 		f.set_path(config["files"][i].as<std::string>());
 		data.add_files(f);

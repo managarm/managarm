@@ -4,32 +4,32 @@
 #include <assert.h>
 #include <cstdint>
 #include <cstring>
-#include <string>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace protocols::usb {
 
 namespace setup_type {
-	enum : uint8_t {
-		// The first 5 bits specify the target of the request.
-		targetMask = 0x1F,
-		targetDevice = 0x00,
-		targetInterface = 0x01,
-		targetEndpoint = 0x02,
-		targetOther = 0x03,
+enum : uint8_t {
+	// The first 5 bits specify the target of the request.
+	targetMask = 0x1F,
+	targetDevice = 0x00,
+	targetInterface = 0x01,
+	targetEndpoint = 0x02,
+	targetOther = 0x03,
 
-		// The next 2 bits determine the document that specifies the request.
-		specificationMask = 0x60,
-		byStandard = 0x00,
-		byClass = 0x20,
-		byVendor = 0x40,
+	// The next 2 bits determine the document that specifies the request.
+	specificationMask = 0x60,
+	byStandard = 0x00,
+	byClass = 0x20,
+	byVendor = 0x40,
 
-		// The last bit specifies the transfer direction.
-		directionMask = 0x80,
-		toDevice = 0x00,
-		toHost = 0x80
-	};
+	// The last bit specifies the transfer direction.
+	directionMask = 0x80,
+	toDevice = 0x00,
+	toHost = 0x80
+};
 }
 
 // Alignment makes sure that a packet doesnt cross a page boundary
@@ -43,73 +43,72 @@ struct alignas(8) SetupPacket {
 static_assert(sizeof(SetupPacket) == 8, "Bad SetupPacket size");
 
 namespace request_type {
-	enum : uint8_t {
-		getStatus = 0x00,
-		clearFeature = 0x01,
-		setFeature = 0x03,
-		setAddress = 0x05,
-		getDescriptor = 0x06,
-		setDescriptor = 0x07,
-		getConfig = 0x08,
-		setConfig = 0x09,
-		setInterface = 0x0B,
+enum : uint8_t {
+	getStatus = 0x00,
+	clearFeature = 0x01,
+	setFeature = 0x03,
+	setAddress = 0x05,
+	getDescriptor = 0x06,
+	setDescriptor = 0x07,
+	getConfig = 0x08,
+	setConfig = 0x09,
+	setInterface = 0x0B,
 
-		// TODO: Move non-standard features to some other location.
-		getReport = 0x01
-	};
+	// TODO: Move non-standard features to some other location.
+	getReport = 0x01
+};
 }
 
 namespace features {
-	enum : uint8_t {
-		endpointHalt = 0x00,
-		deviceRemoteWakeup = 0x01,
-		testMode = 0x02,
-	};
+enum : uint8_t {
+	endpointHalt = 0x00,
+	deviceRemoteWakeup = 0x01,
+	testMode = 0x02,
+};
 }
 
 namespace descriptor_type {
-	enum : uint16_t {
-		device = 0x01,
-		configuration = 0x02,
-		string = 0x03,
-		interface = 0x04,
-		endpoint = 0x05,
+enum : uint16_t {
+	device = 0x01,
+	configuration = 0x02,
+	string = 0x03,
+	interface = 0x04,
+	endpoint = 0x05,
 
-		// TODO: Put non-standard descriptors somewhere else.
-		hid = 0x21,
-		report = 0x22,
-		cs_interface = 0x24,
-		cs_endpoint = 0x25,
-	};
+	// TODO: Put non-standard descriptors somewhere else.
+	hid = 0x21,
+	report = 0x22,
+	cs_interface = 0x24,
+	cs_endpoint = 0x25,
+};
 }
 
 namespace usb_class {
-	enum : uint8_t {
-		per_interface = 0x00,
-		cdc = 0x02,
-		hid = 0x03,
-		mass_storage = 0x08,
-		cdc_data = 0x0A,
-		vendor_specific = 0xFF,
-	};
+enum : uint8_t {
+	per_interface = 0x00,
+	cdc = 0x02,
+	hid = 0x03,
+	mass_storage = 0x08,
+	cdc_data = 0x0A,
+	vendor_specific = 0xFF,
+};
 } // namespace usb_class
 
 namespace cdc_subclass {
-	enum : uint8_t {
-		reserved = 0x00,
-		ethernet = 0x06,
-		ncm = 0x0D,
-		mbim = 0x0E,
-		vendor_specific = 0xFF,
-	};
+enum : uint8_t {
+	reserved = 0x00,
+	ethernet = 0x06,
+	ncm = 0x0D,
+	mbim = 0x0E,
+	vendor_specific = 0xFF,
+};
 } // namespace cdc_subclass
 
 struct DescriptorBase {
 	uint8_t length;
 	uint8_t descriptorType;
 
-	template<typename T>
-	static T from_vec(std::string &vec) {
+	template <typename T> static T from_vec(std::string &vec) {
 		T c;
 		assert(vec.size() >= sizeof(c));
 		std::memcpy(&c, vec.data(), sizeof(c));
@@ -135,10 +134,10 @@ struct DeviceDescriptor : public DescriptorBase {
 	uint8_t serialNumber;
 	uint8_t numConfigs;
 };
-//FIXME: remove alignas
-//static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");
+// FIXME: remove alignas
+// static_assert(sizeof(DeviceDescriptor) == 18, "Bad DeviceDescriptor size");
 
-struct [[ gnu::packed ]] ConfigDescriptor : public DescriptorBase {
+struct [[gnu::packed]] ConfigDescriptor : public DescriptorBase {
 	uint16_t totalLength;
 	uint8_t numInterfaces;
 	uint8_t configValue;
@@ -253,22 +252,16 @@ struct [[gnu::packed]] CdcMbimExtended : public CdcDescriptor {
 	uint16_t wMTU;
 };
 
-struct [[ gnu::packed ]] EndpointDescriptor : public DescriptorBase {
+struct [[gnu::packed]] EndpointDescriptor : public DescriptorBase {
 	uint8_t endpointAddress;
 	uint8_t attributes;
 	uint16_t maxPacketSize;
 	uint8_t interval;
 };
 
-enum class EndpointType {
-	control = 0,
-	isochronous,
-	bulk,
-	interrupt
-};
+enum class EndpointType { control = 0, isochronous, bulk, interrupt };
 
-template<typename F>
-void walkConfiguration(std::string buffer, F functor) {
+template <typename F> void walkConfiguration(std::string buffer, F functor) {
 	struct {
 		std::optional<int> configNumber;
 		std::optional<int> interfaceNumber;
@@ -280,11 +273,11 @@ void walkConfiguration(std::string buffer, F functor) {
 
 	auto p = &buffer[0];
 	auto limit = &buffer[0] + buffer.size();
-	while(p < limit) {
+	while (p < limit) {
 		auto base = (DescriptorBase *)p;
 		p += base->length;
 
-		if(base->descriptorType == descriptor_type::configuration) {
+		if (base->descriptorType == descriptor_type::configuration) {
 			auto desc = (ConfigDescriptor *)base;
 			assert(desc->length == sizeof(ConfigDescriptor));
 
@@ -293,7 +286,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceAlternative = std::nullopt;
 			info.endpointNumber = std::nullopt;
 			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::interface) {
+		} else if (base->descriptorType == descriptor_type::interface) {
 			auto desc = (InterfaceDescriptor *)base;
 			assert(desc->length == sizeof(InterfaceDescriptor));
 
@@ -301,7 +294,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.interfaceAlternative = desc->alternateSetting;
 			info.endpointNumber = std::nullopt;
 			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::endpoint) {
+		} else if (base->descriptorType == descriptor_type::endpoint) {
 			auto desc = (EndpointDescriptor *)base;
 			assert(desc->length == sizeof(EndpointDescriptor));
 

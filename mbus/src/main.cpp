@@ -1,25 +1,25 @@
 
+#include <algorithm>
 #include <assert.h>
 #include <format>
+#include <iostream>
+#include <memory>
+#include <queue>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/auxv.h>
-#include <algorithm>
-#include <iostream>
-#include <memory>
 #include <unordered_map>
 #include <unordered_set>
-#include <queue>
 #include <variant>
 #include <vector>
 
 #include <frg/rbtree.hpp>
 
 #include <async/oneshot-event.hpp>
-#include <async/sequenced-event.hpp>
-#include <async/result.hpp>
 #include <async/queue.hpp>
+#include <async/result.hpp>
+#include <async/sequenced-event.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -33,26 +33,27 @@
 // --------------------------------------------------------
 
 struct Entity {
-	explicit Entity(int64_t id, uint64_t seq, std::string name,
-			std::unordered_map<std::string, mbus_ng::AnyItem> properties)
-	: _id{id}, _seq{seq}, _name{name}, _properties{std::move(properties)} { }
+	explicit Entity(
+	    int64_t id,
+	    uint64_t seq,
+	    std::string name,
+	    std::unordered_map<std::string, mbus_ng::AnyItem> properties
+	)
+	    : _id{id},
+	      _seq{seq},
+	      _name{name},
+	      _properties{std::move(properties)} {}
 
-	int64_t id() const {
-		return _id;
-	}
+	int64_t id() const { return _id; }
 
-	uint64_t seq() const {
-		return _seq;
-	}
+	uint64_t seq() const { return _seq; }
 
 	void updateSeq(uint64_t val) {
 		assert(val > _seq);
 		_seq = val;
 	}
 
-	const std::string &name() const & {
-		return _name;
-	}
+	const std::string &name() const & { return _name; }
 
 	const std::unordered_map<std::string, mbus_ng::AnyItem> &getProperties() const {
 		return _properties;
@@ -71,7 +72,8 @@ struct Entity {
 	async::result<helix::UniqueDescriptor> bind();
 
 	frg::rbtree_hook seqNode;
-private:
+
+  private:
 	int64_t _id;
 	uint64_t _seq;
 	std::string _name;
@@ -86,9 +88,7 @@ private:
 };
 
 struct EntitySeqLess {
-	bool operator()(const Entity &a, const Entity &b) {
-		return a.seq() < b.seq();
-	}
+	bool operator()(const Entity &a, const Entity &b) { return a.seq() < b.seq(); }
 };
 
 async::result<helix::UniqueDescriptor> Entity::bind() {
@@ -103,20 +103,17 @@ struct EqualsFilter;
 struct Conjunction;
 struct Disjunction;
 
-using AnyFilter = std::variant<
-	EqualsFilter,
-	Conjunction,
-	Disjunction
->;
+using AnyFilter = std::variant<EqualsFilter, Conjunction, Disjunction>;
 
 struct EqualsFilter {
 	explicit EqualsFilter(std::string property, std::string value)
-	: _property(std::move(property)), _value{mbus_ng::StringItem{std::move(value)}} { }
+	    : _property(std::move(property)),
+	      _value{mbus_ng::StringItem{std::move(value)}} {}
 
 	std::string getProperty() const { return _property; }
 	mbus_ng::AnyItem getValue() const { return _value; }
 
-private:
+  private:
 	std::string _property;
 	mbus_ng::AnyItem _value;
 };
@@ -126,7 +123,7 @@ struct Conjunction {
 
 	const std::vector<AnyFilter> &getOperands() const;
 
-private:
+  private:
 	std::vector<AnyFilter> operands_;
 };
 
@@ -135,59 +132,52 @@ struct Disjunction {
 
 	const std::vector<AnyFilter> &getOperands() const;
 
-private:
+  private:
 	std::vector<AnyFilter> operands_;
 };
 
-Conjunction::Conjunction(std::vector<AnyFilter> operands)
-	: operands_{std::move(operands)} {
+Conjunction::Conjunction(std::vector<AnyFilter> operands) : operands_{std::move(operands)} {}
 
-}
+const std::vector<AnyFilter> &Conjunction::getOperands() const { return operands_; }
 
-const std::vector<AnyFilter> &Conjunction::getOperands() const {
-	return operands_;
-}
+Disjunction::Disjunction(std::vector<AnyFilter> operands) : operands_{std::move(operands)} {}
 
-Disjunction::Disjunction(std::vector<AnyFilter> operands)
-	: operands_{std::move(operands)} {
-
-}
-
-const std::vector<AnyFilter> &Disjunction::getOperands() const {
-	return operands_;
-}
+const std::vector<AnyFilter> &Disjunction::getOperands() const { return operands_; }
 
 static bool matchesFilter(const Entity *entity, const AnyFilter &filter) {
-	if(auto real = std::get_if<EqualsFilter>(&filter); real) {
+	if (auto real = std::get_if<EqualsFilter>(&filter); real) {
 		auto &properties = entity->getProperties();
 		auto it = properties.find(real->getProperty());
-		if(it == properties.end())
+		if (it == properties.end())
 			return false;
-		if(std::holds_alternative<mbus_ng::StringItem>(real->getValue()) &&
-				std::holds_alternative<mbus_ng::StringItem>(it->second)) {
-			return std::get<mbus_ng::StringItem>(it->second).value == std::get<mbus_ng::StringItem>(real->getValue()).value;
+		if (std::holds_alternative<mbus_ng::StringItem>(real->getValue()) &&
+		    std::holds_alternative<mbus_ng::StringItem>(it->second)) {
+			return std::get<mbus_ng::StringItem>(it->second).value ==
+			       std::get<mbus_ng::StringItem>(real->getValue()).value;
 		} else {
-			std::cout << std::format("mbus: unhandled types in item matching: {} vs {}\n",
-				real->getValue().index(), it->second.index());
+			std::cout << std::format(
+			    "mbus: unhandled types in item matching: {} vs {}\n",
+			    real->getValue().index(),
+			    it->second.index()
+			);
 			return false;
 		}
-	}else if(auto real = std::get_if<Conjunction>(&filter); real) {
+	} else if (auto real = std::get_if<Conjunction>(&filter); real) {
 		auto &operands = real->getOperands();
-		return std::all_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
+		return std::all_of(operands.begin(), operands.end(), [&](const AnyFilter &operand) {
 			return matchesFilter(entity, operand);
 		});
-	}else if(auto real = std::get_if<Disjunction>(&filter); real) {
+	} else if (auto real = std::get_if<Disjunction>(&filter); real) {
 		auto &operands = real->getOperands();
-		return std::any_of(operands.begin(), operands.end(), [&] (const AnyFilter &operand) {
+		return std::any_of(operands.begin(), operands.end(), [&](const AnyFilter &operand) {
 			return matchesFilter(entity, operand);
 		});
-	}else{
+	} else {
 		throw std::runtime_error("Unexpected filter");
 	}
 
 	return false;
 }
-
 
 std::unordered_map<int64_t, std::shared_ptr<Entity>> allEntities;
 int64_t nextEntityId = 1;
@@ -197,42 +187,38 @@ int64_t nextEntityId = 1;
 //               we'll need to protect this tree with an async::mutex if we ever want to make mbus
 //               multithreaded (to prevent concurrent update & traversal).
 async::sequenced_event globalSeq;
-using EntitySeqTree = frg::rbtree<
-	Entity,
-	&Entity::seqNode,
-	EntitySeqLess
->;
+using EntitySeqTree = frg::rbtree<Entity, &Entity::seqNode, EntitySeqLess>;
 EntitySeqTree entitySeqTree;
 
 std::shared_ptr<Entity> getEntityById(int64_t id) {
 	auto it = allEntities.find(id);
-	if(it == allEntities.end())
+	if (it == allEntities.end())
 		return nullptr;
 	return it->second;
 }
 
 static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
-	switch(protoFilter.type()) {
-		case managarm::mbus::FilterType::EQUALS: {
-			return EqualsFilter{protoFilter.path(), protoFilter.value()};
+	switch (protoFilter.type()) {
+	case managarm::mbus::FilterType::EQUALS: {
+		return EqualsFilter{protoFilter.path(), protoFilter.value()};
+	}
+	case managarm::mbus::FilterType::CONJUNCTION: {
+		std::vector<AnyFilter> operands;
+		for (auto &op : protoFilter.operands()) {
+			operands.push_back(decodeFilter(op));
 		}
-		case managarm::mbus::FilterType::CONJUNCTION: {
-			std::vector<AnyFilter> operands;
-			for(auto &op : protoFilter.operands()) {
-				operands.push_back(decodeFilter(op));
-			}
-			return Conjunction{operands};
+		return Conjunction{operands};
+	}
+	case managarm::mbus::FilterType::DISJUNCTION: {
+		std::vector<AnyFilter> operands;
+		for (auto &op : protoFilter.operands()) {
+			operands.push_back(decodeFilter(op));
 		}
-		case managarm::mbus::FilterType::DISJUNCTION: {
-			std::vector<AnyFilter> operands;
-			for(auto &op : protoFilter.operands()) {
-				operands.push_back(decodeFilter(op));
-			}
-			return Disjunction{operands};
-		}
-		default: {
-			throw std::runtime_error("Unexpected filter type");
-		}
+		return Disjunction{operands};
+	}
+	default: {
+		throw std::runtime_error("Unexpected filter type");
+	}
 	}
 }
 
@@ -244,11 +230,9 @@ tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyF
 	// Find the first entity with an interesting seq number.
 	auto cur = entitySeqTree.get_root();
 	while (cur) {
-		if (auto left = EntitySeqTree::get_left(cur);
-				left && left->seq() >= inSeq) {
+		if (auto left = EntitySeqTree::get_left(cur); left && left->seq() >= inSeq) {
 			cur = left;
-		} else if (auto right = EntitySeqTree::get_right(cur);
-				right && cur->seq() != inSeq) {
+		} else if (auto right = EntitySeqTree::get_right(cur); right && cur->seq() != inSeq) {
 			cur = right;
 		} else {
 			break;
@@ -261,12 +245,13 @@ tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyF
 	for (; cur; cur = EntitySeqTree::successor(cur)) {
 		assert(cur->seq() >= inSeq);
 		// The client doesn't want to see this.
-		if (!matchesFilter(cur, filter)) continue;
+		if (!matchesFilter(cur, filter))
+			continue;
 
 		managarm::mbus::Entity protoEntity;
 		protoEntity.set_id(cur->id());
 		protoEntity.set_name(cur->name());
-		for(auto kv : cur->getProperties()) {
+		for (auto kv : cur->getProperties()) {
 			managarm::mbus::Property prop;
 			prop.set_name(kv.first);
 			prop.set_item(mbus_ng::encodeItem(kv.second));
@@ -295,10 +280,10 @@ async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyF
 
 	uint64_t curSeq = inSeq;
 
-	while(true) {
+	while (true) {
 		auto [outSeq, actualSeq] = co_await tryEnumerate(resp, curSeq, filter);
 
-		if(!resp.entities().empty()) {
+		if (!resp.entities().empty()) {
 			// At least one entity was added into our response
 			resp.set_out_seq(outSeq);
 			resp.set_actual_seq(actualSeq);
@@ -310,11 +295,9 @@ async::detached doEnumerate(helix::UniqueLane conversation, uint64_t inSeq, AnyF
 		}
 	}
 
-	auto [sendResp, sendTail] =
-		co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
-		);
+	auto [sendResp, sendTail] = co_await helix_ng::exchangeMsgs(
+	    conversation, helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+	);
 	HEL_CHECK(sendResp.error());
 	HEL_CHECK(sendTail.error());
 }
@@ -325,24 +308,19 @@ async::detached doGetRemoteLane(helix::UniqueLane conversation, std::shared_ptr<
 	managarm::mbus::GetRemoteLaneResponse resp;
 	resp.set_error(managarm::mbus::Error::SUCCESS);
 
-	auto [sendResp, pushLane] =
-		co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::pushDescriptor(remoteLane)
-		);
+	auto [sendResp, pushLane] = co_await helix_ng::exchangeMsgs(
+	    conversation,
+	    helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+	    helix_ng::pushDescriptor(remoteLane)
+	);
 	HEL_CHECK(sendResp.error());
 	HEL_CHECK(pushLane.error());
 }
 
 async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> entity) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
+	while (true) {
+		auto [accept, recvHead] =
+		    co_await helix_ng::exchangeMsgs(lane, helix_ng::accept(helix_ng::recvInline()));
 
 		// TODO(qookie): Destroy the entity once the lane is closed.
 		HEL_CHECK(accept.error());
@@ -353,15 +331,12 @@ async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> en
 		auto preamble = bragi::read_preamble(recvHead);
 		assert(!preamble.error());
 
-		if(preamble.id() == bragi::message_id<managarm::mbus::ServeRemoteLaneRequest>) {
+		if (preamble.id() == bragi::message_id<managarm::mbus::ServeRemoteLaneRequest>) {
 			/* Don't care about the request contents */
 			recvHead.reset();
 
 			auto [pullLane] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::pullDescriptor()
-				);
+			    co_await helix_ng::exchangeMsgs(conversation, helix_ng::pullDescriptor());
 			HEL_CHECK(pullLane.error());
 
 			co_await entity->submitRemoteLane(pullLane.descriptor());
@@ -369,26 +344,20 @@ async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> en
 			managarm::mbus::ServeRemoteLaneResponse resp;
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 
-			auto [sendResp] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(sendResp.error());
-		}else{
+		} else {
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
 }
 
 async::detached serve(helix::UniqueLane lane) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
+	while (true) {
+		auto [accept, recvHead] =
+		    co_await helix_ng::exchangeMsgs(lane, helix_ng::accept(helix_ng::recvInline()));
 
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recvHead.error());
@@ -398,18 +367,18 @@ async::detached serve(helix::UniqueLane lane) {
 		auto preamble = bragi::read_preamble(recvHead);
 		assert(!preamble.error());
 
-		if(preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesRequest>) {
+		if (preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesRequest>) {
 			auto req = bragi::parse_head_only<managarm::mbus::GetPropertiesRequest>(recvHead);
 			recvHead.reset();
 
 			managarm::mbus::GetPropertiesResponse resp;
 			auto entity = getEntityById(req->id());
 
-			if(!entity) {
+			if (!entity) {
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 			} else {
 				resp.set_error(managarm::mbus::Error::SUCCESS);
-				for(auto kv : entity->getProperties()) {
+				for (auto kv : entity->getProperties()) {
 					managarm::mbus::Property prop;
 					prop.set_name(kv.first);
 					prop.set_item(mbus_ng::encodeItem(kv.second));
@@ -417,58 +386,51 @@ async::detached serve(helix::UniqueLane lane) {
 				}
 			}
 
-			auto [sendHead, sendTail] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
-				);
+			auto [sendHead, sendTail] = co_await helix_ng::exchangeMsgs(
+			    conversation, helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(sendHead.error());
 			HEL_CHECK(sendTail.error());
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::GetRemoteLaneRequest>) {
+		} else if (preamble.id() == bragi::message_id<managarm::mbus::GetRemoteLaneRequest>) {
 			auto req = bragi::parse_head_only<managarm::mbus::GetRemoteLaneRequest>(recvHead);
 			recvHead.reset();
 
 			auto entity = getEntityById(req->id());
-			if(!entity) {
+			if (!entity) {
 				managarm::mbus::GetRemoteLaneResponse resp;
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 
-				auto [sendResp] =
-					co_await helix_ng::exchangeMsgs(
-						conversation,
-						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-					);
+				auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(sendResp.error());
 				continue;
 			}
 
 			doGetRemoteLane(std::move(conversation), std::move(entity));
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::EnumerateRequest>) {
+		} else if (preamble.id() == bragi::message_id<managarm::mbus::EnumerateRequest>) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
+			    conversation, helix_ng::recvBuffer(tail.data(), tail.size())
+			);
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::EnumerateRequest>(recvHead, tail);
 			recvHead.reset();
 
-			doEnumerate(std::move(conversation), req->seq(),
-					decodeFilter(req->filter()));
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::CreateObjectRequest>) {
+			doEnumerate(std::move(conversation), req->seq(), decodeFilter(req->filter()));
+		} else if (preamble.id() == bragi::message_id<managarm::mbus::CreateObjectRequest>) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
+			    conversation, helix_ng::recvBuffer(tail.data(), tail.size())
+			);
 			HEL_CHECK(recvTail.error());
 
 			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
 			recvHead.reset();
 
 			std::unordered_map<std::string, mbus_ng::AnyItem> properties;
-			for(auto &kv : req->properties()) {
+			for (auto &kv : req->properties()) {
 				properties.insert({kv.name(), mbus_ng::decodeItem(kv.item())});
 			}
 
@@ -477,10 +439,11 @@ async::detached serve(helix::UniqueLane lane) {
 			//               user is the seq of the first item to be returned
 			//               (e.g. see doEnumerate pagination logic).
 			auto seq = globalSeq.next_sequence() - 1;
-			auto child = std::make_shared<Entity>(nextEntityId++, seq,
-					std::move(req->name()), std::move(properties));
+			auto child = std::make_shared<Entity>(
+			    nextEntityId++, seq, std::move(req->name()), std::move(properties)
+			);
 
-			allEntities.insert({ child->id(), child });
+			allEntities.insert({child->id(), child});
 			entitySeqTree.insert(child.get());
 
 			// Wake up all pending enumeration operations.
@@ -494,31 +457,30 @@ async::detached serve(helix::UniqueLane lane) {
 			resp.set_error(managarm::mbus::Error::SUCCESS);
 			resp.set_id(child->id());
 
-			auto [sendResp, pushLane] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-					helix_ng::pushDescriptor(remoteLane)
-				);
+			auto [sendResp, pushLane] = co_await helix_ng::exchangeMsgs(
+			    conversation,
+			    helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			    helix_ng::pushDescriptor(remoteLane)
+			);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
+		} else if (preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
+			    conversation, helix_ng::recvBuffer(tail.data(), tail.size())
+			);
 			HEL_CHECK(recvTail.error());
 
-			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
+			auto req =
+			    bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
 			recvHead.reset();
 			auto entity = getEntityById(req->id());
 			managarm::mbus::UpdatePropertiesResponse resp;
 
-			if(!entity) {
+			if (!entity) {
 				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
 			} else {
-				for(auto p : req->properties()) {
+				for (auto p : req->properties()) {
 					entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
 				}
 
@@ -531,13 +493,11 @@ async::detached serve(helix::UniqueLane lane) {
 				globalSeq.raise();
 			}
 
-			auto [sendResp] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(sendResp.error());
-		}else{
+		} else {
 			throw std::runtime_error("Unexpected request type");
 		}
 	}
@@ -551,10 +511,9 @@ int main() {
 	std::cout << "Entering mbus" << std::endl;
 
 	unsigned long xpipe;
-	if(peekauxval(AT_XPIPE, &xpipe))
+	if (peekauxval(AT_XPIPE, &xpipe))
 		throw std::runtime_error("No AT_XPIPE specified");
 
 	serve(helix::UniqueLane(xpipe));
 	async::run_forever(helix::currentDispatcher);
 }
-

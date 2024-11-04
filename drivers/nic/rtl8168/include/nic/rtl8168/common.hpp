@@ -1,13 +1,13 @@
 #pragma once
 
-#include <async/basic.hpp>
 #include <arch/mem_space.hpp>
+#include <async/basic.hpp>
 #include <helix/memory.hpp>
+#include <memory>
 #include <netserver/nic.hpp>
 #include <nic/rtl8168/rx.hpp>
 #include <nic/rtl8168/tx.hpp>
 #include <protocols/hw/client.hpp>
-#include <memory>
 
 constexpr size_t NUM_RX_DESCRIPTORS = 256;
 constexpr size_t NUM_TX_DESCRIPTORS = 256;
@@ -27,7 +27,8 @@ enum class PciModel : uint16_t {
 
 struct RealtekNic : nic::Link {
 	friend TxQueue8168;
-public:
+
+  public:
 	RealtekNic(protocols::hw::Device device);
 
 	enum MacRevision : uint16_t {
@@ -78,11 +79,7 @@ public:
 		MacVer63 = 63,
 		MacVer65 = 65,
 	};
-	enum class DashType : uint8_t {
-		DashNone,
-		DashDP,
-		DashEP
-	};
+	enum class DashType : uint8_t { DashNone, DashDP, DashEP };
 
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
@@ -96,7 +93,8 @@ public:
 	// Workarounds
 	bool restart_transmitter_on_tx_ok_and_tx_desc_unavailable = true;
 	bool use_timer_interrupt_to_check_received_packets = false;
-private:
+
+  private:
 	async::result<void> getMmio();
 	void determineMacRevision();
 	void determineDashType();
@@ -139,7 +137,6 @@ private:
 	async::result<bool> waitCSIReadReady();
 	async::result<bool> waitCSIWriteReady();
 
-
 	// Indirect register access functions
 	// TOOD: these functions should lock
 
@@ -169,7 +166,7 @@ private:
 		uint16_t mask;
 		uint16_t bits;
 	};
-	async::result<void> initializeEPHY(ephy_info* info, int len);
+	async::result<void> initializeEPHY(ephy_info *info, int len);
 	async::result<void> writeToEPHY(int reg, int value);
 	async::result<uint16_t> readFromEPHY(int reg);
 
@@ -177,12 +174,10 @@ private:
 	async::result<void> writePHY(int reg, int val);
 	async::result<int> readPHY(int reg);
 
-
 	/// MDIO Code
 	// RTL8168g MDIO
 	async::result<void> writeRTL8168gMDIO(int reg, int val);
 	async::result<int> readRTL8168gMDIO(int reg);
-
 
 	void setRxConfigRegisters();
 	void setTxConfigRegisters();
@@ -193,7 +188,8 @@ private:
 	async::result<void> RTL8168fCommonConfiguration();
 	async::result<void> configureHardware();
 
-	async::result<void> setFifoSize(uint16_t rx_static, uint16_t tx_static, uint16_t rx_dynamic, uint16_t tx_dynamic) {
+	async::result<void>
+	setFifoSize(uint16_t rx_static, uint16_t tx_static, uint16_t rx_dynamic, uint16_t tx_dynamic) {
 		co_await writeERIRegister(0xC8, 0b1111, (rx_static << 16) | rx_dynamic);
 		co_await writeERIRegister(0xE8, 0b1111, (tx_static << 16) | tx_dynamic);
 	}
@@ -209,8 +205,8 @@ private:
 	// This function loads something from PCI, forcing some
 	// less-cooperative PCI controllers to commit writes
 	constexpr void forcePCICommit() {
-			constexpr arch::scalar_register<uint32_t> a_register{0x00};
-			[[maybe_unused]] volatile auto c = _mmio.load(a_register);
+		constexpr arch::scalar_register<uint32_t> a_register{0x00};
+		[[maybe_unused]] volatile auto c = _mmio.load(a_register);
 	}
 
 	async::detached processIrqs();

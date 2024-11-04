@@ -31,9 +31,23 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	// Registers X0-X30 have indices 0-30
 	for (int i = 0; i < 31; i += 3) {
 		if (i != 30) {
-			printf("x%02d: %.16lx, x%02d: %.16lx, x%02d: %.16lx\n", i, gprs[i], i + 1, gprs[i + 1], i + 2, gprs[i + 2]);
+			printf(
+			    "x%02d: %.16lx, x%02d: %.16lx, x%02d: %.16lx\n",
+			    i,
+			    gprs[i],
+			    i + 1,
+			    gprs[i + 1],
+			    i + 2,
+			    gprs[i + 2]
+			);
 		} else {
-			printf("x%d: %.16lx,  ip: %.16lx,  sp: %.16lx\n", i, gprs[i], pcrs[kHelRegIp], pcrs[kHelRegSp]);
+			printf(
+			    "x%d: %.16lx,  ip: %.16lx,  sp: %.16lx\n",
+			    i,
+			    gprs[i],
+			    pcrs[kHelRegIp],
+			    pcrs[kHelRegSp]
+			);
 		}
 	}
 #endif
@@ -44,31 +58,32 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 		uintptr_t end = start + mapping.size();
 
 		std::string path;
-		if(mapping.backingFile().get()) {
+		if (mapping.backingFile().get()) {
 			// TODO: store the ViewPath inside the mapping.
-			ViewPath vp{proc->fsContext()->getRoot().first,
-					mapping.backingFile()->associatedLink()};
+			ViewPath vp{
+			    proc->fsContext()->getRoot().first, mapping.backingFile()->associatedLink()
+			};
 
 			// TODO: This code is copied from GETCWD, factor it out into a function.
 			path = "";
-			while(true) {
-				if(vp == proc->fsContext()->getRoot())
+			while (true) {
+				if (vp == proc->fsContext()->getRoot())
 					break;
 
 				// If we are at the origin of a mount point, traverse that mount point.
 				ViewPath traversed;
-				if(vp.second == vp.first->getOrigin()) {
-					if(!vp.first->getParent())
+				if (vp.second == vp.first->getOrigin()) {
+					if (!vp.first->getParent())
 						break;
 					auto anchor = vp.first->getAnchor();
 					assert(anchor); // Non-root mounts must have anchors in their parents.
 					traversed = ViewPath{vp.first->getParent(), vp.second};
-				}else{
+				} else {
 					traversed = vp;
 				}
 
 				auto owner = traversed.second->getOwner();
-				if(!owner) { // We did not reach the root.
+				if (!owner) { // We did not reach the root.
 					// TODO: Can we get rid of this case?
 					path = "?" + path;
 					break;
@@ -77,91 +92,102 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 				path = "/" + traversed.second->getName() + path;
 				vp = ViewPath{traversed.first, owner->treeLink()};
 			}
-		}else{
+		} else {
 			path = "anon";
 		}
 
-		printf("%016lx - %016lx %s %s%s%s %s + 0x%lx\n", start, end,
-				mapping.isPrivate() ? "P" : "S",
-				mapping.isExecutable() ? "x" : "-",
-				mapping.isReadable() ? "r" : "-",
-				mapping.isWritable() ? "w" : "-",
-				path.c_str(),
-				mapping.backingFileOffset());
-		if(ip >= start && ip < end)
+		printf(
+		    "%016lx - %016lx %s %s%s%s %s + 0x%lx\n",
+		    start,
+		    end,
+		    mapping.isPrivate() ? "P" : "S",
+		    mapping.isExecutable() ? "x" : "-",
+		    mapping.isReadable() ? "r" : "-",
+		    mapping.isWritable() ? "w" : "-",
+		    path.c_str(),
+		    mapping.backingFileOffset()
+		);
+		if (ip >= start && ip < end)
 			printf("               ^ IP is 0x%lx bytes into this mapping\n", ip - start);
-		if(sp >= start && sp < end)
+		if (sp >= start && sp < end)
 			printf("               ^ Stack is 0x%lx bytes into this mapping\n", sp - start);
 	}
 }
 
-async::result<void> observeThread(std::shared_ptr<Process> self,
-		std::shared_ptr<Generation> generation) {
+async::result<void>
+observeThread(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 
 	uint64_t sequence = 1;
-	while(true) {
-		if(generation->inTermination)
+	while (true) {
+		if (generation->inTermination)
 			break;
 
 		helix::Observe observe;
-		auto &&submit = helix::submitObserve(thread, &observe,
-				sequence, helix::Dispatcher::global());
+		auto &&submit =
+		    helix::submitObserve(thread, &observe, sequence, helix::Dispatcher::global());
 		co_await submit.async_wait();
 
 		// Usually, we should terminate via the generation->inTermination check above.
-		if(observe.error() == kHelErrThreadTerminated) {
-			std::cout << "\e[31m" "posix: Thread terminated unexpectedly" "\e[39m" << std::endl;
+		if (observe.error() == kHelErrThreadTerminated) {
+			std::cout << "\e[31m"
+			             "posix: Thread terminated unexpectedly"
+			             "\e[39m"
+			          << std::endl;
 			co_return;
 		}
 
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
 
-		if(observe.observation() == kHelObserveSuperCall + posix::superAnonAllocate) {
+		if (observe.observation() == kHelObserveSuperCall + posix::superAnonAllocate) {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			size_t size = gprs[kHelRegArg0];
 
-			void *address = (co_await self->vmContext()->mapFile(0,
-					{}, nullptr,
-					0, size, true, kHelMapProtRead | kHelMapProtWrite)).unwrap();
+			void *address = (co_await self->vmContext()->mapFile(
+			                     0, {}, nullptr, 0, size, true, kHelMapProtRead | kHelMapProtWrite
+			                 ))
+			                    .unwrap();
 
 			gprs[kHelRegError] = kHelErrNone;
 			gprs[kHelRegOut0] = reinterpret_cast<uintptr_t>(address);
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superAnonDeallocate) {
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superAnonDeallocate) {
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			self->vmContext()->unmapFile(reinterpret_cast<void *>(gprs[kHelRegArg0]), gprs[kHelRegArg1]);
+			self->vmContext()->unmapFile(
+			    reinterpret_cast<void *>(gprs[kHelRegArg0]), gprs[kHelRegArg1]
+			);
 
 			gprs[kHelRegError] = kHelErrNone;
 			gprs[kHelRegOut0] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetProcessData) {
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superGetProcessData) {
 			posix::ManagarmProcessData data = {
-				self->clientPosixLane(),
-				self->fileContext()->clientMbusLane(),
-				self->clientThreadPage(),
-				static_cast<HelHandle *>(self->clientFileTable()),
-				self->clientClkTrackerPage()
+			    self->clientPosixLane(),
+			    self->fileContext()->clientMbusLane(),
+			    self->clientThreadPage(),
+			    static_cast<HelHandle *>(self->clientFileTable()),
+			    self->clientClkTrackerPage()
 			};
 
-			if(logRequests)
+			if (logRequests)
 				std::cout << "posix: GET_PROCESS_DATA supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
-			auto storeData = co_await helix_ng::writeMemory(thread, gprs[kHelRegArg0],
-					sizeof(posix::ManagarmProcessData), &data);
+			auto storeData = co_await helix_ng::writeMemory(
+			    thread, gprs[kHelRegArg0], sizeof(posix::ManagarmProcessData), &data
+			);
 			HEL_CHECK(storeData.error());
 			gprs[kHelRegError] = kHelErrNone;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superFork) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superFork) {
+			if (logRequests)
 				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
 
@@ -185,8 +211,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superClone) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superClone) {
+			if (logRequests)
 				std::cout << "posix: clone supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
@@ -204,31 +230,37 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			HEL_CHECK(helResume(thread.getHandle()));
 			HEL_CHECK(helResume(new_thread));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superExecve) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superExecve) {
+			if (logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			std::string path;
 			path.resize(gprs[kHelRegArg1]);
-			auto loadPath = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[kHelRegArg0], gprs[kHelRegArg1], path.data());
+			auto loadPath = co_await helix_ng::readMemory(
+			    self->vmContext()->getSpace(), gprs[kHelRegArg0], gprs[kHelRegArg1], path.data()
+			);
 			HEL_CHECK(loadPath.error());
 
 			std::string args_area;
 			args_area.resize(gprs[kHelRegArg3]);
-			auto loadArgs = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[kHelRegArg2], gprs[kHelRegArg3], args_area.data());
+			auto loadArgs = co_await helix_ng::readMemory(
+			    self->vmContext()->getSpace(),
+			    gprs[kHelRegArg2],
+			    gprs[kHelRegArg3],
+			    args_area.data()
+			);
 			HEL_CHECK(loadArgs.error());
 
 			std::string env_area;
 			env_area.resize(gprs[kHelRegArg5]);
-			auto loadEnv = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-					gprs[kHelRegArg4], gprs[kHelRegArg5], env_area.data());
+			auto loadEnv = co_await helix_ng::readMemory(
+			    self->vmContext()->getSpace(), gprs[kHelRegArg4], gprs[kHelRegArg5], env_area.data()
+			);
 			HEL_CHECK(loadEnv.error());
 
-			if(logRequests || logPaths)
+			if (logRequests || logPaths)
 				std::cout << "posix: execve path: " << path << std::endl;
 
 			// Parse both the arguments and the environment areas.
@@ -236,51 +268,51 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			std::vector<std::string> args;
 			k = 0;
-			while(k < args_area.size()) {
+			while (k < args_area.size()) {
 				auto d = args_area.find(char(0), k);
 				assert(d != std::string::npos);
 				args.push_back(args_area.substr(k, d - k));
-//				std::cout << "arg: " << args.back() << std::endl;
+				//				std::cout << "arg: " << args.back() << std::endl;
 				k = d + 1;
 			}
 
 			std::vector<std::string> env;
 			k = 0;
-			while(k < env_area.size()) {
+			while (k < env_area.size()) {
 				auto d = env_area.find(char(0), k);
 				assert(d != std::string::npos);
 				env.push_back(env_area.substr(k, d - k));
-//				std::cout << "env: " << env.back() << std::endl;
+				//				std::cout << "env: " << env.back() << std::endl;
 				k = d + 1;
 			}
 
-			auto error = co_await Process::exec(self,
-					path, std::move(args), std::move(env));
-			if(error == Error::success) {
+			auto error = co_await Process::exec(self, path, std::move(args), std::move(env));
+			if (error == Error::success) {
 				// Continue
-			}else if(error == Error::noSuchFile) {
+			} else if (error == Error::noSuchFile) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOENT;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else if(error == Error::badExecutable || error == Error::eof) {
+			} else if (error == Error::badExecutable || error == Error::eof) {
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = ENOEXEC;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
-			}else {
+			} else {
 				// Unhandled error, log and bubble up EIO
-				std::cout << "posix: exec: unhandled error from Process::exec, we got: " << (int)error << std::endl;
+				std::cout << "posix: exec: unhandled error from Process::exec, we got: "
+				          << (int)error << std::endl;
 				gprs[kHelRegError] = kHelErrNone;
 				gprs[kHelRegOut0] = EIO;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 				HEL_CHECK(helResume(thread.getHandle()));
 			}
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superExit) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superExit) {
+			if (logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -288,8 +320,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto code = gprs[kHelRegArg0];
 
 			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
+			if (logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -298,13 +330,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto mask = gprs[kHelRegArg1];
 
 			uint64_t former = self->signalMask();
-			if(mode == SIG_SETMASK) {
+			if (mode == SIG_SETMASK) {
 				self->setSignalMask(mask);
-			}else if(mode == SIG_BLOCK) {
+			} else if (mode == SIG_BLOCK) {
 				self->setSignalMask(former | mask);
-			}else if(mode == SIG_UNBLOCK) {
+			} else if (mode == SIG_UNBLOCK) {
 				self->setSignalMask(former & ~mask);
-			}else{
+			} else {
 				assert(!mode);
 			}
 
@@ -314,19 +346,19 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active) {
+			if (self->checkOrRequestSignalRaise()) {
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+				if (active) {
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 				}
 			}
-			if(killed)
+			if (killed)
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigRaise) {
-			if(logRequests || logSignals)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigRaise) {
+			if (logRequests || logSignals)
 				std::cout << "posix: SIG_RAISE supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -335,24 +367,27 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"in SIG_RAISE supercall" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "in SIG_RAISE supercall"
+				             "\e[39m"
+				          << std::endl;
 			bool killed = false;
 			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
-			if(active)
+			if (active)
 				co_await self->signalContext()->raiseContext(active, self.get(), killed);
-			if(killed)
+			if (killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigRestore) {
-			if(logRequests || logSignals)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigRestore) {
+			if (logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
 			co_await self->signalContext()->restoreContext(thread);
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
-			if(logRequests || logSignals)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
+			if (logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -362,21 +397,21 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			std::shared_ptr<Process> target;
 			std::shared_ptr<ProcessGroup> targetGroup;
-			if(!pid) {
-				if(logSignals)
-					std::cout << "posix: SIG_KILL on PGRP " << self->pid()
-						<< " (self)" << std::endl;
+			if (!pid) {
+				if (logSignals)
+					std::cout << "posix: SIG_KILL on PGRP " << self->pid() << " (self)"
+					          << std::endl;
 				targetGroup = self->pgPointer();
-			} else if(pid == -1) {
+			} else if (pid == -1) {
 				std::cout << "posix: SIG_KILL(-1) is ignored!" << std::endl;
 				HEL_CHECK(helResume(thread.getHandle()));
 				break;
-			} else if(pid > 0) {
-				if(logSignals)
+			} else if (pid > 0) {
+				if (logSignals)
 					std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
 				target = Process::findProcess(pid);
 			} else {
-				if(logSignals)
+				if (logSignals)
 					std::cout << "posix: SIG_KILL on PGRP " << -pid << std::endl;
 				targetGroup = ProcessGroup::findProcessGroup(-pid);
 			}
@@ -384,7 +419,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			// Clear the error code.
 			// TODO: This should only happen is raising succeeds. Move it somewhere else?
 			gprs[kHelRegError] = 0;
-			if(!target && !targetGroup) {
+			if (!target && !targetGroup) {
 				gprs[kHelRegOut0] = ESRCH;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 				HEL_CHECK(helResume(thread.getHandle()));
@@ -395,8 +430,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			if(sn) {
-				if(targetGroup) {
+			if (sn) {
+				if (targetGroup) {
 					targetGroup->issueSignalToGroup(sn, info);
 				} else {
 					target->signalContext()->issueSignal(sn, info);
@@ -405,20 +440,20 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active)
+			if (self->checkOrRequestSignalRaise()) {
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+				if (active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
-			if(killed)
+			if (killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigAltStack) {
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigAltStack) {
 			// sigaltstack is implemented as a supercall because it
 			// needs to access the thread's registers.
 
-			if(logRequests || logSignals)
+			if (logRequests || logSignals)
 				std::cout << "posix: SIGALTSTACK supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -433,11 +468,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				stack_t st{};
 				st.ss_sp = reinterpret_cast<void *>(self->altStackSp());
 				st.ss_size = self->altStackSize();
-				st.ss_flags = (self->isOnAltStack(pcrs[kHelRegSp]) ? SS_ONSTACK : 0)
-						| (self->isAltStackEnabled() ? 0 : SS_DISABLE);
+				st.ss_flags = (self->isOnAltStack(pcrs[kHelRegSp]) ? SS_ONSTACK : 0) |
+				              (self->isAltStackEnabled() ? 0 : SS_DISABLE);
 
-				auto store = co_await helix_ng::writeMemory(self->vmContext()->getSpace(),
-						oss, sizeof(stack_t), &st);
+				auto store = co_await helix_ng::writeMemory(
+				    self->vmContext()->getSpace(), oss, sizeof(stack_t), &st
+				);
 				HEL_CHECK(store.error());
 			}
 
@@ -446,8 +482,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if (ss) {
 				stack_t st{};
 
-				auto load = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
-						ss, sizeof(stack_t), &st);
+				auto load = co_await helix_ng::readMemory(
+				    self->vmContext()->getSpace(), ss, sizeof(stack_t), &st
+				);
 				HEL_CHECK(load.error());
 
 				if (st.ss_flags & ~SS_DISABLE) {
@@ -464,8 +501,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = error;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigSuspend) {
-			if(logRequests || logSignals)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigSuspend) {
+			if (logRequests || logSignals)
 				std::cout << "posix: SIGSUSPEND supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -483,8 +520,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetTid){
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superGetTid) {
+			if (logRequests)
 				std::cout << "posix: GET_TID supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -494,8 +531,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = self->tid();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigGetPending) {
-			if(logRequests)
+		} else if (observe.observation() == kHelObserveSuperCall + posix::superSigGetPending) {
+			if (logRequests)
 				std::cout << "posix: SIG_GET_PENDING supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
@@ -505,19 +542,19 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = std::get<1>(self->signalContext()->checkSignal());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveInterrupt) {
-			//printf("posix: Process %s was interrupted\n", self->path().c_str());
+		} else if (observe.observation() == kHelObserveInterrupt) {
+			// printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active)
+			if (self->checkOrRequestSignalRaise()) {
+				auto active =
+				    co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+				if (active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
-			if(killed)
+			if (killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObservePanic) {
+		} else if (observe.observation() == kHelObservePanic) {
 			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -525,31 +562,34 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGABRT;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous user space panic" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous user space panic"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
-				if(debugFaults) {
+			if (killed) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}
 				break;
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveBreakpoint) {
+		} else if (observe.observation() == kHelObserveBreakpoint) {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
 			fflush(stdout);
 
-			if(debugFaults) {
+			if (debugFaults) {
 				launchGdbServer(self.get());
 				co_await async::suspend_indefinitely({});
 			}
-		}else if(observe.observation() == kHelObservePageFault) {
-			if(logPageFaults) {
+		} else if (observe.observation() == kHelObservePageFault) {
+			if (logPageFaults) {
 				printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 				dumpRegisters(self);
 				printf("\e[39m");
@@ -558,27 +598,30 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous SIGSEGV" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous SIGSEGV"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {
-				if(!logPageFaults) {
+			if (killed) {
+				if (!logPageFaults) {
 					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 					dumpRegisters(self);
 					printf("\e[39m");
 					fflush(stdout);
 				}
 
-				if(debugFaults) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}
 				break;
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveGeneralFault) {
+		} else if (observe.observation() == kHelObserveGeneralFault) {
 			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -586,20 +629,23 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGSEGV;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous SIGSEGV" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous SIGSEGV"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
-				if(debugFaults) {
+			if (killed) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}
 				break;
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveIllegalInstruction) {
+		} else if (observe.observation() == kHelObserveIllegalInstruction) {
 			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -607,20 +653,23 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous SIGILL" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous SIGILL"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
-				if(debugFaults) {
+			if (killed) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}
 				break;
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else if(observe.observation() == kHelObserveDivByZero) {
+		} else if (observe.observation() == kHelObserveDivByZero) {
 			printf("\e[31mposix: Divide by zero in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -628,20 +677,23 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGFPE;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous SIGFPE" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous SIGFPE"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
-				if(debugFaults) {
+			if (killed) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}
 				break;
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
-		}else{
+		} else {
 			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
 			dumpRegisters(self);
 			printf("\e[39m");
@@ -649,13 +701,16 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			auto item = new SignalItem;
 			item->signalNumber = SIGILL;
-			if(!self->checkSignalRaise())
-				std::cout << "\e[33m" "posix: Ignoring global signal flag "
-						"during synchronous SIGILL" "\e[39m" << std::endl;
+			if (!self->checkSignalRaise())
+				std::cout << "\e[33m"
+				             "posix: Ignoring global signal flag "
+				             "during synchronous SIGILL"
+				             "\e[39m"
+				          << std::endl;
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
-				if(debugFaults) {
+			if (killed) {
+				if (debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely({});
 				}

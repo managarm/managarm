@@ -1,15 +1,15 @@
 #include <algorithm>
+#include <arch/mem_space.hpp>
 #include <frg/algorithm.hpp>
 #include <hw.frigg_bragi.hpp>
+#include <thor-internal/address-space.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/address-space.hpp>
-#include <thor-internal/framebuffer/boot-screen.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/stream.hpp>
-#include <arch/mem_space.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
@@ -21,28 +21,12 @@ extern frg::manual_box<LaneHandle> mbusClient;
 
 namespace pci {
 
-frg::manual_box<
-	frg::vector<
-		smarter::shared_ptr<PciDevice>,
-		KernelAlloc
-	>
-> allDevices;
+frg::manual_box<frg::vector<smarter::shared_ptr<PciDevice>, KernelAlloc>> allDevices;
 
-frg::manual_box<
-	frg::vector<
-		PciBus *,
-		KernelAlloc
-	>
-> allRootBuses;
+frg::manual_box<frg::vector<PciBus *, KernelAlloc>> allRootBuses;
 
-frg::manual_box<
-	frg::hash_map<
-		uint32_t,
-		PciConfigIo *,
-		frg::hash<uint32_t>,
-		KernelAlloc
-	>
-> allConfigSpaces;
+frg::manual_box<frg::hash_map<uint32_t, PciConfigIo *, frg::hash<uint32_t>, KernelAlloc>>
+    allConfigSpaces;
 
 initgraph::Stage *getBus0AvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "pci.bus0-available"};
@@ -60,12 +44,15 @@ initgraph::Stage *getDevicesEnumeratedStage() {
 
 void PciBus::runRootBus() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciBus *device)
-				-> coroutine<void> {
+		async::detach_with_allocator(*kernelAlloc, [](PciBus *device) -> coroutine<void> {
 			Properties properties;
 
-			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
-			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-root-bus"));
+			properties.stringProperty(
+			    "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci")
+			);
+			properties.stringProperty(
+			    "pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-root-bus")
+			);
 			properties.hexStringProperty("pci-segment", device->segId, 4);
 			properties.hexStringProperty("pci-bus", device->busId, 2);
 
@@ -92,12 +79,15 @@ coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
 
 void PciBridge::runBridge() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciBridge *device)
-				-> coroutine<void> {
+		async::detach_with_allocator(*kernelAlloc, [](PciBridge *device) -> coroutine<void> {
 			Properties properties;
 
-			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
-			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-bridge"));
+			properties.stringProperty(
+			    "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci")
+			);
+			properties.stringProperty(
+			    "pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-bridge")
+			);
 			properties.hexStringProperty("pci-segment", device->seg, 4);
 			properties.hexStringProperty("pci-bus", device->bus, 2);
 			properties.hexStringProperty("pci-slot", device->slot, 2);
@@ -109,9 +99,11 @@ void PciBridge::runBridge() {
 			properties.hexStringProperty("pci-subclass", device->subClass, 2);
 			properties.hexStringProperty("pci-interface", device->interface, 2);
 
-			if(device->parentBus->associatedBridge) {
+			if (device->parentBus->associatedBridge) {
 				co_await device->parentBus->associatedBridge->mbusPublished.wait();
-				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1);
+				properties.decStringProperty(
+				    "drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1
+				);
 			} else {
 				co_await device->parentBus->mbusPublished.wait();
 				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->mbusId, 1);
@@ -131,12 +123,15 @@ void PciBridge::runBridge() {
 
 void PciDevice::runDevice() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciDevice *device)
-				-> coroutine<void> {
+		async::detach_with_allocator(*kernelAlloc, [](PciDevice *device) -> coroutine<void> {
 			Properties properties;
 
-			properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci"));
-			properties.stringProperty("pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-device"));
+			properties.stringProperty(
+			    "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "pci")
+			);
+			properties.stringProperty(
+			    "pci-type", frg::string<KernelAlloc>(*kernelAlloc, "pci-device")
+			);
 			properties.hexStringProperty("pci-segment", device->seg, 4);
 			properties.hexStringProperty("pci-bus", device->bus, 2);
 			properties.hexStringProperty("pci-slot", device->slot, 2);
@@ -150,16 +145,20 @@ void PciDevice::runDevice() {
 			properties.hexStringProperty("pci-subsystem-vendor", device->subsystemVendor, 2);
 			properties.hexStringProperty("pci-subsystem-device", device->subsystemDevice, 2);
 
-			if(device->parentBus->associatedBridge) {
+			if (device->parentBus->associatedBridge) {
 				co_await device->parentBus->associatedBridge->mbusPublished.wait();
-				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1);
+				properties.decStringProperty(
+				    "drvcore.mbus-parent", device->parentBus->associatedBridge->mbusId, 1
+				);
 			} else {
 				co_await device->parentBus->mbusPublished.wait();
 				properties.decStringProperty("drvcore.mbus-parent", device->parentBus->mbusId, 1);
 			}
 
-			if(device->associatedFrameBuffer) {
-				properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
+			if (device->associatedFrameBuffer) {
+				properties.stringProperty(
+				    "class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer")
+				);
 			}
 
 			// TODO(qookie): Better error handling here.
@@ -176,24 +175,22 @@ void PciDevice::runDevice() {
 
 coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 	auto [acceptError, conversation] = co_await AcceptSender{lane};
-	if(acceptError != Error::success)
+	if (acceptError != Error::success)
 		co_return acceptError;
 
 	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-	if(reqError != Error::success)
+	if (reqError != Error::success)
 		co_return reqError;
 
 	auto preamble = bragi::read_preamble(reqBuffer);
 	if (preamble.error())
 		co_return Error::protocolViolation;
 
-	auto sendResponse = [] (LaneHandle &conversation,
-			managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
-		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
-			resp.head_size};
+	auto sendResponse = [](LaneHandle &conversation, managarm::hw::SvrResponse<KernelAlloc> &&resp
+	                    ) -> coroutine<frg::expected<Error>> {
+		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
 
-		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
-			resp.size_of_tail()};
+		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
 
 		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
@@ -210,7 +207,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		co_return frg::success;
 	};
 
-	if(preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
+	if (preamble.id() == bragi::message_id<managarm::hw::GetPciInfoRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::GetPciInfoRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
@@ -224,7 +221,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		if (parentBus->msiController)
 			resp.set_num_msis(numMsis);
 
-		for(size_t i = 0; i < caps.size(); i++) {
+		for (size_t i = 0; i < caps.size(); i++) {
 			managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
 			msg.set_type(caps[i].type);
 			msg.set_offset(caps[i].offset);
@@ -234,27 +231,27 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		auto bars = getBars();
 
-		for(size_t k = 0; k < bars.size(); k++) {
+		for (size_t k = 0; k < bars.size(); k++) {
 			managarm::hw::PciBar<KernelAlloc> msg(*kernelAlloc);
-			if(bars[k].type == PciBar::kBarIo) {
+			if (bars[k].type == PciBar::kBarIo) {
 				msg.set_io_type(managarm::hw::IoType::PORT);
-			}else if(bars[k].type == PciBar::kBarMemory) {
+			} else if (bars[k].type == PciBar::kBarMemory) {
 				msg.set_io_type(managarm::hw::IoType::MEMORY);
-			}else{
+			} else {
 				assert(bars[k].type == PciBar::kBarNone);
 				msg.set_io_type(managarm::hw::IoType::NO_BAR);
 			}
 
-			if(bars[k].hostType == PciBar::kBarIo) {
+			if (bars[k].hostType == PciBar::kBarIo) {
 				msg.set_host_type(managarm::hw::IoType::PORT);
 				msg.set_address(bars[k].address);
 				msg.set_length(bars[k].length);
-			}else if(bars[k].hostType == PciBar::kBarMemory) {
+			} else if (bars[k].hostType == PciBar::kBarMemory) {
 				msg.set_host_type(managarm::hw::IoType::MEMORY);
 				msg.set_address(bars[k].address);
 				msg.set_length(bars[k].length);
 				msg.set_offset(bars[k].offset);
-			}else{
+			} else {
 				assert(bars[k].hostType == PciBar::kBarNone);
 				msg.set_host_type(managarm::hw::IoType::NO_BAR);
 			}
@@ -267,7 +264,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		resp.set_expansion_rom(msg);
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
+	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::AccessBarRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
@@ -278,15 +275,16 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		auto index = req->index();
 		auto bars = getBars();
 
-		if(index < 0 || std::size_t(index) >= bars.size()) {
-			infoLogger() << "thor: Closing lane due to out-ouf-bounds BAR " << index << " in HW request." << frg::endlog;
+		if (index < 0 || std::size_t(index) >= bars.size()) {
+			infoLogger() << "thor: Closing lane due to out-ouf-bounds BAR " << index
+			             << " in HW request." << frg::endlog;
 			co_return Error::illegalArgs;
 		}
 
 		AnyDescriptor descriptor;
-		if(bars[index].type == PciBar::kBarIo) {
+		if (bars[index].type == PciBar::kBarIo) {
 			descriptor = IoDescriptor{bars[index].io};
-		}else{
+		} else {
 			assert(bars[index].type == PciBar::kBarMemory);
 			descriptor = MemoryViewDescriptor{bars[index].memory};
 		}
@@ -300,10 +298,12 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		if (descError != Error::success)
 			co_return descError;
-	} else if(preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::AccessExpansionRomRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessExpansionRomRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::AccessExpansionRomRequest>(
+		    reqBuffer, *kernelAlloc
+		);
 
-		if(!req) {
+		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
@@ -320,7 +320,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		if (descError != Error::success)
 			co_return descError;
-	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
+	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::AccessIrqRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
@@ -328,7 +328,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		if(type() != PciEntityType::Device) {
+		if (type() != PciEntityType::Device) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
@@ -336,7 +336,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
-		if(req->index() != 0) {
+		if (req->index() != 0) {
 			resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 			co_return frg::success;
@@ -350,23 +350,20 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		if (descError != Error::success)
 			co_return descError;
-	}else if(preamble.id() == bragi::message_id<managarm::hw::InstallMsiRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::InstallMsiRequest>(
-				reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::InstallMsiRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::InstallMsiRequest>(reqBuffer, *kernelAlloc);
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if(type() != PciEntityType::Device) {
+		if (type() != PciEntityType::Device) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-
-		if ((msiIndex < 0 && msixIndex < 0)
-				|| !parentBus->msiController
-				|| req->index() >= numMsis) {
+		if ((msiIndex < 0 && msixIndex < 0) || !parentBus->msiController ||
+		    req->index() >= numMsis) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 
@@ -376,15 +373,16 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		// Allocate the MSI.
 		auto interrupt = parentBus->msiController->allocateMsiPin(
-				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
-				+ frg::to_allocated_string(*kernelAlloc, bus)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-				+ frg::to_allocated_string(*kernelAlloc, slot)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-				+ frg::to_allocated_string(*kernelAlloc, function)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
-				+ frg::to_allocated_string(*kernelAlloc, req->index()));
-		if(!interrupt) {
+		    frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."} +
+		    frg::to_allocated_string(*kernelAlloc, bus) +
+		    frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+		    frg::to_allocated_string(*kernelAlloc, slot) +
+		    frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+		    frg::to_allocated_string(*kernelAlloc, function) +
+		    frg::string<KernelAlloc>{*kernelAlloc, "."} +
+		    frg::to_allocated_string(*kernelAlloc, req->index())
+		);
+		if (!interrupt) {
 			infoLogger() << "thor: Could not allocate interrupt vector for MSI" << frg::endlog;
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -395,15 +393,17 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		// Obtain an IRQ object for the interrupt.
-		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
-				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
-				+ frg::to_allocated_string(*kernelAlloc, bus)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-				+ frg::to_allocated_string(*kernelAlloc, slot)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-				+ frg::to_allocated_string(*kernelAlloc, function)
-				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
-				+ frg::to_allocated_string(*kernelAlloc, req->index()));
+		auto object = smarter::allocate_shared<GenericIrqObject>(
+		    *kernelAlloc,
+		    frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."} +
+		        frg::to_allocated_string(*kernelAlloc, bus) +
+		        frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+		        frg::to_allocated_string(*kernelAlloc, slot) +
+		        frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+		        frg::to_allocated_string(*kernelAlloc, function) +
+		        frg::string<KernelAlloc>{*kernelAlloc, "."} +
+		        frg::to_allocated_string(*kernelAlloc, req->index())
+		);
 		IrqPin::attachSink(interrupt, object.get());
 
 		static_cast<PciDevice *>(this)->setupMsi(interrupt, req->index());
@@ -417,23 +417,23 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		if (descError != Error::success)
 			co_return descError;
-	}else if(preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::ClaimDeviceRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::ClaimDeviceRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if(type() != PciEntityType::Device) {
+		if (type() != PciEntityType::Device) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if(static_cast<PciDevice *>(this)->associatedScreen) {
-			infoLogger() << "thor: Disabling screen associated with PCI device "
-					<< bus << "." << slot << "." << function
-					<< frg::endlog;
+		if (static_cast<PciDevice *>(this)->associatedScreen) {
+			infoLogger() << "thor: Disabling screen associated with PCI device " << bus << "."
+			             << slot << "." << function << frg::endlog;
 			disableLogHandler(static_cast<PciDevice *>(this)->associatedScreen);
 		}
 
@@ -441,15 +441,16 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::EnableBusIrqRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::EnableBusIrqRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if(type() != PciEntityType::Device) {
+		if (type() != PciEntityType::Device) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
@@ -460,21 +461,19 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableMsiRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::EnableMsiRequest>(
-				reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::EnableMsiRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::EnableMsiRequest>(reqBuffer, *kernelAlloc);
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if(type() != PciEntityType::Device) {
+		if (type() != PciEntityType::Device) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
 
-		if ((msiIndex < 0 && msixIndex < 0)
-				|| !parentBus->msiController) {
+		if ((msiIndex < 0 && msixIndex < 0) || !parentBus->msiController) {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 
@@ -488,8 +487,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::EnableBusmasterRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::EnableBusmasterRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -498,17 +498,16 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		auto io = parentBus->io;
 
-		auto command = io->readConfigHalf(parentBus,
-				slot, function, kPciCommand);
-		io->writeConfigHalf(parentBus, slot, function,
-				kPciCommand, command | 0x0004);
+		auto command = io->readConfigHalf(parentBus, slot, function, kPciCommand);
+		io->writeConfigHalf(parentBus, slot, function, kPciCommand, command | 0x0004);
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::LoadPciSpaceRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::LoadPciSpaceRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -519,40 +518,38 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		auto io = parentBus->io;
 
-		if(req->size() == 1) {
-			if(isValidConfigAccess(1, req->offset())) {
-				auto word = io->readConfigByte(parentBus,
-						slot, function, req->offset());
+		if (req->size() == 1) {
+			if (isValidConfigAccess(1, req->offset())) {
+				auto word = io->readConfigByte(parentBus, slot, function, req->offset());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
 				resp.set_word(word);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else if(req->size() == 2) {
-			if(isValidConfigAccess(2, req->offset())) {
-				auto word = io->readConfigHalf(parentBus,
-						slot, function, req->offset());
+		} else if (req->size() == 2) {
+			if (isValidConfigAccess(2, req->offset())) {
+				auto word = io->readConfigHalf(parentBus, slot, function, req->offset());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
 				resp.set_word(word);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else if(req->size() == 4) {
-			if(isValidConfigAccess(4, req->offset())) {
-				auto word = io->readConfigWord(parentBus,
-						slot, function, req->offset());
+		} else if (req->size() == 4) {
+			if (isValidConfigAccess(4, req->offset())) {
+				auto word = io->readConfigWord(parentBus, slot, function, req->offset());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
 				resp.set_word(word);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else{
+		} else {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 		}
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::StorePciSpaceRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::StorePciSpaceRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -563,37 +560,35 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		auto io = parentBus->io;
 
-		if(req->size() == 1) {
-			if(isValidConfigAccess(1, req->offset())) {
-				io->writeConfigByte(parentBus, slot, function,
-						req->offset(), req->word());
+		if (req->size() == 1) {
+			if (isValidConfigAccess(1, req->offset())) {
+				io->writeConfigByte(parentBus, slot, function, req->offset(), req->word());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else if(req->size() == 2) {
-			if(isValidConfigAccess(2, req->offset())) {
-				io->writeConfigHalf(parentBus, slot, function,
-						req->offset(), req->word());
+		} else if (req->size() == 2) {
+			if (isValidConfigAccess(2, req->offset())) {
+				io->writeConfigHalf(parentBus, slot, function, req->offset(), req->word());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else if(req->size() == 4) {
-			if(isValidConfigAccess(4, req->offset())) {
-				io->writeConfigWord(parentBus, slot, function,
-						req->offset(), req->word());
+		} else if (req->size() == 4) {
+			if (isValidConfigAccess(4, req->offset())) {
+				io->writeConfigWord(parentBus, slot, function, req->offset(), req->word());
 				resp.set_error(managarm::hw::Errors::SUCCESS);
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else{
+		} else {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 		}
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::LoadPciCapabilityRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::LoadPciCapabilityRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -604,46 +599,46 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		auto io = parentBus->io;
 
-		if(static_cast<size_t>(req->index()) < caps.size()) {
-			if(req->size() == 1) {
-				if(isValidConfigAccess(1, req->offset())) {
-					auto word = io->readConfigByte(parentBus,
-							slot, function,
-							caps[req->index()].offset + req->offset());
+		if (static_cast<size_t>(req->index()) < caps.size()) {
+			if (req->size() == 1) {
+				if (isValidConfigAccess(1, req->offset())) {
+					auto word = io->readConfigByte(
+					    parentBus, slot, function, caps[req->index()].offset + req->offset()
+					);
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
-				}else{
+				} else {
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 2) {
-				if(isValidConfigAccess(2, req->offset())) {
-					auto word = io->readConfigHalf(parentBus,
-							slot, function,
-							caps[req->index()].offset + req->offset());
+			} else if (req->size() == 2) {
+				if (isValidConfigAccess(2, req->offset())) {
+					auto word = io->readConfigHalf(
+					    parentBus, slot, function, caps[req->index()].offset + req->offset()
+					);
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
-				}else{
+				} else {
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else if(req->size() == 4) {
-				if(isValidConfigAccess(4, req->offset())) {
-					auto word = io->readConfigWord(parentBus,
-							slot, function,
-							caps[req->index()].offset + req->offset());
+			} else if (req->size() == 4) {
+				if (isValidConfigAccess(4, req->offset())) {
+					auto word = io->readConfigWord(
+					    parentBus, slot, function, caps[req->index()].offset + req->offset()
+					);
 					resp.set_error(managarm::hw::Errors::SUCCESS);
 					resp.set_word(word);
-				}else{
+				} else {
 					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 				}
-			}else{
+			} else {
 				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 			}
-		}else{
+		} else {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 		}
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
+	} else if (preamble.id() == bragi::message_id<managarm::hw::GetFbInfoRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::GetFbInfoRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req || type() != PciEntityType::Device) {
@@ -668,8 +663,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-	}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
-		auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
+	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
+		auto req =
+		    bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
 
 		if (!req || type() != PciEntityType::Device) {
 			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -693,7 +689,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
-	}else{
+	} else {
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await DismissSender{conversation};
 	}
@@ -702,46 +698,48 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 }
 
 namespace {
-	struct PciIrqObject final : IrqObject {
-		PciIrqObject(PciDevice *pciDevice, frg::string<KernelAlloc> name)
-		: IrqObject{name}, pciDevice_{pciDevice} { }
+struct PciIrqObject final : IrqObject {
+	PciIrqObject(PciDevice *pciDevice, frg::string<KernelAlloc> name)
+	    : IrqObject{name},
+	      pciDevice_{pciDevice} {}
 
-		void dumpHardwareState() override {
-			auto io = pciDevice_->parentBus->io;
-			auto status = io->readConfigHalf(pciDevice_->parentBus,
-					pciDevice_->slot, pciDevice_->function, kPciStatus);
-			infoLogger() << "thor: PCI IRQ " << name() << " is "
-					<< ((status & 0x08) ? "asserted" : "inactive") << frg::endlog;
-		}
+	void dumpHardwareState() override {
+		auto io = pciDevice_->parentBus->io;
+		auto status = io->readConfigHalf(
+		    pciDevice_->parentBus, pciDevice_->slot, pciDevice_->function, kPciStatus
+		);
+		infoLogger() << "thor: PCI IRQ " << name() << " is "
+		             << ((status & 0x08) ? "asserted" : "inactive") << frg::endlog;
+	}
 
-	private:
-		PciDevice *pciDevice_;
-	};
-}
+  private:
+	PciDevice *pciDevice_;
+};
+} // namespace
 
 smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	assert(interrupt);
-	auto object = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, this,
-			frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
-			+ frg::to_allocated_string(*kernelAlloc, bus)
-			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-			+ frg::to_allocated_string(*kernelAlloc, slot)
-			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
-			+ frg::to_allocated_string(*kernelAlloc, function));
+	auto object = smarter::allocate_shared<PciIrqObject>(
+	    *kernelAlloc,
+	    this,
+	    frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."} +
+	        frg::to_allocated_string(*kernelAlloc, bus) +
+	        frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+	        frg::to_allocated_string(*kernelAlloc, slot) +
+	        frg::string<KernelAlloc>{*kernelAlloc, "-"} +
+	        frg::to_allocated_string(*kernelAlloc, function)
+	);
 	IrqPin::attachSink(interrupt, object.get());
 	return object;
 }
 
-IrqPin *PciDevice::getIrqPin() {
-	return interrupt;
-}
+IrqPin *PciDevice::getIrqPin() { return interrupt; }
 
 void PciDevice::enableIrq() {
 	auto io = parentBus->io;
 
 	auto command = io->readConfigHalf(parentBus, slot, function, kPciCommand);
-	io->writeConfigHalf(parentBus, slot, function,
-			kPciCommand, command & ~uint16_t{0x400});
+	io->writeConfigHalf(parentBus, slot, function, kPciCommand, command & ~uint16_t{0x400});
 }
 
 void PciDevice::setupMsi(MsiPin *msi, size_t index) {
@@ -752,8 +750,7 @@ void PciDevice::setupMsi(MsiPin *msi, size_t index) {
 		auto space = arch::mem_space{msixMapping}.subspace(index * 16);
 		space.store(msixMessageAddress, msi->getMessageAddress());
 		space.store(msixMessageData, msi->getMessageData());
-		space.store(msixVectorControl,
-				space.load(msixVectorControl) & ~uint32_t{1});
+		space.store(msixVectorControl, space.load(msixVectorControl) & ~uint32_t{1});
 	} else {
 		assert(msiIndex >= 0);
 
@@ -761,33 +758,31 @@ void PciDevice::setupMsi(MsiPin *msi, size_t index) {
 		assert(!index);
 		auto offset = caps[msiIndex].offset;
 
-		auto msgControl = io->readConfigHalf(parentBus,
-				slot, function, offset + 2);
+		auto msgControl = io->readConfigHalf(parentBus, slot, function, offset + 2);
 
 		bool is64Capable = msgControl & (1 << 7);
 
-		io->writeConfigWord(parentBus,
-				slot, function, offset + 4, msi->getMessageAddress() & 0xFFFFFFFF);
+		io->writeConfigWord(
+		    parentBus, slot, function, offset + 4, msi->getMessageAddress() & 0xFFFFFFFF
+		);
 
 		if (is64Capable) {
-			io->writeConfigWord(parentBus,
-				slot, function, offset + 8, msi->getMessageAddress() >> 32);
+			io->writeConfigWord(
+			    parentBus, slot, function, offset + 8, msi->getMessageAddress() >> 32
+			);
 
-			io->writeConfigHalf(parentBus,
-				slot, function, offset + 12, msi->getMessageData());
+			io->writeConfigHalf(parentBus, slot, function, offset + 12, msi->getMessageData());
 		} else {
 			assert(!(msi->getMessageAddress() >> 32));
 
-			io->writeConfigHalf(parentBus,
-				slot, function, offset + 8, msi->getMessageData());
+			io->writeConfigHalf(parentBus, slot, function, offset + 8, msi->getMessageData());
 		}
 
 		if (msiEnabled) {
 			// Enable MSI
 			msgControl |= 0x0001;
 
-			io->writeConfigHalf(parentBus,
-					slot, function, offset + 2, msgControl);
+			io->writeConfigHalf(parentBus, slot, function, offset + 2, msgControl);
 		}
 
 		msiInstalled = true;
@@ -802,22 +797,19 @@ void PciDevice::enableMsi() {
 	if (msixIndex >= 0) {
 		auto offset = caps[msixIndex].offset;
 
-		auto msgControl = io->readConfigHalf(parentBus,
-				slot, function, offset + 2);
+		auto msgControl = io->readConfigHalf(parentBus, slot, function, offset + 2);
 
 		msgControl |= 0x8000; // Enable MSI-X.
 
 		msgControl &= ~uint16_t{0x4000}; // Disable the overall mask.
-		io->writeConfigHalf(parentBus,
-				slot, function, offset + 2, msgControl);
+		io->writeConfigHalf(parentBus, slot, function, offset + 2, msgControl);
 
 	} else {
 		assert(msiIndex >= 0);
 
 		auto offset = caps[msiIndex].offset;
 
-		auto msgControl = io->readConfigHalf(parentBus,
-				slot, function, offset + 2);
+		auto msgControl = io->readConfigHalf(parentBus, slot, function, offset + 2);
 
 		if (!msiInstalled) {
 			// Disable MSI by default, configure to only 1 message
@@ -829,11 +821,10 @@ void PciDevice::enableMsi() {
 			// setupMsi was called before enableMsi, so we can enable them
 			// without worrying about needing the MSI to be masked.
 			msgControl &= ~0x0070; // Only one message
-			msgControl |= 0x0001; // Enable MSI
+			msgControl |= 0x0001;  // Enable MSI
 		}
 
-		io->writeConfigHalf(parentBus,
-				slot, function, offset + 2, msgControl);
+		io->writeConfigHalf(parentBus, slot, function, offset + 2, msgControl);
 
 		msiEnabled = true;
 	}
@@ -867,16 +858,16 @@ void readEntityBars(PciEntity *entity, int nBars) {
 	auto function = entity->function;
 
 	// Determine the BARs
-	for(int i = 0; i < nBars; i++) {
+	for (int i = 0; i < nBars; i++) {
 		uint32_t offset = kPciRegularBar0 + i * 4;
 		uint32_t bar = io->readConfigWord(bus, slot, function, offset);
 
-		if((bar & 1) != 0) {
+		if ((bar & 1) != 0) {
 			uintptr_t address = bar & 0xFFFFFFFC;
 
 			// disable I/O and memory decode while reading BARs
 			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
 
 			// write all 1s to the BAR and read it back to determine this its length.
@@ -885,7 +876,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			io->writeConfigWord(bus, slot, function, offset, bar);
 
 			// restore the original command byte value
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
@@ -900,16 +891,15 @@ void readEntityBars(PciEntity *entity, int nBars) {
 
 			if (!address) {
 				infoLogger() << "            unallocated I/O space BAR #" << i
-						<< ", length: " << length << " ports" << frg::endlog;
+				             << ", length: " << length << " ports" << frg::endlog;
 			} else {
 				// Check all parent resources to see if this BAR is actually memory mapped
 				bool isMemoryMapped = false;
 				PciBusResource *resource = nullptr;
 
 				for (auto &res : entity->parentBus->resources) {
-					if (res.flags() == PciBusResource::io
-							&& address >= res.base()
-							&& (address + length) <= (res.base() + res.size())) {
+					if (res.flags() == PciBusResource::io && address >= res.base() &&
+					    (address + length) <= (res.base() + res.size())) {
 						resource = &res;
 						isMemoryMapped = res.isHostMmio();
 						break;
@@ -917,38 +907,38 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				}
 
 				if (isMemoryMapped) {
-					uintptr_t hostAddress = resource->hostBase()
-						+ (address - resource->base());
+					uintptr_t hostAddress = resource->hostBase() + (address - resource->base());
 
 					auto offset = hostAddress & (kPageSize - 1);
 
 					bars[i].hostType = PciBar::kBarMemory;
 					bars[i].allocated = true;
 					bars[i].offset = offset;
-					bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-							hostAddress & ~(kPageSize - 1),
-							(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-							CachingMode::mmioNonPosted);
+					bars[i].memory = smarter::allocate_shared<HardwareMemory>(
+					    *kernelAlloc,
+					    hostAddress & ~(kPageSize - 1),
+					    (length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+					    CachingMode::mmioNonPosted
+					);
 				} else {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
 					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-					for(size_t p = 0; p < length; ++p)
+					for (size_t p = 0; p < length; ++p)
 						bars[i].io->addPort(address + p);
 					bars[i].offset = 0;
 				}
 
-				infoLogger() << "            I/O space BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " ports" << frg::endlog;
-
+				infoLogger() << "            I/O space BAR #" << i << " at 0x"
+				             << frg::hex_fmt(address) << ", length: " << length << " ports"
+				             << frg::endlog;
 			}
-		}else if(((bar >> 1) & 3) == 0) {
+		} else if (((bar >> 1) & 3) == 0) {
 			uint32_t address = bar & 0xFFFFFFF0;
 
 			// disable I/O and memory decode while reading BARs
 			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
 
 			// Write all 1s to the BAR and read it back to determine this its length.
@@ -957,7 +947,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			io->writeConfigWord(bus, slot, function, offset, bar);
 
 			// restore the original command byte value
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
@@ -973,45 +963,45 @@ void readEntityBars(PciEntity *entity, int nBars) {
 
 			if (!address) {
 				infoLogger() << "            unallocated 32-bit memory BAR #" << i
-						<< ", length: " << length << " bytes"
-						<< (bar & (1 << 3) ? " (prefetchable)" : "")
-						<< frg::endlog;
+				             << ", length: " << length << " bytes"
+				             << (bar & (1 << 3) ? " (prefetchable)" : "") << frg::endlog;
 			} else {
 				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
-				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::mmio);
+				bars[i].memory = smarter::allocate_shared<HardwareMemory>(
+				    *kernelAlloc,
+				    address & ~(kPageSize - 1),
+				    (length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+				    CachingMode::mmio
+				);
 				bars[i].offset = offset;
 
-				infoLogger() << "            32-bit memory BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes"
-						<< (bar & (1 << 3) ? " (prefetchable)" : "")
-						<< frg::endlog;
+				infoLogger() << "            32-bit memory BAR #" << i << " at 0x"
+				             << frg::hex_fmt(address) << ", length: " << length << " bytes"
+				             << (bar & (1 << 3) ? " (prefetchable)" : "") << frg::endlog;
 			}
-		}else if(((bar >> 1) & 3) == 2) {
+		} else if (((bar >> 1) & 3) == 2) {
 			assert(i < (nBars - 1)); // Otherwise there is no next bar.
-			auto high = io->readConfigWord(bus, slot, function, offset + 4);;
+			auto high = io->readConfigWord(bus, slot, function, offset + 4);
+			;
 			auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
 
 			// disable I/O and memory decode while reading BARs
 			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
 
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
-			uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
-					| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
+			uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32) |
+			                (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
 			io->writeConfigWord(bus, slot, function, offset, bar);
 			io->writeConfigWord(bus, slot, function, offset + 4, high);
 
 			// restore the original command byte value
-			if(command & 0x03)
+			if (command & 0x03)
 				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
@@ -1029,28 +1019,27 @@ void readEntityBars(PciEntity *entity, int nBars) {
 
 			if (!address) {
 				infoLogger() << "            unallocated 64-bit memory BAR #" << i
-						<< ", length: " << length << " bytes"
-						<< (bar & (1 << 3) ? " (prefetchable)" : "")
-						<< frg::endlog;
+				             << ", length: " << length << " bytes"
+				             << (bar & (1 << 3) ? " (prefetchable)" : "") << frg::endlog;
 			} else {
 				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
-				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						address & ~(kPageSize - 1),
-						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::mmio);
+				bars[i].memory = smarter::allocate_shared<HardwareMemory>(
+				    *kernelAlloc,
+				    address & ~(kPageSize - 1),
+				    (length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+				    CachingMode::mmio
+				);
 				bars[i].offset = offset;
 
-				infoLogger() << "            64-bit memory BAR #" << i
-						<< " at 0x" << frg::hex_fmt(address)
-						<< ", length: " << length << " bytes"
-						<< (bar & (1 << 3) ? " (prefetchable)" : "")
-						<< frg::endlog;
+				infoLogger() << "            64-bit memory BAR #" << i << " at 0x"
+				             << frg::hex_fmt(address) << ", length: " << length << " bytes"
+				             << (bar & (1 << 3) ? " (prefetchable)" : "") << frg::endlog;
 			}
 
 			i++;
-		}else{
+		} else {
 			assert(!"Unexpected BAR type");
 		}
 	}
@@ -1062,37 +1051,44 @@ void findPciCaps(PciEntity *entity) {
 	auto status = io->readConfigByte(entity->parentBus, entity->slot, entity->function, kPciStatus);
 
 	// Find all capabilities.
-	if(status & 0x10) {
+	if (status & 0x10) {
 		// The bottom two bits of each capability offset must be masked!
-		uint8_t offset = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, kPciRegularCapabilities) & 0xFC;
-		while(offset) {
-			auto ent = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset);
+		uint8_t offset =
+		    io->readConfigHalf(
+		        entity->parentBus, entity->slot, entity->function, kPciRegularCapabilities
+		    ) &
+		    0xFC;
+		while (offset) {
+			auto ent =
+			    io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset);
 			uint8_t type = ent & 0xFF;
 
 			auto name = nameOfCapability(type);
-			if(name) {
-				infoLogger() << "            " << name << " capability"
-						<< frg::endlog;
-			}else{
-				infoLogger() << "            Capability of type 0x"
-						<< frg::hex_fmt((int)type) << frg::endlog;
+			if (name) {
+				infoLogger() << "            " << name << " capability" << frg::endlog;
+			} else {
+				infoLogger() << "            Capability of type 0x" << frg::hex_fmt((int)type)
+				             << frg::endlog;
 			}
 
-			if(type == 0x10) {
+			if (type == 0x10) {
 				entity->isPcie = true;
 
-				auto flags = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset + 2);
+				auto flags = io->readConfigHalf(
+				    entity->parentBus, entity->slot, entity->function, offset + 2
+				);
 				auto type = (flags >> 4) & 0xF;
-				entity->isDownstreamPort =
-					type == 4 // Root port
-					|| type == 6 // Downstream
-					|| type == 8; // PCI/-X to PCIe bridge
+				entity->isDownstreamPort = type == 4     // Root port
+				                           || type == 6  // Downstream
+				                           || type == 8; // PCI/-X to PCIe bridge
 			}
 
 			// TODO:
 			size_t size = -1;
-			if(type == 0x09)
-				size = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset + 2);
+			if (type == 0x09)
+				size = io->readConfigHalf(
+				    entity->parentBus, entity->slot, entity->function, offset + 2
+				);
 
 			entity->caps.push({type, offset, size});
 
@@ -1102,8 +1098,8 @@ void findPciCaps(PciEntity *entity) {
 }
 
 template <typename EnumFunc>
-void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
-		EnumFunc &&enumerateDownstream) {
+void
+checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function, EnumFunc &&enumerateDownstream) {
 	auto io = bus->io;
 
 	auto parseExpansionRom = [&io, bus, slot, function](PciEntity *device, uint32_t offset) {
@@ -1114,16 +1110,18 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		uint32_t expansion_rom_mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
 		io->writeConfigWord(bus, slot, function, offset, expansion_rom_addr);
 
-		if(expansion_rom_mask) {
+		if (expansion_rom_mask) {
 			auto expansion_rom_length = computeBarLength(expansion_rom_mask);
 			// Enable it
 			io->writeConfigWord(bus, slot, function, offset, expansion_rom_addr | 1);
 			// Map it
 			auto offset = expansion_rom_addr & (kPageSize - 1);
-			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-						expansion_rom_addr & ~(kPageSize - 1),
-						(expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-						CachingMode::uncached); // Some cards have problems with caching the PCI Expansion Rom
+			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(
+			    *kernelAlloc,
+			    expansion_rom_addr & ~(kPageSize - 1),
+			    (expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+			    CachingMode::uncached
+			); // Some cards have problems with caching the PCI Expansion Rom
 			device->expansionRom.offset = offset;
 			device->expansionRom.address = expansion_rom_addr;
 			device->expansionRom.length = expansion_rom_length;
@@ -1133,7 +1131,7 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 	};
 
 	uint16_t vendor = io->readConfigHalf(bus, slot, function, kPciVendor);
-	if(vendor == 0xFFFF)
+	if (vendor == 0xFFFF)
 		return;
 
 	auto log = infoLogger();
@@ -1145,25 +1143,24 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		uint8_t downstreamId = io->readConfigByte(bus, slot, function, kPciBridgeSecondary);
 
 		if (!downstreamId) {
-			log << "        Function " << function
-					<< ": unconfigured PCI-to-PCI bridge";
+			log << "        Function " << function << ": unconfigured PCI-to-PCI bridge";
 		} else {
-			log << "        Function " << function
-					<< ": PCI-to-PCI bridge to bus " << (int)downstreamId;
+			log << "        Function " << function << ": PCI-to-PCI bridge to bus "
+			    << (int)downstreamId;
 		}
 	} else {
-		log << "        Function " << function
-				<< ": Unexpected PCI header type " << (header_type & 0x7F);
+		log << "        Function " << function << ": Unexpected PCI header type "
+		    << (header_type & 0x7F);
 	}
 
 	auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-	if(command & 0x01)
+	if (command & 0x01)
 		log << " (Decodes IO)";
-	if(command & 0x02)
+	if (command & 0x02)
 		log << " (Decodes Memory)";
-	if(command & 0x04)
+	if (command & 0x04)
 		log << " (Busmaster)";
-	if(command & 0x400)
+	if (command & 0x400)
 		log << " (IRQs masked)";
 	log << frg::endlog;
 	io->writeConfigHalf(bus, slot, function, kPciCommand, command | 0x400);
@@ -1174,25 +1171,40 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 	auto sub_class = io->readConfigByte(bus, slot, function, kPciSubClass);
 	auto interface = io->readConfigByte(bus, slot, function, kPciInterface);
 
-	infoLogger() << "            Vendor/device: " << frg::hex_fmt(vendor)
-			<< "." << frg::hex_fmt(device_id) << "." << frg::hex_fmt(revision)
-			<< ", class: " << frg::hex_fmt(class_code)
-			<< "." << frg::hex_fmt(sub_class)
-			<< "." << frg::hex_fmt(interface) << frg::endlog;
+	infoLogger() << "            Vendor/device: " << frg::hex_fmt(vendor) << "."
+	             << frg::hex_fmt(device_id) << "." << frg::hex_fmt(revision)
+	             << ", class: " << frg::hex_fmt(class_code) << "." << frg::hex_fmt(sub_class) << "."
+	             << frg::hex_fmt(interface) << frg::endlog;
 
 	if ((header_type & 0x7F) == 0) {
-		uint16_t subsystem_vendor = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemVendor);
-		uint16_t subsystem_device = io->readConfigHalf(bus, slot, function, kPciRegularSubsystemDevice);
-//		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
-//				<< ", device: 0x" << frg::hex_fmt(subsystem_device) << frg::endlog;
+		uint16_t subsystem_vendor =
+		    io->readConfigHalf(bus, slot, function, kPciRegularSubsystemVendor);
+		uint16_t subsystem_device =
+		    io->readConfigHalf(bus, slot, function, kPciRegularSubsystemDevice);
+		//		infoLogger() << "        Subsystem vendor: 0x" << frg::hex_fmt(subsystem_vendor)
+		//				<< ", device: 0x" << frg::hex_fmt(subsystem_device) << frg::endlog;
 
 		auto status = io->readConfigHalf(bus, slot, function, kPciStatus);
 
-		if(status & 0x08)
+		if (status & 0x08)
 			debugLogger() << "                IRQ is asserted!" << frg::endlog;
 
-		auto device = smarter::allocate_shared<PciDevice>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
-				vendor, device_id, revision, class_code, sub_class, interface, subsystem_vendor, subsystem_device);
+		auto device = smarter::allocate_shared<PciDevice>(
+		    *kernelAlloc,
+		    bus,
+		    bus->segId,
+		    bus->busId,
+		    slot,
+		    function,
+		    vendor,
+		    device_id,
+		    revision,
+		    class_code,
+		    sub_class,
+		    interface,
+		    subsystem_vendor,
+		    subsystem_device
+		);
 
 		findPciCaps(device.get());
 
@@ -1206,29 +1218,28 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		readEntityBars(device.get(), 6);
 		parseExpansionRom(device.get(), kPciRegularExpansionRomBaseAddress);
 
-		auto irq_index = static_cast<IrqIndex>(io->readConfigByte(bus, slot, function,
-				kPciRegularInterruptPin));
-		if(irq_index != IrqIndex::null) {
+		auto irq_index =
+		    static_cast<IrqIndex>(io->readConfigByte(bus, slot, function, kPciRegularInterruptPin));
+		if (irq_index != IrqIndex::null) {
 			assert(bus->irqRouter);
 			auto irq_pin = bus->irqRouter->resolveIrqRoute(slot, irq_index);
-			if(irq_pin) {
-				infoLogger() << "            Interrupt: "
-						<< nameOf(irq_index)
-						<< " (routed to " << irq_pin->name() << ")" << frg::endlog;
+			if (irq_pin) {
+				infoLogger() << "            Interrupt: " << nameOf(irq_index) << " (routed to "
+				             << irq_pin->name() << ")" << frg::endlog;
 				device->interrupt = irq_pin;
-			}else{
+			} else {
 				urgentLogger() << "            Interrupt routing not available!" << frg::endlog;
 			}
 		}
 
 		// Setup MSI-X.
-		if(device->msixIndex >= 0) {
+		if (device->msixIndex >= 0) {
 			auto offset = device->caps[device->msixIndex].offset;
 
 			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
 			device->numMsis = (msgControl & 0x7F) + 1;
-			infoLogger() << "            " << device->numMsis
-					<< " MSI-X vectors available" << frg::endlog;
+			infoLogger() << "            " << device->numMsis << " MSI-X vectors available"
+			             << frg::endlog;
 
 			// Map the MSI-X BAR.
 			auto tableInfo = io->readConfigWord(bus, slot, function, offset + 4);
@@ -1239,30 +1250,31 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			auto bar = device->bars[tableBar];
 			assert(bar.type == PciBar::kBarMemory);
 			auto mappingDisp = (bar.address + tableOffset) & (kPageSize - 1);
-			auto mappingSize = (mappingDisp + device->numMsis * 16 + kPageSize - 1)
-					& ~(kPageSize - 1);
+			auto mappingSize =
+			    (mappingDisp + device->numMsis * 16 + kPageSize - 1) & ~(kPageSize - 1);
 
 			auto window = KernelVirtualMemory::global().allocate(0x10000);
-			for(uintptr_t page = 0; page < mappingSize; page += kPageSize)
+			for (uintptr_t page = 0; page < mappingSize; page += kPageSize)
 				KernelPageSpace::global().mapSingle4k(
-						reinterpret_cast<uintptr_t>(window) + page,
-						(bar.address + tableOffset + page) & ~(kPageSize - 1),
-						page_access::write, CachingMode::null);
+				    reinterpret_cast<uintptr_t>(window) + page,
+				    (bar.address + tableOffset + page) & ~(kPageSize - 1),
+				    page_access::write,
+				    CachingMode::null
+				);
 			device->msixMapping = reinterpret_cast<std::byte *>(window) + mappingDisp;
 
 			// Mask all MSIs.
-			for(unsigned int i = 0; i < device->numMsis; ++i) {
+			for (unsigned int i = 0; i < device->numMsis; ++i) {
 				auto space = arch::mem_space{device->msixMapping}.subspace(i * 16);
-				space.store(msixVectorControl,
-						space.load(msixVectorControl) | 1);
+				space.store(msixVectorControl, space.load(msixVectorControl) | 1);
 			}
 		} else if (device->msiIndex >= 0) {
 			auto offset = device->caps[device->msiIndex].offset;
 
 			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
 			device->numMsis = 1; // TODO(qookie): 1 << ((msgControl >> 1) & 0b111)
-			infoLogger() << "            " << device->numMsis
-					<< " MSI vectors available" << frg::endlog;
+			infoLogger() << "            " << device->numMsis << " MSI vectors available"
+			             << frg::endlog;
 
 			msgControl &= ~0x0001; // Disable MSI
 
@@ -1274,8 +1286,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		applyPciDeviceQuirks(device);
 	} else if ((header_type & 0x7F) == 1) {
-		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
-				vendor, device_id, revision, class_code, sub_class, interface);
+		auto bridge = frg::construct<
+		    PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function, vendor, device_id, revision, class_code, sub_class, interface);
 		bus->childBridges.push_back(bridge);
 
 		findPciCaps(bridge);
@@ -1293,7 +1305,8 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			bridge->associatedBus = downstreamBus;
 			enumerateDownstream(downstreamBus);
 		} else {
-			infoLogger() << "            Deferring enumeration until bridge is configured" << frg::endlog;
+			infoLogger() << "            Deferring enumeration until bridge is configured"
+			             << frg::endlog;
 		}
 	}
 }
@@ -1303,22 +1316,22 @@ void checkPciDevice(PciBus *bus, uint32_t slot, EnumFunc &&enumerateDownstream) 
 	auto io = bus->io;
 
 	uint16_t vendor = io->readConfigHalf(bus, slot, 0, kPciVendor);
-	if(vendor == 0xFFFF)
+	if (vendor == 0xFFFF)
 		return;
 
-	infoLogger() << "    Segment: " << bus->segId << ", bus: " << bus->busId << ", slot " << slot << frg::endlog;
+	infoLogger() << "    Segment: " << bus->segId << ", bus: " << bus->busId << ", slot " << slot
+	             << frg::endlog;
 
 	uint8_t header_type = io->readConfigByte(bus, slot, 0, kPciHeaderType);
-	if((header_type & 0x80) != 0) {
-		for(uint32_t function = 0; function < 8; function++)
+	if ((header_type & 0x80) != 0) {
+		for (uint32_t function = 0; function < 8; function++)
 			checkPciFunction(bus, slot, function, enumerateDownstream);
-	}else{
+	} else {
 		checkPciFunction(bus, slot, 0, enumerateDownstream);
 	}
 }
 
-template <typename EnumFunc>
-void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
+template <typename EnumFunc> void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 	auto bridge = bus->associatedBridge;
 	uint32_t nSlots = 32;
 
@@ -1329,15 +1342,15 @@ void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 	if (bridge && bridge->isPcie && bridge->isDownstreamPort)
 		nSlots = 1;
 
-	for(uint32_t slot = 0; slot < nSlots; slot++)
+	for (uint32_t slot = 0; slot < nSlots; slot++)
 		checkPciDevice(bus, slot, enumerateDownstream);
 }
 
 void runAllBridges() {
-	for(auto root_bus : *allRootBuses) {
+	for (auto root_bus : *allRootBuses) {
 		root_bus->runRootBus();
 
-		for(auto bridge : root_bus->childBridges) {
+		for (auto bridge : root_bus->childBridges) {
 			bridge->runBridge();
 		}
 	}
@@ -1373,10 +1386,11 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 	{
 		uint32_t base, limit;
-		base = io->readConfigByte(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgeIoBase);
-		limit = io->readConfigByte(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgeIoLimit);
+		base =
+		    io->readConfigByte(bridge->parentBus, bridge->slot, bridge->function, kPciBridgeIoBase);
+		limit = io->readConfigByte(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgeIoLimit
+		);
 
 		uint64_t hostBase = 0;
 		bool isHostMmio = false;
@@ -1399,24 +1413,26 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		if (size) {
 			infoLogger() << "thor: Discovered existing I/O window of bridge "
-					<< frg::hex_fmt{bridge->seg} << ":"
-					<< frg::hex_fmt{bridge->bus} << ":"
-					<< frg::hex_fmt{bridge->slot} << "."
-					<< frg::hex_fmt{bridge->function}
-					<< " address: " << frg::hex_fmt{addr} << " size: " << size
-					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+			             << frg::hex_fmt{bridge->seg} << ":" << frg::hex_fmt{bridge->bus} << ":"
+			             << frg::hex_fmt{bridge->slot} << "." << frg::hex_fmt{bridge->function}
+			             << " address: " << frg::hex_fmt{addr} << " size: " << size
+			             << " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
 
-			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::io, isHostMmio});
+			bridge->associatedBus->resources.push_back(
+			    {addr, size, hostBase, PciBusResource::io, isHostMmio}
+			);
 		}
 	}
 
 	{
 		uint32_t base, limit;
 
-		base = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgeMemBase);
-		limit = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgeMemLimit);
+		base = io->readConfigHalf(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgeMemBase
+		);
+		limit = io->readConfigHalf(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgeMemLimit
+		);
 
 		uint64_t hostBase = 0;
 		auto addr = base << 16;
@@ -1437,28 +1453,32 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		if (size) {
 			infoLogger() << "thor: Discovered existing memory window of bridge "
-					<< frg::hex_fmt{bridge->seg} << ":"
-					<< frg::hex_fmt{bridge->bus} << ":"
-					<< frg::hex_fmt{bridge->slot} << "."
-					<< frg::hex_fmt{bridge->function}
-					<< " address: " << frg::hex_fmt{addr} << " size: " << size
-					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+			             << frg::hex_fmt{bridge->seg} << ":" << frg::hex_fmt{bridge->bus} << ":"
+			             << frg::hex_fmt{bridge->slot} << "." << frg::hex_fmt{bridge->function}
+			             << " address: " << frg::hex_fmt{addr} << " size: " << size
+			             << " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
 
-			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::memory, true});
+			bridge->associatedBus->resources.push_back(
+			    {addr, size, hostBase, PciBusResource::memory, true}
+			);
 		}
 	}
 
 	{
 		uint64_t base, limit, baseUpper, limitUpper;
-		base = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgePrefetchMemBase);
-		limit = io->readConfigHalf(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgePrefetchMemLimit);
+		base = io->readConfigHalf(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgePrefetchMemBase
+		);
+		limit = io->readConfigHalf(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgePrefetchMemLimit
+		);
 
-		baseUpper = io->readConfigWord(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgePrefetchMemBaseUpper);
-		limitUpper = io->readConfigWord(bridge->parentBus, bridge->slot, bridge->function,
-			kPciBridgePrefetchMemLimitUpper);
+		baseUpper = io->readConfigWord(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgePrefetchMemBaseUpper
+		);
+		limitUpper = io->readConfigWord(
+		    bridge->parentBus, bridge->slot, bridge->function, kPciBridgePrefetchMemLimitUpper
+		);
 
 		uint64_t hostBase = 0;
 		auto addr = (base << 16) | (baseUpper << 32);
@@ -1479,14 +1499,14 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		if (size) {
 			infoLogger() << "thor: Discovered existing prefetch memory window of bridge "
-					<< frg::hex_fmt{bridge->seg} << ":"
-					<< frg::hex_fmt{bridge->bus} << ":"
-					<< frg::hex_fmt{bridge->slot} << "."
-					<< frg::hex_fmt{bridge->function}
-					<< " address: " << frg::hex_fmt{addr} << " size: " << size
-					<< " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
+			             << frg::hex_fmt{bridge->seg} << ":" << frg::hex_fmt{bridge->bus} << ":"
+			             << frg::hex_fmt{bridge->slot} << "." << frg::hex_fmt{bridge->function}
+			             << " address: " << frg::hex_fmt{addr} << " size: " << size
+			             << " (host base: " << frg::hex_fmt{hostBase} << ")" << frg::endlog;
 
-			bridge->associatedBus->resources.push_back({addr, size, hostBase, PciBusResource::prefMemory, true});
+			bridge->associatedBus->resources.push_back(
+			    {addr, size, hostBase, PciBusResource::prefMemory, true}
+			);
 		}
 	}
 }
@@ -1499,16 +1519,16 @@ void configureBridges(PciBus *root, PciBus *bus, uint32_t &highestId) {
 
 			auto b = parent;
 			while (b) {
-				infoLogger() << "thor: Bumping bridge "
-					<< frg::hex_fmt{b->seg} << ":"
-					<< frg::hex_fmt{b->bus} << ":"
-					<< frg::hex_fmt{b->slot} << "."
-					<< frg::hex_fmt{b->function}
-					<< " from subordinate id " << b->subordinateId
-					<< " to subordinate id " << (b->subordinateId + 1) << frg::endlog;
+				infoLogger() << "thor: Bumping bridge " << frg::hex_fmt{b->seg} << ":"
+				             << frg::hex_fmt{b->bus} << ":" << frg::hex_fmt{b->slot} << "."
+				             << frg::hex_fmt{b->function} << " from subordinate id "
+				             << b->subordinateId << " to subordinate id " << (b->subordinateId + 1)
+				             << frg::endlog;
 
 				b->subordinateId++;
-				root->io->writeConfigByte(b->parentBus, b->slot, b->function, kPciBridgeSubordinate, b->subordinateId);
+				root->io->writeConfigByte(
+				    b->parentBus, b->slot, b->function, kPciBridgeSubordinate, b->subordinateId
+				);
 				b = b->parentBus->associatedBridge;
 			}
 
@@ -1527,32 +1547,36 @@ void configureBridges(PciBus *root, PciBus *bus, uint32_t &highestId) {
 				bridge->subordinateId = highestId;
 			}
 
-			root->io->writeConfigByte(bridge->parentBus, bridge->slot, bridge->function,
-					kPciBridgeSecondary, bridge->downstreamId);
-			root->io->writeConfigByte(bridge->parentBus, bridge->slot, bridge->function,
-					kPciBridgeSubordinate, bridge->subordinateId);
+			root->io->writeConfigByte(
+			    bridge->parentBus,
+			    bridge->slot,
+			    bridge->function,
+			    kPciBridgeSecondary,
+			    bridge->downstreamId
+			);
+			root->io->writeConfigByte(
+			    bridge->parentBus,
+			    bridge->slot,
+			    bridge->function,
+			    kPciBridgeSubordinate,
+			    bridge->subordinateId
+			);
 
-			infoLogger() << "thor: Found unconfigured bridge "
-				<< frg::hex_fmt{bridge->seg} << ":"
-				<< frg::hex_fmt{bridge->bus} << ":"
-				<< frg::hex_fmt{bridge->slot} << "."
-				<< frg::hex_fmt{bridge->function}
-				<< ", now configured to downstream " << bridge->downstreamId
-				<< ", subordinate " << bridge->subordinateId << frg::endlog;
+			infoLogger() << "thor: Found unconfigured bridge " << frg::hex_fmt{bridge->seg} << ":"
+			             << frg::hex_fmt{bridge->bus} << ":" << frg::hex_fmt{bridge->slot} << "."
+			             << frg::hex_fmt{bridge->function} << ", now configured to downstream "
+			             << bridge->downstreamId << ", subordinate " << bridge->subordinateId
+			             << frg::endlog;
 
 			auto downstreamBus = bus->makeDownstreamBus(bridge, bridge->downstreamId);
 			bridge->associatedBus = downstreamBus;
-			checkPciBus(downstreamBus,
-				[](PciBus *bus) {
-					auto br = bus->associatedBridge;
-					panicLogger() << "thor: error: found already configured bridge "
-						<< frg::hex_fmt{br->seg} << ":"
-						<< frg::hex_fmt{br->bus} << ":"
-						<< frg::hex_fmt{br->slot} << "."
-						<< frg::hex_fmt{br->function}
-						<< " under an unconfigured bridge" << frg::endlog;
-				}
-			);
+			checkPciBus(downstreamBus, [](PciBus *bus) {
+				auto br = bus->associatedBridge;
+				panicLogger() << "thor: error: found already configured bridge "
+				              << frg::hex_fmt{br->seg} << ":" << frg::hex_fmt{br->bus} << ":"
+				              << frg::hex_fmt{br->slot} << "." << frg::hex_fmt{br->function}
+				              << " under an unconfigured bridge" << frg::endlog;
+			});
 		}
 
 		assert(bridge->associatedBus && "Bridge has no associated bus");
@@ -1579,7 +1603,7 @@ struct SpaceRequirement {
 frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 	frg::vector<SpaceRequirement, KernelAlloc> required{*kernelAlloc};
 
-	auto processBar = [&required] (PciEntity *entity, int i) {
+	auto processBar = [&required](PciEntity *entity, int i) {
 		auto &bar = entity->getBars()[i];
 
 		if (bar.allocated)
@@ -1588,20 +1612,20 @@ frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 		uint32_t flags = 0;
 
 		switch (bar.type) {
-			case PciBar::kBarNone:
-				break;
-			case PciBar::kBarIo:
-				flags = PciBusResource::io;
-				break;
-			case PciBar::kBarMemory:
-				flags = PciBusResource::memory;
+		case PciBar::kBarNone:
+			break;
+		case PciBar::kBarIo:
+			flags = PciBusResource::io;
+			break;
+		case PciBar::kBarMemory:
+			flags = PciBusResource::memory;
 
-				if (bar.prefetchable)
-					flags = PciBusResource::prefMemory;
-				break;
-			default:
-				break;
-				panicLogger() << "thor: Invalid BAR type" << frg::endlog;
+			if (bar.prefetchable)
+				flags = PciBusResource::prefMemory;
+			break;
+		default:
+			break;
+			panicLogger() << "thor: Invalid BAR type" << frg::endlog;
 		}
 
 		if (flags)
@@ -1642,30 +1666,34 @@ frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 			if (requiredIo) {
 				// IO decoded by bridge has 256 byte granularity,
 				// but the spec requires it to be 4K aligned
-				required.push_back({(requiredIo + 0xFFF) & ~0xFFF,
-						PciBusResource::io,
-						0, nullptr, bridge});
+				required.push_back(
+				    {(requiredIo + 0xFFF) & ~0xFFF, PciBusResource::io, 0, nullptr, bridge}
+				);
 			}
 
 			// Memory decoded by bridge has 1 MiB granularity
 
 			if (requiredMem) {
-				required.push_back({(requiredMem + 0xFFFFF) & ~0xFFFFF,
-						PciBusResource::memory,
-						0, nullptr, bridge});
+				required.push_back(
+				    {(requiredMem + 0xFFFFF) & ~0xFFFFF, PciBusResource::memory, 0, nullptr, bridge}
+				);
 			}
 
 			if (requiredPrefMemory) {
-				required.push_back({(requiredPrefMemory + 0xFFFFF) & ~0xFFFFF,
-						PciBusResource::prefMemory,
-						0, nullptr, bridge});
+				required.push_back(
+				    {(requiredPrefMemory + 0xFFFFF) & ~0xFFFFF,
+				     PciBusResource::prefMemory,
+				     0,
+				     nullptr,
+				     bridge}
+				);
 			}
 		}
 	}
 
 	// We group the same requirement types and sort them by size in descending
 	// order to guarantee best fit allocations for requirements of the same type.
-	frg::insertion_sort(required.begin(), required.end(), [] (auto a, auto b) {
+	frg::insertion_sort(required.begin(), required.end(), [](auto a, auto b) {
 		if (a.flags == b.flags)
 			return a.size < b.size;
 		return a.flags > b.flags;
@@ -1674,10 +1702,11 @@ frg::vector<SpaceRequirement, KernelAlloc> getRequiredSpaceForBus(PciBus *bus) {
 	return required;
 }
 
-frg::tuple<PciBusResource *, uint64_t, uint32_t> allocateBar(PciBus *bus, size_t size, uint32_t reqFlags) {
+frg::tuple<PciBusResource *, uint64_t, uint32_t>
+allocateBar(PciBus *bus, size_t size, uint32_t reqFlags) {
 	PciBusResource *best = nullptr;
 
-	auto isAddressable = [] (uint32_t flags, uint64_t addr) {
+	auto isAddressable = [](uint32_t flags, uint64_t addr) {
 		if (flags == PciBusResource::io)
 			return true;
 
@@ -1687,7 +1716,7 @@ frg::tuple<PciBusResource *, uint64_t, uint32_t> allocateBar(PciBus *bus, size_t
 		return true;
 	};
 
-	auto isPreferred = [] (PciBusResource *oldRes, PciBusResource *newRes) {
+	auto isPreferred = [](PciBusResource *oldRes, PciBusResource *newRes) {
 		if (!oldRes)
 			return true;
 
@@ -1698,26 +1727,21 @@ frg::tuple<PciBusResource *, uint64_t, uint32_t> allocateBar(PciBus *bus, size_t
 	};
 
 	for (auto &res : bus->resources) {
-		if ((reqFlags == PciBusResource::prefMemory
-					|| reqFlags == PciBusResource::memory)
-				&& res.flags() == PciBusResource::io)
+		if ((reqFlags == PciBusResource::prefMemory || reqFlags == PciBusResource::memory) &&
+		    res.flags() == PciBusResource::io)
 			continue;
 
-		if ((res.flags() == PciBusResource::prefMemory
-					|| res.flags() == PciBusResource::memory)
-				&& reqFlags == PciBusResource::io)
+		if ((res.flags() == PciBusResource::prefMemory || res.flags() == PciBusResource::memory) &&
+		    reqFlags == PciBusResource::io)
 			continue;
 
-		if (reqFlags == res.flags() && res.canFit(size)
-				&& isAddressable(reqFlags, res.base())) {
+		if (reqFlags == res.flags() && res.canFit(size) && isAddressable(reqFlags, res.base())) {
 			best = &res;
 			break;
 		}
 
-		if ((reqFlags == PciBusResource::prefMemory)
-				&& res.flags() != PciBusResource::prefMemory
-				&& res.canFit(size)
-				&& isPreferred(best, &res)) {
+		if ((reqFlags == PciBusResource::prefMemory) && res.flags() != PciBusResource::prefMemory &&
+		    res.canFit(size) && isPreferred(best, &res)) {
 			best = &res;
 		}
 	}
@@ -1735,17 +1759,17 @@ frg::tuple<PciBusResource *, uint64_t, uint32_t> allocateBar(PciBus *bus, size_t
 void allocateBars(PciBus *bus) {
 	auto required = getRequiredSpaceForBus(bus);
 
-	infoLogger() << "thor: Allocating space for entities on bus "
-		<< frg::hex_fmt{bus->segId} << ":"
-		<< frg::hex_fmt{bus->busId}
-		<< ":" << frg::endlog;
+	infoLogger() << "thor: Allocating space for entities on bus " << frg::hex_fmt{bus->segId} << ":"
+	             << frg::hex_fmt{bus->busId} << ":" << frg::endlog;
 
 	for (auto req : required) {
 		auto [resource, off, flags] = allocateBar(bus, req.size, req.flags);
 
-		auto flagsToStr = [] (uint32_t flags) -> const char * {
-			if (flags == PciBusResource::io) return "I/O";
-			if (flags == PciBusResource::prefMemory) return "pref memory";
+		auto flagsToStr = [](uint32_t flags) -> const char * {
+			if (flags == PciBusResource::io)
+				return "I/O";
+			if (flags == PciBusResource::prefMemory)
+				return "pref memory";
 			assert(flags == PciBusResource::memory);
 			return "memory";
 		};
@@ -1764,11 +1788,9 @@ void allocateBars(PciBus *bus) {
 				log << flagsToStr(req.flags) << " BAR #" << req.index << " of entity ";
 			}
 
-			log << frg::hex_fmt{entity->seg} << ":"
-				<< frg::hex_fmt{entity->bus} << ":"
-				<< frg::hex_fmt{entity->slot} << "."
-				<< frg::hex_fmt{entity->function}
-				<< frg::endlog;
+			log << frg::hex_fmt{entity->seg} << ":" << frg::hex_fmt{entity->bus} << ":"
+			    << frg::hex_fmt{entity->slot} << "." << frg::hex_fmt{entity->function}
+			    << frg::endlog;
 
 			continue;
 		}
@@ -1786,46 +1808,97 @@ void allocateBars(PciBus *bus) {
 			log << "window of bridge ";
 
 			switch (req.flags) {
-				case PciBusResource::io:
-					io->writeConfigByte(entity->parentBus, entity->slot, entity->function,
-							kPciBridgeIoBase, childBase >> 8);
-					io->writeConfigByte(entity->parentBus, entity->slot, entity->function,
-							kPciBridgeIoLimit, (childBase + req.size - 0x100) >> 8);
-					break;
-				case PciBusResource::memory:
-					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
-							kPciBridgeMemBase, childBase >> 16);
-					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
-							kPciBridgeMemLimit, (childBase + req.size - 0x100000) >> 16);
-					break;
-				case PciBusResource::prefMemory:
-					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
-							kPciBridgePrefetchMemBase, childBase >> 16);
-					io->writeConfigHalf(entity->parentBus, entity->slot, entity->function,
-							kPciBridgePrefetchMemLimit, (childBase + req.size - 0x100000) >> 16);
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
-							kPciBridgePrefetchMemBaseUpper, childBase >> 32);
-					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
-							kPciBridgePrefetchMemLimitUpper, (childBase + req.size - 0x100000) >> 32);
-					break;
+			case PciBusResource::io:
+				io->writeConfigByte(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgeIoBase,
+				    childBase >> 8
+				);
+				io->writeConfigByte(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgeIoLimit,
+				    (childBase + req.size - 0x100) >> 8
+				);
+				break;
+			case PciBusResource::memory:
+				io->writeConfigHalf(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgeMemBase,
+				    childBase >> 16
+				);
+				io->writeConfigHalf(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgeMemLimit,
+				    (childBase + req.size - 0x100000) >> 16
+				);
+				break;
+			case PciBusResource::prefMemory:
+				io->writeConfigHalf(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgePrefetchMemBase,
+				    childBase >> 16
+				);
+				io->writeConfigHalf(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgePrefetchMemLimit,
+				    (childBase + req.size - 0x100000) >> 16
+				);
+				io->writeConfigWord(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgePrefetchMemBaseUpper,
+				    childBase >> 32
+				);
+				io->writeConfigWord(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciBridgePrefetchMemLimitUpper,
+				    (childBase + req.size - 0x100000) >> 32
+				);
+				break;
 			}
 
 			req.associatedBridge->associatedBus->resources.push_back(
-					{childBase, req.size, hostBase, req.flags, resource->isHostMmio()});
+			    {childBase, req.size, hostBase, req.flags, resource->isHostMmio()}
+			);
 		} else {
 			log << "BAR #" << req.index << " of entity ";
 
-			auto barVal = io->readConfigWord(entity->parentBus,
-					entity->slot, entity->function,
-					kPciRegularBar0 + req.index * 4);
+			auto barVal = io->readConfigWord(
+			    entity->parentBus, entity->slot, entity->function, kPciRegularBar0 + req.index * 4
+			);
 
 			// Write BAR address
-			io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
-					kPciRegularBar0 + req.index * 4, childBase);
+			io->writeConfigWord(
+			    entity->parentBus,
+			    entity->slot,
+			    entity->function,
+			    kPciRegularBar0 + req.index * 4,
+			    childBase
+			);
 
 			if (((barVal >> 1) & 3) == 2) {
-				io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
-					kPciRegularBar0 + (req.index + 1) * 4, childBase >> 32);
+				io->writeConfigWord(
+				    entity->parentBus,
+				    entity->slot,
+				    entity->function,
+				    kPciRegularBar0 + (req.index + 1) * 4,
+				    childBase >> 32
+				);
 			}
 
 			auto &bar = entity->getBars()[req.index];
@@ -1835,38 +1908,36 @@ void allocateBars(PciBus *bus) {
 			bar.address = childBase;
 			bar.hostType = PciBar::kBarMemory;
 			auto offset = hostBase & (kPageSize - 1);
-			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-					hostBase & ~(kPageSize - 1),
-					(req.size + offset + (kPageSize - 1)) & ~(kPageSize - 1),
-					flags == PciBusResource::io
-						? CachingMode::mmioNonPosted
-						: CachingMode::mmio);
+			bar.memory = smarter::allocate_shared<HardwareMemory>(
+			    *kernelAlloc,
+			    hostBase & ~(kPageSize - 1),
+			    (req.size + offset + (kPageSize - 1)) & ~(kPageSize - 1),
+			    flags == PciBusResource::io ? CachingMode::mmioNonPosted : CachingMode::mmio
+			);
 			bar.offset = offset;
 
 			// Enable address decoding
-			auto cmd = io->readConfigHalf(entity->parentBus,
-					entity->slot, entity->function, kPciCommand);
+			auto cmd =
+			    io->readConfigHalf(entity->parentBus, entity->slot, entity->function, kPciCommand);
 
 			if (flags == PciBusResource::io)
 				cmd |= 0x01;
 			else
 				cmd |= 0x02;
 
-			io->writeConfigHalf(entity->parentBus, entity->slot,
-					entity->function, kPciCommand, cmd);
+			io->writeConfigHalf(
+			    entity->parentBus, entity->slot, entity->function, kPciCommand, cmd
+			);
 		}
 
-		log << frg::hex_fmt{entity->seg} << ":"
-			<< frg::hex_fmt{entity->bus} << ":"
-			<< frg::hex_fmt{entity->slot} << "."
-			<< frg::hex_fmt{entity->function}
-			<< " allocated to " << (void *)childBase;
+		log << frg::hex_fmt{entity->seg} << ":" << frg::hex_fmt{entity->bus} << ":"
+		    << frg::hex_fmt{entity->slot} << "." << frg::hex_fmt{entity->function}
+		    << " allocated to " << (void *)childBase;
 
 		if (childBase != hostBase)
 			log << " (host " << (void *)hostBase << ")";
 
-		log << ", size " << req.size << " bytes"
-			<< frg::endlog;
+		log << ", size " << req.size << " bytes" << frg::endlog;
 	}
 
 	for (auto bridge : bus->childBridges)
@@ -1897,7 +1968,7 @@ void enumerateAll() {
 	if (!allDevices)
 		allDevices.initialize(*kernelAlloc);
 
-	for(size_t i = 0; i < enumerationQueue->size(); i++) {
+	for (size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];
 		checkPciBus(bus, addToEnumerationQueue);
 	}
@@ -1919,24 +1990,24 @@ void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io) {
 	allConfigSpaces->insert((seg << 8) | bus, io);
 }
 
-uint32_t readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset) {
+uint32_t
+readConfigWord(uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
 	return io->readConfigWord(seg, bus, slot, function, offset);
 }
 
-uint16_t readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset) {
+uint16_t
+readConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
 	return io->readConfigHalf(seg, bus, slot, function, offset);
 }
 
-uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset) {
+uint8_t
+readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
@@ -1944,28 +2015,32 @@ uint8_t readConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
 }
 
 // write to pci configuration space
-void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset, uint32_t value) {
+void writeConfigWord(
+    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint32_t value
+) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
 	io->writeConfigWord(seg, bus, slot, function, offset, value);
 }
 
-void writeConfigHalf(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset, uint16_t value) {
+void writeConfigHalf(
+    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint16_t value
+) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
 	io->writeConfigHalf(seg, bus, slot, function, offset, value);
 }
 
-void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
-		uint32_t function, uint32_t offset, uint8_t value) {
+void writeConfigByte(
+    uint32_t seg, uint32_t bus, uint32_t slot, uint32_t function, uint32_t offset, uint8_t value
+) {
 	auto io = (*allConfigSpaces)[(seg << 8) | bus];
 	assert(io);
 
 	io->writeConfigByte(seg, bus, slot, function, offset, value);
 }
 
-} } // namespace thor::pci
+} // namespace pci
+} // namespace thor

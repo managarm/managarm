@@ -6,7 +6,12 @@
 #include "spec.hpp"
 
 Queue::Queue(unsigned int qid, unsigned int depth, arch::mem_space doorbells)
-	: qid_(qid), depth_(depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1) {
+    : qid_(qid),
+      depth_(depth),
+      doorbells_(doorbells),
+      sqTail_(0),
+      cqHead_(0),
+      cqPhase_(1) {
 	queuedCmds_.resize(depth);
 }
 
@@ -18,16 +23,18 @@ void Queue::init() {
 	HelHandle memory;
 	void *window;
 	HEL_CHECK(helAllocateMemory(cqSize, kHelAllocContinuous, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						   0, cqSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	HEL_CHECK(helMapMemory(
+	    memory, kHelNullHandle, nullptr, 0, cqSize, kHelMapProtRead | kHelMapProtWrite, &window
+	));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
 
 	cqes_ = reinterpret_cast<spec::CompletionEntry *>(window);
 	memset(cqes_, 0, cqSize);
 
 	HEL_CHECK(helAllocateMemory(sqSize, kHelAllocContinuous, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						   0, sqSize, kHelMapProtRead | kHelMapProtWrite, &window));
+	HEL_CHECK(helMapMemory(
+	    memory, kHelNullHandle, nullptr, 0, sqSize, kHelMapProtRead | kHelMapProtWrite, &window
+	));
 	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
 
 	sqCmds_ = window;

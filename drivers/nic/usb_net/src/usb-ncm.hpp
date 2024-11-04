@@ -45,17 +45,25 @@ struct NtbParameter {
 };
 
 struct UsbNcmNic : UsbNic {
-	UsbNcmNic(mbus_ng::EntityId entity, protocols::usb::Device hw_device, nic::MacAddress mac,
-		protocols::usb::Interface ctrl_intf, protocols::usb::Endpoint ctrl_ep,
-		protocols::usb::Interface intf, protocols::usb::Endpoint in, protocols::usb::Endpoint out,
-		size_t config_index);
+	UsbNcmNic(
+	    mbus_ng::EntityId entity,
+	    protocols::usb::Device hw_device,
+	    nic::MacAddress mac,
+	    protocols::usb::Interface ctrl_intf,
+	    protocols::usb::Endpoint ctrl_ep,
+	    protocols::usb::Interface intf,
+	    protocols::usb::Endpoint in,
+	    protocols::usb::Endpoint out,
+	    size_t config_index
+	);
 
 	async::result<void> initialize() override;
 	async::detached listenForNotifications() override;
 
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
-private:
+
+  private:
 	mbus_ng::EntityId entity_;
 	size_t config_index_;
 };
@@ -64,30 +72,37 @@ namespace regs {
 
 // NCM 1.0 5.2.1 Table 5-2
 namespace bmNetworkCapabilities {
-	constexpr arch::field<uint8_t, uint8_t> setEthernetPacketFilter{0, 1};
-	constexpr arch::field<uint8_t, uint8_t> netAddress{1, 1};
-	constexpr arch::field<uint8_t, uint8_t> encapsulatedCommand{2, 1};
-	constexpr arch::field<uint8_t, uint8_t> maxDatagramSize{3, 1};
-	constexpr arch::field<uint8_t, uint8_t> crcMode{4, 1};
-	constexpr arch::field<uint8_t, uint8_t> ntbInputSize{5, 1};
+constexpr arch::field<uint8_t, uint8_t> setEthernetPacketFilter{0, 1};
+constexpr arch::field<uint8_t, uint8_t> netAddress{1, 1};
+constexpr arch::field<uint8_t, uint8_t> encapsulatedCommand{2, 1};
+constexpr arch::field<uint8_t, uint8_t> maxDatagramSize{3, 1};
+constexpr arch::field<uint8_t, uint8_t> crcMode{4, 1};
+constexpr arch::field<uint8_t, uint8_t> ntbInputSize{5, 1};
 } // namespace bmNetworkCapabilities
 
 } // namespace regs
 
 } // namespace nic::usb_ncm
 
-template<>
-struct std::formatter<nic::usb_ncm::NtbParameter> : std::formatter<std::string_view> {
-	auto format(const nic::usb_ncm::NtbParameter& p, std::format_context& ctx) const {
-		return std::format_to(ctx.out(), "NTB Parameters:\n"
-			"\tIN maxsize {} divisor {} payload_remainder {} alignment {}\n"
-			"\tOUT maxsize {} divisor {} payload_remainder {} alignment {}\n"
-			"\tOUT max datagrams {}{}{}",
-			p.dwNtbInMaxSize, p.wNdpInDivisor, p.wNdpInPayloadRemainder, p.wNdpInAlignment,
-			p.dwNtbOutMaxSize, p.wNdpOutDivisor, p.wNdpOutPayloadRemainder, p.wNdpOutAlignment,
-			p.wNtbOutMaxDatagrams,
-			(p.bmNtbFormatsSupported & 1) ? ", 16-bit NTB support" : "",
-			(p.bmNtbFormatsSupported & 2) ? ", 32-bit NTB support" : ""
+template <> struct std::formatter<nic::usb_ncm::NtbParameter> : std::formatter<std::string_view> {
+	auto format(const nic::usb_ncm::NtbParameter &p, std::format_context &ctx) const {
+		return std::format_to(
+		    ctx.out(),
+		    "NTB Parameters:\n"
+		    "\tIN maxsize {} divisor {} payload_remainder {} alignment {}\n"
+		    "\tOUT maxsize {} divisor {} payload_remainder {} alignment {}\n"
+		    "\tOUT max datagrams {}{}{}",
+		    p.dwNtbInMaxSize,
+		    p.wNdpInDivisor,
+		    p.wNdpInPayloadRemainder,
+		    p.wNdpInAlignment,
+		    p.dwNtbOutMaxSize,
+		    p.wNdpOutDivisor,
+		    p.wNdpOutPayloadRemainder,
+		    p.wNdpOutAlignment,
+		    p.wNtbOutMaxDatagrams,
+		    (p.bmNtbFormatsSupported & 1) ? ", 16-bit NTB support" : "",
+		    (p.bmNtbFormatsSupported & 2) ? ", 32-bit NTB support" : ""
 		);
 	}
 };

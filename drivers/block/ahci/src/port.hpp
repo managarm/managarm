@@ -2,24 +2,29 @@
 
 #include <queue>
 
-#include <arch/mem_space.hpp>
-#include <arch/dma_structs.hpp>
 #include <arch/dma_pool.hpp>
+#include <arch/dma_structs.hpp>
+#include <arch/mem_space.hpp>
+#include <async/queue.hpp>
 #include <async/recurring-event.hpp>
 #include <async/result.hpp>
-#include <async/queue.hpp>
 
 #include <blockfs.hpp>
 
-#include "spec.hpp"
 #include "command.hpp"
+#include "spec.hpp"
 
 class Port : public blockfs::BlockDevice {
-public:
-	Port(int64_t parentId, int index, size_t numCommandSlots, bool staggeredSpinUp,
-			arch::mem_space regs);
+  public:
+	Port(
+	    int64_t parentId,
+	    int index,
+	    size_t numCommandSlots,
+	    bool staggeredSpinUp,
+	    arch::mem_space regs
+	);
 
-public:
+  public:
 	async::result<bool> init();
 	async::result<bool> run();
 	void handleIrq();
@@ -32,14 +37,14 @@ public:
 
 	int getIndex() const { return portIndex_; }
 
-private:
+  private:
 	async::result<size_t> findFreeSlot_();
 	async::detached submitPendingLoop_();
 	async::result<void> submitCommand_(Command *cmd);
 	void start_();
 	void stop_();
 
-private:
+  private:
 	// Mapping is owned by Controller
 	arch::mem_space regs_;
 
@@ -50,13 +55,9 @@ private:
 
 	// TODO: Move this to libasync
 	struct stl_allocator {
-		void *allocate(size_t size) {
-			return operator new(size);
-		}
+		void *allocate(size_t size) { return operator new(size); }
 
-		void deallocate(void *p, size_t) {
-			return operator delete(p);
-		}
+		void deallocate(void *p, size_t) { return operator delete(p); }
 	};
 	async::queue<Command *, stl_allocator> pendingCmdQueue_;
 

@@ -2,8 +2,8 @@
 
 namespace eir {
 
-void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
-		CachingMode caching_mode) {
+void
+mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
 	(void)address;
 	(void)physical;
 	(void)flags;

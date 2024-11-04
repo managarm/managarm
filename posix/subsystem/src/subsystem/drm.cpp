@@ -1,6 +1,6 @@
 
-#include <string.h>
 #include <iostream>
+#include <string.h>
 
 #include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
@@ -21,42 +21,36 @@ id_allocator<uint32_t> minorAllocator{0};
 
 struct Device final : UnixDevice, drvcore::ClassDevice {
 	Device(int index, helix::UniqueLane lane, std::shared_ptr<drvcore::Device> parent)
-	: UnixDevice{VfsType::charDevice},
-			drvcore::ClassDevice{sysfsSubsystem, std::move(parent),
-					"card" + std::to_string(index), this},
-			_index{index}, _lane{std::move(lane)} { }
+	    : UnixDevice{VfsType::charDevice},
+	      drvcore::ClassDevice{
+	          sysfsSubsystem, std::move(parent), "card" + std::to_string(index), this
+	      },
+	      _index{index},
+	      _lane{std::move(lane)} {}
 
-	std::string nodePath() override {
-		return "dri/card" + std::to_string(_index);
-	}
+	std::string nodePath() override { return "dri/card" + std::to_string(_index); }
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			SemanticFlags semantic_flags) override {
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
+	    std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags semantic_flags
+	) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	void composeUevent(drvcore::UeventProperties &ue) override {
-		ue.set("SUBSYSTEM", "drm");
-	}
+	void composeUevent(drvcore::UeventProperties &ue) override { ue.set("SUBSYSTEM", "drm"); }
 
-	std::optional<std::string> getClassPath() override {
-		return "drm";
-	};
+	std::optional<std::string> getClassPath() override { return "drm"; };
 
-private:
+  private:
 	int _index;
 	helix::UniqueLane _lane;
 };
 
-} // anonymous namepsace
+} // namespace
 
 async::detached run() {
 	sysfsSubsystem = new drvcore::ClassSubsystem{"drm"};
 
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"unix.subsystem", "drm"}
-	}};
+	auto filter = mbus_ng::Conjunction{{mbus_ng::EqualsFilter{"unix.subsystem", "drm"}}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {
@@ -71,9 +65,11 @@ async::detached run() {
 
 			int index = minorAllocator.allocate();
 			std::cout << "POSIX: Installing DRM device "
-				<< std::get<mbus_ng::StringItem>(properties.at("unix.devname")).value << std::endl;
+			          << std::get<mbus_ng::StringItem>(properties.at("unix.devname")).value
+			          << std::endl;
 
-			auto parentProperty = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
+			auto parentProperty =
+			    std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
 			auto mbusParent = std::stoi(parentProperty.value);
 			auto pciParent = pci_subsystem::getDeviceByMbus(mbusParent);
 			assert(pciParent);

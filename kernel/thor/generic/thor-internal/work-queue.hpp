@@ -19,7 +19,7 @@ struct Worklet {
 
 	void setup(void (*run)(Worklet *), WorkQueue *wq);
 
-private:
+  private:
 	smarter::shared_ptr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
 	frg::default_list_hook<Worklet> _hook;
@@ -32,34 +32,35 @@ struct WorkQueue {
 	static bool enter(Worklet *worklet);
 
 	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
-	: _executorContext{executorContext}, _localPosted{false}, _lockedPosted{false} { }
+	    : _executorContext{executorContext},
+	      _localPosted{false},
+	      _lockedPosted{false} {}
 
 	bool check();
 
 	void run();
 
-	auto take() {
-		return selfPtr.lock();
-	}
+	auto take() { return selfPtr.lock(); }
 
 	// ----------------------------------------------------------------------------------
 	// schedule() and its boilerplate.
 	// ----------------------------------------------------------------------------------
 
-	template<typename Receiver>
-	struct ScheduleOperation {
-		ScheduleOperation(WorkQueue *wq, Receiver r)
-		: wq_{wq}, r_{std::move(r)} { }
+	template <typename Receiver> struct ScheduleOperation {
+		ScheduleOperation(WorkQueue *wq, Receiver r) : wq_{wq}, r_{std::move(r)} {}
 
 		void start() {
-			worklet_.setup([] (Worklet *base) {
-				auto self = frg::container_of(base, &ScheduleOperation::worklet_);
-				async::execution::set_value(self->r_);
-			}, wq_);
+			worklet_.setup(
+			    [](Worklet *base) {
+				    auto self = frg::container_of(base, &ScheduleOperation::worklet_);
+				    async::execution::set_value(self->r_);
+			    },
+			    wq_
+			);
 			post(&worklet_);
 		}
 
-	private:
+	  private:
 		WorkQueue *wq_;
 		Receiver r_;
 		Worklet worklet_;
@@ -68,44 +69,43 @@ struct WorkQueue {
 	struct ScheduleSender {
 		using value_type = void;
 
-		template<typename Receiver>
+		template <typename Receiver>
 		friend ScheduleOperation<Receiver> connect(ScheduleSender s, Receiver r) {
 			return {s.wq, std::move(r)};
 		}
 
-		friend async::sender_awaiter<ScheduleSender> operator co_await (ScheduleSender s) {
+		friend async::sender_awaiter<ScheduleSender> operator co_await(ScheduleSender s) {
 			return {s};
 		}
 
 		WorkQueue *wq;
 	};
 
-	ScheduleSender schedule() {
-		return {this};
-	}
+	ScheduleSender schedule() { return {this}; }
 
 	// ----------------------------------------------------------------------------------
 	// enter() and its boilerplate.
 	// ----------------------------------------------------------------------------------
 
-	template<typename Receiver>
-	struct EnterOperation {
-		EnterOperation(WorkQueue *wq, Receiver r)
-		: wq_{wq}, r_{std::move(r)} { }
+	template <typename Receiver> struct EnterOperation {
+		EnterOperation(WorkQueue *wq, Receiver r) : wq_{wq}, r_{std::move(r)} {}
 
 		bool start_inline() {
-			worklet_.setup([] (Worklet *base) {
-				auto self = frg::container_of(base, &EnterOperation::worklet_);
-				async::execution::set_value_noinline(self->r_);
-			}, wq_);
-			if(enter(&worklet_)) {
+			worklet_.setup(
+			    [](Worklet *base) {
+				    auto self = frg::container_of(base, &EnterOperation::worklet_);
+				    async::execution::set_value_noinline(self->r_);
+			    },
+			    wq_
+			);
+			if (enter(&worklet_)) {
 				async::execution::set_value_inline(r_);
 				return true;
 			}
 			return false;
 		}
 
-	private:
+	  private:
 		WorkQueue *wq_;
 		Receiver r_;
 		Worklet worklet_;
@@ -114,42 +114,34 @@ struct WorkQueue {
 	struct EnterSender {
 		using value_type = void;
 
-		template<typename Receiver>
+		template <typename Receiver>
 		friend EnterOperation<Receiver> connect(EnterSender s, Receiver r) {
 			return {s.wq, std::move(r)};
 		}
 
-		friend async::sender_awaiter<EnterSender> operator co_await (EnterSender s) {
-			return {s};
-		}
+		friend async::sender_awaiter<EnterSender> operator co_await(EnterSender s) { return {s}; }
 
 		WorkQueue *wq;
 	};
 
-	EnterSender enter() {
-		return {this};
-	}
+	EnterSender enter() { return {this}; }
 
 	// ----------------------------------------------------------------------------------
 
 	smarter::weak_ptr<WorkQueue> selfPtr;
 
-protected:
+  protected:
 	virtual void wakeup() = 0;
 
 	~WorkQueue() = default;
 
-private:
+  private:
 	ExecutorContext *_executorContext;
 
 	frg::intrusive_list<
-		Worklet,
-		frg::locate_member<
-			Worklet,
-			frg::default_list_hook<Worklet>,
-			&Worklet::_hook
-		>
-	> _localQueue;
+	    Worklet,
+	    frg::locate_member<Worklet, frg::default_list_hook<Worklet>, &Worklet::_hook>>
+	    _localQueue;
 
 	std::atomic<bool> _localPosted;
 
@@ -165,13 +157,9 @@ private:
 	std::atomic<bool> _lockedPosted;
 
 	frg::intrusive_list<
-		Worklet,
-		frg::locate_member<
-			Worklet,
-			frg::default_list_hook<Worklet>,
-			&Worklet::_hook
-		>
-	> _lockedQueue;
+	    Worklet,
+	    frg::locate_member<Worklet, frg::default_list_hook<Worklet>, &Worklet::_hook>>
+	    _lockedQueue;
 };
 
 inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
@@ -181,38 +169,40 @@ inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
 	_workQueue = std::move(swq);
 }
 
-template<typename P>
-requires requires(P policy) {
-	// setUp() is called inline when the work is scheduled; for example, it can increase
-	// a reference count to ensure that the state that execute() operates on is kept alive.
-	// execute() is called from the WQ.
-	{ policy.setUp() };
-	{ policy.execute() };
-}
+template <typename P>
+    requires requires(P policy) {
+	    // setUp() is called inline when the work is scheduled; for example, it can increase
+	    // a reference count to ensure that the state that execute() operates on is kept alive.
+	    // execute() is called from the WQ.
+	    { policy.setUp() };
+	    { policy.execute() };
+    }
 struct DeferredWork {
-	DeferredWork(P policy = P{})
-	: policy_{std::move(policy)} { }
+	DeferredWork(P policy = P{}) : policy_{std::move(policy)} {}
 
 	bool invoke() {
 		// We need to guarantee that the Worklet is available again;
 		// that is enfored by the acquire-release ordering here.
 		// (The WQ guarantees that the lambda below is ordered after WorkQueue::post().)
-		if(posted_.exchange(true, std::memory_order_acquire))
+		if (posted_.exchange(true, std::memory_order_acquire))
 			return false;
 
 		policy_.setUp();
 
-		worklet_.setup([] (Worklet *base) {
-			auto self = frg::container_of(base, &DeferredWork::worklet_);
-			assert(self->posted_.load(std::memory_order_relaxed));
-			self->posted_.store(false, std::memory_order_release);
-			self->policy_.execute();
-		}, WorkQueue::generalQueue());
+		worklet_.setup(
+		    [](Worklet *base) {
+			    auto self = frg::container_of(base, &DeferredWork::worklet_);
+			    assert(self->posted_.load(std::memory_order_relaxed));
+			    self->posted_.store(false, std::memory_order_release);
+			    self->policy_.execute();
+		    },
+		    WorkQueue::generalQueue()
+		);
 		WorkQueue::post(&worklet_);
 		return true;
 	}
 
-private:
+  private:
 	P policy_;
 	Worklet worklet_;
 	std::atomic<bool> posted_;

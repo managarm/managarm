@@ -35,16 +35,15 @@
 ******************************************************************************/
 /*$FreeBSD$*/
 
-
 #ifndef _FREEBSD_E1000_OSDEP_H_
 #define _FREEBSD_E1000_OSDEP_H_
 
+#include <net/ethernet.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <net/ethernet.h>
 #include <unistd.h>
 
 #define usec_delay(x) usleep(x)
@@ -52,7 +51,8 @@
 #define msec_delay(x) usleep(x * 1000)
 #define msec_delay_irq(x) usleep(x * 1000)
 
-#define DEBUGOUT(format, ...) printf("driver/freebsd-e1000: %s %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__)
+#define DEBUGOUT(format, ...)                                                                      \
+	printf("driver/freebsd-e1000: %s %d: " format, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 #define DEBUGOUT1(...) DEBUGOUT(__VA_ARGS__)
 #define DEBUGOUT2(...) DEBUGOUT(__VA_ARGS__)
 #define DEBUGOUT3(...) DEBUGOUT(__VA_ARGS__)
@@ -86,10 +86,10 @@ struct e1000_osdep {
 	uintptr_t flashbase;
 };
 
-#define hw2pci(hw) (((struct e1000_osdep*)(hw)->back)->pci->pci)
-#define hw2membase(hw) (((struct e1000_osdep*)(hw)->back)->membase)
-#define hw2iobase(hw) (((struct e1000_osdep*)(hw)->back)->iobase)
-#define hw2flashbase(hw) (((struct e1000_osdep*)(hw)->back)->flashbase)
+#define hw2pci(hw) (((struct e1000_osdep *)(hw)->back)->pci->pci)
+#define hw2membase(hw) (((struct e1000_osdep *)(hw)->back)->membase)
+#define hw2iobase(hw) (((struct e1000_osdep *)(hw)->back)->iobase)
+#define hw2flashbase(hw) (((struct e1000_osdep *)(hw)->back)->flashbase)
 #define hw2nic(hw) (frg::container_of(hw, &E1000Nic::_hw))
 
 #define REG64(addr) ((volatile uint64_t *)(uintptr_t)(addr))
@@ -106,38 +106,43 @@ struct e1000_hw;
 
 void e1000_io_write(struct e1000_hw *hw, u16 reg, u32 data);
 
-#define E1000_REGISTER(hw, reg) \
-  (((hw)->mac.type >= e1000_82543) ? (u32)(reg) : e1000_translate_register_82542(reg))
+#define E1000_REGISTER(hw, reg)                                                                    \
+	(((hw)->mac.type >= e1000_82543) ? (u32)(reg) : e1000_translate_register_82542(reg))
 
 #define E1000_WRITE_FLUSH(a) E1000_READ_REG(a, E1000_STATUS)
 
 /* Read from an absolute offset in the adapter's memory space */
-#define E1000_READ_OFFSET(hw, offset) readl((const volatile void*)(uintptr_t)(hw2membase(hw) + (offset)))
+#define E1000_READ_OFFSET(hw, offset)                                                              \
+	readl((const volatile void *)(uintptr_t)(hw2membase(hw) + (offset)))
 
 /* Write to an absolute offset in the adapter's memory space */
-#define E1000_WRITE_OFFSET(hw, offset, value) writel((value), (volatile void*)(uintptr_t)(hw2membase(hw) + (offset)))
+#define E1000_WRITE_OFFSET(hw, offset, value)                                                      \
+	writel((value), (volatile void *)(uintptr_t)(hw2membase(hw) + (offset)))
 
 /* Register READ/WRITE macros */
 #define E1000_READ_REG(hw, reg) E1000_READ_OFFSET((hw), E1000_REGISTER((hw), (reg)))
-#define E1000_WRITE_REG(hw, reg, value) \
-  E1000_WRITE_OFFSET((hw), E1000_REGISTER((hw), (reg)), (value))
+#define E1000_WRITE_REG(hw, reg, value)                                                            \
+	E1000_WRITE_OFFSET((hw), E1000_REGISTER((hw), (reg)), (value))
 
-#define E1000_READ_REG_ARRAY(hw, reg, index) \
-  E1000_READ_OFFSET((hw), E1000_REGISTER((hw), (reg)) + ((index) << 2))
-#define E1000_WRITE_REG_ARRAY(hw, reg, index, value) \
-  E1000_WRITE_OFFSET((hw), E1000_REGISTER((hw), (reg)) + ((index) << 2), (value))
+#define E1000_READ_REG_ARRAY(hw, reg, index)                                                       \
+	E1000_READ_OFFSET((hw), E1000_REGISTER((hw), (reg)) + ((index) << 2))
+#define E1000_WRITE_REG_ARRAY(hw, reg, index, value)                                               \
+	E1000_WRITE_OFFSET((hw), E1000_REGISTER((hw), (reg)) + ((index) << 2), (value))
 
 #define E1000_READ_REG_ARRAY_DWORD E1000_READ_REG_ARRAY
 #define E1000_WRITE_REG_ARRAY_DWORD E1000_WRITE_REG_ARRAY
 
 #define E1000_WRITE_REG_IO(hw, reg, value) e1000_io_write(hw, reg, value)
 
-#define E1000_READ_FLASH_REG(hw, reg) readl((const volatile void*)(uintptr_t)(hw2flashbase(hw) + (reg)))
-#define E1000_READ_FLASH_REG16(hw, reg) readw((const volatile void*)(uintptr_t)(hw2flashbase(hw) + (reg)))
-#define E1000_WRITE_FLASH_REG(hw, reg, value) writel((value), (volatile void*)(uintptr_t)(hw2flashbase(hw) + (reg)))
-#define E1000_WRITE_FLASH_REG16(hw, reg, value) writew((value), (volatile void*)(uintptr_t)(hw2flashbase(hw) + (reg)))
+#define E1000_READ_FLASH_REG(hw, reg)                                                              \
+	readl((const volatile void *)(uintptr_t)(hw2flashbase(hw) + (reg)))
+#define E1000_READ_FLASH_REG16(hw, reg)                                                            \
+	readw((const volatile void *)(uintptr_t)(hw2flashbase(hw) + (reg)))
+#define E1000_WRITE_FLASH_REG(hw, reg, value)                                                      \
+	writel((value), (volatile void *)(uintptr_t)(hw2flashbase(hw) + (reg)))
+#define E1000_WRITE_FLASH_REG16(hw, reg, value)                                                    \
+	writew((value), (volatile void *)(uintptr_t)(hw2flashbase(hw) + (reg)))
 
 #define ASSERT_NO_LOCKS()
 
-#endif  /* _FREEBSD_E1000_OSDEP_H_ */
-
+#endif /* _FREEBSD_E1000_OSDEP_H_ */

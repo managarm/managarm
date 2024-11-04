@@ -6,26 +6,20 @@
 #include "fwd-decls.hpp"
 
 #include "device.hpp"
-#include "range-allocator.hpp"
 #include "property.hpp"
+#include "range-allocator.hpp"
 
 namespace drm_core {
 
-enum struct ObjectType {
-	encoder,
-	connector,
-	crtc,
-	frameBuffer,
-	plane
-};
+enum struct ObjectType { encoder, connector, crtc, frameBuffer, plane };
 
 struct BufferObject {
-protected:
-	BufferObject(uint32_t w, uint32_t h) : _width{w}, _height{h} { }
+  protected:
+	BufferObject(uint32_t w, uint32_t h) : _width{w}, _height{h} {}
 
 	virtual ~BufferObject() = default;
 
-public:
+  public:
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
 	virtual size_t getSize() = 0;
 	virtual std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() = 0;
@@ -35,21 +29,21 @@ public:
 
 	uint32_t getWidth();
 	uint32_t getHeight();
-private:
+
+  private:
 	uint64_t _mapping = -1;
 	uint32_t _width;
 	uint32_t _height;
 };
 
 struct Blob {
-	Blob(std::vector<char> data, uint32_t id)
-	: _data(std::move(data)), _id(id) {  };
+	Blob(std::vector<char> data, uint32_t id) : _data(std::move(data)), _id(id) {};
 
 	uint32_t id();
 	size_t size();
 	const void *data();
 
-private:
+  private:
 	std::vector<char> _data;
 	uint32_t _id;
 };
@@ -59,8 +53,7 @@ private:
  * It can represent Connectors, CRTCs, Encoders, Framebuffers and Planes.
  */
 struct ModeObject {
-	ModeObject(Device *dev, ObjectType type, uint32_t id)
-	: _device{dev}, _type(type), _id(id) { };
+	ModeObject(Device *dev, ObjectType type, uint32_t id) : _device{dev}, _type(type), _id(id) {};
 
 	virtual ~ModeObject() = default;
 
@@ -83,9 +76,11 @@ struct ModeObject {
 	 * @return std::vector<drm_core::Assignment>
 	 */
 	virtual std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
-protected:
+
+  protected:
 	Device *_device;
-private:
+
+  private:
 	ObjectType _type;
 	uint32_t _id;
 	std::weak_ptr<ModeObject> _self;
@@ -113,10 +108,10 @@ struct CrtcState {
 struct Crtc : ModeObject {
 	Crtc(Device *dev, uint32_t id);
 
-protected:
+  protected:
 	~Crtc() = default;
 
-public:
+  public:
 	void setupState(std::shared_ptr<Crtc> crtc);
 
 	virtual Plane *primaryPlane() = 0;
@@ -129,7 +124,7 @@ public:
 
 	int index;
 
-private:
+  private:
 	std::shared_ptr<CrtcState> _drmState;
 };
 
@@ -151,7 +146,7 @@ struct Encoder : ModeObject {
 
 	int index;
 
-private:
+  private:
 	drm_core::Crtc *_currentCrtc;
 	uint32_t _encoderType;
 	std::vector<Crtc *> _possibleCrtcs;
@@ -169,7 +164,8 @@ struct ConnectorState {
 
 /**
  * Represents a display connector.
- * It transmits the signal to the display, detects display connection and removal and exposes the display's supported modes.
+ * It transmits the signal to the display, detects display connection and removal and exposes the
+ * display's supported modes.
  */
 struct Connector : ModeObject {
 	Connector(Device *dev, uint32_t id);
@@ -201,7 +197,7 @@ struct Connector : ModeObject {
 
 	std::vector<drm_core::Assignment> getAssignments(std::shared_ptr<Device> dev);
 
-private:
+  private:
 	std::vector<drm_mode_modeinfo> _modeList;
 	drm_core::Encoder *_currentEncoder;
 	uint32_t _currentStatus;
@@ -220,13 +216,13 @@ private:
 struct FrameBuffer : ModeObject {
 	FrameBuffer(Device *dev, uint32_t id);
 
-protected:
+  protected:
 	~FrameBuffer() = default;
 
-private:
+  private:
 	uint32_t _format = DRM_FORMAT_XRGB8888;
 
-public:
+  public:
 	uint32_t format();
 	void setFormat(uint32_t format);
 
@@ -263,16 +259,16 @@ struct Plane : ModeObject {
 	std::shared_ptr<drm_core::PlaneState> drmState();
 	void setDrmState(std::shared_ptr<drm_core::PlaneState> new_state);
 
-private:
+  private:
 	PlaneType _type;
 	drm_core::FrameBuffer *_fb;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::shared_ptr<PlaneState> _drmState;
-	std::vector<uint32_t> _formats = { DRM_FORMAT_XRGB8888 };
+	std::vector<uint32_t> _formats = {DRM_FORMAT_XRGB8888};
 };
 
 struct PlaneState {
-	PlaneState(std::weak_ptr<Plane> plane) : plane{plane}, crtc{}, fb{} { };
+	PlaneState(std::weak_ptr<Plane> plane) : plane{plane}, crtc{}, fb{} {};
 
 	Plane::PlaneType type(void);
 
@@ -291,4 +287,4 @@ struct PlaneState {
 	std::shared_ptr<Blob> in_formats;
 };
 
-} //namespace drm_core
+} // namespace drm_core

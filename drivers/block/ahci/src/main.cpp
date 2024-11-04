@@ -1,8 +1,8 @@
 #include <iostream>
 #include <memory>
 
-#include <protocols/mbus/client.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <helix/timer.hpp>
 
@@ -14,7 +14,7 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 	protocols::hw::Device device((co_await hwEntity.getRemoteLane()).unwrap());
 	auto info = co_await device.getPciInfo();
 
-	auto& ahciBarInfo = info.barInfo[5];
+	auto &ahciBarInfo = info.barInfo[5];
 	assert(ahciBarInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto ahciBar = co_await device.accessBar(5);
 
@@ -32,18 +32,19 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 
 	helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
 
-	auto controller = std::make_unique<Controller>(hwEntity.id(), std::move(device),
-			std::move(mapping), std::move(irq), info.numMsis > 0);
+	auto controller = std::make_unique<Controller>(
+	    hwEntity.id(), std::move(device), std::move(mapping), std::move(irq), info.numMsis > 0
+	);
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }
 
 async::detached observeControllers() {
-	auto filter = mbus_ng::Conjunction{{
-		mbus_ng::EqualsFilter{"pci-class", "01"},
-		mbus_ng::EqualsFilter{"pci-subclass", "06"},
-		mbus_ng::EqualsFilter{"pci-interface", "01"}
-	}};
+	auto filter = mbus_ng::Conjunction{
+	    {mbus_ng::EqualsFilter{"pci-class", "01"},
+	     mbus_ng::EqualsFilter{"pci-subclass", "06"},
+	     mbus_ng::EqualsFilter{"pci-interface", "01"}}
+	};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while (true) {

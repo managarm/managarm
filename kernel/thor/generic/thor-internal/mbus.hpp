@@ -1,9 +1,9 @@
 #pragma once
 
-#include <thor-internal/coroutine.hpp>
-#include <thor-internal/universe.hpp>
-#include <thor-internal/stream.hpp>
 #include <frg/vector.hpp>
+#include <thor-internal/coroutine.hpp>
+#include <thor-internal/stream.hpp>
+#include <thor-internal/universe.hpp>
 
 namespace thor {
 
@@ -22,11 +22,11 @@ struct Properties {
 		stringProperty(name, frg::to_allocated_string(*kernelAlloc, value, 10, padding));
 	}
 
-private:
+  private:
 	struct Property {
-		Property(frg::string_view name,
-			frg::string<KernelAlloc> &&value)
-		: name{name}, value{std::move(value)} { }
+		Property(frg::string_view name, frg::string<KernelAlloc> &&value)
+		    : name{name},
+		      value{std::move(value)} {}
 
 		frg::string_view name;
 		frg::string<KernelAlloc> value;
@@ -36,32 +36,35 @@ private:
 };
 
 struct KernelBusObject {
-	coroutine<frg::expected<Error, size_t>> createObject(frg::string_view name, Properties &&properties);
+	coroutine<frg::expected<Error, size_t>>
+	createObject(frg::string_view name, Properties &&properties);
 
 	virtual LaneHandle initiateClient() {
 		auto stream = createStream();
 
-		async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane,
-				KernelBusObject *self) -> coroutine<void> {
-			while(true) {
-				auto result = co_await self->handleRequest(lane);
+		async::detach_with_allocator(
+		    *kernelAlloc,
+		    [](LaneHandle lane, KernelBusObject *self) -> coroutine<void> {
+			    while (true) {
+				    auto result = co_await self->handleRequest(lane);
 
-				if (!result && result.error() == Error::endOfLane)
-					break;
+				    if (!result && result.error() == Error::endOfLane)
+					    break;
 
-				// TODO(qookie): Improve error handling here.
-				result.unwrap();
-			}
-		}(std::move(stream.get<0>()), this));
+				    // TODO(qookie): Improve error handling here.
+				    result.unwrap();
+			    }
+		    }(std::move(stream.get<0>()), this)
+		);
 
 		return stream.get<1>();
 	}
 
-	virtual coroutine<frg::expected<Error>> handleRequest(LaneHandle lane)  {
+	virtual coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) {
 		co_return Error::illegalObject;
 	}
 
-private:
+  private:
 	coroutine<void> handleMbusComms_(LaneHandle mgmtLane);
 	coroutine<frg::expected<Error>> handleServeRemoteLane_(LaneHandle mgmtLane);
 };

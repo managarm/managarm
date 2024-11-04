@@ -1,6 +1,6 @@
-#include <string.h>
-#include <iostream>
 #include <format>
+#include <iostream>
+#include <string.h>
 
 #include <async/queue.hpp>
 #include <protocols/mbus/client.hpp>
@@ -27,7 +27,7 @@ namespace {
 std::unordered_map<mbus_ng::EntityId, uint64_t> usbControllerMap;
 id_allocator<uint64_t> usbControllerAllocator{};
 
-} // namespace anonymous
+} // namespace
 
 namespace usb_subsystem {
 
@@ -82,7 +82,8 @@ EpMaxPacketSizeAttribute epMaxPacketSizeAttr{"wMaxPacketSize"};
 EpTypeAttribute epTypeAttr{"type"};
 
 void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint64_t bus_num) {
-	auto pci_parent_id = std::stoi(std::get<mbus_ng::StringItem>(properties["usb.root.parent"]).value);
+	auto pci_parent_id =
+	    std::stoi(std::get<mbus_ng::StringItem>(properties["usb.root.parent"]).value);
 	auto pci = pci_subsystem::getDeviceByMbus(pci_parent_id);
 	assert(pci);
 
@@ -101,54 +102,84 @@ void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint
 	auto major = std::stoi(version_major_str.value);
 	auto minor = std::stoi(version_minor_str.value);
 
-	switch(major) {
-		case 1:
-			switch(minor) {
-				case 0:
-					device->speed = "1.5";
-					break;
-				case 0x10:
-					device->speed = "12";
-					break;
-				default:
-					printf("USB version 1.%u\n", minor);
-					assert(!"invalid USB 1 minor revision");
-					break;
-			}
-			device->descriptors.insert(device->descriptors.end(), root_hub::descUsb1_1.begin(), root_hub::descUsb1_1.end());
-			device->descriptors.insert(device->descriptors.end(), root_hub::descFullSpeed.begin(), root_hub::descFullSpeed.end());
+	switch (major) {
+	case 1:
+		switch (minor) {
+		case 0:
+			device->speed = "1.5";
 			break;
-		case 2:
-			device->speed = "480"; // High speed
-			device->descriptors.insert(device->descriptors.end(), root_hub::descUsb2_0.begin(), root_hub::descUsb2_0.end());
-			device->descriptors.insert(device->descriptors.end(), root_hub::descHighSpeed.begin(), root_hub::descHighSpeed.end());
-			break;
-		case 3:
-			switch(minor) {
-				case 0:
-					device->speed = "5000";
-					device->descriptors.insert(device->descriptors.end(), root_hub::descUsb3_0.begin(), root_hub::descUsb3_0.end());
-					device->descriptors.insert(device->descriptors.end(), root_hub::descSuperSpeed.begin(), root_hub::descSuperSpeed.end());
-					break;
-				case 0x10:
-					device->speed = "10000";
-					device->descriptors.insert(device->descriptors.end(), root_hub::descUsb3_1.begin(), root_hub::descUsb3_1.end());
-					device->descriptors.insert(device->descriptors.end(), root_hub::descSuperSpeed.begin(), root_hub::descSuperSpeed.end());
-					break;
-				case 0x20:
-					device->speed = "20000";
-					device->descriptors.insert(device->descriptors.end(), root_hub::descUsb3_1.begin(), root_hub::descUsb3_1.end());
-					device->descriptors.insert(device->descriptors.end(), root_hub::descSuperSpeed.begin(), root_hub::descSuperSpeed.end());
-					break;
-				default:
-					std::cerr << "unhandled USB 3 minor revision: " << minor << '\n';
-					assert(!"unhandled USB 3 minor revision");
-					break;
-			}
+		case 0x10:
+			device->speed = "12";
 			break;
 		default:
-			device->speed = "unknown";
+			printf("USB version 1.%u\n", minor);
+			assert(!"invalid USB 1 minor revision");
 			break;
+		}
+		device->descriptors.insert(
+		    device->descriptors.end(), root_hub::descUsb1_1.begin(), root_hub::descUsb1_1.end()
+		);
+		device->descriptors.insert(
+		    device->descriptors.end(),
+		    root_hub::descFullSpeed.begin(),
+		    root_hub::descFullSpeed.end()
+		);
+		break;
+	case 2:
+		device->speed = "480"; // High speed
+		device->descriptors.insert(
+		    device->descriptors.end(), root_hub::descUsb2_0.begin(), root_hub::descUsb2_0.end()
+		);
+		device->descriptors.insert(
+		    device->descriptors.end(),
+		    root_hub::descHighSpeed.begin(),
+		    root_hub::descHighSpeed.end()
+		);
+		break;
+	case 3:
+		switch (minor) {
+		case 0:
+			device->speed = "5000";
+			device->descriptors.insert(
+			    device->descriptors.end(), root_hub::descUsb3_0.begin(), root_hub::descUsb3_0.end()
+			);
+			device->descriptors.insert(
+			    device->descriptors.end(),
+			    root_hub::descSuperSpeed.begin(),
+			    root_hub::descSuperSpeed.end()
+			);
+			break;
+		case 0x10:
+			device->speed = "10000";
+			device->descriptors.insert(
+			    device->descriptors.end(), root_hub::descUsb3_1.begin(), root_hub::descUsb3_1.end()
+			);
+			device->descriptors.insert(
+			    device->descriptors.end(),
+			    root_hub::descSuperSpeed.begin(),
+			    root_hub::descSuperSpeed.end()
+			);
+			break;
+		case 0x20:
+			device->speed = "20000";
+			device->descriptors.insert(
+			    device->descriptors.end(), root_hub::descUsb3_1.begin(), root_hub::descUsb3_1.end()
+			);
+			device->descriptors.insert(
+			    device->descriptors.end(),
+			    root_hub::descSuperSpeed.begin(),
+			    root_hub::descSuperSpeed.end()
+			);
+			break;
+		default:
+			std::cerr << "unhandled USB 3 minor revision: " << minor << '\n';
+			assert(!"unhandled USB 3 minor revision");
+			break;
+		}
+		break;
+	default:
+		device->speed = "unknown";
+		break;
 	}
 
 	assert(device->descriptors.size() >= 18 + 25);
@@ -182,9 +213,11 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	assert(usbControllerMap.find(bus) != usbControllerMap.end());
 	auto bus_num = usbControllerMap[bus];
 
-	auto sysfs_name = std::to_string(bus_num) + "-" + std::to_string(std::stoi(address.value, nullptr, 16));
+	auto sysfs_name =
+	    std::to_string(bus_num) + "-" + std::to_string(std::stoi(address.value, nullptr, 16));
 
-	std::cout << "POSIX: Installing USB device " << sysfs_name << " (mbus ID: " << entity.id() << ")" << std::endl;
+	std::cout << "POSIX: Installing USB device " << sysfs_name << " (mbus ID: " << entity.id()
+	          << ")" << std::endl;
 
 	auto lane = (co_await entity.getRemoteLane()).unwrap();
 	auto hw = protocols::usb::connect(std::move(lane));
@@ -205,58 +238,64 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	/* obtain the tree of configuration descriptors and its subdescriptors */
 	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(raw_dev_desc.data());
 	protocols::usb::ConfigDescriptor cfgdesc;
-	for(size_t i = 0; i < devdesc->numConfigs; i++) {
+	for (size_t i = 0; i < devdesc->numConfigs; i++) {
 		auto raw_descs = (co_await device->device().configurationDescriptor(i)).value();
 		cfgdesc = DescriptorBase::from_vec<protocols::usb::ConfigDescriptor>(raw_descs);
 
-		if(cfgdesc.configValue == config_val)
+		if (cfgdesc.configValue == config_val)
 			raw_desc = raw_descs;
 		device->descriptors.insert(device->descriptors.end(), raw_descs.begin(), raw_descs.end());
 	}
 
-	protocols::usb::walkConfiguration(raw_desc, [&] (int type, size_t, void *descriptor, const auto &info) {
-		if(type == protocols::usb::descriptor_type::configuration) {
-			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
-			device->maxPower = desc->maxPower * 2;
-			device->numInterfaces = desc->numInterfaces;
+	protocols::usb::walkConfiguration(
+	    raw_desc,
+	    [&](int type, size_t, void *descriptor, const auto &info) {
+		    if (type == protocols::usb::descriptor_type::configuration) {
+			    auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
+			    device->maxPower = desc->maxPower * 2;
+			    device->numInterfaces = desc->numInterfaces;
 
-			if(info.configNumber == config_val) {
-				device->bmAttributes = desc->bmAttributes;
-			}
-		} else if(type == protocols::usb::descriptor_type::interface) {
-			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
+			    if (info.configNumber == config_val) {
+				    device->bmAttributes = desc->bmAttributes;
+			    }
+		    } else if (type == protocols::usb::descriptor_type::interface) {
+			    auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
 
-			auto if_sysfs_name = std::format("{}:{}.{}", sysfs_name, *info.configNumber, desc->interfaceNumber);
-			auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.id(), device);
+			    auto if_sysfs_name =
+			        std::format("{}:{}.{}", sysfs_name, *info.configNumber, desc->interfaceNumber);
+			    auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.id(), device);
 
-			interface->interfaceClass = desc->interfaceClass;
-			interface->interfaceSubClass = desc->interfaceSubClass;
-			interface->interfaceProtocol = desc->interfaceProtocol;
-			interface->alternateSetting = desc->alternateSetting;
-			interface->interfaceNumber = desc->interfaceNumber;
-			interface->endpointCount = desc->numEndpoints;
-			interface->descriptors = device->descriptors;
+			    interface->interfaceClass = desc->interfaceClass;
+			    interface->interfaceSubClass = desc->interfaceSubClass;
+			    interface->interfaceProtocol = desc->interfaceProtocol;
+			    interface->alternateSetting = desc->alternateSetting;
+			    interface->interfaceNumber = desc->interfaceNumber;
+			    interface->endpointCount = desc->numEndpoints;
+			    interface->descriptors = device->descriptors;
 
-			device->interfaces.push_back(interface);
-		} else if(type == protocols::usb::descriptor_type::endpoint) {
-			auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
+			    device->interfaces.push_back(interface);
+		    } else if (type == protocols::usb::descriptor_type::endpoint) {
+			    auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
 
-			auto ep_sysfs_name = std::format("ep_{:02x}", desc->endpointAddress & 0x8F);
-			auto ep = std::make_shared<UsbEndpoint>(ep_sysfs_name, entity.id(), device->interfaces.back());
-			ep->endpointAddress = desc->endpointAddress;
-			ep->interval = desc->interval;
-			ep->attributes = desc->attributes;
-			ep->maxPacketSize = desc->maxPacketSize;
-			device->interfaces.back()->endpoints.push_back(ep);
-		}
-	});
+			    auto ep_sysfs_name = std::format("ep_{:02x}", desc->endpointAddress & 0x8F);
+			    auto ep = std::make_shared<UsbEndpoint>(
+			        ep_sysfs_name, entity.id(), device->interfaces.back()
+			    );
+			    ep->endpointAddress = desc->endpointAddress;
+			    ep->interval = desc->interval;
+			    ep->attributes = desc->attributes;
+			    ep->maxPacketSize = desc->maxPacketSize;
+			    device->interfaces.back()->endpoints.push_back(ep);
+		    }
+	    }
+	);
 
 	drvcore::registerMbusDevice(entity.id(), device);
 	drvcore::installDevice(device);
 	sysfsSubsystem->devicesObject()->createSymlink(sysfs_name, device);
 
-	for(auto interface : device->interfaces) {
-		if(interface->alternateSetting != 0) {
+	for (auto interface : device->interfaces) {
+		if (interface->alternateSetting != 0) {
 			// TODO(no92): currently we don't support anything but bAlternateSetting 0
 			continue;
 		}
@@ -272,7 +311,7 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		interface->realizeAttribute(&numEndpointsAttr);
 		interface->createSymlink("subsystem", sysfsSubsystem->object());
 
-		for(auto ep : interface->endpoints) {
+		for (auto ep : interface->endpoints) {
 			ep->addObject();
 
 			ep->realizeAttribute(&endpointAddressAttr);
@@ -327,19 +366,19 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 std::unordered_map<std::string, std::shared_ptr<drvcore::BusDriver>> interface_driver_list;
 
 std::shared_ptr<drvcore::BusDriver> getInterfaceDriver(std::string name) {
-	if(interface_driver_list.contains(name)) {
+	if (interface_driver_list.contains(name)) {
 		return interface_driver_list.at(name);
 	}
 
-	if(name == "cdc_ncm") {
+	if (name == "cdc_ncm") {
 		auto ncmDriver = std::make_shared<CdcNcmDriver>(sysfsSubsystem, name);
 		ncmDriver->addObject();
 		interface_driver_list.insert({name, ncmDriver});
-	} else if(name == "cdc_mbim") {
+	} else if (name == "cdc_mbim") {
 		auto mbimDriver = std::make_shared<CdcMbimDriver>(sysfsSubsystem, name);
 		mbimDriver->addObject();
 		interface_driver_list.insert({name, mbimDriver});
-	} else if(name == "cdc_ether") {
+	} else if (name == "cdc_ether") {
 		auto cdcEtherDriver = std::make_shared<CdcEtherDriver>(sysfsSubsystem, name);
 		cdcEtherDriver->addObject();
 		interface_driver_list.insert({name, cdcEtherDriver});
@@ -354,23 +393,24 @@ async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 	auto filter = mbus_ng::EqualsFilter{"drvcore.mbus-parent", std::to_string(deviceId)};
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 
-	while(true) {
+	while (true) {
 		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
 
 		for (auto &event : events) {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 
 			auto device = ({
-				auto parent_id = std::get<mbus_ng::StringItem>(event.properties["drvcore.mbus-parent"]).value;
+				auto parent_id =
+				    std::get<mbus_ng::StringItem>(event.properties["drvcore.mbus-parent"]).value;
 				drvcore::getMbusDevice(mbus_ng::EntityId{std::stoi(parent_id)});
 			});
 			assert(device);
 
 			auto if_drivers = event.properties.find("usb.interface_drivers");
-			if(if_drivers != event.properties.end()) {
+			if (if_drivers != event.properties.end()) {
 				auto drivers_list = std::get<mbus_ng::ArrayItem>(if_drivers->second).items;
 
-				for(auto &driver_info : drivers_list) {
+				for (auto &driver_info : drivers_list) {
 					auto info = std::get<mbus_ng::ArrayItem>(driver_info).items;
 					auto if_num = std::get<mbus_ng::StringItem>(info.at(0)).value;
 					auto driver_name = std::get<mbus_ng::StringItem>(info.at(1)).value;
@@ -378,13 +418,15 @@ async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 					auto dev = std::static_pointer_cast<UsbDevice>(device);
 					auto config_val = (co_await dev->device().currentConfigurationValue()).value();
 					auto dev_if = std::find_if(
-						dev->interfaces.begin(), dev->interfaces.end(),
-						[&](const auto &intf) {
-							return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num;
-						}
+					    dev->interfaces.begin(),
+					    dev->interfaces.end(),
+					    [&](const auto &intf) {
+						    return std::format("{}.{}", config_val, intf->interfaceNumber) ==
+						           if_num;
+					    }
 					);
 
-					if(dev_if != dev->interfaces.end() && !dev_if->get()->driver) {
+					if (dev_if != dev->interfaces.end() && !dev_if->get()->driver) {
 						dev_if->get()->driver = getInterfaceDriver(driver_name);
 						dev_if->get()->createSymlink("driver", dev_if->get()->driver);
 					}
@@ -396,9 +438,9 @@ async::detached observeDeviceChildren(mbus_ng::EntityId deviceId) {
 
 async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 	auto usbDeviceFilter = mbus_ng::Conjunction({
-		mbus_ng::EqualsFilter{"unix.subsystem", "usb"},
-		mbus_ng::EqualsFilter{"usb.type", "device"},
-		mbus_ng::EqualsFilter{"usb.bus", std::to_string(controllerId)},
+	    mbus_ng::EqualsFilter{"unix.subsystem", "usb"},
+	    mbus_ng::EqualsFilter{"usb.type", "device"},
+	    mbus_ng::EqualsFilter{"usb.bus", std::to_string(controllerId)},
 	});
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(usbDeviceFilter);
@@ -443,7 +485,8 @@ async::detached run() {
 	}
 }
 
-async::result<std::shared_ptr<drvcore::Device>> getInterfaceDevice(std::shared_ptr<drvcore::Device> parent, mbus_ng::Properties &prop) {
+async::result<std::shared_ptr<drvcore::Device>>
+getInterfaceDevice(std::shared_ptr<drvcore::Device> parent, mbus_ng::Properties &prop) {
 	assert(parent);
 	// TODO(no92): check the device type before casting instead of having it be caller-checked
 	auto dev = std::static_pointer_cast<UsbDevice>(parent);
@@ -452,14 +495,12 @@ async::result<std::shared_ptr<drvcore::Device>> getInterfaceDevice(std::shared_p
 	assert(if_num);
 
 	auto config_val = (co_await dev->device().currentConfigurationValue()).value();
-	auto dev_if = std::find_if(
-		dev->interfaces.begin(), dev->interfaces.end(),
-		[&](const auto &intf) {
-			return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num->value;
-		}
-	);
+	auto dev_if =
+	    std::find_if(dev->interfaces.begin(), dev->interfaces.end(), [&](const auto &intf) {
+		    return std::format("{}.{}", config_val, intf->interfaceNumber) == if_num->value;
+	    });
 
-	if(dev_if != dev->interfaces.end())
+	if (dev_if != dev->interfaces.end())
 		co_return dev_if->get()->shared_from_this();
 
 	co_return {};

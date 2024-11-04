@@ -1,0 +1,21 @@
+name: pre-commit
+
+on: [push, pull_request]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    # Check .clang-format is up to date
+    - uses: actions/checkout@v4
+      with:
+        repository: 'managarm/common-config'
+        path: common-config
+    - run: 'cmp .clang-format common-config/.clang-format'
+      name: 'Check .clang-format is up to date'
+
+    # Check formatting
+    - uses: actions/setup-python@v3
+    - uses: pre-commit/action@v3.0.1

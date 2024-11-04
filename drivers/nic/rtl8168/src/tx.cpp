@@ -2,29 +2,32 @@
 #include <linux/if_link.h>
 #include <memory>
 #include <nic/rtl8168/common.hpp>
-#include <nic/rtl8168/tx.hpp>
+#include <nic/rtl8168/debug_options.hpp>
 #include <nic/rtl8168/descriptor.hpp>
 #include <nic/rtl8168/regs.hpp>
-#include <nic/rtl8168/debug_options.hpp>
+#include <nic/rtl8168/tx.hpp>
 
 void RealtekNic::setTxConfigRegisters() {
 	auto val = flags::transmit_config::mxdma(flags::transmit_config::mxdma_burst) |
-		flags::transmit_config::ifg(flags::transmit_config::ifg_normal);
+	           flags::transmit_config::ifg(flags::transmit_config::ifg_normal);
 
-	if (_revision >= MacRevision::MacVer34 &&
-		_revision != MacRevision::MacVer39 &&
-		_revision <= MacRevision::MacVer53) {
+	if (_revision >= MacRevision::MacVer34 && _revision != MacRevision::MacVer39 &&
+	    _revision <= MacRevision::MacVer53) {
 		val |= flags::transmit_config::auto_fifo(true);
 	}
 
 	_mmio.store(regs::transmit_config, val);
 }
 
-TxQueue::TxQueue(size_t descriptors, RealtekNic &nic) : _descriptor_count{descriptors}, _amount_free_descriptors{descriptors}, tx_index{0, descriptors}, hw_tx_index{0, descriptors} {
+TxQueue::TxQueue(size_t descriptors, RealtekNic &nic)
+    : _descriptor_count{descriptors},
+      _amount_free_descriptors{descriptors},
+      tx_index{0, descriptors},
+      hw_tx_index{0, descriptors} {
 	_descriptors = arch::dma_array<Descriptor>(nic.dmaPool(), _descriptor_count);
 	_descriptor_buffers.reserve(_descriptor_count);
 
-	for(size_t i = 0; i < _descriptor_count; i++) {
+	for (size_t i = 0; i < _descriptor_count; i++) {
 		auto buf = arch::dma_buffer(nic.dmaPool(), 2048);
 		memset(buf.data(), 0, buf.size());
 		uintptr_t addr = helix_ng::ptrToPhysical(buf.data());
@@ -48,8 +51,11 @@ async::result<void> TxQueue::submitDescriptor(arch::dma_buffer_view payload, Rea
 }
 
 // TODO: support large packets
-// TODO: this function should be able to fail; there may not be enough space in the ring buffer, which should be handled gracefully
-async::result<void> TxQueue::postDescriptor(arch::dma_buffer_view payload, RealtekNic &nic, std::shared_ptr<Request> req) {
+// TODO: this function should be able to fail; there may not be enough space in the ring buffer,
+// which should be handled gracefully
+async::result<void> TxQueue::postDescriptor(
+    arch::dma_buffer_view payload, RealtekNic &nic, std::shared_ptr<Request> req
+) {
 	assert(_amount_free_descriptors);
 
 	_requests.push(req);
@@ -58,10 +64,11 @@ async::result<void> TxQueue::postDescriptor(arch::dma_buffer_view payload, Realt
 
 	// Manually pad the buffer
 	// This bypasses issues on some cards.
-	// TODO: gate this to only the cards which have these issues, and only do it if these issues would occur
+	// TODO: gate this to only the cards which have these issues, and only do it if these issues
+	// would occur
 	auto actual_size = payload.size() > 60 ? payload.size() : 60;
 
-	if(actual_size != payload.size()) {
+	if (actual_size != payload.size()) {
 		memset(_descriptor_buffers[tx_index()].data(), 0, actual_size);
 	}
 
@@ -76,22 +83,20 @@ async::result<void> TxQueue::postDescriptor(arch::dma_buffer_view payload, Realt
 	__sync_synchronize();
 	--_amount_free_descriptors;
 
-	// TOOD: Technically, we should not be ringing the doorbell after every transmision, but only if there
+	// TOOD: Technically, we should not be ringing the doorbell after every transmision, but only if
+	// there
 	//       are no current transmissions in progress.
-	//       Howver, always ringing the doorbell seems to work, and avoids the problem of having to detect
-	//       stalls caused by not ringing the doorbell when it should have been rung
+	//       Howver, always ringing the doorbell seems to work, and avoids the problem of having to
+	//       detect stalls caused by not ringing the doorbell when it should have been rung
 	nic.ringDoorbell();
-	if(logTXDescriptor) {
+	if (logTXDescriptor) {
 		std::cout << "drivers/rtl8168: posting TX descriptor: "
-			<< "tx_index: " << tx_index
-			<< ", hw_tx_index: " << hw_tx_index
-			<< ", amount_free_descriptors: " << _amount_free_descriptors
-			<< std::endl;
+		          << "tx_index: " << tx_index << ", hw_tx_index: " << hw_tx_index
+		          << ", amount_free_descriptors: " << _amount_free_descriptors << std::endl;
 
 		std::cout << "drivers/rtl8168: "
-			<< "payload size: " << payload.size()
-			<< ", actual_size: " << actual_size
-			<< std::endl;
+		          << "payload size: " << payload.size() << ", actual_size: " << actual_size
+		          << std::endl;
 	}
 	++tx_index;
 	co_return;
@@ -100,16 +105,17 @@ async::result<void> TxQueue::postDescriptor(arch::dma_buffer_view payload, Realt
 // TODO: potential race conditions?
 // TODO: locking the queue indexes might be a good idea
 void TxQueue::handleTxOk() {
-	while(hw_tx_index != tx_index) {
+	while (hw_tx_index != tx_index) {
 		auto i = hw_tx_index();
-		if((_descriptors[i].flags & flags::tx::ownership) == flags::tx::owner_nic) // Descriptor was not transmitted?
+		if ((_descriptors[i].flags & flags::tx::ownership) ==
+		    flags::tx::owner_nic) // Descriptor was not transmitted?
 			break;
 
 		// Remove all info except EOR
 		_descriptors[i].flags = flags::tx::eor(_descriptors[i].flags & flags::tx::eor);
 		_descriptors[i].vlan = 0;
 
-		if(_requests.empty())
+		if (_requests.empty())
 			break;
 
 		auto req = _requests.front();
@@ -119,10 +125,9 @@ void TxQueue::handleTxOk() {
 		++hw_tx_index;
 		++_amount_free_descriptors;
 	}
-	if(logIRQs) {
+	if (logIRQs) {
 		std::cout << "drivers/rtl8168: completed handling of TX_OK"
-			<< ", hw_tx_index: " << hw_tx_index()
-			<< ", tx_index: " << tx_index()
-			<< std::endl;
+		          << ", hw_tx_index: " << hw_tx_index() << ", tx_index: " << tx_index()
+		          << std::endl;
 	}
 }
