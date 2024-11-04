@@ -86,6 +86,29 @@ public:
 		return _ctime;
 	}
 
+	void setUid(uid_t uid) {
+		_uid = uid;
+	}
+
+	void setGid(gid_t gid) {
+		_gid = gid;
+	}
+
+	void setAtime(timespec atime) {
+		_atime.tv_sec = atime.tv_sec;
+		_atime.tv_nsec = atime.tv_nsec;
+	}
+
+	void setCtime(timespec ctime) {
+		_ctime.tv_sec = ctime.tv_sec;
+		_ctime.tv_nsec = ctime.tv_nsec;
+	}
+
+	void setMtime(timespec mtime) {
+		_mtime.tv_sec = mtime.tv_sec;
+		_mtime.tv_nsec = mtime.tv_nsec;
+	}
+
 	async::result<Error> chmod(int mode) override {
 		_mode = (_mode & 0xFFFFF000) | mode;
 		co_return Error::success;
@@ -117,6 +140,46 @@ private:
 	timespec _ctime = {0, 0};
 };
 
+bool checkReadPerms(uid_t uid, gid_t gid, uid_t file_uid, gid_t file_gid, mode_t mode) {
+	if(!(mode & S_IRUSR) && !(mode & S_IRGRP) && !(mode & S_IROTH)) {
+		return false;
+	}
+
+	// Check for owner
+	if(uid == file_uid) {
+		return mode & S_IRUSR;
+	}
+
+	// Not owner, but maybe we're in the group?
+	// TODO: Support supplemental group lists
+	if(gid == file_gid) {
+		return mode & S_IRGRP;
+	}
+
+	// Neither owner nor group, check other
+	return mode & S_IROTH;
+}
+
+bool checkWritePerms(uid_t uid, gid_t gid, uid_t file_uid, gid_t file_gid, mode_t mode) {
+	if(!(mode & S_IWUSR) && !(mode & S_IWGRP) && !(mode & S_IWOTH)) {
+		return false;
+	}
+
+	// Check for owner
+	if(uid == file_uid) {
+		return mode & S_IWUSR;
+	}
+
+	// Not owner, but maybe we're in the group?
+	// TODO: Support supplemental group lists
+	if(gid == file_gid) {
+		return mode & S_IWGRP;
+	}
+
+	// Neither owner nor group, check other
+	return mode & S_IWOTH;
+}
+
 struct SymlinkNode final : Node {
 private:
 	VfsType getType() override {
@@ -144,7 +207,7 @@ private:
 		return _id;
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(Process *self, std::shared_ptr<MountView> mount,
 			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
@@ -171,7 +234,7 @@ private:
 		return VfsType::fifo;
 	}
 
-	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(Process *self, std::shared_ptr<MountView> mount,
 			std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) override {
 		co_return co_await fifo::openNamedChannel(mount, link, this, semantic_flags);
 	}
@@ -273,7 +336,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *self, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 			std::cout << "\e[31mposix: open() received illegal arguments:"
@@ -366,7 +429,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *self, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticRead | semanticWrite)){
 			std::cout << "\e[31mposix: tmp_fs open() received illegal arguments:"
@@ -446,7 +509,7 @@ struct MemoryNode final : Node {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *self, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 			std::cout << "\e[31mposix: open() received illegal arguments:"
@@ -454,6 +517,12 @@ struct MemoryNode final : Node {
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;
 			co_return Error::illegalArguments;
+		}
+		if((semantic_flags & semanticRead) && !checkReadPerms(self->uid(), self->gid(), uid(), gid(), mode())) {
+			co_return Error::accessDenied;
+		}
+		if((semantic_flags & semanticWrite) && !checkWritePerms(self->uid(), self->gid(), uid(), gid(), mode())) {
+			co_return Error::accessDenied;
 		}
 		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
 		file->setupWeakFile(file);
@@ -506,13 +575,27 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *self) override {
 		auto node = std::make_shared<MemoryNode>(this);
+		struct timespec time;
+		// TODO: Move to CLOCK_REALTIME when supported
+		clock_gettime(CLOCK_MONOTONIC, &time);
+		node->setAtime(time);
+		node->setCtime(time);
+		node->setMtime(time);
+		node->setUid(self->uid());
+		node->setGid(self->gid());
 		co_return std::move(node);
 	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
 		auto node = std::make_shared<SocketNode>(this);
+		struct timespec time;
+		// TODO: Move to CLOCK_REALTIME when supported
+		clock_gettime(CLOCK_MONOTONIC, &time);
+		node->setAtime(time);
+		node->setCtime(time);
+		node->setMtime(time);
 		co_return std::move(node);
 	}
 
