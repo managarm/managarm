@@ -1,7 +1,15 @@
 ---
 Checks:
   - '-*'
+  - 'bugprone-use-after-move'
+  - 'misc-confusable-identifiers'
+  - 'misc-static-assert'
+  - 'modernize-make-shared'
+  - 'modernize-type-traits'
+  - 'modernize-unary-static-assert'
   - 'modernize-use-nullptr'
+  - 'readability-enum-initial-value'
+  - 'readability-redundant-smartptr-get'
 HeaderFileExtensions:
   - h
   - hpp
