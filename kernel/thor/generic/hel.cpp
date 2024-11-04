@@ -2027,7 +2027,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<Thread> thread;
-	VirtualizedCpuDescriptor vcpu{0};
+	VirtualizedCpuDescriptor vcpu{nullptr};
 	if(handle == kHelThisThread) {
 		// FIXME: Properly handle this below.
 		thread = this_thread.lock();
