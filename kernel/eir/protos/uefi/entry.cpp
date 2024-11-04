@@ -137,15 +137,23 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 
 	{
 		efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-		EFI_CHECK(bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop)));
+		efi_status status = bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop));
+
 		if(gop->mode->info->version != 0)
 			eir::panicLogger() << "error: unsupported EFI_GRAPHICS_OUTPUT_MODE_INFORMATION version!" << frg::endlog;
 
-		eir::infoLogger() << "eir: framebuffer "
-			<< gop->mode->info->horizontal_resolution << "x"
-			<< gop->mode->info->vertical_resolution << " address=0x"
-			<< frg::hex_fmt{gop->mode->framebuffer_base}
-			<< frg::endlog;
+		if(status == EFI_SUCCESS) {
+			eir::infoLogger() << "eir: framebuffer "
+				<< gop->mode->info->horizontal_resolution << "x"
+				<< gop->mode->info->vertical_resolution << " address=0x"
+				<< frg::hex_fmt{gop->mode->framebuffer_base}
+				<< frg::endlog;
+		} else {
+			// the spec claims that the `void **interface` argument will be a nullptr on
+			// spec-listed error returns, but only lists two error codes; there are more
+			// error codes in the wild, so best to not rely on them to return a nullptr
+			gop = nullptr;
+		}
 	}
 
 	size_t memMapSize = sizeof(efi_memory_descriptor);
