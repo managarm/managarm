@@ -744,7 +744,7 @@ DirectoryNode::mkdir(std::string name) {
 		co_return Error::alreadyExists;
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
 	auto the_node = node.get();
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
@@ -768,7 +768,7 @@ DirectoryNode::mkdev(std::string name, VfsType type, DeviceId id) {
 		co_return Error::alreadyExists;
 	auto node = std::make_shared<DeviceNode>(static_cast<Superblock *>(superblock()),
 			type, id);
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
@@ -779,7 +779,7 @@ DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = std::make_shared<FifoNode>(static_cast<Superblock *>(superblock()), mode);
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;
@@ -789,7 +789,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkso
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()));
-	auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(node));
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);
 	co_return link;

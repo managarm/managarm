@@ -1750,7 +1750,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 						continue;
 					}else{
-						auto fileResult = co_await tail->getTarget()->open(
+						auto target = tail->getTarget();
+						auto fileResult = co_await target->open(
 											resolver.currentView(), std::move(tail),
 											semantic_flags);
 						assert(fileResult);
