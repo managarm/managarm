@@ -2,6 +2,7 @@ inc = [ 'include' ]
 
 headers = [
 	'include/core/bpf.hpp',
+	'include/core/logging.hpp',
 	'include/core/id-allocator.hpp',
 	'include/core/queue.hpp',
 ]
