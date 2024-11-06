@@ -1,3 +1,4 @@
+#include <cpio.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/arch.hpp>
@@ -11,6 +12,7 @@
 namespace eir {
 
 address_t allocatedMemory;
+frg::span<uint8_t> kernel_image{nullptr, 0};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -350,6 +352,21 @@ address_t mapBootstrapData(void *p) {
 }
 
 // ----------------------------------------------------------------------------
+
+void parseInitrd(void *initrd) {
+	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
+	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
+	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
+
+	for(auto entry : cpio_range) {
+		if(entry.name == "thor") {
+			kernel_image = entry.data;
+		}
+	}
+
+	if(!kernel_image.data() || !kernel_image.size())
+		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
+}
 
 address_t loadKernelImage(void *image) {
 	Elf64_Ehdr ehdr;

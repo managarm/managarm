@@ -236,7 +236,6 @@ void eirRelocate() {
 	module->namePtr = mapBootstrapData(name_ptr);
 	module->nameLength = 11;
 
-	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(module);
 
 	info_ptr->dtbPtr = genericInfo.deviceTreePtr;

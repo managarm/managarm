@@ -205,7 +205,6 @@ extern "C" void thorMain() {
 
 		// Parse the initrd image.
 		auto modules = reinterpret_cast<EirModule *>(thorBootInfoPtr->moduleInfo);
-		assert(thorBootInfoPtr->numModules == 1);
 
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{

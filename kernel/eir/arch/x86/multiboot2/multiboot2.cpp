@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <assert.h>
+#include <cpio.hpp>
 #include <eir/interface.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
@@ -147,8 +148,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	size_t n_modules = 0;
 
-	uintptr_t kernel_module_start = 0;
-	
+	uintptr_t initrd_module_start = 0;
+
 	frg::string_view cmdline{};
 
 	Mb2Tag *acpiTag = nullptr;
@@ -185,16 +186,13 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 			case kMb2TagModule: {
 				auto *module = reinterpret_cast<Mb2TagModule*>(tag);
 
+				if(n_modules)
+					eir::panicLogger() << "eir: only one module is supported!" << frg::endlog;
+
+				initrd_module_start = module->start;
+				reservedRegions[nReservedRegions++] = {module->start, module->end - module->start};
+
 				n_modules++;
-				if(n_modules == 1){ // First module so kernel
-					kernel_module_start = (uintptr_t)module->start;
-				}
-
-
-				uintptr_t start = (uintptr_t)module->start;
-				uintptr_t end = (uintptr_t)module->end;
-				reservedRegions[nReservedRegions++] = {start, end - start};
-
 				break;
 			}
 
@@ -227,9 +225,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 
 	assert(mmap_start);
 	assert(mmap_end > mmap_start);
-
-	assert(n_modules >= 2);
-
 	assert(cmdline.data()); // Make sure it at least exists
 
 	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
@@ -258,41 +253,37 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 					<< frg::endlog;
 	}
 
+	parseInitrd(reinterpret_cast<void *>(initrd_module_start));
+
 	uint64_t kernel_entry = 0;
-	initProcessorPaging((void *)kernel_module_start, kernel_entry);
+	initProcessorPaging(reinterpret_cast<void *>(kernel_image.data()), kernel_entry);
 
 	auto *info_ptr = generateInfo(cmdline.data());
-
-	auto modules = bootAlloc<EirModule>(n_modules - 1);
+	auto initrd_module = bootAlloc<EirModule>(1);
 	add_size = 0;
 
-	size_t j = 0; // Module index
 	for(size_t i = 8 /* Skip size and reserved fields*/; i < mb_info->size; i += add_size){
-		Mb2Tag* tag = (Mb2Tag*)((uint8_t*)info + i);
+		Mb2Tag *tag = (Mb2Tag *) ((uint8_t *) info + i);
 
 		if(tag->type == kMb2TagEnd)
 			break;
 
 		add_size = tag->size;
-		if((add_size % 8)!= 0) add_size += (8 - add_size % 8); // Align 8byte
+		if((add_size % 8)!= 0)
+			add_size += (8 - add_size % 8); // Align 8byte
 
-		switch (tag->type)
-		{
+		switch (tag->type) {
 			case kMb2TagModule: {
-				auto *module = reinterpret_cast<Mb2TagModule*>(tag);
-				j++;
-				if(j == 1)
-					break; // Skip first module, it is the kernel
+				auto *module = reinterpret_cast<Mb2TagModule *>(tag);
 
-				
-				modules[j - 2].physicalBase = (EirPtr)module->start;
-				modules[j - 2].length = (EirPtr)module->end - (EirPtr)module->start;
+				initrd_module->physicalBase = (EirPtr)module->start;
+				initrd_module->length = (EirPtr)module->end - (EirPtr)module->start;
 
 				size_t name_length = strlen(module->string);
 				char *name_ptr = bootAlloc<char>(name_length);
 				memcpy(name_ptr, module->string, name_length);
-				modules[j - 2].namePtr = mapBootstrapData(name_ptr);
-				modules[j - 2].nameLength = name_length;
+				initrd_module->namePtr = mapBootstrapData(name_ptr);
+				initrd_module->nameLength = name_length;
 				break;
 			}
 		}
@@ -304,8 +295,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdpPtr);
 	}
 
-	info_ptr->numModules = n_modules - 1;
-	info_ptr->moduleInfo = mapBootstrapData(modules);
+	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
 	if(framebuffer) {
 		auto framebuf = &info_ptr->frameBuffer;

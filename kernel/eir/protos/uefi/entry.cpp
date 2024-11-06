@@ -75,14 +75,12 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	assert(cmdLine);
 
 	bool eir_gdb_ready_val = true;
-	frg::string_view thor_path = "managarm\\thor";
 	frg::string_view initrd_path = "managarm\\initrd.cpio";
 
 	frg::array args = {
 		// allow for attaching GDB to eir
 		frg::option{"eir.efidebug", frg::store_false(eir_gdb_ready_val)},
 		frg::option{"bochs", frg::store_true(log_e9)},
-		frg::option{"eir.thor", frg::as_string_view(thor_path)},
 		frg::option{"eir.initrd", frg::as_string_view(initrd_path)},
 	};
 	frg::parse_arguments(cmdLine, args);
@@ -115,14 +113,6 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 		if(!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid)))
 			rsdp = reinterpret_cast<uintptr_t>(t->vendor_table);
 
-	// Load the kernel and initrd.
-	efi_file_protocol *kernelFile = nullptr;
-	EFI_CHECK(fsOpen(&kernelFile, asciiToUcs2(thor_path)));
-	auto kernel_info = fsGetInfo(kernelFile);
-	efi_physical_addr thor = 0;
-	EFI_CHECK(bs->allocate_pages(AllocateAnyPages, EfiLoaderData, (kernel_info->file_size >> 12) + 1, &thor));
-	fsRead(kernelFile, kernel_info->file_size, 0, thor);
-
 	efi_file_protocol *initrdFile = nullptr;
 	EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrd_path)));
 	efi_file_info *initrdInfo = fsGetInfo(initrdFile);
@@ -131,6 +121,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	efi_physical_addr initrd = 0;
 	EFI_CHECK(bs->allocate_pages(AllocateAnyPages, EfiLoaderData, (initrdInfo->file_size >> 12) + 1, &initrd));
 	EFI_CHECK(fsRead(initrdFile, initrdInfo->file_size, 0, initrd));
+
+	parseInitrd(reinterpret_cast<void *>(initrd));
 
 	// Get the frame buffer.
 	efi_graphics_output_protocol *gop = nullptr;
@@ -192,7 +184,6 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	size_t nReservedRegions = 0;
 
 	reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size};
-	reservedRegions[nReservedRegions++] = {thor, kernel_info->file_size};
 	reservedRegions[nReservedRegions++] = {initrd, initrdInfo->file_size};
 
 	auto entries = memMapSize / descriptorSize;
@@ -271,7 +262,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	setupRegionStructs();
 
 	uint64_t kernel_entry = 0;
-	initProcessorPaging(reinterpret_cast<void *>(thor), kernel_entry);
+	initProcessorPaging(reinterpret_cast<void *>(kernel_image.data()), kernel_entry);
 
 	EirInfo *info_ptr = generateInfo(cmdLine);
 
@@ -285,7 +276,6 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	initrd_module->namePtr = mapBootstrapData(name_ptr);
 	initrd_module->nameLength = name_length;
 
-	info_ptr->numModules = 1;
 	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
 	info_ptr->acpiRsdp = rsdp;

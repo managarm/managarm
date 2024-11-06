@@ -9,6 +9,8 @@
 
 namespace eir {
 
+extern frg::span<uint8_t> kernel_image;
+
 enum class RegionType {
 	null,
 	unconstructed,
@@ -61,6 +63,7 @@ void mapKasanShadow(uint64_t address, size_t size);
 void unpoisonKasanShadow(uint64_t address, size_t size);
 void mapRegionsAndStructs();
 
+void parseInitrd(void *initrd);
 address_t loadKernelImage(void *image);
 
 EirInfo *generateInfo(const char *cmdline);

@@ -43,7 +43,6 @@ struct EirInfo {
 	uint32_t padding;
 
 	EirSize numRegions;
-	EirSize numModules;
 	EirPtr regionInfo;
 	EirPtr moduleInfo;
 
