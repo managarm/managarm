@@ -1,12 +1,13 @@
 #pragma once
 
-#include <queue>
+#include <map>
 #include <vector>
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
+#include <linux/input.h>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 
@@ -34,6 +35,10 @@ struct PendingEvent {
 // --------------------------------------------
 // EventDevice
 // --------------------------------------------
+
+constexpr int ABS_MT_FIRST = ABS_MT_SLOT;
+constexpr int ABS_MT_LAST = ABS_MT_TOOL_Y;
+constexpr size_t maxMultitouchSlots = 10;
 
 struct File {
 	friend struct EventDevice;
@@ -97,7 +102,7 @@ public:
 	friend struct File;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
-	EventDevice();
+	EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product);
 
 	void setAbsoluteDetails(int code, int minimum, int maximum);
 
@@ -106,6 +111,20 @@ public:
 	void emitEvent(int type, int code, int value);
 
 	void notify();
+
+	struct multitouchInfo {
+		// the multitouch tracking ID exposed to userspace
+		int userTrackingId = -1;
+
+		// the current values of multitouch codes
+		// only multitouch codes are stored, therefore indices are offset by the lowest code
+		// index 0 is ABS_MT_FIRST, 1 is (ABS_MT_FIRST + 1), ...
+		std::array<int, (ABS_MT_LAST - ABS_MT_FIRST + 1)> abs = {};
+	};
+
+	const std::map<int, multitouchInfo> &currentMultitouchState() {
+		return _mtState;
+	}
 
 private:
 	// Supported event bits.
@@ -118,7 +137,10 @@ private:
 
 	// Input details and current input state.
 	std::array<uint8_t, 96> _currentKeys;
-	std::array<AbsoluteSlot, 8> _absoluteSlots;
+	std::array<AbsoluteSlot, 64> _absoluteSlots;
+
+	// current multitouch state, keyed by slot ID
+	std::map<int, multitouchInfo> _mtState;
 
 	boost::intrusive::list<
 		File,
@@ -130,6 +152,11 @@ private:
 	> _files;
 
 	std::vector<StagedEvent> _staged;
+
+	std::string name_;
+	uint16_t busType_;
+	uint16_t vendor_;
+	uint16_t product_;
 };
 
 // --------------------------------------------

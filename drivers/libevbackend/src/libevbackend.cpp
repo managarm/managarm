@@ -31,6 +31,10 @@ bool logRequests = false;
 
 namespace {
 
+constexpr bool isMultitouchCode(int code) {
+	return code >= ABS_MT_FIRST && code <= ABS_MT_LAST;
+}
+
 async::detached issueReset() {
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"class", "pm-interface"}
@@ -169,10 +173,11 @@ File::pollStatus(void *object) {
 async::result<void>
 File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	auto self = static_cast<File *>(object);
+
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
 		assert(req);
-		auto self = static_cast<File *>(object);
 		if(req->command() == EVIOCGBIT(0, 0)) {
 			assert(req->size());
 			if(logRequests)
@@ -269,6 +274,57 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
+	} else if(id == managarm::fs::EvioGetNameRequest::message_id) {
+		managarm::fs::EvioGetNameReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_name(self->_device->name_);
+
+		auto [send_head, send_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
+	} else if(id == managarm::fs::EvioGetIdRequest::message_id) {
+		managarm::fs::EvioGetIdReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_bustype(self->_device->busType_);
+		resp.set_vendor(self->_device->vendor_);
+		resp.set_product(self->_device->product_);
+		resp.set_version(1);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else if(id == managarm::fs::EvioGetMultitouchSlotsRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::EvioGetMultitouchSlotsRequest>(msg);
+		managarm::fs::EvioGetMultitouchSlotsReply resp;
+
+		for(auto &e : self->_device->_mtState) {
+			resp.add_values(e.second.abs.at(req->code() - ABS_MT_FIRST));
+		}
+
+		assert(resp.values_size() < maxMultitouchSlots);
+
+		for(size_t i = 0; i < (maxMultitouchSlots - resp.values_size()); i++) {
+			if(req->code() == ABS_MT_TRACKING_ID)
+				resp.add_values(-1);
+			else
+				resp.add_values(0);
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto [send_head, send_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
 	}else{
 		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
@@ -350,7 +406,8 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 	}
 }
 
-EventDevice::EventDevice() {
+EventDevice::EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product)
+: name_{std::move(name)}, busType_{bustype}, vendor_{vendor}, product_{product} {
 	memset(_typeBits.data(), 0, _typeBits.size());
 	memset(_keyBits.data(), 0, _keyBits.size());
 	memset(_relBits.data(), 0, _relBits.size());
@@ -398,19 +455,54 @@ void EventDevice::emitEvent(int type, int code, int value) {
 		array[bit / 8] |= (((int)value) << (bit % 8));
 	};
 
+	auto currentMtSlot = [this]() -> int & {
+		return _absoluteSlots[ABS_MT_SLOT].value;
+	};
+
 	// Filter out events that do not update the device state.
 	if(type == EV_KEY && getBit(_currentKeys.data(), _currentKeys.size(), code) == value)
 		return;
 	if(type == EV_REL && !value)
 		return;
-	if(type == EV_ABS && value == _absoluteSlots[code].value)
+	if(type == EV_ABS && isMultitouchCode(code)) {
+		// ABS_MT_SLOT is treated like global state, while other ABS_MT_* values are local to a slot
+		if(code == ABS_MT_SLOT && _absoluteSlots[code].value == value)
+			return;
+
+		if(_mtState.contains(currentMtSlot()) && code != ABS_MT_SLOT) {
+			assert(std::cmp_greater(_mtState.at(currentMtSlot()).abs.size(), (code - ABS_MT_FIRST)));
+			if(_mtState.at(currentMtSlot()).abs.at(code - ABS_MT_FIRST) == value)
+				return;
+		}
+	} else if(type == EV_ABS && value == _absoluteSlots[code].value) {
 		return;
+	}
 
 	// Update the device state.
 	if(type == EV_KEY) {
 		putBit(_currentKeys.data(), _currentKeys.size(), code, value);
 	}else if(type == EV_ABS) {
-		_absoluteSlots[code].value = value;
+		if(isMultitouchCode(code)) {
+			if(code == ABS_MT_SLOT)
+				currentMtSlot() = value;
+
+			if(!_mtState.contains(currentMtSlot())) {
+				_mtState.insert({currentMtSlot(), {}});
+			}
+
+			if(code == ABS_MT_TRACKING_ID && value == -1) {
+				auto removed_items = _mtState.erase(currentMtSlot());
+				assert(removed_items == 1);
+			} else {
+				if(code == ABS_MT_TRACKING_ID && value != -1)
+					_mtState.at(currentMtSlot()).userTrackingId = value;
+
+				assert(_mtState.contains(currentMtSlot()));
+				_mtState.at(currentMtSlot()).abs.at(code - ABS_MT_FIRST) = value;
+			}
+		} else {
+			_absoluteSlots[code].value = value;
+		}
 	}
 
 	// Handle magic key sequences in the driver.  This ensure that all devices implement

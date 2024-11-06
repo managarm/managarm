@@ -1,7 +1,8 @@
 
-#include <optional>
+#include <format>
 #include <iostream>
-#include <set>
+#include <numeric>
+#include <optional>
 
 #include <assert.h>
 #include <linux/input.h>
@@ -10,14 +11,17 @@
 #include <string.h>
 
 #include <async/result.hpp>
+#include <core/logging.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/usb.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/client.hpp>
 
-#include "spec.hpp"
+#include "handler/multitouch.hpp"
 #include "hid.hpp"
+#include "quirks.hpp"
+#include "spec.hpp"
 
 namespace {
 	constexpr bool logDescriptorParser = false;
@@ -26,23 +30,29 @@ namespace {
 	constexpr bool logRawPackets = false;
 	constexpr bool logFieldValues = false;
 	constexpr bool logInputCodes = false;
-}
+} // namespace
 
 namespace proto = protocols::usb;
 
-void setupInputTranslation(Element *element) {
+std::vector<Handler *> handlers = {};
+
+void setupInputTranslation(std::shared_ptr<libevbackend::EventDevice> eventDev, Element *element) {
 	auto setInput = [&] (int type, int code) {
 		element->inputType = type;
 		element->inputCode = code;
 	};
 
+	for(auto h : handlers) {
+		h->setupElement(eventDev, element);
+	}
+
 	if(element->usagePage == pages::genericDesktop) {
 		// TODO: Distinguish between absolute and relative controls.
 		if(element->isAbsolute) {
 			switch(element->usageId) {
-				case 0x30: setInput(EV_ABS, ABS_X); break;
-				case 0x31: setInput(EV_ABS, ABS_Y); break;
-				case 0x38: setInput(EV_ABS, ABS_WHEEL); break;
+				case usage::genericDesktop::x: setInput(EV_ABS, ABS_X); break;
+				case usage::genericDesktop::y: setInput(EV_ABS, ABS_Y); break;
+				case usage::genericDesktop::wheel: setInput(EV_ABS, ABS_WHEEL); break;
 				default:
 					if(logUnknownCodes)
 						std::cout << "usb-hid: Unknown usage " << element->usageId
@@ -50,9 +60,9 @@ void setupInputTranslation(Element *element) {
 			}
 		}else{
 			switch(element->usageId) {
-				case 0x30: setInput(EV_REL, REL_X); break;
-				case 0x31: setInput(EV_REL, REL_Y); break;
-				case 0x38: setInput(EV_REL, REL_WHEEL); break;
+				case usage::genericDesktop::x: setInput(EV_REL, REL_X); break;
+				case usage::genericDesktop::y: setInput(EV_REL, REL_Y); break;
+				case usage::genericDesktop::wheel: setInput(EV_REL, REL_WHEEL); break;
 				default:
 					if(logUnknownCodes)
 						std::cout << "usb-hid: Unknown usage " << element->usageId
@@ -181,9 +191,19 @@ void setupInputTranslation(Element *element) {
 					std::cout << "usb-hid: Unknown usage " << element->usageId
 							<< " in Button Page" << std::endl;
 		}
+	}else if(element->usagePage == pages::digitizers) {
+		switch(element->usageId) {
+			default:
+				if(logUnknownCodes)
+					std::cout << std::format("usb-hid: Unknown usage 0x{:02x} in Digitizers Page\n",
+						element->usageId);
+		}
+	}else if(element->usagePage >= pages::firstVendorDefined && element->usagePage <= pages::lastVendorDefined) {
+		if(logUnknownCodes)
+			std::cout << std::format("usb-hid: Ignoring vendor-defined usage page 0x{:04x}\n", element->usagePage);
 	}else{
 		if(logUnknownCodes)
-			std::cout << "usb-hid: Unkown usage page " << element->usagePage << std::endl;
+			std::cout << std::format("usb-hid: Unkown usage page 0x{:02x}\n", element->usagePage);
 	}
 }
 
@@ -193,8 +213,8 @@ int32_t signExtend(uint32_t x, int bits) {
 	return (x ^ m) - m;
 }
 
-void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
-		std::vector<std::pair<bool, int32_t>> &values) {
+uint8_t interpret(const std::unordered_map<uint8_t, std::vector<Field>> &fields, uint8_t *report, size_t size,
+		std::vector<std::pair<bool, int32_t>> &values, bool usesReportIds) {
 	int k = 0; // Offset of the value that we're generating.
 
 	unsigned int bit_offset = 0;
@@ -225,7 +245,14 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 		}
 	};
 
-	for(const Field &f : fields) {
+	uint8_t report_id = 0;
+
+	if(usesReportIds) {
+		report_id = *report;
+		bit_offset += 8;
+	}
+
+	for(const Field &f : fields.at(report_id)) {
 		if(f.type == FieldType::padding) {
 			for(int i = 0; i < f.arraySize; i++)
 				fetch(f.bitSize, false);
@@ -257,6 +284,8 @@ void interpret(const std::vector<Field> &fields, uint8_t *report, size_t size,
 	}
 
 	assert(bit_offset == size * 8);
+
+	return report_id;
 }
 
 struct LocalState {
@@ -270,22 +299,37 @@ struct GlobalState {
 	std::optional<std::pair<int32_t, uint32_t>> logicalMin;
 	std::optional<std::pair<int32_t, uint32_t>> logicalMax;
 	std::optional<unsigned int> reportSize;
+	std::optional<uint8_t> reportId;
 	std::optional<unsigned int> reportCount;
 	std::optional<int> physicalMin;
 	std::optional<int> physicalMax;
 };
 
-HidDevice::HidDevice() {
-	_eventDev = std::make_shared<libevbackend::EventDevice>();
-}
+struct EventDevice final : libevbackend::EventDevice {
+	EventDevice(std::string name, uint16_t vendor, uint16_t product)
+	: libevbackend::EventDevice(std::move(name), BUS_USB, vendor, product) {
+	}
+};
 
 void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit) {
 	LocalState local;
 	GlobalState global;
 
-	std::set<uint32_t> foundElements;
+	// root context for this report descriptor
+	auto context_root = new Root{};
+
+	// stack of current context(s) as we are parsing the descriptor
+	std::vector<Hierarchy *> context = {
+		context_root,
+	};
 
 	auto generateFields = [&] (bool array, bool relative) {
+		auto addField = [&](uint16_t usagePage, uint16_t usageId, auto f) {
+			quirks::processField(this, usagePage, usageId, f);
+
+			fields.at(global.reportId.value_or(0)).push_back(f);
+		};
+
 		if(!global.reportSize || !global.reportCount)
 			throw std::runtime_error("Missing Report Size/Count");
 
@@ -295,12 +339,17 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 		if(!local.usage.empty() && (local.usageMin || local.usageMax))
 			throw std::runtime_error("Usage and Usage Mnimum/Maximum specified");
 
+		if(global.reportId) {
+			fields.insert({global.reportId.value(), {}});
+			elements.insert({global.reportId.value(), {}});
+		}
+
 		if(local.usage.empty() && !local.usageMin && !local.usageMax) {
 			Field field;
 			field.type = FieldType::padding;
 			field.bitSize = global.reportSize.value();
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			addField(0, 0, field);
 		}else if(!array) {
 			for(unsigned int i = 0; i < global.reportCount.value(); i++) {
 				uint16_t actual_id;
@@ -330,17 +379,24 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 					field.dataMin = global.logicalMin.value().second;
 					field.dataMax = global.logicalMax.value().second;
 				}
-				fields.push_back(field);
+				addField(global.usagePage.value(), actual_id, field);
 
 				Element element;
+				element.parent = context.back();
 				element.usageId = actual_id;
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = field.dataMin;
 				element.logicalMax = field.dataMax;
 				element.isAbsolute = !relative;
-				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
-				foundElements.insert((element.usagePage << 16) |  element.usageId);
-				elements.push_back(element);
+				// track the number of elements previously encountered with the usage (page+ID)
+				// usually, items cannot repeat usages; however, this is possible when they are
+				// members of Collections.
+				element.elementNum = std::count_if(elements.at(global.reportId.value_or(0)).cbegin(),
+					elements.at(global.reportId.value_or(0)).cend(),
+					[&](auto e) {
+						return ((e.usagePage << 16) |  e.usageId) == ((element.usagePage << 16) | element.usageId);
+					});
+				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}else{
 			assert(!relative);
@@ -372,17 +428,26 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 				field.dataMax = global.logicalMax.value().second;
 			}
 			field.arraySize = global.reportCount.value();
-			fields.push_back(field);
+			addField(local.usageMin.value(), global.usagePage.value(), field);
 
 			for(uint32_t i = 0; i < local.usageMax.value() - local.usageMin.value() + 1; i++) {
 				Element element;
+				element.parent = context.back();
+				element.reportId = global.reportId.value_or(0);
 				element.usageId = local.usageMin.value() + i;
 				element.usagePage = global.usagePage.value();
 				element.logicalMin = 0;
 				element.logicalMax = 1;
-				element.disabled = foundElements.count((element.usagePage << 16) |  element.usageId);
-				foundElements.insert((element.usagePage << 16) |  element.usageId);
-				elements.push_back(element);
+				// track the number of elements previously encountered with the usage (page+ID)
+				// usually, items cannot repeat usages; however, this is possible when they are
+				// members of Collections. This information can later be used to do things like
+				// determining the finger index for multitouch screens
+				element.elementNum = std::count_if(elements.at(global.reportId.value_or(0)).cbegin(),
+					elements.at(global.reportId.value_or(0)).cend(),
+					[&](auto e) {
+						return ((e.usagePage << 16) |  e.usageId) == ((element.usagePage << 16) | element.usageId);
+					});
+				elements.at(global.reportId.value_or(0)).push_back(element);
 			}
 		}
 	};
@@ -406,16 +471,29 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 		uint32_t data = fetch(size);
 		switch(token & 0xFC) {
 		// Main items
-		case 0xC0:
+		case 0xC0: {
+			auto h = context.back();
+			if(h->type() != CollectionType::Collection) {
+				printf("usb-hid: unbalanced End Collection, ignoring\n");
+				break;
+			}
+			auto c = static_cast<Collection *>(h);
 			if(logDescriptorParser)
-				printf("usb-hid:     End Collection: 0x%x\n", data);
+				printf("usb-hid:     End Collection (Type 0x%x)\n", c->collectionType());
+			context.pop_back();
 			break;
+		}
 
-		case 0xA0:
+		case 0xA0: {
+			uint32_t usage = (local.usage.empty() ? 0 : local.usage.back()) | (*global.usagePage << 16);
 			if(logDescriptorParser)
-				printf("usb-hid:     Collection: 0x%x\n", data);
+				printf("usb-hid:     Collection: 0x%x (Usage 0x%04x)\n", data, usage);
+			auto c = new Collection(context.back(), data, usage);
+			context.back()->children.push_back(c);
+			context.push_back(std::move(c));
 			local = LocalState();
 			break;
+		}
 
 		case 0xB0:
 			if(logDescriptorParser)
@@ -493,6 +571,26 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 			global.usagePage = data;
 			break;
 
+		case 0x84:
+			if(logDescriptorParser)
+				printf("usb-hid:     Report ID: %u\n", data);
+			// HID 1.11 page 36: "Report ID zero is reserved and should not be used."
+			if(data == 0)
+				logPanic("usb-hid: invalid Report ID {} in descriptor!\n", data);
+			global.reportId = data;
+			usesReportIds = true;
+			break;
+
+		case 0x54:
+			if(logDescriptorParser)
+				printf("usb-hid:     Unit exponent: %d\n", data);
+			break;
+
+		case 0x64:
+			if(logDescriptorParser)
+				printf("usb-hid:     Units: 0x%02x\n", data);
+			break;
+
 		// Local items
 		case 0x28:
 			if(logDescriptorParser)
@@ -523,6 +621,17 @@ void HidDevice::parseReportDescriptor(proto::Device, uint8_t *p, uint8_t* limit)
 }
 
 async::detached HidDevice::run(proto::Device device, int config_num, int intf_num) {
+	auto devdesc_data = (co_await device.deviceDescriptor()).unwrap();
+	auto devdesc = reinterpret_cast<protocols::usb::DeviceDescriptor *>(devdesc_data.data());
+	auto manufacturer = (co_await device.getString(devdesc->manufacturer)).unwrap();
+	auto product = (co_await device.getString(devdesc->product)).unwrap();
+
+	_vendorId = devdesc->idVendor;
+	_deviceId = devdesc->idProduct;
+
+	_eventDev = std::make_shared<EventDevice>(std::format("{} {}", manufacturer, product),
+		devdesc->idVendor, devdesc->idProduct);
+
 	auto descriptor = (co_await device.configurationDescriptor(0)).unwrap();
 
 	std::vector<size_t> report_descs;
@@ -582,22 +691,27 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	}
 
 	// Report supported input codes to the evdev core.
-	for(size_t i = 0; i < elements.size(); i++) {
-		auto element = &elements[i];
-		setupInputTranslation(element);
-		if(element->inputType < 0)
-			continue;
-		if(element->inputType == EV_ABS)
-			_eventDev->setAbsoluteDetails(element->inputCode,
-					element->logicalMin, element->logicalMax);
-		_eventDev->enableEvent(element->inputType, element->inputCode);
+	for(auto &[_, report] : elements) {
+		for(size_t i = 0; i < report.size(); i++) {
+			auto element = &report[i];
+			setupInputTranslation(_eventDev, element);
+			if(element->inputType < 0)
+				continue;
+			if(element->inputType == EV_ABS)
+				_eventDev->setAbsoluteDetails(element->inputCode,
+						element->logicalMin, element->logicalMax);
+			_eventDev->enableEvent(element->inputType, element->inputCode);
+		}
 	}
 
 	if(logFields)
-		for(size_t i = 0; i < fields.size(); i++) {
-			std::cout << "Field " << i << ": [" << fields[i].arraySize
-					<< "]. Bit size: " << fields[i].bitSize
-					<< ", signed: " << fields[i].isSigned << std::endl;
+		for(auto [id, field_list] : fields) {
+			std::cout << std::format("Report ID {}\n", id);
+			for(size_t i = 0; i < field_list.size(); i++) {
+				auto &f = field_list.at(i);
+				std::cout << std::format("\tField {}: [{}]. Bit size: {}, signed: {}\n",
+					i, f.arraySize, f.bitSize, f.isSigned);
+			}
 		}
 
 	// Create an mbus object for the device.
@@ -627,7 +741,15 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	std::cout << "usb-hid: Entering report loop" << std::endl;
 
 	std::vector<std::pair<bool, int32_t>> values;
-	values.resize(elements.size());
+
+	// resize values to the largest number of elements possible
+	values.resize(std::transform_reduce(elements.cbegin(), elements.cend(),
+		0, [](size_t a, size_t b) {
+			return std::max(a, b);
+		}, [](auto m) {
+			return m.second.size();
+		}));
+
 	while(true) {
 //		std::cout << "usb-hid: Requesting new report" << std::endl;
 		arch::dma_buffer report{device.bufferPool(), in_endp_pktsize};
@@ -643,34 +765,35 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			std::cout << "usb-hid: Report size: " << length
 					<< " (packet size is " << in_endp_pktsize << ")" << std::endl;
 			std::cout << "usb-hid: Packet:";
-			std::cout << std::hex;
-			for(size_t i = 0; i < 4; i++)
-				std::cout << " " << (int)reinterpret_cast<uint8_t *>(report.data())[i];
-			std::cout << std::dec << std::endl;
+			for(size_t i = 0; i < length; i++)
+				std::cout << std::format(" {:02x}", reinterpret_cast<uint8_t *>(report.data())[i]);
+			std::cout << std::endl;
 		}
 
 		std::fill(values.begin(), values.end(), std::pair<bool, int32_t>{false, 0});
-		interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
-				length, values);
+		auto report_id = interpret(fields, reinterpret_cast<uint8_t *>(report.data()),
+				length, values, usesReportIds);
 
 		if(logFieldValues) {
-			for(size_t i = 0; i < values.size(); i++)
+			for(size_t i = 0; i < elements.at(report_id).size(); i++)
 				if(values[i].first)
-					std::cout << "usagePage: " << elements[i].usagePage
-							<< ", usageId: 0x" << std::hex << elements[i].usageId << std::dec
+					std::cout << "usagePage: " << elements.at(report_id)[i].usagePage
+							<< ", usageId: 0x" << std::hex << elements.at(report_id)[i].usageId << std::dec
 							<< ", value: " << values[i].second << std::endl;
 			std::cout << std::endl;
 		}
 
+		for(auto &h : handlers) {
+			h->handleReport(_eventDev, elements.at(report_id), values);
+		}
+
 		if(logInputCodes)
 			std::cout << "Reporting input event" << std::endl;
-		for(size_t i = 0; i < values.size(); i++) {
-			auto element = &elements[i];
+		for(size_t i = 0; i < elements.at(report_id).size(); i++) {
+			auto element = &elements.at(report_id)[i];
 			if(element->inputType < 0)
 				continue;
 			if(!values[i].first)
-				continue;
-			if(element->disabled)
 				continue;
 			if(logInputCodes)
 				std::cout << "    inputType: " << element->inputType
@@ -750,6 +873,12 @@ async::detached observeDevices() {
 	}
 }
 
+Hierarchy::~Hierarchy() {
+	for(auto c : children) {
+		delete c;
+	}
+}
+
 // --------------------------------------------------------
 // main() function
 // --------------------------------------------------------
@@ -758,6 +887,8 @@ int main() {
 	printf("usb-hid: Starting driver\n");
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
+
+	handlers.push_back(new handler::multitouch::MultitouchHandler);
 
 	observeDevices();
 	async::run_forever(helix::currentDispatcher);

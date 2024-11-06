@@ -1,5 +1,12 @@
-executable('hid', 'src/main.cpp',
-	dependencies : evbackend_dep,
+src = files(
+	'src/main.cpp',
+	'src/quirks.cpp',
+	'src/handler/multitouch.cpp',
+	'src/quirks/wacom.cpp',
+)
+
+executable('hid', src,
+	dependencies : [evbackend_dep, core_dep],
 	install : true
 )
 

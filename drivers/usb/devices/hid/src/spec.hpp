@@ -20,13 +20,33 @@ namespace pages {
 	constexpr int unicode = 0x10;
 	constexpr int alphanumericalDisplay = 0x14;
 	constexpr int medicalInstrument = 0x40;
+	constexpr int firstVendorDefined = 0xFF00;
+	constexpr int lastVendorDefined = 0xFFFF;
 
-}
+} // namespace pages
+
+namespace usage {
+
+namespace genericDesktop {
+	constexpr int x = 0x30;
+	constexpr int y = 0x31;
+	constexpr int wheel = 0x38;
+} // namespace genericDesktop
+
+namespace digitizers {
+	constexpr int finger = 0x22;
+	constexpr int tipSwitch = 0x42;
+	constexpr int touchValid = 0x47;
+	constexpr int contactIdentifier = 0x51;
+	constexpr int contactCount = 0x54;
+} // namespace digitizers
+
+} // namespace usage
 
 namespace item {
 	constexpr uint32_t variable = (1 << 1);
 	constexpr uint32_t relative = (1 << 2);
-}
+} // namespace item
 
 struct HidDescriptor : public protocols::usb::DescriptorBase {
 	struct [[ gnu::packed ]] Entry {

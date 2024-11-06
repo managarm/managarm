@@ -736,3 +736,39 @@ head(128):
 tail:
 	Ifconf[] ifconf;
 }
+
+message EvioGetNameRequest 21 {
+head(128):
+}
+
+message EvioGetNameReply 22 {
+head(128):
+	Errors error;
+tail:
+	string name;
+}
+
+message EvioGetIdRequest 23 {
+head(128):
+}
+
+message EvioGetIdReply 24 {
+head(128):
+	Errors error;
+	uint16 bustype;
+	uint16 vendor;
+	uint16 product;
+	uint16 version;
+}
+
+message EvioGetMultitouchSlotsRequest 25 {
+head(128):
+	uint32 code;
+}
+
+message EvioGetMultitouchSlotsReply 26 {
+head(128):
+	Errors error;
+tail:
+	uint32[] values;
+}
