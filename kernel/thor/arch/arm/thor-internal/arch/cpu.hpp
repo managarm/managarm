@@ -13,6 +13,10 @@
 #include <thor-internal/kernel-stack.hpp>
 #include <initgraph.hpp>
 
+// NOTE: This header only provides architecture-specific structure and
+// inline function definitions. Check arch-generic/cpu.hpp for the
+// remaining function prototypes.
+
 namespace thor {
 
 enum class Domain : uint64_t {
@@ -254,28 +258,8 @@ private:
 	void *_exceptionStack;
 };
 
-void saveExecutor(Executor *executor, FaultImageAccessor accessor);
-void saveExecutor(Executor *executor, IrqImageAccessor accessor);
-void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
-
-// Copies the current state into the executor and calls the supplied function.
-extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
-
-void workOnExecutor(Executor *executor);
-
-void scrubStack(FaultImageAccessor accessor, Continuation cont);
-void scrubStack(IrqImageAccessor accessor, Continuation cont);
-void scrubStack(SyscallImageAccessor accessor, Continuation cont);
-void scrubStack(Executor *executor, Continuation cont);
-
 size_t getStateSize();
 
-// switches the active executor.
-// does NOT restore the executor's state.
-struct Thread;
-void switchExecutor(smarter::borrowed_ptr<Thread> executor);
-
-smarter::borrowed_ptr<Thread> activeExecutor();
 
 // Note: These constants we mirrored in assembly.
 // Do not change their values!
@@ -304,6 +288,7 @@ struct AssemblyCpuData {
 static inline constexpr size_t maxAsid = 256;
 
 struct GicCpuInterfaceV2;
+struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
@@ -328,40 +313,17 @@ struct PlatformCpuData : public AssemblyCpuData {
 	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
+// Get a pointer to this CPU's PlatformCpuData instance.
 inline PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data = nullptr;
 	asm volatile ("mrs %0, tpidr_el1" : "=r"(cpu_data));
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
-inline bool inHigherHalf(uintptr_t address) {
+// Determine whether this address belongs to the higher half.
+inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
 }
-
-void enableUserAccess();
-void disableUserAccess();
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
-
-template<typename F, typename... Args>
-void runOnStack(F functor, StackBase stack, Args... args) {
-	struct Context {
-		Context(F functor, Args... args)
-		: functor(std::move(functor)), args(std::move(args)...) { }
-
-		F functor;
-		frg::tuple<Args...> args;
-	};
-
-	Context original(std::move(functor), std::forward<Args>(args)...);
-	doRunOnStack([] (void *context, void *previousSp) {
-		Context stolen = std::move(*static_cast<Context *>(context));
-		frg::apply(std::move(stolen.functor),
-				frg::tuple_cat(frg::make_tuple(Continuation{previousSp}), std::move(stolen.args)));
-	}, stack.sp, &original);
-}
-
-// Calls the given function on the given stack.
-void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument);
 
 void initializeThisProcessor();
 
@@ -369,31 +331,15 @@ void bootSecondary(unsigned int apic_id);
 
 extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 
-template<typename F>
-void forkExecutor(F functor, Executor *executor) {
-	auto delegate = [] (void *p) {
-		auto fp = static_cast<F *>(p);
-		(*fp)();
-	};
-
+// Save the current SIMD register state into the given executor.
+inline void saveCurrentSimdState(Executor *executor) {
 	saveFpSimdRegisters(&executor->general()->fp);
-
-	//assert(executor->general()->domain == getCpuData()->currentDomain);
-	doForkExecutor(executor, delegate, &functor);
 }
-
-Error getEntropyFromCpu(void *buffer, size_t size);
-
-void armPreemption(uint64_t nanos);
-void disarmPreemption();
-uint64_t getRawTimestampCounter();
 
 void setupBootCpuContext();
 
 void setupCpuContext(AssemblyCpuData *context);
 
 initgraph::Stage *getBootProcessorReadyStage();
-
-bool preemptionIsArmed();
 
 } // namespace thor

@@ -1,6 +1,6 @@
 #include <thor-internal/arch/svm.hpp>
 #include <thor-internal/address-space.hpp>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>

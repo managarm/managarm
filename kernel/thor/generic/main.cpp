@@ -21,6 +21,8 @@
 #include <thor-internal/servers.hpp>
 #include <thor-internal/thread.hpp>
 
+#include <thor-internal/arch-generic/cpu.hpp>
+
 namespace thor {
 
 static constexpr bool logInitialization = false;

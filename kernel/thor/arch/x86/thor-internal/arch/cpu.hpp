@@ -15,6 +15,10 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/kernel-stack.hpp>
 
+// NOTE: This header only provides architecture-specific structure and
+// inline function definitions. Check arch-generic/cpu.hpp for the
+// remaining function prototypes.
+
 namespace thor {
 
 // --------------------------------------------------------
@@ -499,20 +503,6 @@ private:
 	common::x86::Tss64 *_tss;
 };
 
-void saveExecutor(Executor *executor, FaultImageAccessor accessor);
-void saveExecutor(Executor *executor, IrqImageAccessor accessor);
-void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
-
-// Copies the current state into the executor and calls the supplied function.
-extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
-
-void workOnExecutor(Executor *executor);
-
-void scrubStack(FaultImageAccessor accessor, Continuation cont);
-void scrubStack(IrqImageAccessor accessor, Continuation cont);
-void scrubStack(SyscallImageAccessor accessor, Continuation cont);
-void scrubStack(Executor *executor, Continuation cont);
-
 struct CpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
@@ -538,13 +528,6 @@ extern CpuFeatures globalCpuFeatures;
 
 initgraph::Stage *getCpuFeaturesKnownStage();
 
-// switches the active executor.
-// does NOT restore the executor's state.
-struct Thread;
-void switchExecutor(smarter::borrowed_ptr<Thread> executor);
-
-smarter::borrowed_ptr<Thread> activeExecutor();
-
 // Note: These constants we mirrored in assembly.
 // Do not change their values!
 inline constexpr unsigned int uarRead = 1;
@@ -566,6 +549,8 @@ struct AssemblyCpuData {
 	void *syscallStack;
 	UserAccessRegion *currentUar;
 };
+
+struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
 	PlatformCpuData();
@@ -595,73 +580,35 @@ struct PlatformCpuData : public AssemblyCpuData {
 	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
+// Get a pointer to this CPU's PlatformCpuData instance.
 inline PlatformCpuData *getPlatformCpuData() {
 	AssemblyCpuData *cpu_data;
 	asm volatile ("mov %%gs:0, %0" : "=r"(cpu_data));
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
-inline bool inHigherHalf(uintptr_t address) {
+// Determine whether this address belongs to the higher half.
+inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
 }
-
-void enableUserAccess();
-void disableUserAccess();
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
-
-template<typename F, typename... Args>
-void runOnStack(F functor, StackBase stack, Args... args) {
-	struct Context {
-		Context(F functor, Args... args)
-		: functor(std::move(functor)), args(std::move(args)...) { }
-
-		F functor;
-		frg::tuple<Args...> args;
-	};
-
-	Context original(std::move(functor), std::forward<Args>(args)...);
-	doRunOnStack([] (void *context, void *previousSp) {
-		Context stolen = std::move(*static_cast<Context *>(context));
-		frg::apply(std::move(stolen.functor),
-				frg::tuple_cat(frg::make_tuple(Continuation{previousSp}), std::move(stolen.args)));
-	}, stack.sp, &original);
-}
-
-// Calls the given function on the given stack.
-void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument);
 
 void setupBootCpuContext();
 void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);
 
-template<typename F>
-void forkExecutor(F functor, Executor *executor) {
-	auto delegate = [] (void *p) {
-		auto fp = static_cast<F *>(p);
-		(*fp)();
-	};
-
+// Save the current SIMD register state into the given executor.
+inline void saveCurrentSimdState(Executor *executor) {
 	if(getGlobalCpuFeatures()->haveXsave) {
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	} else {
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
-
-	doForkExecutor(executor, delegate, &functor);
 }
-
-Error getEntropyFromCpu(void *buffer, size_t size);
-
-void armPreemption(uint64_t nanos);
-void disarmPreemption();
-bool preemptionIsArmed();
 
 // --------------------------------------------------------
 // TSC functionality.
 // --------------------------------------------------------
-
-uint64_t getRawTimestampCounter();
 
 inline void pause() {
 	asm volatile ("pause");

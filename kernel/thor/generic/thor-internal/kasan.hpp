@@ -1,5 +1,5 @@
 #pragma once
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 
 namespace thor {
 
