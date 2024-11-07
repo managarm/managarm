@@ -4,7 +4,6 @@
 #include <eir/interface.hpp>
 #include <render-text.hpp>
 #include <dtb.hpp>
-#include "../cpio.hpp"
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/manual_box.hpp>
 #include <frg/tuple.hpp>

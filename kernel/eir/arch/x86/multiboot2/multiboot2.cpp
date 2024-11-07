@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <assert.h>
-#include <cpio.hpp>
 #include <eir/interface.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>

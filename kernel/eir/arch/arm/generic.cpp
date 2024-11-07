@@ -1,6 +1,5 @@
 #include <dtb.hpp>
 #include <elf.h>
-#include <cpio.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -166,12 +165,9 @@ void eirRelocate() {
 		eir::infoLogger() << "Assuming initrd is at " << (void *)initrd << frg::endlog;
 	}
 
-	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
+	parseInitrd(reinterpret_cast<void *>(initrd));
 
-	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
-	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
-
-	addReservedRegion(initrd, initrd_end - initrd);
+	addReservedRegion(initrd, initrd_image.size());
 	addReservedRegion(genericInfo.deviceTreePtr, dt.size());
 
 	for(size_t i = 0; i < nMemoryNodes; i++) {
@@ -205,16 +201,6 @@ void eirRelocate() {
 					<< frg::endlog;
 	}
 
-	frg::span<uint8_t> kernel_image{nullptr, 0};
-
-	for(auto entry : cpio_range) {
-		if(entry.name == "thor") {
-			kernel_image = entry.data;
-		}
-	}
-
-	assert(kernel_image.data() && kernel_image.size());
-
 	uint64_t kernel_entry = 0;
 	initProcessorPaging(kernel_image.data(), kernel_entry);
 
@@ -229,7 +215,7 @@ void eirRelocate() {
 
 	auto module = bootAlloc<EirModule>();
 	module->physicalBase = initrd;
-	module->length = initrd_end - initrd;
+	module->length = initrd_image.size();
 
 	char *name_ptr = bootAlloc<char>(11);
 	memcpy(name_ptr, "initrd.cpio", 11);

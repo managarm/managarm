@@ -10,6 +10,7 @@
 namespace eir {
 
 extern frg::span<uint8_t> kernel_image;
+extern frg::span<uint8_t> initrd_image;
 
 enum class RegionType {
 	null,

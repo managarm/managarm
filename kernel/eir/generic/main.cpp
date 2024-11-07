@@ -1,4 +1,4 @@
-#include <cpio.hpp>
+#include <eir-internal/cpio.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/arch.hpp>
@@ -13,6 +13,7 @@ namespace eir {
 
 address_t allocatedMemory;
 frg::span<uint8_t> kernel_image{nullptr, 0};
+frg::span<uint8_t> initrd_image{nullptr, 0};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -357,6 +358,9 @@ void parseInitrd(void *initrd) {
 	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
 	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
 	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
+	initrd_image = frg::span<uint8_t>{
+		reinterpret_cast<uint8_t *>(initrd),
+		initrd_end - reinterpret_cast<uintptr_t>(initrd)};
 
 	for(auto entry : cpio_range) {
 		if(entry.name == "thor") {
