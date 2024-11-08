@@ -24,6 +24,50 @@ void shootInBinding(PageBinding &binding, ShootNode *node) {
 } // namespace anonymous
 
 
+ShootNodeList
+PageBinding::completeShootdown_(PageSpace *space, uint64_t afterSequence, bool doShootdown) {
+	assert(!intsAreEnabled());
+	assert(space->mutex_.is_locked());
+
+	ShootNodeList complete;
+
+	if(!space->shootQueue_.empty()) {
+		auto current = space->shootQueue_.back();
+		while(current->sequence_ > afterSequence) {
+			auto predecessor = current->queueNode.previous;
+
+			// Signal completion of the shootdown.
+			if(current->initiatorCpu_ != getCpuData()) {
+				if(doShootdown) {
+					shootInBinding(*this, current);
+				}
+
+				if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+					auto it = space->shootQueue_.iterator_to(current);
+					space->shootQueue_.erase(it);
+					complete.push_front(current);
+				}
+			}
+
+			if(!predecessor)
+				break;
+			current = predecessor;
+		}
+	}
+
+	// If not just doing a TLB shootdown, we're unbinding this
+	// page space.
+	if(!doShootdown) {
+		space->numBindings_--;
+		if(!space->numBindings_ && space->retireNode_) {
+			space->retireNode_->complete();
+			space->retireNode_ = nullptr;
+		}
+	}
+
+	return complete;
+}
+
 bool PageBinding::isPrimary() {
 	assert(!intsAreEnabled());
 	auto &context = getCpuData()->asidData->pageContext;
@@ -73,35 +117,13 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 
 	// Mark every shootdown request in the unbound space as shot-down.
 	ShootNodeList complete;
-
 	if(unboundSpace) {
 		auto lock = frg::guard(&unboundSpace->mutex_);
 
-		if(!unboundSpace->shootQueue_.empty()) {
-			auto current = unboundSpace->shootQueue_.back();
-			while(current->sequence_ > unboundSequence) {
-				auto predecessor = current->queueNode.previous;
-
-				// Signal completion of the shootdown.
-				if(current->initiatorCpu_ != getCpuData()) {
-					if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = unboundSpace->shootQueue_.iterator_to(current);
-						unboundSpace->shootQueue_.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-
-		unboundSpace->numBindings_--;
-		if(!unboundSpace->numBindings_ && unboundSpace->retireNode_) {
-			unboundSpace->retireNode_->complete();
-			unboundSpace->retireNode_ = nullptr;
-		}
+		complete = completeShootdown_(
+			unboundSpace.get(),
+			unboundSequence,
+			false);
 	}
 
 	while(!complete.empty()) {
@@ -128,36 +150,13 @@ void PageBinding::unbind() {
 	}
 
 	ShootNodeList complete;
-
 	{
 		auto lock = frg::guard(&boundSpace_->mutex_);
 
-		if(!boundSpace_->shootQueue_.empty()) {
-			auto current = boundSpace_->shootQueue_.back();
-			while(current->sequence_ > alreadyShotSequence_) {
-				auto predecessor = current->queueNode.previous;
-
-				// The actual shootdown was done above.
-				// Signal completion of the shootdown.
-				if(current->initiatorCpu_ != getCpuData()) {
-					if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = boundSpace_->shootQueue_.iterator_to(current);
-						boundSpace_->shootQueue_.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-
-		boundSpace_->numBindings_--;
-		if(!boundSpace_->numBindings_ && boundSpace_->retireNode_) {
-			boundSpace_->retireNode_->complete();
-			boundSpace_->retireNode_ = nullptr;
-		}
+		complete = completeShootdown_(
+			boundSpace_.get(),
+			alreadyShotSequence_,
+			false);
 	}
 
 	boundSpace_ = nullptr;
@@ -182,33 +181,15 @@ void PageBinding::shootdown() {
 	}
 
 	ShootNodeList complete;
-
 	uint64_t targetSeq;
 	{
 		auto lock = frg::guard(&boundSpace_->mutex_);
 
-		if(!boundSpace_->shootQueue_.empty()) {
-			auto current = boundSpace_->shootQueue_.back();
-			while(current->sequence_ > alreadyShotSequence_) {
-				auto predecessor = current->queueNode.previous;
+		complete = completeShootdown_(
+			boundSpace_.get(),
+			alreadyShotSequence_,
+			true);
 
-				if(current->initiatorCpu_ != getCpuData()) {
-					// Perform the actual shootdown.
-					shootInBinding(*this, current);
-
-					// Signal completion of the shootdown.
-					if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = boundSpace_->shootQueue_.iterator_to(current);
-						boundSpace_->shootQueue_.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
 		targetSeq = boundSpace_->shootSequence_;
 	}
 

@@ -139,6 +139,9 @@ struct PageBinding {
 	void shootdown();
 
 private:
+	ShootNodeList completeShootdown_(PageSpace *space, uint64_t afterSequence,
+			bool doShootdown);
+
 	int id_ = 0;
 
 	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
