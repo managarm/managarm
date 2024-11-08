@@ -15,6 +15,8 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/kernel-stack.hpp>
 
+#include <thor-internal/arch-generic/asid.hpp>
+
 // NOTE: This header only provides architecture-specific structure and
 // inline function definitions. Check arch-generic/cpu.hpp for the
 // remaining function prototypes.
@@ -566,9 +568,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	common::x86::Tss64 tss;
 
-	PageContext pageContext;
-	PageBinding pcidBindings[maxPcidCount];
-	GlobalPageBinding globalBinding;
+	frg::manual_box<AsidCpuData> asidData;
 
 	bool havePcids = false;
 	bool haveSmap = false;

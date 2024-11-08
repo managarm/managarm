@@ -2,6 +2,7 @@
 #include <thor-internal/arch/ints.hpp>
 #include <arch/variable.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/mm-rc.hpp>
 #include <thor-internal/cpu-data.hpp>
 
 namespace thor {
@@ -10,470 +11,91 @@ static inline constexpr uint64_t tlbiValue(uint16_t asid, uint64_t va = 0) {
 	return (uint64_t(asid) << 48) | (va >> 12);
 }
 
-void invalidatePage(const void *address) {
-	asm volatile ("dsb st;\n\t\
-			tlbi vale1, %0;\n\t\
-			dsb sy; isb"
-			:
-			: "r"(tlbiValue(0, reinterpret_cast<uintptr_t>(address)))
-			: "memory");
-}
-
 void invalidateAsid(int asid) {
-	asm volatile ("dsb st;\n\t\
-			tlbi aside1, %0;\n\t\
+	if(asid == globalBindingId) {
+		asm volatile ("dsb st; \
+			tlbi vmalle1; \
 			dsb sy; isb"
-			:
-			: "r"(tlbiValue(asid))
+			::: "memory");
+	} else {
+		asm volatile ("dsb st; \
+			tlbi aside1, %0; \
+			dsb sy; isb"
+			:: "r"(tlbiValue(asid))
 			: "memory");
+	}
 }
 
 void invalidatePage(int asid, const void *address) {
+	// Don't care whether asid == globalBindingId since for global
+	// pages, as TLBI VAE1 invalidates global entries for any ASID.
 	asm volatile ("dsb st;\n\t\
-			tlbi vae1, %0;\n\t\
-			dsb sy; isb"
-			:
-			: "r"(tlbiValue(asid, reinterpret_cast<uintptr_t>(address)))
-			: "memory");
+		tlbi vae1, %0;\n\t\
+		dsb sy; isb"
+		:: "r"(tlbiValue(asid, reinterpret_cast<uintptr_t>(address)))
+		: "memory");
 }
 
-// TODO: TLBI ALLE1 is invalid in EL1...
-void invalidateFullTlb() {
-	asm volatile ("dsb st;\n\t\
-			tlbi alle1;\n\t\
-			dsb sy; isb"
-			::: "memory");
+void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
+	assert(asid != globalBindingId);
+
+	if(invalidate)
+		invalidateAsid(asid);
+
+	asm volatile("msr ttbr0_el1, %0; isb; dsb sy; isb"
+		:: "r" ((uint64_t(asid) << 48) | root)
+		: "memory");
+}
+
+void switchAwayFromPageTable(int asid) {
+	invalidateAsid(asid);
+
+	// TODO(qookie): We should point TTBR0 at an empty page here.
 }
 
 void poisonPhysicalAccess(PhysicalAddr physical) { assert(!"Not implemented"); }
 void poisonPhysicalWriteAccess(PhysicalAddr physical) { assert(!"Not implemented"); }
 
-PageContext::PageContext()
-: _nextStamp{1}, _primaryBinding{nullptr} { }
+namespace {
 
-PageBinding::PageBinding()
-: _asid{0}, _boundSpace{nullptr},
-		_primaryStamp{0}, _alreadyShotSequence{0} { }
+frg::manual_box<KernelPageSpace> kernelSpace;
 
-bool PageBinding::isPrimary() {
-	assert(!intsAreEnabled());
-	auto context = &getCpuData()->pageContext;
+frg::manual_box<EternalCounter> kernelSpaceCounter;
+frg::manual_box<smarter::shared_ptr<KernelPageSpace>> kernelSpacePtr;
 
-	return context->_primaryBinding == this;
-}
-
-void PageBinding::rebind() {
-	assert(!intsAreEnabled());
-	assert(_boundSpace);
-	auto context = &getCpuData()->pageContext;
-
-	// Invalidate old TLB contents for this TTBR0's ASID
-	uint64_t old_ttbr0;
-	asm volatile ("mrs %0, ttbr0_el1" : "=r" (old_ttbr0) :: "memory");
-	invalidateAsid((old_ttbr0 >> 48) & 0xFFFF);
-
-	auto ttbr0 = (uint64_t(_asid) << 48) | _boundSpace->rootTable();
-	asm volatile ("dsb st; msr ttbr0_el1, %0; dsb sy; isb" :: "r" (ttbr0) : "memory");
-
-	_primaryStamp = context->_nextStamp++;
-	context->_primaryBinding = this;
-}
-
-void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
-	assert(!intsAreEnabled());
-	assert(!_boundSpace || _boundSpace.get() != space.get()); // This would be unnecessary work.
-	auto context = &getCpuData()->pageContext;
-
-	auto unbound_space = _boundSpace;
-	auto unbound_sequence = _alreadyShotSequence;
-
-	// Bind the new space.
-	uint64_t target_seq;
-	{
-		auto lock = frg::guard(&space->_mutex);
-
-		target_seq = space->_shootSequence;
-		space->_numBindings++;
-	}
-
-	_boundSpace = space;
-	_alreadyShotSequence = target_seq;
-
-	// Invalidate old TLB contents for this TTBR0's ASID
-	uint64_t old_ttbr0;
-	asm volatile ("mrs %0, ttbr0_el1" : "=r" (old_ttbr0) :: "memory");
-	invalidateAsid((old_ttbr0 >> 48) & 0xFFFF);
-
-	auto ttbr0 = (uint64_t(_asid) << 48) | _boundSpace->rootTable();
-	asm volatile ("msr ttbr0_el1, %0; isb; dsb sy; isb" :: "r" (ttbr0) : "memory");
-
-	_primaryStamp = context->_nextStamp++;
-	context->_primaryBinding = this;
-
-	// Mark every shootdown request in the unbound space as shot-down.
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> complete;
-
-	if(unbound_space) {
-		auto lock = frg::guard(&unbound_space->_mutex);
-
-		if(!unbound_space->_shootQueue.empty()) {
-			auto current = unbound_space->_shootQueue.back();
-			while(current->_sequence > unbound_sequence) {
-				auto predecessor = current->_queueNode.previous;
-
-				// Signal completion of the shootdown.
-				if(current->_initiatorCpu != getCpuData()) {
-					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = unbound_space->_shootQueue.iterator_to(current);
-						unbound_space->_shootQueue.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-
-		unbound_space->_numBindings--;
-		if(!unbound_space->_numBindings && unbound_space->_retireNode) {
-			unbound_space->_retireNode->complete();
-			unbound_space->_retireNode = nullptr;
-		}
-	}
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
-}
-
-void PageBinding::unbind() {
-	assert(!intsAreEnabled());
-
-	if(!_boundSpace)
-		return;
-
-	// Perform shootdown.
-	if (!isPrimary()) {
-		// If there was only a single binding, it would have been primary.
-		invalidateAsid(_asid);
-	}
-
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> complete;
-
-	{
-		auto lock = frg::guard(&_boundSpace->_mutex);
-
-		if(!_boundSpace->_shootQueue.empty()) {
-			auto current = _boundSpace->_shootQueue.back();
-			while(current->_sequence > _alreadyShotSequence) {
-				auto predecessor = current->_queueNode.previous;
-
-				// The actual shootdown was done above.
-				// Signal completion of the shootdown.
-				if(current->_initiatorCpu != getCpuData()) {
-					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = _boundSpace->_shootQueue.iterator_to(current);
-						_boundSpace->_shootQueue.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-
-		_boundSpace->_numBindings--;
-		if(!_boundSpace->_numBindings && _boundSpace->_retireNode) {
-			_boundSpace->_retireNode->complete();
-			_boundSpace->_retireNode = nullptr;
-		}
-	}
-
-	_boundSpace = nullptr;
-	_alreadyShotSequence = 0;
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
-}
-
-void PageBinding::shootdown() {
-	assert(!intsAreEnabled());
-
-	if(!_boundSpace)
-		return;
-
-	// If we retire the space anyway, just flush the whole ASID.
-	if(_boundSpace->_wantToRetire.load(std::memory_order_acquire)) {
-		unbind();
-		return;
-	}
-
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> complete;
-
-	uint64_t target_seq;
-	{
-		auto lock = frg::guard(&_boundSpace->_mutex);
-
-		if(!_boundSpace->_shootQueue.empty()) {
-			auto current = _boundSpace->_shootQueue.back();
-			while(current->_sequence > _alreadyShotSequence) {
-				auto predecessor = current->_queueNode.previous;
-
-				if(current->_initiatorCpu != getCpuData()) {
-					// Perform the actual shootdown.
-					for(size_t pg = 0; pg < current->size; pg += kPageSize)
-						invalidatePage(_asid, reinterpret_cast<void *>(current->address + pg));
-
-					// Signal completion of the shootdown.
-					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = _boundSpace->_shootQueue.iterator_to(current);
-						_boundSpace->_shootQueue.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-		target_seq = _boundSpace->_shootSequence;
-	}
-
-	_alreadyShotSequence = target_seq;
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
-}
-
-GlobalPageBinding::GlobalPageBinding()
-: _alreadyShotSequence{0} { }
-
-void GlobalPageBinding::bind() {
-	assert(!intsAreEnabled());
-
-	auto space = &KernelPageSpace::global();
-
-	uint64_t targetSeq;
-	{
-		auto lock = frg::guard(&space->_shootMutex);
-
-		targetSeq = space->_shootSequence;
-		space->_numBindings++;
-	}
-
-	_alreadyShotSequence = targetSeq;
-}
-
-void GlobalPageBinding::shootdown() {
-	assert(!intsAreEnabled());
-
-	auto space = &KernelPageSpace::global();
-
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> complete;
-
-	uint64_t targetSeq;
-	{
-		auto lock = frg::guard(&space->_shootMutex);
-
-		if(!space->_shootQueue.empty()) {
-			auto current = space->_shootQueue.back();
-			while(current->_sequence > _alreadyShotSequence) {
-				auto predecessor = current->_queueNode.previous;
-
-				if(current->_initiatorCpu != getCpuData()) {
-					// Perform the actual shootdown.
-					for(size_t pg = 0; pg < current->size; pg += kPageSize)
-						invalidatePage(reinterpret_cast<void *>(current->address + pg));
-
-					// Signal completion of the shootdown.
-					if(current->_bindingsToShoot.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-						auto it = space->_shootQueue.iterator_to(current);
-						space->_shootQueue.erase(it);
-						complete.push_front(current);
-					}
-				}
-
-				if(!predecessor)
-					break;
-				current = predecessor;
-			}
-		}
-		targetSeq = space->_shootSequence;
-	}
-
-	_alreadyShotSequence = targetSeq;
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
-}
-
-void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
-	auto bindings = getCpuData()->asidBindings;
-
-	int k = 0;
-	for(int i = 0; i < maxAsid; i++) {
-		// If the space is currently bound, always keep that binding.
-		auto bound = bindings[i].boundSpace();
-		if(bound && bound.get() == space.get()) {
-			if(!bindings[i].isPrimary())
-				bindings[i].rebind();
-			return;
-		}
-
-		// Otherwise, prefer the LRU binding.
-		if(bindings[i].primaryStamp() < bindings[k].primaryStamp())
-			k = i;
-	}
-
-	bindings[k].rebind(space);
-}
-
-PageSpace::PageSpace(PhysicalAddr root_table)
-: _rootTable{root_table}, _numBindings{0}, _shootSequence{0} { }
-
-PageSpace::~PageSpace() {
-	assert(!_numBindings);
-}
-
-void PageSpace::retire(RetireNode *node) {
-	bool any_bindings;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		any_bindings = _numBindings;
-		if(any_bindings) {
-			_retireNode = node;
-			_wantToRetire.store(true, std::memory_order_release);
-		}
-	}
-
-	if(!any_bindings)
-		node->complete();
-
-	sendShootdownIpi();
-}
-
-bool PageSpace::submitShootdown(ShootNode *node) {
-	assert(!(node->address & (kPageSize - 1)));
-	assert(!(node->size & (kPageSize - 1)));
-
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		auto unshot_bindings = _numBindings;
-
-		// Perform synchronous shootdown.
-		auto bindings = getCpuData()->asidBindings;
-		for(int i = 0; i < maxAsid; i++) {
-			if(bindings[i].boundSpace().get() != this)
-				continue;
-			assert(unshot_bindings);
-
-			for(size_t pg = 0; pg < node->size; pg += kPageSize)
-				invalidatePage(bindings[i].getAsid(),
-						reinterpret_cast<void *>(node->address + pg));
-			unshot_bindings--;
-		}
-
-		if(!unshot_bindings)
-			return true;
-
-		node->_initiatorCpu = getCpuData();
-		node->_sequence = ++_shootSequence;
-		node->_bindingsToShoot = unshot_bindings;
-		_shootQueue.push_back(node);
-	}
-
-	sendShootdownIpi();
-	return false;
-}
-
-frg::manual_box<KernelPageSpace> kernelSpaceSingleton;
+} // namespace anonymous
 
 void KernelPageSpace::initialize() {
-	PhysicalAddr ttbr1_ptr;
-	asm volatile ("mrs %0, ttbr1_el1" : "=r" (ttbr1_ptr));
+	PhysicalAddr ttbr1;
+	asm volatile ("mrs %0, ttbr1_el1" : "=r" (ttbr1));
 
-	kernelSpaceSingleton.initialize(ttbr1_ptr);
+	kernelSpace.initialize(ttbr1);
+
+	// Construct an eternal smart_ptr to the kernel page space for
+	// global bindings.
+	kernelSpaceCounter.initialize();
+	kernelSpacePtr.initialize(
+		smarter::adopt_rc,
+		kernelSpace.get(),
+		kernelSpaceCounter.get());
 }
 
 KernelPageSpace &KernelPageSpace::global() {
-	return *kernelSpaceSingleton;
+	return *kernelSpace;
 }
 
-KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1_ptr)
-:ttbr1_{ttbr1_ptr} { }
+void initializeAsidContext(CpuData *cpuData) {
+	auto irqLock = frg::guard(&irqMutex());
 
-bool KernelPageSpace::submitShootdown(ShootNode *node) {
-	assert(!(node->address & (kPageSize - 1)));
-	assert(!(node->size & (kPageSize - 1)));
-
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		auto unshotBindings = _numBindings;
-
-		// Perform synchronous shootdown.
-		assert(unshotBindings);
-		for(size_t pg = 0; pg < node->size; pg += kPageSize)
-			invalidatePage(reinterpret_cast<void *>(node->address + pg));
-		unshotBindings--;
-
-		if(!unshotBindings)
-			return true;
-
-		node->_initiatorCpu = getCpuData();
-		node->_sequence = ++_shootSequence;
-		node->_bindingsToShoot = unshotBindings;
-		_shootQueue.push_back(node);
-	}
-
-	sendShootdownIpi();
-	return false;
+	// TODO(qookie): Check the max number of ASIDs. 256 is safe, but it could also be 65536.
+	cpuData->asidData.initialize(256);
+	cpuData->asidData->globalBinding.initialize(globalBindingId);
+	cpuData->asidData->globalBinding.rebind(*kernelSpacePtr);
 }
+
+
+KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1)
+: PageSpace{ttbr1} { }
 
 static inline constexpr uint64_t kPageValid = 1;
 static inline constexpr uint64_t kPageTable = (1 << 1);
@@ -879,11 +501,12 @@ PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 	PageStatus ps = page_status::present;
 	if ((bits & kPageShouldBeWritable) && !(bits & kPageRO)) {
 		ps |= page_status::dirty;
-		tbl3[index3].atomic_exchange(bits & ~kPageRO);
+		tbl3[index3].atomic_exchange(bits | kPageRO);
 	}
 
 	// TODO: perform proper shootdown to update mapping (we updated the RO flag)
-	invalidatePage(reinterpret_cast<void *>(pointer));
+	// FIXME: wrong ASID, but it was already broken...
+	invalidatePage(0, reinterpret_cast<void *>(pointer));
 	return ps;
 }
 
@@ -990,8 +613,14 @@ bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
 	bits &= ~kPageRO;
 	tbl3[index3].store(bits);
 
-	// TODO: perform proper shootdown to update mapping
-	invalidatePage(reinterpret_cast<void *>(pointer));
+	// Invalidate the page on the current CPU. No need for
+	// shootdown, since at worst other CPUs will just run
+	// updatePageAccess again themselves.
+	PhysicalAddr ttbr0;
+	asm volatile ("mrs %0, ttbr0_el1" : "=r" (ttbr0));
+	auto asid = (ttbr0 >> 48) & 0xFFFF;
+
+	invalidatePage(asid, reinterpret_cast<void *>(pointer));
 
 	return true;
 }

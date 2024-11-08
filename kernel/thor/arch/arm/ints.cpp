@@ -222,10 +222,10 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
-			for(int i = 0; i < maxAsid; i++)
-				getCpuData()->asidBindings[i].shootdown();
+			for(auto &binding : getCpuData()->asidData->bindings)
+				binding.shootdown();
 
-			getCpuData()->globalBinding.shootdown();
+			getCpuData()->asidData->globalBinding.shootdown();
 		}
 	} else if (irq >= 1020) {
 		if constexpr (logSpurious)

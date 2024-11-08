@@ -13,6 +13,8 @@
 #include <thor-internal/kernel-stack.hpp>
 #include <initgraph.hpp>
 
+#include <thor-internal/arch-generic/asid.hpp>
+
 // NOTE: This header only provides architecture-specific structure and
 // inline function definitions. Check arch-generic/cpu.hpp for the
 // remaining function prototypes.
@@ -285,8 +287,6 @@ struct AssemblyCpuData {
 	UserAccessRegion *currentUar;
 };
 
-static inline constexpr size_t maxAsid = 256;
-
 struct GicCpuInterfaceV2;
 struct Thread;
 
@@ -298,9 +298,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	UniqueKernelStack irqStack;
 
-	PageContext pageContext;
-	PageBinding asidBindings[maxAsid];
-	GlobalPageBinding globalBinding;
+	frg::manual_box<AsidCpuData> asidData;
 
 	uint32_t profileFlags = 0;
 

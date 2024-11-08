@@ -104,11 +104,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 	auto context = frg::construct<CpuData>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-
-		context->globalBinding.bind();
-	}
+	initializeAsidContext(context);
 
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);

@@ -9,6 +9,8 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/work-queue.hpp>
 
+#include <thor-internal/arch-generic/asid.hpp>
+
 namespace thor {
 
 enum {
@@ -77,170 +79,11 @@ private:
 	void *_pointer;
 };
 
-struct RetireNode {
-	friend struct PageSpace;
-	friend struct PageBinding;
-
-	virtual void complete() = 0;
-
-protected:
-	virtual ~RetireNode() = default;
-};
-
-struct ShootNode {
-	friend struct PageSpace;
-	friend struct PageBinding;
-	friend struct KernelPageSpace;
-	friend struct GlobalPageBinding;
-
-	VirtualAddr address;
-	size_t size;
-
-	virtual void complete() = 0;
-
-protected:
-	virtual ~ShootNode() = default;
-
-private:
-	// This CPU already performed synchronous shootdown,
-	// hence it can ignore this request during asynchronous shootdown.
-	void *_initiatorCpu;
-
-	uint64_t _sequence;
-
-	std::atomic<unsigned int> _bindingsToShoot;
-
-	frg::default_list_hook<ShootNode> _queueNode;
-};
-
 // Functions for debugging kernel page access:
 // Deny all access to the physical mapping.
 void poisonPhysicalAccess(PhysicalAddr physical);
 // Deny write access to the physical mapping.
 void poisonPhysicalWriteAccess(PhysicalAddr physical);
-
-struct PageSpace;
-struct PageBinding;
-
-// Per-CPU context for paging.
-struct PageContext {
-	friend struct PageBinding;
-
-	PageContext();
-
-	PageContext(const PageContext &) = delete;
-
-	PageContext &operator= (const PageContext &) = delete;
-
-private:
-	// Timestamp for the LRU mechansim of ASIDs.
-	uint64_t _nextStamp;
-
-	// Current primary binding (i.e. the currently active ASID).
-	PageBinding *_primaryBinding;
-};
-
-struct PageBinding {
-	PageBinding();
-
-	PageBinding(const PageBinding &) = delete;
-
-	PageBinding &operator= (const PageBinding &) = delete;
-
-	smarter::shared_ptr<PageSpace> boundSpace() {
-		return _boundSpace;
-	}
-
-	void setupAsid(int asid) {
-		assert(!_asid);
-		_asid = asid;
-	}
-
-	int getAsid() {
-		return _asid;
-	}
-
-	uint64_t primaryStamp() {
-		return _primaryStamp;
-	}
-
-	bool isPrimary();
-
-	void rebind();
-
-	void rebind(smarter::shared_ptr<PageSpace> space);
-
-	void unbind();
-
-	void shootdown();
-
-private:
-	int _asid;
-
-	// TODO: Once we can use libsmarter in the kernel, we should make this a shared_ptr
-	//       to the PageSpace that does *not* prevent the PageSpace from becoming
-	//       "activatable".
-	smarter::shared_ptr<PageSpace> _boundSpace;
-
-	uint64_t _primaryStamp;
-
-	uint64_t _alreadyShotSequence;
-};
-
-struct GlobalPageBinding {
-	GlobalPageBinding();
-
-	GlobalPageBinding(const GlobalPageBinding &) = delete;
-
-	GlobalPageBinding &operator= (const GlobalPageBinding &) = delete;
-
-	void bind();
-
-	void shootdown();
-
-private:
-	uint64_t _alreadyShotSequence;
-};
-
-struct PageSpace {
-	static void activate(smarter::shared_ptr<PageSpace> space);
-
-	friend struct PageBinding;
-
-	PageSpace(PhysicalAddr root_table);
-
-	~PageSpace();
-
-	PhysicalAddr rootTable() {
-		return _rootTable;
-	}
-
-	void retire(RetireNode *node);
-
-	bool submitShootdown(ShootNode *node);
-
-private:
-	PhysicalAddr _rootTable;
-
-	std::atomic<bool> _wantToRetire = false;
-
-	RetireNode * _retireNode = nullptr;
-
-	frg::ticket_spinlock _mutex;
-
-	unsigned int _numBindings;
-
-	uint64_t _shootSequence;
-
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> _shootQueue;
-};
 
 namespace page_mode {
 	static constexpr uint32_t remap = 1;
@@ -277,25 +120,17 @@ enum class CachingMode {
 	mmioNonPosted
 };
 
-struct KernelPageSpace {
-	friend struct GlobalPageBinding;
-public:
+struct KernelPageSpace : PageSpace {
 	static void initialize();
 
 	static KernelPageSpace &global();
 
-	// TODO: This should be private.
+	// TODO(qookie): This should be private, but the ctor is invoked by frigg
 	explicit KernelPageSpace(PhysicalAddr ttbr1);
 
 	KernelPageSpace(const KernelPageSpace &) = delete;
 
 	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
-
-	PhysicalAddr rootTable() {
-		return ttbr1_;
-	}
-
-	bool submitShootdown(ShootNode *node);
 
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			uint32_t flags, CachingMode caching_mode);
@@ -359,24 +194,7 @@ public:
 	}
 
 private:
-	PhysicalAddr ttbr1_;
-
 	frg::ticket_spinlock _mutex;
-
-	frg::ticket_spinlock _shootMutex;
-
-	unsigned int _numBindings;
-
-	uint64_t _shootSequence;
-
-	frg::intrusive_list<
-		ShootNode,
-		frg::locate_member<
-			ShootNode,
-			frg::default_list_hook<ShootNode>,
-			&ShootNode::_queueNode
-		>
-	> _shootQueue;
 };
 
 struct ClientPageSpace : PageSpace {

@@ -332,9 +332,6 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // --------------------------------------------------------
 
 PlatformCpuData::PlatformCpuData() {
-	for(int i = 0; i < maxPcidCount; i++)
-		pcidBindings[i].setupPcid(i);
-
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	common::x86::makeGdtNullSegment(gdt, kGdtIndexNull);
@@ -832,11 +829,7 @@ void bootSecondary(unsigned int apic_id) {
 	context->localApicId = apic_id;
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-
-		context->globalBinding.bind();
-	}
+	initializeAsidContext(context);
 
 	// Setup a status block to communicate information to the AP.
 	auto statusBlock = reinterpret_cast<StatusBlock *>(reinterpret_cast<char *>(accessor.get())
