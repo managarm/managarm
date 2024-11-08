@@ -5,6 +5,25 @@
 
 namespace thor {
 
+namespace {
+
+void shootInBinding(PageBinding &binding, ShootNode *node) {
+	// If we're invalidating a lot of pages, just invalidate the
+	// whole ASID instead.
+	// invalidateAsid(globalBindingId) is not allowed, so avoid
+	// the optimization in that case.
+	if(binding.id() != globalBindingId && (node->size >> kPageShift) >= 64) {
+		invalidateAsid(binding.id());
+	} else {
+		for(size_t off = 0; off < node->size; off += kPageSize)
+			invalidatePage(binding.id(),
+					reinterpret_cast<void *>(node->address + off));
+	}
+}
+
+} // namespace anonymous
+
+
 bool PageBinding::isPrimary() {
 	assert(!intsAreEnabled());
 	auto &context = getCpuData()->asidData->pageContext;
@@ -175,8 +194,7 @@ void PageBinding::shootdown() {
 
 				if(current->initiatorCpu_ != getCpuData()) {
 					// Perform the actual shootdown.
-					for(size_t off = 0; off < current->size; off += kPageSize)
-						invalidatePage(id_, reinterpret_cast<void *>(current->address + off));
+					shootInBinding(*this, current);
 
 					// Signal completion of the shootdown.
 					if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -269,22 +287,15 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 		// Perform synchronous shootdown.
 		if(globalBinding.boundSpace().get() == this) {
 			assert(unshotBindings);
-			for(size_t off = 0; off < node->size; off += kPageSize)
-				invalidatePage(globalBindingId, reinterpret_cast<void *>(node->address + off));
+			shootInBinding(globalBinding, node);
 			unshotBindings--;
 		} else {
 			for(size_t i = 0; i < bindings.size(); i++) {
 				if(bindings[i].boundSpace().get() != this)
 					continue;
+
 				assert(unshotBindings);
-
-				// TODO(qookie):
-				// if node->size >= 64 pages, invalidate full asid/tlb
-				// based on id != -1
-
-				for(size_t off = 0; off < node->size; off += kPageSize)
-					invalidatePage(bindings[i].id(),
-							reinterpret_cast<void *>(node->address + off));
+				shootInBinding(bindings[i], node);
 				unshotBindings--;
 			}
 		}
