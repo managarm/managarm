@@ -198,35 +198,6 @@ private:
 };
 
 struct ClientPageSpace : PageSpace {
-public:
-	struct Walk {
-		Walk(ClientPageSpace *space);
-
-		Walk(const Walk &) = delete;
-
-		~Walk();
-
-		Walk &operator= (const Walk &) = delete;
-
-		void walkTo(uintptr_t address);
-
-		PageFlags peekFlags();
-		PhysicalAddr peekPhysical();
-
-	private:
-		ClientPageSpace *_space;
-
-		void _update();
-
-		uintptr_t _address = 0;
-
-		// Accessors for all levels of PTs.
-		PageAccessor _accessor4; // Coarsest level (PML4).
-		PageAccessor _accessor3;
-		PageAccessor _accessor2;
-		PageAccessor _accessor1; // Finest level (page table).
-	};
-
 	ClientPageSpace();
 
 	ClientPageSpace(const ClientPageSpace &) = delete;

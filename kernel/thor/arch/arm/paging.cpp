@@ -253,12 +253,6 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	return l3_ent & 0xFFFFFFFFF000;
 }
 
-ClientPageSpace::Walk::Walk(ClientPageSpace *space) { assert(!"Not implemented"); }
-ClientPageSpace::Walk::~Walk() { assert(!"Not implemented"); }
-void ClientPageSpace::Walk::walkTo(uintptr_t address) { assert(!"Not implemented"); }
-PageFlags ClientPageSpace::Walk::peekFlags() { assert(!"Not implemented"); return 0; }
-PhysicalAddr ClientPageSpace::Walk::peekPhysical() { assert(!"Not implemented"); return 0; }
-
 ClientPageSpace::ClientPageSpace()
 : PageSpace{physicalAllocator->allocate(kPageSize)} {
 	assert(rootTable() != PhysicalAddr(-1) && "OOM");
