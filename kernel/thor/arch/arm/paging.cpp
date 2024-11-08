@@ -47,10 +47,26 @@ void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
 		: "memory");
 }
 
-void switchAwayFromPageTable(int asid) {
-	invalidateAsid(asid);
+namespace {
 
-	// TODO(qookie): We should point TTBR0 at an empty page here.
+PhysicalAddr nullTable = PhysicalAddr(-1);
+
+} // namespace anonymous
+
+void switchAwayFromPageTable(int asid) {
+	if(nullTable == PhysicalAddr(-1)) {
+		nullTable = physicalAllocator->allocate(kPageSize);
+		assert(nullTable != PhysicalAddr(-1) && "OOM");
+
+		PageAccessor accessor;
+		accessor = PageAccessor{nullTable};
+		auto l0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
+
+		for(size_t i = 0; i < 512; i++)
+			l0[i].store(0);
+	}
+
+	switchToPageTable(nullTable, asid, true);
 }
 
 void poisonPhysicalAccess(PhysicalAddr physical) { assert(!"Not implemented"); }
