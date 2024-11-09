@@ -15,6 +15,8 @@ src = files(
 
 if arch == 'aarch64'
 	headers += 'include/hel-stubs-aarch64.h'
+elif arch == 'riscv64'
+	headers += 'include/hel-stubs-riscv64.h'
 elif arch == 'x86_64'
 	headers += 'include/hel-stubs-x86_64.h'
 endif

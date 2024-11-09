@@ -3525,6 +3525,10 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = 15 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
 			outInfo.setSize = 31 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
+			// TODO: Double check and uncomment:
+			// outInfo.setSize = 31 * sizeof(uintptr_t);
+			return kHelErrUnsupportedOperation;
 #else
 #			error Unknown architecture
 #endif
@@ -3535,6 +3539,10 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = 2 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
 			outInfo.setSize = 1 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
+			// TODO: Double check and uncomment:
+			// outInfo.setSize = 1 * sizeof(uintptr_t);
+			return kHelErrUnsupportedOperation;
 #else
 #			error Unknown architecture
 #endif
@@ -3551,6 +3559,9 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = Executor::determineSimdSize();
 #elif defined (__aarch64__)
 			outInfo.setSize = sizeof(FpRegisters);
+#elif defined (__riscv) && __riscv_xlen == 64
+			// TODO: Implement this.
+			return kHelErrUnsupportedOperation;
 #else
 #			error Unknown architecture
 #endif
@@ -3561,6 +3572,9 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = 19 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
 			outInfo.setSize = 35 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
+			// TODO: Implement this.
+			return kHelErrUnsupportedOperation;
 #else
 #			error Unknown architecture
 #endif
