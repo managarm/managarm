@@ -338,255 +338,35 @@ ClientPageSpace::~ClientPageSpace() {
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		bool user_page, uint32_t flags, CachingMode caching_mode) {
+		bool userPage, uint32_t flags, CachingMode cachingMode) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
+	assert(userPage); // !userPage only ever happens on AArch64
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor4;
-	PageAccessor accessor3;
-	PageAccessor accessor2;
-	PageAccessor accessor1;
-
-	arch::scalar_variable<uint64_t> *tbl4;
-	arch::scalar_variable<uint64_t> *tbl3;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl1;
-
-	auto index4 = (int)((pointer >> 39) & 0x1FF);
-	auto index3 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index1 = (int)((pointer >> 12) & 0x1FF);
-
-	// The PML4 does always exist.
-	accessor4 = PageAccessor{rootTable()};
-
-	// Make sure there is a PDPT.
-	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
-	if(tbl4[index4].load() & kPagePresent) {
-		accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
-	}else{
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor3 = PageAccessor{tbl_address};
-		memset(accessor3.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
-		if(user_page)
-			new_entry |= kPageUser;
-		tbl4[index4].store(new_entry);
-	}
-	assert(user_page ? ((tbl4[index4].load() & kPageUser) != 0)
-			: ((tbl4[index4].load() & kPageUser) == 0));
-
-	// Make sure there is a PD.
-	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-	if(tbl3[index3].load() & kPagePresent) {
-		accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
-	}else{
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor2 = PageAccessor{tbl_address};
-		memset(accessor2.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
-		if(user_page)
-			new_entry |= kPageUser;
-		tbl3[index3].store(new_entry);
-	}
-	assert(user_page ? ((tbl3[index3].load() & kPageUser) != 0)
-			: ((tbl3[index3].load() & kPageUser) == 0));
-
-	// Make sure there is a PT.
-	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-	if(tbl2[index2].load() & kPagePresent) {
-		accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
-	}else{
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor1 = PageAccessor{tbl_address};
-		memset(accessor1.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPagePresent | kPageWrite;
-		if(user_page)
-			new_entry |= kPageUser;
-		tbl2[index2].store(new_entry);
-	}
-	assert(user_page ? ((tbl2[index2].load() & kPageUser) != 0)
-			: ((tbl2[index2].load() & kPageUser) == 0));
-
-	// Setup the new PTE.
-	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-	assert(!(tbl1[index1].load() & kPagePresent));
-	uint64_t new_entry = physical | kPagePresent;
-	if(user_page)
-		new_entry |= kPageUser;
-	if(flags & page_access::write)
-		new_entry |= kPageWrite;
-	if(!(flags & page_access::execute))
-		new_entry |= kPageXd;
-	if(caching_mode == CachingMode::writeThrough) {
-		new_entry |= kPagePwt;
-	}else if(caching_mode == CachingMode::writeCombine) {
-		new_entry |= kPagePat | kPagePwt;
-	}else if(caching_mode == CachingMode::uncached) {
-		new_entry |= kPagePwt | kPagePcd | kPagePat;
-	}else{
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
-	}
-	tbl1[index1].store(new_entry);
+	Cursor cursor{this, pointer};
+	cursor.map4k(physical, flags, cachingMode);
 }
 
 PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor4;
-	PageAccessor accessor3;
-	PageAccessor accessor2;
-	PageAccessor accessor1;
-
-	auto index4 = (int)((pointer >> 39) & 0x1FF);
-	auto index3 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index1 = (int)((pointer >> 12) & 0x1FF);
-
-	// The PML4 is always present.
-	accessor4 = PageAccessor{rootTable()};
-	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
-
-	// Find the PDPT.
-	if(!(tbl4[index4].load() & kPagePresent))
-		return 0;
-	assert(tbl4[index4].load() & kPagePresent);
-	accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
-	auto tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-
-	// Find the PD.
-	if(!(tbl3[index3].load() & kPagePresent))
-		return 0;
-	assert(tbl3[index3].load() & kPagePresent);
-	accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
-	auto tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-
-	// Find the PT.
-	if(!(tbl2[index2].load() & kPagePresent))
-		return 0;
-	assert(tbl2[index2].load() & kPagePresent);
-	accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
-	auto tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-
-	// TODO: Do we want to preserve some bits?
-	auto bits = tbl1[index1].atomic_exchange(0);
-	if(!(bits & kPagePresent))
-		return 0;
-
-	PageStatus status = page_status::present;
-	if(bits & kPageDirty)
-		status |= page_status::dirty;
-	return status;
+	Cursor cursor{this, pointer};
+	return cursor.unmap4k();
 }
 
 PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor4;
-	PageAccessor accessor3;
-	PageAccessor accessor2;
-	PageAccessor accessor1;
-
-	auto index4 = (int)((pointer >> 39) & 0x1FF);
-	auto index3 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index1 = (int)((pointer >> 12) & 0x1FF);
-
-	// The PML4 is always present.
-	accessor4 = PageAccessor{rootTable()};
-	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
-
-	// Find the PDPT.
-	if(!(tbl4[index4].load() & kPagePresent))
-		return 0;
-	assert(tbl4[index4].load() & kPagePresent);
-	accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
-	auto tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-
-	// Find the PD.
-	if(!(tbl3[index3].load() & kPagePresent))
-		return 0;
-	assert(tbl3[index3].load() & kPagePresent);
-	accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
-	auto tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-
-	// Find the PT.
-	if(!(tbl2[index2].load() & kPagePresent))
-		return 0;
-	assert(tbl2[index2].load() & kPagePresent);
-	accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
-	auto tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-
-	auto bits = tbl1[index1].load();
-	if(!(bits & kPagePresent))
-		return 0;
-	PageStatus status = page_status::present;
-	if(bits & kPageDirty) {
-		status |= page_status::dirty;
-		tbl1[index1].atomic_exchange(bits & ~kPageDirty);
-	}
-	return status;
+	Cursor cursor{this, pointer};
+	return cursor.clean4k();
 }
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor4;
-	PageAccessor accessor3;
-	PageAccessor accessor2;
-	PageAccessor accessor1;
-
-	arch::scalar_variable<uint64_t> *tbl4;
-	arch::scalar_variable<uint64_t> *tbl3;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl1;
-
-	auto index4 = (int)((pointer >> 39) & 0x1FF);
-	auto index3 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index1 = (int)((pointer >> 12) & 0x1FF);
-
-	// The PML4 is always present.
-	accessor4 = PageAccessor{rootTable()};
-	tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor4.get());
-
-	// Find the PDPT.
-	if(!(tbl4[index4].load() & kPagePresent))
-		return false;
-	accessor3 = PageAccessor{tbl4[index4].load() & 0x000FFFFFFFFFF000};
-	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-
-	// Find the PD.
-	if(!(tbl3[index3].load() & kPagePresent))
-		return false;
-	accessor2 = PageAccessor{tbl3[index3].load() & 0x000FFFFFFFFFF000};
-	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-
-	// Find the PT.
-	if(!(tbl2[index2].load() & kPagePresent))
-		return false;
-	accessor1 = PageAccessor{tbl2[index2].load() & 0x000FFFFFFFFFF000};
-	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-
-	return tbl1[index1].load() & kPagePresent;
+	// This is unimplemented because it's unused if cursors are
+	// used by VirtualOperations. The definition for it is still
+	// needed though as long as the non-cursor mapPresentPages
+	// implementation is around.
+	assert(!"Unimplemented");
 }
 
 bool ClientPageSpace::updatePageAccess(VirtualAddr) {
