@@ -9,6 +9,57 @@
 
 namespace thor {
 
+inline void *mapDirectPhysical(PhysicalAddr physical) {
+	assert(physical < 0x4000'0000'0000);
+	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+}
+
+inline PhysicalAddr reverseDirectPhysical(void *pointer) {
+	return reinterpret_cast<uintptr_t>(pointer) - 0xFFFF'8000'0000'0000;
+}
+
+struct PageAccessor {
+	friend void swap(PageAccessor &a, PageAccessor &b) {
+		using std::swap;
+		swap(a._pointer, b._pointer);
+	}
+
+	PageAccessor()
+	: _pointer{nullptr} { }
+
+	PageAccessor(PhysicalAddr physical) {
+		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
+		assert(!(physical & 0xFFF) && "physical page is not aligned");
+		assert(physical < 0x4000'0000'0000);
+		_pointer = reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+	}
+
+	PageAccessor(const PageAccessor &) = delete;
+
+	PageAccessor(PageAccessor &&other)
+	: PageAccessor{} {
+		swap(*this, other);
+	}
+
+	~PageAccessor() { }
+
+	PageAccessor &operator= (PageAccessor other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	explicit operator bool () {
+		return _pointer;
+	}
+
+	void *get() {
+		return _pointer;
+	}
+
+private:
+	void *_pointer;
+};
+
 struct SkeletalRegion {
 public:
 	static void initialize();

@@ -8,6 +8,7 @@
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/work-queue.hpp>
+#include <thor-internal/physical.hpp>
 
 #include <thor-internal/arch-generic/asid.hpp>
 
@@ -24,60 +25,9 @@ constexpr Word kPfUser = 4;
 constexpr Word kPfBadTable = 8;
 constexpr Word kPfInstruction = 16;
 
-inline void *mapDirectPhysical(PhysicalAddr physical) {
-	assert(physical < 0x4000'0000'0000);
-	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
-}
-
-inline PhysicalAddr reverseDirectPhysical(void *pointer) {
-	return reinterpret_cast<uintptr_t>(pointer) - 0xFFFF'8000'0000'0000;
-}
-
 void invalidatePage(const void *address);
 void invalidateAsid(int asid);
 void invalidatePage(int pcid, const void *address);
-
-struct PageAccessor {
-	friend void swap(PageAccessor &a, PageAccessor &b) {
-		using std::swap;
-		swap(a._pointer, b._pointer);
-	}
-
-	PageAccessor()
-	: _pointer{nullptr} { }
-
-	PageAccessor(PhysicalAddr physical) {
-		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
-		assert(!(physical & (kPageSize - 1)) && "physical page is not aligned");
-		assert(physical < 0x4000'0000'0000);
-		_pointer = reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
-	}
-
-	PageAccessor(const PageAccessor &) = delete;
-
-	PageAccessor(PageAccessor &&other)
-	: PageAccessor{} {
-		swap(*this, other);
-	}
-
-	~PageAccessor() { }
-
-	PageAccessor &operator= (PageAccessor other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	explicit operator bool () {
-		return _pointer;
-	}
-
-	void *get() {
-		return _pointer;
-	}
-
-private:
-	void *_pointer;
-};
 
 // Functions for debugging kernel page access:
 // Deny all access to the physical mapping.
