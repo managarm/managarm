@@ -178,6 +178,10 @@ struct PageSpace {
 	// shootdown.
 	bool submitShootdown(ShootNode *node);
 
+	auto &tableMutex() {
+		return tableMutex_;
+	}
+
 private:
 	PhysicalAddr rootTable_;
 
@@ -185,6 +189,7 @@ private:
 	RetireNode *retireNode_ = nullptr;
 
 	frg::ticket_spinlock mutex_;
+	frg::ticket_spinlock tableMutex_;
 
 	unsigned int numBindings_;
 
