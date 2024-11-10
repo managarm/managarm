@@ -46,20 +46,25 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 
-		auto status = c.unmap4k();
-		if((status & page_status::present) && (status & page_status::dirty)) {
-			view->markDirty(offset + progress, kPageSize);
-		}
-
 		auto physicalRange = view->peekRange(offset + progress);
 		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+			auto status = c.unmap4k();
+			if((status & page_status::present) && (status & page_status::dirty)) {
+				view->markDirty(offset + progress, kPageSize);
+			}
+
 			c.advance4k();
 			continue;
 		}
 		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
 
-		c.map4k(physicalRange.template get<0>(), flags, physicalRange.template get<1>());
+		auto status = c.remap4k(physicalRange.template get<0>(), flags,
+				physicalRange.template get<1>());
 		c.advance4k();
+
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			view->markDirty(offset + progress, kPageSize);
+		}
 	}
 	return {};
 }
