@@ -114,7 +114,8 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
-	lowMapping.mapSingle4k(codePhysPtr, codePhysPtr, false, page_access::execute, CachingMode::null);
+	ClientPageSpace::Cursor cursor{&lowMapping, codePhysPtr};
+	cursor.map4k(codePhysPtr, page_access::execute, CachingMode::null);
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;

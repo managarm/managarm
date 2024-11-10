@@ -293,44 +293,12 @@ ClientPageSpace::~ClientPageSpace() {
 	}
 
 	physicalAllocator->free(rootTable(), kPageSize);
-
 }
 
-void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_page,
-		uint32_t flags, CachingMode cachingMode) {
-	assert(!(pointer & (kPageSize - 1)));
 
-	Cursor cursor{this, pointer};
-	cursor.map4k(physical, flags, cachingMode);
-}
-
-PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	Cursor cursor{this, pointer};
-	return cursor.unmap4k();
-}
-
-PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	Cursor cursor{this, pointer};
-	auto ps = cursor.clean4k();
-
-	// TODO: perform proper shootdown to update mapping (we updated the RO flag)
-	// FIXME: wrong ASID, but it was already broken...
-	invalidatePage(0, reinterpret_cast<void *>(pointer));
-	return ps;
-}
-
-bool ClientPageSpace::isMapped(VirtualAddr pointer) {
-	// This is unimplemented because it's unused if cursors are
-	// used by VirtualOperations. The definition for it is still
-	// needed though as long as the non-cursor mapPresentPages
-	// implementation is around.
-	assert(!"Unimplemented");
-}
-
+// TODO(qookie): This function should be converted to use cursors.
+// Maybe we should add a method that lets us just get a pointer to the
+// PTE or nullptr if it's not mapped?
 bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 

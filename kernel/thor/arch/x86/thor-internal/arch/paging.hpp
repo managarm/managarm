@@ -135,11 +135,6 @@ struct ClientPageSpace : PageSpace {
 
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
 
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_access,
-			uint32_t flags, CachingMode caching_mode);
-	PageStatus unmapSingle4k(VirtualAddr pointer);
-	PageStatus cleanSingle4k(VirtualAddr pointer);
-	bool isMapped(VirtualAddr pointer);
 	bool updatePageAccess(VirtualAddr pointer);
 
 private:

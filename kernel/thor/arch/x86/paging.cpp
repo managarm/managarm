@@ -338,38 +338,6 @@ ClientPageSpace::~ClientPageSpace() {
 	physicalAllocator->free(rootTable(), kPageSize);
 }
 
-void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		bool userPage, uint32_t flags, CachingMode cachingMode) {
-	assert((pointer % 0x1000) == 0);
-	assert((physical % 0x1000) == 0);
-	assert(userPage); // !userPage only ever happens on AArch64
-
-	Cursor cursor{this, pointer};
-	cursor.map4k(physical, flags, cachingMode);
-}
-
-PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	Cursor cursor{this, pointer};
-	return cursor.unmap4k();
-}
-
-PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	Cursor cursor{this, pointer};
-	return cursor.clean4k();
-}
-
-bool ClientPageSpace::isMapped(VirtualAddr pointer) {
-	// This is unimplemented because it's unused if cursors are
-	// used by VirtualOperations. The definition for it is still
-	// needed though as long as the non-cursor mapPresentPages
-	// implementation is around.
-	assert(!"Unimplemented");
-}
-
 bool ClientPageSpace::updatePageAccess(VirtualAddr) {
 	return false;
 }
