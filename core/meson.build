@@ -2,6 +2,7 @@ inc = [ 'include' ]
 
 headers = [
 	'include/core/bpf.hpp',
+	'include/core/cmdline.hpp',
 	'include/core/logging.hpp',
 	'include/core/id-allocator.hpp',
 	'include/core/kernel-logs.hpp',
@@ -10,6 +11,7 @@ headers = [
 
 core_lib_sources = files(
 	'lib/bpf/bpf.cpp',
+	'lib/cmdline.cpp',
 	'lib/kernel-logs.cpp',
 )
 
