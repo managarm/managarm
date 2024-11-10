@@ -133,10 +133,29 @@ struct VirtualOperations {
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
 	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode cachingMode) = 0;
-	virtual PageStatus unmapSingle4k(VirtualAddr pointer) = 0;
-	virtual PageStatus cleanSingle4k(VirtualAddr pointer) = 0;
-	virtual bool isMapped(VirtualAddr pointer) = 0;
+			uint32_t flags, CachingMode cachingMode) {
+		(void)pointer;
+		(void)physical;
+		(void)flags;
+		(void)cachingMode;
+		panicLogger() << "thor: Default VirtualOperations::mapSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual PageStatus unmapSingle4k(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::unmapSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual PageStatus cleanSingle4k(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::cleanSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual bool isMapped(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::isMapped called!" << frg::endlog;
+		__builtin_unreachable();
+	}
 
 	// ----------------------------------------------------------------------------------
 
@@ -655,23 +674,6 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 
 		bool submitShootdown(ShootNode *node) override {
 			return space_->pageSpace_.submitShootdown(node);
-		}
-
-		void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-				uint32_t flags, CachingMode cachingMode) override {
-			space_->pageSpace_.mapSingle4k(pointer, physical, true, flags, cachingMode);
-		}
-
-		PageStatus unmapSingle4k(VirtualAddr pointer) override {
-			return space_->pageSpace_.unmapSingle4k(pointer);
-		}
-
-		PageStatus cleanSingle4k(VirtualAddr pointer) override {
-			return space_->pageSpace_.cleanSingle4k(pointer);
-		}
-
-		bool isMapped(VirtualAddr pointer) override {
-			return space_->pageSpace_.isMapped(pointer);
 		}
 
 		frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
