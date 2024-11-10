@@ -17,6 +17,15 @@ enum {
 	kPageShift = 12
 };
 
+inline void *mapDirectPhysical(PhysicalAddr physical) {
+	assert(physical < 0x4000'0000'0000);
+	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+}
+
+inline PhysicalAddr reverseDirectPhysical(void *pointer) {
+	return reinterpret_cast<uintptr_t>(pointer) - 0xFFFF'8000'0000'0000;
+}
+
 struct PageAccessor {
 	friend void swap(PageAccessor &a, PageAccessor &b) {
 		using std::swap;

@@ -35,8 +35,8 @@ struct LogHandler {
 	LogHandler(void *ct) : context{ct} {}
 
 	virtual void printChar(char c) = 0;
-	virtual void setPriority(Severity) = 0;
-	virtual void resetPriority() = 0;
+	virtual void setPriority(Severity);
+	virtual void resetPriority();
 
 	frg::default_list_hook<LogHandler> hook;
 

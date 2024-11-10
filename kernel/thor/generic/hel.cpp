@@ -3568,6 +3568,8 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 			outInfo.setSize = 19 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
 			outInfo.setSize = 35 * sizeof(uintptr_t);
+#elif defined (__riscv) && __riscv_xlen == 64
+#warning kHelRegsSimd not implemented
 #else
 #			error Unknown architecture
 #endif

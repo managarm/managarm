@@ -16,4 +16,6 @@ smarter::borrowed_ptr<Thread> activeExecutor() { assert(!"Not implemented"); }
 
 Error getEntropyFromCpu(void *buffer, size_t size) { assert(!"Not implemented"); }
 
+size_t getCpuCount() { assert(!"Not implemented"); }
+
 }

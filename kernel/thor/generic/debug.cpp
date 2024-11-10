@@ -21,6 +21,9 @@ namespace {
 	>> globalLogList;
 } // anonymous namespace
 
+void LogHandler::setPriority(Severity) {}
+void LogHandler::resetPriority() {}
+
 size_t currentLogSequence() {
 	return logHead;
 }
