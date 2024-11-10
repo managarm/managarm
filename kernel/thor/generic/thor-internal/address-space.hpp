@@ -674,7 +674,6 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 			return space_->pageSpace_.isMapped(pointer);
 		}
 
-#ifdef __x86_64__
 		frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, size_t size, PageFlags flags) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
@@ -704,7 +703,6 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, view, offset, size);
 		}
-#endif
 
 	private:
 		AddressSpace *space_;

@@ -113,25 +113,6 @@ void initializeAsidContext(CpuData *cpuData) {
 KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1)
 : PageSpace{ttbr1} { }
 
-static inline constexpr uint64_t kPageValid = 1;
-static inline constexpr uint64_t kPageTable = (1 << 1);
-static inline constexpr uint64_t kPageL3Page = (1 << 1);
-static inline constexpr uint64_t kPageXN = (uint64_t(1) << 54);
-static inline constexpr uint64_t kPagePXN = (uint64_t(1) << 53);
-static inline constexpr uint64_t kPageShouldBeWritable = (uint64_t(1) << 55);
-static inline constexpr uint64_t kPageNotGlobal = (1 << 11);
-static inline constexpr uint64_t kPageAccess = (1 << 10);
-static inline constexpr uint64_t kPageRO = (1 << 7);
-static inline constexpr uint64_t kPageUser = (1 << 6);
-static inline constexpr uint64_t kPageInnerSh = (3 << 8);
-static inline constexpr uint64_t kPageOuterSh = (2 << 8);
-static inline constexpr uint64_t kPageWb = (0 << 2);
-static inline constexpr uint64_t kPageGRE = (1 << 2);
-static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
-static inline constexpr uint64_t kPagenGnRE = (3 << 2);
-static inline constexpr uint64_t kPageUc = (4 << 2);
-static inline constexpr uint64_t kPageAddress = 0xFFFFFFFFF000;
-
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 		uint32_t flags, CachingMode caching_mode) {
 	assert((pointer % 0x1000) == 0);
@@ -316,203 +297,25 @@ ClientPageSpace::~ClientPageSpace() {
 }
 
 void ClientPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical, bool user_page,
-		uint32_t flags, CachingMode caching_mode) {
+		uint32_t flags, CachingMode cachingMode) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor0;
-	PageAccessor accessor1;
-	PageAccessor accessor2;
-	PageAccessor accessor3;
-
-	arch::scalar_variable<uint64_t> *tbl0;
-	arch::scalar_variable<uint64_t> *tbl1;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl3;
-
-	auto index0 = (int)((pointer >> 39) & 0x1FF);
-	auto index1 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index3 = (int)((pointer >> 12) & 0x1FF);
-
-	accessor0 = PageAccessor{rootTable()};
-	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
-
-	if (tbl0[index0].load() & kPageValid) {
-		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-	} else {
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor1 = PageAccessor{tbl_address};
-		memset(accessor1.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPageValid | kPageTable;
-		tbl0[index0].store(new_entry);
-	}
-	tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-
-	if (tbl1[index1].load() & kPageValid) {
-		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-	} else {
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor2 = PageAccessor{tbl_address};
-		memset(accessor2.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPageValid | kPageTable;
-		tbl1[index1].store(new_entry);
-	}
-	tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-
-	if (tbl2[index2].load() & kPageValid) {
-		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-	} else {
-		auto tbl_address = physicalAllocator->allocate(kPageSize);
-		assert(tbl_address != PhysicalAddr(-1) && "OOM");
-		accessor3 = PageAccessor{tbl_address};
-		memset(accessor3.get(), 0, kPageSize);
-
-		uint64_t new_entry = tbl_address | kPageValid | kPageTable;
-		tbl2[index2].store(new_entry);
-	}
-	tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-
-	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess | kPageRO | kPageNotGlobal;
-
-	if (flags & page_access::write)
-		new_entry |= kPageShouldBeWritable;
-	if (!(flags & page_access::execute))
-		new_entry |= kPageXN | kPagePXN;
-	if (user_page)
-		new_entry |= kPageUser;
-	if (caching_mode == CachingMode::writeCombine)
-		new_entry |= kPageUc | kPageOuterSh;
-	else if (caching_mode == CachingMode::uncached)
-		new_entry |= kPagenGnRnE | kPageOuterSh;
-	else if (caching_mode == CachingMode::mmio)
-		new_entry |= kPagenGnRE | kPageOuterSh;
-	else if (caching_mode == CachingMode::mmioNonPosted)
-		new_entry |= kPagenGnRnE | kPageOuterSh;
-	else {
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
-		new_entry |= kPageWb | kPageInnerSh;
-	}
-
-	tbl3[index3].store(new_entry);
+	Cursor cursor{this, pointer};
+	cursor.map4k(physical, flags, cachingMode);
 }
 
 PageStatus ClientPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor0;
-	PageAccessor accessor1;
-	PageAccessor accessor2;
-	PageAccessor accessor3;
-
-	arch::scalar_variable<uint64_t> *tbl0;
-	arch::scalar_variable<uint64_t> *tbl1;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl3;
-
-	auto index0 = (int)((pointer >> 39) & 0x1FF);
-	auto index1 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index3 = (int)((pointer >> 12) & 0x1FF);
-
-	accessor0 = PageAccessor{rootTable()};
-	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
-
-	if (tbl0[index0].load() & kPageValid) {
-		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-	} else {
-		return 0;
-	}
-
-	if (tbl1[index1].load() & kPageValid) {
-		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-	} else {
-		return 0;
-	}
-
-	if (tbl2[index2].load() & kPageValid) {
-		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-	} else {
-		return 0;
-	}
-
-	auto bits = tbl3[index3].atomic_exchange(0);
-	if (!(bits & kPageValid))
-		return 0;
-
-	PageStatus ps = page_status::present;
-	if ((bits & kPageShouldBeWritable) && !(bits & kPageRO))
-		ps |= page_status::dirty;
-
-	return ps;
+	Cursor cursor{this, pointer};
+	return cursor.unmap4k();
 }
 
 PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor0;
-	PageAccessor accessor1;
-	PageAccessor accessor2;
-	PageAccessor accessor3;
-
-	arch::scalar_variable<uint64_t> *tbl0;
-	arch::scalar_variable<uint64_t> *tbl1;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl3;
-
-	auto index0 = (int)((pointer >> 39) & 0x1FF);
-	auto index1 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index3 = (int)((pointer >> 12) & 0x1FF);
-
-	accessor0 = PageAccessor{rootTable()};
-	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
-
-	if (tbl0[index0].load() & kPageValid) {
-		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-	} else {
-		return 0;
-	}
-
-	if (tbl1[index1].load() & kPageValid) {
-		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-	} else {
-		return 0;
-	}
-
-	if (tbl2[index2].load() & kPageValid) {
-		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-	} else {
-		return 0;
-	}
-
-	auto bits = tbl3[index3].load();
-	if (!(bits & kPageValid))
-		return 0;
-
-	PageStatus ps = page_status::present;
-	if ((bits & kPageShouldBeWritable) && !(bits & kPageRO)) {
-		ps |= page_status::dirty;
-		tbl3[index3].atomic_exchange(bits | kPageRO);
-	}
+	Cursor cursor{this, pointer};
+	auto ps = cursor.clean4k();
 
 	// TODO: perform proper shootdown to update mapping (we updated the RO flag)
 	// FIXME: wrong ASID, but it was already broken...
@@ -521,51 +324,11 @@ PageStatus ClientPageSpace::cleanSingle4k(VirtualAddr pointer) {
 }
 
 bool ClientPageSpace::isMapped(VirtualAddr pointer) {
-	assert(!(pointer & (kPageSize - 1)));
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	PageAccessor accessor0;
-	PageAccessor accessor1;
-	PageAccessor accessor2;
-	PageAccessor accessor3;
-
-	arch::scalar_variable<uint64_t> *tbl0;
-	arch::scalar_variable<uint64_t> *tbl1;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl3;
-
-	auto index0 = (int)((pointer >> 39) & 0x1FF);
-	auto index1 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index3 = (int)((pointer >> 12) & 0x1FF);
-
-	accessor0 = PageAccessor{rootTable()};
-	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
-
-	if (tbl0[index0].load() & kPageValid) {
-		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-	} else {
-		return false;
-	}
-
-	if (tbl1[index1].load() & kPageValid) {
-		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-	} else {
-		return false;
-	}
-
-	if (tbl2[index2].load() & kPageValid) {
-		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-	} else {
-		return false;
-	}
-
-	return tbl3[index3].load() & kPageValid;
+	// This is unimplemented because it's unused if cursors are
+	// used by VirtualOperations. The definition for it is still
+	// needed though as long as the non-cursor mapPresentPages
+	// implementation is around.
+	assert(!"Unimplemented");
 }
 
 bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
