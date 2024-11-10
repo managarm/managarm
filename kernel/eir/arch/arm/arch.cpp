@@ -180,7 +180,7 @@ void initProcessorEarly() {
 		(2 << 12) | // TTBR0 Inner shareable
 		(2 << 28) | // TTBR1 Inner shareable
 		(uint64_t(pa) << 32) | // 48-bit intermediate address
-		(2 << 30); // TTBR1 4K granule
+		(uint64_t(2) << 30); // TTBR1 4K granule
 
 	asm volatile ("msr tcr_el1, %0" :: "r" (tcr));
 }
