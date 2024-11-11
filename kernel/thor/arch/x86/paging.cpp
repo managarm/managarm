@@ -80,25 +80,6 @@ void poisonPhysicalWriteAccess(PhysicalAddr physical) {
 	invalidatePage(globalBindingId, reinterpret_cast<void *>(address));
 }
 
-} // namespace thor
-
-// --------------------------------------------------------
-
-enum {
-	kPagePresent = 0x1,
-	kPageWrite = 0x2,
-	kPageUser = 0x4,
-	kPagePwt = 0x8,
-	kPagePcd = 0x10,
-	kPageDirty = 0x40,
-	kPagePat = 0x80,
-	kPageGlobal = 0x100,
-	kPageXd = 0x8000000000000000,
-	kPageAddress = 0x000FFFFFFFFFF000
-};
-
-namespace thor {
-
 // --------------------------------------------------------
 // Kernel paging management.
 // --------------------------------------------------------
@@ -176,20 +157,20 @@ ClientPageSpace::ClientPageSpace()
 	assert(rootTable() != PhysicalAddr(-1) && "OOM");
 
 	// Initialize the bottom half to unmapped memory.
-	PageAccessor accessor;
-	accessor = PageAccessor{rootTable()};
+	PageAccessor accessor{rootTable()};
 	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
 
 	for(size_t i = 0; i < 256; i++)
 		tbl4[i].store(0);
 
 	// Share the top half with the kernel.
-	auto kernel_pml4 = KernelPageSpace::global().rootTable();
-	auto kernel_table = (uint64_t *)SkeletalRegion::global().access(kernel_pml4);
+	PageAccessor kernelAccessor{KernelPageSpace::global().rootTable()};
+	auto kernelTbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(kernelAccessor.get());
 
 	for(size_t i = 256; i < 512; i++) {
-		assert(kernel_table[i] & kPagePresent);
-		tbl4[i].store(kernel_table[i]);
+		auto pte = kernelTbl4[i].load();
+		assert(pte & ptePresent);
+		tbl4[i].store(pte);
 	}
 }
 
@@ -198,8 +179,8 @@ ClientPageSpace::~ClientPageSpace() {
 		PageAccessor accessor{ps};
 		auto tbl = reinterpret_cast<uint64_t *>(accessor.get());
 		for(int i = 0; i < 512; i++) {
-			if(tbl[i] & kPagePresent)
-				physicalAllocator->free(tbl[i] & kPageAddress, kPageSize);
+			if(tbl[i] & ptePresent)
+				physicalAllocator->free(tbl[i] & pteAddress, kPageSize);
 		}
 	};
 
@@ -207,10 +188,10 @@ ClientPageSpace::~ClientPageSpace() {
 		PageAccessor accessor{ps};
 		auto tbl = reinterpret_cast<uint64_t *>(accessor.get());
 		for(int i = 0; i < 512; i++) {
-			if(!(tbl[i] & kPagePresent))
+			if(!(tbl[i] & ptePresent))
 				continue;
-			clearLevel2(tbl[i] & kPageAddress);
-			physicalAllocator->free(tbl[i] & kPageAddress, kPageSize);
+			clearLevel2(tbl[i] & pteAddress);
+			physicalAllocator->free(tbl[i] & pteAddress, kPageSize);
 		}
 	};
 
@@ -218,10 +199,10 @@ ClientPageSpace::~ClientPageSpace() {
 	PageAccessor root_accessor{rootTable()};
 	auto root_tbl = reinterpret_cast<uint64_t *>(root_accessor.get());
 	for(int i = 0; i < 256; i++) {
-		if(!(root_tbl[i] & kPagePresent))
+		if(!(root_tbl[i] & ptePresent))
 			continue;
-		clearLevel3(root_tbl[i] & kPageAddress);
-		physicalAllocator->free(root_tbl[i] & kPageAddress, kPageSize);
+		clearLevel3(root_tbl[i] & pteAddress);
+		physicalAllocator->free(root_tbl[i] & pteAddress, kPageSize);
 	}
 
 	physicalAllocator->free(rootTable(), kPageSize);

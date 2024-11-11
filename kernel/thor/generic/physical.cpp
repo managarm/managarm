@@ -9,25 +9,6 @@ namespace thor {
 static bool logPhysicalAllocs = false;
 
 // --------------------------------------------------------
-// SkeletalRegion
-// --------------------------------------------------------
-
-frg::manual_box<SkeletalRegion> skeletalSingleton;
-
-void SkeletalRegion::initialize() {
-	skeletalSingleton.initialize();
-}
-
-SkeletalRegion &SkeletalRegion::global() {
-	return *skeletalSingleton;
-}
-
-void *SkeletalRegion::access(PhysicalAddr physical) {
-	assert(!(physical & (kPageSize - 1)));
-	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
-}
-
-// --------------------------------------------------------
 // PhysicalChunkAllocator
 // --------------------------------------------------------
 

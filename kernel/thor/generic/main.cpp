@@ -82,7 +82,6 @@ extern "C" void thorInitialize() {
 
 	KernelPageSpace::initialize();
 
-	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
 	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
 	for(size_t i = 0; i < thorBootInfoPtr->numRegions; i++)

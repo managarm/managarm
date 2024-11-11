@@ -60,22 +60,6 @@ private:
 	void *_pointer;
 };
 
-struct SkeletalRegion {
-public:
-	static void initialize();
-
-	static SkeletalRegion &global();
-
-	// TODO: make this private
-	SkeletalRegion() = default;
-
-	SkeletalRegion(const SkeletalRegion &other) = delete;
-	
-	SkeletalRegion &operator= (const SkeletalRegion &other) = delete;
-
-	void *access(PhysicalAddr physical);
-};
-
 class PhysicalChunkAllocator {
 	typedef frg::ticket_spinlock Mutex;
 public:
