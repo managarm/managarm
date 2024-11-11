@@ -24,6 +24,8 @@ enum class CachingMode {
 static constexpr int pageShift = 12;
 static constexpr size_t pageSize = size_t(1) << pageShift;
 
+extern uint64_t kernelEntry;
+
 void setupPaging();
 void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 		CachingMode caching_mode = CachingMode::null);
@@ -31,6 +33,8 @@ address_t getSingle4kPage(address_t address);
 
 void initProcessorEarly();
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry);
+
+[[noreturn]] void enterKernel();
 
 // These need to be hidden because they are used in eirRelocate.
 extern "C" [[gnu::visibility("hidden")]] char eirImageFloor;

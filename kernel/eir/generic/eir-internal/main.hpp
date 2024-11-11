@@ -11,4 +11,6 @@ struct GlobalInitEngine final : initgraph::Engine {
 
 extern GlobalInitEngine globalInitEngine;
 
+extern "C" void eirMain();
+
 } // namespace eir

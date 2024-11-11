@@ -1,4 +1,5 @@
 #include <initgraph.hpp>
+#include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
 
@@ -49,7 +50,8 @@ extern "C" void eirMain() {
 
 	globalInitEngine.run();
 
-	while(1) { }
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
+	eir::enterKernel();
 }
 
 } // namespace eir

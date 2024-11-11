@@ -3,6 +3,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <frg/array.hpp>
 #include <frg/cmdline.hpp>
 #include <stdbool.h>
@@ -11,7 +12,6 @@
 #include "helpers.hpp"
 
 static_assert(sizeof(char16_t) == sizeof(wchar_t), "Strings are not UTF-16-ish, are you missing -fshort-wchar?");
-extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t) __attribute__((sysv_abi));
 
 namespace eir {
 
@@ -355,9 +355,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 		fb->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 
-	// Hand-off to thor
-	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
-	eirEnterKernel(eirPml4Pointer, kernel_entry, 0xFFFF'FE80'0001'0000); // TODO
+	eirMain();
 
 	return EFI_SUCCESS;
 }

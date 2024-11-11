@@ -1,5 +1,5 @@
 mb2_sources = files('multiboot2.S', 'multiboot2.cpp')
-executable('eir-mb2', eir32_sources, mb2_sources,
+executable('eir-mb2', eir32_sources, mb2_sources, eir_generic_main,
 	include_directories : eir_includes,
 	c_args : eir32_c_args,
 	cpp_args : eir32_cpp_args,
