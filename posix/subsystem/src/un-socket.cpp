@@ -517,6 +517,7 @@ public:
 						conversation,
 						helix_ng::sendBuffer(ser.data(), ser.size())
 					);
+					HEL_CHECK(send_resp.error());
 					co_return;
 				}
 			}
