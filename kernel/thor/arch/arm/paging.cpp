@@ -84,6 +84,7 @@ frg::manual_box<smarter::shared_ptr<KernelPageSpace>> kernelSpacePtr;
 void KernelPageSpace::initialize() {
 	PhysicalAddr ttbr1;
 	asm volatile ("mrs %0, ttbr1_el1" : "=r" (ttbr1));
+	ttbr1 &= ~uint64_t{1}; // Mask off TTBR1.CnP
 
 	kernelSpace.initialize(ttbr1);
 
@@ -114,140 +115,21 @@ KernelPageSpace::KernelPageSpace(PhysicalAddr ttbr1)
 : PageSpace{ttbr1} { }
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		uint32_t flags, CachingMode caching_mode) {
+		uint32_t flags, CachingMode cachingMode) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
-	auto ttbr = (pointer >> 63) & 1;
-	assert(ttbr == 1);
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	auto &region = SkeletalRegion::global();
-
-	auto l0 = (pointer >> 39) & 0x1FF;
-	auto l1 = (pointer >> 30) & 0x1FF;
-	auto l2 = (pointer >> 21) & 0x1FF;
-	auto l3 = (pointer >> 12) & 0x1FF;
-
-	uint64_t *l0_ptr = (uint64_t *)region.access(rootTable() & 0xFFFFFFFFFFFE);
-	uint64_t *l1_ptr = nullptr;
-	uint64_t *l2_ptr = nullptr;
-	uint64_t *l3_ptr = nullptr;
-
-	auto l0_ent = l0_ptr[l0];
-	if (!(l0_ent & kPageValid)) {
-		PhysicalAddr page = physicalAllocator->allocate(kPageSize);
-		assert(page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		l1_ptr = (uint64_t *)region.access(page);
-
-		for(int i = 0; i < 512; i++)
-			l1_ptr[i] = 0;
-
-		l0_ptr[l0] =
-			page | kPageValid | kPageTable;
-	} else {
-		l1_ptr = (uint64_t *)region.access(l0_ent & 0xFFFFFFFFF000);
-	}
-
-	auto l1_ent = l1_ptr[l1];
-	if (!(l1_ent & kPageValid)) {
-		PhysicalAddr page = physicalAllocator->allocate(kPageSize);
-		assert(page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		l2_ptr = (uint64_t *)region.access(page);
-
-		for(int i = 0; i < 512; i++)
-			l2_ptr[i] = 0;
-
-		l1_ptr[l1] =
-			page | kPageValid | kPageTable;
-	} else {
-		l2_ptr = (uint64_t *)region.access(l1_ent & 0xFFFFFFFFF000);
-	}
-
-	auto l2_ent = l2_ptr[l2];
-	if (!(l2_ent & kPageValid)) {
-		PhysicalAddr page = physicalAllocator->allocate(kPageSize);
-		assert(page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		l3_ptr = (uint64_t *)region.access(page);
-
-		for(int i = 0; i < 512; i++)
-			l3_ptr[i] = 0;
-
-		l2_ptr[l2] =
-			page | kPageValid | kPageTable;
-	} else {
-		l3_ptr = (uint64_t *)region.access(l2_ent & 0xFFFFFFFFF000);
-	}
-
-	auto l3_ent = l3_ptr[l3];
-
-	assert(!(l3_ent & kPageValid));
-
-	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess;
-
-	if (!(flags & page_access::write))
-		new_entry |= kPageRO;
-	if (!(flags & page_access::execute))
-		new_entry |= kPageXN | kPagePXN;
-
-	if (caching_mode == CachingMode::writeCombine)
-		new_entry |= kPageUc | kPageOuterSh;
-	else if (caching_mode == CachingMode::uncached)
-		new_entry |= kPagenGnRnE | kPageOuterSh;
-	else if (caching_mode == CachingMode::mmio)
-		new_entry |= kPagenGnRE | kPageOuterSh;
-	else if (caching_mode == CachingMode::mmioNonPosted)
-		new_entry |= kPagenGnRnE | kPageOuterSh;
-	else {
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
-		new_entry |= kPageWb | kPageInnerSh;
-	}
-
-	assert(!(new_entry & (uintptr_t(0b111) << 48)));
-
-	l3_ptr[l3] = new_entry;
+	Cursor cursor{this, pointer};
+	cursor.map4k(physical, flags, cachingMode);
 }
 
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
-	auto ttbr = (pointer >> 63) & 1;
-	assert(ttbr == 1);
+	Cursor cursor{this, pointer};
+	auto [_, addr] = cursor.unmap4k();
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	auto &region = SkeletalRegion::global();
-
-	auto l0 = (pointer >> 39) & 0x1FF;
-	auto l1 = (pointer >> 30) & 0x1FF;
-	auto l2 = (pointer >> 21) & 0x1FF;
-	auto l3 = (pointer >> 12) & 0x1FF;
-
-	uint64_t *l0_ptr = (uint64_t *)region.access(rootTable() & 0xFFFFFFFFFFFE);
-	auto l0_ent = l0_ptr[l0];
-	assert(l0_ent & kPageValid);
-
-	uint64_t *l1_ptr = (uint64_t *)region.access(l0_ent & 0xFFFFFFFFF000);
-	auto l1_ent = l1_ptr[l1];
-	assert(l1_ent & kPageValid);
-
-	uint64_t *l2_ptr = (uint64_t *)region.access(l1_ent & 0xFFFFFFFFF000);
-	auto l2_ent = l2_ptr[l2];
-	assert(l2_ent & kPageValid);
-
-	uint64_t *l3_ptr = (uint64_t *)region.access(l2_ent & 0xFFFFFFFFF000);
-	auto l3_ent = l3_ptr[l3];
-	assert(l3_ent & kPageValid);
-
-	l3_ptr[l3] ^= kPageValid;
-
-	return l3_ent & 0xFFFFFFFFF000;
+	return addr;
 }
 
 ClientPageSpace::ClientPageSpace()
