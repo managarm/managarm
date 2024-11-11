@@ -19,8 +19,6 @@ template <typename T>
 concept ValidFaultImageAccessor = requires(T acc) {
 	{ acc.ip() } -> std::same_as<Word *>;
 	{ acc.sp() } -> std::same_as<Word *>;
-	// TODO(qookie): This is only used by handleGeneralProtectionFault in main.cpp
-	{ acc.code() } -> std::same_as<Word *>;
 
 	{ acc.inKernelDomain() } -> std::same_as<bool>;
 	{ acc.allowUserPages() } -> std::same_as<bool>;

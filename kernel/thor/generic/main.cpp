@@ -347,55 +347,10 @@ extern "C" void thorMain() {
 	localScheduler()->commitReschedule();
 }
 
-extern "C" void handleStubInterrupt() {
-	panicLogger() << "Fault or IRQ from stub" << frg::endlog;
-}
-extern "C" void handleBadDomain() {
-	panicLogger() << "Fault or IRQ from bad domain" << frg::endlog;
-}
-
-extern "C" void handleDivideByZeroFault(FaultImageAccessor image) {
-	(void)image;
-
-	panicLogger() << "Divide by zero" << frg::endlog;
-}
-
-extern "C" void handleDebugFault(FaultImageAccessor image) {
-	infoLogger() << "Debug fault at "
-			<< (void *)*image.ip() << frg::endlog;
-}
-
-extern "C" void handleOpcodeFault(FaultImageAccessor image) {
-	(void)image;
-
-	panicLogger() << "Invalid opcode" << frg::endlog;
-}
-
-extern "C" void handleNoFpuFault(FaultImageAccessor image) {
-	panicLogger() << "FPU invoked at "
-			<< (void *)*image.ip() << frg::endlog;
-}
-
-extern "C" void handleDoubleFault(FaultImageAccessor image) {
-	panicLogger() << "Double fault at "
-			<< (void *)*image.ip() << frg::endlog;
-}
-
-extern "C" void handleProtectionFault(FaultImageAccessor image) {
-	panicLogger() << "General protection fault\n"
-			<< "    Faulting IP: " << (void *)*image.ip() << "\n"
-			<< "    Faulting segment: " << (void *)*image.code() << frg::endlog;
-}
-
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
 	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 	auto address_space = this_thread->getAddressSpace();
 
-	const Word kPfAccess = 1;
-	const Word kPfWrite = 2;
-	const Word kPfUser = 4;
-	const Word kPfBadTable = 8;
-	const Word kPfInstruction = 16;
 	assert(!(errorCode & kPfBadTable));
 
 	auto logFault = [&] {
@@ -543,10 +498,6 @@ void handlePreemption(IrqImageAccessor image) {
 
 	assert(image.inPreemptibleDomain());
 	localScheduler()->currentRunnable()->handlePreemption(image);
-}
-
-extern "C" void thorImplementNoThreadIrqs() {
-	assert(!"Implement no-thread IRQ stubs");
 }
 
 void handleSyscall(SyscallImageAccessor image) {
