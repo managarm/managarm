@@ -34,6 +34,20 @@ void uefiBootServicesLogHandler(const char c) {
 	}
 }
 
+// MSVC puts global constructors in a section .CRT$XCU that is ordered between .CRT$XCA and .CRT$XCZ.
+__declspec(allocate(".CRT$XCA")) const void *crt_xct = nullptr;
+__declspec(allocate(".CRT$XCZ")) const void *crt_xcz = nullptr;
+
+void runMsvcConstructors() {
+	using InitializerPtr = void (*)();
+	uintptr_t begin = reinterpret_cast<uintptr_t>(&crt_xct);
+	uintptr_t end = reinterpret_cast<uintptr_t>(&crt_xcz);
+	for (uintptr_t it = begin + sizeof(void *); it < end; it += sizeof(void *)) {
+		auto *p = reinterpret_cast<InitializerPtr *>(it);
+		(*p)();
+	}
+}
+
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
@@ -47,6 +61,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	// Reset the watchdog timer.
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));
 	EFI_CHECK(st->con_out->clear_screen(st->con_out));
+
+	runMsvcConstructors();
 
 	// Get a handle to this binary in order to get the command line.
 	efi_guid protocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;

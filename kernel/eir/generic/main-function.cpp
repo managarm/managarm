@@ -45,17 +45,6 @@ struct GlobalCtorTest {
 
 GlobalCtorTest globalCtorTest;
 
-using InitializerPtr = void (*)();
-extern "C" InitializerPtr __init_array_start[];
-extern "C" InitializerPtr __init_array_end[];
-
-extern "C" void eirRunConstructors() {
-	infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
-	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-			(*p)();
-}
-
 extern "C" void eirMain() {
 	infoLogger() << "Hello world from generic eirMain()" << frg::endlog;
 
