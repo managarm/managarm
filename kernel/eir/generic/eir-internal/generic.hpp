@@ -64,6 +64,9 @@ void mapKasanShadow(uint64_t address, size_t size);
 void unpoisonKasanShadow(uint64_t address, size_t size);
 void mapRegionsAndStructs();
 
+// Kernel entrypoint.
+extern uint64_t kernelEntry;
+
 void parseInitrd(void *initrd);
 address_t loadKernelImage(void *image);
 

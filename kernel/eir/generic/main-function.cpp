@@ -1,19 +1,19 @@
 #include <initgraph.hpp>
+#include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/main.hpp>
 
 namespace eir {
 
-struct GlobalInitEngine final : initgraph::Engine {
-	void preActivate(initgraph::Node *node) override {
-		infoLogger() << "eir: Running " << node->displayName() << frg::endlog;
-	}
+void GlobalInitEngine::preActivate(initgraph::Node *node) {
+	infoLogger() << "eir: Running " << node->displayName() << frg::endlog;
+}
 
-	void onUnreached() override {
-		infoLogger() << "eir: initgraph has cycles" << frg::endlog;
+void GlobalInitEngine::onUnreached() {
+	infoLogger() << "eir: initgraph has cycles" << frg::endlog;
 
-		while(1) { }
-	}
-};
+	while(1) { }
+}
 
 constinit GlobalInitEngine globalInitEngine;
 
@@ -45,23 +45,13 @@ struct GlobalCtorTest {
 
 GlobalCtorTest globalCtorTest;
 
-using InitializerPtr = void (*)();
-extern "C" InitializerPtr __init_array_start[];
-extern "C" InitializerPtr __init_array_end[];
-
-extern "C" void eirRunConstructors() {
-	infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
-	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-			(*p)();
-}
-
 extern "C" void eirMain() {
 	infoLogger() << "Hello world from generic eirMain()" << frg::endlog;
 
 	globalInitEngine.run();
 
-	while(1) { }
+	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
+	eir::enterKernel();
 }
 
 } // namespace eir

@@ -35,7 +35,10 @@ eirEntry:
 	
 	push %eax
 	push %ebx
-	
+
+	.extern eirRunConstructors
+	call eirRunConstructors
+
 	.extern eirMultiboot2Main
 	call eirMultiboot2Main
 halt_kernel:

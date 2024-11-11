@@ -4,6 +4,13 @@
 
 namespace eir {
 
-extern initgraph::Engine globalInitEngine;
+struct GlobalInitEngine final : initgraph::Engine {
+	void preActivate(initgraph::Node *node) override;
+	void onUnreached() override;
+};
+
+extern GlobalInitEngine globalInitEngine;
+
+extern "C" void eirMain();
 
 } // namespace eir

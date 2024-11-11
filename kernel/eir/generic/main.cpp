@@ -354,6 +354,8 @@ address_t mapBootstrapData(void *p) {
 
 // ----------------------------------------------------------------------------
 
+uint64_t kernelEntry;
+
 void parseInitrd(void *initrd) {
 	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
 	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
@@ -424,6 +426,7 @@ address_t loadKernelImage(void *image) {
 		unpoisonKasanShadow(phdr.p_paddr, phdr.p_memsz);
 	}
 
+	kernelEntry = ehdr.e_entry;
 	return ehdr.e_entry;
 }
 

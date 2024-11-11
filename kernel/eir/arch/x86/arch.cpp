@@ -5,6 +5,8 @@
 #include <x86/machine.hpp>
 #include <x86/gdt.hpp>
 
+extern "C" void eirEnterKernel(uintptr_t pml4Pointer, uint64_t entryPtr, uint64_t stackPtr)  __attribute__((sysv_abi));
+
 namespace eir {
 
 void debugPrintChar(char c) {
@@ -208,6 +210,10 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
 
 	mapKasanShadow(0xFFFF'E000'0000'0000, 0x8000'0000);
+}
+
+[[noreturn]] void enterKernel() {
+	eirEnterKernel(eirPml4Pointer, kernelEntry, 0xFFFF'FE80'0001'0000);
 }
 
 } // namespace eir

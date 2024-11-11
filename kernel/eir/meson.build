@@ -4,6 +4,10 @@ eir_generic_sources = files(
 	'generic/main.cpp',
 	'generic/debug.cpp')
 
+if not build_uefi
+	eir_generic_sources += files('generic/elf_init.cpp')
+endif
+
 eir_generic_main = files(
 	'generic/main-function.cpp'
 )
@@ -44,6 +48,5 @@ elif arch == 'x86_64'
 endif
 
 if build_uefi
-	eir_cpp_args = []
 	subdir('protos/uefi')
 endif

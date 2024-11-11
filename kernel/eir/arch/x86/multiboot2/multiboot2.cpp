@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/main.hpp>
 #include <uacpi/acpi.h>
 
 namespace eir {
@@ -124,8 +125,6 @@ enum {
 	kMb2TagEfi64ImageHandle = 20,
 	kMb2TagLoadBaseAddr = 21
 };
-
-extern "C" void eirEnterKernel(uintptr_t, uint64_t, uint64_t);
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 	if(magic != 0x36d76289)
@@ -315,9 +314,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic){
 		framebuf->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
 	}
 
-	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
-	eirEnterKernel(eirPml4Pointer, kernel_entry,
-			0xFFFF'FE80'0001'0000);  
+	eirMain();
 }
 
 } // namespace eir
