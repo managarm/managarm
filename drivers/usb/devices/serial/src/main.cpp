@@ -8,9 +8,14 @@
 #include <iostream>
 
 #include <arch/dma_pool.hpp>
+#include <core/cmdline.hpp>
+#include <core/kernel-logs.hpp>
 #include <bragi/helpers-std.hpp>
+#include <frg/cmdline.hpp>
+#include <frg/string.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
+#include <kerncfg.bragi.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/posix/data.hpp>
@@ -41,6 +46,23 @@ std::vector<smarter::shared_ptr<Controller>> controllers;
 arch::contiguous_pool pool;
 
 WriteQueue sendRequests;
+
+helix::UniqueDescriptor kerncfgLane = {};
+
+async::result<void> dumpKernelMessages(smarter::shared_ptr<Controller> c) {
+	std::vector<uint8_t> buffer(2048);
+	KernelLogs logs{};
+
+	while(true) {
+		auto res = co_await logs.getMessage({buffer});
+
+		WriteRequest req{std::span(buffer).subspan(0, res), c.get()};
+		sendRequests.push_back(&req);
+
+		c->flushSends();
+		co_await req.event.wait();
+	}
+}
 
 }
 
@@ -321,24 +343,37 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_return protocols::svrctl::Error::deviceNotSupported;
 	}
 
-	mbus_ng::Properties descriptor{
-		{"generic.devtype", mbus_ng::StringItem{"block"}},
-		{"generic.devname", mbus_ng::StringItem{"ttyUSB"}}
-	};
+	Cmdline cmdlineHelper{};
 
-	auto serialEntity = (co_await mbus_ng::Instance::global().createEntity(
-		"usb-serial", descriptor)).unwrap();
+	if(co_await cmdlineHelper.dumpKernelLogs("usb-serial")) {
+		// we're fine with using raw mode, but 9600 baud is a bit slow
+		struct termios t{};
+		memcpy(&t, &controller->get()->activeSettings, sizeof(t));
+		// 115200 baud should be universally supported
+		cfsetospeed(&t, B115200);
+		co_await controller->get()->setConfiguration(t);
 
-	[] (auto controller, mbus_ng::EntityManager entity) -> async::detached {
-		while (true) {
-			auto [localLane, remoteLane] = helix::createStream();
+		async::detach(dumpKernelMessages(*controller));
+	} else {
+		mbus_ng::Properties descriptor{
+			{"generic.devtype", mbus_ng::StringItem{"block"}},
+			{"generic.devname", mbus_ng::StringItem{"ttyUSB"}}
+		};
 
-			// If this fails, too bad!
-			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		auto serialEntity = (co_await mbus_ng::Instance::global().createEntity(
+			"usb-serial", descriptor)).unwrap();
 
-			serveTerminal(std::move(localLane), *controller);
-		}
-	}(controller, std::move(serialEntity));
+		[] (auto controller, mbus_ng::EntityManager entity) -> async::detached {
+			while (true) {
+				auto [localLane, remoteLane] = helix::createStream();
+
+				// If this fails, too bad!
+				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+				serveTerminal(std::move(localLane), *controller);
+			}
+		}(controller, std::move(serialEntity));
+	}
 
 	controllers.push_back(*controller);
 
