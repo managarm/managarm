@@ -11,6 +11,7 @@
 
 namespace eir {
 
+void *initrd = nullptr;
 address_t allocatedMemory;
 frg::span<uint8_t> kernel_image{nullptr, 0};
 frg::span<uint8_t> initrd_image{nullptr, 0};
@@ -430,7 +431,7 @@ address_t loadKernelImage(void *image) {
 	return ehdr.e_entry;
 }
 
-EirInfo *generateInfo(const char *cmdline){
+EirInfo *generateInfo(frg::string_view cmdline){
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
@@ -462,7 +463,7 @@ EirInfo *generateInfo(const char *cmdline){
 	}
 
 	// Parse the kernel command line.
-	const char *l = cmdline;
+	const char *l = cmdline.data();
 	while(true) {
 		while(*l && *l == ' ')
 			l++;
@@ -484,10 +485,10 @@ EirInfo *generateInfo(const char *cmdline){
 		l = s;
 	}
 
-	auto cmd_length = strlen(cmdline);
+	auto cmd_length = cmdline.size();
 	assert(cmd_length <= pageSize);
 	auto cmd_buffer = bootAlloc<char>(cmd_length);
-	memcpy(cmd_buffer, cmdline, cmd_length + 1);
+	memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
 	info_ptr->commandLine = mapBootstrapData(cmd_buffer);
 
 	return info_ptr;
