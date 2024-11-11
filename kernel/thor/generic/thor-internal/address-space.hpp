@@ -48,7 +48,7 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 
 		auto physicalRange = view->peekRange(offset + progress);
 		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
-			auto status = c.unmap4k();
+			auto [status, _] = c.unmap4k();
 			if((status & page_status::present) && (status & page_status::dirty)) {
 				view->markDirty(offset + progress, kPageSize);
 			}
@@ -122,7 +122,7 @@ frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.findPresent(va + size)) {
 		auto progress = c.virtualAddress() - va;
 
-		auto status = c.unmap4k();
+		auto [status, _] = c.unmap4k();
 		assert(status & page_status::present);
 		if(status & page_status::dirty)
 			view->markDirty(offset + progress, kPageSize);

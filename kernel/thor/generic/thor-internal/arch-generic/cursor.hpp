@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <concepts>
+#include <tuple>
 
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/arch-generic/asid.hpp>
@@ -164,12 +165,12 @@ public:
 		return Policy::pteClean(currentPtePtr_());
 	}
 
-	PageStatus unmap4k() {
+	std::tuple<PageStatus, PhysicalAddr> unmap4k() {
 		if(!accessors_[lastLevel])
-			return 0;
+			return {0, 0};
 
 		auto ptEnt = exchangeCurrentPte_(0);
-		return Policy::ptePageStatus(ptEnt);
+		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
 private:
