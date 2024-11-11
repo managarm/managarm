@@ -22,27 +22,6 @@ void poisonPhysicalAccess(PhysicalAddr physical);
 // Deny write access to the physical mapping.
 void poisonPhysicalWriteAccess(PhysicalAddr physical);
 
-struct KernelPageSpace : PageSpace {
-	static void initialize();
-
-	static KernelPageSpace &global();
-
-	// TODO: This should be private.
-	explicit KernelPageSpace(PhysicalAddr pml4_address);
-
-	KernelPageSpace(const KernelPageSpace &) = delete;
-
-	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
-
-
-	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode caching_mode);
-	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
-
-private:
-	frg::ticket_spinlock _mutex;
-};
-
 constexpr uint64_t ptePresent = 0x1;
 constexpr uint64_t pteWrite = 0x2;
 constexpr uint64_t pteUser = 0x4;
@@ -54,7 +33,8 @@ constexpr uint64_t pteGlobal = 0x100;
 constexpr uint64_t pteXd = 0x8000000000000000;
 constexpr uint64_t pteAddress = 0x000FFFFFFFFFF00;
 
-struct ClientCursorPolicy {
+template <bool Kernel>
+struct X86CursorPolicy {
 	static inline constexpr size_t maxLevels = 4;
 	static inline constexpr size_t bitsPerLevel = 9;
 
@@ -83,7 +63,12 @@ struct ClientCursorPolicy {
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
-		auto pte = physical | ptePresent | pteUser;
+		auto pte = physical | ptePresent;
+
+		if constexpr (Kernel)
+			pte |= pteGlobal;
+		else
+			pte |= pteUser;
 		if(flags & page_access::write)
 			pte |= pteWrite;
 		if(!(flags & page_access::execute))
@@ -121,8 +106,34 @@ struct ClientCursorPolicy {
 		return newPtAddr | ptePresent | pteWrite | pteUser;
 	}
 };
+
+using KernelCursorPolicy = X86CursorPolicy<true>;
+static_assert(CursorPolicy<KernelCursorPolicy>);
+
+using ClientCursorPolicy = X86CursorPolicy<false>;
 static_assert(CursorPolicy<ClientCursorPolicy>);
 
+
+struct KernelPageSpace : PageSpace {
+	using Cursor = thor::PageCursor<KernelCursorPolicy>;
+
+	static void initialize();
+
+	static KernelPageSpace &global();
+
+	// TODO: This should be private.
+	explicit KernelPageSpace(PhysicalAddr pml4_address);
+
+	KernelPageSpace(const KernelPageSpace &) = delete;
+	KernelPageSpace &operator= (const KernelPageSpace &) = delete;
+
+	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
+			uint32_t flags, CachingMode cachingMode);
+	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
+
+private:
+	frg::ticket_spinlock _mutex;
+};
 
 struct ClientPageSpace : PageSpace {
 	using Cursor = thor::PageCursor<ClientCursorPolicy>;

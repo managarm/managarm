@@ -150,132 +150,21 @@ KernelPageSpace::KernelPageSpace(PhysicalAddr pml4_address)
 : PageSpace{pml4_address} { }
 
 void KernelPageSpace::mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-		uint32_t flags, CachingMode caching_mode) {
+		uint32_t flags, CachingMode cachingMode) {
 	assert((pointer % 0x1000) == 0);
 	assert((physical % 0x1000) == 0);
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	auto &region = SkeletalRegion::global();
-
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
-
-	// the pml4 exists already
-	uint64_t *pml4_pointer = (uint64_t *)region.access(rootTable());
-
-	// make sure there is a pdpt
-	uint64_t pml4_initial_entry = pml4_pointer[pml4_index];
-	uint64_t *pdpt_pointer;
-	if((pml4_initial_entry & kPagePresent) != 0) {
-		pdpt_pointer = (uint64_t *)region.access(pml4_initial_entry & 0x000FFFFFFFFFF000);
-	}else{
-		PhysicalAddr pdpt_page = physicalAllocator->allocate(kPageSize);
-		assert(pdpt_page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		pdpt_pointer = (uint64_t *)region.access(pdpt_page);
-		for(int i = 0; i < 512; i++)
-			pdpt_pointer[i] = 0;
-
-		uint64_t new_entry = pdpt_page | kPagePresent | kPageWrite;
-		pml4_pointer[pml4_index] = new_entry;
-	}
-	assert(!(pml4_pointer[pml4_index] & kPageUser));
-
-	// make sure there is a pd
-	uint64_t pdpt_initial_entry = pdpt_pointer[pdpt_index];
-	uint64_t *pd_pointer;
-	if((pdpt_initial_entry & kPagePresent) != 0) {
-		pd_pointer = (uint64_t *)region.access(pdpt_initial_entry & 0x000FFFFFFFFFF000);
-	}else{
-		PhysicalAddr pd_page = physicalAllocator->allocate(kPageSize);
-		assert(pd_page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		pd_pointer = (uint64_t *)region.access(pd_page);
-		for(int i = 0; i < 512; i++)
-			pd_pointer[i] = 0;
-
-		uint64_t new_entry = pd_page | kPagePresent | kPageWrite;
-		pdpt_pointer[pdpt_index] = new_entry;
-	}
-	assert(!(pdpt_pointer[pdpt_index] & kPageUser));
-
-	// make sure there is a pt
-	uint64_t pd_initial_entry = pd_pointer[pd_index];
-	uint64_t *pt_pointer;
-	if((pd_initial_entry & kPagePresent) != 0) {
-		pt_pointer = (uint64_t *)region.access(pd_initial_entry & 0x000FFFFFFFFFF000);
-	}else{
-		PhysicalAddr pt_page = physicalAllocator->allocate(kPageSize);
-		assert(pt_page != static_cast<PhysicalAddr>(-1) && "OOM");
-
-		pt_pointer = (uint64_t *)region.access(pt_page);
-		for(int i = 0; i < 512; i++)
-			pt_pointer[i] = 0;
-
-		uint64_t new_entry = pt_page | kPagePresent | kPageWrite;
-		pd_pointer[pd_index] = new_entry;
-	}
-	assert(!(pd_pointer[pd_index] & kPageUser));
-
-	// setup the new pt entry
-	assert((pt_pointer[pt_index] & kPagePresent) == 0);
-	uint64_t new_entry = physical | kPagePresent | kPageGlobal;
-	if(flags & page_access::write)
-		new_entry |= kPageWrite;
-	if(!(flags & page_access::execute))
-		new_entry |= kPageXd;
-	if(caching_mode == CachingMode::writeThrough) {
-		new_entry |= kPagePwt;
-	}else if(caching_mode == CachingMode::writeCombine) {
-		new_entry |= kPagePat | kPagePwt;
-	}else if(caching_mode == CachingMode::uncached || caching_mode == CachingMode::mmio
-			|| caching_mode == CachingMode::mmioNonPosted) {
-		new_entry |= kPagePwt | kPagePcd | kPagePat;
-	}else{
-		assert(caching_mode == CachingMode::null || caching_mode == CachingMode::writeBack);
-	}
-	pt_pointer[pt_index] = new_entry;
+	Cursor cursor{this, pointer};
+	cursor.map4k(physical, flags, cachingMode);
 }
 
 PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
 	assert((pointer % 0x1000) == 0);
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	Cursor cursor{this, pointer};
+	auto [_, addr] = cursor.unmap4k();
 
-	auto &region = SkeletalRegion::global();
-
-	int pml4_index = (int)((pointer >> 39) & 0x1FF);
-	int pdpt_index = (int)((pointer >> 30) & 0x1FF);
-	int pd_index = (int)((pointer >> 21) & 0x1FF);
-	int pt_index = (int)((pointer >> 12) & 0x1FF);
-
-	// find the pml4_entry
-	uint64_t *pml4_pointer = (uint64_t *)region.access(rootTable());
-	uint64_t pml4_entry = pml4_pointer[pml4_index];
-
-	// find the pdpt entry
-	assert((pml4_entry & kPagePresent) != 0);
-	uint64_t *pdpt_pointer = (uint64_t *)region.access(pml4_entry & 0x000FFFFFFFFFF000);
-	uint64_t pdpt_entry = pdpt_pointer[pdpt_index];
-
-	// find the pd entry
-	assert((pdpt_entry & kPagePresent) != 0);
-	uint64_t *pd_pointer = (uint64_t *)region.access(pdpt_entry & 0x000FFFFFFFFFF000);
-	uint64_t pd_entry = pd_pointer[pd_index];
-
-	// find the pt entry
-	assert((pd_entry & kPagePresent) != 0);
-	uint64_t *pt_pointer = (uint64_t *)region.access(pd_entry & 0x000FFFFFFFFFF000);
-
-	// change the pt entry
-	assert((pt_pointer[pt_index] & kPagePresent) != 0);
-	pt_pointer[pt_index] ^= kPagePresent;
-	return pt_pointer[pt_index] & 0x000FFFFFFFFFF000;
+	return addr;
 }
 
 // --------------------------------------------------------
