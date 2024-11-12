@@ -28,6 +28,10 @@ ATTR{vendor}=="0x1259", ATTR{device}=="0xc107", RUN+="/usr/bin/runsvr --fork bin
 # US Robotics cards
 ATTR{vendor}=="0x16ec", ATTR{device}=="0x0116", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 
+## AMD PCNET
+ATTR{vendor}=="0x1022", ATTR{device}=="0x2000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x1022", ATTR{device}=="0x2001", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+
 ## FreeBSD-e1000 driver
 ATTR{vendor}=="0x8086", ATTR{device}=="0x100e", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 ATTR{vendor}=="0x8086", ATTR{device}=="0x10d3", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
