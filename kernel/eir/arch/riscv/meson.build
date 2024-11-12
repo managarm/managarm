@@ -2,6 +2,7 @@
 eir_sources = [
 	eir_generic_main,
 	files(
+		'arch.cpp',
 		'cpu.cpp',
 		'dtb.cpp',
 		'entry64.S',
