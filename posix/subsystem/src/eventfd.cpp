@@ -16,7 +16,7 @@ struct OpenFile : File {
 	: File{StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
 		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock}, _semaphore{semaphore} { }
 
-	~OpenFile() {
+	~OpenFile() override {
 	}
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {

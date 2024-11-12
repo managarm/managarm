@@ -92,7 +92,7 @@ public:
 		(void)_nonBlock;
 	}
 
-	~OpenFile() {
+	~OpenFile() override {
 		// Nothing to do here.
 	}
 

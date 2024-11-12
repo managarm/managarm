@@ -24,7 +24,7 @@ struct CapabilityAttribute : sysfs::Attribute {
 	CapabilityAttribute(std::string name, int index, size_t bits)
 	: sysfs::Attribute{std::move(name), false}, _index{index}, _bits{bits} { }
 
-	virtual async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 
 private:
 	int _index;

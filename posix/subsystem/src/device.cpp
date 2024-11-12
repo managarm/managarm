@@ -205,7 +205,7 @@ public:
 			_control{std::move(control)}, _file{std::move(lane)},
 			_statusMapping{std::move(status_mapping)} { }
 
-	~DeviceFile() {
+	~DeviceFile() override {
 		// It's not necessary to do any cleanup here.
 	}
 

@@ -142,7 +142,7 @@ private:
 	}
 
 public:
-	~OpenFile() {
+	~OpenFile() override {
 		// Nothing to do here.
 	}
 

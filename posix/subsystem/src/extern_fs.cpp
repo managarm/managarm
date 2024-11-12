@@ -212,7 +212,7 @@ public:
 	: File{StructName::get("externfs.file"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)}, _append(append) { }
 
-	~OpenFile() {
+	~OpenFile() override {
 		// It's not necessary to do any cleanup here.
 	}
 

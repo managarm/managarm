@@ -57,7 +57,7 @@ public:
 	OpenFile()
 	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)} { }
 
-	~OpenFile() {
+	~OpenFile() override {
 		// TODO: Properly keep track of watches.
 		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
 	}

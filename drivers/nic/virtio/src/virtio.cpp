@@ -41,10 +41,10 @@ struct VirtHeader {
 struct VirtioNic : nic::Link {
 	VirtioNic(std::unique_ptr<virtio_core::Transport> transport);
 
-	virtual async::result<size_t> receive(arch::dma_buffer_view) override;
-	virtual async::result<void> send(const arch::dma_buffer_view) override;
+	async::result<size_t> receive(arch::dma_buffer_view) override;
+	async::result<void> send(const arch::dma_buffer_view) override;
 
-	virtual ~VirtioNic() override = default;
+	~VirtioNic() override = default;
 private:
 	std::unique_ptr<virtio_core::Transport> transport_;
 	arch::contiguous_pool dmaPool_;

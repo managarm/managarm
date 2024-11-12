@@ -4,6 +4,7 @@ Checks:
   - 'bugprone-use-after-move'
   - 'misc-confusable-identifiers'
   - 'misc-static-assert'
+  - 'modernize-use-override'
   - 'modernize-make-shared'
   - 'modernize-type-traits'
   - 'modernize-unary-static-assert'
