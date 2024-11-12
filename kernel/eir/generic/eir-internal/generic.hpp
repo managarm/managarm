@@ -70,7 +70,7 @@ extern uint64_t kernelEntry;
 void parseInitrd(void *initrd);
 address_t loadKernelImage(void *image);
 
-EirInfo *generateInfo(const char *cmdline);
+EirInfo *generateInfo(frg::string_view cmdline);
 
 void setFbInfo(void *ptr, int width, int height, size_t pitch);
 
