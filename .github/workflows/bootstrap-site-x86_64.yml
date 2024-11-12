@@ -1,0 +1,17 @@
+auto_pull: true
+
+define_options:
+    arch: x86_64
+    arch-triple: x86_64-managarm
+
+pkg_management:
+    format: xbps
+
+container:
+    runtime: cbuildrt
+    rootfs:  ../rootfs
+    uid: 1000
+    gid: 1000
+    src_mount: /var/lib/managarm-buildenv/src
+    build_mount: /var/lib/managarm-buildenv/build
+    allow_containerless: true

@@ -9,10 +9,12 @@ jobs:
     build-package:
         strategy:
             matrix:
-                include:
-                  - pkg: managarm-kernel
-                  - pkg: managarm-system
-        name: Build ${{ matrix.pkg }}
+                arch: [x86_64, aarch64, riscv64]
+                pkg: [managarm-kernel, managarm-system]
+                exclude:
+                  - arch: riscv64
+                    pkg: managarm-system
+        name: Build ${{ matrix.pkg }} on ${{ matrix.arch }}
         runs-on: ubuntu-24.04
         steps:
           - name: Permit unprivileged user namespaces
@@ -58,25 +60,9 @@ jobs:
                 set -x
                 touch src/managarm/checkedout.xbstrap
                 mkdir build/
-                cat << EOF > build/bootstrap-site.yml
-                    auto_pull: true
-
-                    define_options:
-                        arch: x86_64
-                        arch-triple: x86_64-managarm
-
-                    pkg_management:
-                        format: xbps
-
-                    container:
-                        runtime: cbuildrt
-                        rootfs:  ../rootfs
-                        uid: 1000
-                        gid: 1000
-                        src_mount: /var/lib/managarm-buildenv/src
-                        build_mount: /var/lib/managarm-buildenv/build
-                        allow_containerless: true
-                EOF
+                cp src/managarm/.github/workflows/bootstrap-site-$CI_ARCH.yml build/bootstrap-site.yml
+            env:
+                CI_ARCH: ${{ matrix.arch }}
           - name: Build ${{ matrix.pkg }} package
             run: |
                 set -x
@@ -99,11 +85,13 @@ jobs:
                 CI_BUILD_PKG: ${{ matrix.pkg }}
                 XBPS_ARCH: x86_64
             working-directory: build/
+            if: ${{ matrix.arch == 'x86_64' }}
           - name: Test ${{ matrix.pkg }} package
             run: |
                 ../src/scripts/test-image.py
             working-directory: build/
-          - name: Run clang-tidy on ${{ matrix.pkg }}
+            if: ${{ matrix.arch == 'x86_64' }}
+          - name: Run clang-tidy on ${{ matrix.pkg }} on ${{ matrix.arch }}
             run: |
                 xbstrap run --pkg $CI_BUILD_PKG clang-tidy
             working-directory: build/

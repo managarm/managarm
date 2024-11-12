@@ -1,0 +1,21 @@
+auto_pull: true
+
+define_options:
+    arch: riscv64
+    arch-triple: riscv64-managarm
+
+labels:
+    match:
+      - riscv64
+
+pkg_management:
+    format: xbps
+
+container:
+    runtime: cbuildrt
+    rootfs:  ../rootfs
+    uid: 1000
+    gid: 1000
+    src_mount: /var/lib/managarm-buildenv/src
+    build_mount: /var/lib/managarm-buildenv/build
+    allow_containerless: true
