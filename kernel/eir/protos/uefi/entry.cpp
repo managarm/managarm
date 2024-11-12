@@ -136,20 +136,30 @@ initgraph::Task exitBootServices{&globalInitEngine,
 		efi_status status = bs->get_memory_map(&memMapSize, &dummy, &mapKey, &descriptorSize, &descriptorVersion);
 		assert(status == EFI_BUFFER_TOO_SMALL);
 
-		// over-allocate a bit to accomodate the allocation we have to make here
-		// we only get one shot(tm) to allocate an appropriately-sized buffer, as the spec does not
-		// allow for calling any boot services other than GetMemoryMap and ExitBootServices after
-		// a call to ExitBootServices fails
-		memMapSize += 8 * descriptorSize;
-		EFI_CHECK(bs->allocate_pool(EfiLoaderData, memMapSize, &memMap));
+		// the number of descriptors we overallocate the buffer by; get doubled every iteration
+		size_t overallocation = 8;
 
-		// Now, get the actual memory map.
-		EFI_CHECK(bs->get_memory_map(&memMapSize,
-			reinterpret_cast<efi_memory_descriptor*>(memMap),
-			&mapKey, &descriptorSize, &descriptorVersion));
+		while(status != EFI_SUCCESS) {
+			// needing more than that would be quite unreasonable
+			assert(overallocation <= 0x800);
 
-		// Exit boot services.
-		EFI_CHECK(bs->exit_boot_services(handle, mapKey));
+			// over-allocate a bit to accomodate the allocation we have to make here
+			// we only get one shot(tm) to allocate an appropriately-sized buffer, as the spec does not
+			// allow for calling any boot services other than GetMemoryMap and ExitBootServices after
+			// a call to ExitBootServices fails
+			memMapSize += overallocation * descriptorSize;
+			EFI_CHECK(bs->allocate_pool(EfiLoaderData, memMapSize, &memMap));
+			overallocation *= 2;
+
+			// Now, get the actual memory map.
+			EFI_CHECK(bs->get_memory_map(&memMapSize,
+				reinterpret_cast<efi_memory_descriptor*>(memMap),
+				&mapKey, &descriptorSize, &descriptorVersion));
+
+			// Exit boot services.
+			status = bs->exit_boot_services(handle, mapKey);
+		}
+
 		bs = nullptr;
 
 #if defined(__x86_64__)
