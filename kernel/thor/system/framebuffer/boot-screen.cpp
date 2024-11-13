@@ -10,7 +10,12 @@ BootScreen::Formatter::Formatter(BootScreen *screen, size_t x, size_t y)
 }
 
 void BootScreen::Formatter::print(const char *c) {
-	while(*c) {
+	print(c, strlen(c));
+}
+
+void BootScreen::Formatter::print(const char *c, size_t n) {
+	const char *l = c + n;
+	while(c != l) {
 		if(!_csiState) {
 			if(*c == '\x1B') {
 				_csiState = 1;
@@ -31,7 +36,7 @@ void BootScreen::Formatter::print(const char *c) {
 				c++;
 			}else{
 				size_t n = 0;
-				while(c[n] && c[n] != '\x1B')
+				while(c + n != l && c[n] != '\x1B')
 					n++;
 				int m = frg::min(_screen->_width - _x, n);
 				if(m) {
@@ -86,72 +91,60 @@ void BootScreen::Formatter::print(const char *c) {
 }
 
 BootScreen::BootScreen(TextDisplay *display)
-: _display{display}, _bottomSequence{0},
-		_fmt{this, 0, 0} {
+: _display{display} {
 	_width = _display->getWidth();
 	_height = _display->getHeight();
 }
 
-void BootScreen::printChar(char) {
-	auto displayLine = [&] (uint64_t seq, size_t i) {
-		LogMessage log;
-		copyLogMessage(seq, log);
-		_fmt = Formatter{this, 0, i};
-		_fmt.print(log.text);
-	};
+void BootScreen::emit(Severity severity, frg::string_view msg) {
+	size_t idx = _displaySeq & (NUM_LINES - 1);
+	auto *line = &_displayLines[idx];
 
-	if(auto cs = currentLogSequence(); _bottomSequence < cs) {
-		// Fully redraw the first _height - 1 lines.
-		for(size_t i = 1; i < _height; i++) {
-			if(cs < i)
+	line->severity = severity;
+	line->length = msg.size();
+	memcpy(line->msg, msg.data(), msg.size());
+	++_displaySeq;
+
+	redraw();
+}
+
+void BootScreen::redraw() {
+	// Redraw up to _height lines.
+	for(size_t i = 0; i < _height - 1; i++) {
+		if(i >= _displaySeq)
+			break;
+		auto seq = _displaySeq - i - 1;
+		size_t idx = seq & (NUM_LINES - 1);
+		auto *line = &_displayLines[idx];
+
+		Formatter fmt{this, 0, _height - i - 2};
+
+		switch(line->severity) {
+			case Severity::emergency:
+			case Severity::alert:
+			case Severity::critical:
+			case Severity::error:
+				fmt.print("\e[31m");
 				break;
-			displayLine(cs - i, _height - 1 - i);
+			case Severity::warning:
+				fmt.print("\e[33m");
+				break;
+			case Severity::notice:
+			case Severity::info:
+				fmt.print("\e[37m");
+				break;
+			case Severity::debug:
+				fmt.print("\e[35m");
+				break;
+			default:
+				fmt.print("\e[39m");
 		}
 
-		// Clear the last line.
-		_bottomSequence = cs;
-		_display->setBlanks(0, _height - 1, frg::min(logLineLength, _width), -1);
-		_fmt = Formatter{this, 0, _height - 1};
+		fmt.print(line->msg, line->length);
 	}
 
-	// Partially draw the last line.
-//  LogMessage log;
-//	copyLogMessage(_bottomSequence, log);
-//	_fmt.print(text + _x);
-}
-
-void BootScreen::setPriority(Severity prio) {
-	switch(prio) {
-		case Severity::emergency:
-		case Severity::alert:
-		case Severity::critical:
-		case Severity::error:
-			_fmt.print("\e[31m");
-			break;
-		case Severity::warning:
-			_fmt.print("\e[33m");
-			break;
-		case Severity::notice:
-		case Severity::info:
-			_fmt.print("\e[37m");
-			break;
-		case Severity::debug:
-			_fmt.print("\e[35m");
-			break;
-		default:
-			_fmt.print("\e[39m");
-			break;
-	}
-}
-
-void BootScreen::resetPriority() {
-	_fmt.print("\e[39m");
-}
-
-void BootScreen::printString(const char *string) {
-	while(*string)
-		printChar(*string++);
+	// Clear the last line.
+	_display->setBlanks(0, _height - 1, frg::min(logLineLength, _width), -1);
 }
 
 } //namespace thor
-

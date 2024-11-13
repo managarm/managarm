@@ -120,16 +120,16 @@ HelError translateError(Error error) {
 namespace {
 
 template<typename Sink>
-std::optional<size_t> printLog(Sink &p, LogMessage &log, size_t chunk) {
-	for(size_t i = 0; i < chunk && log.text[i]; i++) {
-		if(log.text[i] == '\n') {
+std::optional<size_t> printLog(Sink &p, const char *log, size_t chunk) {
+	for(size_t i = 0; i < chunk && log[i]; i++) {
+		if(log[i] == '\n') {
 			p << frg::endlog;
 			return i + 1;
-		} else if(log.text[i] == '\0') {
+		} else if(log[i] == '\0') {
 			p << frg::endlog;
 			return std::nullopt;
 		} else {
-			p << frg::char_fmt(log.text[i]);
+			p << frg::char_fmt(log[i]);
 		}
 	}
 	p << frg::endlog;
@@ -141,10 +141,10 @@ std::optional<size_t> printLog(Sink &p, LogMessage &log, size_t chunk) {
 HelError helLog(HelLogSeverity severity, const char *string, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		LogMessage log;
+		char log[logLineLength];
 		auto chunk = frg::min(length - offset, size_t{logLineLength});
 
-		if(!readUserArray(string + offset, log.text, chunk))
+		if(!readUserArray(string + offset, log, chunk))
 			return kHelErrFault;
 
 		switch(severity) {

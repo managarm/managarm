@@ -21,6 +21,7 @@ struct BootScreen final : public LogHandler {
 		Formatter(BootScreen *screen, size_t x, size_t y);
 
 		void print(const char *c);
+		void print(const char *c, size_t n);
 
 	private:
 		BootScreen *_screen;
@@ -38,19 +39,25 @@ struct BootScreen final : public LogHandler {
 
 	BootScreen(TextDisplay *display);
 
-	void printChar(char c) override;
-	void setPriority(Severity prio) override;
-	void resetPriority() override;
+	void emit(Severity severity, frg::string_view msg) override;
 
-	void printString(const char *string);
+	void redraw();
 
 private:
+	struct Line {
+		Severity severity;
+		size_t length{0};
+		char msg[logLineLength]{};
+	};
+
+	// Number of lines that are kept in memory. Must be power of 2.
+	static constexpr size_t NUM_LINES = 128;
+
 	TextDisplay *_display;
 	size_t _width;
 	size_t _height;
-
-	uint64_t _bottomSequence;
-	Formatter _fmt;
+	Line _displayLines[NUM_LINES];
+	uint64_t _displaySeq{0};
 };
 
 } // namespace thor

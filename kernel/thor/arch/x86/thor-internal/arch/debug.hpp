@@ -55,9 +55,11 @@ struct PIOLogHandler final : public LogHandler {
 	constexpr PIOLogHandler()
 	: serialBufferIndex{0}, serialBuffer{0} {}
 
-	void printChar(char c) override;
-	void setPriority(Severity prio) override;
-	void resetPriority() override;
+	void emit(Severity severity, frg::string_view msg) override;
+
+	void printChar(char c);
+	void setPriority(Severity severity);
+	void resetPriority();
 
 private:
 	int serialBufferIndex;

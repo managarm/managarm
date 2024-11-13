@@ -27,6 +27,13 @@ namespace {
 
 } // namespace anonymous
 
+void UartLogHandler::emit(Severity severity, frg::string_view msg) {
+	(void)severity;
+	for (size_t i = 0; i < msg.size(); ++i)
+		printChar(msg[i]);
+	printChar('\n');
+}
+
 void UartLogHandler::printChar(char c) {
 	// Here we depend on a few things:
 	// 1. Eir has mapped the UART to 0xFFFF000000000000
@@ -37,13 +44,6 @@ void UartLogHandler::printChar(char c) {
 		;
 
 	space.store(reg::data, c);
-}
-
-void UartLogHandler::setPriority(Severity prio) {
-	(void)prio;
-}
-
-void UartLogHandler::resetPriority() {
 }
 
 } // namespace thor
