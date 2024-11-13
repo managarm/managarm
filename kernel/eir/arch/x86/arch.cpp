@@ -5,7 +5,7 @@
 #include <x86/machine.hpp>
 #include <x86/gdt.hpp>
 
-extern "C" void eirEnterKernel(uintptr_t pml4Pointer, uint64_t entryPtr, uint64_t stackPtr)  __attribute__((sysv_abi));
+extern "C" [[noreturn]] void eirEnterKernel(uintptr_t pml4Pointer, uint64_t entryPtr, uint64_t stackPtr)  __attribute__((sysv_abi));
 
 namespace eir {
 
