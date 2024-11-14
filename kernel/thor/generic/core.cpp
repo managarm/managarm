@@ -328,6 +328,8 @@ constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()
-: scheduler{this}, activeFiber{nullptr}, heartbeat{0} { }
+: scheduler{this}, activeFiber{nullptr}, heartbeat{0} {
+	iseqPtr = &regularIseq;
+}
 
 } // namespace thor

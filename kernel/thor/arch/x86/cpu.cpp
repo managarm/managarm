@@ -6,6 +6,7 @@
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -554,7 +555,10 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 
 extern "C" void syscallStub();
 
-frg::manual_box<CpuData> staticBootCpuContext;
+namespace {
+	frg::manual_box<CpuData> bootCpuContext;
+	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
+}
 
 // Set up the kernel GS segment.
 void setupCpuContext(AssemblyCpuData *context) {
@@ -564,8 +568,10 @@ void setupCpuContext(AssemblyCpuData *context) {
 }
 
 void setupBootCpuContext() {
-	staticBootCpuContext.initialize();
-	setupCpuContext(staticBootCpuContext.get());
+	bootCpuContext.initialize();
+	bootLogRing.initialize();
+	bootCpuContext->localLogRing = bootLogRing.get();
+	setupCpuContext(bootCpuContext.get());
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
@@ -579,8 +585,8 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-p
 
 		// We need to fill in the boot APIC ID.
 		// This cannot be done in setupBootCpuContext() as we need the APIC base first.
-		staticBootCpuContext->localApicId = getLocalApicId();
-		debugLogger() << "Booting on CPU #" << staticBootCpuContext->localApicId
+		bootCpuContext->localApicId = getLocalApicId();
+		debugLogger() << "Booting on CPU #" << bootCpuContext->localApicId
 				<< frg::endlog;
 
 		initializeThisProcessor();
@@ -827,6 +833,7 @@ void bootSecondary(unsigned int apic_id) {
 
 	auto context = frg::construct<CpuData>(*kernelAlloc);
 	context->localApicId = apic_id;
+	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(context);

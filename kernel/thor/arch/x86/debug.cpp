@@ -47,6 +47,17 @@ void PIOLogHandler::emit(Severity severity, frg::string_view msg) {
 	printChar('\n');
 }
 
+void PIOLogHandler::emitUrgent(Severity severity, frg::string_view msg) {
+	setPriority(severity);
+	const char *prefix = "URGENT: ";
+	while(*prefix)
+		printChar(*(prefix++));
+	for (size_t i = 0; i < msg.size(); ++i)
+		printChar(msg[i]);
+	resetPriority();
+	printChar('\n');
+}
+
 void PIOLogHandler::printChar(char c) {
 	auto sendByteSerial = [this](uint8_t val) {
 		auto base = arch::global_io.subspace(0x3F8);

@@ -1,6 +1,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/arch/stack.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -18,6 +19,12 @@ namespace {
 	>> globalLogList;
 } // anonymous namespace
 
+void LogHandler::emitUrgent(Severity severity, frg::string_view msg) {
+	if (!takesUrgentLogs)
+		panic();
+	emit(severity, msg);
+}
+
 void enableLogHandler(LogHandler *sink) {
 	if (!globalLogList)
 		globalLogList.initialize();
@@ -34,9 +41,140 @@ void disableLogHandler(LogHandler *sink) {
 }
 
 namespace {
-	void emitLog(Severity severity, frg::string_view msg) {
-		for (const auto &it : *globalLogList)
-			it->emit(severity, msg);
+	bool checkEmitting();
+	bool tryStartEmitting();
+	bool tryFinishEmitting();
+
+	// Assumption: !intsAreEnabled().
+	void emitLogsFromRing() {
+		auto *cpuData = getCpuData();
+
+		// Only start emitting logs if we are not a reentrant context.
+		if (!tryStartEmitting())
+			return;
+
+		do {
+			while (true) {
+				auto lock = frg::guard(&logMutex);
+
+				char buffer[logLineLength];
+				auto [success, recordPtr, nextPtr, actualSize] = cpuData->localLogRing->dequeueAt(
+						cpuData->localLogSeq, buffer, logLineLength);
+				if (!success)
+					break;
+
+				// Extract metadata from log record.
+				if (actualSize < sizeof(LogMetadata))
+					__builtin_trap();
+				LogMetadata md;
+				memcpy(&md, buffer, sizeof(LogMetadata));
+
+				frg::string_view msg{buffer + sizeof(LogMetadata), actualSize - sizeof(LogMetadata)};
+				for (const auto &it : *globalLogList)
+					it->emit(md.severity, msg);
+
+				cpuData->localLogSeq = nextPtr;
+			}
+
+			// Emit logs until no reentrant context has set the RS_PENDING flag.
+		} while(!tryFinishEmitting());
+	}
+
+	// Assumption: !intsAreEnabled().
+	bool checkEmitting() {
+		auto s = getCpuData()->reentrantLogState.load(std::memory_order_relaxed);
+		return s & CpuData::RS_EMITTING;
+	}
+
+	// Assumption: !intsAreEnabled().
+	bool tryStartEmitting() {
+		auto *cpuData = getCpuData();
+		unsigned int s = cpuData->reentrantLogState.load(std::memory_order_relaxed);
+		while (true) {
+			if (s) {
+				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
+					s, s | CpuData::RS_PENDING, std::memory_order_relaxed
+				);
+				if (cas)
+					return false;
+			} else {
+				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
+					s, CpuData::RS_EMITTING, std::memory_order_relaxed
+				);
+				if (cas)
+					return true;
+			}
+		}
+	}
+
+	// Assumption: !intsAreEnabled().
+	bool tryFinishEmitting() {
+		auto *cpuData = getCpuData();
+		unsigned int s = cpuData->reentrantLogState.load(std::memory_order_relaxed);
+		while (true) {
+			if (!(s & CpuData::RS_EMITTING))
+				__builtin_trap();
+			if (s & CpuData::RS_PENDING) {
+				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
+					s, s & ~CpuData::RS_PENDING, std::memory_order_relaxed
+				);
+				if (cas)
+					return false;
+			} else {
+				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
+					s, 0, std::memory_order_relaxed
+				);
+				if (cas)
+					return true;
+			}
+		}
+	}
+
+	// This function posts the log record to a per-CPU ring buffer.
+	// If expedited is true, this function always emits logs within this context,
+	// using LogHandler::emitUrgent() as necessary.
+	void postLogRecord(frg::string_view record, bool expedited) {
+		StatelessIrqLock irqLock;
+		auto *cpuData = getCpuData();
+
+		// If true, the usual logging path (i.e., emitLogsFromRing()) is bypassed;
+		// instead, the record is directly sent to LoggingSink::emitUrgent().
+		bool emitUrgent = false;
+
+		// If checkEmitting() is true, emitLogsFromRing() would not be able to emit.
+		// For example, this can happen when we use urgentLogger() or panicLogger() in
+		// NMI contexts.
+		if (expedited && checkEmitting())
+			emitUrgent = true;
+
+		if (!emitUrgent) {
+			cpuData->localLogRing->enqueue(record.data(), record.size());
+
+			// If the expedited flag is set, we always emit logs.
+			// This is the path that kernel panics should usually take.
+			bool avoidEmittingLogs = cpuData->avoidEmittingLogs.load(std::memory_order_relaxed);
+			if (!avoidEmittingLogs || expedited)
+				emitLogsFromRing();
+
+			// TODO: If we do not call into emitLogsFromRing() here,
+			//       we should wake up a (kernel) thread that emits the logs.
+		} else {
+			if (record.size() < sizeof(LogMetadata))
+				panic();
+			LogMetadata md;
+			memcpy(&md, record.data(), sizeof(LogMetadata));
+
+			frg::string_view msg{
+				record.data() + sizeof(LogMetadata), record.size() - sizeof(LogMetadata)
+			};
+			// TODO: Iterating through globalLogList without locks is unsafe.
+			//       Fix this by using a lock-free data structure.
+			for (const auto &it : *globalLogList) {
+				if (!it->takesUrgentLogs)
+					continue;
+				it->emitUrgent(md.severity, msg);
+			}
+		}
 	}
 
 	// This class splits long log messages into lines.
@@ -49,11 +187,17 @@ namespace {
 			};
 
 			auto emit = [&] (char c) {
+				if (!stagedLength) {
+					// Put log metadata in front of actual log message.
+					LogMetadata md{.severity = severity};
+					memcpy(stagingBuffer, &md, sizeof(LogMetadata));
+					stagedLength = sizeof(LogMetadata);
+				}
 				stagingBuffer[stagedLength++] = c;
 			};
 
 			auto flush = [&] () {
-				emitLog(severity, frg::string_view{stagingBuffer, stagedLength});
+				postLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
 
 				// Reset our staging buffer.
 				memset(stagingBuffer, 0, logLineLength);
@@ -115,6 +259,8 @@ namespace {
 			severity = prio;
 		}
 
+		bool expedited{false};
+
 	private:
 		static constexpr int maximalCsiLength = 16;
 
@@ -127,8 +273,6 @@ namespace {
 		char stagingBuffer[logLineLength]{};
 		size_t stagedLength = 0;
 	};
-
-	constinit LogProcessor logProcessor;
 } // anonymous namespace
 
 void panic() {
@@ -144,46 +288,37 @@ constinit frg::stack_buffer_logger<UrgentSink, logLineLength> urgentLogger;
 constinit frg::stack_buffer_logger<PanicSink, logLineLength> panicLogger;
 
 void DebugSink::operator() (const char *msg) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&logMutex);
-
+	LogProcessor logProcessor;
 	logProcessor.setPriority(Severity::debug);
 	logProcessor.print(msg);
 	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void WarningSink::operator() (const char *msg) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&logMutex);
-
+	LogProcessor logProcessor;
 	logProcessor.setPriority(Severity::warning);
 	logProcessor.print(msg);
 	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void InfoSink::operator() (const char *msg) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&logMutex);
-
+	LogProcessor logProcessor;
 	logProcessor.setPriority(Severity::info);
 	logProcessor.print(msg);
 	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void UrgentSink::operator() (const char *msg) {
-	StatelessIrqLock irqLock;
-	auto lock = frg::guard(&logMutex);
-
+	LogProcessor logProcessor;
+	logProcessor.expedited = true;
 	logProcessor.setPriority(Severity::critical);
 	logProcessor.print(msg);
 	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void PanicSink::operator() (const char *msg) {
-	StatelessIrqLock irqLock;
-
-	auto lock = frg::guard(&logMutex);
-
+	LogProcessor logProcessor;
+	logProcessor.expedited = true;
 	logProcessor.setPriority(Severity::emergency);
 	logProcessor.print(msg);
 	logProcessor.print('\n'); // Note: this is also required to flush.

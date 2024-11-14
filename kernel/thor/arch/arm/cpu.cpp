@@ -4,6 +4,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -238,7 +239,10 @@ CpuData *getCpuData(size_t k) {
 	return (*allCpuContexts)[k];
 }
 
-frg::manual_box<CpuData> staticBootCpuContext;
+namespace {
+	frg::manual_box<CpuData> bootCpuContext;
+	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
+}
 
 void setupCpuContext(AssemblyCpuData *context) {
 	context->selfPointer = context;
@@ -246,8 +250,10 @@ void setupCpuContext(AssemblyCpuData *context) {
 }
 
 void setupBootCpuContext() {
-	staticBootCpuContext.initialize();
-	setupCpuContext(staticBootCpuContext.get());
+	bootCpuContext.initialize();
+	bootLogRing.initialize();
+	bootCpuContext->localLogRing = bootLogRing.get();
+	setupCpuContext(bootCpuContext.get());
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",
