@@ -5,6 +5,7 @@
 namespace eir {
 
 using address_t = uint64_t;
+using physaddr_t = uint64_t;
 
 extern uintptr_t eirPml4Pointer;
 

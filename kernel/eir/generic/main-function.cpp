@@ -122,7 +122,7 @@ static initgraph::Task prepareFramebufferForThor{&globalInitEngine,
 		if(fb) {
 			// Map the framebuffer.
 			assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
-			for(address_t pg = 0; pg < fb->fbPitch * fb->fbHeight; pg += 0x1000)
+			for(address_t pg = 0; pg < fb->fbPitch * fb->fbHeight; pg += pageSize)
 				mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, fb->fbAddress + pg,
 						PageFlags::write, CachingMode::writeCombine);
 			mapKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);

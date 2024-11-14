@@ -6,11 +6,13 @@ ENTRY(eirEntry)
 SECTIONS {
 	. = 0x100000;
 
+	eirImageFloor = .;
+
 	.text : ALIGN(0x1000) {
 		*(.header)
 		*(.text*)
 	}
-	
+
 	.trampoline : ALIGN(0x1000) {
 		trampolineStart = .;
 		*(.trampoline)
@@ -34,6 +36,8 @@ SECTIONS {
 		*(COMMON)
 		*(.bss*)
 	}
+
+	eirImageCeiling = .;
 
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }
@@ -101,7 +105,5 @@ SECTIONS {
 		*(.eh_frame_hdr)
 		*(.eh_frame)
 	}
-
-	eirImageCeiling = .;
 }
 
