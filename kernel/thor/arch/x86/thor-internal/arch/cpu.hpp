@@ -10,7 +10,7 @@
 #include <x86/machine.hpp>
 #include <x86/tss.hpp>
 #include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/kernel-stack.hpp>

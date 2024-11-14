@@ -1,4 +1,4 @@
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <arch/variable.hpp>
 #include <thor-internal/physical.hpp>

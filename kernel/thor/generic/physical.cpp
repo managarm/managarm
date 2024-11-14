@@ -1,5 +1,5 @@
 #include <assert.h>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/physical.hpp>

@@ -3,9 +3,6 @@
 #include <atomic>
 
 #include <assert.h>
-#include <frg/list.hpp>
-#include <smarter.hpp>
-#include <thor-internal/mm-rc.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/work-queue.hpp>
 #include <thor-internal/physical.hpp>
@@ -144,63 +141,6 @@ struct KernelPageSpace : PageSpace {
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			uint32_t flags, CachingMode cachingMode);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
-
-
-	template<typename R>
-	struct ShootdownOperation;
-
-	struct [[nodiscard]] ShootdownSender {
-		using value_type = void;
-
-		template<typename R>
-		friend ShootdownOperation<R>
-		connect(ShootdownSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		KernelPageSpace *self;
-		VirtualAddr address;
-		size_t size;
-	};
-
-	ShootdownSender shootdown(VirtualAddr address, size_t size) {
-		return {this, address, size};
-	}
-
-	template<typename R>
-	struct ShootdownOperation : private ShootNode {
-		ShootdownOperation(ShootdownSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		virtual ~ShootdownOperation() = default;
-
-		ShootdownOperation(const ShootdownOperation &) = delete;
-
-		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
-
-		bool start_inline() {
-			ShootNode::address = s_.address;
-			ShootNode::size = s_.size;
-			if(s_.self->submitShootdown(this)) {
-				async::execution::set_value_inline(receiver_);
-				return true;
-			}
-			return false;
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
-
-		ShootdownSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<ShootdownSender>
-	operator co_await(ShootdownSender sender) {
-		return {sender};
-	}
 };
 
 struct ClientPageSpace : PageSpace {

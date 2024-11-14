@@ -1,4 +1,4 @@
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/kernel-stack.hpp>

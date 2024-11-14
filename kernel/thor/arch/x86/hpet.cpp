@@ -7,7 +7,7 @@
 #include <uacpi/tables.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/hpet.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/debug.hpp>

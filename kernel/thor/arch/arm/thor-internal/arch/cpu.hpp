@@ -7,7 +7,7 @@
 #include <frg/tuple.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-stack.hpp>

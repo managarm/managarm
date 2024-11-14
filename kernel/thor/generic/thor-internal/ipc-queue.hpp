@@ -6,6 +6,7 @@
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/memory-view.hpp>
+#include <thor-internal/mm-rc.hpp>
 
 namespace thor {
 

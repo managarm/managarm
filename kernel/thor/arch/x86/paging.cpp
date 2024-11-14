@@ -4,7 +4,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/mm-rc.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 
 // --------------------------------------------------------
 // Physical page access.

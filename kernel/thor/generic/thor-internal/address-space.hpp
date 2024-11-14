@@ -7,6 +7,7 @@
 #include <frg/expected.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/memory-view.hpp>
+#include <thor-internal/mm-rc.hpp>
 
 namespace thor {
 

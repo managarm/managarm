@@ -2,10 +2,7 @@
 
 #include <atomic>
 
-#include <frg/list.hpp>
 #include <assert.h>
-#include <smarter.hpp>
-#include <thor-internal/mm-rc.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/work-queue.hpp>
 #include <thor-internal/physical.hpp>

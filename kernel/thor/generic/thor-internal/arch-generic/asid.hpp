@@ -1,6 +1,7 @@
 #pragma once
 
 #include <smarter.hpp>
+#include <async/basic.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/types.hpp>
 #include <frg/list.hpp>
@@ -212,6 +213,63 @@ struct AsidCpuData {
 	PageBinding globalBinding;
 	frg::vector<PageBinding, KernelAlloc> bindings;
 };
+
+
+template<typename R>
+struct ShootdownOperation;
+
+struct [[nodiscard]] ShootdownSender {
+	using value_type = void;
+
+	template<typename R>
+	friend ShootdownOperation<R>
+	connect(ShootdownSender sender, R receiver) {
+		return {sender, std::move(receiver)};
+	}
+
+	PageSpace *self;
+	VirtualAddr address;
+	size_t size;
+};
+
+inline ShootdownSender shootdown(PageSpace *space, VirtualAddr address, size_t size) {
+	return {space, address, size};
+}
+
+template<typename R>
+struct ShootdownOperation : private ShootNode {
+	ShootdownOperation(ShootdownSender s, R receiver)
+	: s_{s}, receiver_{std::move(receiver)} { }
+
+	virtual ~ShootdownOperation() = default;
+
+	ShootdownOperation(const ShootdownOperation &) = delete;
+
+	ShootdownOperation &operator= (const ShootdownOperation &) = delete;
+
+	bool start_inline() {
+		ShootNode::address = s_.address;
+		ShootNode::size = s_.size;
+		if(s_.self->submitShootdown(this)) {
+			async::execution::set_value_inline(receiver_);
+			return true;
+		}
+		return false;
+	}
+
+private:
+	void complete() override {
+		async::execution::set_value_noinline(receiver_);
+	}
+
+	ShootdownSender s_;
+	R receiver_;
+};
+
+async::sender_awaiter<ShootdownSender>
+inline operator co_await(ShootdownSender sender) {
+	return {sender};
+}
 
 
 // Switch to given page table on the given ASID. Potentially

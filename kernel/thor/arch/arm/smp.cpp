@@ -6,6 +6,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/fiber.hpp>
 
 namespace thor {
@@ -207,7 +208,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
 	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
-	KernelFiber::asyncBlockCurrent(KernelPageSpace::global().shootdown(VirtualAddr(codeVirtPtr), kPageSize));
+	KernelFiber::asyncBlockCurrent(shootdown(&KernelPageSpace::global(), VirtualAddr(codeVirtPtr), kPageSize));
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {
