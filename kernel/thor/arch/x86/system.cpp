@@ -1,4 +1,4 @@
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/system.hpp>
 

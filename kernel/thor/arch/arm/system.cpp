@@ -1,5 +1,5 @@
 #include <thor-internal/arch/system.hpp>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/timer.hpp>
 
 namespace thor {

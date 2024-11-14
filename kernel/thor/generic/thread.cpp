@@ -7,6 +7,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 
 namespace thor {
 

@@ -1,7 +1,7 @@
 #include <assert.h>
 
 #include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/schedule.hpp>

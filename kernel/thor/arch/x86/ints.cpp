@@ -2,7 +2,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/thread.hpp>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
 

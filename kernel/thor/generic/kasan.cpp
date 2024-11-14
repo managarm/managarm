@@ -1,6 +1,6 @@
 #include <stddef.h>
 #include <stdint.h>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/paging.hpp>
 #include <thor-internal/debug.hpp>
 
