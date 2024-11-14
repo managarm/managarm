@@ -18,9 +18,9 @@ namespace {
 
 	struct KmsgLogHandler : public LogHandler {
 		KmsgLogHandler(KmsgLogHandlerContext *context)
-			: LogHandler(context) {}
+			: context_{context} {}
 
-		void printChar(char c) override {
+		void printChar(char c) {
 			auto emit = [&](const char c) {
 				ctx()->buffer_.push_back(c);
 
@@ -71,19 +71,25 @@ namespace {
 			}
 		}
 
-		void setPriority(Severity prio) override {
+		void setPriority(Severity prio) {
 			assert(ctx()->buffer_.empty());
 			auto now = systemClockSource()->currentNanos() / 1000;
 			frg::output_to(ctx()->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx()->kmsgSeq_++, now);
 		}
 
-		void resetPriority() override {
-			// no-op
+		void emit(Severity severity, frg::string_view msg) override {
+			setPriority(severity);
+			for (size_t i = 0; i < msg.size(); ++i)
+				printChar(msg[i]);
+			printChar('\n');
 		}
 
 		KmsgLogHandlerContext *ctx() {
-			return reinterpret_cast<KmsgLogHandlerContext *>(context);
+			return context_;
 		}
+
+	private:
+		KmsgLogHandlerContext *context_;
 	};
 
 	frg::manual_box<LogRingBuffer> globalLogRing;

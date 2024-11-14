@@ -13,10 +13,6 @@ void panic();
 
 constexpr size_t logLineLength = 256;
 
-struct LogMessage {
-	char text[logLineLength];
-};
-
 // see RFC 5424
 enum class Severity : uint8_t {
 	emergency,
@@ -30,17 +26,12 @@ enum class Severity : uint8_t {
 };
 
 struct LogHandler {
-	constexpr LogHandler() : context(nullptr) {}
-
-	LogHandler(void *ct) : context{ct} {}
-
-	virtual void printChar(char c) = 0;
-	virtual void setPriority(Severity) = 0;
-	virtual void resetPriority() = 0;
+	// Writes a log message to this handler.
+	// Note that the message is _not_ null-terminated, the handler has to respect the length.
+	// Also note that the message does not end with a newline.
+	virtual void emit(Severity severity, frg::string_view msg) = 0;
 
 	frg::default_list_hook<LogHandler> hook;
-
-	void *context;
 
 protected:
 	~LogHandler() = default;
@@ -48,9 +39,6 @@ protected:
 
 void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);
-
-size_t currentLogSequence();
-void copyLogMessage(size_t sequence, LogMessage &msg);
 
 // --------------------------------------------------------
 // Loggers.

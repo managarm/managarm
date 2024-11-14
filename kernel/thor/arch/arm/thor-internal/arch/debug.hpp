@@ -5,9 +5,9 @@
 namespace thor {
 
 struct UartLogHandler : public LogHandler {
-	void printChar(char c) override;
-	void setPriority(Severity prio) override;
-	void resetPriority() override;
+	void emit(Severity severity, frg::string_view msg) override;
+
+	void printChar(char c);
 };
 
 } // namespace thor

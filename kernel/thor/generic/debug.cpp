@@ -8,9 +8,6 @@ namespace {
 	// Protects the data structures below.
 	constinit frg::ticket_spinlock logMutex;
 
-	constinit LogMessage logQueue[1024]{};
-	constinit size_t logHead = 0;
-
 	frg::manual_box<frg::intrusive_list<
 		LogHandler,
 		frg::locate_member<
@@ -20,14 +17,6 @@ namespace {
 		>
 	>> globalLogList;
 } // anonymous namespace
-
-size_t currentLogSequence() {
-	return logHead;
-}
-
-void copyLogMessage(size_t sequence, LogMessage &msg) {
-	memcpy(msg.text, logQueue[sequence % 1024].text, logLineLength);
-}
 
 void enableLogHandler(LogHandler *sink) {
 	if (!globalLogList)
@@ -45,6 +34,11 @@ void disableLogHandler(LogHandler *sink) {
 }
 
 namespace {
+	void emitLog(Severity severity, frg::string_view msg) {
+		for (const auto &it : *globalLogList)
+			it->emit(severity, msg);
+	}
+
 	// This class splits long log messages into lines.
 	// In also ensures that we never emit partial CSI sequences.
 	class LogProcessor {
@@ -56,21 +50,14 @@ namespace {
 
 			auto emit = [&] (char c) {
 				stagingBuffer[stagedLength++] = c;
-
-				for (const auto &it : *globalLogList)
-					it->printChar(c);
 			};
 
 			auto flush = [&] () {
-				// Copy to the log queue.
-				memcpy(logQueue[logHead % 1024].text, stagingBuffer, logLineLength);
-				logHead++;
+				emitLog(severity, frg::string_view{stagingBuffer, stagedLength});
+
 				// Reset our staging buffer.
 				memset(stagingBuffer, 0, logLineLength);
 				stagedLength = 0;
-
-				for (const auto &it : *globalLogList)
-					it->printChar('\n');
 			};
 
 			if(!csiState) {
@@ -125,17 +112,13 @@ namespace {
 		}
 
 		void setPriority(Severity prio) {
-			for (const auto &it : *globalLogList)
-				it->setPriority(prio);
-		}
-
-		void resetPriority() {
-			for (const auto &it : *globalLogList)
-				it->resetPriority();
+			severity = prio;
 		}
 
 	private:
 		static constexpr int maximalCsiLength = 16;
+
+		Severity severity{};
 
 		char csiBuffer[maximalCsiLength]{};
 		int csiState = 0;
@@ -166,8 +149,7 @@ void DebugSink::operator() (const char *msg) {
 
 	logProcessor.setPriority(Severity::debug);
 	logProcessor.print(msg);
-	logProcessor.print('\n');
-	logProcessor.resetPriority();
+	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void WarningSink::operator() (const char *msg) {
@@ -176,8 +158,7 @@ void WarningSink::operator() (const char *msg) {
 
 	logProcessor.setPriority(Severity::warning);
 	logProcessor.print(msg);
-	logProcessor.print('\n');
-	logProcessor.resetPriority();
+	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void InfoSink::operator() (const char *msg) {
@@ -186,8 +167,7 @@ void InfoSink::operator() (const char *msg) {
 
 	logProcessor.setPriority(Severity::info);
 	logProcessor.print(msg);
-	logProcessor.print('\n');
-	logProcessor.resetPriority();
+	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void UrgentSink::operator() (const char *msg) {
@@ -196,8 +176,7 @@ void UrgentSink::operator() (const char *msg) {
 
 	logProcessor.setPriority(Severity::critical);
 	logProcessor.print(msg);
-	logProcessor.print('\n');
-	logProcessor.resetPriority();
+	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void PanicSink::operator() (const char *msg) {
@@ -207,8 +186,7 @@ void PanicSink::operator() (const char *msg) {
 
 	logProcessor.setPriority(Severity::emergency);
 	logProcessor.print(msg);
-	logProcessor.print('\n');
-	logProcessor.resetPriority();
+	logProcessor.print('\n'); // Note: this is also required to flush.
 }
 
 void PanicSink::finalize(bool) {
