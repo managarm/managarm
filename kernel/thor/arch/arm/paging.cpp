@@ -69,9 +69,6 @@ void switchAwayFromPageTable(int asid) {
 	switchToPageTable(nullTable, asid, true);
 }
 
-void poisonPhysicalAccess(PhysicalAddr physical) { assert(!"Not implemented"); }
-void poisonPhysicalWriteAccess(PhysicalAddr physical) { assert(!"Not implemented"); }
-
 namespace {
 
 frg::manual_box<KernelPageSpace> kernelSpace;

@@ -13,12 +13,6 @@
 
 namespace thor {
 
-// Functions for debugging kernel page access:
-// Deny all access to the physical mapping.
-void poisonPhysicalAccess(PhysicalAddr physical);
-// Deny write access to the physical mapping.
-void poisonPhysicalWriteAccess(PhysicalAddr physical);
-
 inline constexpr uint64_t kPageValid = 1;
 inline constexpr uint64_t kPageTable = (1 << 1);
 inline constexpr uint64_t kPageL3Page = (1 << 1);
