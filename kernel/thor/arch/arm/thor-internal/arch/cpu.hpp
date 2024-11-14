@@ -276,6 +276,8 @@ struct UserAccessRegion {
 	unsigned int flags;
 };
 
+struct IseqContext;
+
 // Note: This struct is accessed from assembly.
 // Do not change the field offsets!
 struct AssemblyCpuData {
@@ -284,6 +286,9 @@ struct AssemblyCpuData {
 	void *exceptionStackPtr;
 	void *irqStackPtr;
 	UserAccessRegion *currentUar;
+	// TODO: This is unused for now but required to be in PlatformCpuData by generic code.
+	// 		 We need to make use of this once we use NMIs on ARM.
+	IseqContext *iseqPtr{nullptr};
 };
 
 struct GicCpuInterfaceV2;

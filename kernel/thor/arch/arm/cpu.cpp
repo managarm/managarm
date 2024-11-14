@@ -194,6 +194,18 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	return true;
 }
 
+bool iseqStore64(uint64_t *p, uint64_t v) {
+	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
+	std::atomic_ref{*p}.store(v, std::memory_order_relaxed);
+	return true;
+}
+
+bool iseqCopyWeak(void *dst, const void *src, size_t size) {
+	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
+	memcpy(dst, src, size);
+	return true;
+}
+
 void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 	assert(!intsAreEnabled());
 

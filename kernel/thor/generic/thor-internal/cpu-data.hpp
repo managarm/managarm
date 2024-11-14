@@ -39,6 +39,8 @@ struct CpuData : public PlatformCpuData {
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 
+	IseqContext regularIseq;
+
 	unsigned int irqEntropySeq = 0;
 	std::atomic<ProfileMechanism> profileMechanism{};
 	// TODO: This should be a unique_ptr instead.
