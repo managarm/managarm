@@ -201,9 +201,6 @@ struct KernelPageSpace : PageSpace {
 	operator co_await(ShootdownSender sender) {
 		return {sender};
 	}
-
-private:
-	frg::ticket_spinlock _mutex;
 };
 
 struct ClientPageSpace : PageSpace {
@@ -218,9 +215,6 @@ struct ClientPageSpace : PageSpace {
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
 
 	bool updatePageAccess(VirtualAddr pointer);
-
-private:
-	frg::ticket_spinlock _mutex;
 };
 
 } // namespace thor

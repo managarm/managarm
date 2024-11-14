@@ -130,9 +130,6 @@ struct KernelPageSpace : PageSpace {
 	void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
 			uint32_t flags, CachingMode cachingMode);
 	PhysicalAddr unmapSingle4k(VirtualAddr pointer);
-
-private:
-	frg::ticket_spinlock _mutex;
 };
 
 struct ClientPageSpace : PageSpace {
@@ -147,9 +144,6 @@ struct ClientPageSpace : PageSpace {
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
 
 	bool updatePageAccess(VirtualAddr pointer);
-
-private:
-	frg::ticket_spinlock _mutex;
 };
 
 } // namespace thor

@@ -185,7 +185,7 @@ bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
 	assert(!(pointer & (kPageSize - 1)));
 
 	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+	auto lock = frg::guard(&tableMutex());
 
 	PageAccessor accessor0;
 	PageAccessor accessor1;
