@@ -1,4 +1,6 @@
+#ifdef __x86_64__
 #include <arch/io_space.hpp>
+#endif
 #include <assert.h>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
@@ -402,6 +404,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	volatile bool eir_gdb_ready = eir_gdb_ready_val;
 
 	if(!eir_gdb_ready_val) {
+#ifdef __x86_64__
 		// exfiltrate our base address for use with gdb
 		constexpr arch::scalar_register<uint8_t> offset{0};
 		auto port = arch::global_io.subspace(0xCB7);
@@ -410,7 +413,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 			uint8_t b = reinterpret_cast<uintptr_t>(loadedImage->image_base) >> (i * 8);
 			port.store(offset, b);
 		}
+#endif
 
+		eir::infoLogger() << "eir: image base address " << frg::hex_fmt{loadedImage->image_base} << frg::endlog;
 		eir::infoLogger() << "eir: Waiting for GDB to attach" << frg::endlog;
 	}
 
