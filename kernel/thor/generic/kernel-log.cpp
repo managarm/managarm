@@ -5,6 +5,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/timer.hpp>
 #include <frg/string.hpp>
+#include <frg/small_vector.hpp>
 
 namespace thor {
 
@@ -13,7 +14,7 @@ namespace {
 		uint64_t kmsgSeq_ = 0;
 		int state_ = 0;
 
-		frg::vector<char, KernelAlloc> buffer_{*kernelAlloc};
+		frg::small_vector<char, logLineLength + 1, KernelAlloc> buffer_{*kernelAlloc};
 	};
 
 	struct KmsgLogHandler : public LogHandler {
