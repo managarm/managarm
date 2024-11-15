@@ -47,8 +47,8 @@ elif arch == 'x86_64'
 	subdir('arch/x86')
 endif
 
-subdir('protos/limine')
-
 if build_uefi
 	subdir('protos/uefi')
+else
+	subdir('protos/limine')
 endif
