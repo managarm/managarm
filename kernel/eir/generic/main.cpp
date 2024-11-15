@@ -14,7 +14,10 @@ namespace eir {
 void *initrd = nullptr;
 address_t allocatedMemory;
 frg::span<uint8_t> kernel_image{nullptr, 0};
+address_t kernel_physical = SIZE_MAX;
 frg::span<uint8_t> initrd_image{nullptr, 0};
+// Start address of a physical map provided by the bootloader. Defaults to 0.
+address_t physOffset = 0;
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -154,14 +157,14 @@ void setupRegionStructs() {
 		regions[i].numRoots = numRoots;
 
 		// Finally initialize the buddy tree.
-		auto tablePtr = reinterpret_cast<int8_t *>(regions[i].buddyTree);
+		auto tablePtr = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor::initialize(tablePtr, numRoots, order);
 	}
 }
 
 // ----------------------------------------------------------------------------
 
-uintptr_t bootReserve(size_t length, size_t alignment) {
+physaddr_t bootReserve(size_t length, size_t alignment) {
 	assert(length <= pageSize);
 	assert(alignment <= pageSize);
 
@@ -169,7 +172,7 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
-		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
+		auto table = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor accessor{regions[i].address, pageShift,
 				table, regions[i].numRoots, regions[i].order};
 		auto physical = accessor.allocate(0, 32);
@@ -182,12 +185,12 @@ uintptr_t bootReserve(size_t length, size_t alignment) {
 	__builtin_unreachable();
 }
 
-uintptr_t allocPage() {
+physaddr_t allocPage() {
 	for(size_t i = 0; i < numRegions; ++i) {
 		if(regions[i].regionType != RegionType::allocatable)
 			continue;
 
-		auto table = reinterpret_cast<int8_t *>(regions[i].buddyTree);
+		auto table = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor accessor{regions[i].address, pageShift,
 				table, regions[i].numRoots, regions[i].order};
 		auto physical = accessor.allocate(0, 32);
@@ -297,9 +300,13 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 
 void mapRegionsAndStructs() {
 	// This region should be available RAM on every PC.
-	for(size_t page = 0x8000; page < 0x80000; page += pageSize)
-			mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
-					page, PageFlags::write | PageFlags::global);
+	for(size_t page = 0x8000; page < 0x80000; page += pageSize) {
+		mapSingle4kPage(0xFFFF'8000'0000'0000 + page,
+			page, PageFlags::write | PageFlags::global);
+		mapSingle4kPage(page, page,
+			PageFlags::write | PageFlags::global | PageFlags::execute);
+	}
+
 	mapKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
 	unpoisonKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
 
@@ -347,7 +354,7 @@ address_t bootstrapDataPointer = 0xFFFF'FE80'0001'0000;
 address_t mapBootstrapData(void *p) {
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += pageSize;
-	mapSingle4kPage(pointer, (address_t)p, 0);
+	mapSingle4kPage(pointer, virtToPhys(p), 0);
 	mapKasanShadow(pointer, pageSize);
 	unpoisonKasanShadow(pointer, pageSize);
 	return pointer;
@@ -415,9 +422,10 @@ address_t loadKernelImage(void *image) {
 		uintptr_t pg = 0;
 		while(pg < (uintptr_t)phdr.p_memsz) {
 			auto backing = allocPage();
-			memset(reinterpret_cast<void *>(backing), 0, pageSize);
+			auto backingVirt = physToVirt<uint8_t>(backing);
+			memset(backingVirt, 0, pageSize);
 			if(pg < (uintptr_t)phdr.p_filesz)
-				memcpy(reinterpret_cast<void *>(backing),
+				memcpy(backingVirt,
 						reinterpret_cast<void *>((uintptr_t)image + (uintptr_t)phdr.p_offset + pg),
 						frg::min(pageSize, (uintptr_t)phdr.p_filesz - pg));
 			mapSingle4kPage(phdr.p_vaddr + pg, backing, map_flags);

@@ -30,17 +30,18 @@ uintptr_t eirPml4Pointer = 0;
 
 void setupPaging() {
 	eirPml4Pointer = allocPage();
+	auto pml4Virtual = physToVirt<uint64_t>(eirPml4Pointer);
 
 	for (int i = 0; i < 512; i++)
-		((uint64_t *)eirPml4Pointer)[i] = 0;
+		pml4Virtual[i] = 0;
 
 	for (int i = 256; i < 512; i++) {
 		uintptr_t pdpt_page = allocPage();
-		uint64_t *pdpt_pointer = (uint64_t *)pdpt_page;
+		uint64_t *pdpt_pointer = physToVirt<uint64_t>(pdpt_page);
 		for(int j = 0; j < 512; j++)
 			pdpt_pointer[j] = 0;
 
-		((uint64_t *)eirPml4Pointer)[i] = pdpt_page | kPagePresent | kPageWrite;
+		pml4Virtual[i] = pdpt_page | kPagePresent | kPageWrite;
 	}
 }
 
@@ -56,37 +57,37 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 
 	// find the pml4_entry. the pml4 is always present
 	uintptr_t pml4 = eirPml4Pointer;
-	uint64_t pml4_entry = ((uint64_t *)pml4)[pml4_index];
+	uint64_t pml4_entry = (physToVirt<uint64_t>(pml4))[pml4_index];
 
 	// find the pdpt entry; create pdpt if necessary
 	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
 	if(!(pml4_entry & kPagePresent)) {
 		pdpt = allocPage();
 		for(int i = 0; i < 512; i++)
-			((uint64_t *)pdpt)[i] = 0;
-		((uint64_t *)pml4)[pml4_index] = pdpt | kPagePresent | kPageWrite;
+			(physToVirt<uint64_t>(pdpt))[i] = 0;
+		(physToVirt<uint64_t>(pml4))[pml4_index] = pdpt | kPagePresent | kPageWrite;
 	}
-	uint64_t pdpt_entry = ((uint64_t *)pdpt)[pdpt_index];
+	uint64_t pdpt_entry = (physToVirt<uint64_t>(pdpt))[pdpt_index];
 
 	// find the pd entry; create pd if necessary
 	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
 	if(!(pdpt_entry & kPagePresent)) {
 		pd = allocPage();
 		for(int i = 0; i < 512; i++)
-			((uint64_t *)pd)[i] = 0;
-		((uint64_t *)pdpt)[pdpt_index] = pd | kPagePresent | kPageWrite;
+			(physToVirt<uint64_t>(pd))[i] = 0;
+		(physToVirt<uint64_t>(pdpt))[pdpt_index] = pd | kPagePresent | kPageWrite;
 	}
-	uint64_t pd_entry = ((uint64_t *)pd)[pd_index];
+	uint64_t pd_entry = (physToVirt<uint64_t>(pd))[pd_index];
 
 	// find the pt entry; create pt if necessary
 	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
 	if(!(pd_entry & kPagePresent)) {
 		pt = allocPage();
 		for(int i = 0; i < 512; i++)
-			((uint64_t *)pt)[i] = 0;
-		((uint64_t *)pd)[pd_index] = pt | kPagePresent | kPageWrite;
+			(physToVirt<uint64_t>(pt))[i] = 0;
+		(physToVirt<uint64_t>(pd))[pd_index] = pt | kPagePresent | kPageWrite;
 	}
-	uint64_t pt_entry = ((uint64_t*)pt)[pt_index];
+	uint64_t pt_entry = (physToVirt<uint64_t>(pt))[pt_index];
 
 	// setup the new pt entry
 	if(pt_entry & kPagePresent)
@@ -105,7 +106,7 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 	else
 		assert(caching_mode == CachingMode::null);
 
-	((uint64_t*)pt)[pt_index] = new_entry;
+	(physToVirt<uint64_t>(pt))[pt_index] = new_entry;
 }
 
 address_t getSingle4kPage(address_t address) {
@@ -188,10 +189,15 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after setting up paging" << frg::endlog;
 
-	// Identically map the first 128 MiB so that we can activate paging
-	// without causing a page fault.
-	for(address_t addr = 0; addr < 0x8000000; addr += 0x1000)
-		mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
+	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
+
+	for(address_t addr = floor; addr < ceiling; addr += 0x1000)
+		if(kernel_physical != SIZE_MAX) {
+			mapSingle4kPage(addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute);
+		} else {
+			mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+		}
 
 	mapRegionsAndStructs();
 #ifdef KERNEL_LOG_ALLOCATIONS

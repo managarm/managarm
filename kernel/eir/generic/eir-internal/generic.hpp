@@ -10,6 +10,8 @@
 namespace eir {
 
 extern frg::span<uint8_t> kernel_image;
+// Physical base address of the kernel image.
+extern address_t kernel_physical;
 extern frg::span<uint8_t> initrd_image;
 
 enum class RegionType {
@@ -33,6 +35,7 @@ struct Region {
 static constexpr size_t numRegions = 64;
 extern Region regions[numRegions];
 extern address_t allocatedMemory;
+extern address_t physOffset;
 
 struct GenericInfo {
 	uintptr_t deviceTreePtr;
@@ -45,8 +48,8 @@ struct GenericInfo {
 void eirRelocate();
 [[noreturn]] void eirGenericMain(const GenericInfo &genericInfo);
 
-uintptr_t bootReserve(size_t length, size_t alignment);
-uintptr_t allocPage();
+physaddr_t bootReserve(size_t length, size_t alignment);
+physaddr_t allocPage();
 void allocLogRingBuffer();
 
 void setupRegionStructs();
@@ -58,6 +61,16 @@ struct InitialRegion {
 };
 
 void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserved);
+
+template <typename T>
+T *physToVirt(physaddr_t physical) {
+	return reinterpret_cast<T *>(physOffset + physical);
+}
+
+template <typename T>
+physaddr_t virtToPhys(T *virt) {
+	return reinterpret_cast<physaddr_t>(virt) - physOffset;
+}
 
 address_t mapBootstrapData(void *p);
 void mapKasanShadow(uint64_t address, size_t size);
@@ -76,7 +89,7 @@ void setFbInfo(void *ptr, int width, int height, size_t pitch);
 
 template<typename T>
 T *bootAlloc(size_t n = 1) {
-	auto pointer = reinterpret_cast<T *>(bootReserve(sizeof(T) * n, alignof(T)));
+	auto pointer = physToVirt<T>(bootReserve(sizeof(T) * n, alignof(T)));
 	for(size_t i = 0; i < n; i++)
 		new (&pointer[i]) T();
 	return pointer;

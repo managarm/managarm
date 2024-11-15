@@ -1,12 +1,14 @@
-ENTRY(eirEntry)
+ENTRY(eirLimineMain)
 
 SECTIONS {
-	. = 0x100000;
-
+	. = 0xffffffffe0000000;
 	eirImageFloor = .;
 
 	.text : ALIGN(0x1000) {
-		(.header*)
+		*(.requestsStartMarker)
+		*(.requests)
+		*(.requestsEndMarker)
+		*(.header)
 		*(.text*)
 	}
 
@@ -100,5 +102,6 @@ SECTIONS {
 	/DISCARD/ : {
 		*(.note.GNU-stack)
 	}
+
 }
 
