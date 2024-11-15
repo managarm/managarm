@@ -189,6 +189,9 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after setting up paging" << frg::endlog;
 
+	// PE doesn't support linker scripts, this needs to be worked around by UEFI
+	// see the `uefi.map-eir-image` task
+#if !defined(EIR_UEFI)
 	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
 	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
 
@@ -198,6 +201,7 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 		} else {
 			mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
 		}
+#endif
 
 	mapRegionsAndStructs();
 #ifdef KERNEL_LOG_ALLOCATIONS
