@@ -8,6 +8,7 @@
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 
 namespace thor {
 

@@ -6,6 +6,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 
 // This is required for virtual destructors. It should not be called though.
 void operator delete(void *, size_t) {
