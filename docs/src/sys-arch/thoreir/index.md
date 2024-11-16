@@ -2,9 +2,13 @@
 
 > This part of the handbook is Work-In-Progress.
 
-thor and eir are the kernel of managarm.
+thor and eir are the kernel of Managarm.
 
-eir is the platform-dependant part of managarm's kernel which hands over control to thor after setup.
+## eir
+
+eir is the platform-dependant part of Managarm's kernel which hands over control to thor after setup. This pre-kernel takes over from the boot manager/loader and manages the boot protocol specific aspects in order to allow for the thor handoff to be generic. Various setup functions are performed, like getting a memory map, setting up a framebuffer and loading the initrd. `thor` is loaded from the initrd, as some boot protocols do not support passing more than a single module. After some architecture specific setup, page table setup and similar steps, the handoff info structure `EirInfo` is filled with information. After this, eir jumps to thor.
+
+## thor
 
 thor then proceeds to initialize the memory subsystem, scans and initializes PCI devices, starts the ACPI subsystem and starts the base servers and supporting infrastructure needed to run Managarm's userland. This means that the following programs are started (in order).
 - mbus, which is used to allow servers to find each other.
