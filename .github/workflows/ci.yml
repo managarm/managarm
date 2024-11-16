@@ -60,7 +60,7 @@ jobs:
                 set -x
                 touch src/managarm/checkedout.xbstrap
                 mkdir build/
-                cp src/managarm/.github/workflows/bootstrap-site-$CI_ARCH.yml build/bootstrap-site.yml
+                cp src/managarm/ci/bootstrap-site-$CI_ARCH.yml build/bootstrap-site.yml
             env:
                 CI_ARCH: ${{ matrix.arch }}
           - name: Build ${{ matrix.pkg }} package
