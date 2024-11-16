@@ -1,0 +1,222 @@
+﻿---
+# commented out settings are not available in current host-llvm-toolchain but
+# could still prove useful
+Language: Cpp
+
+# I don't see any stable default for this, lets just hope LLVM is sane enough
+BasedOnStyle: LLVM
+
+# private: should line up with struct
+AccessModifierOffset: -8
+
+# alignment is mostly problematic since it requires modifying multiple lines on
+# a change to keep things aligned...
+AlignArrayOfStructures: None
+AlignConsecutiveAssignments: false
+AlignConsecutiveBitFields: false
+AlignConsecutiveMacros: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: false
+
+AlignAfterOpenBracket: DontAlign
+# ... and right-align backslashes on the ends of macro lines, to preserve the
+# validity of the macro while still keeping a constant column reserved for
+# backslashes.
+AlignEscapedNewlines: Right
+# aligning operations also looks decent, in a single statement
+AlignOperands: AlignAfterOperator
+
+# prevent squashing args onto one line
+AllowAllArgumentsOnNextLine: false
+# prevent squashing arguments in declarations onto one line
+AllowAllParametersOfDeclarationOnNextLine: false
+# don't merge multiple statements into one line
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+# ... unless they're empty or class members, or small lambdas as args
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Inline
+
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: true
+AlwaysBreakTemplateDeclarations: Yes
+
+# no need to squash arguments
+BinPackArguments: false
+BinPackParameters: false
+
+# we currently use ``type name : width;''
+BitFieldColonSpacing: Both
+
+BreakBeforeInlineASMColon: OnlyMultiline
+# start lines with operators, but don't break before the assignments
+BreakBeforeBinaryOperators: NonAssignment
+# we never break before braces
+BreakBeforeBraces: Attach
+# in general, prefer to start lines with commas, question marks, etc.
+# especially for commas (in initializer lists for instance), doing it like this
+# means adding and removing new entries doesn't impact unrelated entries
+BreakBeforeConceptDeclarations: true
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: AfterColon
+BreakInheritanceList: BeforeComma
+
+# text being greppable is nice in languages that lack stack traces
+BreakStringLiterals: false
+
+# it's observable and well-known that long lines are hard to read; due to the
+# C++ "nesting nature" being more aggressive than C, and us using 8column tabs
+# for measurement, 100 should be a safe bet
+ColumnLimit: 120
+# namespace A { namespace B { ... would be silly to do in new c++ versions
+CompactNamespaces: false
+
+# same level as class name
+ConstructorInitializerIndentWidth: 8
+# one tab
+ContinuationIndentWidth: 8
+# we treat braced lists like function calls, rather than blocks
+Cpp11BracedListStyle: true
+
+# no need to guess, be consistent instead
+DeriveLineEnding: false
+UseCRLF: False
+DerivePointerAlignment: false
+
+# no need for extra lines after private:
+EmptyLineAfterAccessModifier: Never
+
+# allow grouping empty modifier blocks
+EmptyLineBeforeAccessModifier: LogicalBlock
+# consistent rather than guessed
+ExperimentalAutoDetectBinPacking: False
+
+# ``namespace A {} // namespace A'' commends
+FixNamespaceComments: true
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '".*.hpp"'
+    Priority: 0
+  - Regex: '<(arch|async|bragi|core|frg|helix|protocols)/.*>'
+    Priority: 1
+  - Regex: '<.*\.(h|hpp)>'
+    Priority: 2
+  - Regex: '.*'
+    Priority: 3
+IncludeIsMainRegex: $
+
+# same indent as struct/class
+# (not sure what the relation with AccessModifierOffset is)
+IndentAccessModifiers: false
+
+# switch(x) {
+# case 1: {
+# 	f();
+# } break;
+# }
+IndentCaseBlocks: false
+IndentCaseLabels: false
+
+# same as namespaces
+IndentExternBlock: NoIndent
+
+# glue to start of lines
+IndentGotoLabels: false
+
+# add visual indentation to preprocessor blocks
+IndentPPDirectives: AfterHash
+IndentRequiresClause: false
+
+# indent by a tab character, and also use tabs for ContinuationIndentWidth
+UseTab: ForContinuationAndIndentation
+IndentWidth: 8
+
+# if there's a need to break a function declaration after a type, don't indent
+# the function name
+IndentWrappedFunctionNames: false
+
+# InsertBraces: true
+
+InsertNewlineAtEOF: true
+
+# not sure whether this is ever useful
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# indent bodies relative to the outer scope
+LambdaBodyIndentation: OuterScope
+
+# at most one empty line at a time
+MaxEmptyLinesToKeep: 1
+
+# no indentation, no matter the level
+# XXX: should we do inner only? since, for nested namespaces, we can already
+# use A::B::C syntax, that could help distinguish anonymous namespaces inside
+# other namespaces?
+NamespaceIndentation: None
+
+# if initializers can't fit, break them into the next line and give each a line
+PackConstructorInitializers: NextLine
+
+# ``T *tptr; T &tref;'', always
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+
+# we put qualifiers on the west, the order is
+# impacts-linking-and-optimization, impacts-optimization, type
+QualifierAlignment: Custom
+QualifierOrder: [constexpr, inline, static, const, volatile, restrict, type]
+
+# allow long comments to be reflowed
+ReflowComments: true
+
+# keep braces around
+RemoveBracesLLVM: false
+
+# RequiresClausePosition: OwnLine
+
+# give definitions blocks
+SeparateDefinitionBlocks: Always
+
+# always add namespace comments
+ShortNamespaceLines: 0
+
+# sort headers without case sensitivity
+SortIncludes: CaseInsensitive
+
+# sort using declarations
+SortUsingDeclarations: true
+
+# self explanatory
+SpaceAfterCStyleCast: true
+SpaceAfterLogicalNot: false
+SpaceAfterTemplateKeyword: false
+SpaceAroundPointerQualifiers: Default
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpaceBeforeParens: Never
+SpaceBeforeRangeBasedForLoopColon: true
+SpaceBeforeSquareBrackets: false
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 2
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+SpacesInLineCommentPrefix: 
+  Minimum: 1
+  Maximum: -1
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+Standard: Latest
+
+# count tabs as eight columns
+# (this does not affect editors in any way)
+TabWidth: 8
+...
