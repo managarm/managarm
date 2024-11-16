@@ -104,7 +104,7 @@ void initializeAsidContext(CpuData *cpuData) {
 	// TODO(qookie): Check the max number of ASIDs. 256 is safe, but it could also be 65536.
 	cpuData->asidData.initialize(256);
 	cpuData->asidData->globalBinding.initialize(globalBindingId);
-	cpuData->asidData->globalBinding.rebind(*kernelSpacePtr);
+	cpuData->asidData->globalBinding.initialBind(*kernelSpacePtr);
 }
 
 

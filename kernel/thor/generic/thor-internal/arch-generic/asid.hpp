@@ -130,7 +130,12 @@ struct PageBinding {
 
 	// Rebind this binding to a new page space, and make it the
 	// primary one on this CPU.
+	// This is not supported for the global binding.
 	void rebind(smarter::shared_ptr<PageSpace> space);
+
+	// Perform an initial binding to a space.
+	// This is only supported for the global binding.
+	void initialBind(smarter::shared_ptr<PageSpace> space);
 
 	// Unbind from the currently bound space.
 	void unbind();

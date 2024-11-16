@@ -1,4 +1,6 @@
 #include <thor-internal/arch-generic/asid.hpp>
+#include <thor-internal/arch-generic/paging-consts.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/arch/ints.hpp>
@@ -90,7 +92,11 @@ void PageBinding::rebind() {
 void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	assert(!intsAreEnabled());
 	assert(!boundSpace_ || boundSpace_.get() != space.get()); // This would be unnecessary work.
+	assert(id_ != globalBindingId);
 	auto &context = getCpuData()->asidData->pageContext;
+
+	// Disallow mapping the kernel page space to the ASID bindings.
+	assert(space.get() != &KernelPageSpace::global());
 
 	auto unboundSpace = boundSpace_;
 	auto unboundSequence = alreadyShotSequence_;
@@ -107,9 +113,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	boundSpace_ = space;
 	alreadyShotSequence_ = targetSeq;
 
-	if(id_ != globalBindingId) {
-		switchToPageTable(boundSpace_->rootTable(), id_, true);
-	}
+	switchToPageTable(boundSpace_->rootTable(), id_, true);
 
 	primaryStamp_ = context.nextStamp_++;
 	context.primaryBinding_ = this;
@@ -129,6 +133,25 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 		auto current = complete.pop_front();
 		current->complete();
 	}
+}
+
+void PageBinding::initialBind(smarter::shared_ptr<PageSpace> space) {
+	assert(!intsAreEnabled());
+	assert(!boundSpace_);
+	assert(id_ == globalBindingId);
+	assert(space.get() == &KernelPageSpace::global());
+
+	// Bind the new space.
+	uint64_t targetSeq;
+	{
+		auto lock = frg::guard(&space->mutex_);
+
+		targetSeq = space->shootSequence_;
+		space->numBindings_++;
+	}
+
+	boundSpace_ = space;
+	alreadyShotSequence_ = targetSeq;
 }
 
 void PageBinding::unbind() {
@@ -261,11 +284,10 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 
 		auto unshotBindings = numBindings_;
 
-		auto &globalBinding = getCpuData()->asidData->globalBinding;
 		auto &bindings = getCpuData()->asidData->bindings;
 
 		// Perform synchronous shootdown.
-		if(globalBinding.boundSpace().get() == this) {
+		if(this == &KernelPageSpace::global()) {
 			assert(unshotBindings);
 			invalidateNode(globalBindingId, node);
 			unshotBindings--;

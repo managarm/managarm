@@ -110,7 +110,7 @@ void initializeAsidContext(CpuData *cpuData) {
 
 	cpuData->asidData.initialize(pcidCount);
 	cpuData->asidData->globalBinding.initialize(globalBindingId);
-	cpuData->asidData->globalBinding.rebind(*kernelSpacePtr);
+	cpuData->asidData->globalBinding.initialBind(*kernelSpacePtr);
 }
 
 
