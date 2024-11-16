@@ -7,6 +7,7 @@
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 
@@ -39,16 +40,6 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	// Allocate a new page table and construct a PTE for it.
 	{ T::pteNewTable() } -> std::same_as<uint64_t>;
 };
-
-namespace detail {
-
-// Invoke the given function with the IRQ and table mutexes held.
-// Used in PageCursor::realizePts_. Needs to be declared in a .cpp
-// file due to the header dependencies (irqMutex() -> arch/cpu.hpp ->
-// arch/paging.hpp).
-void runWithLockedSpace(PageSpace *space, void (*fn)(void *), void *ctxt);
-
-} // namespace detail
 
 template <CursorPolicy Policy>
 struct PageCursor {
@@ -223,12 +214,12 @@ private:
 		return doRealizeLevel_(accessors_[level], accessors_[level - 1], level - 1);
 	}
 
-	static void doRealizePts_(void *ctxt) {
-		static_cast<PageCursor *>(ctxt)->realizeLevel_(lastLevel);
-	}
-
 	void realizePts_() {
-		detail::runWithLockedSpace(space_, doRealizePts_, this);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&space_->tableMutex());
+		{
+			realizeLevel_(lastLevel);
+		}
 	}
 
 private:

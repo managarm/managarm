@@ -58,7 +58,6 @@ src = files(
 	'generic/universe.cpp',
 	'generic/work-queue.cpp',
 	'generic/asid.cpp',
-	'generic/cursor.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
 	'system/pci/dmalog.cpp',
