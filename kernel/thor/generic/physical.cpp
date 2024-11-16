@@ -1,5 +1,5 @@
 #include <assert.h>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/physical.hpp>
@@ -8,23 +8,17 @@ namespace thor {
 
 static bool logPhysicalAllocs = false;
 
-// --------------------------------------------------------
-// SkeletalRegion
-// --------------------------------------------------------
-
-frg::manual_box<SkeletalRegion> skeletalSingleton;
-
-void SkeletalRegion::initialize() {
-	skeletalSingleton.initialize();
+void poisonPhysicalAccess(PhysicalAddr physical) {
+	auto address = 0xFFFF'8000'0000'0000 + physical;
+	KernelPageSpace::global().unmapSingle4k(address);
+	invalidatePage(globalBindingId, reinterpret_cast<void *>(address));
 }
 
-SkeletalRegion &SkeletalRegion::global() {
-	return *skeletalSingleton;
-}
-
-void *SkeletalRegion::access(PhysicalAddr physical) {
-	assert(!(physical & (kPageSize - 1)));
-	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+void poisonPhysicalWriteAccess(PhysicalAddr physical) {
+	auto address = 0xFFFF'8000'0000'0000 + physical;
+	KernelPageSpace::global().unmapSingle4k(address);
+	KernelPageSpace::global().mapSingle4k(address, physical, 0, CachingMode::null);
+	invalidatePage(globalBindingId, reinterpret_cast<void *>(address));
 }
 
 // --------------------------------------------------------

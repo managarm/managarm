@@ -57,6 +57,7 @@ src = files(
 	'generic/ubsan.cpp',
 	'generic/universe.cpp',
 	'generic/work-queue.cpp',
+	'generic/asid.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
 	'system/pci/dmalog.cpp',

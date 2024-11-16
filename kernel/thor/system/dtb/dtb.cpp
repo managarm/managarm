@@ -1,7 +1,7 @@
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <frg/manual_box.hpp>
 #include <eir/interface.hpp>
 #include <frg/hash.hpp>

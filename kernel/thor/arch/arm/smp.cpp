@@ -6,6 +6,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/fiber.hpp>
 
 namespace thor {
@@ -104,11 +105,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 	auto context = frg::construct<CpuData>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
-	{
-		auto irqLock = frg::guard(&irqMutex());
-
-		context->globalBinding.bind();
-	}
+	initializeAsidContext(context);
 
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
@@ -118,7 +115,8 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
-	lowMapping.mapSingle4k(codePhysPtr, codePhysPtr, false, page_access::execute, CachingMode::null);
+	ClientPageSpace::Cursor cursor{&lowMapping, codePhysPtr};
+	cursor.map4k(codePhysPtr, page_access::execute, CachingMode::null);
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
@@ -210,7 +208,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
 	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
-	KernelFiber::asyncBlockCurrent(KernelPageSpace::global().shootdown(VirtualAddr(codeVirtPtr), kPageSize));
+	KernelFiber::asyncBlockCurrent(shootdown(&KernelPageSpace::global(), VirtualAddr(codeVirtPtr), kPageSize));
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {

@@ -81,9 +81,7 @@ extern "C" void thorInitialize() {
 	}
 
 	KernelPageSpace::initialize();
-	getCpuData()->globalBinding.bind();
 
-	SkeletalRegion::initialize();
 	physicalAllocator.initialize();
 	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
 	for(size_t i = 0; i < thorBootInfoPtr->numRegions; i++)
@@ -97,6 +95,8 @@ extern "C" void thorInitialize() {
 	kernelAlloc.initialize(kernelHeap.get());
 
 	infoLogger() << "thor: Basic memory management is ready" << frg::endlog;
+
+	initializeAsidContext(getCpuData());
 }
 
 extern "C" void thorRunConstructors() {

@@ -457,10 +457,10 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	for(int i = 0; i < maxPcidCount; i++)
-		getCpuData()->pcidBindings[i].shootdown();
+	for(auto &binding : getCpuData()->asidData->bindings)
+		binding.shootdown();
 
-	getCpuData()->globalBinding.shootdown();
+	getCpuData()->asidData->globalBinding.shootdown();
 
 	acknowledgeIpi();
 }

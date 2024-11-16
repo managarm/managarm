@@ -6,7 +6,7 @@
 #include <frg/string.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/fiber.hpp>
-#include <thor-internal/arch/paging.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/pci/pci.hpp>

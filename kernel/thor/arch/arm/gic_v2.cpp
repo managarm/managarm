@@ -1,5 +1,6 @@
 #include <thor-internal/arch/gic_v2.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <arch/bits.hpp>
 #include <arch/mem_space.hpp>

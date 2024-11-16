@@ -2,6 +2,7 @@
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 
 namespace thor {
 

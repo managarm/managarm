@@ -7,6 +7,7 @@
 #include <frg/expected.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/memory-view.hpp>
+#include <thor-internal/mm-rc.hpp>
 
 namespace thor {
 
@@ -46,20 +47,25 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 
-		auto status = c.unmap4k();
-		if((status & page_status::present) && (status & page_status::dirty)) {
-			view->markDirty(offset + progress, kPageSize);
-		}
-
 		auto physicalRange = view->peekRange(offset + progress);
 		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+			auto [status, _] = c.unmap4k();
+			if((status & page_status::present) && (status & page_status::dirty)) {
+				view->markDirty(offset + progress, kPageSize);
+			}
+
 			c.advance4k();
 			continue;
 		}
 		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
 
-		c.map4k(physicalRange.template get<0>(), flags, physicalRange.template get<1>());
+		auto status = c.remap4k(physicalRange.template get<0>(), flags,
+				physicalRange.template get<1>());
 		c.advance4k();
+
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			view->markDirty(offset + progress, kPageSize);
+		}
 	}
 	return {};
 }
@@ -117,7 +123,7 @@ frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.findPresent(va + size)) {
 		auto progress = c.virtualAddress() - va;
 
-		auto status = c.unmap4k();
+		auto [status, _] = c.unmap4k();
 		assert(status & page_status::present);
 		if(status & page_status::dirty)
 			view->markDirty(offset + progress, kPageSize);
@@ -133,10 +139,29 @@ struct VirtualOperations {
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
 	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode cachingMode) = 0;
-	virtual PageStatus unmapSingle4k(VirtualAddr pointer) = 0;
-	virtual PageStatus cleanSingle4k(VirtualAddr pointer) = 0;
-	virtual bool isMapped(VirtualAddr pointer) = 0;
+			uint32_t flags, CachingMode cachingMode) {
+		(void)pointer;
+		(void)physical;
+		(void)flags;
+		(void)cachingMode;
+		panicLogger() << "thor: Default VirtualOperations::mapSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual PageStatus unmapSingle4k(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::unmapSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual PageStatus cleanSingle4k(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::cleanSingle4k called!" << frg::endlog;
+		__builtin_unreachable();
+	}
+	virtual bool isMapped(VirtualAddr pointer) {
+		(void)pointer;
+		panicLogger() << "thor: Default VirtualOperations::isMapped called!" << frg::endlog;
+		__builtin_unreachable();
+	}
 
 	// ----------------------------------------------------------------------------------
 
@@ -657,24 +682,6 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 			return space_->pageSpace_.submitShootdown(node);
 		}
 
-		void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-				uint32_t flags, CachingMode cachingMode) override {
-			space_->pageSpace_.mapSingle4k(pointer, physical, true, flags, cachingMode);
-		}
-
-		PageStatus unmapSingle4k(VirtualAddr pointer) override {
-			return space_->pageSpace_.unmapSingle4k(pointer);
-		}
-
-		PageStatus cleanSingle4k(VirtualAddr pointer) override {
-			return space_->pageSpace_.cleanSingle4k(pointer);
-		}
-
-		bool isMapped(VirtualAddr pointer) override {
-			return space_->pageSpace_.isMapped(pointer);
-		}
-
-#ifdef __x86_64__
 		frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, size_t size, PageFlags flags) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
@@ -704,7 +711,6 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, view, offset, size);
 		}
-#endif
 
 	private:
 		AddressSpace *space_;
