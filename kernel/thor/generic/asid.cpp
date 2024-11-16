@@ -7,17 +7,16 @@ namespace thor {
 
 namespace {
 
-void shootInBinding(PageBinding &binding, ShootNode *node) {
+void invalidateNode(int asid, ShootNode *node) {
 	// If we're invalidating a lot of pages, just invalidate the
 	// whole ASID instead.
 	// invalidateAsid(globalBindingId) is not allowed, so avoid
 	// the optimization in that case.
-	if(binding.id() != globalBindingId && (node->size >> kPageShift) >= 64) {
-		invalidateAsid(binding.id());
+	if(asid != globalBindingId && (node->size >> kPageShift) >= 64) {
+		invalidateAsid(asid);
 	} else {
 		for(size_t off = 0; off < node->size; off += kPageSize)
-			invalidatePage(binding.id(),
-					reinterpret_cast<void *>(node->address + off));
+			invalidatePage(asid, reinterpret_cast<void *>(node->address + off));
 	}
 }
 
@@ -39,7 +38,7 @@ PageBinding::completeShootdown_(PageSpace *space, uint64_t afterSequence, bool d
 			// Signal completion of the shootdown.
 			if(current->initiatorCpu_ != getCpuData()) {
 				if(doShootdown) {
-					shootInBinding(*this, current);
+					invalidateNode(id_, current);
 				}
 
 				if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -268,7 +267,7 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 		// Perform synchronous shootdown.
 		if(globalBinding.boundSpace().get() == this) {
 			assert(unshotBindings);
-			shootInBinding(globalBinding, node);
+			invalidateNode(globalBindingId, node);
 			unshotBindings--;
 		} else {
 			for(size_t i = 0; i < bindings.size(); i++) {
@@ -276,7 +275,7 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 					continue;
 
 				assert(unshotBindings);
-				shootInBinding(bindings[i], node);
+				invalidateNode(bindings[i].id(), node);
 				unshotBindings--;
 			}
 		}
