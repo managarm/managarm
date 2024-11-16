@@ -99,6 +99,7 @@ async::result<uint32_t> RealtekNic::readERIRegister(int reg) {
 }
 
 async::result<void> RealtekNic::writeERIRegister(int reg, uint8_t mask, uint32_t val) {
+	(void) reg;
 	_mmio.store(regs::eridr, val);
 	_mmio.store(regs::eriar, flags::eriar::write(true) | flags::eriar::mask(mask) | flags::eriar::type(flags::eriar::exgmac));
 
@@ -117,10 +118,13 @@ async::result<void> RealtekNic::writeCSIRegister(int reg, uint32_t val) {
 }
 
 async::result<void> write8168PhyOCPRegister(uint32_t reg, uint32_t data) {
+	(void) reg;
+	(void) data;
 	assert(!"Not Implemented");
 }
 
 async::result<uint32_t> read8168PhyOCPRegister(uint32_t reg) {
+	(void) reg;
 	assert(!"Not Implemented");
 	co_return 0;
 }

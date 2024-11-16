@@ -163,8 +163,7 @@ async::result<frg::expected<Error, std::string>> EndpointAddressAttribute::show(
 	co_return std::format("{:0>2x}\n", device->endpointAddress);
 }
 
-async::result<frg::expected<Error, std::string>> PrettyIntervalAttribute::show(sysfs::Object *object) {
-	auto device = static_cast<UsbEndpoint *>(object);
+async::result<frg::expected<Error, std::string>> PrettyIntervalAttribute::show(sysfs::Object *) {
 	co_return std::format("{}ms\n", 0);
 }
 

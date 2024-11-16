@@ -108,7 +108,7 @@ async::result<size_t> RxQueue::submitDescriptor(arch::dma_buffer_view frame, Rea
 	co_return ev_req->frame.size();
 }
 
-async::result<void> RxQueue::postDescriptor(arch::dma_buffer_view frame, RealtekNic &nic, std::shared_ptr<Request> req) {
+async::result<void> RxQueue::postDescriptor(arch::dma_buffer_view frame, RealtekNic &, std::shared_ptr<Request> req) {
 	req->frame = frame;
 	req->index = _next_index;
 

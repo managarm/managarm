@@ -10,11 +10,13 @@
 #include <unistd.h>
 
 async::result<void> RealtekNic::writeRTL8168gMDIO(int reg, int val) {
+	(void) val;
+
 	if(reg == 0x1F) { assert(!"Not implemented"); }
 
 	// TODO: OCP base memes
 
-
+	co_return;
 }
 
 async::result<int> RealtekNic::readRTL8168gMDIO(int reg) {

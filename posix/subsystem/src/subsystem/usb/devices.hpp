@@ -55,7 +55,7 @@ struct UsbController final : UsbBase {
 struct UsbEndpoint final : sysfs::Object {
 	UsbEndpoint(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
 		: Object{parent, sysfs_name}, sysfs_name{sysfs_name} {
-
+		(void) mbus_id;
 	}
 
 	protocols::usb::Device &device();

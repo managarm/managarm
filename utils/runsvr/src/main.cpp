@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <stdarg.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -16,19 +17,26 @@
 int heloutFd;
 
 template <typename ...Ts>
-void print_to(int fd, const char *format, Ts &&...ts) {
-	dprintf(heloutFd, format, ts...);
-	dprintf(fd, format, ts...);
+__attribute__((format(printf, 2, 0)))
+void print_to(int fd, const char *format, va_list args) {
+	dprintf(heloutFd, format, args);
+	dprintf(fd, format, args);
 }
 
 template <typename ...Ts>
-void log(const char *format, Ts &&...ts) {
-	print_to(STDOUT_FILENO, format, std::forward<Ts>(ts)...);
+void log(const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	print_to(STDOUT_FILENO, format, args);
+	va_end(args);
 }
 
 template <typename ...Ts>
-void err(const char *format, Ts &&...ts) {
-	print_to(STDERR_FILENO, format, std::forward<Ts>(ts)...);
+void err(const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	print_to(STDERR_FILENO, format, args);
+	va_end(args);
 }
 
 static std::vector<std::byte> readEntireFile(const char *path) {

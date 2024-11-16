@@ -244,7 +244,7 @@ struct InterfaceState final : proto::InterfaceData {
 private:
 	std::shared_ptr<Controller> _controller;
 	int _device;
-	int _interface;
+	int _interface [[maybe_unused]];
 };
 
 // ----------------------------------------------------------------------------

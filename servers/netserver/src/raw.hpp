@@ -57,7 +57,7 @@ private:
 	Raw *parent;
 	smarter::weak_ptr<RawSocket> holder_;
 
-	int proto;
+	int proto [[maybe_unused]];
 	bool filterLocked_ = false;
 	bool packetAuxData_ = false;
 	std::optional<std::vector<char>> filter_ = std::nullopt;
