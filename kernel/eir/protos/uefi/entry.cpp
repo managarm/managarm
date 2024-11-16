@@ -1,4 +1,6 @@
+#ifdef __x86_64__
 #include <arch/io_space.hpp>
+#endif
 #include <assert.h>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
@@ -51,20 +53,6 @@ void uefiBootServicesLogHandler(const char c) {
 
 		frg::array<char16_t, 2> converted = {static_cast<char16_t>(c), 0};
 		st->con_out->output_string(st->con_out, converted.data());
-	}
-}
-
-// MSVC puts global constructors in a section .CRT$XCU that is ordered between .CRT$XCA and .CRT$XCZ.
-__declspec(allocate(".CRT$XCA")) const void *crt_xct = nullptr;
-__declspec(allocate(".CRT$XCZ")) const void *crt_xcz = nullptr;
-
-void runMsvcConstructors() {
-	using InitializerPtr = void (*)();
-	uintptr_t begin = reinterpret_cast<uintptr_t>(&crt_xct);
-	uintptr_t end = reinterpret_cast<uintptr_t>(&crt_xcz);
-	for (uintptr_t it = begin + sizeof(void *); it < end; it += sizeof(void *)) {
-		auto *p = reinterpret_cast<InitializerPtr *>(it);
-		(*p)();
 	}
 }
 
@@ -347,6 +335,8 @@ initgraph::Task setupFramebufferInfo{&globalInitEngine,
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
+	eirRunConstructors();
+
 	// Set the system table so we can use loggers early on.
 	st = system_table;
 	bs = st->boot_services;
@@ -357,8 +347,6 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	// Reset the watchdog timer.
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));
 	EFI_CHECK(st->con_out->clear_screen(st->con_out));
-
-	runMsvcConstructors();
 
 	// Get a handle to this binary in order to get the command line.
 	efi_guid protocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
@@ -402,6 +390,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	volatile bool eir_gdb_ready = eir_gdb_ready_val;
 
 	if(!eir_gdb_ready_val) {
+#ifdef __x86_64__
 		// exfiltrate our base address for use with gdb
 		constexpr arch::scalar_register<uint8_t> offset{0};
 		auto port = arch::global_io.subspace(0xCB7);
@@ -410,7 +399,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 			uint8_t b = reinterpret_cast<uintptr_t>(loadedImage->image_base) >> (i * 8);
 			port.store(offset, b);
 		}
+#endif
 
+		eir::infoLogger() << "eir: image base address " << frg::hex_fmt{loadedImage->image_base} << frg::endlog;
 		eir::infoLogger() << "eir: Waiting for GDB to attach" << frg::endlog;
 	}
 

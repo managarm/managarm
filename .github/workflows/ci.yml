@@ -10,10 +10,14 @@ jobs:
         strategy:
             matrix:
                 arch: [x86_64, aarch64, riscv64]
-                pkg: [managarm-kernel, managarm-system]
+                pkg: [managarm-kernel, managarm-system, managarm-kernel-uefi]
                 exclude:
                   - arch: riscv64
                     pkg: managarm-system
+                  - arch: aarch64
+                    pkg: managarm-kernel-uefi
+                  - arch: riscv64
+                    pkg: managarm-kernel-uefi
         name: Build ${{ matrix.pkg }} on ${{ matrix.arch }}
         runs-on: ubuntu-24.04
         steps:
