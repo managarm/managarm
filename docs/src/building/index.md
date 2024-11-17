@@ -61,6 +61,13 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     ```
     > Note: you must keep the `src_mount` and `build_mount` values as shown above if you want to be able to use pre-built tools from our build server. These paths refer to locations on the *container*, not on your host machine. Also note that these paths cannot be changed after starting the build; doing so will likely result in a broken directory tree.
 1.  In the `build/bootstrap-site.yml` file you just created, replace the `container.rootfs` key with the path to your `rootfs`.
+1.  If you want this build directory to be used for building for an architecture other than the default (x86_64), you can define the `arch` and `arch-triple` options. For instance, if you want to build for `riscv64`:
+    ```yml
+    define_options:
+      arch: riscv64
+      arch-triple: riscv64-managarm
+    ```
+    > Note: Every build directory only builds for the one architecture specified by the options. If you want to build managarm for multiple architectures, set up a build directory for each architecture desired.
 
 
 ### Building
