@@ -118,6 +118,13 @@ initgraph::Task setupInitrdInfo{&globalInitEngine,
 extern "C" void eirLimineMain(void){
 	eirRunConstructors();
 
+	if(dtb_request.response) {
+		eirDtbPtr = dtb_request.response->dtb_ptr;
+		eir::infoLogger() << "DTB accessible at " << eirDtbPtr << frg::endlog;
+	} else {
+		eir::infoLogger() << "Limine did not pass a DTB" << frg::endlog;
+	}
+
 	assert(kernel_file_request.response);
 	cmdline = frg::string_view {kernel_file_request.response->kernel_file->cmdline};
 	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;

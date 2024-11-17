@@ -9,6 +9,10 @@
 #include <elf.h>
 #include <physical-buddy.hpp>
 
+// Pointer to the DTB.
+// Not in the eir namespace since some protocols set this from assembly.
+void *eirDtbPtr;
+
 namespace eir {
 
 void *initrd = nullptr;
