@@ -117,6 +117,7 @@ initgraph::Task setupInitrdInfo{&globalInitEngine,
 } // namespace
 
 extern "C" void eirLimineMain(void){
+	eir::infoLogger() << "Booting Eir from Limine" << frg::endlog;
 	eirRunConstructors();
 
 	if(dtb_request.response) {
