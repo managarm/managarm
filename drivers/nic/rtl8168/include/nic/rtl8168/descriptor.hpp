@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-struct [[gnu::packed]] Descriptor {
+struct Descriptor {
 	arch::bit_value<uint32_t> flags{0};
 	uint32_t vlan;
 	uint32_t base_low;

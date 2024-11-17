@@ -402,7 +402,7 @@ struct Tcp4Socket {
 			const char *creds, uint32_t flags,
 			void *data, size_t size,
 			void *addrPtr, size_t addrSize,
-			std::vector<uint32_t> fds, struct ucred ucreds) {
+			std::vector<uint32_t> fds, struct ucred) {
 		(void) creds;
 		(void) flags;
 		(void) addrPtr;

@@ -288,6 +288,8 @@ void Controller::_checkPorts() {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
+	(void) port;
+
 	// TODO(qookie): Hub support
 	assert(hub.get() == _rootHub.get());
 	// Requires split TX when we have hub support

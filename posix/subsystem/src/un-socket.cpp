@@ -230,7 +230,7 @@ public:
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
-	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
+	sendMsg(Process *, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
 		assert(!(flags & ~(MSG_DONTWAIT)));

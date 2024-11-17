@@ -189,7 +189,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(vo
 		const char *creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr_ptr, size_t addr_size,
-		std::vector<uint32_t> fds, struct ucred ucreds) {
+		std::vector<uint32_t> fds, struct ucred) {
 	(void) creds;
 	(void) flags;
 	(void) fds;
