@@ -41,6 +41,9 @@ DEFINE_TEST(sigaltstack, ([] {
 	asm volatile ("mov $0, %%rsp\n\tpush $0" ::: "rsp");
 #elif defined(__aarch64__)
 	asm volatile ("mov sp, %0\n\tstp x0, x1, [sp, #-16]!" :: "r"(uint64_t{0}) : "sp");
+#elif defined(__riscv) && __riscv_xlen == 64
+	printf("Test is missing support for RISC-V\n");
+	__builtin_trap();
 #else
 #	error Unknown architecture
 #endif

@@ -21,6 +21,9 @@ DEFINE_TEST(signal_save_simd, ([] {
 	asm volatile ("movd %0, %%xmm15" : : "r"(magic_expected));
 #elif defined (__aarch64__)
 	asm volatile ("fmov d31, %0" : : "r"(magic_expected));
+#elif defined(__riscv) && __riscv_xlen == 64
+	printf("Test is missing support for RISC-V\n");
+	__builtin_trap();
 #else
 #	error Unknown architecture
 #endif
@@ -36,6 +39,9 @@ DEFINE_TEST(signal_save_simd, ([] {
 		asm volatile ("movd %0, %%xmm15" : : "r"(uint64_t(0x2BADBADBADBADBAD)));
 #elif defined (__aarch64__)
 		asm volatile ("fmov d31, xzr");
+#elif defined(__riscv) && __riscv_xlen == 64
+	printf("Test is missing support for RISC-V\n");
+	__builtin_trap();
 #else
 #	error Unknown architecture
 #endif
@@ -55,6 +61,9 @@ DEFINE_TEST(signal_save_simd, ([] {
 	asm volatile ("movd %%xmm15, %0" : "=r"(magic));
 #elif defined (__aarch64__)
 	asm volatile ("fmov %0, d31" : "=r"(magic));
+#elif defined(__riscv) && __riscv_xlen == 64
+	printf("Test is missing support for RISC-V\n");
+	__builtin_trap();
 #else
 #	error Unknown architecture
 #endif

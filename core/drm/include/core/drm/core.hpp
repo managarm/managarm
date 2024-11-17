@@ -194,7 +194,13 @@ void addDmtModes(std::vector<drm_mode_modeinfo> &supported_modes,
 		unsigned int max_width, unsigned max_height);
 
 // Copies 16-byte aligned buffers. Expected to be faster than plain memcpy().
-extern "C" void fastCopy16(void *, const void *, size_t);
+#if defined(__x86_64__) || defined(__aarch64__)
+	extern "C" void fastCopy16(void *, const void *, size_t);
+#else
+	inline void fastCopy16(void *dst, const void *src, size_t size) {
+		memcpy(dst, src, size);
+	}
+#endif
 
 } //namespace drm_core
 

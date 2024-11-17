@@ -675,6 +675,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.returnAddress = handler.restorerIp;
 #elif defined(__aarch64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#elif defined(__riscv) && __riscv_xlen == 64
+	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
+	__builtin_trap();
 #else
 #error Signal register loading code is missing for architecture
 #endif
@@ -695,6 +698,10 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	uintptr_t threadSp = sf.ucontext.uc_mcontext.gregs[REG_RSP];
 #elif defined(__aarch64__)
 	uintptr_t threadSp = sf.ucontext.uc_mcontext.sp;
+#elif defined(__riscv) && __riscv_xlen == 64
+	uintptr_t threadSp;
+	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
+	__builtin_trap();
 #else
 #error Code to get stack pointer is missing for architecture
 #endif
@@ -757,6 +764,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.ucontext.uc_mcontext.sp = frame;
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#elif defined(__riscv) && __riscv_xlen == 64
+	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
+	__builtin_trap();
 #else
 #error Signal frame register setup code is missing for architecture
 #endif
@@ -786,6 +796,9 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 #elif defined(__aarch64__)
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
+#elif defined(__riscv) && __riscv_xlen == 64
+	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
+	__builtin_trap();
 #else
 #error Signal register storing code is missing for architecture
 #endif
