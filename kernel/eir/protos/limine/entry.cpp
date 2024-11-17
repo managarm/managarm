@@ -61,7 +61,8 @@ initgraph::Task setupFramebufferInfo{&globalInitEngine,
 	initgraph::Requires{getInfoStructAvailableStage()},
 	initgraph::Entails{getEirDoneStage()},
 	[] {
-		if(framebuffer_request.response->framebuffer_count > 0 &&
+		if(framebuffer_request.response &&
+		   framebuffer_request.response->framebuffer_count > 0 &&
 		   framebuffer_request.response->framebuffers) {
 			auto *limine_fb = framebuffer_request.response->framebuffers[0];
 			fb = &info_ptr->frameBuffer;
