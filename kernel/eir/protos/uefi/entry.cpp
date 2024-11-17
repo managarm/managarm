@@ -29,7 +29,7 @@ efi_loaded_image_protocol *loadedImage = nullptr;
 frg::string_view initrd_path = "managarm\\initrd.cpio";
 efi_file_info *initrdInfo = nullptr;
 
-uintptr_t rsdp = 0;
+physaddr_t rsdp = 0;
 
 size_t memMapSize = 0;
 size_t mapKey = 0;
@@ -64,8 +64,25 @@ initgraph::Task findAcpi{&globalInitEngine,
 		efi_guid acpi_guid = ACPI_20_TABLE_GUID;
 		const efi_configuration_table *t = st->configuration_table;
 		for(size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
-			if(!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid)))
-				rsdp = reinterpret_cast<uintptr_t>(t->vendor_table);
+			if(!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid))) {
+				rsdp = reinterpret_cast<physaddr_t>(t->vendor_table);
+				infoLogger() << "eir: Got RSDP" << frg::endlog;
+			}
+	}
+};
+
+initgraph::Task findDtb{&globalInitEngine,
+	"uefi.find-dtb",
+	initgraph::Entails{getBootservicesDoneStage()},
+	[] {
+		// acquire ACPI table info
+		efi_guid dtb_guid = EFI_DTB_TABLE_GUID;
+		const efi_configuration_table *t = st->configuration_table;
+		for(size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
+			if(!memcmp(&dtb_guid, &t->vendor_guid, sizeof(dtb_guid))) {
+				dtb = reinterpret_cast<physaddr_t>(t->vendor_table);
+				infoLogger() << "eir: Got DTB" << frg::endlog;
+			}
 	}
 };
 
