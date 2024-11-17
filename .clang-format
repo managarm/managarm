@@ -1,0 +1,33 @@
+---
+BasedOnStyle: LLVM
+Language: Cpp
+
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: ForIndentation
+
+ContinuationIndentWidth: 4
+ConstructorInitializerIndentWidth: 4
+# Do not indent "public", "private", etc.
+AccessModifierOffset: -4
+
+AlignAfterOpenBracket: BlockIndent
+
+# Put template<> on its own line.
+BreakTemplateDeclarations: Yes
+# Put long return types on their own line.
+BreakAfterReturnType: Automatic
+
+# Put all initializers onto their own lines.
+PackConstructorInitializers: CurrentLine
+
+# Put all function arguments on their own lines.
+BinPackArguments: false
+BinPackParameters: false
+
+# Format braces as {1, 2, 3}, not as { 1, 2, 3 }.
+Cpp11BracedListStyle: true
+
+# Force \n at EOF.
+InsertNewlineAtEOF: true
