@@ -31,6 +31,9 @@ SECTIONS {
 	.data : ALIGN(0x1000) {
 		*(.data*)
 	}
+	.got : {
+		*(.got) *(.igot.*)
+	}
 	.bss : ALIGN(0x1000) {
 		*(.bss*)
 		*(COMMON)
@@ -79,11 +82,6 @@ SECTIONS {
 
 	.got.plt (INFO) : { *(.got.plt) }
 
-	.got : {
-		*(.got) *(.igot.*)
-	}
-	ASSERT(SIZEOF(.got) == 0, "Unexpected GOT entries detected!")
-
 	.plt : {
 		*(.plt) *(.plt.*) *(.iplt)
 	}
@@ -100,6 +98,7 @@ SECTIONS {
 	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
 
 	/DISCARD/ : {
+		*(.riscv.attributes)
 		*(.note.GNU-stack)
 	}
 

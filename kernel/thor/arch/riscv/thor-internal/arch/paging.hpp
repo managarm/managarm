@@ -80,7 +80,7 @@ struct RiscvCursorPolicy {
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
 
-		return newPtAddr | pteValid;
+		return (newPtAddr >> 2) | pteValid;
 	}
 };
 

@@ -61,7 +61,8 @@ initgraph::Task setupFramebufferInfo{&globalInitEngine,
 	initgraph::Requires{getInfoStructAvailableStage()},
 	initgraph::Entails{getEirDoneStage()},
 	[] {
-		if(framebuffer_request.response->framebuffer_count > 0 &&
+		if(framebuffer_request.response &&
+		   framebuffer_request.response->framebuffer_count > 0 &&
 		   framebuffer_request.response->framebuffers) {
 			auto *limine_fb = framebuffer_request.response->framebuffers[0];
 			fb = &info_ptr->frameBuffer;
@@ -116,7 +117,15 @@ initgraph::Task setupInitrdInfo{&globalInitEngine,
 } // namespace
 
 extern "C" void eirLimineMain(void){
+	eir::infoLogger() << "Booting Eir from Limine" << frg::endlog;
 	eirRunConstructors();
+
+	if(dtb_request.response) {
+		eirDtbPtr = dtb_request.response->dtb_ptr;
+		eir::infoLogger() << "DTB accessible at " << eirDtbPtr << frg::endlog;
+	} else {
+		eir::infoLogger() << "Limine did not pass a DTB" << frg::endlog;
+	}
 
 	assert(kernel_file_request.response);
 	cmdline = frg::string_view {kernel_file_request.response->kernel_file->cmdline};

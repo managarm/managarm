@@ -5,6 +5,8 @@
 #include <frg/string.hpp>
 #include <initgraph.hpp>
 
+extern void *eirDtbPtr;
+
 namespace eir {
 
 struct GlobalInitEngine final : initgraph::Engine {

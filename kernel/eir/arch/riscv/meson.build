@@ -4,9 +4,8 @@ eir_sources = [
 	files(
 		'arch.cpp',
 		'cpu.cpp',
-		'dtb.cpp',
-		'entry64.S',
 		'paging.cpp',
+		'stubs.S',
 		'../../system/dtb/discovery.cpp'
 	),
 	eir_generic_sources
