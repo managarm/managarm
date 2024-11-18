@@ -4,6 +4,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -194,6 +195,18 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	return true;
 }
 
+bool iseqStore64(uint64_t *p, uint64_t v) {
+	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
+	std::atomic_ref{*p}.store(v, std::memory_order_relaxed);
+	return true;
+}
+
+bool iseqCopyWeak(void *dst, const void *src, size_t size) {
+	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
+	memcpy(dst, src, size);
+	return true;
+}
+
 void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 	assert(!intsAreEnabled());
 
@@ -226,7 +239,10 @@ CpuData *getCpuData(size_t k) {
 	return (*allCpuContexts)[k];
 }
 
-frg::manual_box<CpuData> staticBootCpuContext;
+namespace {
+	frg::manual_box<CpuData> bootCpuContext;
+	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
+}
 
 void setupCpuContext(AssemblyCpuData *context) {
 	context->selfPointer = context;
@@ -234,8 +250,10 @@ void setupCpuContext(AssemblyCpuData *context) {
 }
 
 void setupBootCpuContext() {
-	staticBootCpuContext.initialize();
-	setupCpuContext(staticBootCpuContext.get());
+	bootCpuContext.initialize();
+	bootLogRing.initialize();
+	bootCpuContext->localLogRing = bootLogRing.get();
+	setupCpuContext(bootCpuContext.get());
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",

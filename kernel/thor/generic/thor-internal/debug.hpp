@@ -25,13 +25,44 @@ enum class Severity : uint8_t {
 	debug,
 };
 
+// Metadata struct that preceeds each log record within kernel ring buffers.
+struct LogMetadata {
+	Severity severity;
+};
+
+// Synchronous logging sink.
+//
+// Thread safety
+// ---
+// Both emit() and emitUrgent() can be called from arbitrary contexts (including NMI).
+// Hence, these functions must ensure that they do not to take locks and that they do not rely
+// on kernel infrastructure that takes locks.
+// Logging sinks that make use of extensive kernel infrastructure should copy the logs
+// to a ring buffer first and use a kernel thread to process them.
+//
+// Log messages
+// ---
+// Note that log messages are _not_ null-terminated, the handler has to respect the length.
+// Also note that the message does not end with a newline.
 struct LogHandler {
 	// Writes a log message to this handler.
-	// Note that the message is _not_ null-terminated, the handler has to respect the length.
-	// Also note that the message does not end with a newline.
+	//
+	// emit() is called with a global logging mutex held;
+	// in particular, all calls to emit() are serialized.
 	virtual void emit(Severity severity, frg::string_view msg) = 0;
 
+	// Like emit() but logs out-of-band messages.
+	// This is usually called in emergencies when the usual logging infrastrcture is broken.
+	// emitUrgent() is only called on handlers that have takesUrgentLogs set.
+	//
+	// emitUrgent() is called without any mutexes held.
+	// Hence, calls to emitUrgent() are not serialized.
+	// The default implementation calls emit().
+	virtual void emitUrgent(Severity severity, frg::string_view msg);
+
 	frg::default_list_hook<LogHandler> hook;
+
+	bool takesUrgentLogs{false};
 
 protected:
 	~LogHandler() = default;

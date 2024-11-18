@@ -34,6 +34,16 @@ void UartLogHandler::emit(Severity severity, frg::string_view msg) {
 	printChar('\n');
 }
 
+void UartLogHandler::emitUrgent(Severity severity, frg::string_view msg) {
+	(void)severity;
+	const char *prefix = "URGENT: ";
+	while(*prefix)
+		printChar(*(prefix++));
+	for (size_t i = 0; i < msg.size(); ++i)
+		printChar(msg[i]);
+	printChar('\n');
+}
+
 void UartLogHandler::printChar(char c) {
 	// Here we depend on a few things:
 	// 1. Eir has mapped the UART to 0xFFFF000000000000

@@ -2,6 +2,7 @@ src += files(
 	'../../system/legacy-pc/ata.cpp',
 	'early_stubs.S',
 	'entry.S',
+	'iseq.S',
 	'stubs.S',
 	'user-access.S',
 	'vmx_stubs.S',

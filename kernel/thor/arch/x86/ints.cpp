@@ -499,6 +499,25 @@ extern "C" void onPlatformWork() {
 	disableInts();
 }
 
+namespace {
+	void interruptIseq(IseqContext *iseq, NmiImageAccessor image) {
+		if (!(iseq->state & IseqContext::STATE_TX))
+			return;
+
+		// Always set the interrupted flag.
+		iseq->state |= IseqContext::STATE_INTERRUPTED;
+
+		// If IP is within an IseqRegion, advance IP.
+		auto *region = iseq->region;
+		if (region) {
+			if (*image.ip() >= reinterpret_cast<uintptr_t>(region->startIp)
+					&& *image.ip() < reinterpret_cast<uintptr_t>(region->commitIp)) {
+				*image.ip() = reinterpret_cast<uintptr_t>(region->interruptIp);
+			}
+		}
+	}
+}
+
 extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	// If we interrupted user space or a kernel stub, we might need to update GS.
 	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
@@ -506,6 +525,12 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
 
 	auto cpuData = getCpuData();
+	auto *iseq = cpuData->iseqPtr;
+
+	interruptIseq(iseq, image);
+
+	IseqContext ownIseq;
+	cpuData->iseqPtr = &ownIseq;
 
 	bool explained = false;
 	auto pmcMechanism = cpuData->profileMechanism.load(std::memory_order_acquire);
@@ -534,6 +559,8 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 		if(!getLocalApicId())
 			sendGlobalNmi();
 	}
+
+	cpuData->iseqPtr = iseq;
 
 	// Restore the old value of GS.
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,

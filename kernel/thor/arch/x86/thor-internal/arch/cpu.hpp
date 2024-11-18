@@ -543,12 +543,15 @@ struct UserAccessRegion {
 	unsigned int flags;
 };
 
+struct IseqContext;
+
 // Note: This struct is accessed from assembly.
 // Do not change the field offsets!
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
 	void *syscallStack;
 	UserAccessRegion *currentUar;
+	IseqContext *iseqPtr{nullptr};
 };
 
 struct Thread;

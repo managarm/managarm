@@ -53,9 +53,12 @@ namespace thor {
 
 struct PIOLogHandler final : public LogHandler {
 	constexpr PIOLogHandler()
-	: serialBufferIndex{0}, serialBuffer{0} {}
+	: serialBufferIndex{0}, serialBuffer{0} {
+		takesUrgentLogs = true;
+	}
 
 	void emit(Severity severity, frg::string_view msg) override;
+	void emitUrgent(Severity severity, frg::string_view msg) override;
 
 	void printChar(char c);
 	void setPriority(Severity severity);
