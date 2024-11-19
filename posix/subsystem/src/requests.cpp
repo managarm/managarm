@@ -26,6 +26,7 @@
 #include "un-socket.hpp"
 #include "timerfd.hpp"
 #include "eventfd.hpp"
+#include "signalfd.hpp"
 #include "tmp_fs.hpp"
 
 #include <bragi/helpers-std.hpp>
@@ -332,7 +333,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::WaitIdResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_pid(pid);
-			resp.set_uid(self->findProcess(pid)->uid());
+			resp.set_uid(self->findProcess(pid) ? self->findProcess(pid)->uid() : 0);
 
 			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
 				resp.set_sig_status(W_EXITCODE(byExit->code, 0));
@@ -2935,14 +2936,23 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto file = createSignalFile(req.sigset(),
-					req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
-			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
 			managarm::posix::SvrResponse resp;
+
+			if(req.fd() == -1) {
+				auto file = createSignalFile(req.sigset(),
+						req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+				auto fd = self->fileContext()->attachFile(file,
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+				resp.set_fd(fd);
+			} else {
+				auto file = self->fileContext()->getFile(req.fd());
+				assert(file);
+				auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
+				signal_file->mask() = req.sigset();
+				resp.set_fd(req.fd());
+			}
+
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
