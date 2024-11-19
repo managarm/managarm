@@ -152,6 +152,8 @@ initgraph::Task exitBootServices{&globalInitEngine,
 
 #if defined(__x86_64__)
 		asm volatile ("cli");
+#elif defined(__riscv)
+		asm volatile("csrci sstatus, 0x2" ::: "memory");
 #else
 #error "Unsupported architecture!"
 #endif
