@@ -10,10 +10,17 @@ eir_sources = [
 	),
 	eir_generic_sources
 ]
+
+if build_uefi
+	eir_sources += files('platform/virt/early-log.cpp')
+endif
+
 eir_includes += include_directories(
 	'.',
 	'../../system/dtb'
 )
 
-subdir('platform/allwinner-d1')
-subdir('platform/virt')
+if not build_uefi
+	subdir('platform/allwinner-d1')
+	subdir('platform/virt')
+endif
