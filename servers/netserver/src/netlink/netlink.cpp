@@ -91,7 +91,8 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memset(&ucreds, 0, sizeof(struct ucred));
 		ucreds.pid = senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+		auto [truncated, payload_len] = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(truncated)
 			throw std::runtime_error("netserver: Implement CMSG truncation");
 		ctrl.write<struct ucred>(ucreds);
 	}

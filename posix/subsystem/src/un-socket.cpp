@@ -202,13 +202,15 @@ public:
 			creds.uid = packet->senderUid;
 			creds.gid = packet->senderGid;
 
-			if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-				throw std::runtime_error("posix: Implement CMSG truncation");
+			auto [truncated, payload_len] = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+			if(truncated)
+				throw std::runtime_error("posix: Implement un-socket CMSG truncation");
 			ctrl.write<struct ucred>(creds);
 		}
 
 		if(!packet->files.empty()) {
-			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
+			auto [truncated, payload_len] = ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size());
+			if(!truncated) {
 				for(auto &file : packet->files)
 					ctrl.write<int>(process->fileContext()->attachFile(std::move(file),
 							flags & MSG_CMSG_CLOEXEC));
