@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
@@ -95,12 +96,16 @@ struct CtrlBuilder {
 	CtrlBuilder(size_t max_size)
 	: _maxSize{max_size}, _offset{0} { }
 
+	// returns true if the message gets truncated
 	bool message(int layer, int type, size_t payload) {
-		if(_buffer.size() + CMSG_SPACE(payload) > _maxSize)
-			return false;
+		size_t remaining_space = _maxSize - _buffer.size();
+		if(remaining_space < CMSG_ALIGN(sizeof(struct cmsghdr)))
+			return true;
+
+		auto truncated = CMSG_SPACE(payload) > remaining_space;
 
 		_offset = _buffer.size();
-		_buffer.resize(_offset + CMSG_SPACE(payload));
+		_buffer.resize(_offset + (truncated ? remaining_space : CMSG_SPACE(payload)));
 
 		struct cmsghdr h;
 		memset(&h, 0, sizeof(struct cmsghdr));
@@ -111,11 +116,46 @@ struct CtrlBuilder {
 		memcpy(_buffer.data() + _offset, &h, sizeof(struct cmsghdr));
 		_offset += CMSG_ALIGN(sizeof(struct cmsghdr));
 
-		return true;
+		return truncated;
+	}
+
+	// returns whether the message gets truncated, and if true, how many bytes of payload
+	// (aligned to data_unit_size) still fit in the buffer.
+	std::pair<bool, size_t> message_truncated(int layer, int type, size_t payload, size_t data_unit_size) {
+		// the space remaining in the control buffer before this message
+		size_t remaining_space = _maxSize - _buffer.size();
+		// if not even a cmsghdr fits, the message is truncated and no payload space available
+		if(remaining_space < CMSG_ALIGN(sizeof(struct cmsghdr)))
+			return {true, 0};
+
+		auto truncated = CMSG_SPACE(payload) > remaining_space;
+		// the amount of space left for the data payload after the cmsghdr
+		size_t remaining_payload_space = remaining_space - CMSG_ALIGN(sizeof(struct cmsghdr));
+		// correct the actual amount of available payload length to not overflow the buffer
+		auto truncated_payload = std::min(payload, remaining_payload_space);
+
+		_offset = _buffer.size();
+		_buffer.resize(_offset + (truncated ? remaining_space : CMSG_SPACE(payload)));
+
+		struct cmsghdr h;
+		memset(&h, 0, sizeof(struct cmsghdr));
+		h.cmsg_len = CMSG_LEN(truncated_payload - (truncated_payload % data_unit_size));
+		h.cmsg_level = layer;
+		h.cmsg_type = type;
+
+		// write out the cmsghdr
+		memcpy(_buffer.data() + _offset, &h, sizeof(struct cmsghdr));
+		// correctly align up the offset to account for the cmsghdr
+		_offset += CMSG_ALIGN(sizeof(struct cmsghdr));
+
+		if(CMSG_SPACE(payload) > remaining_space)
+			return {true, std::max(0UL, remaining_payload_space - (remaining_payload_space % data_unit_size))};
+		return {false, 0};
 	}
 
 	template<typename T>
 	void write(T data) {
+		assert(_buffer.size() >= _offset + sizeof(T));
 		memcpy(_buffer.data() + _offset, &data, sizeof(T));
 		_offset += sizeof(T);
 	}

@@ -129,6 +129,7 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 
 	auto size = packet->buffer.size();
 	auto truncated_size = std::min(size, max_length);
+	uint32_t reply_flags = 0;
 
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
@@ -152,16 +153,16 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 		memset(&creds, 0, sizeof(struct ucred));
 		creds.pid = packet->senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-			throw std::runtime_error("posix: Implement CMSG truncation");
-		ctrl.write<struct ucred>(creds);
+		auto truncated = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(!truncated)
+			ctrl.write(creds);
+		else
+			reply_flags |= MSG_CTRUNC;
 	}
 
 	if(!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
 	}
-
-	uint32_t reply_flags = 0;
 
 	if(truncated_size < size) {
 		reply_flags |= MSG_TRUNC;

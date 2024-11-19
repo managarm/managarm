@@ -73,9 +73,9 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 	}
 
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
+	uint32_t reply_flags = 0;
 
 	if(self->_passCreds) {
-		assert(!"netlink: This code is untested!");
 		struct ucred ucreds;
 		auto senderPid = 0;
 
@@ -91,15 +91,16 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memset(&ucreds, 0, sizeof(struct ucred));
 		ucreds.pid = senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-			throw std::runtime_error("netserver: Implement CMSG truncation");
-		ctrl.write<struct ucred>(ucreds);
+		auto truncated = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(truncated)
+			reply_flags |= MSG_CTRUNC;
+		else
+			ctrl.write(ucreds);
 	}
 
 	if(!(flags & MSG_PEEK))
 		self->_recvQueue.pop_front();
 
-	uint32_t reply_flags = 0;
 
 	if(!(flags & MSG_TRUNC) && truncated_size < size) {
 		reply_flags |= MSG_TRUNC;

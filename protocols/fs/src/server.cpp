@@ -998,6 +998,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		auto data = std::get<RecvData>(result);
+		assert(data.ctrl.size() <= req->ctrl_size());
 		resp.set_addr_size(data.addressLength);
 		resp.set_ret_val(data.dataLength);
 		resp.set_flags(data.flags);
