@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <frg/spinlock.hpp>
+#include <riscv/csr.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/debug.hpp>
 
@@ -9,17 +10,21 @@ namespace thor {
 
 void initializeIrqVectors();
 
-inline bool intsAreEnabled() { unimplementedOnRiscv(); }
+inline bool intsAreEnabled() {
+	return riscv::readCsr<riscv::Csr::sstatus>() & riscv::sstatus::sieBit;
+}
 
-inline void enableInts() { unimplementedOnRiscv(); }
+inline void enableInts() { return riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sieBit); }
 
-inline void disableInts() { unimplementedOnRiscv(); }
+inline void disableInts() {
+	return riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sieBit);
+}
 
-inline void halt() { unimplementedOnRiscv(); }
+inline void halt() { asm volatile("wfi"); }
 
 inline void suspendSelf() { unimplementedOnRiscv(); }
 
-inline void sendPingIpi(int id) { unimplementedOnRiscv(); }
+void sendPingIpi(int id);
 
 inline void sendShootdownIpi() { unimplementedOnRiscv(); }
 

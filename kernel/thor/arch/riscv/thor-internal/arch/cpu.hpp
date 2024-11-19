@@ -258,7 +258,7 @@ struct AssemblyCpuData {
 struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
-	PlatformCpuData() { unimplementedOnRiscv(); }
+	uint64_t hartId{~UINT64_C(0)};
 
 	UniqueKernelStack irqStack;
 
