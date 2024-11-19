@@ -1,10 +1,12 @@
 #include <frg/manual_box.hpp>
 #include <generic/thor-internal/cpu-data.hpp>
+#include <riscv/sbi.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -66,5 +68,69 @@ Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSup
 void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {
 	unimplementedOnRiscv();
 }
+
+namespace {
+
+constinit frg::manual_box<CpuData> bootCpuContext;
+constinit ReentrantRecordRing bootLogRing;
+
+constinit frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
+
+void writeToTp(AssemblyCpuData *context) {
+	context->selfPointer = context;
+	asm volatile("mv tp, %0" : : "r"(context));
+}
+
+void handleException() {
+	auto cause = riscv::readCsr<riscv::Csr::scause>();
+	auto ip = riscv::readCsr<riscv::Csr::sepc>();
+	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
+	infoLogger() << "thor: Exception with cause 0x" << frg::hex_fmt{cause} << ", trap value 0x"
+	             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{ip} << frg::endlog;
+	while (true)
+		;
+}
+
+} // namespace
+
+void setupBootCpuContext() {
+	bootCpuContext.initialize();
+
+	bootCpuContext->hartId = thorBootInfoPtr->hartId;
+	bootCpuContext->localLogRing = &bootLogRing;
+
+	writeToTp(bootCpuContext.get());
+}
+
+CpuData *getCpuData(size_t k) { return (*allCpuContexts)[k]; }
+
+size_t getCpuCount() { return allCpuContexts->size(); }
+
+static initgraph::Task probeSbiFeatures{
+    &globalInitEngine,
+    "riscv.probe-sbi-features",
+    initgraph::Entails{getFibersAvailableStage()},
+    [] {
+	    if (!sbi::base::probeExtension(sbi::eidIpi))
+		    panicLogger() << "SBI does not implement IPI extension" << frg::endlog;
+    }
+};
+
+static initgraph::Task initBootProcessorTask{
+    &globalInitEngine,
+    "riscv.init-boot-processor",
+    initgraph::Entails{getFibersAvailableStage()},
+    [] {
+	    allCpuContexts.initialize(*kernelAlloc);
+
+	    auto *cpuData = bootCpuContext.get();
+	    cpuData->cpuIndex = 0;
+	    allCpuContexts->push(cpuData);
+
+	    debugLogger() << "Booting on HART " << cpuData->hartId << frg::endlog;
+	    auto stvec = reinterpret_cast<uint64_t>(&handleException);
+	    riscv::writeCsr<riscv::Csr::stvec>(stvec);
+    }
+};
 
 } // namespace thor

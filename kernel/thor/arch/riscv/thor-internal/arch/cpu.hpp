@@ -273,7 +273,11 @@ struct PlatformCpuData : public AssemblyCpuData {
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.
-inline PlatformCpuData *getPlatformCpuData() { unimplementedOnRiscv(); }
+inline PlatformCpuData *getPlatformCpuData() {
+	AssemblyCpuData *result;
+	asm volatile("mv %0, tp" : "=r"(result));
+	return static_cast<PlatformCpuData *>(result);
+}
 
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {
@@ -284,13 +288,11 @@ void initializeThisProcessor();
 
 void bootSecondary(unsigned int apic_id);
 
-inline size_t getCpuCount() { unimplementedOnRiscv(); }
+size_t getCpuCount();
 
 inline void saveCurrentSimdState(Executor *executor) { unimplementedOnRiscv(); }
 
 void setupBootCpuContext();
-
-void setupCpuContext(AssemblyCpuData *context);
 
 initgraph::Stage *getBootProcessorReadyStage();
 
