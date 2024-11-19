@@ -27,6 +27,7 @@
 #include "un-socket.hpp"
 #include "timerfd.hpp"
 #include "eventfd.hpp"
+#include "signalfd.hpp"
 #include "tmp_fs.hpp"
 
 #include <bragi/helpers-std.hpp>
@@ -2948,14 +2949,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto file = createSignalFile(req.sigset(),
-					req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
-			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+
+			if(req.fd() == -1) {
+				auto file = createSignalFile(req.sigset(),
+						req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+				auto fd = self->fileContext()->attachFile(file,
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+				resp.set_fd(fd);
+			} else {
+				auto file = self->fileContext()->getFile(req.fd());
+				if(file) {
+					auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
+					signal_file->mask() = req.sigset();
+					resp.set_fd(req.fd());
+				} else {
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+				}
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
