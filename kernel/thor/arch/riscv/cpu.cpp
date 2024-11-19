@@ -30,6 +30,16 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplemented
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) { unimplementedOnRiscv(); }
 void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
 
+Executor::Executor(FiberContext *context, AbiParameters abi) {
+	size_t size = determineSize();
+	_pointer = reinterpret_cast<char *>(kernelAlloc->allocate(size));
+	memset(_pointer, 0, size);
+
+	general()->ip = abi.ip;
+	general()->sp() = (uintptr_t)context->stack.basePtr();
+	general()->a(0) = abi.argument;
+}
+
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);
 	;

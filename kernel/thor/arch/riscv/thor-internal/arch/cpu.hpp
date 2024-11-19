@@ -32,11 +32,19 @@ struct FpRegisters {
 };
 
 struct Frame {
-	uint64_t x[30]; // X0 is constant zero, no need to save it.
+	uint64_t xs[31]; // X0 is constant zero, no need to save it.
 	uint64_t ip;
-	Domain domain;
 
-	FpRegisters fp;
+	constexpr uint64_t &x(unsigned int n) {
+		assert(n > 0 && n <= 31);
+		return xs[n - 1];
+	}
+
+	constexpr uint64_t &a(unsigned int n) {
+		assert(n <= 7);
+		return x(10 + n);
+	}
+	constexpr uint64_t &sp() { return x(2); }
 };
 // TODO: add static assert
 
@@ -56,20 +64,20 @@ struct SyscallImageAccessor {
 	// We begin from A0
 	// in7 and in8 are actually S2 and S3, since (according to
 	// the calling convention) not enough argument registers
-	Word *number() { return &_frame()->x[10 - 1]; }
-	Word *in0() { return &_frame()->x[11 - 1]; }
-	Word *in1() { return &_frame()->x[12 - 1]; }
-	Word *in2() { return &_frame()->x[13 - 1]; }
-	Word *in3() { return &_frame()->x[14 - 1]; }
-	Word *in4() { return &_frame()->x[15 - 1]; }
-	Word *in5() { return &_frame()->x[16 - 1]; }
-	Word *in6() { return &_frame()->x[17 - 1]; }
-	Word *in7() { return &_frame()->x[18 - 1]; }
-	Word *in8() { return &_frame()->x[19 - 1]; }
+	Word *number() { return &_frame()->xs[10 - 1]; }
+	Word *in0() { return &_frame()->xs[11 - 1]; }
+	Word *in1() { return &_frame()->xs[12 - 1]; }
+	Word *in2() { return &_frame()->xs[13 - 1]; }
+	Word *in3() { return &_frame()->xs[14 - 1]; }
+	Word *in4() { return &_frame()->xs[15 - 1]; }
+	Word *in5() { return &_frame()->xs[16 - 1]; }
+	Word *in6() { return &_frame()->xs[17 - 1]; }
+	Word *in7() { return &_frame()->xs[18 - 1]; }
+	Word *in8() { return &_frame()->xs[19 - 1]; }
 
-	Word *error() { return &_frame()->x[10 - 1]; }
-	Word *out0() { return &_frame()->x[11 - 1]; }
-	Word *out1() { return &_frame()->x[12 - 1]; }
+	Word *error() { return &_frame()->xs[10 - 1]; }
+	Word *out0() { return &_frame()->xs[11 - 1]; }
+	Word *out1() { return &_frame()->xs[12 - 1]; }
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
@@ -157,7 +165,7 @@ struct UserContext {
 };
 
 struct FiberContext {
-	FiberContext(UniqueKernelStack stack) { unimplementedOnRiscv(); }
+	FiberContext(UniqueKernelStack s) : stack{std::move(s)} {}
 
 	FiberContext(const FiberContext &other) = delete;
 
@@ -181,12 +189,13 @@ struct Executor {
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
-	static size_t determineSize();
+	// TODO: Support FPU / SIMD state.
+	static size_t determineSize() { return sizeof(Frame); }
 
 	Executor() { unimplementedOnRiscv(); }
 
 	explicit Executor(UserContext *context, AbiParameters abi) { unimplementedOnRiscv(); }
-	explicit Executor(FiberContext *context, AbiParameters abi) { unimplementedOnRiscv(); }
+	explicit Executor(FiberContext *context, AbiParameters abi);
 
 	Executor(const Executor &other) = delete;
 
@@ -213,8 +222,8 @@ struct Executor {
 	void *getExceptionStack() { return _exceptionStack; }
 
 private:
-	char *_pointer;
-	void *_exceptionStack;
+	char *_pointer{nullptr};
+	void *_exceptionStack{nullptr};
 };
 
 size_t getStateSize();
