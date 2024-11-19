@@ -11,7 +11,11 @@ void restoreExecutor(Executor *executor) { unimplementedOnRiscv(); }
 extern "C" int doCopyFromUser(void *dest, const void *src, size_t size) { unimplementedOnRiscv(); }
 extern "C" int doCopyToUser(void *dest, const void *src, size_t size) { unimplementedOnRiscv(); }
 
-uint64_t getRawTimestampCounter() { unimplementedOnRiscv(); }
+uint64_t getRawTimestampCounter() {
+	uint64_t v;
+	asm volatile("rdtime %0" : "=r"(v));
+	return v;
+}
 
 bool haveTimer() { unimplementedOnRiscv(); }
 
