@@ -25,6 +25,7 @@ namespace {
 [[gnu::used, gnu::section(".requests")]] volatile LIMINE_BASE_REVISION(3);
 LIMINE_REQUEST(memmap_request, LIMINE_MEMMAP_REQUEST, 0);
 LIMINE_REQUEST(hhdm_request, LIMINE_HHDM_REQUEST, 0);
+LIMINE_REQUEST(smp_request, LIMINE_SMP_REQUEST, 0);
 LIMINE_REQUEST(framebuffer_request, LIMINE_FRAMEBUFFER_REQUEST, 1);
 LIMINE_REQUEST(module_request, LIMINE_MODULE_REQUEST, 0);
 LIMINE_REQUEST(kernel_file_request, LIMINE_KERNEL_FILE_REQUEST, 0);
@@ -33,25 +34,22 @@ LIMINE_REQUEST(rsdp_request, LIMINE_RSDP_REQUEST, 0);
 LIMINE_REQUEST(dtb_request, LIMINE_DTB_REQUEST, 0);
 [[gnu::used, gnu::section(".requestsEndMarker")]] volatile LIMINE_REQUESTS_END_MARKER;
 
-initgraph::Task setupAcpiInfo{&globalInitEngine,
-	"limine.setup-acpi-info",
+initgraph::Task setupMiscInfo{&globalInitEngine,
+	"limine.setup-misc-info",
 	initgraph::Requires{getInfoStructAvailableStage()},
 	initgraph::Entails{getEirDoneStage()},
 	[] {
-		if(rsdp_request.response) {
-			info_ptr->acpiRsdp = (uint64_t)rsdp_request.response->address;
-		}
-	}
-};
+#ifdef __riscv
+		info_ptr->hartId = smp_request.response->bsp_hartid;
+#endif
 
-initgraph::Task setupDtbInfo{&globalInitEngine,
-	"limine.setup-dtb-info",
-	initgraph::Requires{getInfoStructAvailableStage()},
-	initgraph::Entails{getEirDoneStage()},
-	[] {
 		if(dtb_request.response) {
 			info_ptr->dtbPtr = reinterpret_cast<uint64_t>(dtb_request.response->dtb_ptr);
 			info_ptr->dtbSize = 0;
+		}
+
+		if(rsdp_request.response) {
+			info_ptr->acpiRsdp = (uint64_t)rsdp_request.response->address;
 		}
 	}
 };
