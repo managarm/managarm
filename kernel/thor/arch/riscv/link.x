@@ -16,7 +16,7 @@ SECTIONS {
 	}
 
 	.data ALIGN(0x1000) : { *(.data) }
-	.bss : { *(.bss) }
+	.bss : { *(.bss) *(.bss.*) }
 
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }
@@ -81,6 +81,7 @@ SECTIONS {
 	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
 
 	/DISCARD/ : {
+		*(.riscv.attributes)
 		*(.note.GNU-stack)
 	}
 }

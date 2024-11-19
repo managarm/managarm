@@ -342,7 +342,7 @@ private:
 	}
 
 	int shift_ = 16;
-	char buffer_[1 << 16];
+	char buffer_[1 << 16]{};
 	// tailPtr_ and headPtr_ may be modified by reentrant contexts. Access through atomic_ref.
 	uint64_t tailPtr_{0};
 	uint64_t headPtr_{0};

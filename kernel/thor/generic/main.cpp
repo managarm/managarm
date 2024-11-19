@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <eir/interface.hpp>
 #include <frg/string.hpp>
 #include <elf.h>
 #include <hel.h>
@@ -49,8 +48,6 @@ void setupDebugging();
 extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
-
-extern "C" EirInfo *thorBootInfoPtr;
 
 using InitializerPtr = void (*)();
 extern "C" InitializerPtr __init_array_start[];
