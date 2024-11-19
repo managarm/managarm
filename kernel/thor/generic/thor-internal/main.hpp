@@ -1,6 +1,9 @@
 #pragma once
 
+#include <eir/interface.hpp>
 #include <initgraph.hpp>
+
+extern "C" EirInfo *thorBootInfoPtr;
 
 namespace thor {
 

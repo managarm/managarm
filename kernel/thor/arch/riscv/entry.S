@@ -6,7 +6,8 @@ thorBootInfoPtr:
 .text
 .global thorRtEntry
 thorRtEntry:
-	la a0, thorBootInfoPtr
+	la t0, thorBootInfoPtr
+	sd a0, (t0)
 
 	.extern thorInitialize
 	.extern thorRunConstructors
