@@ -9,8 +9,11 @@ constinit PIOLogHandler pioLogHandler;
 
 inline constexpr arch::scalar_register<uint8_t> data(0);
 inline constexpr arch::scalar_register<uint8_t> baudLow(0);
+inline constexpr arch::scalar_register<uint8_t> interruptEnable(1);
 inline constexpr arch::scalar_register<uint8_t> baudHigh(1);
+inline constexpr arch::bit_register<uint8_t> fifoControl(2);
 inline constexpr arch::bit_register<uint8_t> lineControl(3);
+inline constexpr arch::bit_register<uint8_t> modemControl(4);
 inline constexpr arch::bit_register<uint8_t> lineStatus(5);
 
 inline constexpr arch::field<uint8_t, bool> txReady(5, 1);
@@ -20,12 +23,22 @@ inline constexpr arch::field<uint8_t, bool> stopBit(2, 1);
 inline constexpr arch::field<uint8_t, int> parityBits(3, 3);
 inline constexpr arch::field<uint8_t, bool> dlab(7, 1);
 
+inline constexpr arch::field<uint8_t, bool> enableFifos(0, 1);
+inline constexpr arch::field<uint8_t, bool> clearRxFifo(1, 1);
+inline constexpr arch::field<uint8_t, bool> clearTxFifo(2, 1);
+
+inline constexpr arch::field<uint8_t, bool> dtr(0, 1);
+inline constexpr arch::field<uint8_t, bool> rts(1, 1);
+
 extern bool debugToSerial;
 extern bool debugToBochs;
 
 void setupDebugging() {
 	if(debugToSerial) {
 		auto base = arch::global_io.subspace(0x3F8);
+
+		// disable all interrupts
+		base.store(interruptEnable, 0);
 
 		// Set the baud rate.
 		base.store(lineControl, dlab(true));
@@ -34,6 +47,12 @@ void setupDebugging() {
 
 		// Configure: 8 data bits, 1 stop bit, no parity.
 		base.store(lineControl, dataBits(3) | stopBit(0) | parityBits(0) | dlab(false));
+
+		// clear and enable FIFOs
+		base.store(fifoControl, enableFifos(true) | clearRxFifo(true) | clearTxFifo(true));
+
+		// set DTR + RTS
+		base.store(modemControl, dtr(true) | rts(true));
 	}
 
 	enableLogHandler(&pioLogHandler);
