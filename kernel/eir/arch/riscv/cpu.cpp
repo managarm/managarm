@@ -7,9 +7,9 @@ namespace eir {
 namespace {
 
 void handleException() {
-	auto cause = readCsr<Csr::scause>();
-	auto ip = readCsr<Csr::sepc>();
-	auto trapValue = readCsr<Csr::stval>();
+	auto cause = riscv::readCsr<riscv::Csr::scause>();
+	auto ip = riscv::readCsr<riscv::Csr::sepc>();
+	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
 	eir::infoLogger() << "Exception with cause 0x" << frg::hex_fmt{cause}
 			<< ", trap value 0x" << frg::hex_fmt{trapValue}
 			<< " at IP 0x" << frg::hex_fmt{ip} << frg::endlog;
@@ -20,7 +20,7 @@ void handleException() {
 } // namespace
 
 void initProcessorEarly() {
-	writeCsr<Csr::stvec>(reinterpret_cast<uint64_t>(&handleException));
+	riscv::writeCsr<riscv::Csr::stvec>(reinterpret_cast<uint64_t>(&handleException));
 }
 
 } // namespace eir
