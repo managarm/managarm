@@ -12,7 +12,7 @@ eir_limine_cpp_args = eir_cpp_args
 
 if host_machine.cpu_family() == 'x86_64'
 	eir_limine_sources += [
-		eir64_sources
+		eir_sources
 	]
 	eir_limine_c_args += ['-mcmodel=kernel']
 	eir_limine_cpp_args += ['-mcmodel=kernel']

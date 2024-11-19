@@ -23,6 +23,7 @@ libgcc = cxx.find_library('gcc', required: not build_uefi)
 eir_c_args = []
 eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
 eir_link_args = ['-nostdlib']
+eir_linker_script = files()
 eir_dependencies = [libgcc, frigg, libarch]
 
 if get_option('kernel_kasan')
@@ -49,4 +50,5 @@ if build_uefi
 	subdir('protos/uefi')
 else
 	subdir('protos/limine')
+	subdir('protos/multiboot2')
 endif
