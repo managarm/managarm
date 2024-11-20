@@ -69,6 +69,36 @@ initgraph::Task findAcpi{&globalInitEngine,
 	}
 };
 
+#if defined(__riscv)
+size_t boot_hart = 0;
+
+initgraph::Task findRiscVBootHart{&globalInitEngine,
+	"uefi.find-riscv-boot-hart",
+	initgraph::Entails{getBootservicesDoneStage()},
+	[] {
+		riscv_efi_boot_protocol *boot_table = nullptr;
+		efi_guid riscv_boot_guid = RISCV_EFI_BOOT_PROTOCOL_GUID;
+		auto status = bs->locate_protocol(&riscv_boot_guid, nullptr, (void **) &boot_table);
+		assert(status == EFI_SUCCESS);
+		assert(boot_table);
+
+		status = boot_table->get_boot_hartid(boot_table, &boot_hart);
+		assert(status == EFI_SUCCESS);
+
+		eir::infoLogger() << "eir: boot HART ID " << boot_hart << frg::endlog;
+	}
+};
+
+initgraph::Task setupBootHartId{&globalInitEngine,
+	"uefi.setup-riscv-boot-hard-info",
+	initgraph::Requires{getInfoStructAvailableStage()},
+	initgraph::Entails{getEirDoneStage()},
+	[] {
+		info_ptr->hartId = boot_hart;
+	}
+};
+#endif
+
 initgraph::Task readInitrd{&globalInitEngine,
 	"uefi.read-initrd",
 	initgraph::Entails{getBootservicesDoneStage()},

@@ -302,6 +302,15 @@ constexpr efi_status EFI_COMPROMISED_DATA = (INTPTR_MAX + 1ULL) + 33;
 constexpr efi_status EFI_IP_ADDRESS_CONFLICT = (INTPTR_MAX + 1ULL) + 34;
 constexpr efi_status EFI_HTTP_ERROR = (INTPTR_MAX + 1ULL) + 35;
 
+// Related Documents: RISC-V EFI Boot Protocol
+
+constexpr efi_guid RISCV_EFI_BOOT_PROTOCOL_GUID = { 0xccd15fec, 0x6f73, 0x4eec, { 0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf } };
+
+struct riscv_efi_boot_protocol {
+	uint64_t revision;
+	efi_status (*get_boot_hartid)(riscv_efi_boot_protocol *self, size_t *boot_hart_id);
+};
+
 // ------------------------------------------------------------------------------------------------
 // Some things heavily rely on declarations later in the spec, so place them last.
 // ------------------------------------------------------------------------------------------------
