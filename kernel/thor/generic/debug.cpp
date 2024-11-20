@@ -193,10 +193,15 @@ namespace {
 					memcpy(stagingBuffer, &md, sizeof(LogMetadata));
 					stagedLength = sizeof(LogMetadata);
 				}
+
+				assert(stagedLength < logLineLength);
 				stagingBuffer[stagedLength++] = c;
 			};
 
 			auto flush = [&] () {
+				if(!stagedLength)
+					return;
+
 				postLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
 
 				// Reset our staging buffer.
@@ -232,8 +237,7 @@ namespace {
 				// This is csiState == 2.
 				if((c >= '0' && c <= '9') || (c == ';')) {
 					if(csiLength < maximalCsiLength)
-						csiBuffer[csiLength] = c;
-					csiLength++;
+						csiBuffer[csiLength++] = c;
 				}else{
 					if(csiLength >= maximalCsiLength || !doesFit(3 + csiLength))
 						flush();
