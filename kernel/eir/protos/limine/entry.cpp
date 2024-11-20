@@ -70,6 +70,8 @@ initgraph::Task setupFramebufferInfo{&globalInitEngine,
 			fb->fbHeight = limine_fb->height;
 			fb->fbBpp = limine_fb->bpp;
 			fb->fbType = limine_fb->memory_model; // TODO: Maybe inaccurate
+		} else {
+			infoLogger() << "eir: Got no framebuffer!" << frg::endlog;
 		}
 	}
 };

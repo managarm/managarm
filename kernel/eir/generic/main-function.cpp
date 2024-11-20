@@ -116,8 +116,7 @@ static initgraph::Task setupRegionsAndPaging{&globalInitEngine,
 
 static initgraph::Task prepareFramebufferForThor{&globalInitEngine,
 	"generic.prepare-framebuffer-for-thor",
-	initgraph::Requires{getInfoStructAvailableStage()},
-	initgraph::Entails{getEirDoneStage()},
+	initgraph::Requires{getEirDoneStage()},
 	[] {
 		if(fb) {
 			// Map the framebuffer.
