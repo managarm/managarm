@@ -31,6 +31,14 @@ size_t strlen(const char *str) {
 	return length;
 }
 
+size_t strnlen(const char *str, size_t maxlen) {
+	size_t length = 0;
+	while(length < maxlen && str[length]) {
+		length++;
+	}
+	return length;
+}
+
 // --------------------------------------------------------------------------------------
 // memcpy() implementation.
 // --------------------------------------------------------------------------------------

@@ -196,13 +196,13 @@ struct DeviceTreeProperty {
 
 	frg::optional<frg::string_view> asString(size_t index = 0) {
 		size_t total = 0;
-		const char* off = reinterpret_cast<const char*>(data_.data());
+		const char *off = reinterpret_cast<const char *>(data_.data());
 		for (size_t i = 0; i < index; i++) {
-			total += strlen(off + total) + 1;
+			total += strnlen(off + total, data_.size() - total) + 1;
 			if (total >= data_.size())
 				return frg::null_opt;
 		}
-		return frg::string_view{off + total};
+		return frg::string_view{off + total, strnlen(off + total, data_.size() - total)};
 	}
 
 	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) {

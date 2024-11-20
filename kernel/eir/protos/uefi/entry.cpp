@@ -80,7 +80,7 @@ initgraph::Task findDtb{&globalInitEngine,
 		const efi_configuration_table *t = st->configuration_table;
 		for(size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
 			if(!memcmp(&dtb_guid, &t->vendor_guid, sizeof(dtb_guid))) {
-				dtb = reinterpret_cast<physaddr_t>(t->vendor_table);
+				eirDtbPtr = physToVirt<void>(reinterpret_cast<physaddr_t>(t->vendor_table));
 				infoLogger() << "eir: Got DTB" << frg::endlog;
 			}
 	}

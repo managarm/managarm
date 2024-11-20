@@ -23,6 +23,7 @@ int memcmp(const void *, const void *, size_t);
 
 // memset is defined as a macro above.
 size_t strlen(const char *);
+size_t strnlen(const char *, size_t);
 
 #ifdef __cplusplus
 }
