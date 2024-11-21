@@ -19,8 +19,8 @@ int heloutFd;
 template <typename ...Ts>
 __attribute__((format(printf, 2, 0)))
 void print_to(int fd, const char *format, va_list args) {
-	dprintf(heloutFd, format, args);
-	dprintf(fd, format, args);
+	vdprintf(heloutFd, format, args);
+	vdprintf(fd, format, args);
 }
 
 template <typename ...Ts>
