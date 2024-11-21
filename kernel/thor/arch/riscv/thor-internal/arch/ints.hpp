@@ -24,8 +24,4 @@ inline void halt() { asm volatile("wfi"); }
 
 inline void suspendSelf() { unimplementedOnRiscv(); }
 
-void sendPingIpi(int id);
-
-inline void sendShootdownIpi() { unimplementedOnRiscv(); }
-
 } // namespace thor

@@ -32,6 +32,7 @@ src = files(
 	'generic/fiber.cpp',
 	'generic/gdbserver.cpp',
 	'generic/hel.cpp',
+	'generic/int-call.cpp',
 	'generic/irq.cpp',
 	'generic/io.cpp',
 	'generic/ipc-queue.cpp',

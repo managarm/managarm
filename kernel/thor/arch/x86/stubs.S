@@ -444,6 +444,7 @@ MAKE_LEGACY_IRQ_STUB thorRtIsrLegacyIrq15, 15
 
 MAKE_IPI_STUB thorRtIpiShootdown, onPlatformShootdown
 MAKE_IPI_STUB thorRtIpiPing, onPlatformPing
+MAKE_IPI_STUB thorRtIpiCall, onPlatformCall
 MAKE_IPI_STUB thorRtPreemption, onPlatformPreemption
 
 # ---------------------------------------------------------

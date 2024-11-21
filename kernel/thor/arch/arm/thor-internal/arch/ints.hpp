@@ -27,7 +27,4 @@ inline void halt() {
 
 void suspendSelf();
 
-void sendPingIpi(int id);
-void sendShootdownIpi();
-
 } // namespace thor
