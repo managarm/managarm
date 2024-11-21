@@ -27,7 +27,7 @@ namespace {
 
 				if(c == '\n') {
 					ctx()->buffer_.push_back(0);
-					getGlobalLogRing()->enqueue(ctx()->buffer_.data(), ctx()->buffer_.size());
+					getGlobalKmsgRing()->enqueue(ctx()->buffer_.data(), ctx()->buffer_.size());
 					ctx()->buffer_.resize(0);
 				}
 			};
@@ -94,7 +94,7 @@ namespace {
 		KmsgLogHandlerContext *context_;
 	};
 
-	frg::manual_box<LogRingBuffer> globalLogRing;
+	frg::manual_box<LogRingBuffer> globalKmsgRing;
 
 	initgraph::Task initLogSinks{&globalInitEngine, "generic.init-kernel-log",
 		initgraph::Requires{getFibersAvailableStage(),
@@ -106,7 +106,7 @@ namespace {
 			if(channel) {
 				infoLogger() << "thor: Connecting logging to I/O channel" << frg::endlog;
 				async::detach_with_allocator(*kernelAlloc,
-						dumpRingToChannel(globalLogRing.get(), std::move(channel), 2048));
+						dumpRingToChannel(globalKmsgRing.get(), std::move(channel), 2048));
 			}
 		}
 	};
@@ -117,14 +117,14 @@ frg::manual_box<KmsgLogHandler> kmsgLogHandler;
 
 void initializeLog() {
 	void *logMemory = kernelAlloc->allocate(1 << 20);
-	globalLogRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
+	globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
 	kmsgLogHandlerContext.initialize();
 	kmsgLogHandler.initialize(kmsgLogHandlerContext.get());
 	enableLogHandler(kmsgLogHandler.get());
 }
 
-LogRingBuffer *getGlobalLogRing() {
-	return globalLogRing.get();
+LogRingBuffer *getGlobalKmsgRing() {
+	return globalKmsgRing.get();
 }
 
 } // namespace thor

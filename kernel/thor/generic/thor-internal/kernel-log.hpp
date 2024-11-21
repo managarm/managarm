@@ -6,6 +6,6 @@ namespace thor {
 
 void initializeLog();
 
-LogRingBuffer *getGlobalLogRing();
+LogRingBuffer *getGlobalKmsgRing();
 
 } // namespace thor

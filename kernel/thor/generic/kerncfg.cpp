@@ -252,7 +252,7 @@ void initializeKerncfg() {
 		async::detach_with_allocator(*kernelAlloc, kerncfg->run());
 
 		{
-			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalLogRing(), "kernel-log");
+			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalKmsgRing(), "kernel-log");
 			async::detach_with_allocator(*kernelAlloc, ring->run());
 		}
 
