@@ -1,5 +1,5 @@
-
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/int-call.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -104,6 +104,7 @@ extern "C" void thorRtIsrLegacyIrq15();
 
 extern "C" void thorRtIpiShootdown();
 extern "C" void thorRtIpiPing();
+extern "C" void thorRtIpiCall();
 extern "C" void thorRtPreemption();
 
 extern "C" void nmiStub();
@@ -274,6 +275,7 @@ void setupIdt(uint32_t *table) {
 	
 	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
 	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 1);
+	makeIdt64IntSystemGate(table, 0xF2, irq_selector, (void *)&thorRtIpiCall, 1);
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 	
 	int nmi_selector = kSelSystemNmiCode;
@@ -482,6 +484,25 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	acknowledgeIpi();
 
 	handlePreemption(image);
+}
+
+extern "C" void onPlatformCall(IrqImageAccessor image) {
+	if(inStub(*image.ip()))
+		panicLogger() << "Call IPI"
+				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
+				<< ", ip: " << (void *)*image.ip() << frg::endlog;
+
+	uint16_t cs = *image.cs();
+	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
+			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
+			|| cs == kSelExecutorFaultCode);
+
+	assert(!irqMutex().nesting());
+	disableUserAccess();
+
+	acknowledgeIpi();
+
+	SelfIntCallBase::runScheduledCalls();
 }
 
 extern "C" void onPlatformWork() {

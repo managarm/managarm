@@ -11,6 +11,7 @@ namespace thor {
 struct KernelFiber;
 struct SingleContextRecordRing;
 struct ReentrantRecordRing;
+struct SelfIntCallBase;
 struct WorkQueue;
 
 enum class ProfileMechanism {
@@ -40,6 +41,7 @@ struct CpuData : public PlatformCpuData {
 	ExecutorContext *executorContext = nullptr;
 	KernelFiber *activeFiber;
 	KernelFiber *wqFiber = nullptr;
+	std::atomic<SelfIntCallBase *> selfIntCallPtr{nullptr};
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
 

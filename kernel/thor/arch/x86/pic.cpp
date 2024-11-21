@@ -8,6 +8,7 @@
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
 namespace thor {
@@ -478,6 +479,22 @@ void sendPingIpi(int id) {
 	} else {
 		picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
 		picBase.store(lApicIcrLow, apicIcrLowVector(0xF1) | apicIcrLowDelivMode(0)
+				| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
+		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
+			// Wait for IPI delivery.
+		}
+	}
+}
+
+void sendSelfCallIpi() {
+	auto apic = getCpuData()->localApicId;
+	unsigned int vec = 0xF2;
+	if(picBase.isUsingX2apic()) {
+		picBase.store(lX2ApicIcr, x2apicIcrLowVector(vec) | x2apicIcrLowDelivMode(0)
+				| x2apicIcrLowLevel(true) | x2apicIcrLowShorthand(0) | x2apicIcrHighDestField(apic));
+	} else {
+		picBase.store(lApicIcrHigh, apicIcrHighDestField(apic));
+		picBase.store(lApicIcrLow, apicIcrLowVector(vec) | apicIcrLowDelivMode(0)
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(0));
 		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 			// Wait for IPI delivery.

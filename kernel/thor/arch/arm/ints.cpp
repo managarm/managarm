@@ -1,7 +1,8 @@
 #include <thor-internal/arch-generic/cpu.hpp>
-#include <thor-internal/arch/ints.hpp>
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/int-call.hpp>
 #include <thor-internal/thread.hpp>
 #include <assert.h>
 
@@ -27,6 +28,10 @@ void sendPingIpi(int id) {
 
 void sendShootdownIpi() {
 	gic->sendIpiToOthers(1);
+}
+
+void sendSelfCallIpi() {
+	gic->sendIpi(getCpuData()->cpuIndex, 2);
 }
 
 extern "C" void onPlatformInvalidException(FaultImageAccessor image) {
@@ -217,8 +222,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 
 		if (irq == 0) {
 			handlePreemption(image);
-		} else {
-			assert(irq == 1);
+		} else if (irq == 1) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
@@ -226,6 +230,13 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 				binding.shootdown();
 
 			getCpuData()->asidData->globalBinding.shootdown();
+		} else if (irq == 2) {
+			assert(!irqMutex().nesting());
+			disableUserAccess();
+
+			SelfIntCallBase::runScheduledCalls();
+		} else {
+			panicLogger() << "Received unexpected SGI number " << irq << frg::endlog;
 		}
 	} else if (irq >= 1020) {
 		if constexpr (logSpurious)
