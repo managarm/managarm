@@ -3483,7 +3483,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto handle = self->threadDescriptor().getHandle();
 
-			if(self->pid() != req->pid()) {
+			if(req->pid() && self->pid() != req->pid()) {
 				// TODO: permission checking
 				auto target_process = self->findProcess(req->pid());
 				if(target_process == nullptr) {
