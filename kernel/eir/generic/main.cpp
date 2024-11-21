@@ -16,6 +16,7 @@ void *eirDtbPtr;
 namespace eir {
 
 void *initrd = nullptr;
+
 address_t allocatedMemory;
 frg::span<uint8_t> kernel_image{nullptr, 0};
 address_t kernel_physical = SIZE_MAX;

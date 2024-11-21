@@ -1,5 +1,7 @@
 #pragma once
 
+#include <frg/string.hpp>
+#include <frg/utility.hpp>
 #include <arch/variable.hpp>
 #include <string.h>
 #include <assert.h>
@@ -30,9 +32,9 @@ struct DeviceTreeMemoryReservation {
 
 enum class Tag : uint32_t {
 	beginNode = 1,
-	endNode,
-	prop,
-	nop,
+	endNode = 2,
+	prop = 3,
+	nop = 4,
 	end = 9
 };
 
@@ -190,6 +192,17 @@ struct DeviceTreeProperty {
 		memcpy(&v, data_.data() + offset, 8);
 
 		return v.load();
+	}
+
+	frg::optional<frg::string_view> asString(size_t index = 0) {
+		size_t total = 0;
+		const char *off = reinterpret_cast<const char *>(data_.data());
+		for (size_t i = 0; i < index; i++) {
+			total += strnlen(off + total, data_.size() - total) + 1;
+			if (total >= data_.size())
+				return frg::null_opt;
+		}
+		return frg::string_view{off + total, strnlen(off + total, data_.size() - total)};
 	}
 
 	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) {
