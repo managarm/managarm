@@ -31,7 +31,6 @@ async::result<PciInfo> Device::getPciInfo() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -42,6 +41,7 @@ async::result<PciInfo> Device::getPciInfo() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
