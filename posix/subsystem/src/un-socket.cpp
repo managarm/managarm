@@ -247,7 +247,7 @@ public:
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
-	sendMsg(Process *, uint32_t flags, const void *data, size_t max_length,
+	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
 		assert(!(flags & ~(MSG_DONTWAIT)));
@@ -259,6 +259,8 @@ public:
 			co_return protocols::fs::Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		protocols::fs::utils::handleSoPasscred(_passCreds, ucreds, process->pid(), process->uid(), process->gid());
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
