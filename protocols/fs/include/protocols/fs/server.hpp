@@ -20,8 +20,14 @@ namespace managarm::fs {
 	struct CntRequest;
 }
 
-namespace protocols {
-namespace fs {
+namespace protocols::fs {
+
+namespace utils {
+
+// returns whether the default data was written to ucred
+bool handleSoPasscred(bool so_passcred, struct ucred &ucred, pid_t process_pid, uid_t process_uid, gid_t process_gid);
+
+} // namespace utils
 
 enum class FileType {
 	unknown,
@@ -246,5 +252,4 @@ async::result<void> servePassthrough(helix::UniqueLane lane, smarter::shared_ptr
 async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		const NodeOperations *node_ops);
 
-
-} } // namespace protocols::fs
+} // namespace protocols::fs

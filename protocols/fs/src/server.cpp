@@ -12,8 +12,24 @@
 #include "fs.bragi.hpp"
 #include "protocols/fs/common.hpp"
 
-namespace protocols {
-namespace fs {
+namespace protocols::fs {
+
+namespace utils {
+
+// overrides `ucred` if `so_passcred` is true and `ucred` does not already hold data
+bool handleSoPasscred(bool so_passcred, struct ucred &ucred, pid_t process_pid, uid_t process_uid, gid_t process_gid) {
+	if(so_passcred && ucred.pid == 0 && ucred.uid == 0 && ucred.gid == 0) {
+		ucred.pid = process_pid;
+		ucred.uid = process_uid;
+		ucred.gid = process_gid;
+
+		return true;
+	}
+
+	return false;
+}
+
+} // namespace utils
 
 namespace {
 
@@ -1584,7 +1600,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			if(!result) {
 				assert(result.error() == protocols::fs::Error::fileNotFound
 					|| result.error() == protocols::fs::Error::directoryNotEmpty);
-				
+
 				resp.set_error(mapFsError(result.error()));
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1703,4 +1719,4 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 	}
 }
 
-} } // namespace protocols::fs
+} // namespace protocols::fs
