@@ -15,10 +15,12 @@ void doSendIpi(CpuData *dstData) {
 
 } // namespace
 
-void sendPingIpi(int cpuIndex) {
+void sendPingIpi(CpuData *dstData) {
 	// TODO: Set an atomic flag to indicate which IPI was raised.
-	doSendIpi(getCpuData(cpuIndex));
+	doSendIpi(dstData);
 }
+
+void sendShootdownIpi() { unimplementedOnRiscv(); }
 
 void sendSelfCallIpi() {
 	// TODO: Set an atomic flag to indicate which IPI was raised.

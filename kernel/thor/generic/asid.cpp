@@ -1,9 +1,9 @@
 #include <thor-internal/arch-generic/asid.hpp>
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
 #include <thor-internal/cpu-data.hpp>
-#include <thor-internal/arch/ints.hpp>
 
 namespace thor {
 

@@ -1,7 +1,7 @@
 #include <assert.h>
 
-#include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/schedule.hpp>
@@ -131,9 +131,9 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 	if(wasEmpty) {
 		if(self == &getCpuData()->scheduler) {
-			sendPingIpi(self->_cpuContext->cpuIndex);
+			sendPingIpi(self->_cpuContext);
 		}else{
-			sendPingIpi(self->_cpuContext->cpuIndex);
+			sendPingIpi(self->_cpuContext);
 		}
 	}
 }

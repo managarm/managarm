@@ -470,8 +470,8 @@ void sendShootdownIpi() {
 	}
 }
 
-void sendPingIpi(int id) {
-	auto apic = getCpuData(id)->localApicId;
+void sendPingIpi(CpuData *dstData) {
+	auto apic = dstData->localApicId;
 //	infoLogger() << "thor [CPU" << getLocalApicId() << "]: Sending ping" << frg::endlog;
 	if(picBase.isUsingX2apic()) {
 		picBase.store(lX2ApicIcr, x2apicIcrLowVector(0xF1) | x2apicIcrLowDelivMode(0)

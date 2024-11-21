@@ -22,8 +22,8 @@ void suspendSelf() {
 	enableIntsAndHaltForever();
 }
 
-void sendPingIpi(int id) {
-	gic->sendIpi(id, 0);
+void sendPingIpi(CpuData *dstData) {
+	gic->sendIpi(dstData->cpuIndex, 0);
 }
 
 void sendShootdownIpi() {
