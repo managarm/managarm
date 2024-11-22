@@ -27,15 +27,15 @@ namespace {
 
 } // namespace anonymous
 
-void UartLogHandler::emit(Severity severity, frg::string_view msg) {
-	(void)severity;
+void UartLogHandler::emit(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
 	for (size_t i = 0; i < msg.size(); ++i)
 		printChar(msg[i]);
 	printChar('\n');
 }
 
-void UartLogHandler::emitUrgent(Severity severity, frg::string_view msg) {
-	(void)severity;
+void UartLogHandler::emitUrgent(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
 	const char *prefix = "URGENT: ";
 	while(*prefix)
 		printChar(*(prefix++));

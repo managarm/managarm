@@ -215,6 +215,10 @@ struct SingleContextRecordRing {
 		return {true, deqPtr, newPtr, chunkSize};
 	}
 
+	uint64_t peekHeadPtr() {
+		return headPtr_.load(std::memory_order_relaxed);
+	}
+
 private:
 	static constexpr size_t headerSize = sizeof(size_t);
 	static constexpr size_t recordAlign = sizeof(size_t);

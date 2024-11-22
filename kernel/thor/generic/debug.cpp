@@ -19,10 +19,10 @@ namespace {
 	>> globalLogList;
 } // anonymous namespace
 
-void LogHandler::emitUrgent(Severity severity, frg::string_view msg) {
+void LogHandler::emitUrgent(frg::string_view record) {
 	if (!takesUrgentLogs)
 		panic();
-	emit(severity, msg);
+	emit(record);
 }
 
 void enableLogHandler(LogHandler *sink) {
@@ -63,15 +63,11 @@ namespace {
 				if (!success)
 					break;
 
-				// Extract metadata from log record.
 				if (actualSize < sizeof(LogMetadata))
-					__builtin_trap();
-				LogMetadata md;
-				memcpy(&md, buffer, sizeof(LogMetadata));
-
-				frg::string_view msg{buffer + sizeof(LogMetadata), actualSize - sizeof(LogMetadata)};
+					panic();
+				frg::string_view record{buffer, actualSize};
 				for (const auto &it : *globalLogList)
-					it->emit(md.severity, msg);
+					it->emit(record);
 
 				cpuData->localLogSeq = nextPtr;
 			}
@@ -161,18 +157,12 @@ namespace {
 		} else {
 			if (record.size() < sizeof(LogMetadata))
 				panic();
-			LogMetadata md;
-			memcpy(&md, record.data(), sizeof(LogMetadata));
-
-			frg::string_view msg{
-				record.data() + sizeof(LogMetadata), record.size() - sizeof(LogMetadata)
-			};
 			// TODO: Iterating through globalLogList without locks is unsafe.
 			//       Fix this by using a lock-free data structure.
 			for (const auto &it : *globalLogList) {
 				if (!it->takesUrgentLogs)
 					continue;
-				it->emitUrgent(md.severity, msg);
+				it->emitUrgent(record);
 			}
 		}
 	}

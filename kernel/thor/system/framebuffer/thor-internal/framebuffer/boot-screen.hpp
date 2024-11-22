@@ -39,7 +39,7 @@ struct BootScreen final : public LogHandler {
 
 	BootScreen(TextDisplay *display);
 
-	void emit(Severity severity, frg::string_view msg) override;
+	void emit(frg::string_view record) override;
 
 	void redraw();
 

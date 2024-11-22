@@ -30,6 +30,15 @@ struct LogMetadata {
 	Severity severity;
 };
 
+inline frg::tuple<LogMetadata, frg::string_view> destructureLogRecord(frg::string_view record) {
+	if (record.size() < sizeof(LogMetadata))
+		panic();
+	LogMetadata md;
+	memcpy(&md, record.data(), sizeof(LogMetadata));
+	frg::string_view msg{record.data() + sizeof(LogMetadata), record.size() - sizeof(LogMetadata)};
+	return {md, msg};
+}
+
 // Synchronous logging sink.
 //
 // Thread safety
@@ -49,7 +58,7 @@ struct LogHandler {
 	//
 	// emit() is called with a global logging mutex held;
 	// in particular, all calls to emit() are serialized.
-	virtual void emit(Severity severity, frg::string_view msg) = 0;
+	virtual void emit(frg::string_view record) = 0;
 
 	// Like emit() but logs out-of-band messages.
 	// This is usually called in emergencies when the usual logging infrastrcture is broken.
@@ -58,7 +67,7 @@ struct LogHandler {
 	// emitUrgent() is called without any mutexes held.
 	// Hence, calls to emitUrgent() are not serialized.
 	// The default implementation calls emit().
-	virtual void emitUrgent(Severity severity, frg::string_view msg);
+	virtual void emitUrgent(frg::string_view record);
 
 	frg::default_list_hook<LogHandler> hook;
 
