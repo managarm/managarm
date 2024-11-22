@@ -1,4 +1,3 @@
-
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/kernel-log.hpp>
@@ -8,6 +7,43 @@
 #include <frg/small_vector.hpp>
 
 namespace thor {
+
+//-----------------------------------------------------------------------------
+// GlobalLogRing implementation.
+//-----------------------------------------------------------------------------
+
+namespace {
+
+constinit GlobalLogRing *globalLogRing{nullptr};
+
+} // namespace
+
+void GlobalLogRing::enable() {
+	enableLogHandler(&handler_);
+}
+
+// GlobalLogRing::Wakeup implementation.
+
+GlobalLogRing::Wakeup::Wakeup(GlobalLogRing *ptr)
+: ptr_{ptr} {}
+
+void GlobalLogRing::Wakeup::operator() () {
+	ptr_->event_.raise();
+}
+
+// GlobalLogRing::Handler implementation.
+
+GlobalLogRing::Handler::Handler(GlobalLogRing *ptr)
+: ptr_{ptr} {}
+
+void GlobalLogRing::Handler::emit(frg::string_view record) {
+	ptr_->ring_.enqueue(record.data(), record.size());
+	ptr_->wakeup_.schedule();
+}
+
+//-----------------------------------------------------------------------------
+// Kmsg implementation.
+//-----------------------------------------------------------------------------
 
 namespace {
 	struct KmsgLogHandlerContext {
@@ -110,17 +146,26 @@ namespace {
 			}
 		}
 	};
-}
+} // namespace
 
 frg::manual_box<KmsgLogHandlerContext> kmsgLogHandlerContext;
 frg::manual_box<KmsgLogHandler> kmsgLogHandler;
 
 void initializeLog() {
+	// Initialize globalLogRing.
+	globalLogRing = frg::construct<GlobalLogRing>(*kernelAlloc);
+	globalLogRing->enable();
+
+	// Initialize globalKmsgRing and related functionality.
 	void *logMemory = kernelAlloc->allocate(1 << 20);
 	globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
 	kmsgLogHandlerContext.initialize();
 	kmsgLogHandler.initialize(kmsgLogHandlerContext.get());
 	enableLogHandler(kmsgLogHandler.get());
+}
+
+GlobalLogRing *getGlobalLogRing() {
+	return globalLogRing;
 }
 
 LogRingBuffer *getGlobalKmsgRing() {
