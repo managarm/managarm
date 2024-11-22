@@ -762,9 +762,28 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::ge
 	for(const auto &[fdnum, fd] : _process->fileContext()->fileTable()) {
 		if(name != std::to_string(fdnum))
 			continue;
-		co_return std::make_shared<Link>(shared_from_this(), std::move(name), fd.file->associatedLink()->getTarget());
+		auto pointee = std::make_shared<SymlinkNode>(fd.file->associatedMount(), fd.file->associatedLink());
+		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
 	}
 	co_return Error::noSuchFile;
+}
+
+SymlinkNode::SymlinkNode(std::shared_ptr<MountView> mount, std::weak_ptr<FsLink> link)
+: _mount{std::move(mount)}, _link{std::move(link)} { }
+
+expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
+	auto link = _link.lock();
+	if(!link)
+		co_return Error::ioError;
+
+	auto desc = link->getProcFsDescription();
+	if(desc)
+		co_return desc.value();
+
+	ViewPath viewPath = {_mount, link};
+	auto path = viewPath.getPath(process->fsContext()->getRoot());
+
+	co_return path;
 }
 
 } // namespace procfs
