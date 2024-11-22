@@ -8,8 +8,8 @@ constinit FirmwareLogHandler firmwareLogHandler;
 
 void setupDebugging() { enableLogHandler(&firmwareLogHandler); }
 
-void FirmwareLogHandler::emit(Severity severity, frg::string_view msg) {
-	(void)severity;
+void FirmwareLogHandler::emit(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
 	for (size_t i = 0; i < msg.size(); ++i)
 		printChar(msg[i]);
 	printChar('\n');

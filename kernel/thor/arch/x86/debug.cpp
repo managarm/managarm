@@ -58,16 +58,18 @@ void setupDebugging() {
 	enableLogHandler(&pioLogHandler);
 }
 
-void PIOLogHandler::emit(Severity severity, frg::string_view msg) {
-	setPriority(severity);
+void PIOLogHandler::emit(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
+	setPriority(md.severity);
 	for (size_t i = 0; i < msg.size(); ++i)
 		printChar(msg[i]);
 	resetPriority();
 	printChar('\n');
 }
 
-void PIOLogHandler::emitUrgent(Severity severity, frg::string_view msg) {
-	setPriority(severity);
+void PIOLogHandler::emitUrgent(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
+	setPriority(md.severity);
 	const char *prefix = "URGENT: ";
 	while(*prefix)
 		printChar(*(prefix++));

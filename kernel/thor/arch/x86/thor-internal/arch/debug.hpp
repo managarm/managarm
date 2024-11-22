@@ -57,8 +57,8 @@ struct PIOLogHandler final : public LogHandler {
 		takesUrgentLogs = true;
 	}
 
-	void emit(Severity severity, frg::string_view msg) override;
-	void emitUrgent(Severity severity, frg::string_view msg) override;
+	void emit(frg::string_view record) override;
+	void emitUrgent(frg::string_view record) override;
 
 	void printChar(char c);
 	void setPriority(Severity severity);

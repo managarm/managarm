@@ -78,8 +78,9 @@ namespace {
 			frg::output_to(ctx()->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx()->kmsgSeq_++, now);
 		}
 
-		void emit(Severity severity, frg::string_view msg) override {
-			setPriority(severity);
+		void emit(frg::string_view record) override {
+			auto [md, msg] = destructureLogRecord(record);
+			setPriority(md.severity);
 			for (size_t i = 0; i < msg.size(); ++i)
 				printChar(msg[i]);
 			printChar('\n');

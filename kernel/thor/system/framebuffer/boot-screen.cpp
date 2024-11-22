@@ -96,11 +96,12 @@ BootScreen::BootScreen(TextDisplay *display)
 	_height = _display->getHeight();
 }
 
-void BootScreen::emit(Severity severity, frg::string_view msg) {
+void BootScreen::emit(frg::string_view record) {
+	auto [md, msg] = destructureLogRecord(record);
 	size_t idx = _displaySeq & (NUM_LINES - 1);
 	auto *line = &_displayLines[idx];
 
-	line->severity = severity;
+	line->severity = md.severity;
 	line->length = msg.size();
 	memcpy(line->msg, msg.data(), msg.size());
 	++_displaySeq;
