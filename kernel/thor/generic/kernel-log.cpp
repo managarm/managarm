@@ -46,6 +46,8 @@ void GlobalLogRing::Handler::emit(frg::string_view record) {
 //-----------------------------------------------------------------------------
 
 namespace {
+	frg::manual_box<LogRingBuffer> globalKmsgRing;
+
 	struct KmsgLogHandlerContext {
 		uint64_t kmsgSeq_ = 0;
 		int state_ = 0;
@@ -53,84 +55,70 @@ namespace {
 		frg::small_vector<char, logLineLength + 1, KernelAlloc> buffer_{*kernelAlloc};
 	};
 
-	struct KmsgLogHandler : public LogHandler {
-		KmsgLogHandler(KmsgLogHandlerContext *context)
-			: context_{context} {}
+	void printChar(KmsgLogHandlerContext *ctx, char c) {
+		auto emit = [&](const char c) {
+			ctx->buffer_.push_back(c);
 
-		void printChar(char c) {
-			auto emit = [&](const char c) {
-				ctx()->buffer_.push_back(c);
-
-				if(c == '\n') {
-					ctx()->buffer_.push_back(0);
-					getGlobalKmsgRing()->enqueue(ctx()->buffer_.data(), ctx()->buffer_.size());
-					ctx()->buffer_.resize(0);
-				}
-			};
-
-			if(!ctx()->state_) {
-				if(c == '\x1B') {
-					ctx()->state_ = 1;
-				} else {
-					emit(c);
-				}
-			} else if(ctx()->state_ == 1) {
-				if(c == '[')
-					ctx()->state_ = 2;
-				else {
-					emit(c);
-					ctx()->state_ = 0;
-				}
-			} else if(ctx()->state_ == 2) {
-				if(c >= '0' && c <= '?') {
-					// ignore them
-				} else if(c >= ' ' && c <= '/') {
-					ctx()->state_ = 3;
-				} else if(c >= '@' && c <= '~') {
-					ctx()->state_ = 0;
-				} else {
-					emit(c);
-					ctx()->state_ = 0;
-				}
-			} else if(ctx()->state_ == 3) {
-				if(c >= ' ' && c <= '/') {
-					// ignore them
-				} else if(c >= '@' && c <= '~') {
-					ctx()->state_ = 0;
-				} else {
-					emit(c);
-					ctx()->state_ = 0;
-				}
-			} else {
-				assert(!"invalid state reached!");
-				emit(c);
-				ctx()->state_ = 0;
+			if(c == '\n') {
+				ctx->buffer_.push_back(0);
+				getGlobalKmsgRing()->enqueue(ctx->buffer_.data(), ctx->buffer_.size());
+				ctx->buffer_.resize(0);
 			}
+		};
+
+		if(!ctx->state_) {
+			if(c == '\x1B') {
+				ctx->state_ = 1;
+			} else {
+				emit(c);
+			}
+		} else if(ctx->state_ == 1) {
+			if(c == '[')
+				ctx->state_ = 2;
+			else {
+				emit(c);
+				ctx->state_ = 0;
+			}
+		} else if(ctx->state_ == 2) {
+			if(c >= '0' && c <= '?') {
+				// ignore them
+			} else if(c >= ' ' && c <= '/') {
+				ctx->state_ = 3;
+			} else if(c >= '@' && c <= '~') {
+				ctx->state_ = 0;
+			} else {
+				emit(c);
+				ctx->state_ = 0;
+			}
+		} else if(ctx->state_ == 3) {
+			if(c >= ' ' && c <= '/') {
+				// ignore them
+			} else if(c >= '@' && c <= '~') {
+				ctx->state_ = 0;
+			} else {
+				emit(c);
+				ctx->state_ = 0;
+			}
+		} else {
+			assert(!"invalid state reached!");
+			emit(c);
+			ctx->state_ = 0;
 		}
+	}
 
-		void setPriority(Severity prio) {
-			assert(ctx()->buffer_.empty());
-			auto now = systemClockSource()->currentNanos() / 1000;
-			frg::output_to(ctx()->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx()->kmsgSeq_++, now);
-		}
+	void setPriority(KmsgLogHandlerContext *ctx, Severity prio) {
+		assert(ctx->buffer_.empty());
+		auto now = systemClockSource()->currentNanos() / 1000;
+		frg::output_to(ctx->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx->kmsgSeq_++, now);
+	}
 
-		void emit(frg::string_view record) override {
-			auto [md, msg] = destructureLogRecord(record);
-			setPriority(md.severity);
-			for (size_t i = 0; i < msg.size(); ++i)
-				printChar(msg[i]);
-			printChar('\n');
-		}
-
-		KmsgLogHandlerContext *ctx() {
-			return context_;
-		}
-
-	private:
-		KmsgLogHandlerContext *context_;
-	};
-
-	frg::manual_box<LogRingBuffer> globalKmsgRing;
+	void translateRecord(KmsgLogHandlerContext *ctx, frg::string_view record) {
+		auto [md, msg] = destructureLogRecord(record);
+		setPriority(ctx, md.severity);
+		for (size_t i = 0; i < msg.size(); ++i)
+			printChar(ctx, msg[i]);
+		printChar(ctx, '\n');
+	}
 
 	initgraph::Task initLogSinks{&globalInitEngine, "generic.init-kernel-log",
 		initgraph::Requires{getFibersAvailableStage(),
@@ -148,8 +136,30 @@ namespace {
 	};
 } // namespace
 
-frg::manual_box<KmsgLogHandlerContext> kmsgLogHandlerContext;
-frg::manual_box<KmsgLogHandler> kmsgLogHandler;
+
+namespace {
+
+coroutine<void> dumpLogToKmsg() {
+	auto glr = getGlobalLogRing();
+	char buffer[logLineLength];
+	uint64_t deqPtr = 0;
+	KmsgLogHandlerContext ctx;
+	while (true) {
+		auto [success, recordPtr, nextPtr, actualSize] = glr->dequeueAt(
+				deqPtr, buffer, logLineLength);
+		if (!success) {
+			co_await glr->wait(deqPtr);
+			continue;
+		}
+
+		frg::string_view record{buffer, actualSize};
+		translateRecord(&ctx, record);
+
+		deqPtr = nextPtr;
+	}
+}
+
+} // namespace
 
 void initializeLog() {
 	// Initialize globalLogRing.
@@ -159,9 +169,8 @@ void initializeLog() {
 	// Initialize globalKmsgRing and related functionality.
 	void *logMemory = kernelAlloc->allocate(1 << 20);
 	globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
-	kmsgLogHandlerContext.initialize();
-	kmsgLogHandler.initialize(kmsgLogHandlerContext.get());
-	enableLogHandler(kmsgLogHandler.get());
+
+	async::detach_with_allocator(*kernelAlloc, dumpLogToKmsg());
 }
 
 GlobalLogRing *getGlobalLogRing() {
