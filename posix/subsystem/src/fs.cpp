@@ -47,6 +47,10 @@ async::result<frg::expected<Error>> FsLink::obstruct() {
 	co_return Error::illegalOperationTarget;
 }
 
+std::optional<std::string> FsLink::getProcFsDescription() {
+	return std::nullopt;
+}
+
 // --------------------------------------------------------
 // FsNode implementation.
 // --------------------------------------------------------
