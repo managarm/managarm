@@ -64,6 +64,16 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	for (int i = 0; i < 512; i++)
 		pml4Virtual[i] = 0;
 
+	for (int i = 256; i < 512; i++) {
+		uintptr_t pml3Page = allocPage();
+
+		uint64_t *pml3Ptr = physToVirt<uint64_t>(pml3Page);
+		for(int j = 0; j < 512; j++)
+			pml3Ptr[j] = 0;
+
+		pml4Virtual[i] = (pml3Page >> 2) | pteValid;
+	}
+
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
 			" after setting up paging" << frg::endlog;
 
