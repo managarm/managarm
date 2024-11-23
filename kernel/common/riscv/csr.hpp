@@ -21,7 +21,9 @@ enum class Csr : uint16_t {
 
 namespace sstatus {
 
-constexpr uint64_t sieBit = 2;
+constexpr uint64_t sieBit = UINT64_C(1) << 1;  // Interrupt enable.
+constexpr uint64_t spieBit = UINT64_C(1) << 5; // Previous interrupt enable.
+constexpr uint64_t sppBit = UINT64_C(1) << 8;  // Previous privilege level (s-mode or not).
 
 } // namespace sstatus
 
