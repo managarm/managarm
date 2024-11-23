@@ -3,21 +3,34 @@ ENTRY(thorRtEntry)
 SECTIONS {
 	. = 0xFFFFFFFF80000000;
 
-	.text ALIGN(0x1000) : { *(.text .text.*) }
-	.rodata ALIGN(0x1000) : { *(.rodata .rodata.*) }
-	.eh_frame_hdr ALIGN(0x1000) : { *(.eh_frame_hdr) }
+	.text : { *(.text .text.*) }
+
+	/* R data segment. */
+	. += CONSTANT(COMMONPAGESIZE);
+	. = ALIGN(CONSTANT(COMMONPAGESIZE)); /* Eir wants page-aligned segments. */
+
+	.rodata : { *(.rodata .rodata.*) }
+	.eh_frame_hdr : { *(.eh_frame_hdr) }
 	.eh_frame : { *(.eh_frame) }
 
-	.init_array ALIGN(0x1000) : {
+	/* RW data segment. */
+	. += CONSTANT(COMMONPAGESIZE);
+	. = ALIGN(CONSTANT(COMMONPAGESIZE)); /* Eir wants page-aligned segments. */
+
+	.init_array : {
 		PROVIDE_HIDDEN (__init_array_start = .);
 		KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
 		KEEP (*(.init_array .ctors))
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
 
-	.data ALIGN(0x1000) : { *(.data) }
+	.data : { *(.data) }
+	.got : { *(.got.plt) *(.got) }
+
+	/* BSS segment. */
 	.bss : { *(.bss) *(.bss.*) }
 
+	/* Unallocated sections. */
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }
 	.stab.excl 0 : { *(.stab.excl) }
@@ -56,14 +69,6 @@ SECTIONS {
 	.debug_str_offsets 0 : { *(.debug_str_offsets) }
 
 	.comment 0 : { *(.comment) }
-
-	.got.plt (INFO) : { *(.got.plt) }
-
-	.got : {
-		*(.got) *(.igot.*)
-	}
-	# TODO: RISC-V generates .got entries but no relocations. Do we need them?
-	#ASSERT(SIZEOF(.got) == 0, "Unexpected GOT entries detected!")
 
 	.plt : {
 		*(.plt) *(.plt.*) *(.iplt)
