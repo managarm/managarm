@@ -1,4 +1,5 @@
 #include <asm/ioctls.h>
+#include <linux/magic.h>
 #include <numeric>
 #include <termios.h>
 #include <sys/epoll.h>
@@ -296,6 +297,12 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *, FsNode *, std::string) override {
 		co_return Error::noSuchFile;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{};
+		stats.f_type = DEVPTS_SUPER_MAGIC;
+		co_return stats;
 	}
 };
 

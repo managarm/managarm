@@ -1,4 +1,5 @@
 
+#include <linux/magic.h>
 #include <string.h>
 
 #include "fs.hpp"
@@ -19,6 +20,13 @@ struct AnonymousSuperblock : FsSuperblock {
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	rename(FsLink *, FsNode *, std::string) override {
 		co_return Error::noSuchFile;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{
+			.f_type = ANON_INODE_FS_MAGIC,
+		};
+		co_return stats;
 	}
 };
 

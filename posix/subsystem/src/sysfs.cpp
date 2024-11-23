@@ -1,4 +1,5 @@
 
+#include <linux/magic.h>
 #include <string.h>
 
 #include "clock.hpp"
@@ -29,6 +30,13 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
+
+async::result<frg::expected<Error, FsFileStats>> SysfsSuperblock::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = SYSFS_MAGIC;
+	co_return stats;
+}
+
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------

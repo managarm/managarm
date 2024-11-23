@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <linux/magic.h>
 #include <unistd.h>
 #include <set>
 
@@ -546,6 +547,13 @@ struct Superblock final : FsSuperblock {
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
 		co_return new_link;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{
+			.f_type = TMPFS_MAGIC,
+		};
+		co_return stats;
 	}
 
 	int64_t allocateInode() {

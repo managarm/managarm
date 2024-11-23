@@ -33,6 +33,12 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
+// Internal representation of struct statfs
+struct FsFileStats {
+	unsigned long f_type;
+	// struct statfs has more members but we don't care about them yet
+};
+
 
 // Forward declarations.
 struct FsLink;
@@ -64,6 +70,7 @@ public:
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
+	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats() = 0;
 };
 
 FsSuperblock *getAnonymousSuperblock();

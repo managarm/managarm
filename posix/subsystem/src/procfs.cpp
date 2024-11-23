@@ -1,3 +1,4 @@
+#include <linux/magic.h>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -217,6 +218,12 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 SuperBlock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
+
+async::result<frg::expected<Error, FsFileStats>> SuperBlock::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
 
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.

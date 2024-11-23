@@ -25,6 +25,7 @@ struct Superblock final : FsSuperblock {
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 
 	std::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
@@ -960,6 +961,11 @@ std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std:
 			std::move(name), std::move(target));
 	*entry = link;
 	return link;
+}
+
+async::result<frg::expected<Error, FsFileStats>> Superblock::getFsstats() {
+	std::cout << "posix: unimplemented getFsstats for extern_fs Superblock!" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 } // anonymous namespace

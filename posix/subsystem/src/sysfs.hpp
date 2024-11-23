@@ -30,6 +30,7 @@ public:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 };
 
 struct LinkCompare {
