@@ -60,22 +60,24 @@ void setupDebugging() {
 
 void PIOLogHandler::emit(frg::string_view record) {
 	auto [md, msg] = destructureLogRecord(record);
-	setPriority(md.severity);
+	auto csiSent = setPriority(md.severity);
 	for (size_t i = 0; i < msg.size(); ++i)
 		printChar(msg[i]);
-	resetPriority();
+	if (csiSent)
+		resetPriority();
 	printChar('\n');
 }
 
 void PIOLogHandler::emitUrgent(frg::string_view record) {
 	auto [md, msg] = destructureLogRecord(record);
-	setPriority(md.severity);
+	auto csiSent = setPriority(md.severity);
 	const char *prefix = "URGENT: ";
 	while(*prefix)
 		printChar(*(prefix++));
 	for (size_t i = 0; i < msg.size(); ++i)
 		printChar(msg[i]);
-	resetPriority();
+	if (csiSent)
+		resetPriority();
 	printChar('\n');
 }
 
@@ -107,9 +109,8 @@ void PIOLogHandler::printChar(char c) {
 	}
 }
 
-void PIOLogHandler::setPriority(Severity prio) {
-	int c = 9;
-
+bool PIOLogHandler::setPriority(Severity prio) {
+	int c;
 	switch(prio) {
 		case Severity::emergency:
 		case Severity::alert:
@@ -120,13 +121,12 @@ void PIOLogHandler::setPriority(Severity prio) {
 		case Severity::warning:
 			c = 3;
 			break;
-		case Severity::notice:
-		case Severity::info:
-			c = 9;
-			break;
 		case Severity::debug:
 			c = 5;
 			break;
+		default:
+			// No CSI necessary.
+			return false;
 	}
 
 	printChar('\e');
@@ -134,6 +134,7 @@ void PIOLogHandler::setPriority(Severity prio) {
 	printChar('3');
 	printChar('0' + c);
 	printChar('m');
+	return true;
 }
 
 void PIOLogHandler::resetPriority() {

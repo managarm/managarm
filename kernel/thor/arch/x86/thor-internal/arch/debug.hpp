@@ -61,7 +61,7 @@ struct PIOLogHandler final : public LogHandler {
 	void emitUrgent(frg::string_view record) override;
 
 	void printChar(char c);
-	void setPriority(Severity severity);
+	bool setPriority(Severity severity);
 	void resetPriority();
 
 private:
