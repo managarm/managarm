@@ -34,10 +34,12 @@ uint64_t getRawTimestampCounter() {
 	return v;
 }
 
-bool haveTimer() { unimplementedOnRiscv(); }
+// TODO: Hardwire this to true for now. The generic thor codes needs timer to be available.
+bool haveTimer() { return true; }
 
-bool preemptionIsArmed() { unimplementedOnRiscv(); }
-void armPreemption(uint64_t nanos) { unimplementedOnRiscv(); }
+// TODO: Implement these functions correctly:
+bool preemptionIsArmed() { return false; }
+void armPreemption(uint64_t nanos) { (void)nanos; }
 void disarmPreemption() { unimplementedOnRiscv(); }
 
 } // namespace thor

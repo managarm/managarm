@@ -8,6 +8,7 @@ src += files(
 	# TODO: Remove the stubs.cpp file after moving its functions elsewhere.
 	'stubs.cpp',
 	'system.cpp',
+	'timer.cpp',
 	# TODO: Remove unimplemented.cpp after implementing most of the architecture.
 	'unimplemented.cpp',
 )
