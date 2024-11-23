@@ -71,11 +71,27 @@ PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) { unimplemented
 // User page management.
 // --------------------------------------------------------
 
-ClientPageSpace::ClientPageSpace()
+ClientPageSpace::ClientPageSpace() : PageSpace{physicalAllocator->allocate(kPageSize)} {
+	assert(rootTable() != PhysicalAddr(-1) && "OOM");
 
-    : PageSpace{physicalAllocator->allocate(kPageSize)} {
-	unimplementedOnRiscv();
+	// Initialize the bottom half to unmapped memory.
+	PageAccessor accessor{rootTable()};
+	auto tbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor.get());
+
+	for (size_t i = 0; i < 256; i++)
+		tbl4[i].store(0);
+
+	// Share the top half with the kernel.
+	PageAccessor kernelAccessor{KernelPageSpace::global().rootTable()};
+	auto kernelTbl4 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(kernelAccessor.get());
+
+	for (size_t i = 256; i < 512; i++) {
+		auto pte = kernelTbl4[i].load();
+		assert(pte & pteValid);
+		tbl4[i].store(pte);
+	}
 }
+
 ClientPageSpace::~ClientPageSpace() { unimplementedOnRiscv(); }
 
 bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) { unimplementedOnRiscv(); }
