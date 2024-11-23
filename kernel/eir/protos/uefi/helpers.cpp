@@ -41,16 +41,17 @@ efi_status fsRead(efi_file_protocol *file, size_t len, size_t offset, efi_physic
 }
 
 efi_file_info *fsGetInfo(efi_file_protocol *file) {
-	efi_file_info *fileInfo = nullptr;
+	efi_file_info fileInfo;
 	efi_guid guid = EFI_FILE_INFO_GUID;
 	uintptr_t infoLen = 0x1;
 
-	efi_status stat = file->get_info(file, &guid, &infoLen, fileInfo);
+	efi_status stat = file->get_info(file, &guid, &infoLen, &fileInfo);
 	assert(stat == EFI_SUCCESS || stat == EFI_BUFFER_TOO_SMALL);
-	EFI_CHECK(bs->allocate_pool(EfiLoaderData, infoLen, reinterpret_cast<void **>(&fileInfo)));
-	EFI_CHECK(file->get_info(file, &guid, &infoLen, fileInfo));
+	efi_file_info *fileInfoPtr = nullptr;
+	EFI_CHECK(bs->allocate_pool(EfiLoaderData, infoLen, reinterpret_cast<void **>(&fileInfoPtr)));
+	EFI_CHECK(file->get_info(file, &guid, &infoLen, fileInfoPtr));
 
-	return fileInfo;
+	return fileInfoPtr;
 }
 
 char16_t *asciiToUcs2(frg::string_view &s) {
