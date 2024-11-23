@@ -46,7 +46,8 @@ struct Frame {
 	}
 	constexpr uint64_t &sp() { return x(2); }
 };
-// TODO: add static assert
+static_assert(offsetof(Frame, ip) == 0xF8);
+static_assert(sizeof(Frame) == 0x100);
 
 struct Executor;
 
@@ -178,7 +179,7 @@ struct FiberContext {
 struct Executor;
 
 // Restores the current executor from its saved image.
-// This is functions does the heavy lifting during task switch.
+// This function does the heavy lifting during task switch.
 // Note: due to the attribute, this must be declared before the friend declaration below.
 [[noreturn]] void restoreExecutor(Executor *executor);
 
@@ -203,14 +204,8 @@ struct Executor {
 
 	Executor &operator=(const Executor &other) = delete;
 
-	// FIXME: remove or refactor the rdi / rflags accessors
-	// as they are platform specific and need to be abstracted here
-	Word *rflags() { unimplementedOnRiscv(); }
-
 	Word *ip() { unimplementedOnRiscv(); }
-	Word *sp() { unimplementedOnRiscv(); }
-	Word *cs() { unimplementedOnRiscv(); }
-	Word *ss() { unimplementedOnRiscv(); }
+	Word *sp() { return &general()->sp(); }
 
 	Word *arg0() { unimplementedOnRiscv(); }
 	Word *arg1() { unimplementedOnRiscv(); }
@@ -247,10 +242,11 @@ struct IseqContext;
 // Note: This struct is accessed from assembly.
 // Do not change the field offsets!
 struct AssemblyCpuData {
-	AssemblyCpuData *selfPointer;
-	uint64_t currentDomain;
-	void *exceptionStackPtr;
-	void *irqStackPtr;
+	AssemblyCpuData *selfPointer; //  0x0
+	uint64_t currentDomain;       //  0x8
+	void *exceptionStackPtr;      // 0x10
+	void *irqStackPtr;            // 0x18
+	uint64_t scratchSp;           // 0x20
 	UserAccessRegion *currentUar;
 	IseqContext *iseqPtr;
 };
@@ -284,13 +280,12 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
 }
 
-void initializeThisProcessor();
-
 void bootSecondary(unsigned int apic_id);
 
 size_t getCpuCount();
 
-inline void saveCurrentSimdState(Executor *executor) { unimplementedOnRiscv(); }
+// TODO: This is not a no-op if we enable the FPU.
+inline void saveCurrentSimdState(Executor *executor) {}
 
 void setupBootCpuContext();
 

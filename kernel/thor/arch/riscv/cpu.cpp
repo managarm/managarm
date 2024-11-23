@@ -1,12 +1,14 @@
 #include <frg/manual_box.hpp>
 #include <generic/thor-internal/cpu-data.hpp>
 #include <riscv/sbi.hpp>
-#include <thor-internal/arch/cpu.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/ring-buffer.hpp>
+
+extern "C" void thorExceptionEntry();
 
 namespace thor {
 
@@ -66,7 +68,23 @@ smarter::borrowed_ptr<Thread> activeExecutor() { unimplementedOnRiscv(); }
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
 void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {
-	unimplementedOnRiscv();
+	assert(!intsAreEnabled());
+
+	cleanKasanShadow(
+	    reinterpret_cast<std::byte *>(sp) - UniqueKernelStack::kSize, UniqueKernelStack::kSize
+	);
+	register uint64_t a0 asm("a0") = reinterpret_cast<uint64_t>(argument);
+	// clang-format off
+	asm volatile (
+		     "mv a1, sp" "\n"
+		"\t" "mv sp, %0" "\n"
+		"\t" "jalr %1"   "\n"
+		"\t" "unimp"
+		:
+		: "r"(sp), "r" (function), "r"(a0)
+		: "a1", "memory"
+	);
+	// clang-format on
 }
 
 namespace {
@@ -81,14 +99,78 @@ void writeToTp(AssemblyCpuData *context) {
 	asm volatile("mv tp, %0" : : "r"(context));
 }
 
-void handleException() {
+constexpr const char *exceptionStrings[] = {
+    "instruction misaligned",
+    "instruction access fault",
+    "illegal instruction",
+    "breakpoint",
+    "load misaligned",
+    "load access fault",
+    "store misaligned",
+    "store access fault",
+    "u-mode ecall",
+    "s-mode ecall",
+    nullptr,
+    nullptr,
+    "instruction page fault",
+    "load page fault",
+    nullptr,
+    "store page fault",
+    nullptr,
+    nullptr,
+    "software check",
+    "hardware error",
+};
+
+extern "C" void thorHandleException(Frame *frame) {
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
-	auto ip = riscv::readCsr<riscv::Csr::sepc>();
-	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
-	infoLogger() << "thor: Exception with cause 0x" << frg::hex_fmt{cause} << ", trap value 0x"
-	             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{ip} << frg::endlog;
+	auto code = cause & ((UINT64_C(1) << 63) - 1);
+	if (cause & (UINT64_C(1) << 63)) {
+		infoLogger() << "thor: IRQ" << frg::endlog;
+	} else {
+		auto status = riscv::readCsr<riscv::Csr::sstatus>();
+		auto ip = riscv::readCsr<riscv::Csr::sepc>();
+		auto trapValue = riscv::readCsr<riscv::Csr::stval>();
+
+		const char *string = "unknown";
+		if (code <= 19)
+			string = exceptionStrings[code];
+
+		infoLogger() << "thor: Exception with code " << code << " (" << string << ")"
+		             << ", trap value 0x" << frg::hex_fmt{trapValue} << " at IP 0x"
+		             << frg::hex_fmt{ip} << frg::endlog;
+
+		infoLogger() << "SPP was: " << static_cast<bool>(status & riscv::sstatus::sppBit)
+		             << ", SPIE was: " << static_cast<bool>(status & riscv::sstatus::spieBit)
+		             << frg::endlog;
+	}
 	while (true)
 		;
+}
+
+void initializeThisProcessor() {
+	auto cpuData = getCpuData();
+
+	auto scratch = reinterpret_cast<uint64_t>(cpuData);
+	riscv::writeCsr<riscv::Csr::sscratch>(scratch);
+
+	cpuData->irqStack = UniqueKernelStack::make();
+	cpuData->detachedStack = UniqueKernelStack::make();
+	cpuData->idleStack = UniqueKernelStack::make();
+
+	cpuData->irqStackPtr = cpuData->irqStack.basePtr();
+
+	// Install the exception handler after stacks are set up.
+	auto stvec = reinterpret_cast<uint64_t>(reinterpret_cast<const void *>(thorExceptionEntry));
+	assert(!(stvec & 3));
+	riscv::writeCsr<riscv::Csr::stvec>(stvec);
+
+	// Setup the per-CPU work queue.
+	cpuData->wqFiber = KernelFiber::post([] {
+		// Do nothing. Our only purpose is to run the associated work queue.
+	});
+	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue()->selfPtr.lock();
+	assert(cpuData->generalWorkQueue);
 }
 
 } // namespace
@@ -128,8 +210,7 @@ static initgraph::Task initBootProcessorTask{
 	    allCpuContexts->push(cpuData);
 
 	    debugLogger() << "Booting on HART " << cpuData->hartId << frg::endlog;
-	    auto stvec = reinterpret_cast<uint64_t>(&handleException);
-	    riscv::writeCsr<riscv::Csr::stvec>(stvec);
+	    initializeThisProcessor();
     }
 };
 
