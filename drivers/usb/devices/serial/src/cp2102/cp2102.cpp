@@ -4,11 +4,11 @@
 #include "../controller.hpp"
 #include "cp2102.hpp"
 
+namespace {
+
 std::set<std::pair<std::string, std::string>> devices = {
 	{"10c4", "ea60"},
 };
-
-namespace {
 
 std::set<std::pair<size_t, size_t>> an205Table1 = {
 	{ 300, 300 },
