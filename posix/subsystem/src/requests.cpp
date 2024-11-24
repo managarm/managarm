@@ -1519,8 +1519,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					continue;
 				}
 
+				ResolveFlags resolveFlags = 0;
 				if(req->flags() & AT_SYMLINK_NOFOLLOW) {
-					std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for utimensat" << std::endl;
+					resolveFlags |= resolveDontFollow;
 				}
 
 				if(req->fd() == AT_FDCWD) {
@@ -1538,7 +1539,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(),
 						relativeTo, req->path(), self.get());
-				auto resolveResult = co_await resolver.resolve();
+				auto resolveResult = co_await resolver.resolve(resolveFlags);
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
