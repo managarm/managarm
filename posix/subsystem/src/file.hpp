@@ -409,6 +409,10 @@ public:
 		return _passthrough;
 	}
 
+	void handleClose() override {
+		_cancelServe.cancel();
+	}
+
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
