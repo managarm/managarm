@@ -322,6 +322,13 @@ inline PlatformCpuData *getPlatformCpuData() {
 	return static_cast<PlatformCpuData *>(cpu_data);
 }
 
+// Get the address to this CPU's per-CPU data base.
+inline uintptr_t getLocalPerCpuBase() {
+	uintptr_t base;
+	asm volatile ("mrs %0, tpidr_el1" : "=r"(base));
+	return base;
+}
+
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
@@ -343,5 +350,7 @@ void setupBootCpuContext();
 void setupCpuContext(AssemblyCpuData *context);
 
 initgraph::Stage *getBootProcessorReadyStage();
+
+void prepareCpuDataFor(void *context, int cpu);
 
 } // namespace thor
