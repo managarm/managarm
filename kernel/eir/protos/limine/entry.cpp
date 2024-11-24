@@ -44,12 +44,12 @@ initgraph::Task setupMiscInfo{&globalInitEngine,
 #endif
 
 		if(dtb_request.response) {
-			info_ptr->dtbPtr = reinterpret_cast<uint64_t>(dtb_request.response->dtb_ptr);
+			info_ptr->dtbPtr = virtToPhys(dtb_request.response->dtb_ptr);
 			info_ptr->dtbSize = 0;
 		}
 
 		if(rsdp_request.response) {
-			info_ptr->acpiRsdp = (uint64_t)rsdp_request.response->address;
+			info_ptr->acpiRsdp = virtToPhys(rsdp_request.response->address);
 		}
 	}
 };
