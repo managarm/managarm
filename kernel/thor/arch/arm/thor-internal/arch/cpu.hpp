@@ -341,4 +341,7 @@ void setupCpuContext(AssemblyCpuData *context);
 
 initgraph::Stage *getBootProcessorReadyStage();
 
+struct CpuData;
+void prepareCpuDataFor(CpuData *context, int cpu);
+
 } // namespace thor

@@ -25,6 +25,8 @@ frg::span<uint8_t> initrd_image{nullptr, 0};
 // Start address of a physical map provided by the bootloader. Defaults to 0.
 address_t physOffset = 0;
 
+PerCpuRegion perCpuRegion{0, 0};
+
 // ----------------------------------------------------------------------------
 // Memory region management.
 // ----------------------------------------------------------------------------
@@ -408,6 +410,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &getMemoryLayout(), sizeof(MemoryLayout));
 		return true;
+	} else if (type == elf_note_type::perCpuRegion) {
+		if (desc.size() != sizeof(PerCpuRegion))
+			panicLogger() << "PerCpuRegion size does not match ELF note" << frg::endlog;
+		memcpy(&perCpuRegion, desc.data(), sizeof(PerCpuRegion));
+		return true;
 	}
 	return false;
 }
@@ -509,6 +516,26 @@ address_t loadKernelImage(void *imagePtr) {
 		}
 		mapKasanShadow(phdr.p_paddr, phdr.p_memsz);
 		unpoisonKasanShadow(phdr.p_paddr, phdr.p_memsz);
+	}
+
+	// Map the KASAN shadow for thor's per-CPU regions.
+	{
+		assert(perCpuRegion.start && perCpuRegion.end);
+
+		// TODO(qookie): Figure out the number of cores
+		// instead of mapping shadow for 256.
+		int nrCores = 256;
+
+		auto singleSize = perCpuRegion.end - perCpuRegion.start;
+		assert(!(singleSize & 0xFFF));
+
+		// The BSPs region is covered by a PT_LOAD PHDR already.
+		auto totalSize = singleSize * (nrCores - 1);
+
+		mapKasanShadow(perCpuRegion.start + singleSize, totalSize);
+
+		// We don't call unpoisonKasanShadow here as thor will
+		// unpoison these regions as it allocates them.
 	}
 
 	kernelEntry = ehdr.e_entry;

@@ -10,6 +10,13 @@ SECTIONS {
 	. = ALIGN(CONSTANT(COMMONPAGESIZE)); /* Eir wants page-aligned segments. */
 
 	.rodata : { *(.rodata .rodata.*) }
+
+	.percpu_init : {
+		percpuInitStart = .;
+		*(.percpu_init)
+		percpuInitEnd = .;
+	}
+
 	.eh_frame_hdr : { *(.eh_frame_hdr) }
 	.eh_frame : { *(.eh_frame) }
 
@@ -30,6 +37,18 @@ SECTIONS {
 
 	/* BSS segment. */
 	.bss : { *(.bss) *(.bss.*) }
+
+	/* Extra space to make a separate PHDR (so that .bss does not
+	get turned into PROGBITS) */
+	. += CONSTANT(COMMONPAGESIZE);
+	. = ALIGN(CONSTANT(COMMONPAGESIZE));
+	.percpu : {
+		percpuStart = .;
+		*(.percpu_head) /* Static data we want at a fixed offset (AssemblyCpuData etc) */
+		*(.percpu)
+		. = ALIGN(CONSTANT(COMMONPAGESIZE));
+		percpuEnd = .;
+	}
 
 	/* Unallocated sections. */
 	.stab 0 : { *(.stab) }

@@ -147,6 +147,7 @@ namespace elf_note_type {
 // Values for Elf64_Nhdr::n_type of ELF notes embedded into Thor.
 // 0x10xx'xxxx range reserved for generic notes in Thor.
 constexpr unsigned int memoryLayout = 0x1000'0000;
+constexpr unsigned int perCpuRegion = 0x1000'0001;
 // 0x11xx'xxxx range reserved for arch-specific notes in Thor.
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -196,4 +197,9 @@ struct RiscvHartCaps {
 		auto n = static_cast<unsigned int>(ext);
 		return extensions[n >> 6] & (UINT64_C(1) << (n & 63));
 	}
+};
+
+struct PerCpuRegion {
+	uint64_t start;
+	uint64_t end;
 };

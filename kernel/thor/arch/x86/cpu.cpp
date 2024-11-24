@@ -7,6 +7,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 
@@ -491,18 +492,6 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 	}
 };
 
-namespace {
-	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
-}
-
-CpuData *getCpuData(size_t k) {
-	return (*allCpuContexts)[k];
-}
-
-size_t getCpuCount() {
-	return allCpuContexts->size();
-}
-
 void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 	assert(!intsAreEnabled());
 
@@ -522,22 +511,30 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 extern "C" void syscallStub();
 
 namespace {
-	frg::manual_box<CpuData> bootCpuContext;
 	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
 }
 
 // Set up the kernel GS segment.
 void setupCpuContext(AssemblyCpuData *context) {
-	context->selfPointer = context;
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uint64_t>(context));
 }
 
+void prepareCpuDataFor(CpuData *context, int cpu) {
+	cpuData.initialize(context);
+
+	context->selfPointer = context;
+	context->cpuIndex = cpu;
+}
+
 void setupBootCpuContext() {
-	bootCpuContext.initialize();
+	auto context = &cpuData.getFor(0);
+
+	prepareCpuDataFor(context, 0);
+	setupCpuContext(context);
+
 	bootLogRing.initialize();
-	bootCpuContext->localLogRing = bootLogRing.get();
-	setupCpuContext(bootCpuContext.get());
+	cpuData.get().localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
@@ -547,12 +544,10 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-p
 		getHpetInitializedStage()},
 	initgraph::Entails{getFibersAvailableStage()},
 	[] {
-		allCpuContexts.initialize(*kernelAlloc);
-
 		// We need to fill in the boot APIC ID.
 		// This cannot be done in setupBootCpuContext() as we need the APIC base first.
-		bootCpuContext->localApicId = getLocalApicId();
-		debugLogger() << "Booting on CPU #" << bootCpuContext->localApicId
+		cpuData.get().localApicId = getLocalApicId();
+		debugLogger() << "Booting on CPU #" << cpuData.get().localApicId
 				<< frg::endlog;
 
 		initializeThisProcessor();
@@ -561,10 +556,6 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-p
 
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
-
-	// TODO: If we want to make bootSecondary() parallel, we have to lock here.
-	cpuData->cpuIndex = allCpuContexts->size();
-	allCpuContexts->push(cpuData);
 
 	// Allocate per-CPU areas.
 	cpuData->irqStack = UniqueKernelStack::make();
@@ -797,7 +788,9 @@ void bootSecondary(unsigned int apic_id) {
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
 
-	auto context = frg::construct<CpuData>(*kernelAlloc);
+	auto [context, cpuNr] = extendPerCpuData();
+	prepareCpuDataFor(context, cpuNr);
+
 	context->localApicId = apic_id;
 	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
