@@ -9,6 +9,7 @@ src += files(
 	'stubs.cpp',
 	'system.cpp',
 	'timer.cpp',
+	'trap.cpp',
 	# TODO: Remove unimplemented.cpp after implementing most of the architecture.
 	'unimplemented.cpp',
 )
