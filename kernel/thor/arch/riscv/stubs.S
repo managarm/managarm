@@ -183,11 +183,9 @@ doForkExecutor:
 	sd x26, 0xC8(a0)
 	sd x27, 0xD0(a0)
 
-	la t0, 1f
-	sd t0, 0xF8(a0)
+	# We continue at the return address.
+	sd ra, 0xF8(a0)
 
+	# Jump to the lambda.
 	mv a0, a2
 	jr a1
-
-1:
-	ret
