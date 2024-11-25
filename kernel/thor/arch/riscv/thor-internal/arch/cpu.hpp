@@ -97,25 +97,26 @@ private:
 struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
-	Word *ip() { unimplementedOnRiscv(); }
+	FaultImageAccessor(Frame *frame) : _pointer{frame} {}
+
+	Word *ip() { return &_frame()->ip; }
 	Word *sp() { unimplementedOnRiscv(); }
 
 	// TODO: There are several flag registers on RISC-V.
 	Word *rflags() { unimplementedOnRiscv(); }
 	Word *code() { unimplementedOnRiscv(); }
 
-	bool inKernelDomain() { unimplementedOnRiscv(); }
+	bool inKernelDomain() { return !_frame()->umode; }
 
-	bool allowUserPages() { unimplementedOnRiscv(); }
+	// TODO: Implement the SUM bit in sstatus.
+	bool allowUserPages() { return false; }
 
-	operator SyscallImageAccessor() { return SyscallImageAccessor{_pointer}; }
-
-	void *frameBase() { return _pointer + sizeof(Frame); }
+	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
 	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
-	char *_pointer;
+	void *_pointer;
 };
 
 struct IrqImageAccessor {
