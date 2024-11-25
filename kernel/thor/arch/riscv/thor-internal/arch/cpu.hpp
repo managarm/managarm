@@ -34,6 +34,7 @@ struct FpRegisters {
 struct Frame {
 	uint64_t xs[31]; // X0 is constant zero, no need to save it.
 	uint64_t ip;
+	uint64_t umode;
 
 	constexpr uint64_t &x(unsigned int n) {
 		assert(n > 0 && n <= 31);
@@ -44,10 +45,11 @@ struct Frame {
 		assert(n <= 7);
 		return x(10 + n);
 	}
+	constexpr uint64_t &ra() { return x(1); }
 	constexpr uint64_t &sp() { return x(2); }
 };
 static_assert(offsetof(Frame, ip) == 0xF8);
-static_assert(sizeof(Frame) == 0x100);
+static_assert(sizeof(Frame) == 0x108);
 
 struct Executor;
 
@@ -95,25 +97,26 @@ private:
 struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
-	Word *ip() { unimplementedOnRiscv(); }
+	FaultImageAccessor(Frame *frame) : _pointer{frame} {}
+
+	Word *ip() { return &_frame()->ip; }
 	Word *sp() { unimplementedOnRiscv(); }
 
 	// TODO: There are several flag registers on RISC-V.
 	Word *rflags() { unimplementedOnRiscv(); }
 	Word *code() { unimplementedOnRiscv(); }
 
-	bool inKernelDomain() { unimplementedOnRiscv(); }
+	bool inKernelDomain() { return !_frame()->umode; }
 
-	bool allowUserPages() { unimplementedOnRiscv(); }
+	// TODO: Implement the SUM bit in sstatus.
+	bool allowUserPages() { return false; }
 
-	operator SyscallImageAccessor() { return SyscallImageAccessor{_pointer}; }
-
-	void *frameBase() { return _pointer + sizeof(Frame); }
+	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
 	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
 
-	char *_pointer;
+	void *_pointer;
 };
 
 struct IrqImageAccessor {
@@ -152,14 +155,14 @@ struct AbiParameters {
 struct UserContext {
 	static void deactivate();
 
-	UserContext() { unimplementedOnRiscv(); }
+	UserContext();
 
 	UserContext(const UserContext &other) = delete;
 
 	UserContext &operator=(const UserContext &other) = delete;
 
 	// Migrates this UserContext to a different CPU.
-	void migrate(CpuData *cpu_data) { unimplementedOnRiscv(); }
+	void migrate(CpuData *cpuData);
 
 	// TODO: This should be private.
 	UniqueKernelStack kernelStack;
@@ -195,7 +198,7 @@ struct Executor {
 
 	Executor() { unimplementedOnRiscv(); }
 
-	explicit Executor(UserContext *context, AbiParameters abi) { unimplementedOnRiscv(); }
+	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
 
 	Executor(const Executor &other) = delete;

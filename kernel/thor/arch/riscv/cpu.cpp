@@ -2,6 +2,7 @@
 #include <generic/thor-internal/cpu-data.hpp>
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
@@ -11,6 +12,13 @@
 extern "C" void thorExceptionEntry();
 
 namespace thor {
+
+// TODO: Move declaration to header.
+void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
+
+bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) {
+	return false;
+}
 
 void enableUserAccess() { unimplementedOnRiscv(); }
 void disableUserAccess() { unimplementedOnRiscv(); }
@@ -27,12 +35,31 @@ bool iseqCopyWeak(void *dst, const void *src, size_t size) {
 	return true;
 }
 
+UserContext::UserContext() : kernelStack(UniqueKernelStack::make()) {}
+
+void UserContext::migrate(CpuData *) {
+	assert(!intsAreEnabled());
+	// TODO: ARM refreshes a pointer to the exception stack in CpuData here.
+}
+
 void UserContext::deactivate() { unimplementedOnRiscv(); }
 
 void saveExecutor(Executor *executor, FaultImageAccessor accessor) { unimplementedOnRiscv(); }
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplementedOnRiscv(); }
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) { unimplementedOnRiscv(); }
 void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
+
+Executor::Executor(UserContext *context, AbiParameters abi) {
+	size_t size = determineSize();
+	_pointer = reinterpret_cast<char *>(kernelAlloc->allocate(size));
+	memset(_pointer, 0, size);
+
+	general()->ip = abi.ip;
+	general()->sp() = abi.sp;
+	general()->umode = 1;
+
+	_exceptionStack = context->kernelStack.basePtr();
+}
 
 Executor::Executor(FiberContext *context, AbiParameters abi) {
 	size_t size = determineSize();
@@ -63,7 +90,12 @@ void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
-smarter::borrowed_ptr<Thread> activeExecutor() { unimplementedOnRiscv(); }
+void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
+	assert(!intsAreEnabled());
+	getCpuData()->activeExecutor = thread;
+}
+
+smarter::borrowed_ptr<Thread> activeExecutor() { return getCpuData()->activeExecutor; }
 
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
@@ -122,6 +154,35 @@ constexpr const char *exceptionStrings[] = {
     "hardware error",
 };
 
+static constexpr uint64_t codeInstructionPageFault = 12;
+static constexpr uint64_t codeLoadPageFault = 13;
+static constexpr uint64_t codeStorePageFault = 15;
+
+Word codeToPageFaultFlags(uint64_t code) {
+	if (code == codeInstructionPageFault)
+		return kPfInstruction;
+	if (code == codeStorePageFault)
+		return kPfWrite;
+	assert(code == codeLoadPageFault);
+	return 0;
+}
+
+void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
+	if (!inHigherHalf(address)) {
+		// Note: We never set kPfAccess, but the generic code also does not rely on it.
+		//       Likewise, we never set kPfBadTable.
+		Word pfFlags = codeToPageFaultFlags(code);
+		if (frame->umode)
+			pfFlags |= kPfUser;
+
+		handlePageFault(FaultImageAccessor{frame}, address, pfFlags);
+		asm volatile("sfence.vma" : : : "memory"); // TODO: This is way too coarse.
+	} else {
+		// TODO: Implement page faults in higher half pages.
+		unimplementedOnRiscv();
+	}
+}
+
 extern "C" void thorHandleException(Frame *frame) {
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
 	auto code = cause & ((UINT64_C(1) << 63) - 1);
@@ -131,6 +192,8 @@ extern "C" void thorHandleException(Frame *frame) {
 		auto status = riscv::readCsr<riscv::Csr::sstatus>();
 		auto ip = riscv::readCsr<riscv::Csr::sepc>();
 		auto trapValue = riscv::readCsr<riscv::Csr::stval>();
+
+		frame->umode = !(status & riscv::sstatus::sppBit);
 
 		const char *string = "unknown";
 		if (code <= 19)
@@ -143,6 +206,14 @@ extern "C" void thorHandleException(Frame *frame) {
 		infoLogger() << "SPP was: " << static_cast<bool>(status & riscv::sstatus::sppBit)
 		             << ", SPIE was: " << static_cast<bool>(status & riscv::sstatus::spieBit)
 		             << frg::endlog;
+
+		infoLogger() << "ra: 0x" << frg::hex_fmt{frame->ra()} << ", sp: 0x"
+		             << frg::hex_fmt{frame->sp()} << frg::endlog;
+
+		if (code == codeInstructionPageFault || code == codeLoadPageFault ||
+		    code == codeStorePageFault) {
+			return handleRiscvPageFault(frame, code, trapValue);
+		}
 	}
 	while (true)
 		;

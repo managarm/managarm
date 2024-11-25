@@ -11,7 +11,11 @@ namespace thor {
 
 void restoreExecutor(Executor *executor) {
 	// Return to supervisor.
-	riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+	if (executor->general()->umode) {
+		riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+	} else {
+		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+	}
 
 	// Disable interrupts on return.
 	riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::spieBit);

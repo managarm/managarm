@@ -32,7 +32,7 @@ thorExceptionEntry:
 	# Set SP to the IRQ stack.
 	ld sp, 0x18(tp)
 
-	addi sp, sp, -0x100 # Size of frame.
+	addi sp, sp, -0x108 # Size of frame.
 	.cfi_def_cfa sp, 0
 
 	sd           x1,  0x0(sp) # ra
@@ -183,11 +183,9 @@ doForkExecutor:
 	sd x26, 0xC8(a0)
 	sd x27, 0xD0(a0)
 
-	la t0, 1f
-	sd t0, 0xF8(a0)
+	# We continue at the return address.
+	sd ra, 0xF8(a0)
 
+	# Jump to the lambda.
 	mv a0, a2
 	jr a1
-
-1:
-	ret

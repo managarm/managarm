@@ -728,7 +728,7 @@ public:
 	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
 		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
 		ptr->selfPtr = ptr;
-		ptr->setupInitialHole(0x100000, 0x7ffffff00000);
+		ptr->setupInitialHole(0x1000, 0x7ffffff00000);
 		return constructHandle(std::move(ptr));
 	}
 
