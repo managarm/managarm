@@ -5,6 +5,7 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
+#include <dtb.hpp>
 #include <uacpi/acpi.h>
 
 #include "limine.h"
@@ -44,8 +45,9 @@ initgraph::Task setupMiscInfo{&globalInitEngine,
 #endif
 
 		if(dtb_request.response) {
+			DeviceTree dt{dtb_request.response->dtb_ptr};
 			info_ptr->dtbPtr = virtToPhys(dtb_request.response->dtb_ptr);
-			info_ptr->dtbSize = 0;
+			info_ptr->dtbSize = dt.size();
 		}
 
 		if(rsdp_request.response) {
