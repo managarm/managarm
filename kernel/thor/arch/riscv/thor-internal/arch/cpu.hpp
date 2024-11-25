@@ -34,6 +34,7 @@ struct FpRegisters {
 struct Frame {
 	uint64_t xs[31]; // X0 is constant zero, no need to save it.
 	uint64_t ip;
+	uint64_t umode;
 
 	constexpr uint64_t &x(unsigned int n) {
 		assert(n > 0 && n <= 31);
@@ -44,10 +45,11 @@ struct Frame {
 		assert(n <= 7);
 		return x(10 + n);
 	}
+	constexpr uint64_t &ra() { return x(1); }
 	constexpr uint64_t &sp() { return x(2); }
 };
 static_assert(offsetof(Frame, ip) == 0xF8);
-static_assert(sizeof(Frame) == 0x100);
+static_assert(sizeof(Frame) == 0x108);
 
 struct Executor;
 

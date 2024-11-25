@@ -45,6 +45,18 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplemented
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) { unimplementedOnRiscv(); }
 void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
 
+Executor::Executor(UserContext *context, AbiParameters abi) {
+	size_t size = determineSize();
+	_pointer = reinterpret_cast<char *>(kernelAlloc->allocate(size));
+	memset(_pointer, 0, size);
+
+	general()->ip = abi.ip;
+	general()->sp() = abi.sp;
+	general()->umode = 1;
+
+	_exceptionStack = context->kernelStack.basePtr();
+}
+
 Executor::Executor(FiberContext *context, AbiParameters abi) {
 	size_t size = determineSize();
 	_pointer = reinterpret_cast<char *>(kernelAlloc->allocate(size));
@@ -147,6 +159,8 @@ extern "C" void thorHandleException(Frame *frame) {
 		auto status = riscv::readCsr<riscv::Csr::sstatus>();
 		auto ip = riscv::readCsr<riscv::Csr::sepc>();
 		auto trapValue = riscv::readCsr<riscv::Csr::stval>();
+
+		frame->umode = !(status & riscv::sstatus::sppBit);
 
 		const char *string = "unknown";
 		if (code <= 19)

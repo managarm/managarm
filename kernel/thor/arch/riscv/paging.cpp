@@ -21,7 +21,10 @@ constinit frg::manual_box<smarter::shared_ptr<KernelPageSpace>> kernelSpacePtr;
 // Physical page access.
 // --------------------------------------------------------
 
-void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) { unimplementedOnRiscv(); }
+void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
+	riscv::writeCsr<riscv::Csr::satp>((root >> 12) | (UINT64_C(9) << 60));
+	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
+}
 
 void switchAwayFromPageTable(int asid) { unimplementedOnRiscv(); }
 
