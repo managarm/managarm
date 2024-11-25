@@ -240,7 +240,7 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 				|| phdr.p_type == PT_GNU_RELRO) {
 			// ignore the phdr
 		}else{
-			assert(!"Unexpected PHDR");
+			warningLogger() << "Unexpected PHDR of type 0x" << frg::hex_fmt{phdr.p_type} << frg::endlog;
 		}
 	}
 
