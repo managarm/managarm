@@ -112,7 +112,7 @@ public:
 
 struct ClientPageSpace : PageSpace {
 public:
-	using Cursor = thor::PageCursor<KernelCursorPolicy>;
+	using Cursor = thor::PageCursor<ClientCursorPolicy>;
 
 	ClientPageSpace();
 
