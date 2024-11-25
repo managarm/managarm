@@ -152,14 +152,14 @@ struct AbiParameters {
 struct UserContext {
 	static void deactivate();
 
-	UserContext() { unimplementedOnRiscv(); }
+	UserContext();
 
 	UserContext(const UserContext &other) = delete;
 
 	UserContext &operator=(const UserContext &other) = delete;
 
 	// Migrates this UserContext to a different CPU.
-	void migrate(CpuData *cpu_data) { unimplementedOnRiscv(); }
+	void migrate(CpuData *cpuData);
 
 	// TODO: This should be private.
 	UniqueKernelStack kernelStack;
@@ -195,7 +195,7 @@ struct Executor {
 
 	Executor() { unimplementedOnRiscv(); }
 
-	explicit Executor(UserContext *context, AbiParameters abi) { unimplementedOnRiscv(); }
+	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
 
 	Executor(const Executor &other) = delete;

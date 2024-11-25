@@ -12,6 +12,10 @@ extern "C" void thorExceptionEntry();
 
 namespace thor {
 
+bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) {
+	return false;
+}
+
 void enableUserAccess() { unimplementedOnRiscv(); }
 void disableUserAccess() { unimplementedOnRiscv(); }
 
@@ -25,6 +29,13 @@ bool iseqCopyWeak(void *dst, const void *src, size_t size) {
 	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
 	memcpy(dst, src, size);
 	return true;
+}
+
+UserContext::UserContext() : kernelStack(UniqueKernelStack::make()) {}
+
+void UserContext::migrate(CpuData *) {
+	assert(!intsAreEnabled());
+	// TODO: ARM refreshes a pointer to the exception stack in CpuData here.
 }
 
 void UserContext::deactivate() { unimplementedOnRiscv(); }
@@ -63,7 +74,12 @@ void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
-smarter::borrowed_ptr<Thread> activeExecutor() { unimplementedOnRiscv(); }
+void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
+	assert(!intsAreEnabled());
+	getCpuData()->activeExecutor = thread;
+}
+
+smarter::borrowed_ptr<Thread> activeExecutor() { return getCpuData()->activeExecutor; }
 
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
