@@ -5,9 +5,11 @@ namespace thor {
 
 // TODO: Move declaration to header.
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
+void handleSyscall(SyscallImageAccessor image);
 
 namespace {
 
+static constexpr uint64_t codeEcallUmode = 8;
 static constexpr uint64_t codeInstructionPageFault = 12;
 static constexpr uint64_t codeLoadPageFault = 13;
 static constexpr uint64_t codeStorePageFault = 15;
@@ -43,6 +45,8 @@ Word codeToPageFaultFlags(uint64_t code) {
 	assert(code == codeLoadPageFault);
 	return 0;
 }
+
+void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }
 
 void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 	if (!inHigherHalf(address)) {
@@ -89,8 +93,10 @@ extern "C" void thorHandleException(Frame *frame) {
 		infoLogger() << "ra: 0x" << frg::hex_fmt{frame->ra()} << ", sp: 0x"
 		             << frg::hex_fmt{frame->sp()} << frg::endlog;
 
-		if (code == codeInstructionPageFault || code == codeLoadPageFault ||
-		    code == codeStorePageFault) {
+		if (code == codeEcallUmode) {
+			return handleRiscvSyscall(frame);
+		} else if (code == codeInstructionPageFault || code == codeLoadPageFault ||
+		           code == codeStorePageFault) {
 			return handleRiscvPageFault(frame, code, trapValue);
 		}
 	}

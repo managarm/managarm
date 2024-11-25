@@ -62,6 +62,8 @@ struct FaultImageAccessor;
 struct SyscallImageAccessor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
+	SyscallImageAccessor(Frame *ptr) : _pointer{ptr} {}
+
 	// The "- 1" is since we do not save x0
 	// this makes the first number the register ID
 	// We begin from A0
@@ -82,16 +84,12 @@ struct SyscallImageAccessor {
 	Word *out0() { return &_frame()->xs[11 - 1]; }
 	Word *out1() { return &_frame()->xs[12 - 1]; }
 
-	void *frameBase() { return _pointer + sizeof(Frame); }
+	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
-	friend struct FaultImageAccessor;
+	Frame *_frame() { return _pointer; }
 
-	SyscallImageAccessor(char *ptr) : _pointer{ptr} {}
-
-	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
-
-	char *_pointer;
+	Frame *_pointer;
 };
 
 struct FaultImageAccessor {
