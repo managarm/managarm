@@ -37,11 +37,13 @@ void UserContext::migrate(CpuData *) {
 	// TODO: ARM refreshes a pointer to the exception stack in CpuData here.
 }
 
-void UserContext::deactivate() { unimplementedOnRiscv(); }
+void UserContext::deactivate() {}
 
 void saveExecutor(Executor *executor, FaultImageAccessor accessor) { unimplementedOnRiscv(); }
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplementedOnRiscv(); }
-void saveExecutor(Executor *executor, SyscallImageAccessor accessor) { unimplementedOnRiscv(); }
+void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
+	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
+}
 void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
 
 Executor::Executor(UserContext *context, AbiParameters abi) {
