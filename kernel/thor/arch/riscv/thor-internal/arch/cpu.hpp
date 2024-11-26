@@ -62,36 +62,34 @@ struct FaultImageAccessor;
 struct SyscallImageAccessor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
+	SyscallImageAccessor(Frame *ptr) : _pointer{ptr} {}
+
 	// The "- 1" is since we do not save x0
 	// this makes the first number the register ID
 	// We begin from A0
 	// in7 and in8 are actually S2 and S3, since (according to
 	// the calling convention) not enough argument registers
-	Word *number() { return &_frame()->xs[10 - 1]; }
-	Word *in0() { return &_frame()->xs[11 - 1]; }
-	Word *in1() { return &_frame()->xs[12 - 1]; }
-	Word *in2() { return &_frame()->xs[13 - 1]; }
-	Word *in3() { return &_frame()->xs[14 - 1]; }
-	Word *in4() { return &_frame()->xs[15 - 1]; }
-	Word *in5() { return &_frame()->xs[16 - 1]; }
-	Word *in6() { return &_frame()->xs[17 - 1]; }
-	Word *in7() { return &_frame()->xs[18 - 1]; }
-	Word *in8() { return &_frame()->xs[19 - 1]; }
+	Word *number() { return &frame()->xs[10 - 1]; }
+	Word *in0() { return &frame()->xs[11 - 1]; }
+	Word *in1() { return &frame()->xs[12 - 1]; }
+	Word *in2() { return &frame()->xs[13 - 1]; }
+	Word *in3() { return &frame()->xs[14 - 1]; }
+	Word *in4() { return &frame()->xs[15 - 1]; }
+	Word *in5() { return &frame()->xs[16 - 1]; }
+	Word *in6() { return &frame()->xs[17 - 1]; }
+	Word *in7() { return &frame()->xs[18 - 1]; }
+	Word *in8() { return &frame()->xs[19 - 1]; }
 
-	Word *error() { return &_frame()->xs[10 - 1]; }
-	Word *out0() { return &_frame()->xs[11 - 1]; }
-	Word *out1() { return &_frame()->xs[12 - 1]; }
+	Word *error() { return &frame()->xs[10 - 1]; }
+	Word *out0() { return &frame()->xs[11 - 1]; }
+	Word *out1() { return &frame()->xs[12 - 1]; }
 
-	void *frameBase() { return _pointer + sizeof(Frame); }
+	Frame *frame() { return _pointer; }
+
+	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
-	friend struct FaultImageAccessor;
-
-	SyscallImageAccessor(char *ptr) : _pointer{ptr} {}
-
-	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
-
-	char *_pointer;
+	Frame *_pointer;
 };
 
 struct FaultImageAccessor {
@@ -212,8 +210,8 @@ struct Executor {
 
 	Word *arg0() { unimplementedOnRiscv(); }
 	Word *arg1() { unimplementedOnRiscv(); }
-	Word *result0() { unimplementedOnRiscv(); }
-	Word *result1() { unimplementedOnRiscv(); }
+	Word *result0() { return &general()->a(0); }
+	Word *result1() { return &general()->a(1); }
 
 	Frame *general() { return reinterpret_cast<Frame *>(_pointer); }
 

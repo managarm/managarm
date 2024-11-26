@@ -6,6 +6,8 @@
 //       Technically, you can use the table of jump instructions to _slightly_ speed up interrupt handling (you instantly know
 //       which exception/interrupt was fired), however in practice there is little difference.
 
+.option norelax
+
 // Emit debugging information + unwind tables.
 .cfi_sections .eh_frame, .debug_frame
 
@@ -23,8 +25,26 @@ thorExceptionEntry:
 	.cfi_return_column 64
 
 	# Swap tp and sscratch.
-	# sscratch holds the supervisor tp (i.e., AssemblyCpuData pointer).
+	# If sscratch was non-zero, we interrupted user mode.
+	# Note: This allows us to test whether we interrupted kernel mode without loading sstatus.
+	#       It also does not require us to immediately clobber a register for that purpose.
 	csrrw tp, sscratch, tp
+	bnez tp, 1f
+
+	# Kernel-mode traps take this path.
+
+	# Get back our kernel tp.
+	csrr tp, sscratch
+
+	# Store the previos SP in CpuData.
+	sd sp, 0x20(tp)
+
+	# Keep using the same stack. TODO: Detect double faults etc?
+
+	j 2f
+
+1:
+	# User-mode traps continue here.
 
 	# Store the previos SP in CpuData.
 	sd sp, 0x20(tp)
@@ -32,17 +52,28 @@ thorExceptionEntry:
 	# Set SP to the IRQ stack.
 	ld sp, 0x18(tp)
 
+2:
+	# Both user + kernel traps continue here.
+
 	addi sp, sp, -0x108 # Size of frame.
 	.cfi_def_cfa sp, 0
 
 	sd           x1,  0x0(sp) # ra
 	.cfi_offset  x1,  0x0
+	# x2 = sp is saved separately.
+	sd           x3, 0x10(sp) # gp
+	.cfi_offset  x3, 0x10
+	# x4 = tp is saved separately.
 	sd           x5, 0x20(sp) # t0
 	.cfi_offset  x5, 0x20
 	sd           x6, 0x28(sp) # t1
 	.cfi_offset  x6, 0x28
 	sd           x7, 0x30(sp) # t2
 	.cfi_offset  x7, 0x30
+	sd           x8, 0x38(sp) # s0
+	.cfi_offset  x8, 0x38
+	sd           x9, 0x40(sp) # s1
+	.cfi_offset  x9, 0x40
 	sd          x10, 0x48(sp) # a0
 	.cfi_offset x10, 0x48
 	sd          x11, 0x50(sp) # a1
@@ -59,6 +90,26 @@ thorExceptionEntry:
 	.cfi_offset x16, 0x78
 	sd          x17, 0x80(sp) # a7
 	.cfi_offset x17, 0x80
+	sd          x18, 0x88(sp) # s2
+	.cfi_offset x18, 0x88
+	sd          x19, 0x90(sp) # s3
+	.cfi_offset x19, 0x90
+	sd          x20, 0x98(sp) # s4
+	.cfi_offset x20, 0x98
+	sd          x21, 0xA0(sp) # s5
+	.cfi_offset x21, 0xA0
+	sd          x22, 0xA8(sp) # s6
+	.cfi_offset x22, 0xA8
+	sd          x23, 0xB0(sp) # s7
+	.cfi_offset x23, 0xB0
+	sd          x24, 0xB8(sp) # s8
+	.cfi_offset x24, 0xB8
+	sd          x25, 0xC0(sp) # s9
+	.cfi_offset x25, 0xC0
+	sd          x26, 0xC8(sp) # s10
+	.cfi_offset x26, 0xC8
+	sd          x27, 0xD0(sp) # s11
+	.cfi_offset x27, 0xD0
 	sd          x28, 0xD8(sp) # t3
 	.cfi_offset x28, 0xD8
 	sd          x29, 0xE0(sp) # t4
@@ -68,8 +119,8 @@ thorExceptionEntry:
 	sd          x31, 0xF0(sp) # t6
 	.cfi_offset x31, 0xF0
 
-	# Write the supervisor tp back to sscratch.
-	csrrw t0, sscratch, tp
+	# Write the previous tp to the frame, clear sscratch to zero.
+	csrrw t0, sscratch, zero
 	sd t0, 0x18(sp)
 	.cfi_offset tp, 0x18
 
@@ -92,9 +143,14 @@ thorExceptionEntry:
 
 	# Load GPRs.
 	ld           x1,  0x0(sp) # ra
+	# x2 = sp is restored separately.
+	ld           x3, 0x10(sp) # gp
+	# x4 = tp is restored separately.
 	ld           x5, 0x20(sp) # t0
 	ld           x6, 0x28(sp) # t1
 	ld           x7, 0x30(sp) # t2
+	ld           x8, 0x38(sp) # s0
+	ld           x9, 0x40(sp) # s1
 	ld          x10, 0x48(sp) # a0
 	ld          x11, 0x50(sp) # a1
 	ld          x12, 0x58(sp) # a2
@@ -103,6 +159,16 @@ thorExceptionEntry:
 	ld          x15, 0x70(sp) # a5
 	ld          x16, 0x78(sp) # a6
 	ld          x17, 0x80(sp) # a7
+	ld          x18, 0x88(sp) # s2
+	ld          x19, 0x90(sp) # s3
+	ld          x20, 0x98(sp) # s4
+	ld          x21, 0xA0(sp) # s5
+	ld          x22, 0xA8(sp) # s6
+	ld          x23, 0xB0(sp) # s7
+	ld          x24, 0xB8(sp) # s8
+	ld          x25, 0xC0(sp) # s9
+	ld          x26, 0xC8(sp) # s10
+	ld          x27, 0xD0(sp) # s11
 	ld          x28, 0xD8(sp) # t3
 	ld          x29, 0xE0(sp) # t4
 	ld          x30, 0xE8(sp) # t5

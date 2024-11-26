@@ -6,6 +6,7 @@
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
 #include <dtb.hpp>
+#include <frg/cmdline.hpp>
 #include <uacpi/acpi.h>
 
 #include "limine.h"
@@ -132,6 +133,11 @@ extern "C" void eirLimineMain(void){
 	assert(kernel_file_request.response);
 	cmdline = frg::string_view {kernel_file_request.response->kernel_file->cmdline};
 	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
+
+	frg::array args = {
+		frg::option{"bochs", frg::store_true(log_e9)},
+	};
+	frg::parse_arguments(cmdline, args);
 
 	assert(module_request.response);
 	assert(module_request.response->module_count > 0);
