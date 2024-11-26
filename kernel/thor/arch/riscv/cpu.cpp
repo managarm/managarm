@@ -129,8 +129,9 @@ void writeToTp(AssemblyCpuData *context) {
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
-	auto scratch = reinterpret_cast<uint64_t>(cpuData);
-	riscv::writeCsr<riscv::Csr::sscratch>(scratch);
+	// Kernel mode runs with zero in sscratch.
+	// User mode runs with the kernel tp in sscratch.
+	riscv::writeCsr<riscv::Csr::sscratch>(0);
 
 	cpuData->irqStack = UniqueKernelStack::make();
 	cpuData->detachedStack = UniqueKernelStack::make();

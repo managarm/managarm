@@ -1,6 +1,7 @@
 #include <riscv/csr.hpp>
 #include <thor-internal/arch/cpu.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/timer.hpp>
 
 extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
@@ -10,11 +11,16 @@ namespace thor {
 // TODO: The following functions should be moved to more appropriate places.
 
 void restoreExecutor(Executor *executor) {
-	// Return to supervisor.
+	// Check whether we return to user-mode or kernel mode.
 	if (executor->general()->umode) {
 		riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+
+		auto kernelTp = reinterpret_cast<uintptr_t>(getCpuData());
+		riscv::writeCsr<riscv::Csr::sscratch>(kernelTp);
 	} else {
 		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+
+		riscv::writeCsr<riscv::Csr::sscratch>(0);
 	}
 
 	// Disable interrupts on return.
