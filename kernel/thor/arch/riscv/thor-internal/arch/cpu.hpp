@@ -34,7 +34,10 @@ struct FpRegisters {
 struct Frame {
 	uint64_t xs[31]; // X0 is constant zero, no need to save it.
 	uint64_t ip;
-	uint64_t umode;
+	// Note: this is a subset of the sstatus CSR that should be *restored* by sret.
+	//       Care must be taken when synthesizing a value for this from kernel space.
+	//       For example, to ensure that interrupts are disabled, "spie" (not "sie") must be set.
+	uint64_t sstatus;
 
 	constexpr uint64_t &x(unsigned int n) {
 		assert(n > 0 && n <= 31);
@@ -47,6 +50,11 @@ struct Frame {
 	}
 	constexpr uint64_t &ra() { return x(1); }
 	constexpr uint64_t &sp() { return x(2); }
+	constexpr uint64_t &tp() { return x(4); }
+
+	bool umode() { return !(sstatus & riscv::sstatus::sppBit); }
+	// Note: Returns "spie" (not "sie"), see above.
+	bool sie() { return sstatus & riscv::sstatus::spieBit; }
 };
 static_assert(offsetof(Frame, ip) == 0xF8);
 static_assert(sizeof(Frame) == 0x108);
@@ -56,8 +64,6 @@ struct Executor;
 struct Continuation {
 	void *sp;
 };
-
-struct FaultImageAccessor;
 
 struct SyscallImageAccessor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
@@ -104,7 +110,7 @@ struct FaultImageAccessor {
 	Word *rflags() { unimplementedOnRiscv(); }
 	Word *code() { unimplementedOnRiscv(); }
 
-	bool inKernelDomain() { return !_frame()->umode; }
+	bool inKernelDomain() { return !_frame()->umode(); }
 
 	// TODO: Implement the SUM bit in sstatus.
 	bool allowUserPages() { return false; }
@@ -120,10 +126,12 @@ private:
 struct IrqImageAccessor {
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 
+	explicit IrqImageAccessor(Frame *frame) : _pointer{frame} {}
+
 	Word *ip() { unimplementedOnRiscv(); }
 	Word *rflags() { unimplementedOnRiscv(); }
 
-	bool inPreemptibleDomain() { unimplementedOnRiscv(); }
+	bool inPreemptibleDomain() { return frame()->umode() || frame()->sie(); }
 
 	bool inThreadDomain() { unimplementedOnRiscv(); }
 
@@ -133,12 +141,12 @@ struct IrqImageAccessor {
 
 	bool inIdleDomain() { unimplementedOnRiscv(); }
 
-	void *frameBase() { unimplementedOnRiscv(); }
+	Frame *frame() { return _pointer; }
+
+	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
-	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
-
-	char *_pointer;
+	Frame *_pointer;
 };
 
 // CpuData is some high-level struct that inherits from PlatformCpuData.
@@ -193,8 +201,6 @@ struct Executor {
 
 	// TODO: Support FPU / SIMD state.
 	static size_t determineSize() { return sizeof(Frame); }
-
-	Executor() { unimplementedOnRiscv(); }
 
 	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);

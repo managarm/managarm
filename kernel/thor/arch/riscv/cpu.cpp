@@ -53,7 +53,6 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 
 	general()->ip = abi.ip;
 	general()->sp() = abi.sp;
-	general()->umode = 1;
 
 	_exceptionStack = context->kernelStack.basePtr();
 }
@@ -66,6 +65,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi) {
 	general()->ip = abi.ip;
 	general()->sp() = (uintptr_t)context->stack.basePtr();
 	general()->a(0) = abi.argument;
+	general()->sstatus = riscv::sstatus::sppBit;
 }
 
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
