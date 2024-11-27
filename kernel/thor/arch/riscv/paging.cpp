@@ -28,9 +28,13 @@ void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
 
 void switchAwayFromPageTable(int asid) { unimplementedOnRiscv(); }
 
-void invalidateAsid(int asid) { unimplementedOnRiscv(); }
+void invalidateAsid(int asid) {
+	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
+}
 
-void invalidatePage(int asid, const void *address) { unimplementedOnRiscv(); }
+void invalidatePage(int asid, const void *address) {
+	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
+}
 
 void initializeAsidContext(CpuData *cpuData) {
 	auto irqLock = frg::guard(&irqMutex());

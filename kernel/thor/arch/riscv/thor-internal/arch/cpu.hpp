@@ -214,8 +214,9 @@ struct Executor {
 	Word *ip() { unimplementedOnRiscv(); }
 	Word *sp() { return &general()->sp(); }
 
-	Word *arg0() { unimplementedOnRiscv(); }
-	Word *arg1() { unimplementedOnRiscv(); }
+	// Note: a0 is used for the supercall code.
+	Word *arg0() { return &general()->a(1); }
+	Word *arg1() { return &general()->a(2); }
 	Word *result0() { return &general()->a(0); }
 	Word *result1() { return &general()->a(1); }
 
