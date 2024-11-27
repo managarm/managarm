@@ -146,6 +146,9 @@ void initializeThisProcessor() {
 	assert(!(stvec & 3));
 	riscv::writeCsr<riscv::Csr::stvec>(stvec);
 
+	// Enable the interrupts that we care about.
+	riscv::writeCsr<riscv::Csr::sie>(UINT64_C(1) << riscv::interrupts::ssi);
+
 	// Setup the per-CPU work queue.
 	cpuData->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.

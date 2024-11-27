@@ -6,6 +6,7 @@ namespace thor {
 extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
 
 // TODO: Move declaration to header.
+void handlePreemption(IrqImageAccessor image);
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleSyscall(SyscallImageAccessor image);
 
@@ -72,7 +73,18 @@ void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 	asm volatile("sfence.vma" : : : "memory"); // TODO: This is way too coarse.
 }
 
-void handleRiscvIrq(Frame *frame, uint64_t code) { infoLogger() << "thor: IRQ" << frg::endlog; }
+void handleRiscvInterrupt(Frame *frame, uint64_t code) {
+	if (logTrapStubs)
+		infoLogger() << "thor: IRQ " << code << frg::endlog;
+
+	if (code == riscv::interrupts::ssi) {
+		riscv::clearCsrBits<riscv::Csr::sip>(UINT64_C(1) << riscv::interrupts::ssi);
+		handlePreemption(IrqImageAccessor{frame});
+	} else {
+		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
+		                    << frg::endlog;
+	}
+}
 
 void handleRiscvException(Frame *frame, uint64_t code) {
 	auto trapValue = riscv::readCsr<riscv::Csr::stval>();

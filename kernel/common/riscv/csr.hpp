@@ -27,6 +27,14 @@ constexpr uint64_t sppBit = UINT64_C(1) << 8;  // Previous privilege level (s-mo
 
 } // namespace sstatus
 
+namespace interrupts {
+
+constexpr uint64_t ssi = 1; // Supervisor software interrupt.
+constexpr uint64_t sti = 5; // Supervisor timer interrupt.
+constexpr uint64_t sei = 9; // Supervisor external interrupt.
+
+} // namespace interrupts
+
 // The CSR manipulation instructions on RISC-V take the CSR as an immediate operand.
 // Since we do not want to add separate read/write functions for each CSR,
 // using a template is out best option to ensure that the CSR is statically known.

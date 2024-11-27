@@ -22,6 +22,6 @@ inline void disableInts() {
 
 inline void halt() { asm volatile("wfi"); }
 
-inline void suspendSelf() { unimplementedOnRiscv(); }
+void suspendSelf();
 
 } // namespace thor

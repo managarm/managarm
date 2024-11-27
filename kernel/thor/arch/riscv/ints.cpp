@@ -27,4 +27,10 @@ void sendSelfCallIpi() {
 	doSendIpi(getCpuData());
 }
 
+void suspendSelf() {
+	enableInts();
+	while (true)
+		asm volatile("wfi");
+}
+
 } // namespace thor
