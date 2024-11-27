@@ -195,6 +195,8 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 		// inherit interrupt parent from parent if we don't have one
 		auto parent = parent_;
 		while (!interruptParentId_) {
+			if (!parent)
+				break;
 			if (parent->isInterruptController()) {
 				assert(parent->phandle_);
 				interruptParentId_ = parent->phandle_;
@@ -204,22 +206,22 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 			interruptParentId_ = parent->interruptParentId_;
 			parent = parent->parent_;
 		}
-
-		assert(interruptParentId_);
 	}
 }
 
 void DeviceTreeNode::finalizeInit() {
-	auto ipIt = phandles->find(interruptParentId_);
-	if (ipIt == phandles->end()) {
-		panicLogger() << "thor: node \"" << name() << "\" has an interrupt parent id "
-			<< interruptParentId_ << " but no such node exists" << frg::endlog;
-	} else {
-		interruptParent_ = ipIt->get<1>();
-	}
+	if (interruptParentId_ != 0) {
+		auto ipIt = phandles->find(interruptParentId_);
+		if (ipIt == phandles->end()) {
+			panicLogger() << "thor: node \"" << name() << "\" has an interrupt parent id "
+				<< interruptParentId_ << " but no such node exists" << frg::endlog;
+		} else {
+			interruptParent_ = ipIt->get<1>();
+		}
 
-	if (irqData_.size()) {
-		irqs_ = interruptParent_->parseIrqs_(irqData_);
+		if (irqData_.size()) {
+			irqs_ = interruptParent_->parseIrqs_(irqData_);
+		}
 	}
 
 	// perform address translation
