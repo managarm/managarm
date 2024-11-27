@@ -238,7 +238,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 
 static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-acpi-root-buses",
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
-	initgraph::Entails{getDevicesEnumeratedStage()},
+	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
 		static const char *pciRootIds[] = {
 			acpi::ACPI_HID_PCI,
@@ -274,9 +274,6 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 				addRootBus(rootBus);
 				return UACPI_NS_ITERATION_DECISION_CONTINUE;
 		}, nullptr);
-
-		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
-		enumerateAll();
 	}
 };
 

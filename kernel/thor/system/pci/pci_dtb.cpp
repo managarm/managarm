@@ -169,10 +169,9 @@ void initPciNode(DeviceTreeNode *node) {
 	addRootBus(rootBus);
 }
 
-} // namespace anonymous
-
-static initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nodes",
+initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nodes",
 	initgraph::Requires{getDeviceTreeParsedStage()},
+	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
 		size_t i = 0;
 
@@ -189,13 +188,6 @@ static initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nod
 	}
 };
 
-static initgraph::Task enumerateRootBuses{&globalInitEngine, "pci.enumerate-buses",
-	initgraph::Requires{getTaskingAvailableStage()},
-	initgraph::Entails{getDevicesEnumeratedStage()},
-	[] {
-		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
-		enumerateAll();
-	}
-};
+} // namespace anonymous
 
 } // namespace thor::pci

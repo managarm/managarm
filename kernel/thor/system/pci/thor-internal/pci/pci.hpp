@@ -23,6 +23,7 @@ struct BootScreen;
 namespace pci {
 
 initgraph::Stage *getBus0AvailableStage();
+initgraph::Stage *getRootsDiscoveredStage();
 initgraph::Stage *getDevicesEnumeratedStage();
 
 inline constexpr arch::scalar_register<uint64_t> msixMessageAddress{0};
