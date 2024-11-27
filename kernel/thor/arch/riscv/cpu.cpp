@@ -15,8 +15,8 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	return false;
 }
 
-void enableUserAccess() { unimplementedOnRiscv(); }
-void disableUserAccess() { unimplementedOnRiscv(); }
+void enableUserAccess() { riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
+void disableUserAccess() { riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
 
 bool iseqStore64(uint64_t *p, uint64_t v) {
 	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.

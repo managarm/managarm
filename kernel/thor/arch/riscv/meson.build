@@ -12,6 +12,7 @@ src += files(
 	'trap.cpp',
 	# TODO: Remove unimplemented.cpp after implementing most of the architecture.
 	'unimplemented.cpp',
+	'user-access.S',
 )
 
 # TODO: Remove this after implementing most of the architecture.

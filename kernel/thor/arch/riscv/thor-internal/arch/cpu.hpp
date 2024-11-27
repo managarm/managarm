@@ -254,7 +254,7 @@ struct AssemblyCpuData {
 	void *exceptionStackPtr;      // 0x10
 	void *irqStackPtr;            // 0x18
 	uint64_t scratchSp;           // 0x20
-	UserAccessRegion *currentUar;
+	UserAccessRegion *currentUar; // 0x28
 	IseqContext *iseqPtr;
 };
 
