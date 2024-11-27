@@ -3,11 +3,16 @@
 
 namespace thor {
 
+extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
+
 // TODO: Move declaration to header.
+void handlePreemption(IrqImageAccessor image);
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleSyscall(SyscallImageAccessor image);
 
 namespace {
+
+constexpr bool logTrapStubs = false;
 
 constexpr uint64_t causeInt = UINT64_C(1) << 63;
 constexpr uint64_t causeCodeMask = ((UINT64_C(1) << 63) - 1);
@@ -16,6 +21,8 @@ constexpr uint64_t codeEcallUmode = 8;
 constexpr uint64_t codeInstructionPageFault = 12;
 constexpr uint64_t codeLoadPageFault = 13;
 constexpr uint64_t codeStorePageFault = 15;
+
+constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit;
 
 constexpr const char *exceptionStrings[] = {
     "instruction misaligned",
@@ -53,40 +60,51 @@ void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame
 
 void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 	if (!inHigherHalf(address)) {
-		// Note: We never set kPfAccess, but the generic code also does not rely on it.
-		//       Likewise, we never set kPfBadTable.
-		Word pfFlags = codeToPageFaultFlags(code);
-		if (frame->umode)
-			pfFlags |= kPfUser;
+		// TODO: We need to distinguish higher half and lower half when we implement Svade.
+	}
 
-		handlePageFault(FaultImageAccessor{frame}, address, pfFlags);
-		asm volatile("sfence.vma" : : : "memory"); // TODO: This is way too coarse.
+	// Note: We never set kPfAccess, but the generic code also does not rely on it.
+	//       Likewise, we never set kPfBadTable.
+	Word pfFlags = codeToPageFaultFlags(code);
+	if (frame->umode())
+		pfFlags |= kPfUser;
+
+	handlePageFault(FaultImageAccessor{frame}, address, pfFlags);
+	asm volatile("sfence.vma" : : : "memory"); // TODO: This is way too coarse.
+}
+
+void handleRiscvInterrupt(Frame *frame, uint64_t code) {
+	if (logTrapStubs)
+		infoLogger() << "thor: IRQ " << code << frg::endlog;
+
+	if (code == riscv::interrupts::ssi) {
+		riscv::clearCsrBits<riscv::Csr::sip>(UINT64_C(1) << riscv::interrupts::ssi);
+		handlePreemption(IrqImageAccessor{frame});
 	} else {
-		// TODO: Implement page faults in higher half pages.
-		unimplementedOnRiscv();
+		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
+		                    << frg::endlog;
 	}
 }
 
-void handleRiscvIrq(Frame *frame, uint64_t code) { infoLogger() << "thor: IRQ" << frg::endlog; }
-
-void handleRiscvException(Frame *frame, uint64_t code, uint64_t status) {
-	infoLogger() << "a0 is 0x" << frg::hex_fmt{frame->a(0)} << frg::endlog;
+void handleRiscvException(Frame *frame, uint64_t code) {
 	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
 
 	const char *string = "unknown";
 	if (code <= 19)
 		string = exceptionStrings[code];
 
-	infoLogger() << "thor: Exception with code " << code << " (" << string << ")"
-	             << ", trap value 0x" << frg::hex_fmt{trapValue} << " at IP 0x"
-	             << frg::hex_fmt{frame->ip} << frg::endlog;
+	if (logTrapStubs) {
+		infoLogger() << "thor: Exception with code " << code << " (" << string << ")"
+		             << ", trap value 0x" << frg::hex_fmt{trapValue} << " at IP 0x"
+		             << frg::hex_fmt{frame->ip} << frg::endlog;
 
-	infoLogger() << "SPP was: " << static_cast<bool>(status & riscv::sstatus::sppBit)
-	             << ", SPIE was: " << static_cast<bool>(status & riscv::sstatus::spieBit)
-	             << frg::endlog;
+		infoLogger() << "SPP was: " << static_cast<bool>(frame->sstatus & riscv::sstatus::sppBit)
+		             << ", SPIE was: "
+		             << static_cast<bool>(frame->sstatus & riscv::sstatus::spieBit) << frg::endlog;
 
-	infoLogger() << "ra: 0x" << frg::hex_fmt{frame->ra()} << ", sp: 0x" << frg::hex_fmt{frame->sp()}
-	             << frg::endlog;
+		infoLogger() << "ra: 0x" << frg::hex_fmt{frame->ra()} << ", sp: 0x"
+		             << frg::hex_fmt{frame->sp()} << frg::endlog;
+	}
 
 	if (code == codeEcallUmode) {
 		// We need to skip over the ecall instruction (since sepc points to ecall on entry).
@@ -97,41 +115,48 @@ void handleRiscvException(Frame *frame, uint64_t code, uint64_t status) {
 	           code == codeStorePageFault) {
 		handleRiscvPageFault(frame, code, trapValue);
 	} else {
-		panicLogger() << "Unexpected exception" << frg::endlog;
+		panicLogger() << "Unexpected exception with code " << code << ", trap value 0x"
+		              << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
+		              << frg::endlog;
 	}
+}
+
+void writeSretCsrs(Frame *frame) {
+	auto sstatusForExit =
+	    (riscv::readCsr<riscv::Csr::sstatus>() & ~sstatusMask) | (frame->sstatus & sstatusMask);
+	if (frame->umode()) {
+		auto kernelTp = reinterpret_cast<uintptr_t>(getCpuData());
+		riscv::writeCsr<riscv::Csr::sscratch>(kernelTp);
+	}
+	riscv::writeCsr<riscv::Csr::sstatus>(sstatusForExit);
+	riscv::writeCsr<riscv::Csr::sepc>(frame->ip);
 }
 
 } // namespace
 
 extern "C" void thorHandleException(Frame *frame) {
-	auto status = riscv::readCsr<riscv::Csr::sstatus>();
-	frame->umode = !(status & riscv::sstatus::sppBit);
+	// Perform the trap entry.
+	frame->sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	auto cause = riscv::readCsr<riscv::Csr::scause>();
 
 	// Call the actual IRQ or exception handler.
-	auto cause = riscv::readCsr<riscv::Csr::scause>();
 	auto code = cause & causeCodeMask;
 	if (cause & causeInt) {
-		handleRiscvIrq(frame, code);
+		handleRiscvInterrupt(frame, code);
 	} else {
-		handleRiscvException(frame, code, status);
+		handleRiscvException(frame, code);
 	}
 
-	if (frame->umode) {
-		riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
+	// Now perform the trap exit.
+	writeSretCsrs(frame);
+}
 
-		auto kernelTp = reinterpret_cast<uintptr_t>(getCpuData());
-		riscv::writeCsr<riscv::Csr::sscratch>(kernelTp);
-	} else {
-		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sppBit);
-
-		riscv::writeCsr<riscv::Csr::sscratch>(0);
-	}
-
-	// Disable interrupts on return.
-	riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::spieBit);
-
-	// Store return PC in sepc (since sret restores it from there).
-	riscv::writeCsr<riscv::Csr::sepc>(frame->ip);
+void restoreExecutor(Executor *executor) {
+	writeSretCsrs(executor->general());
+	// TODO: In principle, this is only necessary on CPU migration.
+	if (!executor->general()->umode())
+		executor->general()->tp() = reinterpret_cast<uintptr_t>(getCpuData());
+	thorRestoreExecutorRegs(executor->general());
 }
 
 } // namespace thor

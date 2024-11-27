@@ -15,8 +15,8 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	return false;
 }
 
-void enableUserAccess() { unimplementedOnRiscv(); }
-void disableUserAccess() { unimplementedOnRiscv(); }
+void enableUserAccess() { riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
+void disableUserAccess() { riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
 
 bool iseqStore64(uint64_t *p, uint64_t v) {
 	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
@@ -53,7 +53,6 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 
 	general()->ip = abi.ip;
 	general()->sp() = abi.sp;
-	general()->umode = 1;
 
 	_exceptionStack = context->kernelStack.basePtr();
 }
@@ -66,6 +65,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi) {
 	general()->ip = abi.ip;
 	general()->sp() = (uintptr_t)context->stack.basePtr();
 	general()->a(0) = abi.argument;
+	general()->sstatus = riscv::sstatus::sppBit;
 }
 
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
@@ -145,6 +145,9 @@ void initializeThisProcessor() {
 	auto stvec = reinterpret_cast<uint64_t>(reinterpret_cast<const void *>(thorExceptionEntry));
 	assert(!(stvec & 3));
 	riscv::writeCsr<riscv::Csr::stvec>(stvec);
+
+	// Enable the interrupts that we care about.
+	riscv::writeCsr<riscv::Csr::sie>(UINT64_C(1) << riscv::interrupts::ssi);
 
 	// Setup the per-CPU work queue.
 	cpuData->wqFiber = KernelFiber::post([] {

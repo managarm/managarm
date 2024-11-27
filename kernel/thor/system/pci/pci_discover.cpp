@@ -49,6 +49,11 @@ initgraph::Stage *getBus0AvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getRootsDiscoveredStage() {
+	static initgraph::Stage s{&globalInitEngine, "pci.roots-discovered"};
+	return &s;
+}
+
 initgraph::Stage *getDevicesEnumeratedStage() {
 	static initgraph::Stage s{&globalInitEngine, "pci.devices-enumerated"};
 	return &s;
@@ -1967,5 +1972,14 @@ void writeConfigByte(uint32_t seg, uint32_t bus, uint32_t slot,
 
 	io->writeConfigByte(seg, bus, slot, function, offset, value);
 }
+
+static initgraph::Task enumerateRootBuses{&globalInitEngine, "pci.enumerate-buses",
+	initgraph::Requires{getTaskingAvailableStage(), getRootsDiscoveredStage()},
+	initgraph::Entails{getDevicesEnumeratedStage()},
+	[] {
+		infoLogger() << "thor: Discovering PCI devices" << frg::endlog;
+		enumerateAll();
+	}
+};
 
 } } // namespace thor::pci

@@ -143,9 +143,9 @@ thorExceptionEntry:
 
 	# Load GPRs.
 	ld           x1,  0x0(sp) # ra
-	# x2 = sp is restored separately.
+	# Restore x2 (aka sp) last.
 	ld           x3, 0x10(sp) # gp
-	# x4 = tp is restored separately.
+	ld           x4, 0x18(sp) # tp
 	ld           x5, 0x20(sp) # t0
 	ld           x6, 0x28(sp) # t1
 	ld           x7, 0x30(sp) # t2
@@ -173,12 +173,9 @@ thorExceptionEntry:
 	ld          x29, 0xE0(sp) # t4
 	ld          x30, 0xE8(sp) # t5
 	ld          x31, 0xF0(sp) # t6
-
-	ld tp, 0x18(sp)
-	ld sp, 0x8(sp)
-
+	# Finally, restore sp.
+	ld           sp,  0x8(sp)
 	sret
-
 	.cfi_endproc
 
 .global thorRestoreExecutorRegs
@@ -190,7 +187,7 @@ thorRestoreExecutorRegs:
 	ld  x1,  0x0(a0)
 	ld  x2,  0x8(a0)
 	ld  x3, 0x10(a0)
-	# Do not restore x4 (aka tp).
+	ld  x4, 0x18(a0)
 	ld  x5, 0x20(a0)
 	ld  x6, 0x28(a0)
 	ld  x7, 0x30(a0)
@@ -233,6 +230,11 @@ doForkExecutor:
 	# Load pointer to frame.
 	# TODO: Move this into C++ code.
 	ld a0, (a0)
+
+	# Store sstatus (see comments in Frame struct).
+	# TODO: This may need to be revised for FPU / SIMD state.
+	li t0, 0x100 # SPP = 1, SPIE = 0.
+	sd t0, 0x100(a0)
 
 	sd  x2,  0x8(a0) # Store sp.
 	sd  x8, 0x38(a0) # Store s0.

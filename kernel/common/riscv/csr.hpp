@@ -24,8 +24,17 @@ namespace sstatus {
 constexpr uint64_t sieBit = UINT64_C(1) << 1;  // Interrupt enable.
 constexpr uint64_t spieBit = UINT64_C(1) << 5; // Previous interrupt enable.
 constexpr uint64_t sppBit = UINT64_C(1) << 8;  // Previous privilege level (s-mode or not).
+constexpr uint64_t sumBit = UINT64_C(1) << 18; // User memory access permitted in S-mode.
 
 } // namespace sstatus
+
+namespace interrupts {
+
+constexpr uint64_t ssi = 1; // Supervisor software interrupt.
+constexpr uint64_t sti = 5; // Supervisor timer interrupt.
+constexpr uint64_t sei = 9; // Supervisor external interrupt.
+
+} // namespace interrupts
 
 // The CSR manipulation instructions on RISC-V take the CSR as an immediate operand.
 // Since we do not want to add separate read/write functions for each CSR,
