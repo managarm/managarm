@@ -4,11 +4,14 @@
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
-#include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/system.hpp>
 
 #include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/pci/pcie_brcmstb.hpp>
+
+#ifndef __riscv
+#include <thor-internal/arch/gic.hpp>
+#endif
 
 namespace thor {
 
@@ -77,13 +80,18 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 
 			// TODO: care about polarity
 			auto irq = ent.parentIrq.id;
+#ifndef __riscv
 			if (globalIrqSlots[irq]->isAvailable()) {
+				// TODO: Do not assume the GIC here.
 				auto pin = gic->setupIrq(irq, ent.parentIrq.trigger);
 				routingTable.push({slot, index, pin});
 			} else {
 				auto pin = globalIrqSlots[irq]->pin();
 				routingTable.push({slot, index, pin});
 			}
+#else
+			warningLogger() << "PCI IRQ routing is not implemented yet on RISC-V" << frg::endlog;
+#endif
 		}
 	}
 

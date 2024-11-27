@@ -363,7 +363,9 @@ void DeviceTreeNode::finalizeInit() {
 
 auto DeviceTreeNode::parseIrq_(::DeviceTreeProperty *prop, size_t i) -> DeviceIrq {
 	DeviceIrq irq{};
-
+	// TODO: This code assumes the GIC.
+	//       Revise it to simply store a reference to the property in DeviceIrq.
+#ifndef __riscv
 	bool isPPI = prop->asU32(i);
 	uint32_t rawId = prop->asU32(i + 4);
 	uint32_t flags = prop->asU32(i + 8);
@@ -399,7 +401,7 @@ auto DeviceTreeNode::parseIrq_(::DeviceTreeProperty *prop, size_t i) -> DeviceIr
 	}
 
 	irq.ppiCpuMask = isPPI ? ((flags >> 8) & 0xFF) : 0;
-
+#endif
 	return irq;
 }
 

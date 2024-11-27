@@ -15,6 +15,11 @@ src += files(
 	'user-access.S',
 )
 
+src += files(
+	'../../system/dtb/dtb.cpp',
+	'../../system/pci/pci_dtb.cpp'
+)
+
 # TODO: Remove this after implementing most of the architecture.
 cpp_args += ['-Wno-unused-parameter']
 
