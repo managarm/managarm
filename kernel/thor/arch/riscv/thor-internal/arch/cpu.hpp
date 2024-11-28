@@ -103,24 +103,20 @@ struct FaultImageAccessor {
 
 	FaultImageAccessor(Frame *frame) : _pointer{frame} {}
 
-	Word *ip() { return &_frame()->ip; }
+	Word *ip() { return &frame()->ip; }
 	Word *sp() { unimplementedOnRiscv(); }
 
-	// TODO: There are several flag registers on RISC-V.
-	Word *rflags() { unimplementedOnRiscv(); }
-	Word *code() { unimplementedOnRiscv(); }
-
-	bool inKernelDomain() { return !_frame()->umode(); }
+	bool inKernelDomain() { return !frame()->umode(); }
 
 	// TODO: Implement the SUM bit in sstatus.
 	bool allowUserPages() { return false; }
 
+	Frame *frame() { return _pointer; }
+
 	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
 
 private:
-	Frame *_frame() { return reinterpret_cast<Frame *>(_pointer); }
-
-	void *_pointer;
+	Frame *_pointer;
 };
 
 struct IrqImageAccessor {

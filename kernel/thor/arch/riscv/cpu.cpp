@@ -39,7 +39,9 @@ void UserContext::migrate(CpuData *) {
 
 void UserContext::deactivate() {}
 
-void saveExecutor(Executor *executor, FaultImageAccessor accessor) { unimplementedOnRiscv(); }
+void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
+	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
+}
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplementedOnRiscv(); }
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
