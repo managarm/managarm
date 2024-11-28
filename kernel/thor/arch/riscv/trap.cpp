@@ -184,6 +184,8 @@ extern "C" void thorHandleException(Frame *frame) {
 }
 
 void restoreExecutor(Executor *executor) {
+	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
+
 	writeSretCsrs(executor->general());
 	// TODO: In principle, this is only necessary on CPU migration.
 	if (!executor->general()->umode())
