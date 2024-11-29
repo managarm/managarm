@@ -133,6 +133,28 @@ void writeToTp(AssemblyCpuData *context) {
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
+	// Initialize sstatus to a known state.
+	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	// Disable floating point and vector extensions.
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::vsShift);
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::xsShift);
+	// User-access is off. Executable pages are not always readable.
+	sstatus &= ~riscv::sstatus::sumBit;
+	sstatus &= ~riscv::sstatus::mxrBit;
+	// U-mode is little endian and 64-bit.
+	sstatus &= ~riscv::sstatus::ubeBit;
+	sstatus &= ~(riscv::sstatus::uxlMask << riscv::sstatus::uxlShift);
+	sstatus |= riscv::sstatus::uxl64 << riscv::sstatus::uxlShift;
+	riscv::writeCsr<riscv::Csr::sstatus>(sstatus);
+
+	// Read back sstatus.
+	sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	if (sstatus & riscv::sstatus::ubeBit)
+		panicLogger() << "thor: kernel does not support big endian userspace" << frg::endlog;
+	if (((sstatus >> riscv::sstatus::uxlShift) & riscv::sstatus::uxlMask) != riscv::sstatus::uxl64)
+		panicLogger() << "thor: kernel only supports 64-bit userspace" << frg::endlog;
+
 	// Kernel mode runs with zero in sscratch.
 	// User mode runs with the kernel tp in sscratch.
 	riscv::writeCsr<riscv::Csr::sscratch>(0);
