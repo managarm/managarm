@@ -44,7 +44,10 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	saveCurrentSimdState(executor);
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
 }
-void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplementedOnRiscv(); }
+void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
+	saveCurrentSimdState(executor);
+	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
+}
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	saveCurrentSimdState(executor);
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));

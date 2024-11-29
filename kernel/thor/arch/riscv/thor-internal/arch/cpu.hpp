@@ -117,9 +117,9 @@ struct IrqImageAccessor {
 
 	bool inPreemptibleDomain() { return frame()->umode() || frame()->sie(); }
 
-	bool inThreadDomain() { unimplementedOnRiscv(); }
+	bool inManipulableDomain() { return frame()->umode(); }
 
-	bool inManipulableDomain() { unimplementedOnRiscv(); }
+	bool inThreadDomain() { unimplementedOnRiscv(); }
 
 	bool inFiberDomain() { unimplementedOnRiscv(); }
 
@@ -249,7 +249,15 @@ struct AssemblyCpuData {
 struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
+	// Bits of the pendingIpis field.
+	// Since RISC-V only has a single IPI vector, we need to emulate multiple IPIs in software.
+	static constexpr uint64_t ipiPing = UINT64_C(1) << 0;
+	static constexpr uint64_t ipiShootdown = UINT64_C(1) << 1;
+	static constexpr uint64_t ipiSelfCall = UINT64_C(1) << 2;
+
 	uint64_t hartId{~UINT64_C(0)};
+
+	std::atomic<uint64_t> pendingIpis;
 
 	UniqueKernelStack irqStack;
 

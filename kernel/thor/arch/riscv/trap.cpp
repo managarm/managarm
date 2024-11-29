@@ -1,6 +1,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/trap.hpp>
+#include <thor-internal/int-call.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
@@ -69,6 +70,32 @@ Word codeToPageFaultFlags(uint64_t code) {
 	return 0;
 }
 
+void handleRiscvIpi(Frame *frame) {
+	auto *cpuData = getCpuData();
+
+	// Clear the IPI.This must happen before clearing pendingIpis,
+	// otherwise we could lose IPIs that become pending concurrently.
+	riscv::clearCsrBits<riscv::Csr::sip>(UINT64_C(1) << riscv::interrupts::ssi);
+
+	// Read the bitmask of pending IPIs and process all of them.
+	auto mask = cpuData->pendingIpis.exchange(0, std::memory_order_acq_rel);
+
+	if (mask & PlatformCpuData::ipiShootdown) {
+		for (auto &binding : getCpuData()->asidData->bindings)
+			binding.shootdown();
+
+		getCpuData()->asidData->globalBinding.shootdown();
+	}
+
+	if (mask & PlatformCpuData::ipiSelfCall)
+		SelfIntCallBase::runScheduledCalls();
+
+	// Note: since the following code can re-schedule and discard the current call chain,
+	//       we *must* handle ping IPIs last.
+	if (mask & PlatformCpuData::ipiPing)
+		handlePreemption(IrqImageAccessor{frame});
+}
+
 void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }
 
 void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
@@ -91,8 +118,7 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 		infoLogger() << "thor: IRQ " << code << frg::endlog;
 
 	if (code == riscv::interrupts::ssi) {
-		riscv::clearCsrBits<riscv::Csr::sip>(UINT64_C(1) << riscv::interrupts::ssi);
-		handlePreemption(IrqImageAccessor{frame});
+		handleRiscvIpi(frame);
 	} else {
 		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
 		                    << frg::endlog;
