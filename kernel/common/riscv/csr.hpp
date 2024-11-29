@@ -5,6 +5,8 @@
 namespace riscv {
 
 enum class Csr : uint16_t {
+	// Floating point control and status.
+	fcsr = 0x3,
 	// Supervisor trap setup.
 	sstatus = 0x100, // Status register.
 	sie = 0x104,     // Interrupt enable.

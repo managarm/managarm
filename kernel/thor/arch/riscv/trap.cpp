@@ -1,4 +1,5 @@
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/thread.hpp>
 
@@ -32,7 +33,9 @@ constexpr uint64_t codeInstructionPageFault = 12;
 constexpr uint64_t codeLoadPageFault = 13;
 constexpr uint64_t codeStorePageFault = 15;
 
-constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit;
+// Bits of sstatus that we save/restore on context switch.
+constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit |
+                                 (riscv::sstatus::extMask << riscv::sstatus::fsShift);
 
 constexpr const char *exceptionStrings[] = {
     "instruction misaligned",
@@ -178,19 +181,38 @@ extern "C" void thorHandleException(Frame *frame) {
 	} else {
 		handleRiscvException(frame, code);
 	}
+	assert(!intsAreEnabled());
 
 	// Now perform the trap exit.
 	writeSretCsrs(frame);
 }
 
 void restoreExecutor(Executor *executor) {
+	auto *frame = executor->general();
+
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 
-	writeSretCsrs(executor->general());
+	// Load floating point state.
+	auto fs = (frame->sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
+	if (fs != riscv::sstatus::extOff) {
+		// Note that we have to enable the FP extension first since we disable it in the kernel.
+		// extDirty is all-ones hence the setCsrBits() is enough.
+		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
+
+		auto fs = reinterpret_cast<uint64_t *>(executor->_pointer + Executor::fsOffset());
+		riscv::writeCsr<riscv::Csr::fcsr>(fs[32]);
+		restoreFpRegisters(fs);
+
+		// sstatus is later reloaded from the frame. Mark FS as clean.
+		frame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+		frame->sstatus |= riscv::sstatus::extClean << riscv::sstatus::fsShift;
+	}
+
+	writeSretCsrs(frame);
 	// TODO: In principle, this is only necessary on CPU migration.
-	if (!executor->general()->umode())
-		executor->general()->tp() = reinterpret_cast<uintptr_t>(getCpuData());
-	thorRestoreExecutorRegs(executor->general());
+	if (!frame->umode())
+		frame->tp() = reinterpret_cast<uintptr_t>(getCpuData());
+	thorRestoreExecutorRegs(frame);
 }
 
 } // namespace thor

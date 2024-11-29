@@ -19,18 +19,6 @@ namespace thor {
 
 enum class Domain : uint64_t { irq = 0, fault, fiber, user, idle };
 
-struct FpRegisters {
-	// F - single precision floating point - 32 bits / number
-	// D - double precision floating point - 64 bits / number
-	// Q - quadruple precision floating point - 128 bits / number
-	// Since there are always 32 registers, 64 uint64_t's are required
-	// in order to support all possible hardware floating point
-	// configurations.
-	uint64_t v[64];
-	uint64_t fpcr;
-	uint64_t fpsr;
-};
-
 struct Frame {
 	uint64_t xs[31]; // X0 is constant zero, no need to save it.
 	uint64_t ip;
@@ -192,11 +180,14 @@ struct Executor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
+	friend void saveCurrentSimdState(Executor *executor);
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
-	// TODO: Support FPU / SIMD state.
-	static size_t determineSize() { return sizeof(Frame); }
+	// TODO: This hardcodes the size of the FP state (RISC-V allows 32/64/128 bit).
+	static size_t determineSize() { return sizeof(Frame) + 33 * sizeof(uint64_t); }
+	// Offset (relative to _pointer) of f0-f31 and fcsr (in this order).
+	static size_t fsOffset() { return sizeof(Frame); }
 
 	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
@@ -288,8 +279,7 @@ void bootSecondary(unsigned int apic_id);
 
 size_t getCpuCount();
 
-// TODO: This is not a no-op if we enable the FPU.
-inline void saveCurrentSimdState(Executor *executor) {}
+void saveCurrentSimdState(Executor *executor);
 
 void setupBootCpuContext();
 
