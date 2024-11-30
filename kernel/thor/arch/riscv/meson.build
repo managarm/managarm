@@ -2,6 +2,7 @@ src += files(
 	'cpu.cpp',
 	'debug.cpp',
 	'entry.S',
+	'fp-state.cpp',
 	'ints.cpp',
 	'paging.cpp',
 	'stubs.S',

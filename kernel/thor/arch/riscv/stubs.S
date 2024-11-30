@@ -49,8 +49,8 @@ thorExceptionEntry:
 	# Store the previos SP in CpuData.
 	sd sp, 0x20(tp)
 
-	# Set SP to the IRQ stack.
-	ld sp, 0x18(tp)
+	# Set SP to the executor's kernel stack.
+	ld sp, 0x10(tp)
 
 2:
 	# Both user + kernel traps continue here.

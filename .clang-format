@@ -8,7 +8,8 @@ TabWidth: 4
 UseTab: ForIndentation
 
 ContinuationIndentWidth: 4
-ConstructorInitializerIndentWidth: 4
+ConstructorInitializerIndentWidth: 0
+IndentCaseLabels: true
 # Do not indent "public", "private", etc.
 AccessModifierOffset: -4
 
@@ -18,6 +19,8 @@ AlignAfterOpenBracket: BlockIndent
 BreakTemplateDeclarations: Yes
 # Put long return types on their own line.
 BreakAfterReturnType: Automatic
+# Put binary operators at the start of the line.
+BreakBeforeBinaryOperators: NonAssignment
 
 # Put all initializers onto their own lines.
 PackConstructorInitializers: CurrentLine

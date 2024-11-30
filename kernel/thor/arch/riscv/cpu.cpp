@@ -2,6 +2,7 @@
 #include <generic/thor-internal/cpu-data.hpp>
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch/fp-state.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/fiber.hpp>
@@ -39,9 +40,16 @@ void UserContext::migrate(CpuData *) {
 
 void UserContext::deactivate() {}
 
-void saveExecutor(Executor *executor, FaultImageAccessor accessor) { unimplementedOnRiscv(); }
-void saveExecutor(Executor *executor, IrqImageAccessor accessor) { unimplementedOnRiscv(); }
+void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
+	saveCurrentSimdState(executor);
+	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
+}
+void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
+	saveCurrentSimdState(executor);
+	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
+}
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
+	saveCurrentSimdState(executor);
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
 }
 void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
@@ -53,6 +61,9 @@ Executor::Executor(UserContext *context, AbiParameters abi) {
 
 	general()->ip = abi.ip;
 	general()->sp() = abi.sp;
+	// Note: we could use extInitial here.
+	//       However, that would require changes in the restore code path to zero the registers.
+	general()->sstatus = riscv::sstatus::extClean << riscv::sstatus::fsShift;
 
 	_exceptionStack = context->kernelStack.basePtr();
 }
@@ -116,6 +127,25 @@ void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {
 	// clang-format on
 }
 
+void saveCurrentSimdState(Executor *executor) {
+	// TODO: Instead of reading the current sstatus, we should read it from the saved frame.
+	//       That would enable us to disable the FP state within trap handlers.
+	//       Unfortunately, we cannot implement this right now, as the generic
+	//       forkExecutor() code calls saveCurrentSimdState() before doForkExecutor().
+	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	auto fs = (sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
+
+	if (fs == riscv::sstatus::extDirty) {
+		auto fs = reinterpret_cast<uint64_t *>(executor->_pointer + Executor::fsOffset());
+		fs[32] = riscv::readCsr<riscv::Csr::fcsr>();
+		saveFpRegisters(fs);
+	}
+
+	// Disable the FP extension such that we cannot accidentally access it from the kernel.
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+	riscv::writeCsr<riscv::Csr::sstatus>(sstatus);
+}
+
 namespace {
 
 constinit frg::manual_box<CpuData> bootCpuContext;
@@ -130,6 +160,28 @@ void writeToTp(AssemblyCpuData *context) {
 
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
+
+	// Initialize sstatus to a known state.
+	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	// Disable floating point and vector extensions.
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::vsShift);
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::xsShift);
+	// User-access is off. Executable pages are not always readable.
+	sstatus &= ~riscv::sstatus::sumBit;
+	sstatus &= ~riscv::sstatus::mxrBit;
+	// U-mode is little endian and 64-bit.
+	sstatus &= ~riscv::sstatus::ubeBit;
+	sstatus &= ~(riscv::sstatus::uxlMask << riscv::sstatus::uxlShift);
+	sstatus |= riscv::sstatus::uxl64 << riscv::sstatus::uxlShift;
+	riscv::writeCsr<riscv::Csr::sstatus>(sstatus);
+
+	// Read back sstatus.
+	sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	if (sstatus & riscv::sstatus::ubeBit)
+		panicLogger() << "thor: kernel does not support big endian userspace" << frg::endlog;
+	if (((sstatus >> riscv::sstatus::uxlShift) & riscv::sstatus::uxlMask) != riscv::sstatus::uxl64)
+		panicLogger() << "thor: kernel only supports 64-bit userspace" << frg::endlog;
 
 	// Kernel mode runs with zero in sscratch.
 	// User mode runs with the kernel tp in sscratch.

@@ -5,6 +5,8 @@
 namespace riscv {
 
 enum class Csr : uint16_t {
+	// Floating point control and status.
+	fcsr = 0x3,
 	// Supervisor trap setup.
 	sstatus = 0x100, // Status register.
 	sie = 0x104,     // Interrupt enable.
@@ -23,8 +25,30 @@ namespace sstatus {
 
 constexpr uint64_t sieBit = UINT64_C(1) << 1;  // Interrupt enable.
 constexpr uint64_t spieBit = UINT64_C(1) << 5; // Previous interrupt enable.
-constexpr uint64_t sppBit = UINT64_C(1) << 8;  // Previous privilege level (s-mode or not).
+constexpr uint64_t ubeBit = UINT64_C(1) << 6;  // U-mode is big endian or not.
+constexpr uint64_t sppBit = UINT64_C(1) << 8;  // Previous privilege level (S-mode or not).
 constexpr uint64_t sumBit = UINT64_C(1) << 18; // User memory access permitted in S-mode.
+constexpr uint64_t mxrBit = UINT64_C(1)
+                            << 19; // Executable page permission implies readable in S-mode.
+
+// VS, FS, XS: floating point and vector extension state.
+constexpr int vsShift = 9;
+constexpr int fsShift = 13;
+constexpr int xsShift = 15;
+
+// Values for the VS, FS, XS fields.
+constexpr uint64_t extMask = 3;
+constexpr uint64_t extOff = 0;
+constexpr uint64_t extInitial = 1;
+constexpr uint64_t extClean = 2;
+constexpr uint64_t extDirty = 3;
+
+// U-mode execution width.
+constexpr int uxlShift = 32;
+constexpr uint64_t uxlMask = 3;
+constexpr uint64_t uxl32 = 1;
+constexpr uint64_t uxl64 = 2;
+constexpr uint64_t uxl128 = 3;
 
 } // namespace sstatus
 
