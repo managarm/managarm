@@ -148,13 +148,9 @@ void saveCurrentSimdState(Executor *executor) {
 
 namespace {
 
-constinit frg::manual_box<CpuData> bootCpuContext;
 constinit ReentrantRecordRing bootLogRing;
 
-constinit frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
-
 void writeToTp(AssemblyCpuData *context) {
-	context->selfPointer = context;
 	asm volatile("mv tp, %0" : : "r"(context));
 }
 
@@ -211,18 +207,22 @@ void initializeThisProcessor() {
 
 } // namespace
 
-void setupBootCpuContext() {
-	bootCpuContext.initialize();
+void prepareCpuDataFor(void *context, int cpu) {
+	cpuData.initializeInContext(context);
 
-	bootCpuContext->hartId = thorBootInfoPtr->hartId;
-	bootCpuContext->localLogRing = &bootLogRing;
-
-	writeToTp(bootCpuContext.get());
+	cpuData.getInContext(context).selfPointer = &cpuData.getInContext(context);
+	cpuData.getInContext(context).cpuIndex = cpu;
 }
 
-CpuData *getCpuData(size_t k) { return (*allCpuContexts)[k]; }
+void setupBootCpuContext() {
+	auto context = &cpuData.getFor(0);
 
-size_t getCpuCount() { return allCpuContexts->size(); }
+	prepareCpuDataFor(context, 0);
+	writeToTp(context);
+
+	cpuData.get().localLogRing = &bootLogRing;
+	cpuData.get().hartId = thorBootInfoPtr->hartId;
+}
 
 static initgraph::Task probeSbiFeatures{
     &globalInitEngine,
@@ -239,13 +239,7 @@ static initgraph::Task initBootProcessorTask{
     "riscv.init-boot-processor",
     initgraph::Entails{getFibersAvailableStage()},
     [] {
-	    allCpuContexts.initialize(*kernelAlloc);
-
-	    auto *cpuData = bootCpuContext.get();
-	    cpuData->cpuIndex = 0;
-	    allCpuContexts->push(cpuData);
-
-	    debugLogger() << "Booting on HART " << cpuData->hartId << frg::endlog;
+	    debugLogger() << "Booting on HART " << cpuData.get().hartId << frg::endlog;
 	    initializeThisProcessor();
     }
 };

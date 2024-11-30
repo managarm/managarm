@@ -103,11 +103,14 @@ bool bootSecondary(DeviceTreeNode *node) {
 	constexpr size_t stackSize = 0x10000;
 	void *stackPtr = kernelAlloc->allocate(stackSize);
 
-	auto context = frg::construct<CpuData>(*kernelAlloc);
-	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
+	auto context = addNewPerCpuData();
+	prepareCpuDataFor(context, getCpuCount() - 1);
+
+	auto &newCpuData = cpuData.getInContext(context);
+	newCpuData.localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
-	initializeAsidContext(context);
+	initializeAsidContext(&newCpuData);
 
 	auto codePhysPtr = physicalAllocator->allocate(kPageSize);
 	auto codeVirtPtr = KernelVirtualMemory::global().allocate(kPageSize);
@@ -136,7 +139,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 	statusBlock->ttbr1 = KernelPageSpace::global().rootTable();
 	statusBlock->stack = (uintptr_t)stackPtr + stackSize;
 	statusBlock->main = &secondaryMain;
-	statusBlock->cpuContext = context;
+	statusBlock->cpuContext = &newCpuData;
 	statusBlock->cpuId = id;
 
 	bool dontWait = false;
