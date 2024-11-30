@@ -35,8 +35,8 @@ constexpr uint64_t codeLoadPageFault = 13;
 constexpr uint64_t codeStorePageFault = 15;
 
 // Bits of sstatus that we save/restore on context switch.
-constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit |
-                                 (riscv::sstatus::extMask << riscv::sstatus::fsShift);
+constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit
+                                 | (riscv::sstatus::extMask << riscv::sstatus::fsShift);
 
 constexpr const char *exceptionStrings[] = {
     "instruction misaligned",
@@ -146,39 +146,39 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 	}
 
 	switch (code) {
-	case codeEcallUmode:
-		// We need to skip over the ecall instruction (since sepc points to ecall on entry).
-		frame->ip += 4;
+		case codeEcallUmode:
+			// We need to skip over the ecall instruction (since sepc points to ecall on entry).
+			frame->ip += 4;
 
-		handleRiscvSyscall(frame);
-		break;
-	case codeInstructionPageFault:
-		[[fallthrough]];
-	case codeLoadPageFault:
-	case codeStorePageFault:
-		handleRiscvPageFault(frame, code, trapValue);
-		break;
-	case codeIllegalInstruction:
-		handleOtherFault(FaultImageAccessor{frame}, kIntrIllegalInstruction);
-		break;
-	case codeBreakpoint:
-		handleOtherFault(FaultImageAccessor{frame}, kIntrBreakpoint);
-		break;
-	case codeInstructionMisaligned:
-	case codeInstructionAccessFault:
-	case codeLoadMisaligned:
-	case codeLoadAccessFault:
-	case codeStoreMisaligned:
-	case codeStoreAccessFault:
-		infoLogger() << "Exception with code " << code << ", trap value 0x"
-		             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
-		             << frg::endlog;
-		handleOtherFault(FaultImageAccessor{frame}, kIntrGeneralFault);
-		break;
-	default:
-		panicLogger() << "Unexpected exception with code " << code << ", trap value 0x"
-		              << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
-		              << frg::endlog;
+			handleRiscvSyscall(frame);
+			break;
+		case codeInstructionPageFault:
+			[[fallthrough]];
+		case codeLoadPageFault:
+		case codeStorePageFault:
+			handleRiscvPageFault(frame, code, trapValue);
+			break;
+		case codeIllegalInstruction:
+			handleOtherFault(FaultImageAccessor{frame}, kIntrIllegalInstruction);
+			break;
+		case codeBreakpoint:
+			handleOtherFault(FaultImageAccessor{frame}, kIntrBreakpoint);
+			break;
+		case codeInstructionMisaligned:
+		case codeInstructionAccessFault:
+		case codeLoadMisaligned:
+		case codeLoadAccessFault:
+		case codeStoreMisaligned:
+		case codeStoreAccessFault:
+			infoLogger() << "Exception with code " << code << ", trap value 0x"
+			             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
+			             << frg::endlog;
+			handleOtherFault(FaultImageAccessor{frame}, kIntrGeneralFault);
+			break;
+		default:
+			panicLogger() << "Unexpected exception with code " << code << ", trap value 0x"
+			              << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
+			              << frg::endlog;
 	}
 }
 
