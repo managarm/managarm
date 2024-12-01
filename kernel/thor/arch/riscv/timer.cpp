@@ -26,9 +26,7 @@ struct RiscvTimer : AlarmTracker {
 constinit frg::manual_box<RiscvClockSource> riscvClockSource;
 constinit frg::manual_box<RiscvTimer> riscvTimer;
 
-} // namespace
-
-static initgraph::Task initTimer{
+initgraph::Task initTimer{
     &globalInitEngine,
     "riscv.init-timer",
     initgraph::Requires{getDeviceTreeParsedStage()},
@@ -60,5 +58,21 @@ static initgraph::Task initTimer{
 	        frg::construct<PrecisionTimerEngine>(*kernelAlloc, globalClockSource, riscvTimer.get());
     }
 };
+
+} // namespace
+
+uint64_t getRawTimestampCounter() {
+	uint64_t v;
+	asm volatile("rdtime %0" : "=r"(v));
+	return v;
+}
+
+// TODO: Hardwire this to true for now. The generic thor codes needs timer to be available.
+bool haveTimer() { return true; }
+
+// TODO: Implement these functions correctly:
+bool preemptionIsArmed() { return false; }
+void armPreemption(uint64_t nanos) { (void)nanos; }
+void disarmPreemption() { unimplementedOnRiscv(); }
 
 } // namespace thor

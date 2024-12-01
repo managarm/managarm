@@ -6,8 +6,6 @@ src += files(
 	'ints.cpp',
 	'paging.cpp',
 	'stubs.S',
-	# TODO: Remove the stubs.cpp file after moving its functions elsewhere.
-	'stubs.cpp',
 	'system.cpp',
 	'timer.cpp',
 	'trap.cpp',
