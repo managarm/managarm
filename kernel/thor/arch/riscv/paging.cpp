@@ -99,7 +99,9 @@ ClientPageSpace::ClientPageSpace() : PageSpace{physicalAllocator->allocate(kPage
 	}
 }
 
-ClientPageSpace::~ClientPageSpace() { unimplementedOnRiscv(); }
+ClientPageSpace::~ClientPageSpace() {
+	freePt<ClientCursorPolicy, 4, /*LowerHalfOnly=*/true>(rootTable());
+}
 
 bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) { unimplementedOnRiscv(); }
 
