@@ -12,10 +12,6 @@
 
 namespace thor {
 
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) {
-	return false;
-}
-
 void enableUserAccess() { riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
 void disableUserAccess() { riscv::clearCsrBits<riscv::Csr::sstatus>(riscv::sstatus::sumBit); }
 

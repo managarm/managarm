@@ -96,8 +96,7 @@ struct FaultImageAccessor {
 
 	bool inKernelDomain() { return !frame()->umode(); }
 
-	// TODO: Implement the SUM bit in sstatus.
-	bool allowUserPages() { return false; }
+	bool allowUserPages() { return frame()->sstatus & riscv::sstatus::sumBit; }
 
 	Frame *frame() { return _pointer; }
 

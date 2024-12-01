@@ -170,31 +170,6 @@ PlatformCpuData::PlatformCpuData() {
 void enableUserAccess() { }
 void disableUserAccess() { }
 
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor) {
-	if(inHigherHalf(address))
-		return false;
-
-	auto uar = getCpuData()->currentUar;
-	if(!uar)
-		return false;
-
-	auto ip = *accessor.ip();
-	if(!(ip >= reinterpret_cast<uintptr_t>(uar->startIp)
-			&& ip < reinterpret_cast<uintptr_t>(uar->endIp)))
-		return false;
-
-	if(write) {
-		if(!(uar->flags & uarWrite))
-			return false;
-	}else{
-		if(!(uar->flags & uarRead))
-			return false;
-	}
-
-	*accessor.ip() = reinterpret_cast<Word>(uar->faultIp);
-	return true;
-}
-
 bool iseqStore64(uint64_t *p, uint64_t v) {
 	// TODO: This is a shim. A proper implementation is needed for NMIs on ARM.
 	std::atomic_ref{*p}.store(v, std::memory_order_relaxed);
