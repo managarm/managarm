@@ -258,6 +258,13 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	std::atomic<uint64_t> pendingIpis;
 
+	// Deadlines for global timers and preemption.
+	// frg::null_opt is the respective deadline is not set (= infinite).
+	frg::optional<uint64_t> timerDeadline;
+	frg::optional<uint64_t> preemptionDeadline;
+	// Current deadline programmed into the supervisor timer.
+	uint64_t currentDeadline{~UINT64_C(0)};
+
 	UniqueKernelStack irqStack;
 
 	frg::manual_box<AsidCpuData> asidData;

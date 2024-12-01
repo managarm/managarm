@@ -1,5 +1,6 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/fp-state.hpp>
+#include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/thread.hpp>
@@ -119,6 +120,8 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 
 	if (code == riscv::interrupts::ssi) {
 		handleRiscvIpi(frame);
+	} else if (code == riscv::interrupts::sti) {
+		onTimerInterrupt(IrqImageAccessor{frame});
 	} else {
 		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
 		                    << frg::endlog;

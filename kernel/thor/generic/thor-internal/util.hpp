@@ -12,6 +12,10 @@ int ceil_log2(unsigned long x) { return 8 * sizeof(unsigned long) - __builtin_cl
 // The fraction is represented as (f / 2^s) where f is a 64-bit factor and s is a scaling exponent.
 // When doing conversions, the multiplication is done in 128-bit to avoid loss of precision.
 struct FreqFraction {
+	explicit operator bool () {
+		return f;
+	}
+
 	uint64_t operator*(uint64_t rhs) {
 		auto product = (static_cast<__uint128_t>(f) * static_cast<__uint128_t>(rhs)) >> s;
 		assert(!(product >> 64));

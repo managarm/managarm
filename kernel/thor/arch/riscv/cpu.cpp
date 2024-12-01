@@ -195,7 +195,9 @@ void initializeThisProcessor() {
 	riscv::writeCsr<riscv::Csr::stvec>(stvec);
 
 	// Enable the interrupts that we care about.
-	riscv::writeCsr<riscv::Csr::sie>(UINT64_C(1) << riscv::interrupts::ssi);
+	riscv::writeCsr<riscv::Csr::sie>(
+	    (UINT64_C(1) << riscv::interrupts::ssi) | (UINT64_C(1) << riscv::interrupts::sti)
+	);
 
 	// Setup the per-CPU work queue.
 	cpuData->wqFiber = KernelFiber::post([] {
@@ -227,6 +229,8 @@ static initgraph::Task probeSbiFeatures{
     [] {
 	    if (!sbi::base::probeExtension(sbi::eidIpi))
 		    panicLogger() << "SBI does not implement IPI extension" << frg::endlog;
+	    if (!sbi::base::probeExtension(sbi::eidTime))
+		    panicLogger() << "SBI does not implement TIME extension" << frg::endlog;
     }
 };
 
