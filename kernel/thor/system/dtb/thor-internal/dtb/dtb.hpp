@@ -1,5 +1,6 @@
 #pragma once
 
+#include <dtb.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
@@ -9,15 +10,11 @@
 #include <frg/span.hpp>
 #include <cstddef>
 
-// forward decl of types from kernel/common/dtb.hpp
-struct DeviceTreeNode;
-struct DeviceTreeProperty;
-
 namespace thor {
 
 struct DeviceTreeNode {
-	DeviceTreeNode(DeviceTreeNode *parent)
-	: parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
+	DeviceTreeNode(::DeviceTreeNode dtNode, DeviceTreeNode *parent)
+	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
@@ -32,6 +29,10 @@ struct DeviceTreeNode {
 
 	void attachChild(frg::string_view name, DeviceTreeNode *node) {
 		children_.insert(name, node);
+	}
+
+	const ::DeviceTreeNode &dtNode() const {
+		return dtNode_;
 	}
 
 	DeviceTreeNode *parent() const {
@@ -183,6 +184,8 @@ private:
 	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
 	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
 	void generatePath_();
+
+	::DeviceTreeNode dtNode_;
 
 	DeviceTreeNode *parent_;
 
