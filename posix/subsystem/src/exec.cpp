@@ -164,8 +164,8 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
 			// Ignore this PHDR here.
 		}else{
+			// Ignore unknown PHDRs.
 			std::cout << "posix: Unexpected PHDR type " << phdr->p_type << std::endl;
-			co_return Error::badExecutable;
 		}
 	}
 
