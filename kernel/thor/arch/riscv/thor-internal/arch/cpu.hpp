@@ -96,8 +96,7 @@ struct FaultImageAccessor {
 
 	bool inKernelDomain() { return !frame()->umode(); }
 
-	// TODO: Implement the SUM bit in sstatus.
-	bool allowUserPages() { return false; }
+	bool allowUserPages() { return frame()->sstatus & riscv::sstatus::sumBit; }
 
 	Frame *frame() { return _pointer; }
 
@@ -258,6 +257,13 @@ struct PlatformCpuData : public AssemblyCpuData {
 	uint64_t hartId{~UINT64_C(0)};
 
 	std::atomic<uint64_t> pendingIpis;
+
+	// Deadlines for global timers and preemption.
+	// frg::null_opt is the respective deadline is not set (= infinite).
+	frg::optional<uint64_t> timerDeadline;
+	frg::optional<uint64_t> preemptionDeadline;
+	// Current deadline programmed into the supervisor timer.
+	uint64_t currentDeadline{~UINT64_C(0)};
 
 	UniqueKernelStack irqStack;
 

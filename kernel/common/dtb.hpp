@@ -333,7 +333,7 @@ struct DeviceTreeNode {
 		}
 	}
 
-	frg::optional<DeviceTreeProperty> findProperty(const char *name) {
+	frg::optional<DeviceTreeProperty> findProperty(const char *name) const {
 		for (auto prop : properties_)
 			if (!memcmp(name, prop.name(), strlen(name)))
 				return prop;

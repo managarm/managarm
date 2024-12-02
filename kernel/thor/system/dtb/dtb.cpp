@@ -519,7 +519,7 @@ static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 		dt.initialize(ptr);
 		phandles.initialize(frg::hash<uint32_t>{}, *kernelAlloc);
 
-		treeRoot = frg::construct<DeviceTreeNode>(*kernelAlloc, nullptr);
+		treeRoot = frg::construct<DeviceTreeNode>(*kernelAlloc, dt->rootNode(), nullptr);
 		treeRoot->initializeWith(dt->rootNode());
 
 		infoLogger() << "thor: Booting on \"" << treeRoot->model() << "\"" << frg::endlog;
@@ -528,7 +528,7 @@ static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 			DeviceTreeNode *curr;
 
 			void push(::DeviceTreeNode node) {
-				auto n = frg::construct<DeviceTreeNode>(*kernelAlloc, curr);
+				auto n = frg::construct<DeviceTreeNode>(*kernelAlloc, node, curr);
 
 				n->initializeWith(node);
 				curr->attachChild(node.name(), n);

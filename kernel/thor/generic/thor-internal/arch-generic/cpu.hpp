@@ -140,9 +140,6 @@ static_assert(!inHigherHalf(0));
 static_assert(inHigherHalf(~0));
 
 
-// Determine whether the fault is an UAR fault, and handle it appropriately if so.
-bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor accessor);
-
 // Permit kernel access to user pages.
 void enableUserAccess();
 

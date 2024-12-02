@@ -2,6 +2,7 @@
 #include <frg/string.hpp>
 #include <elf.h>
 #include <hel.h>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -19,8 +20,7 @@
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
 #include <thor-internal/thread.hpp>
-
-#include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/traps.hpp>
 
 namespace thor {
 

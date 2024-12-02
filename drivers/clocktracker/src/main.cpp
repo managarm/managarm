@@ -122,7 +122,7 @@ async::detached initializeDriver() {
 	// Find an RTC on the mbus.
 
 	// TODO
-#ifndef __aarch64__
+#if !defined(__aarch64__) && !defined(__riscv)
 	co_await enumerateRtc();
 #endif
 
@@ -139,7 +139,7 @@ async::detached initializeDriver() {
 
 	// Read the RTC to initialize the realtime clock.
 	// TODO
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__riscv)
 	auto result = RtcTime{0, 0};
 #else
 	auto result = co_await getRtcTime(); // TODO: Use the seqlock.

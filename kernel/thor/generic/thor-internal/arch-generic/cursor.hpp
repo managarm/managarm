@@ -231,4 +231,26 @@ private:
 	PageAccessor accessors_[Policy::maxLevels];
 };
 
+// Free page tables recursively. Only frees the page table pages, not the leaf pages.
+template<CursorPolicy Policy, size_t N, bool LowerHalfOnly = false>
+void freePt(PhysicalAddr tblPa) {
+	PageAccessor accessor{tblPa};
+	auto tblPtr = reinterpret_cast<uint64_t *>(accessor.get());
+	for(int i = 0; i < (LowerHalfOnly ? 256 : 512); i++) { // TODO: Use bitsPerLevel.
+		assert(!Policy::ptePagePresent(tblPtr[i]));
+		if(!Policy::pteTablePresent(tblPtr[i]))
+			continue;
+		auto subTblPa = Policy::pteTableAddress(tblPtr[i]);
+		if constexpr (N > 1) {
+			freePt<Policy, N - 1>(subTblPa);
+		} else {
+			// Free last level page table.
+			physicalAllocator->free(subTblPa, kPageSize);
+		}
+	}
+
+	// Free higher level page table.
+	physicalAllocator->free(tblPa, kPageSize);
+}
+
 } // namespace thor

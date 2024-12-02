@@ -12,6 +12,7 @@ struct Result {
 };
 
 constexpr int64_t eidBase = 0x10;
+constexpr int64_t eidTime = 0x54494D45;
 constexpr int64_t eidIpi = 0x735049;
 constexpr int64_t eidDbcn = 0x4442434E;
 
@@ -47,6 +48,17 @@ inline int64_t probeExtension(int64_t eid) {
 }
 
 } // namespace sbi::base
+
+namespace sbi::time {
+
+constexpr int64_t fidSetTimer = 0;
+
+inline Error setTimer(uint64_t deadline) {
+	auto res = call1(eidTime, fidSetTimer, deadline);
+	return res.error;
+}
+
+} // namespace sbi::time
 
 namespace sbi::ipi {
 
