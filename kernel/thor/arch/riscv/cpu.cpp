@@ -48,7 +48,24 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	saveCurrentSimdState(executor);
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
 }
-void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
+
+void workOnExecutor(Executor *executor) {
+	auto sp = reinterpret_cast<char *>(executor->getExceptionStack()) - sizeof(Frame);
+
+	auto *userFrame = reinterpret_cast<Frame *>(sp);
+	auto *kernelFrame = executor->general();
+	memcpy(userFrame, kernelFrame, sizeof(Frame));
+
+	auto *entry = reinterpret_cast<void *>(handleRiscvWorkOnExecutor);
+	memset(kernelFrame->xs, 0, 31 * sizeof(uint64_t));
+	kernelFrame->ip = reinterpret_cast<uintptr_t>(entry);
+	kernelFrame->sp() = reinterpret_cast<uintptr_t>(sp);
+	kernelFrame->a(0) = reinterpret_cast<uintptr_t>(executor);
+	kernelFrame->a(1) = reinterpret_cast<uintptr_t>(userFrame);
+	kernelFrame->sstatus |= riscv::sstatus::sppBit;
+	kernelFrame->sstatus &= ~riscv::sstatus::spieBit;
+	kernelFrame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+}
 
 Executor::Executor(UserContext *context, AbiParameters abi) {
 	size_t size = determineSize();

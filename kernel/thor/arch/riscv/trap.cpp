@@ -71,6 +71,25 @@ Word codeToPageFaultFlags(uint64_t code) {
 	return 0;
 }
 
+// Modified frame->sstatus. Must be called *before* sstatus is restored.
+void restoreExtendedState(Executor *executor, Frame *frame) {
+	// Load floating point state.
+	auto fs = (frame->sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
+	if (fs != riscv::sstatus::extOff) {
+		// Note that we have to enable the FP extension first since we disable it in the kernel.
+		// extDirty is all-ones hence the setCsrBits() is enough.
+		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
+
+		auto fs = reinterpret_cast<uint64_t *>(executor->fpRegisters());
+		riscv::writeCsr<riscv::Csr::fcsr>(fs[32]);
+		restoreFpRegisters(fs);
+
+		// sstatus is later reloaded from the frame. Mark FS as clean.
+		frame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+		frame->sstatus |= riscv::sstatus::extClean << riscv::sstatus::fsShift;
+	}
+}
+
 void handleRiscvIpi(Frame *frame) {
 	auto *cpuData = getCpuData();
 
@@ -221,22 +240,20 @@ void restoreExecutor(Executor *executor) {
 
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 
-	// Load floating point state.
-	auto fs = (frame->sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
-	if (fs != riscv::sstatus::extOff) {
-		// Note that we have to enable the FP extension first since we disable it in the kernel.
-		// extDirty is all-ones hence the setCsrBits() is enough.
-		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
+	restoreExtendedState(executor, frame);
+	writeSretCsrs(frame);
+	// TODO: In principle, this is only necessary on CPU migration.
+	if (!frame->umode())
+		frame->tp() = reinterpret_cast<uintptr_t>(getCpuData());
+	thorRestoreExecutorRegs(frame);
+}
 
-		auto fs = reinterpret_cast<uint64_t *>(executor->_pointer + Executor::fsOffset());
-		riscv::writeCsr<riscv::Csr::fcsr>(fs[32]);
-		restoreFpRegisters(fs);
+void handleRiscvWorkOnExecutor(Executor *executor, Frame *frame) {
+	enableInts();
+	getCurrentThread()->mainWorkQueue()->run();
+	disableInts();
 
-		// sstatus is later reloaded from the frame. Mark FS as clean.
-		frame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
-		frame->sstatus |= riscv::sstatus::extClean << riscv::sstatus::fsShift;
-	}
-
+	restoreExtendedState(executor, frame);
 	writeSretCsrs(frame);
 	// TODO: In principle, this is only necessary on CPU migration.
 	if (!frame->umode())

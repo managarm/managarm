@@ -210,6 +210,8 @@ struct Executor {
 
 	void *getExceptionStack() { return _exceptionStack; }
 
+	void *fpRegisters() { return _pointer + fsOffset(); }
+
 private:
 	char *_pointer{nullptr};
 	void *_exceptionStack{nullptr};
