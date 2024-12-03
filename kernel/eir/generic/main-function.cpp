@@ -1,8 +1,8 @@
-#include <initgraph.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
+#include <initgraph.hpp>
 
 namespace eir {
 
@@ -21,7 +21,8 @@ void GlobalInitEngine::preActivate(initgraph::Node *node) {
 void GlobalInitEngine::onUnreached() {
 	infoLogger() << "eir: initgraph has cycles" << frg::endlog;
 
-	while(1) { }
+	while (1) {
+	}
 }
 
 constinit GlobalInitEngine globalInitEngine;
@@ -57,78 +58,81 @@ initgraph::Stage *getEirDoneStage() {
 }
 
 struct GlobalCtorTest {
-	GlobalCtorTest() {
-		infoLogger() << "Hello world from global ctor" << frg::endlog;
-	}
+	GlobalCtorTest() { infoLogger() << "Hello world from global ctor" << frg::endlog; }
 };
 
-static initgraph::Task parseInitrdInfo{&globalInitEngine,
-	"generic.parse-initrd",
-	initgraph::Entails{getReservedRegionsKnownStage()},
-	[] {
-		assert(initrd);
-		parseInitrd(initrd);
-	}
+static initgraph::Task parseInitrdInfo{
+    &globalInitEngine,
+    "generic.parse-initrd",
+    initgraph::Entails{getReservedRegionsKnownStage()},
+    [] {
+	    assert(initrd);
+	    parseInitrd(initrd);
+    }
 };
 
-static initgraph::Task earlyProcessorInit{&globalInitEngine,
-	"generic.early-processor-init",
-	initgraph::Requires{getReservedRegionsKnownStage()},
-	initgraph::Entails{getMemoryRegionsKnownStage()},
-	[] {
-		initProcessorEarly();
-	}
+static initgraph::Task earlyProcessorInit{
+    &globalInitEngine,
+    "generic.early-processor-init",
+    initgraph::Requires{getReservedRegionsKnownStage()},
+    initgraph::Entails{getMemoryRegionsKnownStage()},
+    [] { initProcessorEarly(); }
 };
 
-static initgraph::Task setupInfoStruct{&globalInitEngine,
-	"generic.setup-thor-info-struct",
-	initgraph::Requires{getAllocationAvailableStage()},
-	initgraph::Entails{getInfoStructAvailableStage()},
-	[] {
-		info_ptr = generateInfo(cmdline);
-	}
+static initgraph::Task setupInfoStruct{
+    &globalInitEngine,
+    "generic.setup-thor-info-struct",
+    initgraph::Requires{getAllocationAvailableStage()},
+    initgraph::Entails{getInfoStructAvailableStage()},
+    [] { info_ptr = generateInfo(cmdline); }
 };
 
-static initgraph::Task setupRegionsAndPaging{&globalInitEngine,
-	"generic.setup-regions-and-page-tables",
-	initgraph::Requires{getMemoryRegionsKnownStage()},
-	initgraph::Entails{getAllocationAvailableStage()},
-	[] {
-		setupRegionStructs();
+static initgraph::Task setupRegionsAndPaging{
+    &globalInitEngine,
+    "generic.setup-regions-and-page-tables",
+    initgraph::Requires{getMemoryRegionsKnownStage()},
+    initgraph::Entails{getAllocationAvailableStage()},
+    [] {
+	    setupRegionStructs();
 
-		eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
-		for(size_t i = 0; i < numRegions; ++i) {
-			if(regions[i].regionType == RegionType::null)
-				continue;
-			eir::infoLogger() << "    Memory region [" << i << "]."
-					<< " Base: 0x" << frg::hex_fmt{regions[i].address}
-					<< ", length: 0x" << frg::hex_fmt{regions[i].size} << frg::endlog;
-			if(regions[i].regionType == RegionType::allocatable)
-				eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
-						<< ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
-						<< frg::endlog;
-		}
+	    eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
+	    for (size_t i = 0; i < numRegions; ++i) {
+		    if (regions[i].regionType == RegionType::null)
+			    continue;
+		    eir::infoLogger() << "    Memory region [" << i << "]."
+		                      << " Base: 0x" << frg::hex_fmt{regions[i].address} << ", length: 0x"
+		                      << frg::hex_fmt{regions[i].size} << frg::endlog;
+		    if (regions[i].regionType == RegionType::allocatable)
+			    eir::infoLogger() << "        Buddy tree at 0x"
+			                      << frg::hex_fmt{regions[i].buddyTree} << ", overhead: 0x"
+			                      << frg::hex_fmt{regions[i].buddyOverhead} << frg::endlog;
+	    }
 
-		uint64_t kernel_entry = 0;
-		initProcessorPaging(reinterpret_cast<void *>(kernel_image.data()), kernel_entry);
-	}
+	    uint64_t kernel_entry = 0;
+	    initProcessorPaging(reinterpret_cast<void *>(kernel_image.data()), kernel_entry);
+    }
 };
 
-static initgraph::Task prepareFramebufferForThor{&globalInitEngine,
-	"generic.prepare-framebuffer-for-thor",
-	initgraph::Requires{getEirDoneStage()},
-	[] {
-		if(fb) {
-			// Map the framebuffer.
-			assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
-			for(address_t pg = 0; pg < fb->fbPitch * fb->fbHeight; pg += pageSize)
-				mapSingle4kPage(0xFFFF'FE00'4000'0000 + pg, fb->fbAddress + pg,
-						PageFlags::write, CachingMode::writeCombine);
-			mapKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
-			unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
-			fb->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
-		}
-	}
+static initgraph::Task prepareFramebufferForThor{
+    &globalInitEngine,
+    "generic.prepare-framebuffer-for-thor",
+    initgraph::Requires{getEirDoneStage()},
+    [] {
+	    if (fb) {
+		    // Map the framebuffer.
+		    assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
+		    for (address_t pg = 0; pg < fb->fbPitch * fb->fbHeight; pg += pageSize)
+			    mapSingle4kPage(
+			        0xFFFF'FE00'4000'0000 + pg,
+			        fb->fbAddress + pg,
+			        PageFlags::write,
+			        CachingMode::writeCombine
+			    );
+		    mapKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
+		    unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fb->fbPitch * fb->fbHeight);
+		    fb->fbEarlyWindow = 0xFFFF'FE00'4000'0000;
+	    }
+    }
 };
 
 GlobalCtorTest globalCtorTest;

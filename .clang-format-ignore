@@ -1,0 +1,6 @@
+# This file is read by Meson to configure "ninja clang-format".
+
+# Data only.
+kernel/common/font-8x16.cpp
+# Vendored file.
+kernel/eir/protos/limine/limine.h

@@ -1,4 +1,5 @@
 # This file is read by Meson to configure "ninja clang-format".
 
-kernel/common/riscv/**/*
+kernel/common/**/*
+kernel/eir/**/*
 kernel/thor/arch/riscv/**/*

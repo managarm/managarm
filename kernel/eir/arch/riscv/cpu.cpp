@@ -1,9 +1,9 @@
+#include <algorithm>
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
-#include <eir-internal/main.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/main.hpp>
 #include <riscv/csr.hpp>
-#include <algorithm>
 
 namespace eir {
 
@@ -13,10 +13,9 @@ void handleException() {
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
 	auto ip = riscv::readCsr<riscv::Csr::sepc>();
 	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
-	eir::infoLogger() << "Exception with cause 0x" << frg::hex_fmt{cause}
-			<< ", trap value 0x" << frg::hex_fmt{trapValue}
-			<< " at IP 0x" << frg::hex_fmt{ip} << frg::endlog;
-	while(true)
+	eir::infoLogger() << "Exception with cause 0x" << frg::hex_fmt{cause} << ", trap value 0x"
+	                  << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{ip} << frg::endlog;
+	while (true)
 		;
 }
 
@@ -49,20 +48,21 @@ void initProcessorEarly() {
 	riscv::writeCsr<riscv::Csr::stvec>(reinterpret_cast<uint64_t>(&handleException));
 
 	// Check whether or not our environment is capable of all RVA22 extensions.
-	// TODO: If ACPI is enabled, we might not have a device tree. In that case, use the RHCT to get the ISA string.
+	// TODO: If ACPI is enabled, we might not have a device tree. In that case, use the RHCT to get
+	// the ISA string.
 	if (eirDtbPtr) {
 		DeviceTree dt(eirDtbPtr);
 
 		// Get the first "/cpus/cpu@..."
 		frg::optional<DeviceTreeNode> cpuNode;
 		dt.rootNode().discoverSubnodes(
-			[](auto node) { return frg::string_view(node.name()) == "cpus"; },
-			[&](auto cpus) {
-				cpus.discoverSubnodes(
-					[](auto node) { return frg::string_view(node.name()).starts_with("cpu@"); },
-					[&](auto a) { cpuNode = a; }
-				);
-			}
+		    [](auto node) { return frg::string_view(node.name()) == "cpus"; },
+		    [&](auto cpus) {
+			    cpus.discoverSubnodes(
+			        [](auto node) { return frg::string_view(node.name()).starts_with("cpu@"); },
+			        [&](auto a) { cpuNode = a; }
+			    );
+		    }
 		);
 		assert(cpuNode.has_value());
 
@@ -71,7 +71,7 @@ void initProcessorEarly() {
 		assert(isaBase.has_value());
 		if (isaBase.value().asString() != "rv64i") {
 			infoLogger() << "eir: This device does not have rv64i base! riscv,isa-base = "
-				<< "\"" << isaBase.value().asString().value() << "\"" << frg::endlog;
+			             << "\"" << isaBase.value().asString().value() << "\"" << frg::endlog;
 		}
 
 		// Check isa-extensions
@@ -122,8 +122,9 @@ void initProcessorEarly() {
 		}
 
 		// If not all bits are set, we can't boot.
-		if (!std::ranges::all_of(bits, [](auto a){return a;})) {
-			panicLogger() << "Processor doesn't support all required RVA22 extensions!" << frg::endlog;
+		if (!std::ranges::all_of(bits, [](auto a) { return a; })) {
+			panicLogger() << "Processor doesn't support all required RVA22 extensions!"
+			              << frg::endlog;
 		}
 
 		// Make sure Sv48 is available.

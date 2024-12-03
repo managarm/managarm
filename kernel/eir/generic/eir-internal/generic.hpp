@@ -1,11 +1,11 @@
 #pragma once
 
-#include <stdint.h>
-#include <stddef.h>
 #include <eir-internal/arch/types.hpp>
-#include <frg/string.hpp>
-#include <frg/span.hpp>
 #include <eir/interface.hpp>
+#include <frg/span.hpp>
+#include <frg/string.hpp>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace eir {
 
@@ -14,11 +14,7 @@ extern frg::span<uint8_t> kernel_image;
 extern address_t kernel_physical;
 extern frg::span<uint8_t> initrd_image;
 
-enum class RegionType {
-	null,
-	unconstructed,
-	allocatable
-};
+enum class RegionType { null, unconstructed, allocatable };
 
 struct Region {
 	RegionType regionType;
@@ -87,10 +83,10 @@ EirInfo *generateInfo(frg::string_view cmdline);
 
 void setFbInfo(void *ptr, int width, int height, size_t pitch);
 
-template<typename T>
+template <typename T>
 T *bootAlloc(size_t n = 1) {
 	auto pointer = physToVirt<T>(bootReserve(sizeof(T) * n, alignof(T)));
-	for(size_t i = 0; i < n; i++)
+	for (size_t i = 0; i < n; i++)
 		new (&pointer[i]) T();
 	return pointer;
 }
