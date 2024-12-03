@@ -11,7 +11,6 @@ namespace thor {
 // Name must be an std::array holding a null-terminated string.
 template<auto Name, typename T>
 struct ElfNote {
-	//static_assert(alignof(Elf64_Nhdr) == 8);
 	static_assert(alignof(T) <= 8);
 
 	constexpr ElfNote(unsigned int type, T data)

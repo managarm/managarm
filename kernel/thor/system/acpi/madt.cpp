@@ -217,8 +217,6 @@ void dumpMadt() {
 	}
 }
 
-extern "C" EirInfo *thorBootInfoPtr;
-
 initgraph::Stage *getTablesDiscoveredStage() {
 	static initgraph::Stage s{&globalInitEngine, "acpi.tables-discovered"};
 	return &s;
@@ -235,7 +233,7 @@ static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
 		uacpi_init_params params = {
-			.rsdp = thorBootInfoPtr->acpiRsdp,
+			.rsdp = getEirInfo()->acpiRsdp,
 			.log_level = UACPI_LOG_INFO,
 			.flags = 0,
 		};

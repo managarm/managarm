@@ -49,6 +49,10 @@ extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
+EirInfo *getEirInfo() {
+	return reinterpret_cast<EirInfo *>(memoryLayoutNote->eirInfo);
+}
+
 using InitializerPtr = void (*)();
 extern "C" InitializerPtr __init_array_start[];
 extern "C" InitializerPtr __init_array_end[];
@@ -58,20 +62,20 @@ extern "C" InitializerPtr __init_array_end[];
 extern "C" void thorInitialize() {
 	initializeArchitecture();
 
-	if(thorBootInfoPtr->debugFlags & eirDebugSerial)
+	if(getEirInfo()->debugFlags & eirDebugSerial)
 		debugToSerial = true;
-	if(thorBootInfoPtr->debugFlags & eirDebugBochs)
+	if(getEirInfo()->debugFlags & eirDebugBochs)
 		debugToBochs = true;
 	setupDebugging();
 
-	initializeBootFb(thorBootInfoPtr->frameBuffer.fbAddress, thorBootInfoPtr->frameBuffer.fbPitch,
-			thorBootInfoPtr->frameBuffer.fbWidth, thorBootInfoPtr->frameBuffer.fbHeight,
-			thorBootInfoPtr->frameBuffer.fbBpp, thorBootInfoPtr->frameBuffer.fbType,
-			reinterpret_cast<void *>(thorBootInfoPtr->frameBuffer.fbEarlyWindow));
+	initializeBootFb(getEirInfo()->frameBuffer.fbAddress, getEirInfo()->frameBuffer.fbPitch,
+			getEirInfo()->frameBuffer.fbWidth, getEirInfo()->frameBuffer.fbHeight,
+			getEirInfo()->frameBuffer.fbBpp, getEirInfo()->frameBuffer.fbType,
+			reinterpret_cast<void *>(getEirInfo()->frameBuffer.fbEarlyWindow));
 
 	infoLogger() << "Starting Thor" << frg::endlog;
 
-	if(thorBootInfoPtr->signature == eirSignatureValue) {
+	if(getEirInfo()->signature == eirSignatureValue) {
 		infoLogger() << "thor: Bootstrap information signature matches" << frg::endlog;
 	}else{
 		panicLogger() << "thor: Bootstrap information signature mismatch!" << frg::endlog;
@@ -80,8 +84,8 @@ extern "C" void thorInitialize() {
 	KernelPageSpace::initialize();
 
 	physicalAllocator.initialize();
-	auto region = reinterpret_cast<EirRegion *>(thorBootInfoPtr->regionInfo);
-	for(size_t i = 0; i < thorBootInfoPtr->numRegions; i++)
+	auto region = reinterpret_cast<EirRegion *>(getEirInfo()->regionInfo);
+	for(size_t i = 0; i < getEirInfo()->numRegions; i++)
 		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	infoLogger() << "thor: Number of available pages: "
@@ -171,7 +175,7 @@ initgraph::Edge fibersTaskingEdge{
 
 extern "C" void thorMain() {
 	kernelCommandLine.initialize(*kernelAlloc,
-			reinterpret_cast<const char *>(thorBootInfoPtr->commandLine));
+			reinterpret_cast<const char *>(getEirInfo()->commandLine));
 
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();
@@ -186,7 +190,7 @@ extern "C" void thorMain() {
 				<< frg::endlog;
 
 	// This has to be done after the scheduler is available.
-	if(thorBootInfoPtr->debugFlags & eirDebugKernelProfile)
+	if(getEirInfo()->debugFlags & eirDebugKernelProfile)
 		wantKernelProfile = true;
 	initializeProfile();
 
@@ -203,7 +207,7 @@ extern "C" void thorMain() {
 		pci::runAllDevices();
 
 		// Parse the initrd image.
-		auto modules = reinterpret_cast<EirModule *>(thorBootInfoPtr->moduleInfo);
+		auto modules = reinterpret_cast<EirModule *>(getEirInfo()->moduleInfo);
 
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{

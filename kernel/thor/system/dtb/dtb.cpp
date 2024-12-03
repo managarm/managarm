@@ -16,8 +16,6 @@ initgraph::Stage *getDeviceTreeParsedStage() {
 	return &s;
 }
 
-extern "C" EirInfo *thorBootInfoPtr;
-
 namespace {
 	frg::manual_box<DeviceTree> dt;
 
@@ -499,12 +497,12 @@ DeviceTreeNode *getDeviceTreeRoot() {
 static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 	initgraph::Entails{getDeviceTreeParsedStage()},
 	[] {
-		size_t dtbPageOff = thorBootInfoPtr->dtbPtr & (kPageSize - 1);
-		size_t dtbSize = (thorBootInfoPtr->dtbSize + dtbPageOff + kPageSize - 1) & ~(kPageSize - 1);
+		size_t dtbPageOff = getEirInfo()->dtbPtr & (kPageSize - 1);
+		size_t dtbSize = (getEirInfo()->dtbSize + dtbPageOff + kPageSize - 1) & ~(kPageSize - 1);
 
 		auto ptr = KernelVirtualMemory::global().allocate(dtbSize);
 		uintptr_t va = reinterpret_cast<uintptr_t>(ptr);
-		uintptr_t pa = thorBootInfoPtr->dtbPtr & ~(kPageSize - 1);
+		uintptr_t pa = getEirInfo()->dtbPtr & ~(kPageSize - 1);
 
 		for (size_t i = 0; i < dtbSize; i += kPageSize) {
 			KernelPageSpace::global().mapSingle4k(va, pa,

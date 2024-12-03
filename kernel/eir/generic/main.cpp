@@ -406,6 +406,7 @@ void patchManagarmElfNote(unsigned int type, frg::span<char> desc) {
 		    .kernelVirtualSize = 0x8000'0000,
 		    .allocLog = 0xFFFF'F000'0000'0000,
 		    .allocLogSize = 0x1000'0000,
+		    .eirInfo = 0xFFFF'FE80'0001'0000,
 		};
 		if (desc.size() != sizeof(MemoryLayout))
 			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;

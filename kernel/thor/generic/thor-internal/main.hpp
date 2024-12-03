@@ -3,9 +3,9 @@
 #include <eir/interface.hpp>
 #include <initgraph.hpp>
 
-extern "C" EirInfo *thorBootInfoPtr;
-
 namespace thor {
+
+EirInfo *getEirInfo();
 
 struct GlobalInitEngine : public initgraph::Engine {
 	virtual ~GlobalInitEngine() = default;

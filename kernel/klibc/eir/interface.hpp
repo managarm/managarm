@@ -72,4 +72,6 @@ struct MemoryLayout {
 	// Address and size of the allocation log ring buffer.
 	uint64_t allocLog;
 	uint64_t allocLogSize;
+	// Address of the EirInfo struct.
+	uint64_t eirInfo;
 };
