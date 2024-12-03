@@ -55,8 +55,7 @@ struct Mb2TagFramebuffer {
 			uint16_t palette_num_colors;
 			Mb2Colour palette[];
 		};
-		struct
-		{
+		struct {
 			uint8_t red_field_position;
 			uint8_t red_mask_size;
 			uint8_t green_field_position;

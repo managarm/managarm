@@ -6,22 +6,21 @@
 namespace eir {
 
 namespace {
-	constexpr uint64_t pteValid = UINT64_C(1) << 0;
-	constexpr uint64_t pteRead = UINT64_C(1) << 1;
-	constexpr uint64_t pteWrite = UINT64_C(1) << 2;
-	constexpr uint64_t pteExecute = UINT64_C(1) << 3;
-	constexpr uint64_t pteGlobal = UINT64_C(1) << 5;
-	constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
-}
+constexpr uint64_t pteValid = UINT64_C(1) << 0;
+constexpr uint64_t pteRead = UINT64_C(1) << 1;
+constexpr uint64_t pteWrite = UINT64_C(1) << 2;
+constexpr uint64_t pteExecute = UINT64_C(1) << 3;
+constexpr uint64_t pteGlobal = UINT64_C(1) << 5;
+constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
+} // namespace
 
 physaddr_t pml4;
 
-void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
-		CachingMode caching_mode) {
+void
+mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
 	assert(!(address & (pageSize - 1)));
 	assert(!(physical & (pageSize - 1)));
 	(void)caching_mode;
-
 
 	auto *table = physToVirt<uint64_t>(pml4);
 	for (int i = 0; i < 3; ++i) {
@@ -36,7 +35,7 @@ void mapSingle4kPage(address_t address, address_t physical, uint32_t flags,
 		} else {
 			auto nextPtPage = allocPage();
 
-			auto* nextPtPtr = physToVirt<uint64_t>(nextPtPage);
+			auto *nextPtPtr = physToVirt<uint64_t>(nextPtPage);
 			for (int i = 0; i < 512; i++)
 				nextPtPtr[i] = 0;
 
@@ -68,14 +67,16 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 		uintptr_t pml3Page = allocPage();
 
 		uint64_t *pml3Ptr = physToVirt<uint64_t>(pml3Page);
-		for(int j = 0; j < 512; j++)
+		for (int j = 0; j < 512; j++)
 			pml3Ptr[j] = 0;
 
 		pml4Virtual[i] = (pml3Page >> 2) | pteValid;
 	}
 
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after setting up paging" << frg::endlog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
+	                  << " KiB"
+	                     " after setting up paging"
+	                  << frg::endlog;
 
 	// PE doesn't support linker scripts, this needs to be worked around by UEFI
 	// see the `uefi.map-eir-image` task
@@ -83,9 +84,11 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
 	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
 
-	for(address_t addr = floor; addr < ceiling; addr += 0x1000)
-		if(kernel_physical != SIZE_MAX) {
-			mapSingle4kPage(addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute);
+	for (address_t addr = floor; addr < ceiling; addr += 0x1000)
+		if (kernel_physical != SIZE_MAX) {
+			mapSingle4kPage(
+			    addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute
+			);
 		} else {
 			mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
 		}
@@ -95,11 +98,13 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	// Setup the kernel image.
 	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10) << " KiB"
-			" after loading the kernel" << frg::endlog;
+	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
+	                  << " KiB"
+	                     " after loading the kernel"
+	                  << frg::endlog;
 
 	// Setup the kernel stack.
-	for(address_t page = 0; page < 0x10000; page += pageSize)
+	for (address_t page = 0; page < 0x10000; page += pageSize)
 		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), PageFlags::write);
 	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
 	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);

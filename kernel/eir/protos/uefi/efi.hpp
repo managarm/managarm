@@ -55,16 +55,15 @@ struct efi_configuration_table {
 	void *vendor_table;
 };
 
-constexpr efi_guid ACPI_20_TABLE_GUID = { 0x8868e871, 0xe4f1, 0x11d3, { 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81 } };
-constexpr efi_guid EFI_DTB_TABLE_GUID = { 0xb1b621d5, 0xf19c, 0x41a5, { 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0 } };
+constexpr efi_guid ACPI_20_TABLE_GUID = {
+    0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}
+};
+constexpr efi_guid EFI_DTB_TABLE_GUID = {
+    0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}
+};
 
 // 7.2.1 EFI_BOOT_SERVICES.AllocatePages()
-enum efi_allocate_type {
-	AllocateAnyPages,
-	AllocateMaxAddress,
-	AllocateAddress,
-	MaxAllocateType
-};
+enum efi_allocate_type { AllocateAnyPages, AllocateMaxAddress, AllocateAddress, MaxAllocateType };
 
 enum efi_memory_type {
 	EfiReservedMemoryType,
@@ -118,7 +117,9 @@ struct efi_time {
 
 // 9.1.1 EFI_LOADED_IMAGE_PROTOCOL
 
-constexpr efi_guid EFI_LOADED_IMAGE_PROTOCOL_GUID = {0x5B1B31A1, 0x9562, 0x11d2, {0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B}};
+constexpr efi_guid EFI_LOADED_IMAGE_PROTOCOL_GUID = {
+    0x5B1B31A1, 0x9562, 0x11d2, {0x8E, 0x3F, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B}
+};
 
 struct efi_loaded_image_protocol {
 	uint32_t revision;
@@ -153,7 +154,9 @@ struct efi_simple_text_output_protocol {
 
 // 12.9.2 EFI_GRAPHICS_OUTPUT_PROTOCOL
 
-constexpr efi_guid EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID = { 0x9042a9de, 0x23dc, 0x4a38, { 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a } };
+constexpr efi_guid EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID = {
+    0x9042a9de, 0x23dc, 0x4a38, {0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a}
+};
 
 struct efi_graphics_output_protocol_mode;
 
@@ -199,27 +202,42 @@ struct efi_graphics_output_protocol_mode {
 
 // 13.4.1 EFI_SIMPLE_FILE_SYSTEM_PROTOCOL
 
-constexpr efi_guid EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID = { 0x0964e5b22, 0x6459, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+constexpr efi_guid EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID = {
+    0x0964e5b22, 0x6459, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}
+};
 
 struct efi_file_protocol;
 
 struct efi_simple_file_system_protocol {
 	uint64_t revision;
-	efi_status (*open_volume)(struct efi_simple_file_system_protocol *self, struct efi_file_protocol **root);
+	efi_status (*open_volume)(
+	    struct efi_simple_file_system_protocol *self, struct efi_file_protocol **root
+	);
 };
 
 // 13.5.1 EFI_FILE_PROTOCOL
 
 struct efi_file_protocol {
 	uint64_t revision;
-	efi_status (*open)(struct efi_file_protocol *self, struct efi_file_protocol **new_handle, char16_t *file_name, uint64_t open_mode, uint64_t attributes);
+	efi_status (*open)(
+	    struct efi_file_protocol *self,
+	    struct efi_file_protocol **new_handle,
+	    char16_t *file_name,
+	    uint64_t open_mode,
+	    uint64_t attributes
+	);
 	void *close;
 	void *del;
 	efi_status (*read)(struct efi_file_protocol *self, size_t *buffer_size, void *buffer);
 	void *write;
 	efi_status (*get_position)(struct efi_file_protocol *self, uint64_t *position);
 	efi_status (*set_position)(struct efi_file_protocol *self, uint64_t position);
-	efi_status (*get_info)(struct efi_file_protocol *self, efi_guid *information_type, size_t *buffer_size, void *buffer);
+	efi_status (*get_info)(
+	    struct efi_file_protocol *self,
+	    efi_guid *information_type,
+	    size_t *buffer_size,
+	    void *buffer
+	);
 	void *set_info;
 	void *flush;
 	void *open_ex;
@@ -244,7 +262,9 @@ constexpr uint64_t EFI_FILE_VALID_ATTR = 0x0000000000000037;
 
 // 13.5.16 EFI_FILE_INFO
 
-constexpr efi_guid EFI_FILE_INFO_GUID = { 0x09576e92, 0x6d3f, 0x11d2, { 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } };
+constexpr efi_guid EFI_FILE_INFO_GUID = {
+    0x09576e92, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}
+};
 
 struct efi_file_info {
 	uint64_t size;
@@ -305,7 +325,9 @@ constexpr efi_status EFI_HTTP_ERROR = (INTPTR_MAX + 1ULL) + 35;
 
 // Related Documents: RISC-V EFI Boot Protocol
 
-constexpr efi_guid RISCV_EFI_BOOT_PROTOCOL_GUID = { 0xccd15fec, 0x6f73, 0x4eec, { 0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf } };
+constexpr efi_guid RISCV_EFI_BOOT_PROTOCOL_GUID = {
+    0xccd15fec, 0x6f73, 0x4eec, {0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf}
+};
 
 struct riscv_efi_boot_protocol {
 	uint64_t revision;
@@ -322,9 +344,17 @@ struct efi_boot_services {
 	efi_table_header hdr;
 	void *raise_tpl;
 	void *restore_tpl;
-	efi_status (*allocate_pages)(efi_allocate_type type, efi_memory_type memory_type, size_t pages, efi_physical_addr *memory);
+	efi_status (*allocate_pages)(
+	    efi_allocate_type type, efi_memory_type memory_type, size_t pages, efi_physical_addr *memory
+	);
 	void *free_pages;
-	efi_status (*get_memory_map)(size_t *memory_map_size, efi_memory_descriptor *memory_map, size_t *map_key, size_t *descriptor_size, uint32_t *descriptor_version);
+	efi_status (*get_memory_map)(
+	    size_t *memory_map_size,
+	    efi_memory_descriptor *memory_map,
+	    size_t *map_key,
+	    size_t *descriptor_size,
+	    uint32_t *descriptor_version
+	);
 	efi_status (*allocate_pool)(efi_memory_type pool_type, size_t size, void **buffer);
 	void *free_pool;
 	void *create_event;
@@ -349,7 +379,9 @@ struct efi_boot_services {
 	efi_status (*exit_boot_services)(efi_handle image_handle, size_t map_key);
 	void *get_next_monotonic_count;
 	void *stall;
-	efi_status (*set_watchdog_timer)(size_t timeout, uint64_t watchdog_code, size_t data_size, char16_t *watchdog_data);
+	efi_status (*set_watchdog_timer)(
+	    size_t timeout, uint64_t watchdog_code, size_t data_size, char16_t *watchdog_data
+	);
 	void *connect_controller;
 	void *disconnect_controller;
 	void *open_protocol;

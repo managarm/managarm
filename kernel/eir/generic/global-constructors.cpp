@@ -7,15 +7,16 @@ extern "C" InitializerPtr __init_array_start[];
 extern "C" InitializerPtr __init_array_end[];
 
 extern "C" void eirRunConstructors() {
-	eir::infoLogger() << "There are "
-			<< (__init_array_end - __init_array_start) << " constructors" << frg::endlog;
-	for(InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-			(*p)();
+	eir::infoLogger() << "There are " << (__init_array_end - __init_array_start) << " constructors"
+	                  << frg::endlog;
+	for (InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
+		(*p)();
 }
 
 #else
 
-// MSVC puts global constructors in a section .CRT$XCU that is ordered between .CRT$XCA and .CRT$XCZ.
+// MSVC puts global constructors in a section .CRT$XCU that is ordered between .CRT$XCA and
+// .CRT$XCZ.
 __declspec(allocate(".CRT$XCA")) const void *crt_xct = nullptr;
 __declspec(allocate(".CRT$XCZ")) const void *crt_xcz = nullptr;
 
