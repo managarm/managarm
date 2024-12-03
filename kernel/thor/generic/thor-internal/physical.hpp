@@ -2,20 +2,28 @@
 
 #include <atomic>
 
+#include <eir/interface.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
 
+extern ManagarmElfNote<MemoryLayout> memoryLayoutNote;
+
+inline uintptr_t directPhysicalOffset() {
+	return memoryLayoutNote->directPhysical;
+}
+
 inline void *mapDirectPhysical(PhysicalAddr physical) {
 	assert(physical < 0x4000'0000'0000);
-	return reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+	return reinterpret_cast<void *>(directPhysicalOffset() + physical);
 }
 
 inline PhysicalAddr reverseDirectPhysical(void *pointer) {
-	return reinterpret_cast<uintptr_t>(pointer) - 0xFFFF'8000'0000'0000;
+	return reinterpret_cast<uintptr_t>(pointer) - directPhysicalOffset();
 }
 
 struct PageAccessor {
@@ -31,7 +39,7 @@ struct PageAccessor {
 		assert(physical != PhysicalAddr(-1) && "trying to access invalid physical page");
 		assert(!(physical & 0xFFF) && "physical page is not aligned");
 		assert(physical < 0x4000'0000'0000);
-		_pointer = reinterpret_cast<void *>(0xFFFF'8000'0000'0000 + physical);
+		_pointer = reinterpret_cast<void *>(directPhysicalOffset() + physical);
 	}
 
 	PageAccessor(const PageAccessor &) = delete;

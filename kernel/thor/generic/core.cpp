@@ -117,8 +117,8 @@ frg::manual_box<KernelVirtualTree> virtualTree;
 
 KernelVirtualMemory::KernelVirtualMemory() {
 	// The size is chosen arbitrarily here; 2 GiB of kernel heap is sufficient for now.
-	uintptr_t vmBase = 0xFFFF'E000'0000'0000;
-	size_t desiredSize = 0x8000'0000;
+	uintptr_t vmBase = memoryLayoutNote->kernelVirtual;
+	size_t desiredSize = memoryLayoutNote->kernelVirtualSize;
 
 	corePool.initialize(coreSlabPolicy);
 	virtualTree.initialize();
@@ -303,7 +303,7 @@ void KernelVirtualAlloc::poison(void *pointer, size_t size) {
 
 void KernelVirtualAlloc::output_trace(void *buffer, size_t size) {
 	if (!allocLog)
-		allocLog.initialize(0xFFFF'F000'0000'0000, 268435456);
+		allocLog.initialize(memoryLayoutNote->allocLog, memoryLayoutNote->allocLogSize);
 
 	allocLog->enqueue(buffer, size);
 }

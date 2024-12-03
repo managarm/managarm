@@ -17,6 +17,8 @@ SECTIONS {
 	}
 
 	.data ALIGN(0x1000) : { *(.data .data.*) }
+	.note.managarm : { *(.note.managarm) }
+
 	.bss : { *(.bss .bss.*) }
 }
 
