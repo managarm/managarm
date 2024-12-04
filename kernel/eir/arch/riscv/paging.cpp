@@ -102,14 +102,6 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	                  << " KiB"
 	                     " after loading the kernel"
 	                  << frg::endlog;
-
-	// Setup the kernel stack.
-	for (address_t page = 0; page < 0x10000; page += pageSize)
-		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), PageFlags::write);
-	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
-	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
-
-	mapKasanShadow(0xFFFF'E000'0000'0000, 0x8000'0000);
 }
 
 } // namespace eir

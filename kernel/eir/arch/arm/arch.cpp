@@ -2,6 +2,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/memory-layout.hpp>
 
 namespace eir {
 
@@ -208,13 +209,15 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	                     " after loading the kernel"
 	                  << frg::endlog;
 
-	// Setup the kernel stack.
-	for (address_t page = 0; page < 0x10000; page += pageSize)
-		mapSingle4kPage(0xFFFF'FE80'0000'0000 + page, allocPage(), PageFlags::write);
-	mapKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
-	unpoisonKasanShadow(0xFFFF'FE80'0000'0000, 0x10000);
+	const auto &ml = getMemoryLayout();
 
-	mapKasanShadow(0xFFFF'E000'0000'0000, 0x8000'0000);
+	// Setup the kernel stack.
+	for (address_t page = 0; page < kernelStackSize; page += pageSize)
+		mapSingle4kPage(kernelStack + page, allocPage(), PageFlags::write);
+	mapKasanShadow(kernelStack, kernelStackSize);
+	unpoisonKasanShadow(kernelStack, kernelStackSize);
+
+	mapKasanShadow(ml.kernelVirtual, ml.kernelVirtualSize);
 }
 
 } // namespace eir

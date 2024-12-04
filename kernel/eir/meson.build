@@ -2,6 +2,7 @@ eir_generic_sources = files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
 	'generic/main.cpp',
+	'generic/memory-layout.cpp',
 	'generic/debug.cpp')
 
 eir_generic_sources += files('generic/global-constructors.cpp')
