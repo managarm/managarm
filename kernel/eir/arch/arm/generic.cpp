@@ -2,6 +2,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/memory-layout.hpp>
 #include <elf.h>
 
 namespace eir {
@@ -233,15 +234,15 @@ void eirRelocate() {
 
 		for (address_t pg = 0; pg < fbSize; pg += 0x1000)
 			mapSingle4kPage(
-			    0xFFFF'FE00'4000'0000 + pg,
+			    getKernelFrameBuffer() + pg,
 			    genericInfo.fb.fbAddress + pg,
 			    PageFlags::write,
 			    CachingMode::writeCombine
 			);
 
-		mapKasanShadow(0xFFFF'FE00'4000'0000, fbSize);
-		unpoisonKasanShadow(0xFFFF'FE00'4000'0000, fbSize);
-		info_ptr->frameBuffer.fbEarlyWindow = 0xFFFF'FE00'4000'0000;
+		mapKasanShadow(getKernelFrameBuffer(), fbSize);
+		unpoisonKasanShadow(getKernelFrameBuffer(), fbSize);
+		info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
 	}
 
 	info_ptr->debugFlags = genericInfo.debugFlags;
@@ -252,7 +253,7 @@ void eirRelocate() {
 
 	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
-	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry, 0xFFFF'FE80'0001'0000);
+	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry, getKernelStackPtr());
 
 	while (true) {
 		asm volatile("" : : : "memory");

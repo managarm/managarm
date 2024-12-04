@@ -11,40 +11,12 @@ Thor uses the following PHYSICAL memory regions:
 
 Thor uses the following VIRTUAL memory regions:
 
-FFFF'8000'0000'0000
-	Length: (unlimited)
-	Physical memory window
-	Referenced in eir/src/main.cpp, thor/src/paging.cpp
-
 FFFF'D000'0000'0000
 	Length: 1000'0000'0000 bytes (1/8 of the higher half)
 	KASAN shadow memory
 	Referenced in Eir, Thor and kernel/thor/meson.build
 
-FFFF'E000'0000'0000
-	Length: 2 GiB
-	Kernel heap
-	Referenced in thor/generic/core.cpp
-
-FFFF'F000'0000'0000
-	Length: 256MiB
-	Log ring buffer memory
-	Referenced in eir/main.cpp, thor/generic/core.cpp
-
-FFFF'FE00'0000'0000
-	Length: 0x1'0000 bytes
-	Initial stack for thor
-
-FFFF'FE00'0001'0000
-	Eir information struct
-	Referenced in eir/arch/x86/load_{32,64}.S and eir/arch/x86/main.cpp
-
-FFFF'FE00'4000'0000
-	Initial framebuffer mapping
-	Referenced in multiple Eir files
-
 FFFF'FFFF'8000'0000
 	Length: (unlimited)
 	Kernel code and data
 	Referenced in thor/src/link.ld
-

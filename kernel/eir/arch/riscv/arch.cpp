@@ -1,5 +1,6 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/memory-layout.hpp>
 
 extern "C" [[noreturn]] void eirEnterKernel(uintptr_t satp, uint64_t entryPtr, uint64_t stackPtr);
 
@@ -10,7 +11,7 @@ extern uint64_t pml4;
 void enterKernel() {
 	constexpr uint64_t modeSv48 = 9;
 	uint64_t satp = (pml4 >> 12) | (modeSv48 << 60);
-	eirEnterKernel(satp, kernelEntry, 0xFFFF'FE80'0001'0000);
+	eirEnterKernel(satp, kernelEntry, getKernelStackPtr());
 }
 
 } // namespace eir

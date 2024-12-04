@@ -2,6 +2,7 @@
 #include <eir-internal/cpio.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/memory-layout.hpp>
 
 #include <elf.h>
 #include <frg/array.hpp>
@@ -169,6 +170,9 @@ void setupRegionStructs() {
 		auto tablePtr = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor::initialize(tablePtr, numRoots, order);
 	}
+
+	// TODO: Move this into its own initgraph task once aarch64 supports initgraph.
+	determineMemoryLayout();
 }
 
 // ----------------------------------------------------------------------------
@@ -308,16 +312,17 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 // ----------------------------------------------------------------------------
 
 void mapRegionsAndStructs() {
+	const auto &ml = getMemoryLayout();
+
 	// This region should be available RAM on every PC.
 	for (size_t page = 0x8000; page < 0x80000; page += pageSize) {
-		mapSingle4kPage(0xFFFF'8000'0000'0000 + page, page, PageFlags::write | PageFlags::global);
+		mapSingle4kPage(ml.directPhysical + page, page, PageFlags::write | PageFlags::global);
 		mapSingle4kPage(page, page, PageFlags::write | PageFlags::global | PageFlags::execute);
 	}
 
-	mapKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
-	unpoisonKasanShadow(0xFFFF'8000'0000'8000, 0x80000);
+	mapKasanShadow(ml.directPhysical + 0x8000, 0x80000);
+	unpoisonKasanShadow(ml.directPhysical + 0x8000, 0x80000);
 
-	address_t treeMapping = 0xFFFF'C080'0000'0000;
 	for (size_t i = 0; i < numRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
@@ -325,17 +330,15 @@ void mapRegionsAndStructs() {
 		// Map the region itself.
 		for (address_t page = 0; page < regions[i].size; page += pageSize)
 			mapSingle4kPage(
-			    0xFFFF'8000'0000'0000 + regions[i].address + page,
+			    ml.directPhysical + regions[i].address + page,
 			    regions[i].address + page,
 			    PageFlags::write | PageFlags::global
 			);
-		mapKasanShadow(0xFFFF'8000'0000'0000 + regions[i].address, regions[i].size);
-		unpoisonKasanShadow(0xFFFF'8000'0000'0000 + regions[i].address, regions[i].size);
+		mapKasanShadow(ml.directPhysical + regions[i].address, regions[i].size);
+		unpoisonKasanShadow(ml.directPhysical + regions[i].address, regions[i].size);
 
-		// Map the buddy tree.
-		address_t buddyMapping = treeMapping;
-		treeMapping += regions[i].buddyOverhead;
-
+		// Map the buddy tree (also to the direct physical map).
+		address_t buddyMapping = ml.directPhysical + regions[i].buddyTree;
 		for (address_t page = 0; page < regions[i].buddyOverhead; page += pageSize) {
 			mapSingle4kPage(
 			    buddyMapping + page,
@@ -350,22 +353,23 @@ void mapRegionsAndStructs() {
 }
 
 void allocLogRingBuffer() {
-	// 256 MiB
-	for (size_t i = 0; i < 0x1000'0000; i += pageSize)
-		mapSingle4kPage(
-		    0xFFFF'F000'0000'0000 + i, allocPage(), PageFlags::write | PageFlags::global
-		);
-	mapKasanShadow(0xFFFF'F000'0000'0000, 0x1000'0000);
-	unpoisonKasanShadow(0xFFFF'F000'0000'0000, 0x1000'0000);
+	const auto &ml = getMemoryLayout();
+	for (size_t i = 0; i < ml.allocLogSize; i += pageSize)
+		mapSingle4kPage(ml.allocLog + i, allocPage(), PageFlags::write | PageFlags::global);
+	mapKasanShadow(ml.allocLog, ml.allocLogSize);
+	unpoisonKasanShadow(ml.allocLog, ml.allocLogSize);
 }
 
 // ----------------------------------------------------------------------------
 // Bootstrap information handling.
 // ----------------------------------------------------------------------------
 
-address_t bootstrapDataPointer = 0xFFFF'FE80'0001'0000;
+address_t bootstrapDataPointer = 0;
 
 address_t mapBootstrapData(void *p) {
+	if (!bootstrapDataPointer)
+		bootstrapDataPointer = getMemoryLayout().eirInfo;
+
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += pageSize;
 	mapSingle4kPage(pointer, virtToPhys(p), 0);
@@ -400,17 +404,9 @@ namespace {
 
 void patchManagarmElfNote(unsigned int type, frg::span<char> desc) {
 	if (type == elf_note_type::memoryLayout) {
-		MemoryLayout layout{
-		    .directPhysical = 0xFFFF'8000'0000'0000,
-		    .kernelVirtual = 0xFFFF'E000'0000'0000,
-		    .kernelVirtualSize = 0x8000'0000,
-		    .allocLog = 0xFFFF'F000'0000'0000,
-		    .allocLogSize = 0x1000'0000,
-		    .eirInfo = 0xFFFF'FE80'0001'0000,
-		};
 		if (desc.size() != sizeof(MemoryLayout))
 			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &layout, sizeof(MemoryLayout));
+		memcpy(desc.data(), &getMemoryLayout(), sizeof(MemoryLayout));
 	} else {
 		panicLogger() << "Thor has unknown Managarm ELF note with type 0x" << frg::hex_fmt{type}
 		              << frg::endlog;
@@ -513,7 +509,7 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
 	auto info_vaddr = mapBootstrapData(info_ptr);
-	assert(info_vaddr == 0xFFFF'FE80'0001'0000);
+	assert(info_vaddr == getMemoryLayout().eirInfo);
 	info_ptr->signature = eirSignatureValue;
 
 	// Pass all memory regions to thor.
