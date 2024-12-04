@@ -53,7 +53,7 @@ initgraph::Task setupMiscInfo{
 	    }
 
 	    if (rsdp_request.response) {
-		    info_ptr->acpiRsdp = virtToPhys(rsdp_request.response->address);
+		    info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdp_request.response->address);
 	    }
     }
 };
@@ -128,6 +128,9 @@ initgraph::Task setupInitrdInfo{
 extern "C" void eirLimineMain(void) {
 	eir::infoLogger() << "Booting Eir from Limine" << frg::endlog;
 	eirRunConstructors();
+
+	if (!LIMINE_BASE_REVISION_SUPPORTED)
+		panicLogger() << "eir-limine was not booted with correct base revision" << frg::endlog;
 
 	if (dtb_request.response) {
 		eirDtbPtr = dtb_request.response->dtb_ptr;
