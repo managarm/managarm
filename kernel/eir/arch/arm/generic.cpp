@@ -252,9 +252,7 @@ void eirRelocate() {
 
 	eir::infoLogger() << "Leaving Eir and entering the real kernel" << frg::endlog;
 
-	eirEnterKernel(
-	    eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry, 0xFFFF'FE80'0001'0000, 0xFFFF'FE80'0001'0000
-	);
+	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernel_entry, 0xFFFF'FE80'0001'0000);
 
 	while (true) {
 		asm volatile("" : : : "memory");

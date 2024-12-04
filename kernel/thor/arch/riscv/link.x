@@ -26,6 +26,7 @@ SECTIONS {
 
 	.data : { *(.data) }
 	.got : { *(.got.plt) *(.got) }
+	.note.managarm : { *(.note.managarm) }
 
 	/* BSS segment. */
 	.bss : { *(.bss) *(.bss.*) }

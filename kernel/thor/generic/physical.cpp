@@ -8,14 +8,16 @@ namespace thor {
 
 static bool logPhysicalAllocs = false;
 
+THOR_DEFINE_ELF_NOTE(memoryLayoutNote){elf_note_type::memoryLayout, {}};
+
 void poisonPhysicalAccess(PhysicalAddr physical) {
-	auto address = 0xFFFF'8000'0000'0000 + physical;
+	auto address = directPhysicalOffset() + physical;
 	KernelPageSpace::global().unmapSingle4k(address);
 	invalidatePage(globalBindingId, reinterpret_cast<void *>(address));
 }
 
 void poisonPhysicalWriteAccess(PhysicalAddr physical) {
-	auto address = 0xFFFF'8000'0000'0000 + physical;
+	auto address = directPhysicalOffset() + physical;
 	KernelPageSpace::global().unmapSingle4k(address);
 	KernelPageSpace::global().mapSingle4k(address, physical, 0, CachingMode::null);
 	invalidatePage(globalBindingId, reinterpret_cast<void *>(address));

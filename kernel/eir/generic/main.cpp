@@ -396,7 +396,32 @@ void parseInitrd(void *initrd) {
 		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
 }
 
-address_t loadKernelImage(void *image) {
+namespace {
+
+void patchManagarmElfNote(unsigned int type, frg::span<char> desc) {
+	if (type == elf_note_type::memoryLayout) {
+		MemoryLayout layout{
+		    .directPhysical = 0xFFFF'8000'0000'0000,
+		    .kernelVirtual = 0xFFFF'E000'0000'0000,
+		    .kernelVirtualSize = 0x8000'0000,
+		    .allocLog = 0xFFFF'F000'0000'0000,
+		    .allocLogSize = 0x1000'0000,
+		    .eirInfo = 0xFFFF'FE80'0001'0000,
+		};
+		if (desc.size() != sizeof(MemoryLayout))
+			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &layout, sizeof(MemoryLayout));
+	} else {
+		panicLogger() << "Thor has unknown Managarm ELF note with type 0x" << frg::hex_fmt{type}
+		              << frg::endlog;
+	}
+}
+
+} // namespace
+
+address_t loadKernelImage(void *imagePtr) {
+	auto image = reinterpret_cast<char *>(imagePtr);
+
 	Elf64_Ehdr ehdr;
 	memcpy(&ehdr, image, sizeof(Elf64_Ehdr));
 	if (ehdr.e_ident[0] != '\x7F' || ehdr.e_ident[1] != 'E' || ehdr.e_ident[2] != 'L'
@@ -404,6 +429,36 @@ address_t loadKernelImage(void *image) {
 		eir::panicLogger() << "Illegal magic fields" << frg::endlog;
 	}
 	assert(ehdr.e_type == ET_EXEC);
+
+	// Read and patch Thor's ELF notes.
+	for (int i = 0; i < ehdr.e_phnum; i++) {
+		Elf64_Phdr phdr;
+		memcpy(&phdr, image + ehdr.e_phoff + i * ehdr.e_phentsize, sizeof(Elf64_Phdr));
+		if (phdr.p_type != PT_NOTE)
+			continue;
+		if (phdr.p_memsz != phdr.p_filesz)
+			panicLogger() << "Eir does not support p_filesz != p_memsz for PT_NOTE" << frg::endlog;
+		size_t offset = 0;
+		while (offset < phdr.p_memsz) {
+			Elf64_Nhdr nhdr;
+			memcpy(&nhdr, image + phdr.p_offset + offset, sizeof(Elf64_Nhdr));
+			offset += sizeof(Elf64_Nhdr);
+
+			auto *namePtr = image + phdr.p_offset + offset;
+			offset += nhdr.n_namesz + 1;
+			offset = (offset + 7) & ~size_t{7};
+			auto *dataPtr = image + phdr.p_offset + offset;
+			offset += nhdr.n_descsz + 7;
+			offset = (offset + 7) & ~size_t{7};
+
+			frg::string_view name{namePtr, nhdr.n_namesz};
+			infoLogger() << "ELF note: " << name << ", type 0x" << frg::hex_fmt{nhdr.n_type}
+			             << frg::endlog;
+			if (name != "Managarm")
+				continue;
+			patchManagarmElfNote(nhdr.n_type, frg::span<char>{dataPtr, nhdr.n_descsz});
+		}
+	}
 
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;

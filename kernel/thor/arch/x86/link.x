@@ -25,6 +25,8 @@ SECTIONS {
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
 	.data : { *(.data .data.*) }
+	.note.managarm : { *(.note.managarm) }
+
 	.bss : { *(.bss .bss.*) }
 
 	.stab 0 : { *(.stab) }

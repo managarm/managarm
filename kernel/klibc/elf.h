@@ -176,3 +176,9 @@ struct Elf64_Dyn {
 		Elf64_Addr d_ptr;
 	};
 };
+
+struct Elf64_Nhdr {
+	Elf64_Word n_namesz;
+	Elf64_Word n_descsz;
+	Elf64_Word n_type;
+};

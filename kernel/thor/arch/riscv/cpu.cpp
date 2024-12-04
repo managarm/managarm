@@ -212,7 +212,7 @@ void initializeThisProcessor() {
 void setupBootCpuContext() {
 	bootCpuContext.initialize();
 
-	bootCpuContext->hartId = thorBootInfoPtr->hartId;
+	bootCpuContext->hartId = getEirInfo()->hartId;
 	bootCpuContext->localLogRing = &bootLogRing;
 
 	writeToTp(bootCpuContext.get());

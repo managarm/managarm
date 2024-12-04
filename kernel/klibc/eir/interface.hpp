@@ -55,3 +55,23 @@ struct EirInfo {
 
 	uint64_t acpiRsdp;
 };
+
+namespace elf_note_type {
+
+// Values for Elf64_Nhdr::n_type of ELF notes embedded into Thor.
+constexpr unsigned int memoryLayout = 0x1000'0000;
+
+} // namespace elf_note_type
+
+struct MemoryLayout {
+	// Address of the direct physical mapping.
+	uint64_t directPhysical;
+	// Address and size of the kernel virtual mapping area.
+	uint64_t kernelVirtual;
+	uint64_t kernelVirtualSize;
+	// Address and size of the allocation log ring buffer.
+	uint64_t allocLog;
+	uint64_t allocLogSize;
+	// Address of the EirInfo struct.
+	uint64_t eirInfo;
+};
