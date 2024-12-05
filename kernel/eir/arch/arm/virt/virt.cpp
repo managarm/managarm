@@ -9,7 +9,6 @@ frg::manual_box<PL011> debugUart;
 void debugPrintChar(char c) { debugUart->send(c); }
 
 extern "C" [[noreturn]] void eirVirtMain(uintptr_t deviceTreePtr) {
-	eirRelocate();
 	debugUart.initialize(0x9000000, 24000000);
 	debugUart->init(115200);
 	GenericInfo info{
