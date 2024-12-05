@@ -4,10 +4,10 @@ ENTRY(_start)
 SECTIONS {
 	/* R-X segment. */
 	/* Firmware is linked to 0x80000000. */
-	. = 0x80100000;
+	. = 0;
 	eirImageFloor = .;
 
-	.text : { *(.text) *(.text.*) }
+	.text : { *(.text.start) *(.text) *(.text.*) }
 
 	/* R-- segment. */
 	. = ALIGN(0x1000) + (. & (0xFFF));
@@ -30,7 +30,7 @@ SECTIONS {
 	.data : { *(.data) *(.data.*) }
 	.got : { *(.got) }
 	.got.plt : { *(.got.plt) }
-	.bss : { *(.bss) *(.bss.*) }
+	.bss (TYPE = SHT_PROGBITS) : { *(.bss) *(.bss.*) LONG(0) }
 
 	eirImageCeiling = .;
 }

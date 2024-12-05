@@ -12,7 +12,7 @@
 
 // Pointer to the DTB.
 // Not in the eir namespace since some protocols set this from assembly.
-void *eirDtbPtr;
+constinit void *eirDtbPtr{nullptr};
 
 namespace eir {
 
