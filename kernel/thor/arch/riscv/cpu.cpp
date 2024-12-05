@@ -111,13 +111,6 @@ void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
-void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
-	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = thread;
-}
-
-smarter::borrowed_ptr<Thread> activeExecutor() { return getCpuData()->activeExecutor; }
-
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
 void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {

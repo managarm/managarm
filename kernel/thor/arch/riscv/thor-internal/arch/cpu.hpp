@@ -274,9 +274,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	uint32_t profileFlags = 0;
 
 	bool preemptionIsArmed = false;
-
-	// TODO: This is not really arch-specific!
-	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.

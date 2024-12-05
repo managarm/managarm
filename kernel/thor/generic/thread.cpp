@@ -443,6 +443,7 @@ smarter::borrowed_ptr<AddressSpace, BindableHandle> Thread::getAddressSpace() {
 
 void Thread::invoke() {
 	assert(!intsAreEnabled());
+	auto *cpuData = getCpuData();
 	auto lock = frg::guard(&_mutex);
 	
 	if(logRunStates)
@@ -466,10 +467,10 @@ void Thread::invoke() {
 
 	lock.unlock();
 
-	_userContext.migrate(getCpuData());
+	_userContext.migrate(cpuData);
 	AddressSpace::activate(_addressSpace);
-	getCpuData()->executorContext = &_executorContext;
-	switchExecutor(self);
+	cpuData->executorContext = &_executorContext;
+	cpuData->activeThread = self;
 	restoreExecutor(&_executor);
 }
 

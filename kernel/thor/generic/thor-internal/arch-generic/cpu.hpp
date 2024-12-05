@@ -118,18 +118,6 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 void workOnExecutor(Executor *executor);
 
 
-// TODO(qookie): These two functions should probably be renamed
-// and moved out of here.
-struct Thread;
-
-// Set the current thread on this CPU.
-// Note: This does not invoke restoreExecutor!
-void switchExecutor(smarter::borrowed_ptr<Thread> executor);
-
-// Get the current thread on this CPU.
-smarter::borrowed_ptr<Thread> activeExecutor();
-
-
 // Validate AssemblyCpuData and PlatformCpuData definitions.
 static_assert(offsetof(AssemblyCpuData, selfPointer) == 0);
 static_assert(std::derived_from<PlatformCpuData, AssemblyCpuData>);
