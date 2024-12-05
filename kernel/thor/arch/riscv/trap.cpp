@@ -71,22 +71,31 @@ Word codeToPageFaultFlags(uint64_t code) {
 	return 0;
 }
 
-// Modified frame->sstatus. Must be called *before* sstatus is restored.
-void restoreExtendedState(Executor *executor, Frame *frame) {
+// Modifies frame->sstatus. Must be called *before* sstatus is restored.
+void restoreStaleExtendedState(Executor *executor, Frame *frame) {
+	auto cpuData = getCpuData();
+
 	// Load floating point state.
 	auto fs = (frame->sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
-	if (fs != riscv::sstatus::extOff) {
-		// Note that we have to enable the FP extension first since we disable it in the kernel.
-		// extDirty is all-ones hence the setCsrBits() is enough.
-		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
+	if (fs) {
+		if (!cpuData->stashedFs) {
+			// Note that we have to enable the FP extension first since we disable it in the kernel.
+			// extDirty is all-ones hence the setCsrBits() is enough.
+			riscv::setCsrBits<riscv::Csr::sstatus>(
+			    riscv::sstatus::extDirty << riscv::sstatus::fsShift
+			);
 
-		auto fs = reinterpret_cast<uint64_t *>(executor->fpRegisters());
-		riscv::writeCsr<riscv::Csr::fcsr>(fs[32]);
-		restoreFpRegisters(fs);
+			auto fs = reinterpret_cast<uint64_t *>(executor->fpRegisters());
+			riscv::writeCsr<riscv::Csr::fcsr>(fs[32]);
+			restoreFpRegisters(fs);
 
-		// sstatus is later reloaded from the frame. Mark FS as clean.
-		frame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
-		frame->sstatus |= riscv::sstatus::extClean << riscv::sstatus::fsShift;
+			// sstatus is later reloaded from the frame. Mark FS as clean.
+			frame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+			frame->sstatus |= riscv::sstatus::extClean << riscv::sstatus::fsShift;
+		} else {
+			assert(fs == cpuData->stashedFs);
+		}
+		cpuData->stashedFs = 0;
 	}
 }
 
@@ -218,9 +227,20 @@ void writeSretCsrs(Frame *frame) {
 } // namespace
 
 extern "C" void thorHandleException(Frame *frame) {
+	auto cpuData = getCpuData();
+
 	// Perform the trap entry.
 	frame->sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	// TODO: This could be combined with the CSR read above.
+	riscv::clearCsrBits<riscv::Csr::sstatus>((riscv::sstatus::extMask << riscv::sstatus::fsShift));
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
+
+	// Disable FP.
+	auto fs = (frame->sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
+	if (fs) {
+		assert(!cpuData->stashedFs);
+		cpuData->stashedFs = fs;
+	}
 
 	// Call the actual IRQ or exception handler.
 	auto code = cause & causeCodeMask;
@@ -230,34 +250,43 @@ extern "C" void thorHandleException(Frame *frame) {
 		handleRiscvException(frame, code);
 	}
 	assert(!intsAreEnabled());
+	assert(cpuData == getCpuData());
 
 	// Now perform the trap exit.
+	restoreStaleExtendedState(cpuData->activeExecutor, frame);
 	writeSretCsrs(frame);
 }
 
 void restoreExecutor(Executor *executor) {
+	auto *cpuData = getCpuData();
 	auto *frame = executor->general();
 
-	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
+	// TODO: This should probably be done in some activateExectutor() function.
+	cpuData->activeExecutor = executor;
+	cpuData->exceptionStackPtr = executor->_exceptionStack;
 
-	restoreExtendedState(executor, frame);
+	assert(!cpuData->stashedFs);
+	restoreStaleExtendedState(executor, frame);
 	writeSretCsrs(frame);
 	// TODO: In principle, this is only necessary on CPU migration.
 	if (!frame->umode())
-		frame->tp() = reinterpret_cast<uintptr_t>(getCpuData());
+		frame->tp() = reinterpret_cast<uintptr_t>(cpuData);
 	thorRestoreExecutorRegs(frame);
 }
 
 void handleRiscvWorkOnExecutor(Executor *executor, Frame *frame) {
+	auto *cpuData = getCpuData();
+
 	enableInts();
 	getCurrentThread()->mainWorkQueue()->run();
 	disableInts();
 
-	restoreExtendedState(executor, frame);
+	assert(!cpuData->stashedFs);
+	restoreStaleExtendedState(executor, frame);
 	writeSretCsrs(frame);
 	// TODO: In principle, this is only necessary on CPU migration.
 	if (!frame->umode())
-		frame->tp() = reinterpret_cast<uintptr_t>(getCpuData());
+		frame->tp() = reinterpret_cast<uintptr_t>(cpuData);
 	thorRestoreExecutorRegs(frame);
 }
 
