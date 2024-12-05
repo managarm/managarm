@@ -26,6 +26,11 @@ efi_handle handle = nullptr;
 
 namespace {
 
+// The console output protocol is not terribly useful. In particular, it is only available
+// before ExitBootServices. Also, it can easily collide with UART loggers provided by the platform
+// code, causing characters to be printed twice.
+constexpr bool useConOut = false;
+
 efi_graphics_output_protocol *gop = nullptr;
 efi_loaded_image_protocol *loadedImage = nullptr;
 
@@ -407,7 +412,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	bs = st->boot_services;
 	handle = h;
 
-	logHandler = uefiBootServicesLogHandler;
+	if (useConOut)
+		logHandler = uefiBootServicesLogHandler;
 
 	// Reset the watchdog timer.
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));

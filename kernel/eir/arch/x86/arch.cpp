@@ -13,10 +13,12 @@ eirEnterKernel(uintptr_t pml4Pointer, uint64_t entryPtr, uint64_t stackPtr)
 namespace eir {
 
 void debugPrintChar(char c) {
-	static constexpr arch::scalar_register<uint8_t> data{0};
-	auto base = arch::global_io.subspace(0xe9);
+	if (log_e9) {
+		static constexpr arch::scalar_register<uint8_t> data{0};
+		auto base = arch::global_io.subspace(0xe9);
 
-	base.store(data, c);
+		base.store(data, c);
+	}
 }
 
 enum X86PageFlags {

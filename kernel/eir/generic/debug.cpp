@@ -35,8 +35,10 @@ extern "C" void frg_panic(const char *cstring) {
 }
 
 void OutputSink::print(char c) {
-	if (log_e9)
-		debugPrintChar(c);
+	// Emit to the platform-specific device.
+	// For example, this can log to SBI on RISC-V which often yields expected results.
+	// Also, it can log to virtual devices (like e9) when run inside VMs.
+	debugPrintChar(c);
 
 	if (logHandler)
 		logHandler(c);
