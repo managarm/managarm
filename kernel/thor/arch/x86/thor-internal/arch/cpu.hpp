@@ -577,9 +577,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool haveVirtualization = false;
 
 	LocalApicContext apicContext;
-
-	// TODO: This is not really arch-specific!
-	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.

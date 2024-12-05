@@ -48,7 +48,24 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	saveCurrentSimdState(executor);
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
 }
-void workOnExecutor(Executor *executor) { unimplementedOnRiscv(); }
+
+void workOnExecutor(Executor *executor) {
+	auto sp = reinterpret_cast<char *>(executor->getExceptionStack()) - sizeof(Frame);
+
+	auto *userFrame = reinterpret_cast<Frame *>(sp);
+	auto *kernelFrame = executor->general();
+	memcpy(userFrame, kernelFrame, sizeof(Frame));
+
+	auto *entry = reinterpret_cast<void *>(handleRiscvWorkOnExecutor);
+	memset(kernelFrame->xs, 0, 31 * sizeof(uint64_t));
+	kernelFrame->ip = reinterpret_cast<uintptr_t>(entry);
+	kernelFrame->sp() = reinterpret_cast<uintptr_t>(sp);
+	kernelFrame->a(0) = reinterpret_cast<uintptr_t>(executor);
+	kernelFrame->a(1) = reinterpret_cast<uintptr_t>(userFrame);
+	kernelFrame->sstatus |= riscv::sstatus::sppBit;
+	kernelFrame->sstatus &= ~riscv::sstatus::spieBit;
+	kernelFrame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
+}
 
 Executor::Executor(UserContext *context, AbiParameters abi) {
 	size_t size = determineSize();
@@ -94,13 +111,6 @@ void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
 }
 
-void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
-	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = thread;
-}
-
-smarter::borrowed_ptr<Thread> activeExecutor() { return getCpuData()->activeExecutor; }
-
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
 void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {
@@ -124,22 +134,20 @@ void doRunOnStack(void (*function)(void *, void *), void *sp, void *argument) {
 }
 
 void saveCurrentSimdState(Executor *executor) {
-	// TODO: Instead of reading the current sstatus, we should read it from the saved frame.
-	//       That would enable us to disable the FP state within trap handlers.
-	//       Unfortunately, we cannot implement this right now, as the generic
-	//       forkExecutor() code calls saveCurrentSimdState() before doForkExecutor().
-	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
-	auto fs = (sstatus >> riscv::sstatus::fsShift) & riscv::sstatus::extMask;
+	assert(!intsAreEnabled());
+	auto cpuData = getCpuData();
 
-	if (fs == riscv::sstatus::extDirty) {
+	if (cpuData->stashedFs == riscv::sstatus::extDirty) {
 		auto fs = reinterpret_cast<uint64_t *>(executor->_pointer + Executor::fsOffset());
+		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
 		fs[32] = riscv::readCsr<riscv::Csr::fcsr>();
 		saveFpRegisters(fs);
+		riscv::clearCsrBits<riscv::Csr::sstatus>(
+		    riscv::sstatus::extMask << riscv::sstatus::fsShift
+		);
 	}
-
-	// Disable the FP extension such that we cannot accidentally access it from the kernel.
-	sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
-	riscv::writeCsr<riscv::Csr::sstatus>(sstatus);
+	// TODO: We can skip this for extInitial when we implement extInitial.
+	cpuData->stashedFs = 0;
 }
 
 namespace {

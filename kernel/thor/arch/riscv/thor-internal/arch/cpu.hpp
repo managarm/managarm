@@ -210,6 +210,8 @@ struct Executor {
 
 	void *getExceptionStack() { return _exceptionStack; }
 
+	void *fpRegisters() { return _pointer + fsOffset(); }
+
 private:
 	char *_pointer{nullptr};
 	void *_exceptionStack{nullptr};
@@ -256,6 +258,14 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	uint64_t hartId{~UINT64_C(0)};
 
+	// Executor image that we use to save/restore state.
+	Executor *activeExecutor{nullptr};
+
+	// Actual value of the FS field in sstatus before it was cleared in the kernel.
+	// Zero (= extOff) indicates that the current register state cannot be relied upon
+	// (i.e., it has been saved to the executor or it is in control of U-mode).
+	uint8_t stashedFs{0};
+
 	std::atomic<uint64_t> pendingIpis;
 
 	// Deadlines for global timers and preemption.
@@ -270,11 +280,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	frg::manual_box<AsidCpuData> asidData;
 
 	uint32_t profileFlags = 0;
-
-	bool preemptionIsArmed = false;
-
-	// TODO: This is not really arch-specific!
-	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.

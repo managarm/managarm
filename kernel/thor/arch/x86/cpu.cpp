@@ -211,11 +211,6 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	}
 }
 
-void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
-	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = thread;
-}
-
 extern "C" void workStub();
 
 void workOnExecutor(Executor *executor) {
@@ -315,10 +310,6 @@ void UserContext::migrate(CpuData *cpu_data) {
 	tss.ist1 = (Word)cpu_data->irqStack.basePtr();
 	tss.ist2 = (Word)cpu_data->dfStack.basePtr();
 	tss.ist3 = (Word)cpu_data->nmiStack.basePtr();
-}
-
-smarter::borrowed_ptr<Thread> activeExecutor() {
-	return getCpuData()->activeExecutor;
 }
 
 // --------------------------------------------------------

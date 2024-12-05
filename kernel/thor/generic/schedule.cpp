@@ -422,7 +422,7 @@ Scheduler *localScheduler() {
 }
 
 smarter::borrowed_ptr<Thread> getCurrentThread() {
-	return activeExecutor();
+	return getCpuData()->activeThread;
 }
 
 } // namespace thor

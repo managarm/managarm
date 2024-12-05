@@ -154,15 +154,6 @@ size_t getStateSize() {
 	return Executor::determineSize();
 }
 
-void switchExecutor(smarter::borrowed_ptr<Thread> thread) {
-	assert(!intsAreEnabled());
-	getCpuData()->activeExecutor = thread;
-}
-
-smarter::borrowed_ptr<Thread> activeExecutor() {
-	return getCpuData()->activeExecutor;
-}
-
 PlatformCpuData::PlatformCpuData() {
 }
 

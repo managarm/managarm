@@ -310,9 +310,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	GicCpuInterfaceV2 *gicCpuInterfaceV2 = nullptr;
 	uint32_t affinity;
-
-	// TODO: This is not really arch-specific!
-	smarter::borrowed_ptr<Thread> activeExecutor;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.

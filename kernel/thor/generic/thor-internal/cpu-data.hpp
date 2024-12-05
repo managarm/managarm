@@ -8,6 +8,7 @@
 namespace thor {
 
 // Forward defined for pointers that are part of CpuData.
+struct Thread;
 struct KernelFiber;
 struct SingleContextRecordRing;
 struct ReentrantRecordRing;
@@ -38,9 +39,10 @@ struct CpuData : public PlatformCpuData {
 
 	int cpuIndex;
 
-	ExecutorContext *executorContext = nullptr;
-	KernelFiber *activeFiber;
-	KernelFiber *wqFiber = nullptr;
+	ExecutorContext *executorContext{nullptr};
+	smarter::borrowed_ptr<Thread> activeThread;
+	KernelFiber *activeFiber{nullptr};
+	KernelFiber *wqFiber{nullptr};
 	std::atomic<SelfIntCallBase *> selfIntCallPtr{nullptr};
 	smarter::shared_ptr<WorkQueue> generalWorkQueue;
 	std::atomic<uint64_t> heartbeat;
