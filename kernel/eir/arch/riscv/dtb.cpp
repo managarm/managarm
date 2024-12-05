@@ -3,8 +3,10 @@
 
 namespace eir {
 
-static initgraph::Task discoverMemory{&globalInitEngine, "riscv.discover-memory", [] {
-	                                      discoverMemoryFromDtb(eirDtbPtr);
-                                      }};
+static initgraph::Task discoverMemory{
+    &globalInitEngine, "riscv.discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
+	    discoverMemoryFromDtb(eirDtbPtr);
+    }
+};
 
 } // namespace eir

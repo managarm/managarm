@@ -20,6 +20,8 @@ extern "C" void eirMain();
 
 extern "C" void eirRunConstructors();
 
+initgraph::Stage *getInitrdAvailableStage();
+
 // achieved by parsing boot protocol-specific data to allow for setting up the CPU and memory
 initgraph::Stage *getReservedRegionsKnownStage();
 

@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <frg/array.hpp>
 
 namespace eir {
@@ -95,6 +96,7 @@ void discoverMemoryFromDtb(void *dtbPtr) {
 
 	eir::infoLogger() << "initrd is between 0x" << frg::hex_fmt(initrdStart) << " and 0x"
 	                  << frg::hex_fmt(initrdEnd) << frg::endlog;
+	initrd = physToVirt<void>(initrdStart);
 
 	// Determine all reserved memory areas.
 	InitialRegion reservedRegions[32];
@@ -182,22 +184,6 @@ void discoverMemoryFromDtb(void *dtbPtr) {
 		    }
 	    }
 	);
-
-	// Create and dump the resulting memory regions.
-	setupRegionStructs();
-
-	eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
-	for (size_t i = 0; i < numRegions; ++i) {
-		if (regions[i].regionType == RegionType::null)
-			continue;
-		eir::infoLogger() << "    Memory region [" << i << "]."
-		                  << " Base: 0x" << frg::hex_fmt{regions[i].address} << ", length: 0x"
-		                  << frg::hex_fmt{regions[i].size} << frg::endlog;
-		if (regions[i].regionType == RegionType::allocatable)
-			eir::infoLogger() << "        Buddy tree at 0x" << frg::hex_fmt{regions[i].buddyTree}
-			                  << ", overhead: 0x" << frg::hex_fmt{regions[i].buddyOverhead}
-			                  << frg::endlog;
-	}
 }
 
 } // namespace eir

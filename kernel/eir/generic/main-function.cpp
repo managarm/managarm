@@ -38,6 +38,11 @@ initgraph::Stage *getMemoryRegionsKnownStage() {
 	return &s;
 }
 
+initgraph::Stage *getInitrdAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.initrd-available"};
+	return &s;
+}
+
 initgraph::Stage *getKernelAvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.kernel-available"};
 	return &s;
@@ -65,6 +70,7 @@ struct GlobalCtorTest {
 static initgraph::Task parseInitrdInfo{
     &globalInitEngine,
     "generic.parse-initrd",
+    initgraph::Requires{getInitrdAvailableStage()},
     initgraph::Entails{getReservedRegionsKnownStage()},
     [] {
 	    assert(initrd);

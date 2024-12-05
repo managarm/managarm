@@ -536,6 +536,8 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 	}
 
 	// Parse the kernel command line.
+	if (!cmdline.data())
+		cmdline = "";
 	const char *l = cmdline.data();
 	while (true) {
 		while (*l && *l == ' ')
