@@ -22,6 +22,9 @@ static constexpr size_t pageSize = size_t(1) << pageShift;
 
 extern uint64_t kernelEntry;
 
+// Returns the size of the kernel's virtual address space in bits.
+int getKernelVirtualBits();
+
 void setupPaging();
 void mapSingle4kPage(
     address_t address,

@@ -143,6 +143,11 @@ address_t getSingle4kPage(address_t address) {
 	return page_ptr;
 }
 
+int getKernelVirtualBits() {
+	// TODO: This could be changed to 49 after some testing.
+	return 48;
+}
+
 void initProcessorEarly() {
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
 

@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/arch/riscv.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
 #include <riscv/csr.hpp>
@@ -145,8 +146,16 @@ void initProcessorEarly() {
 		if (!mmuType)
 			panicLogger() << "mmu-type property is missing" << frg::endlog;
 		auto mmuTypeStr = mmuType->asString();
-		if (mmuTypeStr != "riscv,sv39" && mmuTypeStr != "riscv,sv48" && mmuTypeStr != "riscv,sv57")
+		if (mmuTypeStr == "riscv,sv39") {
+			riscvConfig.numPtLevels = 3;
+		} else if (mmuTypeStr == "riscv,sv48" || mmuTypeStr == "riscv,sv57") {
+			riscvConfig.numPtLevels = 4; // Use Sv48 in both cases.
+		} else {
 			panicLogger() << "Processor does not support either Sv39, Sv48 or Sv57!" << frg::endlog;
+		}
+		infoLogger() << "eir: Supported mmu-type is " << *mmuTypeStr << frg::endlog;
+		infoLogger() << "eir: Using " << riscvConfig.numPtLevels << " levels of page tables"
+		             << frg::endlog;
 	} else {
 		panicLogger() << "Unable to boot without a device tree!" << frg::endlog;
 	}

@@ -75,3 +75,11 @@ struct MemoryLayout {
 	// Address of the EirInfo struct.
 	uint64_t eirInfo;
 };
+
+struct RiscvConfig {
+	// Number of levels of page tables.
+	// 3 for Sv39,
+	// 4 for Sv48,
+	// 5 for Sv57.
+	int numPtLevels{0};
+};
