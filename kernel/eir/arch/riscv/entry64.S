@@ -1,12 +1,19 @@
 .global _start
+.section .text.start
 _start:
-	la sp, eirStackTop
+	# Note: We can only use "lla", not "la" before eirRelocate!
 
-	la t0, eirDtbPtr
-	sd a1, 0(t0)
+	lla sp, eirStackTop
 
-	jal eirRunConstructors
-	j eirMain
+	lla t0, eirDtbPtr
+	sd a1, (t0)
+
+#if defined(EIR_PIE)
+	call eirRelocate
+#endif
+	call eirRunConstructors
+	call eirMain
+	unimp
 
 .section .bss
 eirStackBase:

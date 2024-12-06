@@ -38,7 +38,9 @@ eirEntry:
 	b .loop
 
 .enter:
+	.extern eirRelocate
 	.extern eirVirtMain
+	bl eirRelocate
 	bl eirVirtMain
 
 .halt:

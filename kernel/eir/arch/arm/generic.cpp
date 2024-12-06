@@ -3,40 +3,8 @@
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/memory-layout.hpp>
-#include <elf.h>
 
 namespace eir {
-
-#if PIE
-
-extern "C" [[gnu::visibility("hidden")]] Elf64_Dyn _DYNAMIC[];
-
-void eirRelocate() {
-	auto base = reinterpret_cast<uintptr_t>(&eirImageFloor);
-	uintptr_t relaAddr = 0;
-	uintptr_t relaSize = 0;
-
-	for (auto *dyn = _DYNAMIC; dyn->d_tag != DT_NULL; ++dyn) {
-		switch (dyn->d_tag) {
-			case DT_RELA:
-				relaAddr = dyn->d_ptr + base;
-				break;
-			case DT_RELASZ:
-				relaSize = dyn->d_val;
-				break;
-			default:
-				break;
-		}
-	}
-
-	for (uintptr_t i = 0; i < relaSize; i += sizeof(Elf64_Rela)) {
-		auto *rela = reinterpret_cast<const Elf64_Rela *>(relaAddr + i);
-		assert(ELF64_R_TYPE(rela->r_info) == R_AARCH64_RELATIVE);
-		*reinterpret_cast<Elf64_Addr *>(rela->r_offset + base) = base + rela->r_addend;
-	}
-}
-
-#endif // PIE
 
 [[noreturn]] void eirGenericMain(const GenericInfo &genericInfo) {
 	initProcessorEarly();

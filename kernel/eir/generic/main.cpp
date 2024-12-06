@@ -12,7 +12,7 @@
 
 // Pointer to the DTB.
 // Not in the eir namespace since some protocols set this from assembly.
-void *eirDtbPtr;
+constinit void *eirDtbPtr{nullptr};
 
 namespace eir {
 
@@ -536,6 +536,8 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 	}
 
 	// Parse the kernel command line.
+	if (!cmdline.data())
+		cmdline = "";
 	const char *l = cmdline.data();
 	while (true) {
 		while (*l && *l == ' ')

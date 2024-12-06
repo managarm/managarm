@@ -80,6 +80,10 @@ enum {
 	R_AARCH64_RELATIVE = 1027
 };
 
+enum {
+	R_RISCV_RELATIVE = 3
+};
+
 struct Elf64_Rela {
 	Elf64_Addr r_offset;
 	Elf64_Xword r_info;
