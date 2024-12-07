@@ -38,13 +38,17 @@ async::result<frg::expected<Error, std::string>> BcdDeviceAttribute::show(sysfs:
 async::result<frg::expected<Error, std::string>> ManufacturerNameAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbDevice *>(object);
 	auto str = co_await device->device().getString(device->desc()->manufacturer);
-	co_return std::format("{}\n", str ? str.value() : "");
+	if(!str)
+		co_return Error::noSuchFile;
+	co_return std::format("{}\n", str.value());
 }
 
 async::result<frg::expected<Error, std::string>> ProductNameAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbDevice *>(object);
 	auto str = co_await device->device().getString(device->desc()->product);
-	co_return std::format("{}\n", str ? str.value() : "");
+	if(!str)
+		co_return Error::noSuchFile;
+	co_return std::format("{}\n", str.value());
 }
 
 async::result<frg::expected<Error, std::string>> VersionAttribute::show(sysfs::Object *object) {
