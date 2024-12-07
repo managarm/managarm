@@ -88,8 +88,8 @@ async::result<void> Cp2102::initialize() {
 	out_ = (co_await if_->getEndpoint(protocols::usb::PipeType::out, out_endp_number.value())).unwrap();
 
 	arch::dma_buffer_view buf{nullptr, &partnum_, sizeof(partnum_)};
-	co_await transferControl(hw(), pool_, true, uint8_t(cp2102::Request::VENDOR_SPECIFIC),
-		uint16_t(cp2102::VendorRequest::GET_PARTNUM), intfNumber_, buf);
+	(co_await transferControl(hw(), pool_, true, uint8_t(cp2102::Request::VENDOR_SPECIFIC),
+		uint16_t(cp2102::VendorRequest::GET_PARTNUM), intfNumber_, buf)).unwrap();
 
 	std::cout << "usb-serial: CP2102 partnum " << uint8_t(partnum_) << std::endl;
 
@@ -102,8 +102,8 @@ async::result<void> Cp2102::initialize() {
 	}
 
 	uint16_t control = 0x303;
-	co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_MHS), control,
-		cp2102::CONFIG_INTERFACE, {});
+	(co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_MHS), control,
+		cp2102::CONFIG_INTERFACE, {})).unwrap();
 
 	co_await setConfiguration(activeSettings);
 }
@@ -114,8 +114,8 @@ async::result<void> Cp2102::setConfiguration(struct termios &new_config) {
 
 		if(termios_baud) {
 			uint32_t baud = getAn205Rate(termios_baud);
-			co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_BAUDRATE),
-				0, 0, arch::dma_buffer_view{nullptr, &baud, sizeof(baud)});
+			(co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_BAUDRATE),
+				0, 0, arch::dma_buffer_view{nullptr, &baud, sizeof(baud)})).unwrap();
 		}
 	}
 
@@ -160,7 +160,7 @@ async::result<void> Cp2102::setConfiguration(struct termios &new_config) {
 	if(new_config.c_cflag & CSTOPB)
 		bits |= 2;
 
-	co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_LINE_CTL), bits, 0, {});
+	(co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_LINE_CTL), bits, 0, {})).unwrap();
 
 	if(cfgetospeed(&new_config) != 0 &&
 		cfgetospeed(&activeSettings) != 0 &&
@@ -178,8 +178,8 @@ async::result<void> Cp2102::setConfiguration(struct termios &new_config) {
 		chars.bXonChar = new_config.c_cc[VSTART];
 		chars.bXoffChar = new_config.c_cc[VSTOP];
 
-		co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_CHARS), 0,
-			cp2102::CONFIG_INTERFACE, arch::dma_buffer_view{nullptr, &chars, sizeof(chars)});
+		(co_await transferControl(hw(), pool_, false, uint8_t(cp2102::Request::SET_CHARS), 0,
+			cp2102::CONFIG_INTERFACE, arch::dma_buffer_view{nullptr, &chars, sizeof(chars)})).unwrap();
 	}
 
 finalize:
