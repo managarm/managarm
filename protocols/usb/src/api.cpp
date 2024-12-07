@@ -50,6 +50,9 @@ async::result<frg::expected<UsbError, Configuration>> Device::useConfiguration(u
 }
 
 async::result<frg::expected<UsbError, std::string>> Device::getString(size_t number) const {
+	if(number == 0)
+		co_return UsbError::unsupported;
+
 	arch::dma_object<SetupPacket> desc{setupPool()};
 	desc->type = setup_type::targetDevice | setup_type::byStandard | setup_type::toHost;
 	desc->request = request_type::getDescriptor;

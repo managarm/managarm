@@ -25,8 +25,8 @@ public:
 };
 
 struct UsbController final : UsbBase {
-	UsbController(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent)
-		: UsbBase{sysfs_name, mbus_id, parent} { }
+	UsbController(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent, std::string type)
+		: UsbBase{sysfs_name, mbus_id, parent}, controllerType{std::move(type)} { }
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
 		char product[15];
@@ -50,6 +50,8 @@ struct UsbController final : UsbBase {
 	uint8_t maxPower = 0;
 	uint8_t bmAttributes = 0;
 	uint8_t numInterfaces = 0;
+
+	std::string controllerType;
 };
 
 struct UsbEndpoint final : sysfs::Object {

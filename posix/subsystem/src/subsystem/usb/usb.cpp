@@ -46,7 +46,11 @@ DeviceSubClassAttribute deviceSubClassAttr{"bDeviceSubClass"};
 DeviceProtocolAttribute deviceProtocolAttr{"bDeviceProtocol"};
 BcdDeviceAttribute bcdDeviceAttr{"bcdDevice"};
 ManufacturerNameAttribute manufacturerNameAttr{"manufacturer"};
+RootHubManufacturerNameAttribute rootHubManufacturerNameAttr{"manufacturer"};
 ProductNameAttribute productNameAttr{"product"};
+RootHubProductNameAttribute rootHubProductNameAttr{"product"};
+SerialNumberAttribute serialNumberAttr{"serial"};
+RootHubSerialNumberAttribute rootHubSerialAttr{"serial"};
 VersionAttribute versionAttr{"version"};
 SpeedAttribute speedAttr{"speed"};
 DeviceMaxPowerAttribute deviceMaxPowerAttr{"bMaxPower"};
@@ -86,8 +90,10 @@ void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint
 	auto pci = pci_subsystem::getDeviceByMbus(pci_parent_id);
 	assert(pci);
 
+	auto controller_type = std::get<mbus_ng::StringItem>(properties["generic.devsubtype"]).value;
+
 	auto sysfs_name = "usb" + std::to_string(bus_num);
-	auto device = std::make_shared<UsbController>(sysfs_name, entity.id(), pci);
+	auto device = std::make_shared<UsbController>(sysfs_name, entity.id(), pci, controller_type);
 	/* set up the /sys/bus/usb/devices/usbX symlink  */
 	sysfsSubsystem->devicesObject()->createSymlink(sysfs_name, device);
 
@@ -171,6 +177,10 @@ void bindController(mbus_ng::Entity entity, mbus_ng::Properties properties, uint
 	device->realizeAttribute(&descriptorsAttr);
 	device->realizeAttribute(&rxLanesAttr);
 	device->realizeAttribute(&txLanesAttr);
+
+	device->realizeAttribute(&rootHubManufacturerNameAttr);
+	device->realizeAttribute(&rootHubProductNameAttr);
+	device->realizeAttribute(&rootHubSerialAttr);
 }
 
 async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties properties) {
@@ -293,8 +303,12 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 	device->realizeAttribute(&deviceProtocolAttr);
 	device->realizeAttribute(&bcdDeviceAttr);
 
-	device->realizeAttribute(&manufacturerNameAttr);
-	device->realizeAttribute(&productNameAttr);
+	if(co_await manufacturerNameAttr.show(device.get()))
+		device->realizeAttribute(&manufacturerNameAttr);
+	if(co_await productNameAttr.show(device.get()))
+		device->realizeAttribute(&productNameAttr);
+	if(co_await serialNumberAttr.show(device.get()))
+		device->realizeAttribute(&serialNumberAttr);
 	device->realizeAttribute(&versionAttr);
 	device->realizeAttribute(&speedAttr);
 	device->realizeAttribute(&deviceMaxPowerAttr);
