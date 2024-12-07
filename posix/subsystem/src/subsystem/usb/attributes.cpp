@@ -2,6 +2,7 @@
 
 #include "attributes.hpp"
 #include "devices.hpp"
+#include "../pci.hpp"
 
 namespace usb_subsystem {
 
@@ -43,6 +44,10 @@ async::result<frg::expected<Error, std::string>> ManufacturerNameAttribute::show
 	co_return std::format("{}\n", str.value());
 }
 
+async::result<frg::expected<Error, std::string>> RootHubManufacturerNameAttribute::show(sysfs::Object *) {
+	co_return "managarm\n";
+}
+
 async::result<frg::expected<Error, std::string>> ProductNameAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbDevice *>(object);
 	auto str = co_await device->device().getString(device->desc()->product);
@@ -51,12 +56,32 @@ async::result<frg::expected<Error, std::string>> ProductNameAttribute::show(sysf
 	co_return std::format("{}\n", str.value());
 }
 
+async::result<frg::expected<Error, std::string>> RootHubProductNameAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbController *>(object);
+
+	if(device->controllerType == "xhci") {
+		co_return "xHCI Host Controller\n";
+	} else if(device->controllerType == "uhci") {
+		co_return "UHCI Host Controller\n";
+	} else if(device->controllerType == "ehci") {
+		co_return "EHCI Host Controller\n";
+	} else {
+		co_return Error::noSuchFile;
+	}
+}
+
 async::result<frg::expected<Error, std::string>> SerialNumberAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbDevice *>(object);
 	auto str = co_await device->device().getString(device->desc()->serialNumber);
 	if(!str)
 		co_return Error::noSuchFile;
 	co_return std::format("{}\n", str.value());
+}
+
+async::result<frg::expected<Error, std::string>> RootHubSerialNumberAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbController *>(object);
+	auto pci = std::static_pointer_cast<pci_subsystem::Device>(device->parentDevice());
+	co_return std::format("{:04x}:{:02x}:{:02x}.{:01x}\n", pci->pciSegment, pci->pciBus, pci->pciSlot, pci->pciFunction);
 }
 
 async::result<frg::expected<Error, std::string>> VersionAttribute::show(sysfs::Object *object) {
