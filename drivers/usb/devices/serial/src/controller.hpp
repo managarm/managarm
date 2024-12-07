@@ -11,7 +11,7 @@
 namespace {
 
 [[maybe_unused]]
-async::result<void> transferControl(protocols::usb::Device &device, arch::contiguous_pool &pool,
+async::result<frg::expected<protocols::usb::UsbError, size_t>> transferControl(protocols::usb::Device &device, arch::contiguous_pool &pool,
 		bool read, uint8_t request, uint16_t value, uint16_t interface, arch::dma_buffer_view buf) {
 	arch::dma_object<protocols::usb::SetupPacket> ctrl_msg{&pool};
 	ctrl_msg->type = protocols::usb::setup_type::byVendor |
@@ -21,10 +21,9 @@ async::result<void> transferControl(protocols::usb::Device &device, arch::contig
 	ctrl_msg->index = interface;
 	ctrl_msg->length = buf.size();
 
-	(co_await device.transfer(
+	co_return co_await device.transfer(
 		protocols::usb::ControlTransfer{(read ? protocols::usb::kXferToHost : protocols::usb::kXferToDevice),
-		ctrl_msg, buf})
-	).unwrap();
+		ctrl_msg, buf});
 }
 
 }

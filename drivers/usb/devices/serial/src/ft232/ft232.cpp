@@ -143,9 +143,9 @@ async::result<void> Ft232::setConfiguration(struct termios &new_config) {
 		v_flow = uint8_t(ft232::FlowControl::Disable);
 	}
 
-	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetBaudRate), baud_setting & 0xFFFF, baud_setting >> 16, {});
-	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetData), lcr, 0, {});
-	co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetFlowControl), v_stop | (v_start << 8), v_flow, {});
+	(co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetBaudRate), baud_setting & 0xFFFF, baud_setting >> 16, {})).unwrap();
+	(co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetData), lcr, 0, {})).unwrap();
+	(co_await transferControl(hw_, pool_, false, uint8_t(ft232::Request::SetFlowControl), v_stop | (v_start << 8), v_flow, {})).unwrap();
 
 	ttyCopyTermios(new_config, activeSettings);
 

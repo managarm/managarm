@@ -25,6 +25,7 @@
 #include <protocols/usb/client.hpp>
 #include <protocols/usb/usb.hpp>
 
+#include "ch341/ch341.hpp"
 #include "cp2102/cp2102.hpp"
 #include "ft232/ft232.hpp"
 #include "posix.bragi.hpp"
@@ -292,6 +293,7 @@ enum class ControllerType {
 	None,
 	Cp2102,
 	Ft232,
+	Ch341,
 };
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
@@ -316,6 +318,8 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		type = ControllerType::Cp2102;
 	} else if(Ft232::valid(vendor->value, product->value)) {
 		type = ControllerType::Ft232;
+	} else if(Ch341::valid(vendor->value, product->value)) {
+		type = ControllerType::Ch341;
 	} else {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}
@@ -337,6 +341,13 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_await ft232->initialize();
 
 			controller = std::move(ft232);
+			break;
+		}
+		case ControllerType::Ch341: {
+			auto ch341 = smarter::make_shared<Ch341>(std::move(device));
+			co_await ch341->initialize();
+
+			controller = std::move(ch341);
 			break;
 		}
 		default:

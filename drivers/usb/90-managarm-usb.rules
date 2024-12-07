@@ -1,6 +1,7 @@
 ACTION!="add", GOTO="managarm_usb_end"
 SUBSYSTEM!="usb", GOTO="managarm_usb_end"
 
+ATTR{idVendor}=="1a86", ATTR{idProduct}=="5523", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/usb-serial.bin", GOTO="managarm_usb_end"
 ATTR{idVendor}=="10c4", ATTR{idProduct}=="ea60", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/usb-serial.bin", GOTO="managarm_usb_end"
 ATTR{idVendor}=="0403", ATTR{idProduct}=="6001", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/usb-serial.bin", GOTO="managarm_usb_end"
 
