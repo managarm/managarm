@@ -47,6 +47,7 @@ DeviceProtocolAttribute deviceProtocolAttr{"bDeviceProtocol"};
 BcdDeviceAttribute bcdDeviceAttr{"bcdDevice"};
 ManufacturerNameAttribute manufacturerNameAttr{"manufacturer"};
 ProductNameAttribute productNameAttr{"product"};
+SerialNumberAttribute serialNumberAttr{"serial"};
 VersionAttribute versionAttr{"version"};
 SpeedAttribute speedAttr{"speed"};
 DeviceMaxPowerAttribute deviceMaxPowerAttr{"bMaxPower"};
@@ -297,6 +298,8 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		device->realizeAttribute(&manufacturerNameAttr);
 	if(co_await productNameAttr.show(device.get()))
 		device->realizeAttribute(&productNameAttr);
+	if(co_await serialNumberAttr.show(device.get()))
+		device->realizeAttribute(&serialNumberAttr);
 	device->realizeAttribute(&versionAttr);
 	device->realizeAttribute(&speedAttr);
 	device->realizeAttribute(&deviceMaxPowerAttr);

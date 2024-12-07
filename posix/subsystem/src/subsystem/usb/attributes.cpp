@@ -51,6 +51,14 @@ async::result<frg::expected<Error, std::string>> ProductNameAttribute::show(sysf
 	co_return std::format("{}\n", str.value());
 }
 
+async::result<frg::expected<Error, std::string>> SerialNumberAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<UsbDevice *>(object);
+	auto str = co_await device->device().getString(device->desc()->serialNumber);
+	if(!str)
+		co_return Error::noSuchFile;
+	co_return std::format("{}\n", str.value());
+}
+
 async::result<frg::expected<Error, std::string>> VersionAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<UsbBase *>(object);
 	co_return std::format("{:>2x}.{:0>2x}\n", device->desc()->bcdUsb >> 8, device->desc()->bcdUsb & 0xFF);

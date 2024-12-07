@@ -60,6 +60,13 @@ struct ProductNameAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct SerialNumberAttribute : sysfs::Attribute {
+	SerialNumberAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 struct VersionAttribute : sysfs::Attribute {
 	VersionAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
