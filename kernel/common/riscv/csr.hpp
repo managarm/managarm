@@ -13,10 +13,11 @@ enum class Csr : uint16_t {
 	stvec = 0x105,   // Trap vector address.
 	// Supervisor trap handling.
 	sscratch = 0x140,
-	sepc = 0x141,   // Exception program counter.
-	scause = 0x142, // Cause of exception.
-	stval = 0x143,  // Trap value.
-	sip = 0x0144,   // Interrupt pending.
+	sepc = 0x141,     // Exception program counter.
+	scause = 0x142,   // Cause of exception.
+	stval = 0x143,    // Trap value.
+	sip = 0x144,      // Interrupt pending.
+	stimecmp = 0x14d, // Timer comparison register.
 	// Supervisor protection and translation.
 	satp = 0x180, // Address translation.
 };

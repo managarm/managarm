@@ -3,6 +3,7 @@
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/fp-state.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/fiber.hpp>
@@ -237,7 +238,8 @@ static initgraph::Task probeSbiFeatures{
     [] {
 	    if (!sbi::base::probeExtension(sbi::eidIpi))
 		    panicLogger() << "SBI does not implement IPI extension" << frg::endlog;
-	    if (!sbi::base::probeExtension(sbi::eidTime))
+	    if (!riscvHartCapsNote->hasExtension(RiscvExtension::sstc)
+	        && !sbi::base::probeExtension(sbi::eidTime))
 		    panicLogger() << "SBI does not implement TIME extension" << frg::endlog;
     }
 };

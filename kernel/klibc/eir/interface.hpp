@@ -66,6 +66,8 @@ enum class RiscvExtension {
 	f,
 	i,
 	m,
+	// S extensions.
+	sstc,
 	// Z extensions.
 	za64rs,
 	zic64b,
@@ -99,6 +101,7 @@ constexpr const char *stringifyRiscvExtension(RiscvExtension ext) {
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(f)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(i)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(m)
+		EIR_STRINGIFY_RISCV_EXTENSION_CASE(sstc)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(za64rs)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zic64b)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zicbom)
