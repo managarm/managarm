@@ -742,8 +742,8 @@ public:
 
 	FutexRealm localFutexRealm;
 
-	bool updatePageAccess(VirtualAddr address) {
-		return pageSpace_.updatePageAccess(address);
+	bool updatePageAccess(VirtualAddr address, PageFlags flags) {
+		return pageSpace_.updatePageAccess(address, flags);
 	}
 
 private:

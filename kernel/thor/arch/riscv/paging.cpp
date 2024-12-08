@@ -103,6 +103,31 @@ ClientPageSpace::~ClientPageSpace() {
 	freePt<ClientCursorPolicy, 4, /*LowerHalfOnly=*/true>(rootTable());
 }
 
-bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) { unimplementedOnRiscv(); }
+bool ClientPageSpace::updatePageAccess(VirtualAddr pointer, PageFlags flags) {
+	Cursor cursor{this, pointer};
+	auto ptePtr = cursor.getPtePtr();
+	if (!ptePtr)
+		return false;
+	auto pte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+	if (!(pte & pteValid))
+		return false;
+	assert(pte & pteRead);
+
+	uint64_t bits{0};
+	// Reads are always valid.
+	if (flags & page_access::read)
+		bits |= pteAccess;
+	if ((flags & page_access::execute) && (pte & pteExecute))
+		bits |= pteAccess;
+	if ((flags & page_access::write) && (pte & pteWrite))
+		bits |= pteAccess | pteDirty;
+
+	// Mask out bits that are already set (such that the return value is accurate).
+	bits &= ~(pte & (pteAccess | pteDirty));
+	if (!bits)
+		return false;
+	__atomic_fetch_or(ptePtr, bits, __ATOMIC_RELAXED);
+	return true;
+}
 
 } // namespace thor

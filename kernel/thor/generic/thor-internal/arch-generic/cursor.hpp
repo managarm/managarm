@@ -164,6 +164,14 @@ public:
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
+	// Low-level API for use by arch-specific code.
+public:
+	uint64_t *getPtePtr() {
+		if (!accessors_[lastLevel])
+			return nullptr;
+		return currentPtePtr_();
+	}
+
 private:
 	bool doReloadLevel_(PageAccessor &subPt, PageAccessor &pt, size_t level) {
 		auto ptPtr = reinterpret_cast<uint64_t *>(pt.get())

@@ -148,7 +148,7 @@ struct ClientPageSpace : PageSpace {
 
 	ClientPageSpace &operator= (const ClientPageSpace &) = delete;
 
-	bool updatePageAccess(VirtualAddr pointer);
+	bool updatePageAccess(VirtualAddr pointer, PageFlags);
 };
 
 } // namespace thor

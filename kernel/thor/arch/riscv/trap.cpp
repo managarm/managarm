@@ -129,7 +129,23 @@ void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame
 
 void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 	if (!inHigherHalf(address)) {
-		// TODO: We need to distinguish higher half and lower half when we implement Svade.
+		// updatePageAccess() on RISC-V always sets the A bit, no need to set extra flags.
+		PageFlags flags = 0;
+		if (code == codeInstructionPageFault) {
+			flags |= page_access::execute;
+		} else if (code == codeLoadPageFault) {
+			flags |= page_access::read;
+		} else if (code == codeStorePageFault) {
+			flags |= page_access::write;
+		}
+
+		auto thisThread = getCurrentThread();
+		auto addressSpace = thisThread->getAddressSpace();
+		if (addressSpace->updatePageAccess(address & ~(kPageSize - 1), flags)) {
+			// infoLogger() << "updateSuccess" << frg::endlog;
+			asm volatile("sfence.vma" : : : "memory"); // TODO: This is way too coarse.
+			return;
+		}
 	}
 
 	// Note: We never set kPfAccess, but the generic code also does not rely on it.

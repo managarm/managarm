@@ -42,7 +42,7 @@ concept ValidKernelPageSpace = requires (T t, VirtualAddr va, PhysicalAddr pa,
 static_assert(ValidKernelPageSpace<KernelPageSpace>);
 
 template <typename T>
-concept ValidClientPageSpace = requires (T t, VirtualAddr va) {
+concept ValidClientPageSpace = requires (T t, VirtualAddr va, PageFlags flags) {
 	// Used for dirty bit emulation on architectures that don't
 	// have hardware dirty bit management.
 	// Invoked on a page fault due to a write to read-only page.
@@ -50,7 +50,7 @@ concept ValidClientPageSpace = requires (T t, VirtualAddr va) {
 	// and makes it so if that's the case. Returns whether this
 	// page was modified (=> if true, this page fault requires no
 	// further action).
-	{ t.updatePageAccess(va) } -> std::same_as<bool>;
+	{ t.updatePageAccess(va, flags) } -> std::same_as<bool>;
 };
 static_assert(ValidClientPageSpace<ClientPageSpace>);
 

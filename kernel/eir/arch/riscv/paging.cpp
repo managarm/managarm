@@ -6,12 +6,16 @@
 namespace eir {
 
 namespace {
+
 constexpr uint64_t pteValid = UINT64_C(1) << 0;
 constexpr uint64_t pteRead = UINT64_C(1) << 1;
 constexpr uint64_t pteWrite = UINT64_C(1) << 2;
 constexpr uint64_t pteExecute = UINT64_C(1) << 3;
 constexpr uint64_t pteGlobal = UINT64_C(1) << 5;
+constexpr uint64_t pteAccess = UINT64_C(1) << 6;
+constexpr uint64_t pteDirty = UINT64_C(1) << 7;
 constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
+
 } // namespace
 
 physaddr_t pml4;
@@ -46,9 +50,9 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 
 	// VPN[0] starts at 12.
 	unsigned int vpn0 = (address >> 12) & 0x1FF;
-	uint64_t pte0 = (physical >> 2) | pteValid | pteRead;
+	uint64_t pte0 = (physical >> 2) | pteValid | pteRead | pteAccess;
 	if (flags & PageFlags::write)
-		pte0 |= pteWrite;
+		pte0 |= pteWrite | pteDirty;
 	if (flags & PageFlags::execute)
 		pte0 |= pteExecute;
 	if (flags & PageFlags::global)
