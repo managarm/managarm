@@ -6,6 +6,33 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 jobs:
+    cache:
+        name: Cache prerequisites
+        runs-on: ubuntu-24.04
+        steps:
+          - id: head
+            name: Get HEAD of bootstrap-managarm
+            run: |
+                remote="$(git ls-remote https://github.com/managarm/bootstrap-managarm.git refs/heads/master)"
+                head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $remote)"
+                echo "git ls-remote on bootstrap-managarm: $head"
+                echo "bootstrap-commit=$head" > "$GITHUB_OUTPUT"
+          # TODO: We could also cache files other than the rootfs.
+          - id: cache
+            name: Cache rootfs
+            uses: actions/cache@v4
+            with:
+                key: ${{ steps.head.outputs.bootstrap-commit }}
+                # Note: must be kept in sync with the restore action (effectively part of the key).
+                path: |
+                    rootfs/
+          - name: Download rootfs
+            if: steps.cache.outputs.cache-hit != 'true'
+            run: |
+                set -x
+                curl -o rootfs.tar.gz https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz
+                tar -xzf rootfs.tar.gz
+
     build-package:
         strategy:
             matrix:
@@ -19,6 +46,7 @@ jobs:
                   - arch: riscv64
                     pkg: managarm-kernel-uefi
         name: Build ${{ matrix.pkg }} on ${{ matrix.arch }}
+        needs: cache
         runs-on: ubuntu-24.04
         steps:
           - name: Permit unprivileged user namespaces
@@ -33,6 +61,21 @@ jobs:
                 sudo apt-get install qemu-system-x86 pcre2-utils
                 pip3 install xbstrap y4
                 xbstrap prereqs cbuildrt xbps
+          - id: head
+            name: Get HEAD of bootstrap-managarm
+            run: |
+                remote="$(git ls-remote https://github.com/managarm/bootstrap-managarm.git refs/heads/master)"
+                head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $remote)"
+                echo "git ls-remote on bootstrap-managarm: $head"
+                echo "bootstrap-commit=$head" > "$GITHUB_OUTPUT"
+          - name: Restore cache
+            uses: actions/cache/restore@v4
+            with:
+                key: ${{ steps.head.outputs.bootstrap-commit }}
+                # Note: must be kept in sync with the cache action (effectively part of the key).
+                path: |
+                    rootfs/
+                fail-on-cache-miss: true
           - name: Check for requested bootstrap-managarm PR
             env:
               PR_BODY: ${{ github.event.pull_request.body }}
@@ -54,11 +97,6 @@ jobs:
             with:
                 path: src/managarm/
                 fetch-depth: 0
-          - name: Download rootfs
-            run: |
-                set -x
-                curl -o rootfs.tar.gz https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz
-                tar -xzf rootfs.tar.gz
           - name: Prepare src/ and build/
             run: |
                 set -x
