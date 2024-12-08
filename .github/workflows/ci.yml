@@ -113,7 +113,7 @@ jobs:
             run: |
                 set -x
                 sudo apt-get update
-                sudo apt-get install qemu-system-x86 pcre2-utils
+                sudo apt-get install pcre2-utils
                 pip3 install xbstrap y4
                 xbstrap prereqs cbuildrt xbps
           - name: Restore rootfs cache
@@ -168,29 +168,85 @@ jobs:
                 CI_BUILD_PKG: ${{ matrix.pkg }}
                 XBPS_ARCH: ${{ matrix.arch }}
             working-directory: build/
-          - name: Generate image
-            run: |
-                set -x
-                curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
-                unxz image.xz
-                ../src/scripts/update-image.py -m loopback mount
-                # For now we need root because the mount point is owned by root
-                # and xbps uses access(mountpoint/, W_OK) to test if it can write.
-                sudo --preserve-env=XBPS_ARCH ~/.xbstrap/bin/xbps-install -fy -R xbps-repo/ -r mountpoint/ $CI_BUILD_PKG
-                ../src/scripts/update-image.py unmount
-            env:
-                CI_BUILD_PKG: ${{ matrix.pkg }}
-                XBPS_ARCH: x86_64
-            working-directory: build/
-            if: ${{ matrix.arch == 'x86_64' }}
-          - name: Test ${{ matrix.pkg }} package
-            run: |
-                ../src/scripts/test-image.py
-            working-directory: build/
-            if: ${{ matrix.arch == 'x86_64' }}
+          - name: Upload artifact
+            uses: actions/upload-artifact@v4
+            with:
+                name: "${{ matrix.arch }}-${{ matrix.pkg }}"
+                path: "build/xbps-repo/${{ matrix.pkg }}*.xbps"
+                if-no-files-found: error
           - name: Run clang-tidy on ${{ matrix.pkg }} on ${{ matrix.arch }}
             run: |
                 xbstrap run --pkg $CI_BUILD_PKG clang-tidy
             working-directory: build/
             env:
                 CI_BUILD_PKG: ${{ matrix.pkg }}
+
+    test-image:
+        strategy:
+            matrix:
+                arch: [x86_64]
+        name: Test ${{ matrix.arch }} image
+        needs:
+          - cache-generic
+          - cache-arch
+          - build-package
+        runs-on: ubuntu-24.04
+        steps:
+          - name: Install prerequisites
+            run: |
+                set -x
+                sudo apt-get update
+                sudo apt-get install qemu-system-x86
+                pip3 install xbstrap y4
+                xbstrap prereqs xbps
+          - name: Restore xbps cache
+            uses: actions/cache/restore@v4
+            with:
+                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.bootstrap-commit }}"
+                # Note: must be kept in sync with the restore action (effectively part of the key).
+                path: build/xbps-repo/*.xbps
+                fail-on-cache-miss: true
+          - name: Download managarm-kernel
+            uses: actions/download-artifact@v4
+            with:
+                name: "${{ matrix.arch }}-managarm-kernel"
+                path: build/xbps-repo/
+          - name: Download managarm-system
+            uses: actions/download-artifact@v4
+            with:
+                name: "${{ matrix.arch }}-managarm-system"
+                path: build/xbps-repo/
+          - name: Check for requested bootstrap-managarm PR
+            env:
+              PR_BODY: ${{ github.event.pull_request.body }}
+            run: |
+              pr_num=$(echo "$PR_BODY" | pcre2grep -o1 "^Depends on managarm\/bootstrap-managarm#([0-9]+)" | head -n1)
+              pr_ref=""
+              if [ ! -z "${pr_num}" ]; then
+                pr_ref="refs/pull/$pr_num/head"
+              fi
+              echo "bootstrap_ref=${pr_ref}" >> "$GITHUB_ENV"
+          - name: Checkout bootstrap-managarm
+            uses: actions/checkout@v2
+            with:
+                repository: managarm/bootstrap-managarm
+                ref: ${{env.bootstrap_ref}}
+                path: src/
+          - name: Generate image
+            run: |
+                set -x
+                curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
+                unxz image.xz
+                ~/.xbstrap/bin/xbps-rindex -fa xbps-repo/*.xbps
+                ../src/scripts/update-image.py -m loopback mount
+                # For now we need root because the mount point is owned by root
+                # and xbps uses access(mountpoint/, W_OK) to test if it can write.
+                sudo --preserve-env=XBPS_ARCH ~/.xbstrap/bin/xbps-install -fy -R xbps-repo/ -r mountpoint/ managarm-kernel managarm-system
+                ../src/scripts/update-image.py unmount
+            env:
+                XBPS_ARCH: ${{ matrix.arch }}
+            working-directory: build/
+          - name: Test ${{ matrix.pkg }} package
+            run: |
+                ../src/scripts/test-image.py
+            working-directory: build/
