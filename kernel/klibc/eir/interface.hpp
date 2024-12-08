@@ -59,7 +59,20 @@ struct EirInfo {
 namespace elf_note_type {
 
 // Values for Elf64_Nhdr::n_type of ELF notes embedded into Thor.
+// 0x10xx'xxxx range reserved for generic notes in Thor.
 constexpr unsigned int memoryLayout = 0x1000'0000;
+// 0x11xx'xxxx range reserved for arch-specific notes in Thor.
+// 0x1100'0xxx range reserved for x86.
+// 0x1100'1xxx range reserved for aarch64.
+constexpr unsigned int riscvConfig = 0x1100'2000;
+
+inline bool isThorGeneric(unsigned int type) {
+	return (type & 0xFF00'0000) == 0x1000'0000;
+}
+
+inline bool isThorArchSpecific(unsigned int type) {
+	return (type & 0xFF00'0000) == 0x1100'0000;
+}
 
 } // namespace elf_note_type
 

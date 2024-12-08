@@ -225,4 +225,6 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	mapKasanShadow(ml.kernelVirtual, ml.kernelVirtualSize);
 }
 
+bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
+
 } // namespace eir

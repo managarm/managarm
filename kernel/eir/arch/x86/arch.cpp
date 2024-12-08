@@ -227,6 +227,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	                  << frg::endlog;
 }
 
+bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
+
 [[noreturn]] void enterKernel() {
 	eirEnterKernel(eirPml4Pointer, kernelEntry, getKernelStackPtr());
 }
