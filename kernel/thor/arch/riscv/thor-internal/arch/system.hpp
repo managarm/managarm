@@ -8,6 +8,7 @@ namespace thor {
 static inline constexpr int numIrqSlots = 0;
 
 extern ManagarmElfNote<RiscvConfig> riscvConfigNote;
+extern ManagarmElfNote<RiscvHartCaps> riscvHartCapsNote;
 
 void initializeArchitecture();
 
