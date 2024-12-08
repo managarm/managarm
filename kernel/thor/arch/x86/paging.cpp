@@ -195,7 +195,7 @@ ClientPageSpace::~ClientPageSpace() {
 	physicalAllocator->free(rootTable(), kPageSize);
 }
 
-bool ClientPageSpace::updatePageAccess(VirtualAddr) {
+bool ClientPageSpace::updatePageAccess(VirtualAddr, PageFlags) {
 	return false;
 }
 

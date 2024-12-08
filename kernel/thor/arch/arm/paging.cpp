@@ -178,7 +178,7 @@ ClientPageSpace::~ClientPageSpace() {
 // TODO(qookie): This function should be converted to use cursors.
 // Maybe we should add a method that lets us just get a pointer to the
 // PTE or nullptr if it's not mapped?
-bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) {
+bool ClientPageSpace::updatePageAccess(VirtualAddr pointer, PageFlags) {
 	assert(!(pointer & (kPageSize - 1)));
 
 	auto irq_lock = frg::guard(&irqMutex());

@@ -55,12 +55,19 @@ struct RiscvCursorPolicy {
 	pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
 		auto pte = (physical >> 2) | pteValid | pteRead;
 
-		if constexpr (Kernel)
-			pte |= pteGlobal;
-		else
+		// Higher half pages are always global.
+		// Furthermore, for higher half pages, we let (1) read permissions imply pteAccess,
+		// and (2) write permission imply pteDirty. This ensures that we never get a page fault
+		// due to unset access or dirty bits in the higher half (even if Svadu is not implemented).
+		if constexpr (Kernel) {
+			pte |= pteAccess | pteGlobal;
+			if (flags & page_access::write)
+				pte |= pteWrite | pteDirty;
+		} else {
 			pte |= pteUser;
-		if (flags & page_access::write)
-			pte |= pteWrite;
+			if (flags & page_access::write)
+				pte |= pteWrite;
+		}
 		if (flags & page_access::execute)
 			pte |= pteExecute;
 		// TODO: Support caching modes.
@@ -122,7 +129,7 @@ public:
 
 	ClientPageSpace &operator=(const ClientPageSpace &) = delete;
 
-	bool updatePageAccess(VirtualAddr pointer);
+	bool updatePageAccess(VirtualAddr pointer, PageFlags flags);
 };
 
 } // namespace thor
