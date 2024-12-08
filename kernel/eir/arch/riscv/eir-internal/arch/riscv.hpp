@@ -5,5 +5,6 @@
 namespace eir {
 
 extern RiscvConfig riscvConfig;
+extern RiscvHartCaps riscvHartCaps;
 
 } // namespace eir

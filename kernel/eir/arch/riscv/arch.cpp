@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/arch/riscv.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/memory-layout.hpp>
 
@@ -17,6 +18,11 @@ bool patchArchSpecificManagarmElfNote(unsigned int type, frg::span<char> desc) {
 		// Config must be known by now.
 		assert(riscvConfig.numPtLevels);
 		memcpy(desc.data(), &riscvConfig, sizeof(RiscvConfig));
+		return true;
+	} else if (type == elf_note_type::riscvHartCaps) {
+		if (desc.size() != sizeof(RiscvHartCaps))
+			panicLogger() << "RiscvHartCaps size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &riscvHartCaps, sizeof(RiscvHartCaps));
 		return true;
 	}
 	return false;

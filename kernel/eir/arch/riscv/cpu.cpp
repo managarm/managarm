@@ -8,7 +8,20 @@
 
 namespace eir {
 
+constinit RiscvHartCaps riscvHartCaps;
+
 namespace {
+
+// All bits need to be enabled to ensure RVA22 compliance
+constexpr std::array rva22Mandatory{
+    RiscvExtension::i,       RiscvExtension::m,        RiscvExtension::a,
+    RiscvExtension::f,       RiscvExtension::d,        RiscvExtension::c,
+    RiscvExtension::zicsr,   RiscvExtension::zicntr,   RiscvExtension::ziccif,
+    RiscvExtension::ziccrse, RiscvExtension::ziccamoa, RiscvExtension::zicclsm,
+    RiscvExtension::za64rs,  RiscvExtension::zihpm,    RiscvExtension::zihintpause,
+    RiscvExtension::zic64b,  RiscvExtension::zicbom,   RiscvExtension::zicbop,
+    RiscvExtension::zicboz,
+};
 
 void handleException() {
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
@@ -19,29 +32,6 @@ void handleException() {
 	while (true)
 		;
 }
-
-// All bits need to be enabled to ensure RVA22 compliance
-enum RiscVBits {
-	i,
-	m,
-	a,
-	f,
-	d,
-	c,
-	zicsr,
-	zicntr,
-	ziccif,
-	ziccrse,
-	ziccamoa,
-	zicclsm,
-	za64rs,
-	zihpm,
-	zihintpause,
-	zic64b,
-	zicbom,
-	zicbop,
-	zicboz,
-};
 
 // Handle "isa-base" and "isa-extensions"
 void checkIsaBaseExtensions(DeviceTreeNode cpuNode) {
@@ -62,52 +52,22 @@ void checkIsaBaseExtensions(DeviceTreeNode cpuNode) {
 		infoLogger() << "eir: No isa-extensions found" << frg::endlog;
 		return;
 	}
-	bool bits[19]{};
 	for (size_t i = 0; isaExtensions.value().asString(i).has_value(); i++) {
-		auto extension = isaExtensions.value().asString(i).value();
-		infoLogger() << "eir: Have extension " << extension << frg::endlog;
-		if (extension == "i")
-			bits[RiscVBits::i] = true;
-		if (extension == "m")
-			bits[RiscVBits::m] = true;
-		if (extension == "a")
-			bits[RiscVBits::a] = true;
-		if (extension == "f")
-			bits[RiscVBits::f] = true;
-		if (extension == "d")
-			bits[RiscVBits::d] = true;
-		if (extension == "c")
-			bits[RiscVBits::c] = true;
-		if (extension == "zicsr")
-			bits[RiscVBits::zicsr] = true;
-		if (extension == "zicntr")
-			bits[RiscVBits::zicntr] = true;
-		if (extension == "ziccif")
-			bits[RiscVBits::ziccif] = true;
-		if (extension == "ziccrse")
-			bits[RiscVBits::ziccrse] = true;
-		if (extension == "ziccamoa")
-			bits[RiscVBits::ziccamoa] = true;
-		if (extension == "zicclsm")
-			bits[RiscVBits::zicclsm] = true;
-		if (extension == "za64rs")
-			bits[RiscVBits::za64rs] = true;
-		if (extension == "zihpm")
-			bits[RiscVBits::zihpm] = true;
-		if (extension == "zihintpause")
-			bits[RiscVBits::zihintpause] = true;
-		if (extension == "zic64b")
-			bits[RiscVBits::zic64b] = true;
-		if (extension == "zicbom")
-			bits[RiscVBits::zicbom] = true;
-		if (extension == "zicbop")
-			bits[RiscVBits::zicbop] = true;
-		if (extension == "zicboz")
-			bits[RiscVBits::zicboz] = true;
+		auto s = isaExtensions.value().asString(i).value();
+		auto ext = parseRiscvExtension(s);
+		if (ext != RiscvExtension::invalid) {
+			riscvHartCaps.setExtension(ext);
+			infoLogger() << "eir: Have extension " << s << frg::endlog;
+		} else {
+			infoLogger() << "eir: riscv,isa-extensions reports unknown extension " << s
+			             << frg::endlog;
+		}
 	}
 
 	// If not all bits are set, some kernel functionality may be impacted.
-	if (!std::ranges::all_of(bits, [](auto a) { return a; })) {
+	if (!std::ranges::all_of(rva22Mandatory, [](auto ext) {
+		    return riscvHartCaps.hasExtension(ext);
+	    })) {
 		infoLogger() << "Processor does not support all mandatory RVA22 extensions!" << frg::endlog;
 	}
 }
