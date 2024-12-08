@@ -31,6 +31,11 @@ inline constexpr uint64_t kPagenGnRE = (3 << 2);
 inline constexpr uint64_t kPageUc = (4 << 2);
 inline constexpr uint64_t kPageAddress = 0xFFFFFFFFF000;
 
+inline int getLowerHalfBits() {
+	// TODO: This could be increased to 48 after some testing.
+	return 47;
+}
+
 template <bool Kernel>
 struct ARMCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;

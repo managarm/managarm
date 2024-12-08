@@ -6,6 +6,9 @@
 
 namespace thor {
 
+// Get the size of the lower half (= virtual memory available to user-space) in bits.
+int getLowerHalfBits();
+
 template <typename T>
 concept ValidCursor = requires (T t, uintptr_t va, PhysicalAddr pa,
 		PageFlags flags, CachingMode mode) {

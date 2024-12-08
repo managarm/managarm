@@ -1,6 +1,7 @@
 #pragma once
 
 #include <eir-internal/arch/types.hpp>
+#include <frg/span.hpp>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -22,6 +23,9 @@ static constexpr size_t pageSize = size_t(1) << pageShift;
 
 extern uint64_t kernelEntry;
 
+// Returns the size of the kernel's virtual address space in bits.
+int getKernelVirtualBits();
+
 void setupPaging();
 void mapSingle4kPage(
     address_t address,
@@ -33,6 +37,10 @@ address_t getSingle4kPage(address_t address);
 
 void initProcessorEarly();
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry);
+
+// Patches an arch-specific ELF note in thor.
+// Returns true on success.
+bool patchArchSpecificManagarmElfNote(unsigned int type, frg::span<char> desc);
 
 [[noreturn]] void enterKernel();
 

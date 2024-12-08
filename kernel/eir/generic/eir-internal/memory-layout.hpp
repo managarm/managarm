@@ -4,10 +4,6 @@
 
 namespace eir {
 
-// Size of the kernel's virtual address space in bits.
-// Must be set by the architecture before determineMemoryLayout().
-extern int kernelVirtualBits;
-
 // Kernel stack and kernel stack size.
 // TODO: This does not need to be global if we move stack allocation into memory-layout.cpp.
 extern uint64_t kernelStack;

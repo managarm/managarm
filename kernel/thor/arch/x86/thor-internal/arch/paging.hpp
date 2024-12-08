@@ -24,6 +24,10 @@ constexpr uint64_t pteGlobal = 0x100;
 constexpr uint64_t pteXd = 0x8000000000000000;
 constexpr uint64_t pteAddress = 0x000FFFFFFFFFF00;
 
+inline int getLowerHalfBits() {
+	return 47;
+}
+
 template <bool Kernel>
 struct X86CursorPolicy {
 	static inline constexpr size_t maxLevels = 4;

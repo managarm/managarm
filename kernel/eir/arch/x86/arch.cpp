@@ -188,6 +188,8 @@ void initProcessorEarly() {
 	common::x86::wrmsr(0x277, pat);
 }
 
+int getKernelVirtualBits() { return 48; }
+
 // Returns Core region index
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	setupPaging();
@@ -224,6 +226,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	                     " after loading the kernel"
 	                  << frg::endlog;
 }
+
+bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 
 [[noreturn]] void enterKernel() {
 	eirEnterKernel(eirPml4Pointer, kernelEntry, getKernelStackPtr());

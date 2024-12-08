@@ -13,12 +13,11 @@ uint64_t kernelFrameBuffer;
 
 } // namespace
 
-int kernelVirtualBits{48};
 uint64_t kernelStack;
 uint64_t kernelStackSize;
 
 void determineMemoryLayout() {
-	auto s = kernelVirtualBits;
+	auto s = getKernelVirtualBits();
 	auto &ml = memoryLayout;
 
 	// First determine the sizes of various regions.

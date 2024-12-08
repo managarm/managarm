@@ -402,15 +402,14 @@ void parseInitrd(void *initrd) {
 
 namespace {
 
-void patchManagarmElfNote(unsigned int type, frg::span<char> desc) {
+bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 	if (type == elf_note_type::memoryLayout) {
 		if (desc.size() != sizeof(MemoryLayout))
 			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &getMemoryLayout(), sizeof(MemoryLayout));
-	} else {
-		panicLogger() << "Thor has unknown Managarm ELF note with type 0x" << frg::hex_fmt{type}
-		              << frg::endlog;
+		return true;
 	}
+	return false;
 }
 
 } // namespace
@@ -443,16 +442,28 @@ address_t loadKernelImage(void *imagePtr) {
 			auto *namePtr = image + phdr.p_offset + offset;
 			offset += nhdr.n_namesz + 1;
 			offset = (offset + 7) & ~size_t{7};
-			auto *dataPtr = image + phdr.p_offset + offset;
-			offset += nhdr.n_descsz + 7;
+			auto *descPtr = image + phdr.p_offset + offset;
+			offset += nhdr.n_descsz;
 			offset = (offset + 7) & ~size_t{7};
 
 			frg::string_view name{namePtr, nhdr.n_namesz};
+			frg::span<char> desc{descPtr, nhdr.n_descsz};
 			infoLogger() << "ELF note: " << name << ", type 0x" << frg::hex_fmt{nhdr.n_type}
 			             << frg::endlog;
 			if (name != "Managarm")
 				continue;
-			patchManagarmElfNote(nhdr.n_type, frg::span<char>{dataPtr, nhdr.n_descsz});
+			if (elf_note_type::isThorGeneric(nhdr.n_type)) {
+				if (!patchGenericManagarmElfNote(nhdr.n_type, desc))
+					panicLogger() << "Failed to patch generic Managarm ELF note"
+					              << " with type 0x" << frg::hex_fmt{nhdr.n_type} << frg::endlog;
+			} else if (elf_note_type::isThorArchSpecific(nhdr.n_type)) {
+				if (!patchArchSpecificManagarmElfNote(nhdr.n_type, desc))
+					panicLogger() << "Failed to patch arch-specific Managarm ELF note"
+					              << " with type 0x" << frg::hex_fmt{nhdr.n_type} << frg::endlog;
+			} else {
+				panicLogger() << "Managarm ELF note type 0x" << frg::hex_fmt{nhdr.n_type}
+				              << " is not within known range" << frg::endlog;
+			}
 		}
 	}
 

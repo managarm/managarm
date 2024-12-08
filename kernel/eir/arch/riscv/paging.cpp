@@ -1,4 +1,5 @@
 #include <eir-internal/arch.hpp>
+#include <eir-internal/arch/riscv.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
@@ -22,12 +23,19 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	assert(!(physical & (pageSize - 1)));
 	(void)caching_mode;
 
+	// This needs to be determined before mapSingle4k() is called.
+	assert(riscvConfig.numPtLevels);
+
 	auto *table = physToVirt<uint64_t>(pml4);
-	for (int i = 0; i < 3; ++i) {
+	for (int i = 1; i < riscvConfig.numPtLevels; ++i) {
+		// Iteration i handles VPN[n].
+		// Sv39: n = 2, 1.
+		// Sv48: n = 3, 2, 1.
+		int n = riscvConfig.numPtLevels - i;
 		// VPN[3] starts at 39.
 		// VPN[2] starts at 30.
 		// VPN[1] starts at 21.
-		int shift = 12 + 9 * (3 - i);
+		int shift = 12 + 9 * n;
 		unsigned int vpn = (address >> shift) & 0x1FF;
 
 		if (table[vpn] & pteValid) {
@@ -36,8 +44,8 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 			auto nextPtPage = allocPage();
 
 			auto *nextPtPtr = physToVirt<uint64_t>(nextPtPage);
-			for (int i = 0; i < 512; i++)
-				nextPtPtr[i] = 0;
+			for (int j = 0; j < 512; j++)
+				nextPtPtr[j] = 0;
 
 			table[vpn] = (nextPtPage >> 2) | pteValid;
 			table = nextPtPtr;
@@ -54,6 +62,11 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	if (flags & PageFlags::global)
 		pte0 |= pteGlobal;
 	table[vpn0] = pte0;
+}
+
+int getKernelVirtualBits() {
+	assert(riscvConfig.numPtLevels);
+	return 9 * riscvConfig.numPtLevels + 12;
 }
 
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {

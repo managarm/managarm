@@ -22,7 +22,8 @@ constinit frg::manual_box<smarter::shared_ptr<KernelPageSpace>> kernelSpacePtr;
 // --------------------------------------------------------
 
 void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
-	riscv::writeCsr<riscv::Csr::satp>((root >> 12) | (UINT64_C(9) << 60));
+	uint64_t mode = 8 + (ClientCursorPolicy::numLevels() - 3);
+	riscv::writeCsr<riscv::Csr::satp>((root >> 12) | (mode << 60));
 	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
 }
 
@@ -100,7 +101,12 @@ ClientPageSpace::ClientPageSpace() : PageSpace{physicalAllocator->allocate(kPage
 }
 
 ClientPageSpace::~ClientPageSpace() {
-	freePt<ClientCursorPolicy, 4, /*LowerHalfOnly=*/true>(rootTable());
+	if (riscvConfigNote->numPtLevels == 3) {
+		freePt<ClientCursorPolicy, 3, /*LowerHalfOnly=*/true>(rootTable());
+	} else {
+		assert(riscvConfigNote->numPtLevels == 4);
+		freePt<ClientCursorPolicy, 4, /*LowerHalfOnly=*/true>(rootTable());
+	}
 }
 
 bool ClientPageSpace::updatePageAccess(VirtualAddr pointer) { unimplementedOnRiscv(); }
