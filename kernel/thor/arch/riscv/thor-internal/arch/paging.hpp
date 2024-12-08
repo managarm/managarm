@@ -1,15 +1,14 @@
 #pragma once
 
-#include <atomic>
-
 #include <assert.h>
-#include <thor-internal/physical.hpp>
-#include <thor-internal/types.hpp>
-#include <thor-internal/work-queue.hpp>
-
+#include <atomic>
 #include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/arch-generic/cursor.hpp>
 #include <thor-internal/arch-generic/paging-consts.hpp>
+#include <thor-internal/arch/system.hpp>
+#include <thor-internal/physical.hpp>
+#include <thor-internal/types.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -21,15 +20,16 @@ constexpr uint64_t pteUser = UINT64_C(1) << 4;
 constexpr uint64_t pteGlobal = UINT64_C(1) << 5;
 constexpr uint64_t pteAccess = UINT64_C(1) << 6;
 constexpr uint64_t pteDirty = UINT64_C(1) << 7;
-// Sv48 has 44 PPN bits starting at bit 10.
 constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
+
+inline int getLowerHalfBits() { return 12 + 9 * riscvConfigNote->numPtLevels - 1; }
 
 template <bool Kernel>
 struct RiscvCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;
 	static inline constexpr size_t bitsPerLevel = 9;
 
-	static constexpr size_t numLevels() { return 4; }
+	static constexpr size_t numLevels() { return riscvConfigNote->numPtLevels; }
 
 	static constexpr bool ptePagePresent(uint64_t pte) {
 		return (pte & pteValid) && (pte & pteRead);
