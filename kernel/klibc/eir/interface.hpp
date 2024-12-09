@@ -80,6 +80,7 @@ enum class RiscvExtension {
 	ziccrse,
 	zicntr,
 	zicsr,
+	zifencei,
 	zihintpause,
 	zihpm,
 
@@ -113,6 +114,7 @@ constexpr const char *stringifyRiscvExtension(RiscvExtension ext) {
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(ziccrse)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zicntr)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zicsr)
+		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zifencei)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zihintpause)
 		EIR_STRINGIFY_RISCV_EXTENSION_CASE(zihpm)
 		case RiscvExtension::invalid:
