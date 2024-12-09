@@ -124,25 +124,25 @@ address_t getSingle4kPage(address_t address) {
 
 	// find the pml4_entry. the pml4 is always present
 	uintptr_t pml4 = eirPml4Pointer;
-	uint64_t pml4_entry = ((uint64_t *)pml4)[pml4_index];
+	uint64_t pml4_entry = (physToVirt<uint64_t>(pml4))[pml4_index];
 
-	// find the pdpt entry; create pdpt if necessary
+	// find the pdpt entry; bail out if pdpt is missing
 	uintptr_t pdpt = (uintptr_t)(pml4_entry & 0xFFFFF000);
 	if (!(pml4_entry & kPagePresent))
 		return -1;
-	uint64_t pdpt_entry = ((uint64_t *)pdpt)[pdpt_index];
+	uint64_t pdpt_entry = (physToVirt<uint64_t>(pdpt))[pdpt_index];
 
-	// find the pd entry; create pd if necessary
+	// find the pd entry; bail out if pd is missing
 	uintptr_t pd = (uintptr_t)(pdpt_entry & 0xFFFFF000);
 	if (!(pdpt_entry & kPagePresent))
 		return -1;
-	uint64_t pd_entry = ((uint64_t *)pd)[pd_index];
+	uint64_t pd_entry = (physToVirt<uint64_t>(pd))[pd_index];
 
-	// find the pt entry; create pt if necessary
+	// find the pt entry; bail out if pt is missing
 	uintptr_t pt = (uintptr_t)(pd_entry & 0xFFFFF000);
 	if (!(pd_entry & kPagePresent))
 		return -1;
-	uint64_t pt_entry = ((uint64_t *)pt)[pt_index];
+	uint64_t pt_entry = (physToVirt<uint64_t>(pt))[pt_index];
 
 	// setup the new pt entry
 	if (!(pt_entry & kPagePresent))

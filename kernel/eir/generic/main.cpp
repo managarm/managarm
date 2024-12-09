@@ -243,7 +243,7 @@ void setShadowRange(address_t base, size_t size, int8_t value) {
 		auto physical = getSingle4kPage(page);
 		assert(physical != static_cast<address_t>(-1));
 
-		auto p = reinterpret_cast<int8_t *>(physical);
+		auto p = physToVirt<int8_t>(physical);
 		auto n = shadow & (pageSize - 1);
 		while (n < pageSize && progress < size) {
 			assert(p[n] == static_cast<int8_t>(0xFF));
@@ -262,7 +262,7 @@ void setShadowByte(address_t address, int8_t value) {
 	auto physical = getSingle4kPage(page);
 	assert(physical != static_cast<address_t>(-1));
 
-	auto p = reinterpret_cast<int8_t *>(physical);
+	auto p = physToVirt<int8_t>(physical);
 	auto n = shadow & (pageSize - 1);
 	assert(p[n] == static_cast<int8_t>(0xFF));
 	p[n] = value;
@@ -286,7 +286,7 @@ void mapKasanShadow(address_t base, size_t size) {
 		if (physical != static_cast<address_t>(-1))
 			continue;
 		physical = allocPage();
-		memset(reinterpret_cast<void *>(physical), 0xFF, pageSize);
+		memset(physToVirt<uint8_t>(physical), 0xFF, pageSize);
 		mapSingle4kPage(page, physical, PageFlags::write | PageFlags::global);
 	}
 #else
