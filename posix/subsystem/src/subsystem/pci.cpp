@@ -106,36 +106,11 @@ IrqAttribute irqAttr{"irq"};
 
 std::vector<std::shared_ptr<ResourceNAttribute>> resources;
 
-struct Device final : drvcore::BusDevice {
-	Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device, std::shared_ptr<drvcore::Device> parent = nullptr)
+Device::Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device,
+	std::shared_ptr<drvcore::Device> parent)
 	: drvcore::BusDevice{sysfsSubsystem, std::move(sysfs_name), nullptr, parent},
-			mbusId{mbus_id}, _hwDevice{std::move(hw_device)} { }
-
-	void composeUevent(drvcore::UeventProperties &ue) override {
-		char slot[13]; // The format is 1234:56:78:9\0.
-		snprintf(slot, 13, "0000:%.2x:%.2x.%.1x", pciBus, pciSlot, pciFunction);
-
-		ue.set("SUBSYSTEM", "pci");
-		ue.set("PCI_SLOT_NAME", slot);
-		ue.set("MBUS_ID", std::to_string(mbusId));
-	}
-
-	protocols::hw::Device &hwDevice() {
-		return _hwDevice;
-	}
-
-	int64_t mbusId;
-	uint32_t pciBus;
-	uint32_t pciSlot;
-	uint32_t pciFunction;
-	uint32_t vendorId;
-	uint32_t deviceId;
-	uint32_t subsystemVendorId;
-	uint32_t subsystemDeviceId;
-	bool ownsPlainfb = false;
-
-	protocols::hw::Device _hwDevice;
-};
+		mbusId{mbus_id}, _hwDevice{std::move(hw_device)} {
+}
 
 struct RootPort final : drvcore::Device {
 	RootPort(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent = nullptr)
@@ -272,6 +247,7 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 		protocols::hw::Device hwDevice{(co_await entity.getRemoteLane()).unwrap()};
 
 		auto device = std::make_shared<Device>(sysfs_name, entity.id(), std::move(hwDevice), parentObj);
+		device->pciSegment = std::stoi(segment, nullptr, 16);
 		device->pciBus = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-bus"]).value, nullptr, 16);
 		device->pciSlot = std::stoi(std::get<mbus_ng::StringItem>(

@@ -53,8 +53,36 @@ struct ManufacturerNameAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct RootHubManufacturerNameAttribute : sysfs::Attribute {
+	RootHubManufacturerNameAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 struct ProductNameAttribute : sysfs::Attribute {
 	ProductNameAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct RootHubProductNameAttribute : sysfs::Attribute {
+	RootHubProductNameAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct SerialNumberAttribute : sysfs::Attribute {
+	SerialNumberAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct RootHubSerialNumberAttribute : sysfs::Attribute {
+	RootHubSerialNumberAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
 
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
