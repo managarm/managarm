@@ -1,5 +1,5 @@
 #include <thor-internal/arch-generic/cpu.hpp>
-#include <generic/thor-internal/cpu-data.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <frg/manual_box.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
@@ -194,39 +194,33 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
 
 namespace {
-	frg::manual_box<frg::vector<CpuData *, KernelAlloc>> allCpuContexts;
-}
-
-size_t getCpuCount() {
-	return allCpuContexts->size();
-}
-
-CpuData *getCpuData(size_t k) {
-	return (*allCpuContexts)[k];
-}
-
-namespace {
-	frg::manual_box<CpuData> bootCpuContext;
 	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
 }
 
 void setupCpuContext(AssemblyCpuData *context) {
-	context->selfPointer = context;
 	asm volatile("msr tpidr_el1, %0" :: "r"(context));
 }
 
+void prepareCpuDataFor(CpuData *context, int cpu) {
+	cpuData.initialize(context);
+
+	context->selfPointer = context;
+	context->cpuIndex = cpu;
+}
+
 void setupBootCpuContext() {
-	bootCpuContext.initialize();
+	auto context = &cpuData.getFor(0);
+
+	prepareCpuDataFor(context, 0);
+	setupCpuContext(context);
+
 	bootLogRing.initialize();
-	bootCpuContext->localLogRing = bootLogRing.get();
-	setupCpuContext(bootCpuContext.get());
+	cpuData.get().localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",
 	initgraph::Entails{getBootProcessorReadyStage()},
 	[] {
-		allCpuContexts.initialize(*kernelAlloc);
-
 		infoLogger() << "Booting on CPU #0" << frg::endlog;
 
 		initializeThisProcessor();
@@ -259,12 +253,9 @@ void initializeThisProcessor() {
 
 	asm volatile ("msr sctlr_el1, %0" :: "r"(sctlr));
 
-	cpu_data->cpuIndex = allCpuContexts->size();
 	uint64_t mpidr;
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = (mpidr & 0xFFFFFF) | (mpidr >> 32 & 0xFF) << 24;
-
-	allCpuContexts->push(cpu_data);
 
 	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();

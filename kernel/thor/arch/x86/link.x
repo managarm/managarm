@@ -13,6 +13,13 @@ SECTIONS {
 
 	.text : { *(.text .text.*) }
 	.rodata : { *(.rodata .rodata.*) }
+
+	.percpu_init : {
+		percpuInitStart = .;
+		*(.percpu_init)
+		percpuInitEnd = .;
+	}
+
 	.eh_frame_hdr : { *(.eh_frame_hdr) }
 	.eh_frame : { *(.eh_frame) }
 
@@ -28,6 +35,18 @@ SECTIONS {
 	.note.managarm : { *(.note.managarm) }
 
 	.bss : { *(.bss .bss.*) }
+
+	/* Extra space to make a separate PHDR (so that .bss does not
+	get turned into PROGBITS) */
+	. += 0x1000;
+	. = ALIGN(0x1000);
+	.percpu : {
+		percpuStart = .;
+		*(.percpu_head) /* Static data we want at a fixed offset (AssemblyCpuData etc) */
+		*(.percpu)
+		. = ALIGN(0x1000);
+		percpuEnd = .;
+	}
 
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }

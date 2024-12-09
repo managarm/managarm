@@ -103,7 +103,9 @@ bool bootSecondary(DeviceTreeNode *node) {
 	constexpr size_t stackSize = 0x10000;
 	void *stackPtr = kernelAlloc->allocate(stackSize);
 
-	auto context = frg::construct<CpuData>(*kernelAlloc);
+	auto [context, cpuNr] = extendPerCpuData();
+	prepareCpuDataFor(context, cpuNr);
+
 	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
