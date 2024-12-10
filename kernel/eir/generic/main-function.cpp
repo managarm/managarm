@@ -144,7 +144,7 @@ static initgraph::Task prepareFramebufferForThor{
 
 GlobalCtorTest globalCtorTest;
 
-extern "C" void eirMain() {
+extern "C" [[noreturn]] void eirMain() {
 	infoLogger() << "Entering generic eir setup" << frg::endlog;
 
 	globalInitEngine.run();

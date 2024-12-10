@@ -4,6 +4,7 @@
 #include <eir-internal/arch/pl011.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <eir/interface.hpp>
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/manual_box.hpp>
@@ -234,15 +235,13 @@ frg::manual_box<PL011> debugUart;
 
 void debugPrintChar(char c) { debugUart->send(c); }
 
-extern "C" [[noreturn]] void eirRaspi4Main(uintptr_t deviceTreePtr) {
-	// the device tree pointer is 32-bit and the upper bits are undefined
-	deviceTreePtr &= 0x00000000FFFFFFFF;
-
+extern "C" [[noreturn]] void eirRaspi4Main() {
 	debugUart.initialize(mmioBase + 0x201000, 4000000);
 	debugUart->disable();
 	Gpio::configUart0Gpio();
 	PropertyMbox::setClockFreq(PropertyMbox::Clock::uart, 4000000);
 	debugUart->init(115200);
+	eirRunConstructors();
 
 	char cmd_buf[1024];
 	size_t cmd_len = PropertyMbox::getCmdline<1024>(cmd_buf);
@@ -310,13 +309,7 @@ extern "C" [[noreturn]] void eirRaspi4Main(uintptr_t deviceTreePtr) {
 		}
 	}
 
-	GenericInfo info{
-	    .deviceTreePtr = deviceTreePtr,
-	    .cmdline = cmd_buf,
-	    .fb{},
-	    .debugFlags = eirDebugSerial,
-	    .hasFb = have_fb
-	};
+	GenericInfo info{.cmdline = cmd_buf, .fb{}, .debugFlags = eirDebugSerial, .hasFb = have_fb};
 
 	if (have_fb) {
 		info.fb = {

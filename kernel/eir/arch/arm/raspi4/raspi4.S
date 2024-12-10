@@ -91,8 +91,15 @@ eirEntry:
 
 .enter:
 	.extern eirRaspi4Main
-	mov x0, x7
-	// x0 -> pointer to device tree binary
+
+	// x7 -> pointer to device tree binary
+	adrp x1, eirDtbPtr
+	add x1, x1, :lo12:eirDtbPtr
+
+	// the device tree pointer is 32-bit and the upper bits are undefined
+	uxtw x7, w7
+	str x7, [x1]
+
 	bl eirRaspi4Main
 
 .halt:

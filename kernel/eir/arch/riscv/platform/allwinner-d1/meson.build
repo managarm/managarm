@@ -4,7 +4,6 @@ exe = executable('eir-d1',
 	[
 		eir_sources,
 		'../../entry64.S',
-		'../../dtb.cpp',
 		'early-log.cpp',
 	],
 	include_directories : eir_includes,
