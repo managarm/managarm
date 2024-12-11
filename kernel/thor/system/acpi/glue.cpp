@@ -11,6 +11,7 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/main.hpp>
 #include <async/queue.hpp>
 #include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
@@ -319,8 +320,8 @@ uacpi_status uacpi_kernel_pci_write(
 	return UACPI_STATUS_OK;
 }
 
-uacpi_u64 uacpi_kernel_get_ticks(void) {
-	return systemClockSource()->currentNanos() / 100;
+uacpi_u64 uacpi_kernel_get_nanoseconds_since_boot(void) {
+	return systemClockSource()->currentNanos();
 }
 
 void uacpi_kernel_stall(uacpi_u8 usec) {
@@ -458,7 +459,7 @@ void uacpi_kernel_free_mutex(uacpi_handle opaque) {
 	frg::destruct(*kernelAlloc, reinterpret_cast<async::mutex *>(opaque));
 }
 
-uacpi_bool uacpi_kernel_acquire_mutex(
+uacpi_status uacpi_kernel_acquire_mutex(
 	uacpi_handle opaque, uacpi_u16 timeout) {
 	auto *mutex = reinterpret_cast<async::mutex *>(opaque);
 
@@ -466,13 +467,13 @@ uacpi_bool uacpi_kernel_acquire_mutex(
 		KernelFiber::asyncBlockCurrent([mutex]() -> coroutine<void> {
 			co_await mutex->async_lock();
 		}());
-		return true;
+		return UACPI_STATUS_OK;
 	}
 
 	uacpi_u16 sleepTime;
 	do {
 		if(mutex->try_lock())
-			return true;
+			return UACPI_STATUS_OK;
 
 		sleepTime = frg::min<uacpi_u16>(timeout, 10);
 		timeout -= sleepTime;
@@ -481,7 +482,7 @@ uacpi_bool uacpi_kernel_acquire_mutex(
 			uacpi_kernel_sleep(sleepTime);
 	} while(timeout);
 
-	return false;
+	return UACPI_STATUS_TIMEOUT;
 }
 
 void uacpi_kernel_release_mutex(uacpi_handle opaque) {
@@ -554,7 +555,7 @@ void uacpi_kernel_free_spinlock(uacpi_handle opaque) {
 	frg::destruct(*kernelAlloc, reinterpret_cast<IrqSpinlock *>(opaque));
 }
 
-uacpi_cpu_flags uacpi_kernel_spinlock_lock(uacpi_handle opaque) {
+uacpi_cpu_flags uacpi_kernel_lock_spinlock(uacpi_handle opaque) {
 	auto *lock = reinterpret_cast<IrqSpinlock *>(opaque);
 
 	lock->lock();
@@ -564,7 +565,12 @@ uacpi_cpu_flags uacpi_kernel_spinlock_lock(uacpi_handle opaque) {
 	return 0;
 }
 
-void uacpi_kernel_spinlock_unlock(uacpi_handle opaque, uacpi_cpu_flags) {
+void uacpi_kernel_unlock_spinlock(uacpi_handle opaque, uacpi_cpu_flags) {
 	auto *mutex = reinterpret_cast<IrqSpinlock *>(opaque);
 	mutex->unlock();
+}
+
+uacpi_status uacpi_kernel_get_rsdp(uacpi_phys_addr *out_rsdp_address) {
+	*out_rsdp_address = getEirInfo()->acpiRsdp;
+	return UACPI_STATUS_OK;
 }

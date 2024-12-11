@@ -100,10 +100,10 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 					break;
 				default:
 					warningLogger() << "thor: unhandled uACPI resource type " << res->type << frg::endlog;
-					return UACPI_RESOURCE_ITERATION_CONTINUE;
+					return UACPI_ITERATION_DECISION_CONTINUE;
 			}
 
-			return UACPI_RESOURCE_ITERATION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, &resp);
 
 		if(ret == UACPI_STATUS_OK) {
@@ -169,10 +169,10 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 					info->parsed_ports++;
 					break;
 				default:
-					return UACPI_RESOURCE_ITERATION_CONTINUE;
+					return UACPI_ITERATION_DECISION_CONTINUE;
 			}
 
-			return UACPI_RESOURCE_ITERATION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, &port_info);
 
 		if(ret != UACPI_STATUS_OK || !port_info.success) {
@@ -228,10 +228,10 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 					}
 					break;
 				default:
-					return UACPI_RESOURCE_ITERATION_CONTINUE;
+					return UACPI_ITERATION_DECISION_CONTINUE;
 			}
 
-			return UACPI_RESOURCE_ITERATION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, &interrupt_info);
 
 		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
