@@ -217,8 +217,9 @@ static bool initFromEcdt() {
 	auto *ecdt = reinterpret_cast<acpi_ecdt *>(ecdtTbl.hdr);
 	infoLogger() << "thor: found ECDT, EC@" << ecdt->ec_id << frg::endlog;
 
-	auto *ecNode = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id);
-	if(ecNode == UACPI_NULL) {
+	uacpi_namespace_node *ecNode = nullptr;
+	ret = uacpi_namespace_node_find(UACPI_NULL, ecdt->ec_id, &ecNode);
+	if(ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: invalid EC path " << ecdt->ec_id << frg::endlog;
 		return false;
 	}
@@ -231,12 +232,12 @@ static bool initFromEcdt() {
 }
 
 static void initFromNamespace() {
-	uacpi_find_devices(ACPI_HID_EC, [](void*, uacpi_namespace_node *node) {
+	uacpi_find_devices(ACPI_HID_EC, [](void*, uacpi_namespace_node *node, uint32_t) {
 		uacpi_resources *resources;
 
 		auto ret = uacpi_get_current_resources(node, &resources);
 		if(ret != UACPI_STATUS_OK)
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 
 		struct initCtx {
 			acpi_gas control, data;
@@ -258,20 +259,20 @@ static void initFromNamespace() {
 						reg->register_bit_width = res->fixed_io.length * 8;
 						break;
 					default:
-						return UACPI_RESOURCE_ITERATION_CONTINUE;
+						return UACPI_ITERATION_DECISION_CONTINUE;
 				}
 
 				reg->address_space_id = UACPI_ADDRESS_SPACE_SYSTEM_IO;
 
 				if(++ctx->idx == 2)
-					return UACPI_RESOURCE_ITERATION_ABORT;
-				return UACPI_RESOURCE_ITERATION_CONTINUE;
+					return UACPI_ITERATION_DECISION_BREAK;
+				return UACPI_ITERATION_DECISION_CONTINUE;
 			}, &ctx);
 		uacpi_free_resources(resources);
 
 		if(ctx.idx != 2) {
 			infoLogger() << "thor: didn't find all needed resources for EC" << frg::endlog;
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}
 
 		ecDevice.initialize();
@@ -283,7 +284,7 @@ static void initFromNamespace() {
 		infoLogger() << "thor: found an EC@" << full_path << frg::endlog;
 		uacpi_kernel_free(const_cast<char*>(full_path));
 
-		return UACPI_NS_ITERATION_DECISION_BREAK;
+		return UACPI_ITERATION_DECISION_BREAK;
 	}, nullptr);
 }
 
@@ -294,11 +295,11 @@ static void installEcHandlers() {
 	);
 
 	uint64_t value = 0;
-	uacpi_eval_integer(ecDevice->node, "_GLK", UACPI_NULL, &value);
+	uacpi_eval_simple_integer(ecDevice->node, "_GLK", &value);
 	if(value)
 		infoLogger() << "thor: EC requires locking (this is a TODO)" << frg::endlog;
 
-	auto ret = uacpi_eval_integer(ecDevice->node, "_GPE", UACPI_NULL, &value);
+	auto ret = uacpi_eval_simple_integer(ecDevice->node, "_GPE", &value);
 	if (ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: EC has no associated _GPE" << frg::endlog;
 		return;
@@ -402,9 +403,9 @@ void initEvents() {
 	 * Modern hardware uses power button devices instead of the fixed event.
 	 * Search for them here and hook AML notifications.
 	 */
-	uacpi_find_devices(ACPI_HID_POWER_BUTTON, [](void*, uacpi_namespace_node *node) {
+	uacpi_find_devices(ACPI_HID_POWER_BUTTON, [](void*, uacpi_namespace_node *node, uint32_t) {
 		uacpi_install_notify_handler(node, handlePowerButtonNotify, nullptr);
-		return UACPI_NS_ITERATION_DECISION_CONTINUE;
+		return UACPI_ITERATION_DECISION_CONTINUE;
 	}, nullptr);
 }
 

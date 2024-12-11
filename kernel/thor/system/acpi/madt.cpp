@@ -232,12 +232,7 @@ KernelFiber *acpiFiber;
 static initgraph::Task initTablesTask{&globalInitEngine, "acpi.initialize",
 	initgraph::Entails{getTablesDiscoveredStage()},
 	[] {
-		uacpi_init_params params = {
-			.rsdp = getEirInfo()->acpiRsdp,
-			.log_level = UACPI_LOG_INFO,
-			.flags = 0,
-		};
-		auto ret = uacpi_initialize(&params);
+		auto ret = uacpi_initialize(0);
 		assert(ret == UACPI_STATUS_OK);
 	}
 };

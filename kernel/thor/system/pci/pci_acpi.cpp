@@ -149,26 +149,22 @@ PciIrqRouter *AcpiPciIrqRouter::makeDownstreamRouter(PciBus *bus) {
 			.outHandle = {},
 		};
 
-		uacpi_namespace_for_each_node_depth_first(acpiNode,
-			[] (uacpi_handle opaque, uacpi_namespace_node *node) {
+		uacpi_namespace_for_each_child(acpiNode,
+				[] (uacpi_handle opaque, uacpi_namespace_node *node, uint32_t) {
 				auto *ctx = reinterpret_cast<DeviceSearchCtx *>(opaque);
 				uint64_t addr = 0;
 
-				auto *obj = uacpi_namespace_node_get_object(node);
-				if(obj == nullptr || obj->type != UACPI_OBJECT_DEVICE)
-					return UACPI_NS_ITERATION_DECISION_CONTINUE;
-
-				auto ret = uacpi_eval_integer(node, "_ADR", UACPI_NULL, &addr);
+				auto ret = uacpi_eval_simple_integer(node, "_ADR", &addr);
 				if(ret != UACPI_STATUS_OK && ret != UACPI_STATUS_NOT_FOUND)
-					return UACPI_NS_ITERATION_DECISION_CONTINUE;
+					return UACPI_ITERATION_DECISION_CONTINUE;
 
 				if(addr == ctx->targetAddr) {
 					ctx->outHandle = node;
-					return UACPI_NS_ITERATION_DECISION_BREAK;
+					return UACPI_ITERATION_DECISION_BREAK;
 				}
 
-				return UACPI_NS_ITERATION_DECISION_CONTINUE;
-			}, &ctx);
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, nullptr, UACPI_OBJECT_DEVICE_BIT, UACPI_MAX_DEPTH_ANY, &ctx);
 
 		deviceHandle = ctx.outHandle;
 	}
@@ -248,11 +244,11 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 
 		uacpi_find_devices_at(
 			uacpi_namespace_get_predefined(UACPI_PREDEFINED_NAMESPACE_SB),
-			pciRootIds, [](void*, uacpi_namespace_node *node) {
+			pciRootIds, [](void*, uacpi_namespace_node *node, uint32_t) {
 				uint64_t seg = 0, bus = 0;
 
-				uacpi_eval_integer(node, "_SEG", nullptr, &seg);
-				uacpi_eval_integer(node, "_BBN", nullptr, &bus);
+				uacpi_eval_simple_integer(node, "_SEG", &seg);
+				uacpi_eval_simple_integer(node, "_BBN", &bus);
 
 				infoLogger() << "thor: Found PCI host bridge " << frg::hex_fmt{seg} << ":"
 					<< frg::hex_fmt{bus} << frg::endlog;
@@ -272,7 +268,7 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 						getConfigIoFor(seg, bus), msiController, seg, bus);
 				rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
 				addRootBus(rootBus);
-				return UACPI_NS_ITERATION_DECISION_CONTINUE;
+				return UACPI_ITERATION_DECISION_CONTINUE;
 		}, nullptr);
 	}
 };

@@ -213,13 +213,18 @@ uacpi_status BatteryBusObject::notification(uacpi_handle context, uacpi_namespac
 void BatteryBusObject::updateBIF() {
 	uacpi_object *bif = UACPI_NULL;
 
-	auto ret = uacpi_eval_typed(_node, "_BIF", UACPI_NULL, UACPI_OBJECT_PACKAGE_BIT, &bif);
+	auto ret = uacpi_eval_simple_package(_node, "_BIF", &bif);
 	if(ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: _BIF error " << uacpi_status_to_string(ret) << frg::endlog;
 		return;
 	}
 
-	uacpi_package *pkg = bif->package;
+	uacpi_object_array pkg;
+	ret = uacpi_object_get_package(bif, &pkg);
+	if(ret != UACPI_STATUS_OK) {
+		infoLogger() << "thor: uacpi_object_get_package(bif) error " << uacpi_status_to_string(ret) << frg::endlog;
+		return;
+	}
 
 	auto power_unit = intFromPackage(pkg, 0);
 	auto design_capacity = intFromPackage(pkg, 1);
@@ -306,13 +311,18 @@ void BatteryBusObject::updateBIF() {
 void BatteryBusObject::updateBST() {
 	uacpi_object *bst = UACPI_NULL;
 
-	auto ret = uacpi_eval_typed(_node, "_BST", UACPI_NULL, UACPI_OBJECT_PACKAGE_BIT, &bst);
+	auto ret = uacpi_eval_simple_package(_node, "_BST", &bst);
 	if(ret != UACPI_STATUS_OK) {
 		infoLogger() << "thor: _BST error " << uacpi_status_to_string(ret) << frg::endlog;
 		return;
 	}
 
-	uacpi_package *pkg = bst->package;
+	uacpi_object_array pkg;
+	ret = uacpi_object_get_package(bst, &pkg);
+	if(ret != UACPI_STATUS_OK) {
+		infoLogger() << "thor: uacpi_object_get_package(bst) error " << uacpi_status_to_string(ret) << frg::endlog;
+		return;
+	}
 
 	auto battery_state = intFromPackage(pkg, 0);
 	auto present_rate = intFromPackage(pkg, 1);
@@ -421,18 +431,18 @@ void initializeBatteries() {
 	async::detach_with_allocator(*kernelAlloc, []() -> coroutine<void> {
 		co_await acpiFiber->associatedWorkQueue()->schedule();
 
-		uacpi_find_devices(ACPI_HID_BATTERY, [](void *, uacpi_namespace_node *node) {
-			auto bif = uacpi_namespace_node_find(node, "_BIF");
-			auto bst = uacpi_namespace_node_find(node, "_BST");
+		uacpi_find_devices(ACPI_HID_BATTERY, [](void *, uacpi_namespace_node *node, uint32_t) {
+			auto bifStatus = uacpi_namespace_node_find(node, "_BIF", nullptr);
+			auto bstStatus = uacpi_namespace_node_find(node, "_BST", nullptr);
 
-			if(!bif || !bst)
-				return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			if(bifStatus != UACPI_STATUS_OK || bstStatus != UACPI_STATUS_OK)
+				return UACPI_ITERATION_DECISION_CONTINUE;
 
 			auto obj = frg::construct<BatteryBusObject>(
 				*kernelAlloc, next_battery_id++, node);
 			async::detach_with_allocator(*kernelAlloc, obj->run());
 
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, nullptr);
 	}());
 }

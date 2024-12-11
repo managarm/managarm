@@ -58,17 +58,17 @@ void initializePS2() {
 
 		frg::vector<async::oneshot_event *, thor::KernelAlloc> events{*thor::kernelAlloc};
 
-		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_KEYBOARDS.data(), [](void *ctx, uacpi_namespace_node *node) {
+		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_KEYBOARDS.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
 			auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
 
 			auto obj = frg::construct<AcpiObject>(*kernelAlloc, node, next_keyboard_id++);
 			events->push_back(&obj->completion);
 			async::detach_with_allocator(*kernelAlloc, obj->run());
 
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, &events);
 
-		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_MICE.data(), [](void *ctx, uacpi_namespace_node *node) {
+		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_MICE.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
 			auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
 
 			auto obj = frg::construct<AcpiObject>(
@@ -76,7 +76,7 @@ void initializePS2() {
 			events->push_back(&obj->completion);
 			async::detach_with_allocator(*kernelAlloc, obj->run());
 
-			return UACPI_NS_ITERATION_DECISION_CONTINUE;
+			return UACPI_ITERATION_DECISION_CONTINUE;
 		}, &events);
 
 		for(auto ev : events) {
