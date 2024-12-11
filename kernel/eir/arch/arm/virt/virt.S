@@ -38,6 +38,10 @@ eirEntry:
 	b .loop
 
 .enter:
+	adrp x1, eirDtbPtr
+	add x1, x1, :lo12:eirDtbPtr
+	str x0, [x1]
+
 	.extern eirRelocate
 	.extern eirVirtMain
 	bl eirRelocate

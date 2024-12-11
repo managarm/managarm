@@ -16,7 +16,7 @@ struct GlobalInitEngine final : initgraph::Engine {
 
 extern GlobalInitEngine globalInitEngine;
 
-extern "C" void eirMain();
+extern "C" [[noreturn]] void eirMain();
 
 extern "C" void eirRunConstructors();
 

@@ -227,4 +227,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 
+[[noreturn]] void enterKernel() {
+	eirEnterKernel(eirTTBR[0] + 1, eirTTBR[1] + 1, kernelEntry, getKernelStackPtr());
+}
+
 } // namespace eir

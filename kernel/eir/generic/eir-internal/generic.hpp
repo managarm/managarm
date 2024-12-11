@@ -34,7 +34,6 @@ extern address_t allocatedMemory;
 extern address_t physOffset;
 
 struct GenericInfo {
-	uintptr_t deviceTreePtr;
 	const char *cmdline;
 	EirFramebuffer fb;
 	uint32_t debugFlags;
