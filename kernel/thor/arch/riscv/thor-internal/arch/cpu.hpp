@@ -247,6 +247,8 @@ struct AssemblyCpuData {
 	IseqContext *iseqPtr;
 };
 
+inline void writeToTp(AssemblyCpuData *context) { asm volatile("mv tp, %0" : : "r"(context)); }
+
 struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
@@ -300,7 +302,9 @@ size_t getCpuCount();
 
 void saveCurrentSimdState(Executor *executor);
 
+void prepareCpuDataFor(CpuData *context, int cpu);
 void setupBootCpuContext();
+void initializeThisProcessor();
 
 initgraph::Stage *getBootProcessorReadyStage();
 

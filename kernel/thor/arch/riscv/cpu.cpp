@@ -155,9 +155,7 @@ namespace {
 
 constinit ReentrantRecordRing bootLogRing;
 
-void writeToTp(AssemblyCpuData *context) {
-	asm volatile("mv tp, %0" : : "r"(context));
-}
+} // namespace
 
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
@@ -211,8 +209,6 @@ void initializeThisProcessor() {
 	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue()->selfPtr.lock();
 	assert(cpuData->generalWorkQueue);
 }
-
-} // namespace
 
 void prepareCpuDataFor(CpuData *context, int cpu) {
 	cpuData.initialize(context);
