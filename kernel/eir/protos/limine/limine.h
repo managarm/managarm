@@ -31,6 +31,14 @@ extern "C" {
 #  define LIMINE_PTR(TYPE) TYPE
 #endif
 
+#ifndef LIMINE_API_REVISION
+#  define LIMINE_API_REVISION 0
+#endif
+
+#if LIMINE_API_REVISION > 2
+#  error "limine.h API revision unsupported"
+#endif
+
 #ifdef __GNUC__
 #  define LIMINE_DEPRECATED __attribute__((__deprecated__))
 #  define LIMINE_DEPRECATED_IGNORE_START \
@@ -113,6 +121,7 @@ struct limine_bootloader_info_request {
 #define LIMINE_FIRMWARE_TYPE_X86BIOS 0
 #define LIMINE_FIRMWARE_TYPE_UEFI32 1
 #define LIMINE_FIRMWARE_TYPE_UEFI64 2
+#define LIMINE_FIRMWARE_TYPE_SBI 3
 
 struct limine_firmware_type_response {
     uint64_t revision;
@@ -328,19 +337,29 @@ struct LIMINE_DEPRECATED limine_5_level_paging_request {
 
 LIMINE_DEPRECATED_IGNORE_END
 
-/* SMP */
+/* MP */
 
-#define LIMINE_SMP_REQUEST { LIMINE_COMMON_MAGIC, 0x95a67b819a1b857e, 0xa0b61b723b6a73e0 }
+#if LIMINE_API_REVISION >= 1
+#  define LIMINE_MP_REQUEST { LIMINE_COMMON_MAGIC, 0x95a67b819a1b857e, 0xa0b61b723b6a73e0 }
+#  define LIMINE_MP(TEXT) limine_mp_##TEXT
+#else
+#  define LIMINE_SMP_REQUEST { LIMINE_COMMON_MAGIC, 0x95a67b819a1b857e, 0xa0b61b723b6a73e0 }
+#  define LIMINE_MP(TEXT) limine_smp_##TEXT
+#endif
 
-struct limine_smp_info;
+struct LIMINE_MP(info);
 
-typedef void (*limine_goto_address)(struct limine_smp_info *);
+typedef void (*limine_goto_address)(struct LIMINE_MP(info) *);
 
 #if defined (__x86_64__) || defined (__i386__)
 
-#define LIMINE_SMP_X2APIC (1 << 0)
+#if LIMINE_API_REVISION >= 1
+#  define LIMINE_MP_X2APIC (1 << 0)
+#else
+#  define LIMINE_SMP_X2APIC (1 << 0)
+#endif
 
-struct limine_smp_info {
+struct LIMINE_MP(info) {
     uint32_t processor_id;
     uint32_t lapic_id;
     uint64_t reserved;
@@ -348,17 +367,17 @@ struct limine_smp_info {
     uint64_t extra_argument;
 };
 
-struct limine_smp_response {
+struct LIMINE_MP(response) {
     uint64_t revision;
     uint32_t flags;
     uint32_t bsp_lapic_id;
     uint64_t cpu_count;
-    LIMINE_PTR(struct limine_smp_info **) cpus;
+    LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
 };
 
 #elif defined (__aarch64__)
 
-struct limine_smp_info {
+struct LIMINE_MP(info) {
     uint32_t processor_id;
     uint32_t reserved1;
     uint64_t mpidr;
@@ -367,17 +386,17 @@ struct limine_smp_info {
     uint64_t extra_argument;
 };
 
-struct limine_smp_response {
+struct LIMINE_MP(response) {
     uint64_t revision;
     uint64_t flags;
     uint64_t bsp_mpidr;
     uint64_t cpu_count;
-    LIMINE_PTR(struct limine_smp_info **) cpus;
+    LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
 };
 
 #elif defined (__riscv) && (__riscv_xlen == 64)
 
-struct limine_smp_info {
+struct LIMINE_MP(info) {
     uint64_t processor_id;
     uint64_t hartid;
     uint64_t reserved;
@@ -385,33 +404,33 @@ struct limine_smp_info {
     uint64_t extra_argument;
 };
 
-struct limine_smp_response {
+struct LIMINE_MP(response) {
     uint64_t revision;
     uint64_t flags;
     uint64_t bsp_hartid;
     uint64_t cpu_count;
-    LIMINE_PTR(struct limine_smp_info **) cpus;
+    LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
 };
 
 #elif defined (__loongarch__) && (__loongarch_grlen == 64)
 
-struct limine_smp_info {
+struct LIMINE_MP(info) {
     uint64_t reserved;
 };
 
-struct limine_smp_response {
+struct LIMINE_MP(response) {
     uint64_t cpu_count;
-    LIMINE_PTR(struct limine_smp_info **) cpus;
+    LIMINE_PTR(struct LIMINE_MP(info) **) cpus;
 };
 
 #else
 #error Unknown architecture
 #endif
 
-struct limine_smp_request {
+struct LIMINE_MP(request) {
     uint64_t id[4];
     uint64_t revision;
-    LIMINE_PTR(struct limine_smp_response *) response;
+    LIMINE_PTR(struct LIMINE_MP(response) *) response;
     uint64_t flags;
 };
 
@@ -425,7 +444,11 @@ struct limine_smp_request {
 #define LIMINE_MEMMAP_ACPI_NVS               3
 #define LIMINE_MEMMAP_BAD_MEMORY             4
 #define LIMINE_MEMMAP_BOOTLOADER_RECLAIMABLE 5
-#define LIMINE_MEMMAP_KERNEL_AND_MODULES     6
+#if LIMINE_API_REVISION >= 2
+#  define LIMINE_MEMMAP_EXECUTABLE_AND_MODULES 6
+#else
+#  define LIMINE_MEMMAP_KERNEL_AND_MODULES 6
+#endif
 #define LIMINE_MEMMAP_FRAMEBUFFER            7
 
 struct limine_memmap_entry {
@@ -463,19 +486,39 @@ struct limine_entry_point_request {
     LIMINE_PTR(limine_entry_point) entry;
 };
 
-/* Kernel File */
+/* Executable File */
 
-#define LIMINE_KERNEL_FILE_REQUEST { LIMINE_COMMON_MAGIC, 0xad97e90e83f1ed67, 0x31eb5d1c5ff23b69 }
+#if LIMINE_API_REVISION >= 2
+#  define LIMINE_EXECUTABLE_FILE_REQUEST { LIMINE_COMMON_MAGIC, 0xad97e90e83f1ed67, 0x31eb5d1c5ff23b69 }
+#else
+#  define LIMINE_KERNEL_FILE_REQUEST { LIMINE_COMMON_MAGIC, 0xad97e90e83f1ed67, 0x31eb5d1c5ff23b69 }
+#endif
 
+#if LIMINE_API_REVISION >= 2
+struct limine_executable_file_response {
+#else
 struct limine_kernel_file_response {
+#endif
     uint64_t revision;
+#if LIMINE_API_REVISION >= 2
+    LIMINE_PTR(struct limine_file *) executable_file;
+#else
     LIMINE_PTR(struct limine_file *) kernel_file;
+#endif
 };
 
+#if LIMINE_API_REVISION >= 2
+struct limine_executable_file_request {
+#else
 struct limine_kernel_file_request {
+#endif
     uint64_t id[4];
     uint64_t revision;
+#if LIMINE_API_REVISION >= 2
+    LIMINE_PTR(struct limine_executable_file_response *) response;
+#else
     LIMINE_PTR(struct limine_kernel_file_response *) response;
+#endif
 };
 
 /* Module */
@@ -513,7 +556,11 @@ struct limine_module_request {
 
 struct limine_rsdp_response {
     uint64_t revision;
+#if LIMINE_API_REVISION >= 1
+    uint64_t address;
+#else
     LIMINE_PTR(void *) address;
+#endif
 };
 
 struct limine_rsdp_request {
@@ -528,8 +575,13 @@ struct limine_rsdp_request {
 
 struct limine_smbios_response {
     uint64_t revision;
+#if LIMINE_API_REVISION >= 1
+    uint64_t entry_32;
+    uint64_t entry_64;
+#else
     LIMINE_PTR(void *) entry_32;
     LIMINE_PTR(void *) entry_64;
+#endif
 };
 
 struct limine_smbios_request {
@@ -544,7 +596,11 @@ struct limine_smbios_request {
 
 struct limine_efi_system_table_response {
     uint64_t revision;
+#if LIMINE_API_REVISION >= 1
+    uint64_t address;
+#else
     LIMINE_PTR(void *) address;
+#endif
 };
 
 struct limine_efi_system_table_request {
@@ -586,20 +642,36 @@ struct limine_boot_time_request {
     LIMINE_PTR(struct limine_boot_time_response *) response;
 };
 
-/* Kernel address */
+/* Executable address */
 
-#define LIMINE_KERNEL_ADDRESS_REQUEST { LIMINE_COMMON_MAGIC, 0x71ba76863cc55f63, 0xb2644a48c516a487 }
+#if LIMINE_API_REVISION >= 2
+#  define LIMINE_EXECUTABLE_ADDRESS_REQUEST { LIMINE_COMMON_MAGIC, 0x71ba76863cc55f63, 0xb2644a48c516a487 }
+#else
+#  define LIMINE_KERNEL_ADDRESS_REQUEST { LIMINE_COMMON_MAGIC, 0x71ba76863cc55f63, 0xb2644a48c516a487 }
+#endif
 
+#if LIMINE_API_REVISION >= 2
+struct limine_executable_address_response {
+#else
 struct limine_kernel_address_response {
+#endif
     uint64_t revision;
     uint64_t physical_base;
     uint64_t virtual_base;
 };
 
+#if LIMINE_API_REVISION >= 2
+struct limine_executable_address_request {
+#else
 struct limine_kernel_address_request {
+#endif
     uint64_t id[4];
     uint64_t revision;
+#if LIMINE_API_REVISION >= 2
+    LIMINE_PTR(struct limine_executable_address_response *) response;
+#else
     LIMINE_PTR(struct limine_kernel_address_response *) response;
+#endif
 };
 
 /* Device Tree Blob */
@@ -615,6 +687,21 @@ struct limine_dtb_request {
     uint64_t id[4];
     uint64_t revision;
     LIMINE_PTR(struct limine_dtb_response *) response;
+};
+
+/* RISC-V Boot Hart ID */
+
+#define LIMINE_RISCV_BSP_HARTID_REQUEST { LIMINE_COMMON_MAGIC, 0x1369359f025525f9, 0x2ff2a56178391bb6 }
+
+struct limine_riscv_bsp_hartid_response {
+    uint64_t revision;
+    uint64_t bsp_hartid;
+};
+
+struct limine_riscv_bsp_hartid_request {
+    uint64_t id[4];
+    uint64_t revision;
+    LIMINE_PTR(struct limine_riscv_bsp_hartid_response *) response;
 };
 
 #ifdef __cplusplus

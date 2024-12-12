@@ -27,7 +27,7 @@ namespace {
 [[gnu::used, gnu::section(".requests")]] volatile LIMINE_BASE_REVISION(3);
 LIMINE_REQUEST(memmap_request, LIMINE_MEMMAP_REQUEST, 0);
 LIMINE_REQUEST(hhdm_request, LIMINE_HHDM_REQUEST, 0);
-LIMINE_REQUEST(smp_request, LIMINE_SMP_REQUEST, 0);
+LIMINE_REQUEST(riscv_bsp_hartid_request, LIMINE_RISCV_BSP_HARTID_REQUEST, 0);
 LIMINE_REQUEST(framebuffer_request, LIMINE_FRAMEBUFFER_REQUEST, 1);
 LIMINE_REQUEST(module_request, LIMINE_MODULE_REQUEST, 0);
 LIMINE_REQUEST(kernel_file_request, LIMINE_KERNEL_FILE_REQUEST, 0);
@@ -43,7 +43,9 @@ initgraph::Task setupMiscInfo{
     initgraph::Entails{getEirDoneStage()},
     [] {
 #ifdef __riscv
-	    info_ptr->hartId = smp_request.response->bsp_hartid;
+	    if (!riscv_bsp_hartid_request.response)
+		    panicLogger() << "eir: Missing response for Limine BSP hart ID request" << frg::endlog;
+	    info_ptr->hartId = riscv_bsp_hartid_request.response->bsp_hartid;
 #endif
 
 	    if (dtb_request.response) {

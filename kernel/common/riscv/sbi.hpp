@@ -14,6 +14,7 @@ struct Result {
 constexpr int64_t eidBase = 0x10;
 constexpr int64_t eidTime = 0x54494D45;
 constexpr int64_t eidIpi = 0x735049;
+constexpr int64_t eidHsm = 0x48534D;
 constexpr int64_t eidDbcn = 0x4442434E;
 
 inline Result call1(uint64_t eid, uint64_t fid, uint64_t arg0) {
@@ -31,6 +32,16 @@ inline Result call2(uint64_t eid, uint64_t fid, uint64_t arg0, uint64_t arg1) {
 	register uint64_t a0 asm("a0") = arg0;
 	register uint64_t a1 asm("a1") = arg1;
 	asm volatile("ecall" : "+r"(a0), "+r"(a1) : "r"(rEid), "r"(rFid) : "memory");
+	return Result{static_cast<int64_t>(a0), static_cast<int64_t>(a1)};
+}
+
+inline Result call3(uint64_t eid, uint64_t fid, uint64_t arg0, uint64_t arg1, uint64_t arg2) {
+	register uint64_t rEid asm("a7") = eid;
+	register uint64_t rFid asm("a6") = fid;
+	register uint64_t a0 asm("a0") = arg0;
+	register uint64_t a1 asm("a1") = arg1;
+	register uint64_t a2 asm("a2") = arg2;
+	asm volatile("ecall" : "+r"(a0), "+r"(a1) : "r"(a2), "r"(rEid), "r"(rFid) : "memory");
 	return Result{static_cast<int64_t>(a0), static_cast<int64_t>(a1)};
 }
 
@@ -70,6 +81,17 @@ inline Error sendIpi(uint64_t hartMask, uint64_t hartMaskBase) {
 }
 
 } // namespace sbi::ipi
+
+namespace sbi::hsm {
+
+constexpr int64_t fidHartStart = 0;
+
+inline Error hartStart(uint64_t hartId, uint64_t ip, uint64_t a1) {
+	auto res = call3(eidHsm, fidHartStart, hartId, ip, a1);
+	return res.error;
+}
+
+} // namespace sbi::hsm
 
 namespace sbi::dbcn {
 

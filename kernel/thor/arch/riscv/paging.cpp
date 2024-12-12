@@ -102,10 +102,10 @@ ClientPageSpace::ClientPageSpace() : PageSpace{physicalAllocator->allocate(kPage
 
 ClientPageSpace::~ClientPageSpace() {
 	if (riscvConfigNote->numPtLevels == 3) {
-		freePt<ClientCursorPolicy, 3, /*LowerHalfOnly=*/true>(rootTable());
+		freePt<ClientCursorPolicy, 2, /*LowerHalfOnly=*/true>(rootTable());
 	} else {
 		assert(riscvConfigNote->numPtLevels == 4);
-		freePt<ClientCursorPolicy, 4, /*LowerHalfOnly=*/true>(rootTable());
+		freePt<ClientCursorPolicy, 3, /*LowerHalfOnly=*/true>(rootTable());
 	}
 }
 
