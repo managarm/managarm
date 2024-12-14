@@ -651,8 +651,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 				std::cout << "posix: Thread killed as the result of signal "
 						<< item->signalNumber << std::endl;
 				if(debugFaults) {
-					launchGdbServer(process);
-					co_await async::suspend_indefinitely({});
+					//launchGdbServer(process);
+					//co_await async::suspend_indefinitely({});
 				}
 				killed = true;
 				co_await process->terminate(TerminationBySignal{item->signalNumber});
@@ -907,6 +907,12 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
+	
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
 
 	// The initial signal mask allows all signals.
 	process->_signalMask = 0;
@@ -920,6 +926,10 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(), 
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite, 
+			&process->_clientCancelEvent));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -980,6 +990,12 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
+
 	// Signal masks are copied on fork().
 	process->_signalMask = original->_signalMask;
 
@@ -992,6 +1008,10 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientCancelEvent));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -1046,6 +1066,12 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
+
 	// Signal masks are copied on clone().
 	process->_signalMask = original->_signalMask;
 
@@ -1058,6 +1084,10 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientCancelEvent));
 
 	process->_clientFileTable = original->_clientFileTable;
 	process->_clientClkTrackerPage = original->_clientClkTrackerPage;
@@ -1109,12 +1139,17 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	client_lane.release();
 
 	void *exec_thread_page;
+	void *exec_cancel_event;
 	void *exec_clk_tracker_page;
 	void *exec_client_table;
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&exec_thread_page));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			exec_vm_context->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&exec_cancel_event));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -1147,6 +1182,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
 	process->_clientThreadPage = exec_thread_page;
+	process->_clientCancelEvent = exec_cancel_event;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
@@ -1184,6 +1220,16 @@ async::result<void> Process::terminate(TerminationState state) {
 	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
 	_generationUsage.userTime += stats.userTime;
 
+	auto cancelEventPtr = reinterpret_cast<HelHandle*>(_cancelEventMapping.get());
+	auto cancelEvent = __atomic_load_n(cancelEventPtr, __ATOMIC_ACQUIRE);
+	if (cancelEvent != kHelNullHandle) {
+		std::cout << "triggered the event" << std::endl;
+		HelHandle posixCancelEvent;
+		HEL_CHECK(helTransferDescriptor)
+		HEL_CHECK(helRaiseEvent(cancelEvent));
+		*cancelEventPtr = kHelNullHandle;
+	}
+
 	_posixLane = {};
 	_threadDescriptor = {};
 	_vmContext = nullptr;
@@ -1196,7 +1242,6 @@ async::result<void> Process::terminate(TerminationState state) {
 		assert(result);
 		(void)result;
 	}
-	_processTerminated.cancel();
 
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);

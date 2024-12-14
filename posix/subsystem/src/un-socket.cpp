@@ -113,7 +113,7 @@ public:
 	async::result<protocols::fs::ReadResult>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
 		if(_currentState != State::connected)
-			co_return Error::wouldBlock;
+			co_return {protocols::fs::Error::wouldBlock, 0};
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 

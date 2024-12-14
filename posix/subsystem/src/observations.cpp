@@ -11,6 +11,8 @@
 void dumpRegisters(std::shared_ptr<Process> proc) {
 	auto thread = proc->threadDescriptor();
 
+	std::cout << (unsigned long) thread.getHandle() << std::endl;
+
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
 
@@ -147,7 +149,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				self->fileContext()->clientMbusLane(),
 				self->clientThreadPage(),
 				static_cast<HelHandle *>(self->clientFileTable()),
-				self->clientClkTrackerPage()
+				self->clientClkTrackerPage(),
+				static_cast<HelHandle*>(self->clientCancelEvent())
 			};
 
 			if(logRequests)
@@ -557,7 +560,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				co_await async::suspend_indefinitely({});
 			}
 		}else if(observe.observation() == kHelObservePageFault) {
-			if(logPageFaults) {
+			std::cout << "here" << std::endl;
+			if(!logPageFaults) {
 				printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 				dumpRegisters(self);
 				printf("\e[39m");
@@ -572,7 +576,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
 			if(killed) {
-				if(!logPageFaults) {
+				if(logPageFaults) {
+					std::cout << "here2" << std::endl;
 					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
 					dumpRegisters(self);
 					printf("\e[39m");

@@ -98,6 +98,7 @@ struct WorkQueue {
 		bool start_inline() {
 			auto swq = wq_->selfPtr.lock();
 			if (!swq) {
+				// 300 IQ debug statement
 				infoLogger() << "hello!!!!" << frg::endlog;
 				async::execution::set_value_inline(r_, true);
 				return true;

@@ -316,10 +316,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			TerminationState state;
 			int pid;
+			// TODO(geert): make this cancelleable XDD
 			if(req->idtype() == P_PID) {
-				pid = co_await self->wait(req->id(), req->flags() & WNOHANG, &state);
+				pid = co_await self->wait(req->id(), req->flags() & WNOHANG, &state, {});
 			} else if(req->idtype() == P_ALL) {
-				pid = co_await self->wait(-1, req->flags() & WNOHANG, &state);
+				pid = co_await self->wait(-1, req->flags() & WNOHANG, &state, {});
 			} else {
 				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);

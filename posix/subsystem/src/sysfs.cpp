@@ -99,7 +99,7 @@ AttributeFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 	}
 
 	if(_offset >= _buffer.size())
-		co_return std::make_pair(protocols::fs::Error::none, 0);
+		co_return 0;
 	size_t chunk = std::min(_buffer.size() - offset, length);
 	memcpy(buffer, _buffer.data() + _offset, chunk);
 	co_return chunk;

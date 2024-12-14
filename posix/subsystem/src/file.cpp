@@ -68,21 +68,7 @@ File::ptRead(void *object, const char *credentials,
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
 	auto result = co_await self->readSome(process.get(), buffer, length, ce);
-	if(!result) {
-		switch(result.error()) {
-		case Error::illegalOperationTarget:
-			co_return protocols::fs::Error::illegalArguments;
-		case Error::wouldBlock:
-			co_return protocols::fs::Error::wouldBlock;
-		case Error::notConnected:
-			co_return protocols::fs::Error::notConnected;
-		default:
-			assert(!"Unexpected error from readSome()");
-			__builtin_unreachable();
-		}
-	}else{
-		co_return result.value();
-	}
+	co_return result;
 }
 
 async::result<protocols::fs::ReadResult>

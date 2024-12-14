@@ -152,8 +152,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			// we kill cat pleaseee and if this doesn't happen then wtf
 			// Hmm okay on second thought it makes sense it doesn't get triggered
 			// because userspace is killed before it has the chance to trigger this.
-		 	std::cout << "event popped!!! lets GGOOGOGOGOGOGOGO" << std::endl;
+			// Okay but this should get triggered now, because POSIX should trigger it on terminate.
 			co_await helix_ng::awaitEvent(event, 1);
+		 	std::cout << "event popped!!! lets GGOOGOGOGOGOGOGO" << std::endl;
 			ce.cancel();
 		})(cancel_event.descriptor(), ce);
 
@@ -161,6 +162,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		data.resize(req.size());
 		auto res = co_await file_ops->read(file.get(), extract_creds.credentials(),
 				data.data(), req.size(), async::cancellation_token{ce});
+		std::cout << "returned from read!" << std::endl;
 
 		managarm::fs::SvrResponse resp;
 		resp.set_error(mapFsError(res.error()));
@@ -183,6 +185,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
 		);
 		HEL_CHECK(send_resp.error());
+		if (send_data.error() == kHelErrThreadTerminated) {
+			std::cout << "thread terminated already but it's okay" << std::endl;
+			co_return;
+		}
 		HEL_CHECK(send_data.error());
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(

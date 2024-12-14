@@ -523,6 +523,7 @@ public:
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 	void *clientAuxBegin() { return _clientAuxBegin; }
 	void *clientAuxEnd() { return _clientAuxEnd; }
+	void *clientCancelEvent() { return _clientCancelEvent; }
 
 	ThreadPage *accessThreadPage() {
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
@@ -604,10 +605,14 @@ private:
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
+	helix::UniqueDescriptor _cancelEventMemory;
+	helix::Mapping _cancelEventMapping;
+
 	HelHandle _clientPosixLane;
 	void *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
+	void *_clientCancelEvent;
 	// Pointers to the aux vector in the client.
 	void *_clientAuxBegin = nullptr;
 	void *_clientAuxEnd = nullptr;

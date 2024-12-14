@@ -72,7 +72,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	if(self->inode->fileType == FileType::kTypeDirectory) {
-		co_return protocols::fs::Error::isDirectory;
+		co_return {protocols::fs::Error::isDirectory, 0};
 	}
 
 	co_await self->inode->readyJump.wait(ce);

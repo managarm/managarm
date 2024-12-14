@@ -8,6 +8,7 @@
 #include <helix/ipc.hpp>
 #include "protocols/fs/common.hpp"
 #include "timerfd.hpp"
+#include "fs.hpp"
 
 namespace {
 
