@@ -1933,6 +1933,14 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			regs[i] = thread->_executor.general()->x[i];
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 31))
 			return kHelErrFault;
+#elif defined(__riscv) && __riscv_xlen == 64
+		uintptr_t regs[30];
+		regs[0] = thread->_executor.general()->xs[0];
+		// Skip xs[1] as it corresponds to sp.
+		for (int i = 1; i < 30; i++)
+			regs[i] = thread->_executor.general()->xs[i + 1];
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 30))
+			return kHelErrFault;
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -1949,6 +1957,11 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 #elif defined(__aarch64__)
 		uintptr_t regs[1];
 		regs[0] = thread->_executor.general()->tpidr_el0;
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
+			return kHelErrFault;
+#elif defined(__riscv) && __riscv_xlen == 64
+		uintptr_t regs[1];
+		regs[0] = thread->_executor.general()->tp();
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
 #else
@@ -2087,6 +2100,14 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			return kHelErrFault;
 		for (int i = 0; i < 31; i++)
 			thread->_executor.general()->x[i] = regs[i];
+#elif defined(__riscv) && __riscv_xlen == 64
+		uintptr_t regs[30];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 30))
+			return kHelErrFault;
+		thread->_executor.general()->xs[0] = regs[0];
+		// Skip xs[1] as it corresponds to sp.
+		for (int i = 1; i < 30; i++)
+			thread->_executor.general()->xs[i + 1] = regs[i];
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -2105,6 +2126,11 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
 		thread->_executor.general()->tpidr_el0 = regs[0];
+#elif defined(__riscv) && __riscv_xlen == 64
+		uintptr_t regs[1];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 1))
+			return kHelErrFault;
+		thread->_executor.general()->tp() = regs[0];
 #else
 		return kHelErrUnsupportedOperation;
 
@@ -3522,11 +3548,14 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 
 		case kHelRegsGeneral:
 #if defined (__x86_64__)
+			static_assert(kHelNumGprs == 15);
 			outInfo.setSize = 15 * sizeof(uintptr_t);
 #elif defined (__aarch64__)
+			static_assert(kHelNumGprs == 31);
 			outInfo.setSize = 31 * sizeof(uintptr_t);
 #elif defined (__riscv) && __riscv_xlen == 64
-			outInfo.setSize = 31 * sizeof(uintptr_t);
+			static_assert(kHelNumGprs == 30);
+			outInfo.setSize = 30 * sizeof(uintptr_t);
 #else
 #			error Unknown architecture
 #endif
