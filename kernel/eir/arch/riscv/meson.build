@@ -6,7 +6,6 @@ eir_sources = [
 		'cpu.cpp',
 		'paging.cpp',
 		'stubs.S',
-		'../../system/dtb/discovery.cpp'
 	),
 	eir_generic_sources
 ]
