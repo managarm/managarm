@@ -317,7 +317,7 @@ struct DeviceTreeNode {
 
 	frg::optional<DeviceTreeProperty> findProperty(const char *name) const {
 		for (auto prop : properties_)
-			if (!memcmp(name, prop.name(), strlen(name)))
+			if (frg::string_view{name} == prop.name())
 				return prop;
 
 		return frg::null_opt;
