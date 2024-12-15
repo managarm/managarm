@@ -166,10 +166,12 @@ int main() {
 #endif
 
 	// Start essential bus and storage drivers.
+#if defined (__x86_64__)
 	auto ehci = fork();
 	if(!ehci) {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
 	}else assert(ehci != -1);
+#endif
 
 	auto xhci = fork();
 	if(!xhci) {
