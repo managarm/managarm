@@ -245,41 +245,49 @@ HelError helCreateUniverse(HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
+HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle, int in,
 		HelHandle *out_handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
 	AnyDescriptor descriptor;
-	smarter::shared_ptr<Universe> universe;
+	smarter::shared_ptr<Universe> dst_universe;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard lock(this_universe->lock);
 
-		auto descriptor_it = this_universe->getDescriptor(lock, handle);
-		if(!descriptor_it)
-			return kHelErrNoDescriptor;
-		descriptor = *descriptor_it;
-
 		if(universe_handle == kHelThisUniverse) {
-			universe = this_universe.lock();
+			dst_universe = this_universe.lock();
 		}else{
 			auto universe_it = this_universe->getDescriptor(lock, universe_handle);
 			if(!universe_it)
 				return kHelErrNoDescriptor;
 			if(!universe_it->is<UniverseDescriptor>())
 				return kHelErrBadDescriptor;
-			universe = universe_it->get<UniverseDescriptor>().universe;
+			dst_universe = universe_it->get<UniverseDescriptor>().universe;
 		}
+
+		auto src_universe = this_universe;
+		if (in) {
+			src_universe = dst_universe;
+			lock = Universe::Guard(src_universe->lock);
+
+			dst_universe = this_universe.lock();
+		}
+
+		auto descriptor_it = src_universe->getDescriptor(lock, handle);
+		if(!descriptor_it)
+			return kHelErrNoDescriptor;
+		descriptor = *descriptor_it;
 	}
 
 	// TODO: make sure the descriptor is copyable.
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(universe->lock);
+		Universe::Guard lock(dst_universe->lock);
 
-		*out_handle = universe->attachDescriptor(lock, std::move(descriptor));
+		*out_handle = dst_universe->attachDescriptor(lock, std::move(descriptor));
 	}
 	return kHelErrNone;
 }
@@ -3065,6 +3073,7 @@ HelError helRaiseEvent(HelHandle handle) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
 		event->trigger();
 	}else{
+		infoLogger() << descriptor.tag() << frg::endlog;
 		return kHelErrBadDescriptor;
 	}
 

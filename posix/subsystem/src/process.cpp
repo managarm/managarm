@@ -339,7 +339,7 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
 	HEL_CHECK(helTransferDescriptor(posixMbusClient,
-			context->_universe.getHandle(), &context->_clientMbusLane));
+			context->_universe.getHandle(), &context->_clientMbusLane, 0));
 
 	return context;
 }
@@ -365,7 +365,7 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	}
 
 	HEL_CHECK(helTransferDescriptor(posixMbusClient,
-			context->_universe.getHandle(), &context->_clientMbusLane));
+			context->_universe.getHandle(), &context->_clientMbusLane, 0));
 
 	return context;
 }
@@ -379,7 +379,7 @@ int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
-			_universe.getHandle(), &handle));
+			_universe.getHandle(), &handle, 0));
 
 	for(int fd = 0; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
@@ -398,7 +398,7 @@ void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
-			_universe.getHandle(), &handle));
+			_universe.getHandle(), &handle, 0));
 
 	if(logFileAttach)
 		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
@@ -919,7 +919,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane, 0));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
@@ -1001,7 +1001,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane, 0));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
@@ -1077,7 +1077,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane, 0));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
@@ -1135,7 +1135,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	HelHandle exec_posix_lane;
 	auto [server_lane, client_lane] = helix::createStream();
 	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &exec_posix_lane));
+			process->_fileContext->getUniverse().getHandle(), &exec_posix_lane, 0));
 	client_lane.release();
 
 	void *exec_thread_page;
@@ -1225,8 +1225,9 @@ async::result<void> Process::terminate(TerminationState state) {
 	if (cancelEvent != kHelNullHandle) {
 		std::cout << "triggered the event" << std::endl;
 		HelHandle posixCancelEvent;
-		HEL_CHECK(helTransferDescriptor)
-		HEL_CHECK(helRaiseEvent(cancelEvent));
+		HEL_CHECK(helTransferDescriptor(cancelEvent, _fileContext->getUniverse().getHandle(),
+					&posixCancelEvent, 1));
+		HEL_CHECK(helRaiseEvent(posixCancelEvent));
 		*cancelEventPtr = kHelNullHandle;
 	}
 

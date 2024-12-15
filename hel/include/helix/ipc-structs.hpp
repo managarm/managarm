@@ -59,7 +59,7 @@ struct UniqueDescriptor {
 		if(!_handle)
 			return {};
 		HelHandle newHandle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &newHandle));
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &newHandle, 0));
 		return UniqueDescriptor(newHandle);
 	}
 
@@ -90,7 +90,7 @@ struct BorrowedDescriptor {
 
 	UniqueDescriptor dup() const {
 		HelHandle new_handle;
-		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle));
+		HEL_CHECK(helTransferDescriptor(getHandle(), kHelThisUniverse, &new_handle, 0));
 		return UniqueDescriptor(new_handle);
 	}
 
