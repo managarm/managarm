@@ -73,7 +73,13 @@ void KernelPageSpace::mapSingle4k(
 	cursor.map4k(physical, flags, cachingMode);
 }
 
-PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) { unimplementedOnRiscv(); }
+PhysicalAddr KernelPageSpace::unmapSingle4k(VirtualAddr pointer) {
+	assert(!(pointer & (kPageSize - 1)));
+
+	Cursor cursor{this, pointer};
+	auto [_, addr] = cursor.unmap4k();
+	return addr;
+}
 
 // --------------------------------------------------------
 // User page management.
