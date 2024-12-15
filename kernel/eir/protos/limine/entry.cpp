@@ -48,12 +48,6 @@ initgraph::Task setupMiscInfo{
 	    info_ptr->hartId = riscv_bsp_hartid_request.response->bsp_hartid;
 #endif
 
-	    if (dtb_request.response) {
-		    DeviceTree dt{dtb_request.response->dtb_ptr};
-		    info_ptr->dtbPtr = virtToPhys(dtb_request.response->dtb_ptr);
-		    info_ptr->dtbSize = dt.size();
-	    }
-
 	    if (rsdp_request.response) {
 		    info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdp_request.response->address);
 	    }
@@ -134,9 +128,12 @@ extern "C" void eirLimineMain(void) {
 	if (!LIMINE_BASE_REVISION_SUPPORTED)
 		panicLogger() << "eir-limine was not booted with correct base revision" << frg::endlog;
 
+	// Must be available before we can use virtToPhys below.
+	physOffset = hhdm_request.response->offset;
+
 	if (dtb_request.response) {
-		eirDtbPtr = dtb_request.response->dtb_ptr;
-		eir::infoLogger() << "DTB accessible at " << eirDtbPtr << frg::endlog;
+		eir::infoLogger() << "DTB accessible at " << dtb_request.response->dtb_ptr << frg::endlog;
+		eirDtbPtr = virtToPhys(dtb_request.response->dtb_ptr);
 	} else {
 		eir::infoLogger() << "Limine did not pass a DTB" << frg::endlog;
 	}
@@ -155,7 +152,6 @@ extern "C" void eirLimineMain(void) {
 	auto initrd_file = module_request.response->modules[0];
 
 	initrd = initrd_file->address;
-	physOffset = hhdm_request.response->offset;
 	kernel_physical = kernel_address_request.response->physical_base;
 
 	eirMain();

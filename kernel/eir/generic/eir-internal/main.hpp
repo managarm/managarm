@@ -5,9 +5,9 @@
 #include <frg/string.hpp>
 #include <initgraph.hpp>
 
-extern void *eirDtbPtr;
-
 namespace eir {
+
+extern "C" physaddr_t eirDtbPtr;
 
 struct GlobalInitEngine final : initgraph::Engine {
 	void preActivate(initgraph::Node *node) override;

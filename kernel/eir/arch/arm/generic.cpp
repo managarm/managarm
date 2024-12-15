@@ -18,13 +18,7 @@ initgraph::Task setupMiscInfo{
     "aarch64.setup-misc-info",
     initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getEirDoneStage()},
-    [] {
-	    info_ptr->debugFlags |= genericDebugFlags;
-
-	    DeviceTree dt{eirDtbPtr};
-	    info_ptr->dtbPtr = reinterpret_cast<EirPtr>(eirDtbPtr);
-	    info_ptr->dtbSize = dt.size();
-    }
+    [] { info_ptr->debugFlags |= genericDebugFlags; }
 };
 
 initgraph::Task setupInitrdInfo{

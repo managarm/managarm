@@ -24,11 +24,11 @@ size_t findAddressCells(DeviceTreeNode parent) {
 	return 1;
 }
 
-void discoverMemoryFromDtb(void *dtbPtr) {
-	DeviceTree dt{dtbPtr};
+void discoverMemoryFromDtb() {
+	DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 	auto rootNode = dt.rootNode();
 
-	eir::infoLogger() << "DTB pointer " << dtbPtr << frg::endlog;
+	eir::infoLogger() << "DTB pointer 0x" << frg::hex_fmt{eirDtbPtr} << frg::endlog;
 	eir::infoLogger() << "DTB size: 0x" << frg::hex_fmt{dt.size()} << frg::endlog;
 
 	if constexpr (dumpDtb) {
@@ -143,7 +143,7 @@ void discoverMemoryFromDtb(void *dtbPtr) {
 	uintptr_t eirEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
 	reservedRegions[nReservedRegions++] = {eirStart, eirEnd - eirStart};
 	reservedRegions[nReservedRegions++] = {initrdStart, initrdEnd - initrdStart};
-	reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(dtbPtr), dt.size()};
+	reservedRegions[nReservedRegions++] = {eirDtbPtr, dt.size()};
 
 	eir::infoLogger() << "Memory reservation entries:" << frg::endlog;
 
@@ -219,10 +219,9 @@ void discoverMemoryFromDtb(void *dtbPtr) {
 }
 
 static initgraph::Task discoverMemory{
-    &globalInitEngine,
-    "discover-memory",
-    initgraph::Entails{getInitrdAvailableStage()},
-    [] { discoverMemoryFromDtb(eirDtbPtr); }
+    &globalInitEngine, "discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
+	    discoverMemoryFromDtb();
+    }
 };
 
 } // namespace eir
