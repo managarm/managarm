@@ -193,11 +193,11 @@ struct Executor {
 
 	Executor(const Executor &other) = delete;
 
-	~Executor() { unimplementedOnRiscv(); }
+	~Executor();
 
 	Executor &operator=(const Executor &other) = delete;
 
-	Word *ip() { unimplementedOnRiscv(); }
+	Word *ip() { return &general()->ip; }
 	Word *sp() { return &general()->sp(); }
 
 	// Note: a0 is used for the supercall code.
