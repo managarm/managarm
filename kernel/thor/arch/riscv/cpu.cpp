@@ -93,6 +93,8 @@ Executor::Executor(FiberContext *context, AbiParameters abi) {
 	general()->sstatus = riscv::sstatus::sppBit;
 }
 
+Executor::~Executor() { kernelAlloc->free(_pointer); }
+
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(accessor.frameBase()), cont);
 	;
