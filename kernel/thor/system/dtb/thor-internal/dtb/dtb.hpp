@@ -13,6 +13,10 @@
 
 namespace thor {
 
+namespace dt {
+struct IrqController;
+} // namespace dt
+
 struct DeviceTreeNode {
 	DeviceTreeNode(::DeviceTreeNode dtNode, DeviceTreeNode *parent)
 	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
@@ -191,6 +195,14 @@ struct DeviceTreeNode {
 		return false;
 	}
 
+	void associateIrqController(dt::IrqController *irqController) {
+		associatedIrqController_ = irqController;
+	}
+
+	dt::IrqController *getAssociatedIrqController() {
+		return associatedIrqController_;
+	}
+
 private:
 	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
 	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
@@ -241,6 +253,9 @@ private:
 
 	uint32_t cpuOn_;
 	frg::string_view method_;
+
+	// Kernel objects associated with this DeviceTreeNode.
+	dt::IrqController *associatedIrqController_{nullptr};
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);

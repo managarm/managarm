@@ -17,7 +17,7 @@ initgraph::Stage *getDeviceTreeParsedStage() {
 }
 
 namespace {
-	frg::manual_box<DeviceTree> dt;
+	frg::manual_box<DeviceTree> globalDt;
 
 	frg::manual_box<
 		frg::hash_map<
@@ -521,11 +521,11 @@ static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 		ptr = reinterpret_cast<void *>(
 				reinterpret_cast<uintptr_t>(ptr) + dtbPageOff);
 
-		dt.initialize(ptr);
+		globalDt.initialize(ptr);
 		phandles.initialize(frg::hash<uint32_t>{}, *kernelAlloc);
 
-		treeRoot = frg::construct<DeviceTreeNode>(*kernelAlloc, dt->rootNode(), nullptr);
-		treeRoot->initializeWith(dt->rootNode());
+		treeRoot = frg::construct<DeviceTreeNode>(*kernelAlloc, globalDt->rootNode(), nullptr);
+		treeRoot->initializeWith(globalDt->rootNode());
 
 		infoLogger() << "thor: Booting on \"" << treeRoot->model() << "\"" << frg::endlog;
 
@@ -545,7 +545,7 @@ static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 			}
 		} walker{treeRoot};
 
-		dt->rootNode().walkChildren(walker);
+		globalDt->rootNode().walkChildren(walker);
 
 		// Initialize interruptParent etc
 		// This can't be done above because the interrupt parent may not

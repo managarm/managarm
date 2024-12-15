@@ -4,6 +4,7 @@
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/arch/system.hpp>
 
 #include <thor-internal/pci/pcie_ecam.hpp>
@@ -20,6 +21,8 @@ extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 } // namespace thor
 
 namespace thor::pci {
+
+static constexpr bool logRoutingTable = false;
 
 struct DtbPciIrqRouter : PciIrqRouter {
 	DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_, DeviceTreeNode *node);
@@ -63,6 +66,8 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			}
 		}
 
+#ifdef __aarch64
+		// TODO: Get rid of this case, the one below is more general.
 		for (auto ent : map) {
 			auto addr = ent.childAddrHi + disp;
 			uint32_t bus = (addr >> 16) & 0xFF;
@@ -80,7 +85,6 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 
 			// TODO: care about polarity
 			auto irq = ent.parentIrq.id;
-#ifndef __riscv
 			if (globalIrqSlots[irq]->isAvailable()) {
 				// TODO: Do not assume the GIC here.
 				auto pin = gic->setupIrq(irq, ent.parentIrq.trigger);
@@ -89,10 +93,46 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 				auto pin = globalIrqSlots[irq]->pin();
 				routingTable.push({slot, index, pin});
 			}
-#else
-			warningLogger() << "PCI IRQ routing is not implemented yet on RISC-V" << frg::endlog;
-#endif
 		}
+#else
+		auto success = dt::walkInterruptMap([&] (
+				dtb::Cells childAddress,
+				dtb::Cells childIrq,
+				DeviceTreeNode *parentNode,
+				dtb::Cells parentAddress,
+				dtb::Cells parentIrq) {
+			if (childAddress.numCells() != 3)
+				panicLogger() << "Expected three child address cells in ECAM interrupt-map" << frg::endlog;
+			uint32_t bdf;
+			if (!childAddress.readSlice(bdf, 0, 1))
+				panicLogger() << "Failed to read BDF from ECAM interupt-map" << frg::endlog;
+			auto addr = bdf + disp;
+			uint32_t bus = (addr >> 16) & 0xFF;
+			uint32_t slot = (addr >> 11) & 0x1F;
+			uint32_t func = (addr >> 8) & 0x07;
+			assert(bus == associatedBus->busId);
+			assert(!func && "TODO: support routing of individual functions");
+
+			uint32_t index;
+			if (!childIrq.read(index))
+				panicLogger() << "Failed to read pin index from interrupt-map" << frg::endlog;
+
+			if (parentAddress.numCells())
+				panicLogger() << "thor: ECAM interrupt-maps with non-zero parent #address-cells are unsupported" << frg::endlog;
+
+			auto *irqController = parentNode->getAssociatedIrqController();
+			if (!irqController)
+				panicLogger() << "No IRQ controller associated with "
+						<< parentNode->path() << frg::endlog;
+			auto pin = irqController->resolveDtIrq(parentIrq);
+			if (logRoutingTable)
+				infoLogger() << bus << " " << slot << " [" << index << "]: Routed to IRQ "
+						<< pin->name() << frg::endlog;
+			routingTable.push({slot, static_cast<IrqIndex>(index), pin});
+		}, node);
+		if (!success)
+			panicLogger() << "Failed to walk interrupt-map of " << node->path() << frg::endlog;
+#endif
 	}
 
 	routingModel = RoutingModel::rootTable;
