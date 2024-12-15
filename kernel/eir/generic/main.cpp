@@ -2,6 +2,7 @@
 #include <eir-internal/cpio.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 
 #include <elf.h>
@@ -10,11 +11,10 @@
 #include <frg/utility.hpp>
 #include <physical-buddy.hpp>
 
-// Pointer to the DTB.
-// Not in the eir namespace since some protocols set this from assembly.
-constinit void *eirDtbPtr{nullptr};
-
 namespace eir {
+
+// Address of the DTB.
+constinit physaddr_t eirDtbPtr{0};
 
 void *initrd = nullptr;
 

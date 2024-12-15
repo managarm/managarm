@@ -130,7 +130,7 @@ void initProcessorEarly() {
 	// TODO: If ACPI is enabled, we might not have a device tree. In that case, use the RHCT to get
 	// the ISA string.
 	if (eirDtbPtr) {
-		DeviceTree dt(eirDtbPtr);
+		DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
 		// Get the first "/cpus/cpu@..."
 		frg::optional<DeviceTreeNode> cpuNode;

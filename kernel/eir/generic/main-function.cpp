@@ -1,3 +1,4 @@
+#include <dtb.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -92,6 +93,20 @@ static initgraph::Task setupInfoStruct{
     initgraph::Requires{getAllocationAvailableStage()},
     initgraph::Entails{getInfoStructAvailableStage()},
     [] { info_ptr = generateInfo(cmdline); }
+};
+
+static initgraph::Task passDtbInfo{
+    &globalInitEngine,
+    "generic.pass-dtb-info",
+    initgraph::Requires{getInfoStructAvailableStage()},
+    initgraph::Entails{getEirDoneStage()},
+    [] {
+	    if (eirDtbPtr) {
+		    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+		    info_ptr->dtbPtr = eirDtbPtr;
+		    info_ptr->dtbSize = dt.size();
+	    }
+    }
 };
 
 static initgraph::Task setupRegionsAndPaging{
