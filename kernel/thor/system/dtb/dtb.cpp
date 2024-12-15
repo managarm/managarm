@@ -461,6 +461,13 @@ uint64_t DeviceTreeNode::translateAddress(uint64_t addr) const {
 	__builtin_unreachable();
 }
 
+DeviceTreeNode *getDeviceTreeNodeByPhandle(uint32_t phandle) {
+	auto it = phandles->find(phandle);
+	if (it == phandles->end())
+		return nullptr;
+	return it->get<1>();
+}
+
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path) {
 	auto remaining = path.sub_string(1, path.size() - 1);
 	auto p = treeRoot;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <dtb.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
@@ -124,6 +125,16 @@ struct DeviceTreeNode {
 
 	uint64_t translateAddress(uint64_t addr) const;
 
+	auto addressCells() const {
+		return addressCells_;
+	}
+	auto sizeCells() const {
+		return sizeCells_;
+	}
+	auto interruptCells() const {
+		return interruptCells_;
+	}
+
 	const auto &reg() const {
 		return reg_;
 	}
@@ -233,6 +244,7 @@ private:
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);
+DeviceTreeNode *getDeviceTreeNodeByPhandle(uint32_t phandle);
 DeviceTreeNode *getDeviceTreeRoot();
 
 initgraph::Stage *getDeviceTreeParsedStage();
@@ -261,5 +273,113 @@ static inline frg::array<frg::string_view, 3> dtPciCompatible = {
 	"pci-host-ecam-generic",
 	"brcm,bcm2711-pcie"
 };
+
+namespace dt {
+
+template<typename Fn>
+[[nodiscard]] bool walkInterruptsExtended(Fn fn, DeviceTreeNode *node) {
+	auto prop = node->dtNode().findProperty("interrupts-extended");
+	if (!prop) {
+		warningLogger() << node->path() << " has no interrupts-extended" << frg::endlog;
+		return false;
+	}
+
+	auto it = prop->access();
+	while (it != dtb::endOfProperty) {
+		uint32_t parentPhandle;
+		if (!it.readCells(parentPhandle, 1)) {
+			warningLogger() << node->path() << ": failed to read phandle from interrupts-extended"
+					<< frg::endlog;
+			return false;
+		}
+		it += sizeof(uint32_t);
+		auto *parentNode = getDeviceTreeNodeByPhandle(parentPhandle);
+		if (!parentNode) {
+			warningLogger() << node->path() << ": no DT node with phandle " << parentPhandle
+					<< frg::endlog;
+			return false;
+		}
+		auto parentInterruptCells = parentNode->interruptCells();
+
+		dtb::Cells parentIrq;
+		if (!it.intoCells(parentIrq, parentInterruptCells)) {
+			warningLogger() << node->path() << ": failed to read parent IRQ from interrupts-extended"
+					<< frg::endlog;
+			return false;
+		}
+		it += parentInterruptCells * sizeof(uint32_t);
+
+		fn(parentNode, parentIrq);
+	}
+
+	return true;
+}
+
+template<typename Fn>
+[[nodiscard]] bool walkInterruptMap(Fn fn, DeviceTreeNode *node) {
+	auto prop = node->dtNode().findProperty("interrupt-map");
+	if (!prop) {
+		warningLogger() << node->path() << " has no interrupt-map" << frg::endlog;
+		return false;
+	}
+
+	auto childAddressCells = node->addressCells();
+	auto childInterruptCells = node->interruptCells();
+
+	auto it = prop->access();
+	while (it != dtb::endOfProperty) {
+		dtb::Cells childAddress;
+		dtb::Cells childIrq;
+		if (!it.intoCells(childAddress, childAddressCells)) {
+			warningLogger() << node->path() << ": failed to read child address from interrupt-map"
+					<< frg::endlog;
+			return false;
+		}
+		it += childAddressCells * sizeof(uint32_t);
+		if (!it.intoCells(childIrq, childInterruptCells)) {
+			warningLogger() << node->path() << ": failed to read child IRQ from interrupt-map"
+					<< frg::endlog;
+			return false;
+		}
+		it += childInterruptCells * sizeof(uint32_t);
+
+		uint32_t parentPhandle;
+		if (!it.readCells(parentPhandle, 1)) {
+			warningLogger() << node->path() << ": failed to read phandle from interrupt-map"
+					<< frg::endlog;
+			return false;
+		}
+		it += sizeof(uint32_t);
+		auto *parentNode = getDeviceTreeNodeByPhandle(parentPhandle);
+		if (!parentNode) {
+			warningLogger() << node->path() << ": no DT node with phandle " << parentPhandle
+					<< frg::endlog;
+			return false;
+		}
+		auto parentAddressCells = parentNode->addressCells();
+		auto parentInterruptCells = parentNode->interruptCells();
+
+		dtb::Cells parentAddress;
+		dtb::Cells parentIrq;
+		if (!it.intoCells(parentAddress, parentAddressCells)) {
+			warningLogger() << node->path() << ": failed to read parent address from interrupt-map"
+					<< frg::endlog;
+			return false;
+		}
+		it += parentAddressCells * sizeof(uint32_t);
+		if (!it.intoCells(parentIrq, parentInterruptCells)) {
+			warningLogger() << node->path() << ": failed to read parent IRQ from interrupt-map"
+					<< frg::endlog;
+			return false;
+		}
+		it += parentInterruptCells * sizeof(uint32_t);
+
+		fn(childAddress, childIrq, parentNode, parentAddress, parentIrq);
+	}
+
+	return true;
+}
+
+} // namespace dt
 
 } // namespace thor
