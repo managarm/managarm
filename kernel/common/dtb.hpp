@@ -10,6 +10,94 @@
 #include <string.h>
 #include <type_traits>
 
+namespace dtb {
+
+// Points to an array of uint32_t cells (usually within a DT property).
+// For example, this can be used to point to #address-cells-many cells.
+struct Cells {
+	Cells() = default;
+
+	Cells(const std::byte *p, size_t numCells) : p_{p}, numCells_{numCells} {}
+
+	size_t numCells() { return numCells_; }
+
+	template <typename T>
+	[[nodiscard]] bool read(T &v) {
+		if (sizeof(T) < sizeof(uint32_t) * numCells_)
+			return false; // Fail if T cannot hold enough data.
+
+		v = 0;
+		for (size_t i = 0; i < numCells_; ++i) {
+			arch::scalar_storage<uint32_t, arch::big_endian> s;
+			memcpy(&s, p_ + sizeof(uint32_t) * i, sizeof(uint32_t));
+			v |= static_cast<T>(s.load()) << (numCells_ - i - 1) * 32;
+		}
+		return true;
+	}
+
+	[[nodiscard]] bool intoSlice(Cells &cells, size_t offset, size_t numCells) {
+		if (offset + numCells > numCells_)
+			return false; // Fail if out-of-bounds.
+		cells = {p_ + sizeof(uint32_t) * offset, numCells};
+		return true;
+	}
+
+	template <typename T>
+	[[nodiscard]] bool readSlice(T &v, size_t offset, size_t numCells) {
+		Cells cells;
+		if (!intoSlice(cells, offset, numCells))
+			return false;
+		return cells.read(v);
+	}
+
+private:
+	const std::byte *p_{nullptr};
+	size_t numCells_{0};
+};
+
+// Sentinel that Accessor can be compared against.
+struct EndOfProperty {};
+constexpr EndOfProperty endOfProperty;
+
+// Points to an offset within a DT property.
+struct Accessor {
+	Accessor(frg::span<const std::byte> data, size_t offset) : data_{data}, offset_{offset} {}
+
+	bool operator==(EndOfProperty) {
+		assert(offset_ <= data_.size());
+		return offset_ == data_.size();
+	}
+
+	Accessor &operator+=(size_t numBytes) {
+		assert(offset_ + numBytes <= data_.size());
+		offset_ += numBytes;
+		return *this;
+	}
+
+	size_t offset() { return offset_; }
+
+	[[nodiscard]] bool intoCells(Cells &cells, size_t numCells) {
+		if (offset_ + sizeof(uint32_t) * numCells > data_.size())
+			return false; // Fail if out-of-bounds.
+		cells = {data_.data() + offset_, numCells};
+		return true;
+	}
+
+	template <typename T>
+	[[nodiscard]] bool readCells(T &v, size_t numCells) {
+		Cells cells;
+		if (!intoCells(cells, numCells))
+			return false;
+		return cells.read(v);
+	}
+
+private:
+	frg::span<const std::byte> data_;
+	size_t offset_{0};
+};
+
+} // namespace dtb
+
 struct DtbHeader {
 	arch::scalar_storage<uint32_t, arch::big_endian> magic;
 	arch::scalar_storage<uint32_t, arch::big_endian> totalsize;
@@ -149,6 +237,8 @@ struct DeviceTreeProperty {
 	const void *data() const { return data_.data(); }
 
 	size_t size() const { return data_.size(); }
+
+	dtb::Accessor access() { return dtb::Accessor{data_, 0}; }
 
 	uint32_t asU32(size_t offset = 0) {
 		assert(offset + 4 <= data_.size());

@@ -11,6 +11,7 @@ extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
 
 // TODO: Move declaration to header.
 void handlePreemption(IrqImageAccessor image);
+void handleIrq(IrqImageAccessor image, int number);
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleSyscall(SyscallImageAccessor image);
@@ -166,6 +167,13 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 		handleRiscvIpi(frame);
 	} else if (code == riscv::interrupts::sti) {
 		onTimerInterrupt(IrqImageAccessor{frame});
+	} else if (code == riscv::interrupts::sei) {
+		auto idx = claimExternalIrq();
+		if (idx) {
+			handleIrq(IrqImageAccessor{frame}, idx);
+		} else {
+			thor::infoLogger() << "Spurious external interrupt" << frg::endlog;
+		}
 	} else {
 		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
 		                    << frg::endlog;
@@ -217,7 +225,7 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 		case codeLoadAccessFault:
 		case codeStoreMisaligned:
 		case codeStoreAccessFault:
-			infoLogger() << "Exception with code " << code << ", trap value 0x"
+			infoLogger() << "thor: Exception with code " << code << ", trap value 0x"
 			             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
 			             << frg::endlog;
 			handleOtherFault(FaultImageAccessor{frame}, kIntrGeneralFault);

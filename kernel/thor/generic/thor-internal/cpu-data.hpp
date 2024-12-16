@@ -109,7 +109,7 @@ struct PerCpu {
 
 		auto ptr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(context) + offset);
 
-		new(ptr) T;
+		new(ptr) T{}; // Value-initialize primitive types.
 	}
 
 private:
