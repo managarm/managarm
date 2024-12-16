@@ -1847,18 +1847,6 @@ void allocateBars(PciBus *bus) {
 						? CachingMode::mmioNonPosted
 						: CachingMode::mmio);
 			bar.offset = offset;
-
-			// Enable address decoding
-			auto cmd = io->readConfigHalf(entity->parentBus,
-					entity->slot, entity->function, kPciCommand);
-
-			if (flags == PciBusResource::io)
-				cmd |= 0x01;
-			else
-				cmd |= 0x02;
-
-			io->writeConfigHalf(entity->parentBus, entity->slot,
-					entity->function, kPciCommand, cmd);
 		}
 
 		log << frg::hex_fmt{entity->seg} << ":"
@@ -1892,6 +1880,28 @@ uint32_t findHighestId(PciBus *bus) {
 	return id;
 }
 
+void configureDevice(PciDevice *device) {
+	auto *bus = device->parentBus;
+	auto *io = bus->io;
+
+	// Enable PIO and/or memory decoding for all devices with PIO and/or memory BARs.
+	bool hasIoBar{false};
+	bool hasMemoryBar{false};
+	for (const auto &bar : device->getBars()) {
+		if (bar.type == PciBar::kBarIo)
+			hasIoBar = true;
+		if (bar.type == PciBar::kBarMemory)
+			hasMemoryBar = true;
+	}
+	auto cmd = io->readConfigHalf(bus, device->slot, device->function, kPciCommand);
+	cmd &= ~uint16_t{3};
+	if (hasIoBar)
+		cmd |= 0x01;
+	if (hasMemoryBar)
+		cmd |= 0x02;
+	io->writeConfigHalf(bus, device->slot, device->function, kPciCommand, cmd);
+}
+
 void enumerateAll() {
 	if (!enumerationQueue)
 		enumerationQueue.initialize(*kernelAlloc);
@@ -1915,6 +1925,9 @@ void enumerateAll() {
 		configureBridges(rootBus, rootBus, i);
 		allocateBars(rootBus);
 	}
+
+	for (auto device : *allDevices)
+		configureDevice(device.get());
 }
 
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io) {
