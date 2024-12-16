@@ -5,6 +5,7 @@ src += files(
 	'fp-state.cpp',
 	'ints.cpp',
 	'paging.cpp',
+	'plic.cpp',
 	'smp.cpp',
 	'stubs.S',
 	'system.cpp',

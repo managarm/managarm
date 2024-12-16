@@ -202,6 +202,7 @@ void initializeThisProcessor() {
 	// Enable the interrupts that we care about.
 	riscv::writeCsr<riscv::Csr::sie>(
 	    (UINT64_C(1) << riscv::interrupts::ssi) | (UINT64_C(1) << riscv::interrupts::sti)
+	    | (UINT64_C(1) << riscv::interrupts::sei)
 	);
 
 	// Setup the per-CPU work queue.
