@@ -1226,54 +1226,6 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			}
 		}
 
-		// Setup MSI-X.
-		if(device->msixIndex >= 0) {
-			auto offset = device->caps[device->msixIndex].offset;
-
-			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
-			device->numMsis = (msgControl & 0x7F) + 1;
-			infoLogger() << "            " << device->numMsis
-					<< " MSI-X vectors available" << frg::endlog;
-
-			// Map the MSI-X BAR.
-			auto tableInfo = io->readConfigWord(bus, slot, function, offset + 4);
-			auto tableBar = tableInfo & 0x7;
-			auto tableOffset = tableInfo & 0xFFFF'FFF8;
-			assert(tableBar < 6);
-
-			auto bar = device->bars[tableBar];
-			assert(bar.type == PciBar::kBarMemory);
-			auto mappingDisp = (bar.address + tableOffset) & (kPageSize - 1);
-			auto mappingSize = (mappingDisp + device->numMsis * 16 + kPageSize - 1)
-					& ~(kPageSize - 1);
-
-			auto window = KernelVirtualMemory::global().allocate(0x10000);
-			for(uintptr_t page = 0; page < mappingSize; page += kPageSize)
-				KernelPageSpace::global().mapSingle4k(
-						reinterpret_cast<uintptr_t>(window) + page,
-						(bar.address + tableOffset + page) & ~(kPageSize - 1),
-						page_access::write, CachingMode::null);
-			device->msixMapping = reinterpret_cast<std::byte *>(window) + mappingDisp;
-
-			// Mask all MSIs.
-			for(unsigned int i = 0; i < device->numMsis; ++i) {
-				auto space = arch::mem_space{device->msixMapping}.subspace(i * 16);
-				space.store(msixVectorControl,
-						space.load(msixVectorControl) | 1);
-			}
-		} else if (device->msiIndex >= 0) {
-			auto offset = device->caps[device->msiIndex].offset;
-
-			auto msgControl = io->readConfigHalf(bus, slot, function, offset + 2);
-			device->numMsis = 1; // TODO(qookie): 1 << ((msgControl >> 1) & 0b111)
-			infoLogger() << "            " << device->numMsis
-					<< " MSI vectors available" << frg::endlog;
-
-			msgControl &= ~0x0001; // Disable MSI
-
-			io->writeConfigHalf(bus, slot, function, offset + 2, msgControl);
-		}
-
 		allDevices->push_back(device);
 		bus->childDevices.push_back(device.get());
 
@@ -1847,18 +1799,6 @@ void allocateBars(PciBus *bus) {
 						? CachingMode::mmioNonPosted
 						: CachingMode::mmio);
 			bar.offset = offset;
-
-			// Enable address decoding
-			auto cmd = io->readConfigHalf(entity->parentBus,
-					entity->slot, entity->function, kPciCommand);
-
-			if (flags == PciBusResource::io)
-				cmd |= 0x01;
-			else
-				cmd |= 0x02;
-
-			io->writeConfigHalf(entity->parentBus, entity->slot,
-					entity->function, kPciCommand, cmd);
 		}
 
 		log << frg::hex_fmt{entity->seg} << ":"
@@ -1892,6 +1832,84 @@ uint32_t findHighestId(PciBus *bus) {
 	return id;
 }
 
+void configureDevice(PciDevice *device) {
+	auto *bus = device->parentBus;
+	auto *io = bus->io;
+
+	// Enable PIO and/or memory decoding for all devices with PIO and/or memory BARs.
+	bool hasIoBar{false};
+	bool hasMemoryBar{false};
+	for (const auto &bar : device->getBars()) {
+		if (bar.type == PciBar::kBarIo)
+			hasIoBar = true;
+		if (bar.type == PciBar::kBarMemory)
+			hasMemoryBar = true;
+	}
+	auto cmd = io->readConfigHalf(bus, device->slot, device->function, kPciCommand);
+	cmd &= ~uint16_t{3};
+	if (hasIoBar)
+		cmd |= 0x01;
+	if (hasMemoryBar)
+		cmd |= 0x02;
+	io->writeConfigHalf(bus, device->slot, device->function, kPciCommand, cmd);
+
+	// Setup MSI / MSI-X. This needs to happen after BARs are already allocated.
+	if(device->msixIndex >= 0) {
+		auto offset = device->caps[device->msixIndex].offset;
+
+		auto msgControl = io->readConfigHalf(bus, device->slot, device->function, offset + 2);
+		device->numMsis = (msgControl & 0x7F) + 1;
+		infoLogger() << device->numMsis << " MSI-X vectors available for PCI device "
+				<< frg::hex_fmt{device->seg} << ":"
+				<< frg::hex_fmt{device->bus} << ":"
+				<< frg::hex_fmt{device->slot} << "."
+				<< frg::hex_fmt{device->function}
+				<< frg::endlog;
+
+		// Map the MSI-X BAR.
+		auto tableInfo = io->readConfigWord(bus, device->slot, device->function, offset + 4);
+		auto tableBar = tableInfo & 0x7;
+		auto tableOffset = tableInfo & 0xFFFF'FFF8;
+		assert(tableBar < 6);
+
+		auto bar = device->bars[tableBar];
+		assert(bar.type == PciBar::kBarMemory);
+		auto mappingDisp = (bar.address + tableOffset) & (kPageSize - 1);
+		auto mappingSize = (mappingDisp + device->numMsis * 16 + kPageSize - 1)
+				& ~(kPageSize - 1);
+
+		auto window = KernelVirtualMemory::global().allocate(0x10000);
+		for(uintptr_t page = 0; page < mappingSize; page += kPageSize)
+			KernelPageSpace::global().mapSingle4k(
+					reinterpret_cast<uintptr_t>(window) + page,
+					(bar.address + tableOffset + page) & ~(kPageSize - 1),
+					page_access::write, CachingMode::null);
+		device->msixMapping = reinterpret_cast<std::byte *>(window) + mappingDisp;
+
+		// Mask all MSIs.
+		for(unsigned int i = 0; i < device->numMsis; ++i) {
+			auto space = arch::mem_space{device->msixMapping}.subspace(i * 16);
+			space.store(msixVectorControl,
+					space.load(msixVectorControl) | 1);
+		}
+	} else if (device->msiIndex >= 0) {
+		auto offset = device->caps[device->msiIndex].offset;
+
+		auto msgControl = io->readConfigHalf(bus, device->slot, device->function, offset + 2);
+		device->numMsis = 1; // TODO(qookie): 1 << ((msgControl >> 1) & 0b111)
+		infoLogger() << device->numMsis << " MSI vectors available for PCI device "
+				<< frg::hex_fmt{device->seg} << ":"
+				<< frg::hex_fmt{device->bus} << ":"
+				<< frg::hex_fmt{device->slot} << "."
+				<< frg::hex_fmt{device->function}
+				<< frg::endlog;
+
+		msgControl &= ~0x0001; // Disable MSI
+
+		io->writeConfigHalf(bus, device->slot, device->function, offset + 2, msgControl);
+	}
+}
+
 void enumerateAll() {
 	if (!enumerationQueue)
 		enumerationQueue.initialize(*kernelAlloc);
@@ -1915,6 +1933,9 @@ void enumerateAll() {
 		configureBridges(rootBus, rootBus, i);
 		allocateBars(rootBus);
 	}
+
+	for (auto device : *allDevices)
+		configureDevice(device.get());
 }
 
 void addConfigSpaceIo(uint32_t seg, uint32_t bus, PciConfigIo *io) {
