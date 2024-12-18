@@ -370,7 +370,6 @@ private:
 	AssociatedWorkQueue _pagingWorkQueue;
 
 	Mutex _mutex;
-
 	RunState _runState;
 
 	// If this flag is set, blockCurrent() returns immediately.
