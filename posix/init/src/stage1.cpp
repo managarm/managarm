@@ -14,6 +14,7 @@
 #include <string.h>
 #include <iostream>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <ranges>
 #include <filesystem>
@@ -22,102 +23,70 @@
 
 bool logDiscovery = false;
 
-std::string findRootDevice() {
-	std::cout << "init: Looking for the root partition" << std::endl;
+using Uevent = std::unordered_map<std::string, std::string>;
 
-	int nlFd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
-	if(nlFd < 0) {
-		std::cout << "init: socket(AF_NETLINK) failed! errno: " << strerror(errno) << std::endl;
-		return "";
-	}
+// This class implements a udevd-like mechanism to discover devices via netlink uevents.
+class UeventEngine {
+public:
+	void init() {
+		int ret;
 
-	struct sockaddr_nl sa;
-	sa.nl_family = AF_NETLINK;
-	sa.nl_pid = getpid();
-	sa.nl_groups = 1;
-
-	int ret = bind(nlFd, reinterpret_cast<struct sockaddr *>(&sa), sizeof(sa));
-	if(ret < 0) {
-		std::cout << "init: bind(nlFd) failed! errno: " << strerror(errno) << std::endl;
-		return "";
-	}
-
-	std::unordered_set<std::string> checkedDevices;
-
-	auto checkDevice = [&] (std::string device) -> std::optional<std::string> {
-		if (checkedDevices.contains(device))
-			return std::nullopt;
-
-		checkedDevices.insert(device);
-
-		if(logDiscovery)
-			std::cout << "init: Considering device " << device << std::endl;
-
-		auto rootAttr = device + "/managarm-root";
-
-		// Check if the managarm-root attribute exists
-		if(access(rootAttr.data(), R_OK)) {
-			assert(errno == ENOENT);
-			if(logDiscovery)
-				std::cout << "init:  Not the root filesystem" << std::endl;
-			return std::nullopt;
+		nlFd_ = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_KOBJECT_UEVENT);
+		if(nlFd_ < 0) {
+			std::cout << "init: socket(AF_NETLINK) failed! errno: " << strerror(errno) << std::endl;
+			return;
 		}
 
-		// Figure out the device's major:minor
-		std::ifstream ifs{device + "/dev"};
-		std::string dev;
-		std::getline(ifs, dev);
+		struct sockaddr_nl sa;
+		sa.nl_family = AF_NETLINK;
+		sa.nl_pid = getpid();
+		sa.nl_groups = 1;
 
-		auto split = dev | std::views::split(':');
-		auto it = split.begin();
-
-		// TODO(qookie): C++23 would let us do std::string_view{*it}
-		std::string majorStr{(*it).begin(), (*it).end()};
-		it++;
-		std::string minorStr{(*it).begin(), (*it).end()};
-
-		int major = std::stoi(majorStr), minor = std::stoi(minorStr);
-
-		// Find the /dev node with the right major:minor numbers
-		for(auto node : std::filesystem::directory_iterator{"/dev/"}) {
-			struct stat st;
-			stat(node.path().c_str(), &st);
-
-			if(st.st_rdev == makedev(major, minor)) {
-				return node.path();
-			}
-		}
-
-		// This major:minor is not in /dev? Bail out...
-		std::cout << "init: Device " << device << " (maj:min " << major << ":" << minor << ")"
-			<< "is the root filesystem, but has no corresponding /dev node?" << std::endl;
-		return "";
-	};
-
-	// Check existing devices in /sys/class/block
-	// that appeared before we started listening
-	for(auto dev : std::filesystem::directory_iterator{"/sys/class/block"}) {
-		auto linkTarget = "/sys/class/block/" / std::filesystem::read_symlink(dev);
-
-		if(logDiscovery)
-			std::cout << "init: Candidate device " << linkTarget
-				<< " found via /sys/class/block" << std::endl;
-		if(auto device = checkDevice(linkTarget.generic_string()))
-			return device.value();
-	}
-
-	while(true) {
-		std::string buf;
-		buf.resize(16384);
-
-		ret = read(nlFd, buf.data(), buf.size());
+		ret = bind(nlFd_, reinterpret_cast<struct sockaddr *>(&sa), sizeof(sa));
 		if(ret < 0) {
-			std::cout << "init: read(nlFd) failed! errno: " << strerror(errno) << std::endl;
-			return "";
-		} else {
+			std::cout << "init: bind(nlFd) failed! errno: " << strerror(errno) << std::endl;
+			return;
+		}
+	}
+
+	// Trigger synthetic uevents that are handled by nextUevent().
+	void trigger() {
+		for(auto dev : std::filesystem::recursive_directory_iterator{"/sys/devices/"}) {
+			if (!dev.is_directory())
+				continue;
+			auto ueventPath = "/sys/devices/" / dev.path() / "uevent";
+			if (!std::filesystem::exists(ueventPath))
+				continue;
+			if (logDiscovery)
+				std::cout << "Triggering " << ueventPath << std::endl;
+
+			int fd = open(ueventPath.c_str(), O_WRONLY);
+			if (fd < 0) {
+				std::cout << "Failed open " << ueventPath << " to trigger uevent" << std::endl;
+				continue;
+			}
+			std::string_view s = "add";
+			if (write(fd, s.data(), s.size()) != static_cast<ssize_t>(s.size()))
+				std::cout << "Failed to write to uevent file " << ueventPath << std::endl;
+			close(fd);
+		}
+	}
+
+	std::optional<Uevent> nextUevent() {
+		int ret;
+
+		while(true) {
+			std::string buf;
+			buf.resize(16384);
+
+			ret = read(nlFd_, buf.data(), buf.size());
+			if(ret < 0) {
+				std::cout << "init: read(nlFd) failed! errno: " << strerror(errno) << std::endl;
+				return std::nullopt;
+			}
+
 			// Parse the uevent message
-			std::string_view action, subsystem;
-			std::string devpath;
+			Uevent uevent;
 
 			const char *cur = buf.data();
 			while(cur < buf.data() + ret) {
@@ -130,25 +99,70 @@ std::string findRootDevice() {
 				it++;
 				std::string_view value{(*it).begin(), (*it).end()};
 
-				if(name == "ACTION")
-					action = value;
-				else if(name == "SUBSYSTEM")
-					subsystem = value;
-				else if(name == "DEVPATH")
-					devpath = "/sys" + std::string{value};
+				uevent[std::string(name)] = value;
 
 				cur += line.size() + 1;
 			}
 
-			if(action == "add" && subsystem == "block") {
-				if(logDiscovery)
-					std::cout << "init: Candidate device " << devpath
-						<< " found via uevent" << std::endl;
-				if(auto device = checkDevice(devpath))
-					return device.value();
-			}
+			const auto &action = uevent.at("ACTION");
+			const auto &devpath = uevent.at("DEVPATH");
+			if (action != "add")
+				continue;
+			if (knownDevices_.contains(devpath))
+				continue;
+			knownDevices_.insert(devpath);
+			return uevent;
 		}
 	}
+
+private:
+	int nlFd_{-1};
+	std::unordered_set<std::string> knownDevices_;
+};
+
+std::optional<std::string> checkRootDevice(std::string device) {
+	if(logDiscovery)
+		std::cout << "init: Considering device " << device << std::endl;
+
+	auto rootAttr = device + "/managarm-root";
+
+	// Check if the managarm-root attribute exists
+	if(access(rootAttr.data(), R_OK)) {
+		assert(errno == ENOENT);
+		if(logDiscovery)
+			std::cout << "init: Not the root filesystem" << std::endl;
+		return std::nullopt;
+	}
+
+	// Figure out the device's major:minor
+	std::ifstream ifs{device + "/dev"};
+	std::string dev;
+	std::getline(ifs, dev);
+
+	auto split = dev | std::views::split(':');
+	auto it = split.begin();
+
+	// TODO(qookie): C++23 would let us do std::string_view{*it}
+	std::string majorStr{(*it).begin(), (*it).end()};
+	it++;
+	std::string minorStr{(*it).begin(), (*it).end()};
+
+	int major = std::stoi(majorStr), minor = std::stoi(minorStr);
+
+	// Find the /dev node with the right major:minor numbers
+	for(auto node : std::filesystem::directory_iterator{"/dev/"}) {
+		struct stat st;
+		stat(node.path().c_str(), &st);
+
+		if(st.st_rdev == makedev(major, minor)) {
+			return node.path();
+		}
+	}
+
+	// This major:minor is not in /dev? Bail out...
+	std::cout << "init: Device " << device << " (maj:min " << major << ":" << minor << ")"
+		<< "is the root filesystem, but has no corresponding /dev node?" << std::endl;
+	return "";
 }
 
 int main() {
@@ -205,13 +219,38 @@ int main() {
 		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/storage", nullptr);
 	}else assert(block_usb != -1);
 
-	std::string rootPath = "";
+	std::optional<std::string> rootPath;
 	// TODO(qookie): Query /proc/cmdline to see if the user
 	// requested a different device.
 
-	if (!rootPath.size())
-		rootPath = findRootDevice();
-	if (!rootPath.size())
+	UeventEngine ueventEngine;
+	std::cout << "init: Looking for the root partition" << std::endl;
+
+	ueventEngine.init();
+	ueventEngine.trigger();
+
+	while (!rootPath) {
+		auto uevent = ueventEngine.nextUevent();
+		if (!uevent) {
+			std::cout << "Failed to receive uevent" << std::endl;
+			abort();
+		}
+
+		if(logDiscovery) {
+			std::cout << "init: Received uevent";
+			for (const auto &kv : *uevent)
+				std::cout << "\n    " << kv.first << "=" << kv.second;
+			std::cout << std::endl;
+		}
+
+		// Note: DEVPATH is unconditionally inserted by generic uevent code.
+		const auto &devpath = uevent->at("DEVPATH");
+		auto subsystemIt = uevent->find("SUBSYSTEM");
+
+		if (subsystemIt != uevent->end() && subsystemIt->second == "block")
+			rootPath = checkRootDevice("/sys" + devpath);
+	}
+	if (!rootPath->size())
 		throw std::runtime_error("Can't determine root device");
 
 #if defined (__x86_64__)
@@ -222,8 +261,8 @@ int main() {
 	}else assert(uhci != -1);
 #endif
 
-	std::cout << "init: Mounting " << rootPath << std::endl;
-	if(mount(rootPath.data(), "/realfs", "ext2", 0, ""))
+	std::cout << "init: Mounting " << *rootPath << std::endl;
+	if(mount(rootPath->data(), "/realfs", "ext2", 0, ""))
 		throw std::runtime_error("mount() failed");
 
 	if(mount("", "/realfs/proc", "procfs", 0, ""))
