@@ -33,7 +33,7 @@ struct PciCapability {
 	uint64 length;
 }
 
-struct DtbRegister {
+struct DtRegister {
 	uint64 address;
 	uint64 length;
 	uint32 offset;
@@ -111,20 +111,6 @@ head(128):
 	int64 cmd;
 }
 
-message GetDtbInfoRequest 21 {
-head(128):
-}
-
-message AccessDtbRegisterRequest 22 {
-head(128):
-	uint32 index;
-}
-
-message InstallDtbIrqRequest 23 {
-head(128):
-	uint32 index;
-}
-
 message SvrResponse 13 {
 head(128):
 	Errors error;
@@ -143,8 +129,8 @@ tail:
 		tag(7) uint32 fb_bpp;
 		tag(8) uint32 fb_type;
 
-		tag(11) DtbRegister[] dtb_regs;
-		tag(12) uint32 num_dtb_irqs;
+		tag(11) DtRegister[] dt_regs;
+		tag(12) uint32 num_dt_irqs;
 	}
 }
 
@@ -189,4 +175,18 @@ tail:
 	uint16[] io_ports;
 	uint16[] fixed_io_ports;
 	uint8[] irqs;
+}
+
+message GetDtInfoRequest 21 {
+head(128):
+}
+
+message AccessDtRegisterRequest 22 {
+head(128):
+	uint32 index;
+}
+
+message InstallDtIrqRequest 23 {
+head(128):
+	uint32 index;
 }

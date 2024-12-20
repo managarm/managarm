@@ -208,8 +208,8 @@ extern "C" void thorMain() {
 		pci::runAllBridges();
 		pci::runAllDevices();
 
-#if __aarch64__
-		dtb::publishNodes();
+#ifdef __aarch64__
+		dt::publishNodes();
 #endif
 
 		// Parse the initrd image.
