@@ -15,6 +15,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/pci/pci.hpp>
+#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
@@ -206,6 +207,10 @@ extern "C" void thorMain() {
 
 		pci::runAllBridges();
 		pci::runAllDevices();
+
+#if __aarch64__
+		dtb::publishNodes();
+#endif
 
 		// Parse the initrd image.
 		auto modules = reinterpret_cast<EirModule *>(getEirInfo()->moduleInfo);

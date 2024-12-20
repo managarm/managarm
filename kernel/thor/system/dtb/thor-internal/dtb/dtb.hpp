@@ -56,6 +56,10 @@ struct DeviceTreeNode {
 		return model_;
 	}
 
+	const frg::vector<frg::string_view, KernelAlloc>& compatible() const {
+		return compatible_;
+	}
+
 	template <size_t N>
 	bool isCompatible(frg::array<frg::string_view, N> with) const {
 		for (const auto &c : compatible_) {
@@ -263,6 +267,10 @@ DeviceTreeNode *getDeviceTreeNodeByPhandle(uint32_t phandle);
 DeviceTreeNode *getDeviceTreeRoot();
 
 initgraph::Stage *getDeviceTreeParsedStage();
+
+namespace dtb {
+	void publishNodes();
+} // namespace thor::dtb
 
 static inline frg::array<frg::string_view, 12> dtGicV2Compatible = {
 	"arm,arm11mp-gic",

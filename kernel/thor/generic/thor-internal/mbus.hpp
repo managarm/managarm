@@ -11,24 +11,27 @@ struct Properties {
 	friend struct KernelBusObject;
 
 	void stringProperty(frg::string_view name, frg::string<KernelAlloc> &&value) {
-		properties_.emplace_back(name, std::move(value));
+		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
+		properties_.emplace_back(std::move(allocName), std::move(value));
 	}
 
 	void hexStringProperty(frg::string_view name, uint32_t value, int padding) {
-		stringProperty(name, frg::to_allocated_string(*kernelAlloc, value, 16, padding));
+		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
+		stringProperty(std::move(allocName), frg::to_allocated_string(*kernelAlloc, value, 16, padding));
 	}
 
 	void decStringProperty(frg::string_view name, uint32_t value, int padding) {
-		stringProperty(name, frg::to_allocated_string(*kernelAlloc, value, 10, padding));
+		auto allocName = frg::string<KernelAlloc>(*kernelAlloc, name);
+		stringProperty(std::move(allocName), frg::to_allocated_string(*kernelAlloc, value, 10, padding));
 	}
 
 private:
 	struct Property {
-		Property(frg::string_view name,
+		Property(frg::string<KernelAlloc> &&name,
 			frg::string<KernelAlloc> &&value)
-		: name{name}, value{std::move(value)} { }
+		: name{std::move(name)}, value{std::move(value)} { }
 
-		frg::string_view name;
+		frg::string<KernelAlloc> name;
 		frg::string<KernelAlloc> value;
 	};
 

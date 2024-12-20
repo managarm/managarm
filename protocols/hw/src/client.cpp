@@ -658,5 +658,131 @@ async::result<std::shared_ptr<AcpiResources>> Device::getResources() {
 	co_return res;
 }
 
+async::result<DtbInfo> Device::getDtbInfo() {
+	managarm::hw::GetDtbInfoRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recv_tail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	DtbInfo info{};
+
+	info.numIrqs = resp.num_dtb_irqs();
+
+	info.regs.resize(resp.dtb_regs_size());
+
+	for(size_t i = 0; i < resp.dtb_regs_size(); i++) {
+		auto &reg = resp.dtb_regs(i);
+		info.regs[i].address = reg.address();
+		info.regs[i].length = reg.length();
+		info.regs[i].offset = reg.offset();
+	}
+
+	co_return info;
+}
+
+async::result<helix::UniqueDescriptor> Device::accessDtbRegister(uint32_t index) {
+	managarm::hw::AccessDtbRegisterRequest req;
+	req.set_index(index);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_reg] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_reg.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto reg = pull_reg.descriptor();
+	co_return std::move(reg);
+}
+
+async::result<helix::UniqueDescriptor> Device::installDtbIrq(uint32_t index) {
+	managarm::hw::InstallDtbIrqRequest req;
+	req.set_index(index);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto preamble = bragi::read_preamble(recv_head);
+	assert(!preamble.error());
+	recv_head.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size()),
+			helix_ng::pullDescriptor()
+		);
+
+	HEL_CHECK(recv_tail.error());
+	HEL_CHECK(pull_irq.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+
+	assert(resp.error() == managarm::hw::Errors::SUCCESS);
+
+	auto irq = pull_irq.descriptor();
+	co_return std::move(irq);
+}
+
 } // namespace protocols::hw
 
