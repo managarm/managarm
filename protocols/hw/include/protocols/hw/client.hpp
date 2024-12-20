@@ -62,14 +62,14 @@ struct AcpiResources {
 	std::vector<uint8_t> irqs;
 };
 
-struct DtbRegister {
+struct DtRegister {
 	uintptr_t address;
 	size_t length;
 	ptrdiff_t offset;
 };
 
-struct DtbInfo {
-	std::vector<DtbRegister> regs;
+struct DtInfo {
+	std::vector<DtRegister> regs;
 	uint32_t numIrqs;
 };
 
@@ -83,9 +83,9 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessIrq(size_t index = 0);
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 
-	async::result<DtbInfo> getDtbInfo();
-	async::result<helix::UniqueDescriptor> accessDtbRegister(uint32_t index);
-	async::result<helix::UniqueDescriptor> installDtbIrq(uint32_t index);
+	async::result<DtInfo> getDtInfo();
+	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);
+	async::result<helix::UniqueDescriptor> installDtIrq(uint32_t index);
 
 	async::result<void> claimDevice();
 	async::result<void> enableBusIrq();

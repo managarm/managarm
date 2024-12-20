@@ -658,8 +658,8 @@ async::result<std::shared_ptr<AcpiResources>> Device::getResources() {
 	co_return res;
 }
 
-async::result<DtbInfo> Device::getDtbInfo() {
-	managarm::hw::GetDtbInfoRequest req;
+async::result<DtInfo> Device::getDtInfo() {
+	managarm::hw::GetDtInfoRequest req;
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
 			_lane,
@@ -690,14 +690,14 @@ async::result<DtbInfo> Device::getDtbInfo() {
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
-	DtbInfo info{};
+	DtInfo info{};
 
-	info.numIrqs = resp.num_dtb_irqs();
+	info.numIrqs = resp.num_dt_irqs();
 
-	info.regs.resize(resp.dtb_regs_size());
+	info.regs.resize(resp.dt_regs_size());
 
-	for(size_t i = 0; i < resp.dtb_regs_size(); i++) {
-		auto &reg = resp.dtb_regs(i);
+	for(size_t i = 0; i < resp.dt_regs_size(); i++) {
+		auto &reg = resp.dt_regs(i);
 		info.regs[i].address = reg.address();
 		info.regs[i].length = reg.length();
 		info.regs[i].offset = reg.offset();
@@ -706,8 +706,8 @@ async::result<DtbInfo> Device::getDtbInfo() {
 	co_return info;
 }
 
-async::result<helix::UniqueDescriptor> Device::accessDtbRegister(uint32_t index) {
-	managarm::hw::AccessDtbRegisterRequest req;
+async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) {
+	managarm::hw::AccessDtRegisterRequest req;
 	req.set_index(index);
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
@@ -745,8 +745,8 @@ async::result<helix::UniqueDescriptor> Device::accessDtbRegister(uint32_t index)
 	co_return std::move(reg);
 }
 
-async::result<helix::UniqueDescriptor> Device::installDtbIrq(uint32_t index) {
-	managarm::hw::InstallDtbIrqRequest req;
+async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
+	managarm::hw::InstallDtIrqRequest req;
 	req.set_index(index);
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(

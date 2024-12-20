@@ -12,30 +12,36 @@
 #include <thor-internal/arch/gic.hpp>
 #endif
 
-namespace thor::dtb {
+namespace thor::dt {
 
-struct DtbRegister {
+struct DtRegister {
 	uintptr_t address;
 	uintptr_t length;
 	uintptr_t offset;
 	smarter::shared_ptr<MemoryView> memory;
 };
 
-struct DtbIrqObject final : IrqObject {
-	DtbIrqObject(frg::string<KernelAlloc> name, DeviceTreeNode::DeviceIrq deviceIrq, IrqPin *pin)
+struct DtIrqObject final : IrqObject {
+	DtIrqObject(frg::string<KernelAlloc> name, DeviceTreeNode::DeviceIrq deviceIrq, IrqPin *pin)
 	: IrqObject{name}, deviceIrq{deviceIrq}, pin{pin} { }
 
 	void dumpHardwareState() override {
-		infoLogger() << "thor: DTB IRQ " << name() << frg::endlog;
+		infoLogger() << "thor: DT IRQ " << name() << frg::endlog;
 	}
 
 	DeviceTreeNode::DeviceIrq deviceIrq;
 	IrqPin *pin;
 };
 
-struct DtbNode final : private KernelBusObject {
-	DtbNode(DeviceTreeNode *node)
-		: node{node}, regs{*kernelAlloc}, irqs{*kernelAlloc} {
+struct MbusNode final : private KernelBusObject {
+	MbusNode(DeviceTreeNode *node)
+		: node{node}, parent{nullptr}, regs{*kernelAlloc}, irqs{*kernelAlloc} {
+
+		node->associateMbusNode(this);
+
+		if(node->parent())
+			parent = node->parent()->getAssociatedMbusNode();
+
 		for(auto &reg : node->reg()) {
 			auto offset = reg.addr & (kPageSize - 1);
 
@@ -59,8 +65,8 @@ struct DtbNode final : private KernelBusObject {
 #error Missing architecture specific code
 #endif
 
-		auto object = smarter::allocate_shared<DtbIrqObject>(*kernelAlloc,
-				frg::string<KernelAlloc>{*kernelAlloc, "dtb-irq."} + node->name(),
+		auto object = smarter::allocate_shared<DtIrqObject>(*kernelAlloc,
+				frg::string<KernelAlloc>{*kernelAlloc, "dt-irq."} + node->name(),
 				deviceIrq,
 				pin);
 
@@ -73,14 +79,18 @@ struct DtbNode final : private KernelBusObject {
 	void run(enable_detached_coroutine = {}) {
 		Properties properties;
 
-		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dtb"));
+		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dt"));
+
+		if(parent)
+			properties.decStringProperty("drvcore.mbus-parent", parent->mbusId, 1);
+
 		for(auto &compatible : node->compatible()) {
-			frg::string<KernelAlloc> prop{*kernelAlloc, "dtb.compatible="};
+			frg::string<KernelAlloc> prop{*kernelAlloc, "dt.compatible="};
 			prop += compatible;
 			properties.stringProperty(prop, frg::string<KernelAlloc>{*kernelAlloc, ""});
 		}
 
-		auto ret = co_await createObject("dtb-node", std::move(properties));
+		auto ret = co_await createObject("dt-node", std::move(properties));
 		assert(ret);
 		mbusId = ret.value();
 	}
@@ -121,8 +131,8 @@ struct DtbNode final : private KernelBusObject {
 			co_return frg::success;
 		};
 
-		if(preamble.id() == bragi::message_id<managarm::hw::GetDtbInfoRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::GetDtbInfoRequest>(reqBuffer, *kernelAlloc);
+		if(preamble.id() == bragi::message_id<managarm::hw::GetDtInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetDtInfoRequest>(reqBuffer, *kernelAlloc);
 
 			if(!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -132,19 +142,19 @@ struct DtbNode final : private KernelBusObject {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			resp.set_num_dtb_irqs(node->irqs().size());
+			resp.set_num_dt_irqs(node->irqs().size());
 
 			for(const auto &reg : regs) {
-				managarm::hw::DtbRegister<KernelAlloc> msg(*kernelAlloc);
+				managarm::hw::DtRegister<KernelAlloc> msg(*kernelAlloc);
 				msg.set_address(reg.address);
 				msg.set_length(reg.length);
 				msg.set_offset(reg.offset);
-				resp.add_dtb_regs(std::move(msg));
+				resp.add_dt_regs(std::move(msg));
 			}
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessDtbRegisterRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::AccessDtbRegisterRequest>(reqBuffer, *kernelAlloc);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessDtRegisterRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::AccessDtRegisterRequest>(reqBuffer, *kernelAlloc);
 
 			if(!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -154,7 +164,7 @@ struct DtbNode final : private KernelBusObject {
 			auto index = req->index();
 
 			if(index >= regs.size()) {
-				infoLogger() << "thor: Closing lane due to out-ouf-bounds DTB register " << index << " in HW request." << frg::endlog;
+				infoLogger() << "thor: Closing lane due to out-ouf-bounds DT register " << index << " in HW request." << frg::endlog;
 				co_return Error::illegalArgs;
 			}
 
@@ -169,8 +179,8 @@ struct DtbNode final : private KernelBusObject {
 
 			if(descError != Error::success)
 				co_return descError;
-		}else if(preamble.id() == bragi::message_id<managarm::hw::InstallDtbIrqRequest>) {
-			auto req = bragi::parse_head_only<managarm::hw::InstallDtbIrqRequest>(reqBuffer, *kernelAlloc);
+		}else if(preamble.id() == bragi::message_id<managarm::hw::InstallDtIrqRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::InstallDtIrqRequest>(reqBuffer, *kernelAlloc);
 
 			if(!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
@@ -180,7 +190,7 @@ struct DtbNode final : private KernelBusObject {
 			auto index = req->index();
 
 			if(index >= node->irqs().size()) {
-				infoLogger() << "thor: Closing lane due to out-ouf-bounds DTB irq " << index << " in HW request." << frg::endlog;
+				infoLogger() << "thor: Closing lane due to out-ouf-bounds DT irq " << index << " in HW request." << frg::endlog;
 				co_return Error::illegalArgs;
 			}
 
@@ -220,29 +230,30 @@ struct DtbNode final : private KernelBusObject {
 	}
 
 	DeviceTreeNode *node;
-	frg::vector<DtbRegister, KernelAlloc> regs;
-	frg::vector<smarter::shared_ptr<DtbIrqObject>, KernelAlloc> irqs;
+	MbusNode *parent;
+	frg::vector<DtRegister, KernelAlloc> regs;
+	frg::vector<smarter::shared_ptr<DtIrqObject>, KernelAlloc> irqs;
 	uint64_t mbusId;
 };
 
 frg::manual_box<
 	frg::vector<
-		smarter::shared_ptr<DtbNode>,
+		smarter::shared_ptr<MbusNode>,
 		KernelAlloc
 	>
 > allNodes;
 
-static initgraph::Task discoverDtbNodes{&globalInitEngine, "dtb.discover-nodes",
+static initgraph::Task discoverDtNodes{&globalInitEngine, "dt.discover-nodes",
 	initgraph::Requires{getDeviceTreeParsedStage()},
 	[] {
 		allNodes.initialize(*kernelAlloc);
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			allNodes->emplace_back(smarter::allocate_shared<DtbNode>(*kernelAlloc, node));
+			allNodes->emplace_back(smarter::allocate_shared<MbusNode>(*kernelAlloc, node));
 			return false;
 		});
 
-		infoLogger() << "thor: Found " << allNodes->size() << " DTB nodes in total." << frg::endlog;
+		infoLogger() << "thor: Found " << allNodes->size() << " DT nodes in total." << frg::endlog;
 	}
 };
 
@@ -253,4 +264,4 @@ void publishNodes() {
 	});
 }
 
-} // namespace thor::pci
+} // namespace thor::dt
