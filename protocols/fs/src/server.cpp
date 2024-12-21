@@ -937,6 +937,238 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}
 }
 
+async::detached handleMessages(smarter::shared_ptr<void> file,
+		const FileOperations *file_ops,
+		bragi::preamble preamble,
+		helix_ng::RecvInlineResult recv_req,
+		helix::UniqueLane conversation) {
+	if(preamble.id() == managarm::fs::RecvMsgRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::RecvMsgRequest>(recv_req);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
+		if(!file_ops->recvMsg) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		std::vector<char> buffer;
+		buffer.resize(req->size());
+		std::vector<char> addr;
+		addr.resize(req->addr_size());
+
+		auto result = co_await file_ops->recvMsg(file.get(),
+			extract_creds.credentials(), req->flags(),
+			buffer.data(), buffer.size(),
+			addr.data(), addr.size(),
+			req->ctrl_size());
+
+		managarm::fs::RecvMsgReply resp;
+
+		auto error = std::get_if<Error>(&result);
+		if(error) {
+			resp.set_error(mapFsError(*error));
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		auto data = std::get<RecvData>(result);
+		resp.set_addr_size(data.addressLength);
+		resp.set_ret_val(data.dataLength);
+		resp.set_flags(data.flags);
+		auto ser = resp.SerializeAsString();
+		auto [send_resp, send_addr, send_data, send_ctrl] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBuffer(addr.data(), std::min(addr.size(), data.addressLength)),
+			helix_ng::sendBuffer(buffer.data(), buffer.size()),
+			helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_addr.error());
+		HEL_CHECK(send_data.error());
+		HEL_CHECK(send_ctrl.error());
+	} else if(preamble.id() == managarm::fs::SendMsgRequest::message_id) {
+		std::vector<std::byte> tail(preamble.tail_size());
+		auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(tail.data(), tail.size())
+		);
+		HEL_CHECK(recv_tail.error());
+
+		auto req = bragi::parse_head_tail<managarm::fs::SendMsgRequest>(recv_req, tail);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		std::vector<uint8_t> buffer;
+		buffer.resize(req->size());
+
+		auto [recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(buffer.data(), buffer.size()),
+			helix_ng::extractCredentials(),
+			helix_ng::recvInline()
+		);
+		HEL_CHECK(recv_data.error());
+		HEL_CHECK(extract_creds.error());
+		HEL_CHECK(recv_addr.error());
+
+		if(!file_ops->sendMsg) {
+			managarm::fs::SendMsgReply resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		std::vector<uint32_t> files;
+		struct ucred ucreds;
+
+		if(req->has_cmsg_rights()) {
+			files.assign(req->fds().cbegin(), req->fds().cend());
+		} else if(req->has_cmsg_creds()) {
+			ucreds.pid = req->creds_pid();
+			ucreds.uid = req->creds_uid();
+			ucreds.gid = req->creds_gid();
+		}
+
+		auto res = co_await file_ops->sendMsg(file.get(),
+			extract_creds.credentials(), req->flags(),
+			buffer.data(), recv_data.actualLength(),
+			recv_addr.data(), recv_addr.length(),
+			std::move(files), ucreds);
+		recv_addr.reset();
+
+		managarm::fs::SendMsgReply resp;
+
+		if(!res) {
+			resp.set_error(mapFsError(res.error()));
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(res.value());
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	} else if(preamble.id() == managarm::fs::IoctlRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::IoctlRequest>(recv_req);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		auto [recv_msg] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvInline()
+		);
+
+		HEL_CHECK(recv_msg.error());
+
+		auto msg_preamble = bragi::read_preamble(recv_msg);
+
+		if(!file_ops->ioctl) {
+			std::cout << "protocols/fs: ioctl not supported" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+			co_return;
+		}
+
+		co_await file_ops->ioctl(file.get(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
+	} else if(preamble.id() == managarm::fs::SetSockOpt::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::SetSockOpt>(recv_req);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		std::vector<char> optbuf;
+
+		if(req->optlen()) {
+			optbuf.resize(req->optlen());
+
+			auto [recv_buf] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(optbuf.data(), optbuf.size())
+			);
+			HEL_CHECK(recv_buf.error());
+		}
+
+		managarm::fs::SvrResponse resp;
+
+		if(!file_ops->setSocketOption) {
+			std::cout << "protocols/fs: setsockopt not supported on socket" << std::endl;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto ret = co_await file_ops->setSocketOption(file.get(), req->layer(), req->number(), optbuf);
+		if(!ret) {
+			assert(ret.error() != protocols::fs::Error::none);
+			resp.set_error(mapFsError(ret.error()));
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else {
+		std::cout << "unhandled request " << preamble.id() << std::endl;
+		throw std::runtime_error("Unknown request");
+	}
+}
+
 } // anonymous namespace
 
 async::result<void>
@@ -995,230 +1227,9 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 
 			handlePassthrough(file, file_ops, std::move(req), std::move(conversation));
 			continue;
-		} else if(preamble.id() == managarm::fs::RecvMsgRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::RecvMsgRequest>(recv_req);
-			recv_req.reset();
-
-			if(!req) {
-				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			auto [extract_creds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extract_creds.error());
-
-			if(!file_ops->recvMsg) {
-				managarm::fs::SvrResponse resp;
-				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			std::vector<char> buffer;
-			buffer.resize(req->size());
-			std::vector<char> addr;
-			addr.resize(req->addr_size());
-
-			auto result = co_await file_ops->recvMsg(file.get(),
-				extract_creds.credentials(), req->flags(),
-				buffer.data(), buffer.size(),
-				addr.data(), addr.size(),
-				req->ctrl_size());
-
-			managarm::fs::RecvMsgReply resp;
-
-			auto error = std::get_if<Error>(&result);
-			if(error) {
-				resp.set_error(mapFsError(*error));
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			auto data = std::get<RecvData>(result);
-			resp.set_addr_size(data.addressLength);
-			resp.set_ret_val(data.dataLength);
-			resp.set_flags(data.flags);
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, send_addr, send_data, send_ctrl] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::sendBuffer(addr.data(), std::min(addr.size(), data.addressLength)),
-				helix_ng::sendBuffer(buffer.data(), buffer.size()),
-				helix_ng::sendBuffer(data.ctrl.data(), data.ctrl.size())
-			);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(send_addr.error());
-			HEL_CHECK(send_data.error());
-			HEL_CHECK(send_ctrl.error());
-		} else if(preamble.id() == managarm::fs::SendMsgRequest::message_id) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvBuffer(tail.data(), tail.size())
-			);
-			HEL_CHECK(recv_tail.error());
-
-			auto req = bragi::parse_head_tail<managarm::fs::SendMsgRequest>(recv_req, tail);
-			recv_req.reset();
-
-			if(!req) {
-				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			std::vector<uint8_t> buffer;
-			buffer.resize(req->size());
-
-			auto [recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvBuffer(buffer.data(), buffer.size()),
-				helix_ng::extractCredentials(),
-				helix_ng::recvInline()
-			);
-			HEL_CHECK(recv_data.error());
-			HEL_CHECK(extract_creds.error());
-			HEL_CHECK(recv_addr.error());
-
-			if(!file_ops->sendMsg) {
-				managarm::fs::SendMsgReply resp;
-				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
-				co_return;
-			}
-
-			std::vector<uint32_t> files;
-			struct ucred ucreds;
-
-			if(req->has_cmsg_rights()) {
-				files.assign(req->fds().cbegin(), req->fds().cend());
-			} else if(req->has_cmsg_creds()) {
-				ucreds.pid = req->creds_pid();
-				ucreds.uid = req->creds_uid();
-				ucreds.gid = req->creds_gid();
-			}
-
-			auto res = co_await file_ops->sendMsg(file.get(),
-				extract_creds.credentials(), req->flags(),
-				buffer.data(), recv_data.actualLength(),
-				recv_addr.data(), recv_addr.length(),
-				std::move(files), ucreds);
-			recv_addr.reset();
-
-			managarm::fs::SendMsgReply resp;
-
-			if(!res) {
-				resp.set_error(mapFsError(res.error()));
-			} else {
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_size(res.value());
-			}
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		} else if(preamble.id() == managarm::fs::IoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::IoctlRequest>(recv_req);
-			recv_req.reset();
-
-			if(!req) {
-				std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
-				continue;
-			}
-
-			auto [recv_msg] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvInline()
-			);
-
-			HEL_CHECK(recv_msg.error());
-
-			auto msg_preamble = bragi::read_preamble(recv_msg);
-
-			if(!file_ops->ioctl) {
-				std::cout << "protocols/fs: ioctl not supported" << std::endl;
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-				continue;
-			}
-
-			co_await file_ops->ioctl(file.get(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
-		} else if(preamble.id() == managarm::fs::SetSockOpt::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::SetSockOpt>(recv_req);
-			recv_req.reset();
-
-			if(!req) {
-				std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
-				continue;
-			}
-
-			std::vector<char> optbuf;
-
-			if(req->optlen()) {
-				optbuf.resize(req->optlen());
-
-				auto [recv_buf] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(optbuf.data(), optbuf.size())
-				);
-				HEL_CHECK(recv_buf.error());
-			}
-
-			managarm::fs::SvrResponse resp;
-
-			if(!file_ops->setSocketOption) {
-				std::cout << "protocols/fs: setsockopt not supported on socket" << std::endl;
-				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			auto ret = co_await file_ops->setSocketOption(file.get(), req->layer(), req->number(), optbuf);
-			if(!ret) {
-				assert(ret.error() != protocols::fs::Error::none);
-				resp.set_error(mapFsError(ret.error()));
-			} else {
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-			}
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
 		} else {
-			std::cout << "unhandled request " << preamble.id() << std::endl;
-			throw std::runtime_error("Unknown request");
+			handleMessages(file, file_ops, preamble, std::move(recv_req), std::move(conversation));
+			continue;
 		}
 	}
 }
