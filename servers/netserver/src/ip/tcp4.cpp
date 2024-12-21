@@ -84,7 +84,7 @@ struct RingBuffer {
 	void dequeueLookahead(size_t offset, void *data, size_t size) {
 		assert(offset + size <= availableToDequeue());
 		size_t ringSize = size_t{1} << shift_;
-		auto wrappedPtr = deqPtr_ & (ringSize - 1);
+		auto wrappedPtr = (deqPtr_ + offset) & (ringSize - 1);
 		auto p = reinterpret_cast<char *>(data);
 		size_t bytesUntilEnd = std::min(size, ringSize - wrappedPtr);
 		memcpy(p, storage_ + wrappedPtr, bytesUntilEnd);
