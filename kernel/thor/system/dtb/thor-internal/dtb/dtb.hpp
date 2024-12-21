@@ -15,6 +15,10 @@ namespace thor {
 
 namespace dt {
 struct IrqController;
+struct MbusNode;
+
+void publishNodes();
+
 } // namespace dt
 
 struct DeviceTreeNode {
@@ -207,6 +211,14 @@ struct DeviceTreeNode {
 		return associatedIrqController_;
 	}
 
+	void associateMbusNode(dt::MbusNode *node) {
+		associatedMbusNode_ = node;
+	}
+
+	dt::MbusNode *getAssociatedMbusNode() {
+		return associatedMbusNode_;
+	}
+
 private:
 	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
 	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
@@ -260,6 +272,7 @@ private:
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
+	dt::MbusNode *associatedMbusNode_{nullptr};
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);
@@ -267,10 +280,6 @@ DeviceTreeNode *getDeviceTreeNodeByPhandle(uint32_t phandle);
 DeviceTreeNode *getDeviceTreeRoot();
 
 initgraph::Stage *getDeviceTreeParsedStage();
-
-namespace dtb {
-	void publishNodes();
-} // namespace thor::dtb
 
 static inline frg::array<frg::string_view, 12> dtGicV2Compatible = {
 	"arm,arm11mp-gic",
