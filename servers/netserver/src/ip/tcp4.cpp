@@ -672,6 +672,13 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				co_return;
 			}
 		}else{
+			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
+			if (!targetInfo) {
+				// TODO: Return an error to users.
+				std::cout << "netserver: Destination unreachable" << std::endl;
+				co_return;
+			}
+
 			assert(connectState_ == ConnectState::connected);
 			size_t flushPointer = localFlushedSn_ - localSettledSn_;
 			size_t windowPointer = localWindowSn_ - localSettledSn_;
@@ -691,13 +698,6 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 			}
 
 			// Construct and transmit the TCP packet.
-			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
-			if (!targetInfo) {
-				// TODO: Return an error to users.
-				std::cout << "netserver: Destination unreachable" << std::endl;
-				co_return;
-			}
-
 			auto chunk = std::min({
 				bytesAvailable - flushPointer,
 				windowPointer - flushPointer,
