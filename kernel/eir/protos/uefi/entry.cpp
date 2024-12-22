@@ -34,7 +34,7 @@ constexpr bool useConOut = false;
 efi_graphics_output_protocol *gop = nullptr;
 efi_loaded_image_protocol *loadedImage = nullptr;
 
-frg::string_view initrd_path = "managarm\\initrd.cpio";
+frg::string_view initrdPath = "managarm\\initrd.cpio";
 size_t initrdSize = 0;
 
 physaddr_t rsdp = 0;
@@ -45,11 +45,39 @@ size_t descriptorSize = 0;
 uint32_t descriptorVersion = 0;
 void *memMap = nullptr;
 
+struct pxe_info {
+	efi_ip_address station_ip;
+	efi_ip_address subnet_mask;
+	efi_ip_address server_ip;
+	efi_ip_address gateway_ip;
+};
+
+struct pxe_info *pxeInfo = nullptr;
+
+bool overrideStation = false;
+frg::string_view stationStr = "";
+bool overrideSubnet = false;
+frg::string_view subnetStr = "";
+bool overrideGateway = false;
+frg::string_view gatewayStr = "";
+bool overrideServer = false;
+frg::string_view serverStr = "";
+
 // by reaching this we've performed all tasks that depend on EFI Boot Services
 initgraph::Stage *getBootservicesDoneStage() {
 	static initgraph::Stage s{&globalInitEngine, "uefi.bootservices-done"};
 	return &s;
 }
+
+struct EirAllocator {
+	void *allocate(size_t size) {
+		return bootAlloc<char>(size);
+	}
+
+	void free(void *) {
+		return;
+	}
+};
 
 void uefiBootServicesLogHandler(const char c) {
 	if (bs) {
@@ -90,6 +118,137 @@ initgraph::Task findDtb{
     }
 };
 
+uint32_t convertIp(frg::string_view ip) {
+	uint32_t res = 0;
+
+	for(size_t i = 0; i < 4; i++) {
+		auto dot = ip.find_first('.');
+		if(dot == size_t(-1))
+			dot = ip.size();
+
+		auto num = ip.sub_string(0, dot).to_number<uint8_t>();
+		assert(num);
+		res |= num.value() << (8 * i);
+
+		ip = ip.sub_string(dot + 1, ip.size() - dot - 1);
+	}
+
+	return res;
+}
+
+initgraph::Task preparePxe{
+    &globalInitEngine, "uefi.pxe-setup", initgraph::Entails{getBootservicesDoneStage()}, [] {
+		efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
+		efi_pxe_base_code_protocol *pxe = nullptr;
+
+	    auto status = bs->handle_protocol(loadedImage->device_handle, &pxe_guid, reinterpret_cast<void **>(&pxe));
+		if(status != EFI_SUCCESS)
+			return;
+
+		EFI_CHECK(bs->allocate_pool(EfiLoaderData, sizeof(pxe_info), reinterpret_cast<void **>(&pxeInfo)));
+		new (pxeInfo) pxe_info{};
+
+		// TODO: support IPv6
+		if(pxe->mode->using_ipv6) {
+			eir::infoLogger() << "eir: PXE over IPv6 is unsupported" << frg::endlog;
+			return;
+		}
+
+		eir::infoLogger() << "eir: PXE available, " << (pxe->mode->started ? "started" : "stopped") << frg::endlog;
+
+		if(!pxe->mode->started) {
+			eir::infoLogger() << "eir: PXE protocol is not yet started, skipping" << frg::endlog;
+			return;
+		}
+
+		if(!overrideStation)
+			pxeInfo->station_ip = pxe->mode->station_ip;
+		else
+			pxeInfo->station_ip.addr[0] = convertIp(stationStr);
+
+		if(!overrideSubnet)
+			pxeInfo->subnet_mask = pxe->mode->subnet_mask;
+		else
+			pxeInfo->subnet_mask.addr[0] = convertIp(subnetStr);
+
+		if(!overrideServer) {
+			if(pxe->mode->pxe_reply_received) {
+				pxeInfo->server_ip.v4 = {};
+				memcpy(&pxeInfo->server_ip.v4, pxe->mode->pxe_reply.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
+			} else if(pxe->mode->proxy_offer_received) {
+				pxeInfo->server_ip.v4 = {};
+				memcpy(&pxeInfo->server_ip.v4, pxe->mode->proxy_offer.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
+			} else {
+				pxeInfo->server_ip.v4 = {};
+				memcpy(&pxeInfo->server_ip.v4, pxe->mode->dhcp_ack.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
+			}
+		} else {
+			pxeInfo->server_ip.addr[0] = convertIp(serverStr);
+		}
+
+		if(!overrideGateway) {
+			if(!pxeInfo->gateway_ip.addr[0]) {
+				size_t offset = 0;
+				auto packet = &pxe->mode->dhcp_ack.dhcpv4;
+
+				while(packet->dhcp_options[offset] != 0xff) {
+					auto code = packet->dhcp_options[offset];
+					auto len = packet->dhcp_options[offset + 1];
+
+					if(code == 3) {
+						pxeInfo->gateway_ip = {};
+						memcpy(&pxeInfo->gateway_ip.v4, &packet->dhcp_options[offset + 2], sizeof(pxeInfo->gateway_ip.v4));
+						break;
+					}
+
+					offset += 2 + len;
+				}
+			}
+
+			if(!pxeInfo->gateway_ip.addr[0]) {
+				pxeInfo->gateway_ip = {};
+				memcpy(&pxeInfo->gateway_ip.v4, pxe->mode->dhcp_ack.dhcpv4.bootp_gi_addr, sizeof(pxeInfo->gateway_ip.v4));
+			}
+		} else {
+			pxeInfo->gateway_ip.addr[0] = convertIp(gatewayStr);
+		}
+
+		// TODO: fall back to using DHCP option 54 or DHCP next-server
+		if(!pxeInfo->server_ip.addr[0]) {
+			eir::infoLogger() << "eir: failed to determine PXE server address" << frg::endlog;
+			return;
+		}
+
+		size_t file_size = 0;
+		char *path = nullptr;
+		EFI_CHECK(bs->allocate_pool(EfiLoaderData, initrdPath.size() + 1, reinterpret_cast<void **>(&path)));
+		memcpy(path, initrdPath.data(), initrdPath.size());
+		path[initrdPath.size()] = '\0';
+
+		// normalize slashes in paths
+		for(size_t i = 0; i < strlen(path); i++) {
+			if(path[i] == '\\')
+				path[i] = '/';
+		}
+
+		EFI_CHECK(pxe->mtftp(pxe, EfiPxeBaseCodeTftpGetFileSize, nullptr, false, &file_size, nullptr, &pxeInfo->server_ip, path, nullptr, false));
+
+		initrdSize = file_size;
+		efi_physical_addr initrd_addr = 0;
+		EFI_CHECK(bs->allocate_pages(
+			AllocateAnyPages, EfiLoaderData, (file_size >> 12) + 1, &initrd_addr
+		));
+
+		file_size = ((file_size >> 12) + 1) << 12;
+
+		EFI_CHECK(pxe->mtftp(pxe, EfiPxeBaseCodeTftpReadFile, (void *) initrd_addr, false, &file_size, nullptr, &pxeInfo->server_ip, path, nullptr, false));
+
+		bs->free_pool(path);
+
+		initrd = reinterpret_cast<void *>(initrd_addr);
+    }
+};
+
 #if defined(__riscv)
 size_t boot_hart = 0;
 
@@ -121,9 +280,12 @@ initgraph::Task setupBootHartId{
 #endif
 
 initgraph::Task readInitrd{
-    &globalInitEngine, "uefi.read-initrd", initgraph::Entails{getBootservicesDoneStage()}, [] {
-	    efi_file_protocol *initrdFile = nullptr;
-	    EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrd_path)));
+    &globalInitEngine, "uefi.read-initrd", initgraph::Requires{&preparePxe}, initgraph::Entails{getBootservicesDoneStage()}, [] {
+	    if(initrd)
+			return;
+
+		efi_file_protocol *initrdFile = nullptr;
+	    EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrdPath)));
 	    initrdSize = fsGetSize(initrdFile);
 
 	    // Read initrd.
@@ -327,6 +489,51 @@ initgraph::Task setupInitrdInfo{
 	    initrd_module->nameLength = name_length;
 
 	    info_ptr->moduleInfo = mapBootstrapData(initrd_module);
+
+		EirAllocator alloc{};
+
+		frg::string<EirAllocator> cmdline_extras{alloc, cmdline};
+
+		auto format_ip = [&](efi_ip_address *addr) {
+			auto ip = frg::to_allocated_string(alloc, addr->v4.addr[0]);
+			ip.push_back('.');
+			ip += frg::to_allocated_string(alloc, addr->v4.addr[1]);
+			ip.push_back('.');
+			ip += frg::to_allocated_string(alloc, addr->v4.addr[2]);
+			ip.push_back('.');
+			ip += frg::to_allocated_string(alloc, addr->v4.addr[3]);
+			return std::move(ip);
+		};
+
+		if(pxeInfo) {
+			if(!overrideServer) {
+				cmdline_extras += " netserver.server=";
+				cmdline_extras += format_ip(&pxeInfo->server_ip);
+			}
+
+			if(!overrideGateway) {
+				cmdline_extras += " netserver.gateway=";
+				cmdline_extras += format_ip(&pxeInfo->gateway_ip);
+			}
+
+			if(!overrideStation) {
+				cmdline_extras += " netserver.ip=";
+				cmdline_extras += format_ip(&pxeInfo->station_ip);
+			}
+
+			if(!overrideSubnet) {
+				cmdline_extras += " netserver.subnet=";
+				cmdline_extras += format_ip(&pxeInfo->subnet_mask);
+			}
+		}
+
+		cmdline = cmdline_extras;
+
+		auto cmd_length = cmdline.size();
+		assert(cmd_length <= pageSize);
+		auto cmd_buffer = bootAlloc<char>(cmd_length);
+		memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
+		info_ptr->commandLine = mapBootstrapData(cmd_buffer);
     }
 };
 
@@ -453,9 +660,18 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	    // allow for attaching GDB to eir
 	    frg::option{"eir.efidebug", frg::store_false(eir_gdb_ready_val)},
 	    frg::option{"bochs", frg::store_true(log_e9)},
-	    frg::option{"eir.initrd", frg::as_string_view(initrd_path)},
+	    frg::option{"eir.initrd", frg::as_string_view(initrdPath)},
+	    frg::option{"netserver.gateway", frg::as_string_view(gatewayStr)},
+	    frg::option{"netserver.ip", frg::as_string_view(stationStr)},
+	    frg::option{"netserver.subnet", frg::as_string_view(subnetStr)},
+	    frg::option{"netserver.server", frg::as_string_view(serverStr)},
 	};
 	frg::parse_arguments(ascii_cmdline, args);
+
+	overrideGateway = gatewayStr.size() != 0;
+	overrideStation = stationStr.size() != 0;
+	overrideSubnet = subnetStr.size() != 0;
+	overrideServer = serverStr.size() != 0;
 
 	eir::infoLogger() << "eir: command line='" << ascii_cmdline << "'" << frg::endlog;
 
