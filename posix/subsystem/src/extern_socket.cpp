@@ -24,6 +24,57 @@ struct Socket : File {
 		co_return resultOrError.value();
 	}
 
+	async::result<protocols::fs::Error> listen() override {
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::PT_LISTEN);
+
+		auto [offer, sendReq, recvResp] =
+			co_await helix_ng::exchangeMsgs(
+				getPassthroughLane(),
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::recvInline()
+				)
+			);
+
+		HEL_CHECK(offer.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(recvResp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recvResp.data(), recvResp.length());
+
+		co_return resp.error() | protocols::fs::toFsProtoError;
+	}
+
+	async::result<frg::expected<Error, AcceptResult>> accept(Process *) override {
+		managarm::fs::AcceptRequest req;
+
+		auto [offer, sendReq, recvResp, pullLane] = co_await helix_ng::exchangeMsgs(
+			_file.getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(sendReq.error());
+		HEL_CHECK(recvResp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recvResp.data(), recvResp.length());
+		recvResp.reset();
+
+		if (resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
+		HEL_CHECK(pullLane.error());
+
+		auto file = smarter::make_shared<Socket>(pullLane.descriptor());
+		file->setupWeakFile(file);
+		co_return File::constructHandle(file);
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _file.getLane();
 	}
