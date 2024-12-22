@@ -39,6 +39,17 @@ struct File {
 
 	async::result<helix::UniqueDescriptor> accessMemory();
 
+	static async::result<frg::expected<Error, File>> createSocket(helix::BorrowedLane lane,
+		int domain, int type, int proto, int flags);
+
+	async::result<Error> connect(const struct sockaddr *addr_ptr, socklen_t addr_length);
+
+	async::result<frg::expected<Error, size_t>>
+	sendto(const void *buf, size_t len, int flags, const struct sockaddr *addr_ptr, socklen_t addr_length);
+
+	async::result<frg::expected<Error, size_t>>
+	recvfrom(void *buf, size_t len, int flags, struct sockaddr *addr_ptr, socklen_t addr_length);
+
 private:
 	helix::UniqueDescriptor _lane;
 };

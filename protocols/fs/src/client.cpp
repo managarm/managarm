@@ -201,5 +201,133 @@ async::result<helix::UniqueDescriptor> File::accessMemory() {
 	co_return recv_memory.descriptor();
 }
 
+async::result<frg::expected<Error, File>> File::createSocket(helix::BorrowedLane lane,
+		int domain, int type, int proto, int flags) {
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::CREATE_SOCKET);
+	req.set_domain(domain);
+	req.set_type(type);
+	req.set_protocol(proto);
+	req.set_flags(flags);
+
+	auto [offer, send_req, recv_resp, recv_lane] = co_await helix_ng::exchangeMsgs(
+		lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_lane.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	if(resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return static_cast<Error>(resp.error());
+
+	co_return File{recv_lane.descriptor()};
+}
+
+async::result<Error> File::connect(const struct sockaddr *addr_ptr, socklen_t addr_length) {
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::PT_CONNECT);
+
+	auto [offer, send_req, imbue_creds, send_addr, recv_resp] = co_await helix_ng::exchangeMsgs(
+	    _lane,
+	    helix_ng::offer(
+	        helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	        helix_ng::imbueCredentials(),
+	        helix_ng::sendBuffer(const_cast<struct sockaddr *>(addr_ptr), addr_length),
+	        helix_ng::recvInline()
+	    )
+	);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(imbue_creds.error());
+	HEL_CHECK(send_addr.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::SvrResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+
+	co_return static_cast<Error>(resp.error());
+}
+
+async::result<frg::expected<Error, size_t>>
+File::sendto(const void *buf, size_t len, int flags, const struct sockaddr *addr_ptr, socklen_t addr_length) {
+	managarm::fs::SendMsgRequest req;
+	req.set_flags(flags);
+	req.set_size(len);
+	req.set_has_cmsg_creds(false);
+	req.set_has_cmsg_rights(false);
+
+	auto [offer, send_head, send_tail, send_data, imbue_creds, send_addr, recv_resp] =
+	    co_await helix_ng::exchangeMsgs(
+	        _lane,
+	        helix_ng::offer(
+	            helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+	            helix_ng::sendBuffer(buf, len),
+	            helix_ng::imbueCredentials(),
+	            helix_ng::sendBuffer(addr_ptr, addr_length),
+	            helix_ng::recvInline()
+	        )
+	    );
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_head.error());
+	HEL_CHECK(send_tail.error());
+	HEL_CHECK(send_data.error());
+	HEL_CHECK(imbue_creds.error());
+	HEL_CHECK(send_addr.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::SendMsgReply resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+
+	if(resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return static_cast<Error>(resp.error());
+
+	co_return resp.size();
+}
+
+async::result<frg::expected<Error, size_t>>
+File::recvfrom(void *buf, size_t len, int flags, struct sockaddr *addr_ptr, socklen_t addr_length) {
+	managarm::fs::RecvMsgRequest req;
+	req.set_flags(flags);
+	req.set_size(len);
+	req.set_addr_size(addr_length);
+	req.set_ctrl_size(0);
+
+	auto [offer, send_req, imbue_creds, recv_resp, recv_addr, recv_data, recv_ctrl] =
+	    co_await helix_ng::exchangeMsgs(
+	        _lane,
+	        helix_ng::offer(
+	            helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+	            helix_ng::imbueCredentials(),
+	            helix_ng::recvInline(),
+	            helix_ng::recvBuffer(reinterpret_cast<void *>(addr_ptr), addr_length),
+	            helix_ng::recvBuffer(buf, len),
+	            helix_ng::recvBuffer(nullptr, 0)
+	        )
+	    );
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(imbue_creds.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::RecvMsgReply resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+
+	if(resp.error() != managarm::fs::Errors::SUCCESS)
+		co_return static_cast<Error>(resp.error());
+
+	co_return resp.ret_val();
+}
+
 } } // namespace protocol::fs
 
