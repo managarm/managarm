@@ -16,12 +16,12 @@ enum CommandOpcode {
 	kRead = 0x02,
 };
 
-enum AdminOpcode {
-	kDeleteSQ = 0x0,
-	kCreateSQ = 0x1,
-	kDeleteCQ = 0x4,
-	kCreateCQ = 0x5,
-	kIdentify = 0x6,
+enum class AdminOpcode {
+	DeleteSQ = 0x0,
+	CreateSQ = 0x1,
+	DeleteCQ = 0x4,
+	CreateCQ = 0x5,
+	Identify = 0x6,
 	SetFeatures = 0x9,
 	KeepAlive = 0x18,
 	Fabrics = 0x7F,

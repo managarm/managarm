@@ -162,7 +162,7 @@ async::result<Command::Result> PciExpressController::createCQ(PciExpressQueue *q
 
 	uint16_t flags = spec::kQueuePhysContig | spec::kCQIrqEnabled;
 
-	cmdBuf.opcode = spec::kCreateCQ;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateCQ);
 	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getCqPhysAddr());
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
@@ -182,7 +182,7 @@ async::result<Command::Result> PciExpressController::createSQ(PciExpressQueue *q
 
 	uint16_t flags = spec::kQueuePhysContig;
 
-	cmdBuf.opcode = spec::kCreateSQ;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateSQ);
 	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getSqPhysAddr());
 	cmdBuf.sqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
@@ -197,7 +197,7 @@ async::result<Command::Result> Controller::identifyController(spec::IdentifyCont
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyController;
 	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
 
@@ -212,7 +212,7 @@ async::result<Command::Result> Controller::identifyNamespaceList(unsigned int ns
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyActiveList;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
 	cmd->setupBuffer(list, preferredDataTransfer_);
@@ -228,7 +228,7 @@ async::result<Command::Result> Controller::identifyNamespace(unsigned int nsid, 
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyNamespace;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
 	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
