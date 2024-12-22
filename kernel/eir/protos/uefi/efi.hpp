@@ -277,6 +277,169 @@ struct efi_file_info {
 	char16_t file_name[];
 };
 
+// 24.3 PXE Base Code Protocol
+
+constexpr uint64_t EFI_PXE_BASE_CODE_PROTOCOL_REVISION = 0x00010000;
+
+constexpr efi_guid EFI_PXE_BASE_CODE_PROTOCOL_GUID = {
+    0x03C4E603, 0xAC28, 0x11d3, { 0x9A, 0x2D, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D }
+};
+
+struct efi_pxe_base_code_mode;
+
+struct efi_ipv4_address {
+	uint8_t addr[4];
+};
+
+struct efi_ipv6_address {
+	uint8_t addr[16];
+};
+
+union efi_ip_address {
+	uint32_t addr[4];
+	efi_ipv4_address v4;
+	efi_ipv6_address v6;
+};
+
+struct efi_mac_address {
+	uint8_t addr[32];
+};
+
+enum efi_pxe_base_code_tftp_opcode {
+	EfiPxeBaseCodeTftpFirst,
+	EfiPxeBaseCodeTftpGetFileSize,
+	EfiPxeBaseCodeTftpReadFile,
+	EfiPxeBaseCodeTftpWriteFile,
+	EfiPxeBaseCodeTftpReadDirectory,
+	EfiPxeBaseCodeMtftpGetFileSize,
+	EfiPxeBaseCodeMtftpReadFile,
+	EfiPxeBaseCodeMtftpReadDirectory,
+	EfiPxeBaseCodeMtftpLast,
+};
+
+struct efi_pxe_base_code_mtftp_info {
+	efi_ip_address mcast_ip;
+	uint16_t c_port;
+	uint16_t s_port;
+	uint16_t listen_timeout;
+	uint16_t transmit_timeout;
+};
+
+struct efi_pxe_base_code_protocol {
+	uint64_t revision;
+	void *start;
+	void *stop;
+	void *dhcp;
+	void *discover;
+	efi_status (*mtftp)(efi_pxe_base_code_protocol *self, efi_pxe_base_code_tftp_opcode operation, void *buffer_ptr, bool overwrite, uint64_t *buffer_size, size_t *block_size, efi_ip_address *server_ip, char *filename, efi_pxe_base_code_mtftp_info *info, bool dont_use_buffer);
+	void *udp_write;
+	void *udp_read;
+	void *set_ip_filter;
+	void *arp;
+	void *set_parameters;
+	void *set_station_ip;
+	void *set_packets;
+	efi_pxe_base_code_mode *mode;
+};
+
+struct efi_pxe_base_code_dhcpv4_packet {
+	uint8_t bootp_opcode;
+	uint8_t bootp_hw_type;
+	uint8_t bootp_hw_addr_len;
+	uint8_t bootp_gate_hops;
+	uint32_t bootp_ident;
+	uint16_t bootp_seconds;
+	uint16_t bootp_flags;
+	uint8_t bootp_ci_addr[4];
+	uint8_t bootp_yi_addr[4];
+	uint8_t bootp_si_addr[4];
+	uint8_t bootp_gi_addr[4];
+	uint8_t bootp_hw_addr[16];
+	uint8_t bootp_srv_name[64];
+	uint8_t bootp_boot_file[128];
+	uint32_t dhcp_magic;
+	uint8_t dhcp_options[56];
+};
+
+union efi_pxe_base_code_packet {
+	uint8_t raw[1472];
+	efi_pxe_base_code_dhcpv4_packet dhcpv4;
+	// efi_pxe_base_code_dhcpv6_packet dhcpv6;
+};
+
+struct efi_pxe_base_code_icmp_error {
+	uint8_t type;
+	uint8_t code;
+	uint16_t checksum;
+
+	union {
+		uint32_t reserved;
+		uint32_t mty;
+		uint32_t pointer;
+		struct {
+			uint16_t identifier;
+			uint16_t sequence;
+		} echo;
+	} u;
+	uint8_t data[494];
+};
+
+struct efi_pxe_base_code_tftp_error {
+	uint8_t error_code;
+	char error_string[127];
+};
+
+struct efi_pxe_base_code_arp_entry {
+	efi_ip_address ip_addr;
+	efi_mac_address mac_addr;
+};
+
+struct efi_pxe_base_code_route_entry {
+	efi_ip_address ip_addr;
+	efi_ip_address subnet_mask;
+	efi_ip_address gw_addr;
+};
+
+constexpr size_t EFI_PXE_BASE_CODE_MAX_ARP_ENTRIES = 8;
+constexpr size_t EFI_PXE_BASE_CODE_MAX_ROUTE_ENTRIES = 8;
+
+struct efi_pxe_base_code_mode {
+	bool started;
+	bool ipv6_available;
+	bool ipv6_supported;
+	bool using_ipv6;
+	bool bis_supported;
+	bool bis_detected;
+	bool auto_arp;
+	bool send_guid;
+	bool dhcp_discover_valid;
+	bool dhcp_ack_received;
+	bool proxy_offer_received;
+	bool pxe_discover_valid;
+	bool pxe_reply_received;
+	bool pxe_bis_reply_received;
+	bool icmp_error_received;
+	bool tftp_error_received;
+	bool make_callbacks;
+	uint8_t ttl;
+	uint8_t tos;
+	efi_ip_address station_ip;
+	efi_ip_address subnet_mask;
+	efi_pxe_base_code_packet dhcp_discover;
+	efi_pxe_base_code_packet dhcp_ack;
+	efi_pxe_base_code_packet proxy_offer;
+	efi_pxe_base_code_packet pxe_discover;
+	efi_pxe_base_code_packet pxe_reply;
+	efi_pxe_base_code_packet pxe_bis_reply;
+	efi_pxe_base_code_packet ip_filter;
+	uint32_t arp_cache_entries;
+	efi_pxe_base_code_arp_entry arp_cache[EFI_PXE_BASE_CODE_MAX_ARP_ENTRIES];
+	uint32_t route_table_entries;
+	efi_pxe_base_code_route_entry route_table[EFI_PXE_BASE_CODE_MAX_ROUTE_ENTRIES];
+	efi_pxe_base_code_icmp_error icmp_error;
+	efi_pxe_base_code_tftp_error tftp_error;
+};
+
 // Appendix D
 
 constexpr efi_status EFI_SUCCESS = 0;
