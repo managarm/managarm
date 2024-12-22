@@ -19,6 +19,16 @@ enum AdminOpcode {
 	kIdentify = 0x6,
 	SetFeatures = 0x9,
 	KeepAlive = 0x18,
+	Fabrics = 0x7F,
+};
+
+enum class FabricsCommand : uint16_t {
+	PropertySet = 0x00,
+	Connect = 0x01,
+	PropertyGet = 0x04,
+	AuthenticationSend = 0x05,
+	AuthenticationReceive = 0x06,
+	Disconnect = 0x08,
 };
 
 enum CommandFlags {
@@ -297,6 +307,63 @@ struct SetFeaturesCommand {
 	uint32_t data[6];
 };
 
+namespace fabric {
+
+struct ConnectCommand {
+	uint8_t opcode;
+	uint8_t flags;
+	uint16_t commandId;
+	uint8_t fabricsCommandType;
+	uint8_t __reserved1[19];
+	Sgl sgl1;
+	uint16_t recordFormat;
+	uint16_t queueId;
+	uint16_t sqSize;
+	uint8_t connectAttrs;
+	uint32_t keepAliveTimeout;
+	uint8_t __reserved2[9];
+};
+static_assert(sizeof(ConnectCommand) == 64);
+
+struct ConnectCommandData {
+	uint8_t hostIdentifier[16];
+	uint16_t controllerId;
+	uint8_t __reserved1[238];
+	char subsystemNqn[256];
+	char hostNqn[256];
+	uint8_t __reserved2[256];
+};
+static_assert(sizeof(ConnectCommandData) == 1024);
+
+struct PropertySetCommand {
+	uint8_t opcode;
+	uint8_t flags;
+	uint16_t commandId;
+	uint8_t fabricsCommandType;
+	uint8_t __reserved1[35];
+	uint8_t attributes;
+	uint8_t __reserved2[3];
+	uint32_t offset;
+	uint64_t value;
+	uint8_t __reserved3[8];
+};
+static_assert(sizeof(PropertySetCommand) == 64);
+
+struct PropertyGetCommand {
+	uint8_t opcode;
+	uint8_t flags;
+	uint16_t commandId;
+	uint8_t fabricsCommandType;
+	uint8_t __reserved1[35];
+	uint8_t attributes;
+	uint8_t __reserved2[3];
+	uint32_t offset;
+	uint8_t __reserved3[16];
+};
+static_assert(sizeof(PropertyGetCommand) == 64);
+
+} // namespace fabric
+
 union Command {
 	CommonCommand common;
 	ReadWriteCommand readWrite;
@@ -304,6 +371,9 @@ union Command {
 	CreateSQCommand createSQ;
 	IdentifyCommand identify;
 	SetFeaturesCommand setFeatures;
+	fabric::ConnectCommand fabricConnect;
+	fabric::PropertySetCommand fabricPropertySet;
+	fabric::PropertyGetCommand fabricPropertyGet;
 };
 static_assert(sizeof(Command) == 64);
 
@@ -348,5 +418,68 @@ struct CompletionEntry {
 	CompletionStatus status;
 };
 static_assert(sizeof(CompletionEntry) == 16);
+
+// NVMe TCP transport
+namespace tcp {
+
+enum class PduType : uint8_t {
+	ICReq = 0x00,
+	ICResp = 0x01,
+	H2CTermReq = 0x02,
+	C2HTermReq = 0x03,
+	CapsuleCmd = 0x04,
+	CapsuleResp = 0x05,
+	H2CData = 0x06,
+	C2HData = 0x07,
+	R2T = 0x09,
+	KDReq = 0x0A,
+	KDResp = 0x0B,
+};
+
+struct PduCommonHeader {
+	PduType pduType;
+	uint8_t flags;
+	uint8_t headerLength;
+	uint8_t pduDataOffset;
+	uint32_t pduLength;
+};
+
+struct ICReq {
+	PduCommonHeader ch;
+	uint16_t pduFormatVersion;
+	uint8_t hostPduDataAlignment;
+	uint8_t digest;
+	uint32_t maxr2t;
+	uint8_t reserved[112];
+};
+
+struct ICResp {
+	PduCommonHeader ch;
+	uint16_t pduFormatVersion;
+	uint8_t controllerPduDataAlignment;
+	uint8_t digest;
+	uint32_t maxh2cdata;
+	uint8_t reserved[112];
+};
+
+struct CapsuleCmd {
+	PduCommonHeader ch;
+};
+
+struct CapsuleResp {
+	PduCommonHeader ch;
+	CompletionEntry responseCqe;
+};
+
+struct C2HData {
+	PduCommonHeader ch;
+	uint16_t commandCapsuleId;
+	uint8_t __reserved1[2];
+	uint32_t dataOffset;
+	uint32_t dataLength;
+	uint8_t __reserved2[4];
+};
+
+} // namespace tcp
 
 } // namespace spec
