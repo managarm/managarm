@@ -10,7 +10,7 @@
 #include <vector>
 
 struct Command {
-	using Result = std::pair<uint16_t, spec::CompletionEntry::Result>;
+	using Result = std::pair<spec::CompletionStatus, spec::CompletionEntry::Result>;
 
 	spec::Command &getCommandBuffer() {
 		return command_;
@@ -22,7 +22,7 @@ struct Command {
 		return promise_.get_future();
 	}
 
-	void complete(uint16_t status, spec::CompletionEntry::Result result) {
+	void complete(spec::CompletionStatus status, spec::CompletionEntry::Result result) {
 		promise_.set_value(Result{status, result});
 	}
 

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <compare>
 #include <stdint.h>
+#include <type_traits>
 
 namespace spec {
 
@@ -15,6 +17,8 @@ enum AdminOpcode {
 	kDeleteCQ = 0x4,
 	kCreateCQ = 0x5,
 	kIdentify = 0x6,
+	SetFeatures = 0x9,
+	KeepAlive = 0x18,
 };
 
 enum CommandFlags {
@@ -27,6 +31,26 @@ enum IdentifyCNS {
 	kIdentifyController = 0x01,
 	kIdentifyActiveList = 0x02,
 };
+
+struct SglGeneric {
+	uint8_t __reserved1[15];
+	uint8_t sglSubType: 4;
+	uint8_t sglDescriptorType: 4;
+};
+
+struct SglDataBlock {
+	uint64_t address;
+	uint32_t length;
+	uint8_t __reserved1[3];
+	uint8_t sglSubType: 4;
+	uint8_t sglDescriptorType: 4;
+};
+
+union Sgl {
+	SglGeneric generic;
+	SglDataBlock dataBlock;
+};
+static_assert(sizeof(Sgl) == 16);
 
 struct PowerState {
 	uint16_t maxPower;
@@ -179,9 +203,12 @@ struct IdentifyNamespace {
 };
 static_assert(sizeof(IdentifyNamespace) == 0x1000);
 
-struct DataPointer {
-	uint64_t prp1;
-	uint64_t prp2;
+union DataPointer {
+	struct {
+		uint64_t prp1;
+		uint64_t prp2;
+	} prp;
+	Sgl sgl;
 };
 static_assert(sizeof(DataPointer) == 16);
 
@@ -260,14 +287,54 @@ struct IdentifyCommand {
 	uint32_t __reserved11[5];
 };
 
+struct SetFeaturesCommand {
+	uint8_t opcode;
+	uint8_t flags;
+	uint16_t commandId;
+	uint32_t nsid;
+	uint64_t __reserved2[2];
+	DataPointer dataPtr;
+	uint32_t data[6];
+};
+
 union Command {
 	CommonCommand common;
 	ReadWriteCommand readWrite;
 	CreateCQCommand createCQ;
 	CreateSQCommand createSQ;
 	IdentifyCommand identify;
+	SetFeaturesCommand setFeatures;
 };
 static_assert(sizeof(Command) == 64);
+
+struct CompletionStatus {
+	uint16_t status;
+
+	enum class CodeType {
+		Generic = 0x00,
+		CommandSpecific = 0x01,
+		MediaAndDataIntegretyError = 0x02,
+		PathRelated = 0x03,
+		VendorSpecific = 0x07,
+	};
+
+	CodeType codeType() const {
+		return CodeType{(status & 0x0E00) >> 9};
+	}
+
+	uint8_t code() const {
+		return (status & 0x01FE) >> 1;
+	}
+
+	bool successful() const {
+		return codeType() == CodeType::Generic && code() == 0;
+	}
+
+	auto operator<=>(const CompletionStatus &) const = default;
+};
+
+static_assert(std::is_standard_layout<CompletionStatus>() && std::is_trivial<CompletionStatus>());
+static_assert(sizeof(CompletionStatus) == 2);
 
 struct CompletionEntry {
 	union Result {
@@ -278,7 +345,7 @@ struct CompletionEntry {
 	uint16_t sqHead;
 	uint16_t sqId;
 	uint16_t commandId;
-	uint16_t status;
+	CompletionStatus status;
 };
 static_assert(sizeof(CompletionEntry) == 16);
 

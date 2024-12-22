@@ -142,11 +142,11 @@ async::result<void> Controller::reset() {
 
 async::result<bool> Controller::setupIoQueue(Queue *q) {
 	auto cqRes = co_await createCQ(q);
-	if (cqRes.first != 0)
+	if (!cqRes.first.successful())
 		co_return false;
 
 	auto sqRes = co_await createSQ(q);
-	if (sqRes.first != 0)
+	if (!sqRes.first.successful())
 		co_return false;
 
 	co_return true;
@@ -243,7 +243,7 @@ async::result<void> Controller::scanNamespaces() {
 	spec::IdentifyController idCtrl;
 	int nn;
 
-	if ((co_await identifyController(idCtrl)).first != 0)
+	if (!(co_await identifyController(idCtrl)).first.successful())
 		co_return;
 
 	nn = convert_endian<endian::little>(idCtrl.nn);
@@ -253,7 +253,7 @@ async::result<void> Controller::scanNamespaces() {
 		int numLists = (nn + 1023) >> 10;
 		unsigned int prev = 0;
 		for (auto i = 0; i < numLists; i++) {
-			if ((co_await identifyNamespaceList(prev, nsList.data())).first != 0)
+			if (!(co_await identifyNamespaceList(prev, nsList.data())).first.successful())
 				co_return;
 
 			int j;
@@ -281,7 +281,7 @@ async::result<void> Controller::scanNamespaces() {
 async::result<void> Controller::createNamespace(unsigned int nsid) {
 	spec::IdentifyNamespace id;
 
-	if ((co_await identifyNamespace(nsid, id)).first != 0)
+	if (!(co_await identifyNamespace(nsid, id)).first.successful())
 		co_return;
 
 	if (!id.ncap)
