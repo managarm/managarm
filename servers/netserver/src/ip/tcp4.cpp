@@ -701,7 +701,7 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 			auto chunk = std::min({
 				bytesAvailable - flushPointer,
 				windowPointer - flushPointer,
-				size_t{1000} // TODO: Perform path MTU discovery.
+				size_t{1280} // TODO: Perform path MTU discovery.
 			});
 
 			std::vector<char> buf;
