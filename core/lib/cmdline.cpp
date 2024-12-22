@@ -18,25 +18,32 @@ async::result<std::string> Cmdline::get() {
 
 	managarm::kerncfg::GetCmdlineRequest req;
 
-	auto [offer, sendReq, recvResp, recvCmdline] =
+	auto [offer, sendReq, recvResp] =
 		co_await helix_ng::exchangeMsgs(
 			lane,
 			helix_ng::offer(
+				helix_ng::want_lane,
 				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
-				helix_ng::recvInline(),
-				helix_ng::recvInline() // What about a cmdline larger than 128 bytes?
+				helix_ng::recvInline()
 			)
 		);
 
 	HEL_CHECK(offer.error());
 	HEL_CHECK(sendReq.error());
 	HEL_CHECK(recvResp.error());
-	HEL_CHECK(recvCmdline.error());
 
 	auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
-	cmdline_ = std::string{(const char *)recvCmdline.data(), recvCmdline.length()};
+	std::vector<char> buffer(resp.size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(buffer.data(), buffer.size())
+	);
+
+	HEL_CHECK(recv_tail.error());
+
+	cmdline_ = std::string{buffer.data(), buffer.size()};
 
 	co_return *cmdline_;
 }

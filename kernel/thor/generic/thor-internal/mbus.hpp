@@ -53,7 +53,8 @@ struct KernelBusObject {
 					break;
 
 				// TODO(qookie): Improve error handling here.
-				result.unwrap();
+				if(!result)
+					infoLogger() << "thor: failed to handle KernelBusObject mbus request with error " << static_cast<int>(result.error()) << frg::endlog;
 			}
 		}(std::move(stream.get<0>()), this));
 
