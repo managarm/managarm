@@ -35,7 +35,7 @@ efi_graphics_output_protocol *gop = nullptr;
 efi_loaded_image_protocol *loadedImage = nullptr;
 
 frg::string_view initrd_path = "managarm\\initrd.cpio";
-efi_file_info *initrdInfo = nullptr;
+size_t initrdSize = 0;
 
 physaddr_t rsdp = 0;
 
@@ -124,14 +124,14 @@ initgraph::Task readInitrd{
     &globalInitEngine, "uefi.read-initrd", initgraph::Entails{getBootservicesDoneStage()}, [] {
 	    efi_file_protocol *initrdFile = nullptr;
 	    EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrd_path)));
-	    initrdInfo = fsGetInfo(initrdFile);
+	    initrdSize = fsGetSize(initrdFile);
 
 	    // Read initrd.
 	    efi_physical_addr initrd_addr = 0;
 	    EFI_CHECK(bs->allocate_pages(
-	        AllocateAnyPages, EfiLoaderData, (initrdInfo->file_size >> 12) + 1, &initrd_addr
+	        AllocateAnyPages, EfiLoaderData, (initrdSize >> 12) + 1, &initrd_addr
 	    ));
-	    EFI_CHECK(fsRead(initrdFile, initrdInfo->file_size, 0, initrd_addr));
+	    EFI_CHECK(fsRead(initrdFile, initrdSize, 0, initrd_addr));
 
 	    initrd = reinterpret_cast<void *>(initrd_addr);
     }
@@ -225,7 +225,7 @@ initgraph::Task setupMemoryMap{
 	        reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size
 	    };
 	    reservedRegions[nReservedRegions++] = {
-	        reinterpret_cast<uintptr_t>(initrd), initrdInfo->file_size
+	        reinterpret_cast<uintptr_t>(initrd), initrdSize
 	    };
 
 	    auto entries = memMapSize / descriptorSize;
@@ -318,7 +318,7 @@ initgraph::Task setupInitrdInfo{
     [] {
 	    auto initrd_module = bootAlloc<EirModule>(1);
 	    initrd_module->physicalBase = reinterpret_cast<EirPtr>(initrd);
-	    initrd_module->length = initrdInfo->file_size;
+	    initrd_module->length = initrdSize;
 	    const char *initrd_mod_name = "initrd.cpio";
 	    size_t name_length = strlen(initrd_mod_name);
 	    char *name_ptr = bootAlloc<char>(name_length);

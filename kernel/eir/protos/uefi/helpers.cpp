@@ -41,7 +41,7 @@ efi_status fsRead(efi_file_protocol *file, size_t len, size_t offset, efi_physic
 	return EFI_SUCCESS;
 }
 
-efi_file_info *fsGetInfo(efi_file_protocol *file) {
+size_t fsGetSize(efi_file_protocol *file) {
 	efi_file_info fileInfo;
 	efi_guid guid = EFI_FILE_INFO_GUID;
 	uintptr_t infoLen = 0x1;
@@ -52,7 +52,7 @@ efi_file_info *fsGetInfo(efi_file_protocol *file) {
 	EFI_CHECK(bs->allocate_pool(EfiLoaderData, infoLen, reinterpret_cast<void **>(&fileInfoPtr)));
 	EFI_CHECK(file->get_info(file, &guid, &infoLen, fileInfoPtr));
 
-	return fileInfoPtr;
+	return fileInfoPtr->file_size;
 }
 
 char16_t *asciiToUcs2(frg::string_view &s) {
