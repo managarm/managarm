@@ -18,7 +18,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 
 	helix::Mapping mapping{bar0, barInfo.offset, barInfo.length};
 
-	auto controller = std::make_unique<Controller>(entity.id(), std::move(device), std::move(mapping),
+	auto controller = std::make_unique<PciExpressController>(entity.id(), std::move(device), std::move(mapping),
 			std::move(bar0), std::move(irq));
 	controller->run();
 	globalControllers.push_back(std::move(controller));

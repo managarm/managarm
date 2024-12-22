@@ -6,6 +6,11 @@
 
 namespace spec {
 
+enum class DataTransfer {
+	PRP,
+	SGL,
+};
+
 enum CommandOpcode {
 	kWrite = 0x01,
 	kRead = 0x02,
