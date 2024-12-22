@@ -9,6 +9,8 @@
 
 #include <async/result.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/cmdline.hpp>
+#include <frg/cmdline.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
 #include <helix/ipc.hpp>
@@ -378,6 +380,57 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 		if(err != protocols::svrctl::Error::success)
 			co_return err;
+	}
+
+	assert(baseDeviceMap.contains(base_id));
+
+	auto device = baseDeviceMap.at(base_id);
+
+	Cmdline cmdHelper;
+	auto cmdline = co_await cmdHelper.get();
+	frg::string_view station = "";
+	frg::string_view subnet = "";
+	frg::string_view gateway = "";
+
+	frg::array args = {
+		frg::option{"netserver.ip", frg::as_string_view(station)},
+		frg::option{"netserver.subnet", frg::as_string_view(subnet)},
+		frg::option{"netserver.gateway", frg::as_string_view(gateway)},
+	};
+	frg::parse_arguments(cmdline.c_str(), args);
+
+	auto convert_ip = [](frg::string_view &str, in_addr *addr) -> bool {
+		std::string strbuf{str.data(), str.size()};
+		return inet_pton(AF_INET, strbuf.c_str(), addr) == 1;
+	};
+
+	in_addr station_ip{};
+	in_addr subnet_mask{};
+	in_addr gateway_ip{};
+
+	bool station_valid = false;
+	bool subnet_valid = false;
+	bool gateway_valid = false;
+
+	if(station.size() && subnet.size()) {
+		station_valid = convert_ip(station, &station_ip);
+		subnet_valid = convert_ip(subnet, &subnet_mask);
+	}
+
+	if(gateway.size())
+		gateway_valid = convert_ip(gateway, &gateway_ip);
+
+	if(~ntohl(subnet_mask.s_addr) && station_valid && subnet_valid) {
+		auto prefix = static_cast<uint8_t>(__builtin_clz(~ntohl(subnet_mask.s_addr)));
+		ip4().setLink({ntohl(station_ip.s_addr), prefix}, device);
+		ip4Router().addRoute({ {ntohl(station_ip.s_addr & subnet_mask.s_addr), prefix}, device });
+	}
+
+	if(gateway_valid) {
+		Ip4Router::Route default_route{ {0, 0}, device };
+		default_route.gateway = ntohl(gateway_ip.s_addr);
+		default_route.source = ntohl(station_ip.s_addr);
+		ip4Router().addRoute(std::move(default_route));
 	}
 
 	co_return protocols::svrctl::Error::success;
