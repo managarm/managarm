@@ -130,6 +130,8 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 	size_t add_size = 0;
 	size_t n_modules = 0;
 
+	Mb2Tag *oldAcpiTag = nullptr, *newAcpiTag = nullptr;
+
 	for (size_t i = 8 /* Skip size and reserved fields*/; i < mbInfo->size; i += add_size) {
 		Mb2Tag *tag = (Mb2Tag *)((uint8_t *)info + i);
 
@@ -193,13 +195,22 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 				break;
 			}
 
-			case kMb2TagAcpiOld:
+			case kMb2TagAcpiOld: {
+				oldAcpiTag = tag;
+				break;
+			}
+
 			case kMb2TagAcpiNew: {
-				acpiTag = tag;
+				newAcpiTag = tag;
 				break;
 			}
 		}
 	}
+
+	if(newAcpiTag)
+		acpiTag = newAcpiTag;
+	else
+		acpiTag = oldAcpiTag;
 
 	eirMain();
 }
