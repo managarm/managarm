@@ -1,4 +1,4 @@
-
+#include <linux/magic.h>
 #include <string.h>
 
 #include "clock.hpp"
@@ -228,6 +228,12 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	co_return stats;
 }
 
+async::result<frg::expected<Error, FsFileStats>> AttributeNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = SYSFS_MAGIC;
+	co_return stats;
+}
+
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 AttributeNode::open(std::shared_ptr<MountView> mount,
 		std::shared_ptr<FsLink> link, SemanticFlags semantic_flags) {
@@ -261,6 +267,12 @@ async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 	fs.numLinks = 1;
 	fs.mode = 0777;
 	co_return fs;
+}
+
+async::result<frg::expected<Error, FsFileStats>> SymlinkNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = SYSFS_MAGIC;
+	co_return stats;
 }
 
 expected<std::string> SymlinkNode::readSymlink(FsLink *link, Process *) {
@@ -348,6 +360,12 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	fs.uid = 0;
 	fs.gid = 0;
 	co_return fs;
+}
+
+async::result<frg::expected<Error, FsFileStats>> DirectoryNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = SYSFS_MAGIC;
+	co_return stats;
 }
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {

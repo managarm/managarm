@@ -106,6 +106,7 @@ struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode>
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
@@ -120,6 +121,7 @@ struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
 private:
@@ -139,6 +141,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>

@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <linux/magic.h>
 #include <unistd.h>
 #include <set>
 
@@ -51,6 +52,12 @@ public:
 		stats.mtimeNanos = _mtime.tv_nsec;
 		stats.ctimeSecs = _ctime.tv_sec;
 		stats.ctimeNanos = _ctime.tv_nsec;
+		co_return stats;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{};
+		stats.f_type = TMPFS_MAGIC;
 		co_return stats;
 	}
 
@@ -476,6 +483,12 @@ struct MemoryNode final : Node {
 		stats.mtimeNanos = mtime().tv_nsec;
 		stats.ctimeSecs = ctime().tv_sec;
 		stats.ctimeNanos = ctime().tv_nsec;
+		co_return stats;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{};
+		stats.f_type = TMPFS_MAGIC;
 		co_return stats;
 	}
 

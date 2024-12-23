@@ -582,3 +582,14 @@ message RebootRequest 47 {
 head(128):
 	int64 cmd;
 }
+
+message FstatfsRequest 95 {
+head(128):
+	int64 fd;
+}
+
+message FstatfsResponse 96 {
+head(128):
+	Errors error;
+	uint64 fstype;
+}

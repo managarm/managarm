@@ -1419,6 +1419,55 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::FstatfsRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::FstatfsRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(logRequests)
+				std::cout << "posix: FSTATFS request" << std::endl;
+
+			ViewPath relative_to;
+			smarter::shared_ptr<File, FileHandle> file;
+			std::shared_ptr<FsLink> target_link;
+
+			file = self->fileContext()->getFile(req->fd());
+
+			if (!file) {
+				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				continue;
+			}
+
+			relative_to = {file->associatedMount(), file->associatedLink()};
+
+			target_link = file->associatedLink();
+
+			// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
+			// Instead of blowing up, return ENOENT.
+			// TODO: fstatfs can't return ENOENT, verify this is needed
+			if(target_link == nullptr) {
+				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+				continue;
+			}
+
+			auto fsstatsResult = co_await target_link->getTarget()->getFsstats();
+			assert(fsstatsResult);
+			auto fsstats = fsstatsResult.value();
+
+			managarm::posix::FstatfsResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			resp.set_fstype(fsstats.f_type);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+
+			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::FchmodAtRequest::message_id) {
 			std::vector<std::byte> tail(preamble.tail_size());
 			auto [recv_tail] = co_await helix_ng::exchangeMsgs(

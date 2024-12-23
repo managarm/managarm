@@ -1,3 +1,4 @@
+#include <linux/magic.h>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -186,6 +187,12 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	co_return stats;
 }
 
+async::result<frg::expected<Error, FsFileStats>> RegularNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
+
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
@@ -314,6 +321,12 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	co_return FileStats{};
 }
 
+async::result<frg::expected<Error, FsFileStats>> DirectoryNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
+
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 	// TODO: Even the root should return a valid link.
 	return _treeLink ? _treeLink->shared_from_this() : nullptr;
@@ -431,6 +444,12 @@ async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
 	co_return FileStats{};
 }
 
+async::result<frg::expected<Error, FsFileStats>> SelfLink::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
+
 VfsType SelfThreadLink::getType() {
 	return VfsType::symlink;
 }
@@ -444,6 +463,12 @@ async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
 	co_return FileStats{};
 }
 
+async::result<frg::expected<Error, FsFileStats>> SelfThreadLink::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
+
 VfsType ExeLink::getType() {
 	return VfsType::symlink;
 }
@@ -455,6 +480,12 @@ expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<frg::expected<Error, FsFileStats>> ExeLink::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
 }
 
 async::result<std::string> MapNode::show() {
@@ -527,6 +558,12 @@ expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs RootLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<frg::expected<Error, FsFileStats>> RootLink::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
 }
 
 async::result<std::string> StatNode::show() {
@@ -719,6 +756,12 @@ async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
 	co_return FileStats{};
 }
 
+async::result<frg::expected<Error, FsFileStats>> CwdLink::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
+}
+
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
@@ -756,6 +799,12 @@ VfsType FdDirectoryNode::getType() {
 async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix procfs FdDirectoryNode::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+async::result<frg::expected<Error, FsFileStats>> FdDirectoryNode::getFsstats() {
+	FsFileStats stats{};
+	stats.f_type = PROC_SUPER_MAGIC;
+	co_return stats;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
