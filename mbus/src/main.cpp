@@ -236,24 +236,31 @@ static AnyFilter decodeFilter(managarm::mbus::AnyFilter &protoFilter) {
 	}
 }
 
+auto seqLowerBound(uint64_t inSeq) {
+	Entity *cur = entitySeqTree.get_root();
+	Entity *successor = nullptr;
+
+	while (cur) {
+		if (cur->seq() > inSeq) {
+			successor = cur;
+			cur = EntitySeqTree::get_left(cur);
+		} else if (cur->seq() < inSeq) {
+			cur = EntitySeqTree::get_right(cur);
+		} else {
+			return cur;
+		}
+	}
+
+	return successor;
+}
+
 async::result<std::tuple<uint64_t, uint64_t>>
 tryEnumerate(managarm::mbus::EnumerateResponse &resp, uint64_t inSeq, const AnyFilter &filter) {
 	auto actualSeq = co_await globalSeq.async_wait(inSeq);
 	auto outSeq = actualSeq;
 
 	// Find the first entity with an interesting seq number.
-	auto cur = entitySeqTree.get_root();
-	while (cur) {
-		if (auto left = EntitySeqTree::get_left(cur);
-				left && left->seq() >= inSeq) {
-			cur = left;
-		} else if (auto right = EntitySeqTree::get_right(cur);
-				right && cur->seq() != inSeq) {
-			cur = right;
-		} else {
-			break;
-		}
-	}
+	auto cur = seqLowerBound(inSeq);
 
 	constexpr size_t maxEntitiesPerMessage = 16;
 
