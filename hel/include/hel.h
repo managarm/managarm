@@ -212,6 +212,11 @@ enum {
 	kHelItemWantLane = (1 << 16),
 };
 
+enum HelTransferDescriptorFlags {
+	kHelTransferDescriptorOut,
+	kHelTransferDescriptorIn,
+};
+
 struct HelSgItem {
 	void *buffer;
 	size_t length;
@@ -646,8 +651,9 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 //!    	Handle to the destination universe.
 //! @param[out] outHandle
 //!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
-HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
-		HelHandle *outHandle);
+HEL_C_LINKAGE HelError
+helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
+		enum HelTransferDescriptorFlags direction, HelHandle *outHandle);
 
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);
 

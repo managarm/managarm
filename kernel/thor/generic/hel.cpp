@@ -247,41 +247,60 @@ HelError helCreateUniverse(HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
-		HelHandle *out_handle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError
+helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDescriptorFlags direction, HelHandle *outHandle) {
+	if(direction != kHelTransferDescriptorOut && direction != kHelTransferDescriptorIn)
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 	AnyDescriptor descriptor;
-	smarter::shared_ptr<Universe> universe;
+	smarter::shared_ptr<Universe> srcUniverse;
+	smarter::shared_ptr<Universe> dstUniverse;
+
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(this_universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(thisUniverse->lock);
 
-		auto descriptor_it = this_universe->getDescriptor(lock, handle);
-		if(!descriptor_it)
-			return kHelErrNoDescriptor;
-		descriptor = *descriptor_it;
-
-		if(universe_handle == kHelThisUniverse) {
-			universe = this_universe.lock();
+		smarter::shared_ptr<Universe> universe;
+		if(universeHandle == kHelThisUniverse) {
+			universe = thisUniverse.lock();
 		}else{
-			auto universe_it = this_universe->getDescriptor(lock, universe_handle);
-			if(!universe_it)
+			auto universeIt = thisUniverse->getDescriptor(lock, universeHandle);
+			if(!universeIt)
 				return kHelErrNoDescriptor;
-			if(!universe_it->is<UniverseDescriptor>())
+			if(!universeIt->is<UniverseDescriptor>())
 				return kHelErrBadDescriptor;
-			universe = universe_it->get<UniverseDescriptor>().universe;
+			universe = universeIt->get<UniverseDescriptor>().universe;
 		}
+
+		if(direction == kHelTransferDescriptorOut) {
+			srcUniverse = thisUniverse.lock();
+			dstUniverse = universe;
+		} else {
+			assert(direction == kHelTransferDescriptorIn);
+			dstUniverse = thisUniverse.lock();
+			srcUniverse = universe;
+		}
+	}
+
+	{
+		Universe::Guard lock{srcUniverse->lock};
+
+		auto descriptorIt = srcUniverse->getDescriptor(lock, handle);
+		if (!descriptorIt)
+			return kHelErrNoDescriptor;
+		descriptor = *descriptorIt;
 	}
 
 	// TODO: make sure the descriptor is copyable.
 
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(dstUniverse->lock);
 
-		*out_handle = universe->attachDescriptor(lock, std::move(descriptor));
+		*outHandle = dstUniverse->attachDescriptor(lock, std::move(descriptor));
 	}
 	return kHelErrNone;
 }
