@@ -236,6 +236,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(data.data(), std::get<size_t>(res))
 		);
 		HEL_CHECK(send_resp.error());
+		if (send_data.error() == kHelErrThreadTerminated) {
+			std::cout << "thread terminated already but it's okay" << std::endl;
+			co_return;
+		}
 		HEL_CHECK(send_data.error());
 		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
