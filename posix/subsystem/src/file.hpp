@@ -407,6 +407,8 @@ public:
 		return _passthrough;
 	}
 
+	void handleClose() override {}
+
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
