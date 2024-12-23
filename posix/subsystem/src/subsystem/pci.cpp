@@ -230,7 +230,8 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 				+ "." + std::get<mbus_ng::StringItem>(properties["pci-function"]).value;
 
 		// TODO: Add bus/slot/function to this message.
-		std::cout << "POSIX: Installing PCI device " << sysfs_name
+		std::cout << "POSIX: Installing PCI "
+				<< (type == "pci-device" ? "device" : "bridge") << " " << sysfs_name
 				<< " (mbus ID: " << entity.id() << ")" << std::endl;
 
 		std::shared_ptr<drvcore::Device> parentObj;
