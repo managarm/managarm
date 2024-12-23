@@ -164,7 +164,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				self->fileContext()->clientMbusLane(),
 				self->clientThreadPage(),
 				static_cast<HelHandle *>(self->clientFileTable()),
-				self->clientClkTrackerPage()
+				self->clientClkTrackerPage(),
+				static_cast<HelHandle*>(self->clientCancelEvent())
 			};
 
 			if(logRequests)
