@@ -126,7 +126,8 @@ async::result<std::shared_ptr<nic::Link>> setupVirtioDevice(mbus_ng::Entity &bas
 
 	auto transport = co_await virtio_core::discover(std::move(hwDevice), discover_mode);
 
-	co_return nic::virtio::makeShared(std::move(transport));
+	auto nic = co_await nic::virtio::makeShared(base_entity.id(), std::move(transport));
+	co_return std::move(nic);
 }
 
 bool determineRTL8168Support(const std::string& vendor_str, const std::string& device_str) {

@@ -39,21 +39,23 @@ struct VirtHeader {
 };
 
 struct VirtioNic : nic::Link {
-	VirtioNic(std::unique_ptr<virtio_core::Transport> transport);
+	VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Transport> transport);
+	async::result<void> initialize();
 
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
 
 	~VirtioNic() override = default;
 private:
+	mbus_ng::EntityId entity_;
 	std::unique_ptr<virtio_core::Transport> transport_;
 	arch::contiguous_pool dmaPool_;
 	virtio_core::Queue *receiveVq_;
 	virtio_core::Queue *transmitVq_;
 };
 
-VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
-	: nic::Link(1500, &dmaPool_), transport_ { std::move(transport) }
+VirtioNic::VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Transport> transport)
+	: nic::Link(1500, &dmaPool_), entity_{entity}, transport_ { std::move(transport) }
 {
 	if(transport_->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
 		for (int i = 0; i < 6; i++) {
@@ -80,6 +82,26 @@ VirtioNic::VirtioNic(std::unique_ptr<virtio_core::Transport> transport)
 	l1_up_ = true;
 
 	transport_->runDevice();
+}
+
+async::result<void> VirtioNic::initialize() {
+	mbus_ng::Properties netProperties{
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
+		{"unix.subsystem", mbus_ng::StringItem{"net"}},
+	};
+	netProperties.merge(mbusNetworkProperties());
+
+	auto netClassEntity = (co_await mbus_ng::Instance::global().createEntity(
+		"net", netProperties)).unwrap();
+
+	[] (mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		}
+	}(std::move(netClassEntity));
 }
 
 async::result<size_t> VirtioNic::receive(arch::dma_buffer_view frame) {
@@ -122,9 +144,12 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 
 namespace nic::virtio {
 
-std::shared_ptr<nic::Link> makeShared(
+async::result<std::shared_ptr<nic::Link>> makeShared(mbus_ng::EntityId entity,
 		std::unique_ptr<virtio_core::Transport> transport) {
-	return std::make_shared<VirtioNic>(std::move(transport));
+	auto nic = std::make_shared<VirtioNic>(entity, std::move(transport));
+	co_await nic->initialize();
+
+	co_return nic;
 }
 
 } // namespace nic::virtio
