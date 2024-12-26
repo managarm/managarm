@@ -54,30 +54,31 @@ namespace thor::acpi {
 void initializePS2() {
 	// Create a fiber to manage requests to the ACPI mbus objects.
 	async::detach_with_allocator(*kernelAlloc, []() -> coroutine<void> {
-		co_await acpiFiber->associatedWorkQueue()->schedule();
-
 		frg::vector<async::oneshot_event *, thor::KernelAlloc> events{*thor::kernelAlloc};
 
-		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_KEYBOARDS.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
-			auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
+		co_await onAcpiFiber([&] {
 
-			auto obj = frg::construct<AcpiObject>(*kernelAlloc, node, next_keyboard_id++);
-			events->push_back(&obj->completion);
-			async::detach_with_allocator(*kernelAlloc, obj->run());
+			uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_KEYBOARDS.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
+				auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
 
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, &events);
+				auto obj = frg::construct<AcpiObject>(*kernelAlloc, node, next_keyboard_id++);
+				events->push_back(&obj->completion);
+				async::detach_with_allocator(*kernelAlloc, obj->run());
 
-		uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_MICE.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
-			auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, &events);
 
-			auto obj = frg::construct<AcpiObject>(
-				*kernelAlloc, node, next_mouse_id++);
-			events->push_back(&obj->completion);
-			async::detach_with_allocator(*kernelAlloc, obj->run());
+			uacpi_find_devices_at(uacpi_namespace_root(), ACPI_HID_PS2_MICE.data(), [](void *ctx, uacpi_namespace_node *node, uint32_t) {
+				auto events = reinterpret_cast<frg::vector<async::oneshot_event *, KernelAlloc> *>(ctx);
 
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, &events);
+				auto obj = frg::construct<AcpiObject>(
+					*kernelAlloc, node, next_mouse_id++);
+				events->push_back(&obj->completion);
+				async::detach_with_allocator(*kernelAlloc, obj->run());
+
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, &events);
+		});
 
 		for(auto ev : events) {
 			co_await ev->wait();
@@ -92,7 +93,7 @@ void initializePS2() {
 }
 
 static initgraph::Task initPS2Task{&globalInitEngine, "acpi.init-ps2",
-	initgraph::Requires{getNsAvailableStage(), getAcpiWorkqueueAvailableStage()},
+	initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
 	[] {
 		initializePS2();
 	}

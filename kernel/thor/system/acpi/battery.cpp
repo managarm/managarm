@@ -119,7 +119,7 @@ coroutine<void> BatteryBusObject::run() {
 	co_await obj->run();
 	auto acpi_object = obj->mbus_id;
 
-	updateState();
+	co_await onAcpiFiber([this] { updateState(); });
 
 	Properties properties;
 	properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "power_supply"));
@@ -204,6 +204,7 @@ uacpi_status BatteryBusObject::notification(uacpi_handle context, uacpi_namespac
 
 	auto self = reinterpret_cast<BatteryBusObject *>(context);
 
+	// NOTE: Notifications are already run on a fiber.
 	self->updateState();
 	self->_irq.raise();
 
@@ -429,26 +430,26 @@ void BatteryBusObject::updateState() {
 
 void initializeBatteries() {
 	async::detach_with_allocator(*kernelAlloc, []() -> coroutine<void> {
-		co_await acpiFiber->associatedWorkQueue()->schedule();
+		co_await onAcpiFiber([&] {
+			uacpi_find_devices(ACPI_HID_BATTERY, [](void *, uacpi_namespace_node *node, uint32_t) {
+				auto bifStatus = uacpi_namespace_node_find(node, "_BIF", nullptr);
+				auto bstStatus = uacpi_namespace_node_find(node, "_BST", nullptr);
 
-		uacpi_find_devices(ACPI_HID_BATTERY, [](void *, uacpi_namespace_node *node, uint32_t) {
-			auto bifStatus = uacpi_namespace_node_find(node, "_BIF", nullptr);
-			auto bstStatus = uacpi_namespace_node_find(node, "_BST", nullptr);
+				if(bifStatus != UACPI_STATUS_OK || bstStatus != UACPI_STATUS_OK)
+					return UACPI_ITERATION_DECISION_CONTINUE;
 
-			if(bifStatus != UACPI_STATUS_OK || bstStatus != UACPI_STATUS_OK)
+				auto obj = frg::construct<BatteryBusObject>(
+					*kernelAlloc, next_battery_id++, node);
+				async::detach_with_allocator(*kernelAlloc, obj->run());
+
 				return UACPI_ITERATION_DECISION_CONTINUE;
-
-			auto obj = frg::construct<BatteryBusObject>(
-				*kernelAlloc, next_battery_id++, node);
-			async::detach_with_allocator(*kernelAlloc, obj->run());
-
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, nullptr);
+			}, nullptr);
+		});
 	}());
 }
 
 static initgraph::Task initBatteriesTask{&globalInitEngine, "acpi.init-batteries",
-	initgraph::Requires{getNsAvailableStage(), getAcpiWorkqueueAvailableStage()},
+	initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
 	[] {
 		initializeBatteries();
 	}

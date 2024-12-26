@@ -7,6 +7,8 @@
 #include <uacpi/uacpi.h>
 #include <uacpi/utilities.h>
 #include <initgraph.hpp>
+#include <async/queue.hpp>
+#include <async/oneshot-event.hpp>
 
 namespace thor {
 
@@ -24,8 +26,6 @@ void configureIrq(GlobalIrqInfo info);
 } // namespace thor
 
 namespace thor::acpi {
-
-extern KernelFiber *acpiFiber;
 
 constexpr std::array<const uacpi_char *, 27> ACPI_HID_PS2_KEYBOARDS = {{
 	"PNP0300",
@@ -107,7 +107,7 @@ constexpr const uacpi_char *ACPI_HID_POWER_BUTTON = "PNP0C0C";
 
 initgraph::Stage *getTablesDiscoveredStage();
 initgraph::Stage *getNsAvailableStage();
-initgraph::Stage *getAcpiWorkqueueAvailableStage();
+initgraph::Stage *getAcpiFiberAvailableStage();
 
 void initGlue();
 void initEc();
@@ -139,5 +139,33 @@ struct AcpiObject final : public KernelBusObject {
 	unsigned int instance;
 	async::oneshot_event completion = {};
 };
+
+
+struct AcpiFiberWork {
+	void (*fn)(async::oneshot_event *ev, void *work);
+	async::oneshot_event *ev;
+	void *work;
+};
+
+extern frg::manual_box<async::queue<AcpiFiberWork, KernelAlloc>> acpiFiberQueue;
+
+// TODO(qookie): This mechanism could be generalized (glue.cpp has a
+// similar mechanism for uacpi_kernel_schedule_work).
+// This could also be improved by propagating the return value from
+// the given functor.
+template <typename Fn>
+coroutine<void> onAcpiFiber(Fn &&fn) {
+	async::oneshot_event ev;
+
+	acpiFiberQueue->put(AcpiFiberWork{
+		[] (async::oneshot_event *ev, void *work) {
+			(*static_cast<Fn *>(work))();
+			ev->raise();
+		},
+		&ev, &fn
+	});
+
+	co_await ev.wait();
+}
 
 } // namespace thor::acpi

@@ -71,40 +71,43 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		managarm::hw::AcpiGetResourcesReply<KernelAlloc> resp(*kernelAlloc);
 
-		auto ret = uacpi_for_each_device_resource(node, "_CRS",
-		[](void *ctx, uacpi_resource *res){
-			auto resp = reinterpret_cast<managarm::hw::AcpiGetResourcesReply<KernelAlloc> *>(ctx);
+		uacpi_status ret;
+		co_await onAcpiFiber([&] {
+			ret = uacpi_for_each_device_resource(node, "_CRS",
+			[](void *ctx, uacpi_resource *res){
+				auto resp = reinterpret_cast<managarm::hw::AcpiGetResourcesReply<KernelAlloc> *>(ctx);
 
-			switch(res->type) {
-				case UACPI_RESOURCE_TYPE_END_TAG:
-					break;
-				case UACPI_RESOURCE_TYPE_IO:
-					for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
-						resp->add_io_ports(i);
-					}
-					break;
-				case UACPI_RESOURCE_TYPE_FIXED_IO:
-					for(size_t i = 0; i < res->fixed_io.length; i++) {
-						resp->add_fixed_io_ports(res->fixed_io.address + i);
-					}
-					break;
-				case UACPI_RESOURCE_TYPE_IRQ:
-					for(size_t i = 0; i < res->irq.num_irqs; i++) {
-						resp->add_irqs(res->irq.irqs[i]);
-					}
-					break;
-				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
-					for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
-						resp->add_irqs(res->extended_irq.irqs[i]);
-					}
-					break;
-				default:
-					warningLogger() << "thor: unhandled uACPI resource type " << res->type << frg::endlog;
-					return UACPI_ITERATION_DECISION_CONTINUE;
-			}
+				switch(res->type) {
+					case UACPI_RESOURCE_TYPE_END_TAG:
+						break;
+					case UACPI_RESOURCE_TYPE_IO:
+						for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
+							resp->add_io_ports(i);
+						}
+						break;
+					case UACPI_RESOURCE_TYPE_FIXED_IO:
+						for(size_t i = 0; i < res->fixed_io.length; i++) {
+							resp->add_fixed_io_ports(res->fixed_io.address + i);
+						}
+						break;
+					case UACPI_RESOURCE_TYPE_IRQ:
+						for(size_t i = 0; i < res->irq.num_irqs; i++) {
+							resp->add_irqs(res->irq.irqs[i]);
+						}
+						break;
+					case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+						for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
+							resp->add_irqs(res->extended_irq.irqs[i]);
+						}
+						break;
+					default:
+						warningLogger() << "thor: unhandled uACPI resource type " << res->type << frg::endlog;
+						return UACPI_ITERATION_DECISION_CONTINUE;
+				}
 
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, &resp);
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, &resp);
+		});
 
 		if(ret == UACPI_STATUS_OK) {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -142,38 +145,41 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 			smarter::shared_ptr<IoSpace> space;
 		} port_info = {req->index(), 0, false, space};
 
-		// TODO(no92): we should cache this
-		auto ret = uacpi_for_each_device_resource(node, "_CRS",
-		[](void *ctx, uacpi_resource *res){
-			auto info = reinterpret_cast<struct PortInfo *>(ctx);
+		uacpi_status ret;
+		co_await onAcpiFiber([&] {
+			// TODO(no92): we should cache this
+			ret = uacpi_for_each_device_resource(node, "_CRS",
+			[](void *ctx, uacpi_resource *res){
+				auto info = reinterpret_cast<struct PortInfo *>(ctx);
 
-			switch(res->type) {
-				case UACPI_RESOURCE_TYPE_END_TAG:
-					break;
-				case UACPI_RESOURCE_TYPE_IO:
-					if(info->requested_index == info->parsed_ports) {
-						for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
-							info->space->addPort(i);
-							info->success = true;
+				switch(res->type) {
+					case UACPI_RESOURCE_TYPE_END_TAG:
+						break;
+					case UACPI_RESOURCE_TYPE_IO:
+						if(info->requested_index == info->parsed_ports) {
+							for(auto i = res->io.minimum; i <= res->io.maximum; i++) {
+								info->space->addPort(i);
+								info->success = true;
+							}
 						}
-					}
-					info->parsed_ports++;
-					break;
-				case UACPI_RESOURCE_TYPE_FIXED_IO:
-					if(info->requested_index == info->parsed_ports) {
-						for(size_t i = 0; i < res->fixed_io.length; i++) {
-							info->space->addPort(res->fixed_io.address + i);
-							info->success = true;
+						info->parsed_ports++;
+						break;
+					case UACPI_RESOURCE_TYPE_FIXED_IO:
+						if(info->requested_index == info->parsed_ports) {
+							for(size_t i = 0; i < res->fixed_io.length; i++) {
+								info->space->addPort(res->fixed_io.address + i);
+								info->success = true;
+							}
 						}
-					}
-					info->parsed_ports++;
-					break;
-				default:
-					return UACPI_ITERATION_DECISION_CONTINUE;
-			}
+						info->parsed_ports++;
+						break;
+					default:
+						return UACPI_ITERATION_DECISION_CONTINUE;
+				}
 
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, &port_info);
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, &port_info);
+		});
 
 		if(ret != UACPI_STATUS_OK || !port_info.success) {
 			resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
@@ -205,34 +211,37 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 			std::optional<int> irq;
 		} interrupt_info = {req->index(), 0, std::nullopt};
 
-		// TODO(no92): we should cache this
-		auto ret = uacpi_for_each_device_resource(node, "_CRS",
-		[](void *ctx, uacpi_resource *res){
-			auto info = reinterpret_cast<struct InterruptInfo *>(ctx);
+		uacpi_status ret;
+		co_await onAcpiFiber([&] {
+			// TODO(no92): we should cache this
+			ret = uacpi_for_each_device_resource(node, "_CRS",
+			[](void *ctx, uacpi_resource *res){
+				auto info = reinterpret_cast<struct InterruptInfo *>(ctx);
 
-			switch(res->type) {
-				case UACPI_RESOURCE_TYPE_END_TAG:
-					break;
-				case UACPI_RESOURCE_TYPE_IRQ:
-					for(size_t i = 0; i < res->irq.num_irqs; i++) {
-						if(info->parsed_irqs == info->requested_index)
-							info->irq = res->irq.irqs[i];
-						info->parsed_irqs++;
-					}
-					break;
-				case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
-					for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
-						if(info->parsed_irqs == info->requested_index)
-							info->irq = res->extended_irq.irqs[i];
-						info->parsed_irqs++;
-					}
-					break;
-				default:
-					return UACPI_ITERATION_DECISION_CONTINUE;
-			}
+				switch(res->type) {
+					case UACPI_RESOURCE_TYPE_END_TAG:
+						break;
+					case UACPI_RESOURCE_TYPE_IRQ:
+						for(size_t i = 0; i < res->irq.num_irqs; i++) {
+							if(info->parsed_irqs == info->requested_index)
+								info->irq = res->irq.irqs[i];
+							info->parsed_irqs++;
+						}
+						break;
+					case UACPI_RESOURCE_TYPE_EXTENDED_IRQ:
+						for(size_t i = 0; i < res->extended_irq.num_irqs; i++) {
+							if(info->parsed_irqs == info->requested_index)
+								info->irq = res->extended_irq.irqs[i];
+							info->parsed_irqs++;
+						}
+						break;
+					default:
+						return UACPI_ITERATION_DECISION_CONTINUE;
+				}
 
-			return UACPI_ITERATION_DECISION_CONTINUE;
-		}, &interrupt_info);
+				return UACPI_ITERATION_DECISION_CONTINUE;
+			}, &interrupt_info);
+		});
 
 		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 			frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
@@ -261,18 +270,26 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 	co_return frg::success;
 }
 
-initgraph::Stage *getAcpiWorkqueueAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "acpi.workqueue-available"};
+initgraph::Stage *getAcpiFiberAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "acpi.fiber-available"};
 	return &s;
 }
 
-static initgraph::Task initAcpiWorkqueueTask{&globalInitEngine, "acpi.init-acpi-workqueue",
+KernelFiber *acpiFiber;
+frg::manual_box<async::queue<AcpiFiberWork, KernelAlloc>> acpiFiberQueue;
+
+static initgraph::Task initAcpiFiberTask{&globalInitEngine, "acpi.init-acpi-fiber",
 	initgraph::Requires{getFibersAvailableStage()},
-	initgraph::Entails{getAcpiWorkqueueAvailableStage()},
+	initgraph::Entails{getAcpiFiberAvailableStage()},
 	[] {
-		// Create a fiber to manage requests to the battery mbus objects.
+		acpiFiberQueue.initialize(*kernelAlloc);
+		// Create a fiber to run synchronous uACPI functions on.
 		acpiFiber = KernelFiber::post([] {
-			// Do nothing. Our only purpose is to run the associated work queue.
+			while(true) {
+				auto work = KernelFiber::asyncBlockCurrent(acpiFiberQueue->async_get());
+				assert(work);
+				work->fn(work->ev, work->work);
+			}
 		});
 
 		Scheduler::resume(acpiFiber);
