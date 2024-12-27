@@ -50,6 +50,7 @@ struct pxe_info {
 	efi_ip_address subnet_mask;
 	efi_ip_address server_ip;
 	efi_ip_address gateway_ip;
+	frg::string_view device_path{};
 };
 
 struct pxe_info *pxeInfo = nullptr;
@@ -139,7 +140,11 @@ uint32_t convertIp(frg::string_view ip) {
 initgraph::Task preparePxe{
     &globalInitEngine, "uefi.pxe-setup", initgraph::Entails{getBootservicesDoneStage()}, [] {
 		efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
+		efi_guid devpath_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
+		efi_guid devpath2text_guid = EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID;
 		efi_pxe_base_code_protocol *pxe = nullptr;
+		efi_device_path_protocol *devpath = nullptr;
+		efi_device_path_to_text_protocol *devpath2text = nullptr;
 
 	    auto status = bs->handle_protocol(loadedImage->device_handle, &pxe_guid, reinterpret_cast<void **>(&pxe));
 		if(status != EFI_SUCCESS)
@@ -147,6 +152,41 @@ initgraph::Task preparePxe{
 
 		EFI_CHECK(bs->allocate_pool(EfiLoaderData, sizeof(pxe_info), reinterpret_cast<void **>(&pxeInfo)));
 		new (pxeInfo) pxe_info{};
+
+		EFI_CHECK(bs->handle_protocol(loadedImage->device_handle, &devpath_guid, reinterpret_cast<void **>(&devpath)));
+		EFI_CHECK(bs->locate_protocol(&devpath2text_guid, nullptr, reinterpret_cast<void **>(&devpath2text)));
+
+		auto devpathstr = devpath2text->convert_device_path_to_text(devpath, true, true);
+		assert(devpathstr);
+
+		char *devpathascii = nullptr;
+		size_t devpathstr_len = 0;
+		while(devpathstr[devpathstr_len])
+			devpathstr_len++;
+
+		EFI_CHECK(bs->allocate_pool(
+			EfiLoaderData,
+			devpathstr_len + 1,
+			reinterpret_cast<void **>(&devpathascii)
+		));
+
+		size_t i = 0;
+		for (; i < devpathstr_len; i++) {
+			auto c = devpathstr[i];
+			// we only use printable ASCII characters, everything else gets discarded
+			if (c >= 0x20 && c <= 0x7E) {
+				devpathascii[i] = static_cast<char>(c);
+			} else {
+				devpathascii[i] = '?';
+			}
+		}
+
+		// Null-terminate the buffer.
+		devpathascii[i] = '\0';
+
+		pxeInfo->device_path = frg::string_view{devpathascii};
+
+		eir::infoLogger() << "eir: PXE booted from device '" << pxeInfo->device_path << "'" << frg::endlog;
 
 		// TODO: support IPv6
 		if(pxe->mode->using_ipv6) {
@@ -524,6 +564,11 @@ initgraph::Task setupInitrdInfo{
 			if(!overrideSubnet) {
 				cmdline_extras += " netserver.subnet=";
 				cmdline_extras += format_ip(&pxeInfo->subnet_mask);
+			}
+
+			if(pxeInfo->device_path.size()) {
+				cmdline_extras += " netserver.device=";
+				cmdline_extras += pxeInfo->device_path;
 			}
 		}
 
