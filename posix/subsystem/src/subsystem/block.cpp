@@ -147,7 +147,7 @@ async::detached observePartitions() {
 			auto mbus_parent = std::stoi(parent_property.value);
 			std::shared_ptr<drvcore::Device> parent_device;
 			if (mbus_parent != -1) {
-				parent_device = pci_subsystem::getDeviceByMbus(mbus_parent);
+				parent_device = drvcore::getMbusDevice(mbus_parent);
 				assert(parent_device);
 			}
 

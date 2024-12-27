@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/recurring-event.hpp>
 #include <string>
 #include <unordered_map>
 #include <protocols/mbus/client.hpp>
@@ -148,6 +149,7 @@ private:
 void initialize();
 
 void registerMbusDevice(mbus_ng::EntityId, std::shared_ptr<Device>);
+extern async::recurring_event mbusMapUpdate;
 std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId);
 
 void installDevice(std::shared_ptr<Device> device);

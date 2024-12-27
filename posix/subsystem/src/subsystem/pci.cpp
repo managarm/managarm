@@ -17,9 +17,6 @@ namespace pci_subsystem {
 
 drvcore::BusSubsystem *sysfsSubsystem;
 
-std::unordered_map<int, std::shared_ptr<drvcore::Device>> mbusMap;
-async::recurring_event mbusMapAddition;
-
 struct VendorAttribute : sysfs::Attribute {
 	VendorAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
@@ -237,12 +234,12 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 		std::shared_ptr<drvcore::Device> parentObj;
 
 		while(!parentObj) {
-			auto ret = getDeviceByMbus(parentId);
+			auto ret = drvcore::getMbusDevice(parentId);
 			if(ret) {
 				parentObj = std::static_pointer_cast<drvcore::Device>(ret);
 				break;
 			}
-			co_await mbusMapAddition.async_wait();
+			co_await drvcore::mbusMapUpdate.async_wait();
 		}
 
 		protocols::hw::Device hwDevice{(co_await entity.getRemoteLane()).unwrap()};
@@ -301,8 +298,8 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 			}
 		}
 
-		mbusMap.insert(std::make_pair(entity.id(), device));
-		mbusMapAddition.raise();
+		drvcore::registerMbusDevice(entity.id(), device);
+		drvcore::mbusMapUpdate.raise();
 	} else if(type == "pci-root-bus") {
 		auto segment = std::get<mbus_ng::StringItem>(properties["pci-segment"]).value;
 		auto bus = std::get<mbus_ng::StringItem>(properties["pci-bus"]).value;
@@ -315,8 +312,8 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 		std::cout << "POSIX: Installed PCI root bus " << sysfs_name
 				<< " (mbus ID: " << entity.id() << ")" << std::endl;
 
-		mbusMap.insert(std::make_pair(entity.id(), device));
-		mbusMapAddition.raise();
+		drvcore::registerMbusDevice(entity.id(), device);
+		drvcore::mbusMapUpdate.raise();
 	} else {
 		std::cout << "posix: unsupported PCI dev type '" << type << "'" << std::endl;
 		assert(!"unsupported");
@@ -343,13 +340,6 @@ async::detached run() {
 			bind(std::move(entity), std::move(event.properties));
 		}
 	}
-}
-
-std::shared_ptr<drvcore::Device> getDeviceByMbus(int id) {
-	auto it = mbusMap.find(id);
-	if(it != mbusMap.end())
-		return it->second;
-	return {};
 }
 
 } // namespace pci_subsystem

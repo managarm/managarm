@@ -89,7 +89,7 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 	}
 
 	drvcore::registerMbusDevice(entity.id(), device);
-	mbusMap.insert(std::make_pair(entity.id(), device));
+
 
 	co_return;
 }

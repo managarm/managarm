@@ -75,7 +75,7 @@ async::detached run() {
 
 			auto parentProperty = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
 			auto mbusParent = std::stoi(parentProperty.value);
-			auto pciParent = pci_subsystem::getDeviceByMbus(mbusParent);
+			auto pciParent = drvcore::getMbusDevice(mbusParent);
 			assert(pciParent);
 
 			auto lane = (co_await entity.getRemoteLane()).unwrap();
