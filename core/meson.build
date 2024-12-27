@@ -3,6 +3,7 @@ inc = [ 'include' ]
 headers = [
 	'include/core/bpf.hpp',
 	'include/core/cmdline.hpp',
+	'include/core/device-path.hpp',
 	'include/core/logging.hpp',
 	'include/core/id-allocator.hpp',
 	'include/core/kernel-logs.hpp',
