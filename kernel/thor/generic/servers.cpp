@@ -267,7 +267,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
 
 	// FIXME: use actual interpreter name here
-	auto rtdl_module = resolveModule("lib/ld-init.so");
+	auto rtdl_module = resolveModule("usr/lib/ld-init.so");
 	assert(rtdl_module && rtdl_module->type == MfsType::regular);
 	ImageInfo interp_info = co_await loadModuleImage(space, 0x40000000,
 			static_cast<MfsRegular *>(rtdl_module)->getMemory());
@@ -381,15 +381,15 @@ coroutine<void> runMbus() {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching mbus" << frg::endlog;
 
-	frg::string<KernelAlloc> nameStr{*kernelAlloc, "/sbin/mbus"};
+	frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
 	assert(!allServers->get(nameStr));
 
 	auto controlStream = createStream();
 	allServers->insert(nameStr, controlStream.get<1>());
 
-	auto module = resolveModule("/sbin/mbus");
+	auto module = resolveModule("/usr/bin/mbus");
 	assert(module && module->type == MfsType::regular);
-	co_await executeModule("/sbin/mbus", static_cast<MfsRegular *>(module),
+	co_await executeModule("/usr/bin/mbus", static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
 			std::move(*futureMbusServer), localScheduler());
 }

@@ -174,7 +174,7 @@ async::detached runInit() {
 	co_await clk::enumerateTracker();
 	async::detach(net::enumerateNetserver());
 	co_await populateRootView();
-	co_await Process::init("sbin/posix-init");
+	co_await Process::init("usr/bin/posix-init");
 }
 
 int main() {
