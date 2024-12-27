@@ -43,6 +43,27 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 	}
 };
 
+void doEmit(frg::span<char> payload) {
+	if(!osTraceInUse.load(std::memory_order_relaxed))
+		return;
+
+	struct Header {
+		uint32_t size;
+	};
+
+	frg::small_vector<char, 64, KernelAlloc> buffer{*kernelAlloc};
+	buffer.resize(sizeof(Header) + payload.size());
+
+	auto hdr = new (buffer.data()) Header;
+	hdr->size = payload.size();
+
+	memcpy(buffer.data() + sizeof(Header), payload.data(), payload.size());
+
+	// We want to be able to call this function from any context, but we cannot wake the waiters
+	// in all contexts. For now, only wake waiters if IRQs are enabled.
+	globalOsTraceRing->enqueue(buffer.data(), buffer.size(), !intsAreEnabled());
+}
+
 template<typename R>
 void commitOsTrace(R record) {
 	if(!osTraceInUse.load(std::memory_order_relaxed))
@@ -56,29 +77,10 @@ void commitOsTrace(R record) {
 			frg::span<char>(ser.data() + 8, ts));
 	assert(encodeSuccess);
 
-	// We want to be able to call this function from any context, but we cannot wake the waiters
-	// in all contexts. For now, only wake waiters if IRQs are enabled.
-	globalOsTraceRing->enqueue(ser.data(), ser.size(), !intsAreEnabled());
+	doEmit({ser.data(), ser.size()});
 }
 
 } // anonymous namespace
-
-OsTraceEventId announceOsTraceEvent(frg::string_view name) {
-	auto id = nextId.fetch_add(1, std::memory_order_relaxed);
-
-	managarm::ostrace::AnnounceEventRecord<KernelAlloc> record{*kernelAlloc};
-	record.set_id(id);
-	record.set_name(frg::string<KernelAlloc>{*kernelAlloc, name});
-	commitOsTrace(std::move(record));
-
-	return static_cast<OsTraceEventId>(id);
-}
-
-void emitOsTrace(managarm::ostrace::EventRecord<KernelAlloc> record) {
-	record.set_ts(systemClockSource()->currentNanos());
-
-	commitOsTrace(std::move(record));
-}
 
 LogRingBuffer *getGlobalOsTraceRing() {
 	return globalOsTraceRing.get();
@@ -149,49 +151,23 @@ private:
 				co_return Error::protocolViolation;
 			}
 		} break;
-		case bragi::message_id<managarm::ostrace::EmitEventReq>: {
-			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::EmitEventReq>(
+		case bragi::message_id<managarm::ostrace::EmitReq>: {
+			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::EmitReq>(
 					headSpan, tailSpan, *kernelAlloc);
 			if(!maybeReq)
 				co_return Error::protocolViolation;
-			auto &req = maybeReq.value();
+			//auto &req = maybeReq.value();
 
-			managarm::ostrace::EventRecord<KernelAlloc> record{*kernelAlloc};
-			record.set_id(req.id());
-			for(size_t i = 0; i < req.ctrs_size(); ++i)
-				record.add_ctrs(std::move(req.ctrs(i)));
-			emitOsTrace(std::move(record));
-
-			managarm::ostrace::Response<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::ostrace::Error::SUCCESS);
-
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success) {
-				assert(isRemoteIpcError(respError));
+			auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
+			if(dataError != Error::success) {
+				assert(isRemoteIpcError(dataError));
 				co_return Error::protocolViolation;
 			}
-		} break;
-		case bragi::message_id<managarm::ostrace::AnnounceEventReq>: {
-			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::AnnounceEventReq>(
-					headSpan, tailSpan, *kernelAlloc);
-			if(!maybeReq)
-				co_return Error::protocolViolation;
-			auto &req = maybeReq.value();
 
-			auto id = nextId.fetch_add(1, std::memory_order_relaxed);
-
-			managarm::ostrace::AnnounceEventRecord<KernelAlloc> record{*kernelAlloc};
-			record.set_id(id);
-			record.set_name(std::move(req.name()));
-			commitOsTrace(std::move(record));
+			doEmit({reinterpret_cast<char *>(dataBuffer.data()), dataBuffer.size()});
 
 			managarm::ostrace::Response<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::ostrace::Error::SUCCESS);
-			resp.set_id(id);
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);
@@ -212,7 +188,7 @@ private:
 
 			auto id = nextId.fetch_add(1, std::memory_order_relaxed);
 
-			managarm::ostrace::AnnounceItemRecord<KernelAlloc> record{*kernelAlloc};
+			managarm::ostrace::Definition<KernelAlloc> record{*kernelAlloc};
 			record.set_id(id);
 			record.set_name(std::move(req.name()));
 			commitOsTrace(std::move(record));

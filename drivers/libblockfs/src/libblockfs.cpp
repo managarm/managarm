@@ -23,11 +23,21 @@ namespace blockfs {
 
 bool tracingInitialized = false;
 
-protocols::ostrace::Context ostContext;
-protocols::ostrace::EventId ostReadEvent;
-protocols::ostrace::EventId ostReaddirEvent;
-protocols::ostrace::ItemId ostByteCounter;
-protocols::ostrace::ItemId ostTimeCounter;
+constinit protocols::ostrace::Event ostEvtRead{"libblockfs.read"};
+constinit protocols::ostrace::Event ostEvtReadDir{"libblockfs.readDir"};
+constinit protocols::ostrace::Event ostEvtRawRead{"libblockfs.rawRead"};
+constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
+constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
+
+protocols::ostrace::Vocabulary ostVocabulary{
+	ostEvtRead,
+	ostEvtReadDir,
+	ostEvtRawRead,
+	ostAttrTime,
+	ostAttrNumBytes,
+};
+
+protocols::ostrace::Context ostContext{ostVocabulary};
 
 namespace {
 
@@ -66,9 +76,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	if (!length)
 		co_return size_t{0};
 
-	uint64_t start;
-	HEL_CHECK(helGetClock(&start));
-
+	protocols::ostrace::Timer timer;
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 
 	if(self->inode->fileType == FileType::kTypeDirectory) {
@@ -114,13 +122,11 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 			chunk_offset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
 
-	uint64_t end;
-	HEL_CHECK(helGetClock(&end));
-
-	protocols::ostrace::Event oste{&ostContext, ostReadEvent};
-	oste.withCounter(ostByteCounter, static_cast<int64_t>(length));
-	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
-	co_await oste.emit();
+	ostContext.emit(
+		ostEvtRead,
+		ostAttrNumBytes(length),
+		ostAttrTime(timer.elapsed())
+	);
 
 	co_return chunkSize;
 }
@@ -129,6 +135,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 		void *buffer, size_t length) {
 	assert(length);
 
+	protocols::ostrace::Timer timer;
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	co_await self->inode->readyJump.wait();
 
@@ -157,6 +164,13 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 
 	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
 			chunk_size);
+
+	ostContext.emit(
+		ostEvtRead,
+		ostAttrNumBytes(length),
+		ostAttrTime(timer.elapsed())
+	);
+
 	co_return chunk_size;
 }
 
@@ -199,8 +213,9 @@ async::result<protocols::fs::ReadEntriesResult>
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 
-	protocols::ostrace::Event oste{&ostContext, ostReaddirEvent};
-	co_await oste.emit();
+	ostContext.emit(
+		ostEvtReadDir
+	);
 
 	co_return co_await self->readEntries();
 }
@@ -538,10 +553,11 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, const char *,
 	uint64_t end;
 	HEL_CHECK(helGetClock(&end));
 
-	protocols::ostrace::Event oste{&ostContext, ostReadEvent};
-	oste.withCounter(ostByteCounter, static_cast<int64_t>(length));
-	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
-	co_await oste.emit();
+	ostContext.emit(
+		ostEvtRawRead,
+		ostAttrNumBytes(length),
+		ostAttrTime(end - start)
+	);
 
 	co_return chunkSize;
 }
@@ -825,12 +841,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 
 async::detached runDevice(BlockDevice *device) {
 	if (!tracingInitialized) {
-		ostContext = co_await protocols::ostrace::createContext();
-		ostReadEvent = co_await ostContext.announceEvent("libblockfs.read");
-		ostReaddirEvent = co_await ostContext.announceEvent("libblockfs.readdir");
-		ostByteCounter = co_await ostContext.announceItem("numBytes");
-		ostTimeCounter = co_await ostContext.announceItem("time");
-
+		co_await ostContext.create();
 		tracingInitialized = true;
 	}
 

@@ -12,31 +12,11 @@
 #include <frg/span.hpp>
 #include <ostrace.bragi.hpp>
 
-enum class ExtractMode {
-	none,
-	eventOnly,
-	specificItem
-};
-
-
-std::unordered_map<std::string, ExtractMode> stringToExtractMode{
-	{"event-only", ExtractMode::eventOnly},
-	{"specific-item", ExtractMode::specificItem},
-};
-
 int main(int argc, char **argv) {
-	ExtractMode mode{};
 	std::string path{"virtio-trace.bin"};
-	std::string eventName;
-	std::string itemName;
 
 	CLI::App app{"extract-ostrace: extract records from ostrace logs"};
 	app.add_option("path", path, "Path to the input file");
-	app.add_option("-m,--mode", mode, "Operational mode")
-		->required()
-		->transform(CLI::CheckedTransformer(stringToExtractMode));
-	app.add_option("-e,--event", eventName, "Match only specific events");
-	app.add_option("-i,--item", itemName, "Extract a specific item");
 	CLI11_PARSE(app, argc, argv);
 
 	int fd = open(path.c_str(), O_RDONLY);
@@ -58,16 +38,16 @@ int main(int argc, char **argv) {
 
 	close(fd);
 
-	frg::span<const char> buffer{reinterpret_cast<const char *>(ptr),
+	frg::span<const char> fileBuffer{reinterpret_cast<const char *>(ptr),
 			static_cast<size_t>(st.st_size)};
 
-	uint64_t filteredEventId = 0;
-	uint64_t desiredItemId = 0;
+	size_t nRecords = 0;
 
 	std::vector<uint64_t> ts;
 	std::vector<uint64_t> value;
+	std::unordered_map<uint64_t, std::string> terms;
 
-	auto extractRecord = [&] () -> bool {
+	auto extractMsg = [&] (frg::span<const char> &buffer) -> bool {
 		auto preamble = bragi::read_preamble(buffer);
 		if(preamble.error()) {
 			warnx("halting due to broken preamble");
@@ -79,6 +59,17 @@ int main(int argc, char **argv) {
 		auto tail_span = buffer.subspan(8, preamble.tail_size());
 
 		switch (preamble.id()) {
+		case bragi::message_id<managarm::ostrace::Definition>: {
+			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::Definition>(
+					head_span, tail_span);
+			assert(maybeRecord);
+			auto &record = maybeRecord.value();
+
+			terms[record.id()] = record.name();
+		} break;
+		case bragi::message_id<managarm::ostrace::EndOfRecord>:
+			std::cout << "}\n";
+			break;
 		case bragi::message_id<managarm::ostrace::EventRecord>: {
 			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::EventRecord>(
 					head_span, tail_span);
@@ -88,36 +79,15 @@ int main(int argc, char **argv) {
 			}
 			auto &record = maybeRecord.value();
 
-			if(record.id() == filteredEventId) {
-				if(mode == ExtractMode::eventOnly) {
-					ts.push_back(record.ts());
-				}else if(mode == ExtractMode::specificItem) {
-					for(size_t i = 0; i < record.ctrs_size(); ++i) {
-						if(record.ctrs(i).id() != desiredItemId)
-							continue;
-						ts.push_back(record.ts());
-						value.push_back(record.ctrs(i).value());
-					}
-				}
-			}
+			std::cout << "{\"_event\":\"" << terms.at(record.id()) << "\",\"_ts\":" << record.ts();
 		} break;
-		case bragi::message_id<managarm::ostrace::AnnounceEventRecord>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::AnnounceEventRecord>(
+		case bragi::message_id<managarm::ostrace::UintAttribute>: {
+			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::UintAttribute>(
 					head_span, tail_span);
 			assert(maybeRecord);
 			auto &record = maybeRecord.value();
 
-			if(record.name() == eventName)
-				filteredEventId = record.id();
-		} break;
-		case bragi::message_id<managarm::ostrace::AnnounceItemRecord>: {
-			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::AnnounceItemRecord>(
-					head_span, tail_span);
-			assert(maybeRecord);
-			auto &record = maybeRecord.value();
-
-			if(record.name() == itemName)
-				desiredItemId = record.id();
+			std::cout << ",\"" << terms.at(record.id()) << "\":" << record.v();
 		} break;
 		default:
 			warnx("halting due to unexpected message ID %u", preamble.id());
@@ -128,28 +98,34 @@ int main(int argc, char **argv) {
 		return true;
 	};
 
-	size_t nRecords = 0;
-	while (buffer.size()) {
-		if(!extractRecord())
-			break;
-		++nRecords;
-	}
+	auto extractRecords = [&] () -> bool {
+		struct Header {
+			uint32_t size;
+		};
 
-	std::cout << "{\n";
-	std::cout << "\"ts\": [";
-	for(size_t i = 0; i < ts.size(); ++i)
-		std::cout << (i ? ", " : "") << ts[i];
-	std::cout << "]\n";
-	if(mode == ExtractMode::specificItem) {
-		std::cout << ",\n";
-		std::cout << "\"value\": [";
-		for(size_t i = 0; i < value.size(); ++i)
-			std::cout << (i ? ", " : "") << value[i];
-		std::cout << "]\n";
+		if (fileBuffer.size() < sizeof(Header)) {
+			std::cerr << "failed to extract header" << std::endl;
+			return false;
+		}
+		Header hdr;
+		memcpy(&hdr, fileBuffer.data(), sizeof(Header));
+
+		auto buffer = fileBuffer.subspan(sizeof(Header), hdr.size);
+		while (buffer.size()) {
+			if(!extractMsg(buffer))
+				return false;
+			++nRecords;
+		}
+
+		fileBuffer = fileBuffer.subspan(sizeof(Header) + hdr.size);
+		return true;
+	};
+
+	while (fileBuffer.size()) {
+		if (!extractRecords())
+			break;
 	}
-	std::cout << "}" << std::endl;
 
 	std::cerr << "extracted " << nRecords << " records"
-			<< " (" << buffer.size() << " bytes remain)" << std::endl;
-	std::cerr << "found " << ts.size() << " matches" << std::endl;
+			<< " (" << fileBuffer.size() << " bytes remain)" << std::endl;
 }
