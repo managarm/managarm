@@ -1120,10 +1120,10 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			char temp[128];
+			char temp[4096]; // TODO: Use a temporarily allocated page?
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{4096});
 				auto copyOutcome = co_await view->copyFrom(address + progress, temp, chunk,
 						submitThread->mainWorkQueue()->take());
 				if(!copyOutcome) {
@@ -1165,10 +1165,10 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			char temp[128];
+			char temp[4096]; // TODO: Use a temporarily allocated page?
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{4096});
 
 				auto outcome = co_await space->readSpace(address + progress, temp, chunk,
 						submitThread->mainWorkQueue()->take());
@@ -1277,10 +1277,10 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			char temp[128];
+			char temp[4096]; // TODO: Use a temporarily allocated page?
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{4096});
 
 				// Enter the submitter's work-queue so that we can access memory directly.
 				co_await submitThread->mainWorkQueue()->schedule();
@@ -1323,10 +1323,10 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 
 		Error error = Error::success;
 		{
-			char temp[128];
+			char temp[4096]; // TODO: Use a temporarily allocated page?
 			size_t progress = 0;
 			while(progress < length) {
-				auto chunk = frg::min(length - progress, size_t{128});
+				auto chunk = frg::min(length - progress, size_t{4096});
 
 				// Enter the submitter's work-queue so that we can access memory directly.
 				co_await submitThread->mainWorkQueue()->schedule();
