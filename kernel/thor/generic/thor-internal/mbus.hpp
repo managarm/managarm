@@ -40,6 +40,7 @@ private:
 
 struct KernelBusObject {
 	coroutine<frg::expected<Error, size_t>> createObject(frg::string_view name, Properties &&properties);
+	coroutine<Error> updateProperties(Properties &properties);
 
 	virtual LaneHandle initiateClient() {
 		auto stream = createStream();
@@ -68,6 +69,8 @@ struct KernelBusObject {
 private:
 	coroutine<void> handleMbusComms_(LaneHandle mgmtLane);
 	coroutine<frg::expected<Error>> handleServeRemoteLane_(LaneHandle mgmtLane);
+
+	int64_t mbusId_;
 };
 
 } // namespace thor
