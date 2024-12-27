@@ -40,7 +40,7 @@ namespace flags {
 
 PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
 					   helix::UniqueDescriptor irq)
-	: Controller(parentId), hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(regsMapping)},
+	: Controller(parentId, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(regsMapping)},
 	  regs_{regsMapping_.get()}, irq_{std::move(irq)} {
 }
 

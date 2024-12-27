@@ -9,8 +9,13 @@
 #include "namespace.hpp"
 #include "spec.hpp"
 
+enum class ControllerType {
+	PciExpress,
+	FabricsTcp,
+};
+
 struct Controller {
-	Controller(int64_t parentId) : parentId_{parentId} {}
+	Controller(int64_t parentId, ControllerType type) : parentId_{parentId}, type_{type} {}
 	virtual ~Controller() = default;
 
 	virtual async::detached run() = 0;
@@ -19,6 +24,10 @@ struct Controller {
 
 	inline int64_t getParentId() const {
 		return parentId_;
+	}
+
+	inline ControllerType getType() const {
+		return type_;
 	}
 
 	async::result<void> scanNamespaces();
@@ -38,6 +47,7 @@ protected:
 
 	int64_t parentId_;
 	uint32_t version_;
+	const ControllerType type_;
 
 	std::vector<std::unique_ptr<Queue>> activeQueues_;
 	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;
