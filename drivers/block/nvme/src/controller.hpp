@@ -44,8 +44,8 @@ protected:
 };
 
 struct PciExpressController final : public Controller {
-	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
-			   helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
+	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+			   helix::UniqueDescriptor irq);
 
 	async::detached run() override;
 

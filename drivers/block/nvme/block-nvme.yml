@@ -1,0 +1,5 @@
+name: block-nvme
+exec: /usr/bin/block-nvme
+files:
+  - /usr/bin/block-nvme
+
