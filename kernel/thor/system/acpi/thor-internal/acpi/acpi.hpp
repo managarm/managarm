@@ -129,7 +129,7 @@ struct AcpiObject final : public KernelBusObject {
 			uacpi_free_pnp_id_list(cid_name);
 	}
 
-	coroutine<void> run();
+	coroutine<void> run(Properties props = {});
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
 
 	size_t mbus_id;

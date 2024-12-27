@@ -20,6 +20,12 @@ struct IoSpace;
 
 struct BootScreen;
 
+namespace acpi {
+
+struct AcpiObject;
+
+}
+
 namespace pci {
 
 initgraph::Stage *getBus0AvailableStage();
@@ -198,6 +204,7 @@ struct PciBus : private KernelBusObject {
 	PciIrqRouter *irqRouter;
 	PciConfigIo *io;
 	PciMsiController *msiController;
+	acpi::AcpiObject *acpiNode;
 	frg::vector<PciDevice *, KernelAlloc> childDevices;
 	frg::vector<PciBridge *, KernelAlloc> childBridges;
 
