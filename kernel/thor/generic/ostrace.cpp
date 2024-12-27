@@ -1,5 +1,6 @@
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
+#include <frg/cmdline.hpp>
 #include <frg/small_vector.hpp>
 #include <frg/span.hpp>
 #include <thor-internal/fiber.hpp>
@@ -33,6 +34,11 @@ frg::manual_box<LogRingBuffer> globalOsTraceRing;
 initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 	initgraph::Entails{getOsTraceAvailableStage()},
 	[] {
+		frg::array args = {
+			frg::option{"ostrace", frg::store_true(wantOsTrace)},
+		};
+		frg::parse_arguments(getKernelCmdline(), args);
+
 		if(!wantOsTrace)
 			return;
 
