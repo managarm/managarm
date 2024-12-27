@@ -137,6 +137,37 @@ struct efi_loaded_image_protocol {
 	void *unload;
 };
 
+// 10.2 EFI Device Path Protocol
+
+enum class DevicePathType : uint8_t {
+	Hardware = 1,
+	ACPI = 2,
+	Messaging = 3,
+	MediaDevice = 4,
+	BiosBootSpecification = 5,
+};
+
+constexpr efi_guid EFI_DEVICE_PATH_PROTOCOL_GUID = {
+	0x09576E91, 0x6D3F, 0x11D2, {0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B}
+};
+
+struct efi_device_path_protocol {
+	DevicePathType type;
+	uint8_t subtype;
+	uint8_t length[2];
+};
+
+// 10.6.2 Device Path to Text Protocol
+
+constexpr efi_guid EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID = {
+	0x8B843E20, 0x8132, 0x4852, {0x90, 0xCC, 0x55, 0x1A, 0x4E, 0x4A, 0x7F, 0x1C}
+};
+
+struct efi_device_path_to_text_protocol {
+	char16_t *(*convert_device_node_to_text)(const efi_device_path_protocol *device_node, bool display_only, bool allow_shortcuts);
+	char16_t *(*convert_device_path_to_text)(const efi_device_path_protocol *device_path, bool display_only, bool allow_shortcuts);
+};
+
 // 12.4.1 EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL
 
 struct efi_simple_text_output_protocol {
