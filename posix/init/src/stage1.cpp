@@ -1,6 +1,12 @@
 
 #include <assert.h>
+#include <core/cmdline.hpp>
+#include <core/device-path.hpp>
 #include <fcntl.h>
+#include <format>
+#include <helix/ipc.hpp>
+#include <frg/cmdline.hpp>
+#include <protocols/mbus/client.hpp>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mount.h>
@@ -219,6 +225,30 @@ int main() {
 		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/storage", nullptr);
 	}else assert(block_usb != -1);
 
+	Cmdline cmdlineHelper{};
+	auto cmdline = async::run(cmdlineHelper.get(), helix::currentDispatcher);
+
+	frg::string_view uefiNetDevpath = "";
+
+	frg::array args = {
+		frg::option{"netserver.device", frg::as_string_view(uefiNetDevpath)},
+	};
+	frg::parse_arguments(cmdline.c_str(), args);
+
+	std::filesystem::path dpSysfsPath{};
+	bool uefiNetDevpathResolved = uefiNetDevpath.size() == 0;
+	bool interfaceUp = uefiNetDevpathResolved;
+
+	if(!uefiNetDevpathResolved) {
+		auto dp_res = DevicePathParser::fromString(std::string{uefiNetDevpath.data(), uefiNetDevpath.size()});
+		if(dp_res) {
+			auto dp = dp_res.value();
+			dpSysfsPath = std::filesystem::canonical(std::filesystem::path(dp.sysfs()));
+		} else {
+			std::cout << std::format("init: failed to parse device path '{}'", std::string{uefiNetDevpath.data(), uefiNetDevpath.size()}) << std::endl;
+		}
+	}
+
 	std::optional<std::string> rootPath;
 	// TODO(qookie): Query /proc/cmdline to see if the user
 	// requested a different device.
@@ -229,7 +259,7 @@ int main() {
 	ueventEngine.init();
 	ueventEngine.trigger();
 
-	while (!rootPath) {
+	while (!rootPath || !uefiNetDevpathResolved || !interfaceUp) {
 		auto uevent = ueventEngine.nextUevent();
 		if (!uevent) {
 			std::cout << "Failed to receive uevent" << std::endl;
@@ -247,9 +277,48 @@ int main() {
 		const auto &devpath = uevent->at("DEVPATH");
 		auto subsystemIt = uevent->find("SUBSYSTEM");
 
-		if (subsystemIt != uevent->end() && subsystemIt->second == "block")
+		if(subsystemIt != uevent->end() && subsystemIt->second == "pci" && uevent->contains("PCI_CLASS") && uevent->at("PCI_CLASS") == "10802") {
+			auto nvme_server = fork();
+			if(!nvme_server) {
+				setenv("MBUS_ID", uevent->at("MBUS_ID").c_str(), 1);
+				execl("/usr/bin/runsvr", "/usr/bin/runsvr", "--fork", "bind", "/usr/lib/managarm/server/block-nvme.bin", nullptr);
+			}else assert(nvme_server != -1);
+		}
+
+		if (!rootPath && subsystemIt != uevent->end() && subsystemIt->second == "block")
 			rootPath = checkRootDevice("/sys" + devpath);
+
+		if(!uefiNetDevpathResolved) {
+			if("/sys" + devpath == dpSysfsPath.string()) {
+				auto netserver = fork();
+				if(!netserver) {
+					setenv("MBUS_ID", uevent->at("MBUS_ID").c_str(), 1);
+					execl("/usr/bin/runsvr", "/usr/bin/runsvr", "--fork", "bind", "/usr/lib/managarm/server/netserver.bin", nullptr);
+				}else assert(netserver != -1);
+				uefiNetDevpathResolved = true;
+			}
+		} else if(!interfaceUp) {
+			if(subsystemIt != uevent->end() && subsystemIt->second == "net" && ("/sys" + devpath).starts_with(dpSysfsPath.string())) {
+				auto filter = mbus_ng::Conjunction{{
+					mbus_ng::EqualsFilter{"class", "netserver"}
+				}};
+
+				auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+				auto [_, events] = async::run(enumerator.nextEvents(), helix::currentDispatcher).unwrap();
+				assert(events.size() == 1);
+
+				auto mbus_str = std::format("MBUS_ID={}", events[0].id);
+				auto nvme = fork();
+				if(!nvme) {
+					const char *env[] = { mbus_str.c_str(), nullptr };
+					execle("/usr/bin/runsvr", "/usr/bin/runsvr", "--fork", "bind", "/usr/lib/managarm/server/block-nvme.bin", nullptr, env);
+				}else assert(nvme != -1);
+
+				interfaceUp = true;
+			}
+		}
 	}
+
 	if (!rootPath->size())
 		throw std::runtime_error("Can't determine root device");
 
