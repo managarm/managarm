@@ -256,6 +256,12 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 				properties["pci-vendor"]).value, nullptr, 16);
 		device->deviceId = std::stoi(std::get<mbus_ng::StringItem>(
 				properties["pci-device"]).value, nullptr, 16);
+		device->pciClass = std::stoi(std::get<mbus_ng::StringItem>(
+				properties["pci-class"]).value, nullptr, 16);
+		device->pciSubclass = std::stoi(std::get<mbus_ng::StringItem>(
+				properties["pci-subclass"]).value, nullptr, 16);
+		device->pciProgif = std::stoi(std::get<mbus_ng::StringItem>(
+				properties["pci-interface"]).value, nullptr, 16);
 		if(type == "pci-device") {
 			device->subsystemVendorId = std::stoi(std::get<mbus_ng::StringItem>(
 					properties["pci-subsystem-vendor"]).value, nullptr, 16);

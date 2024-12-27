@@ -17,6 +17,7 @@ struct Device final : drvcore::BusDevice {
 
 		ue.set("SUBSYSTEM", "pci");
 		ue.set("PCI_SLOT_NAME", slot);
+		ue.set("PCI_CLASS", std::format("{:X}{:02X}{:02X}", pciClass, pciSubclass, pciProgif));
 		ue.set("MBUS_ID", std::to_string(mbusId));
 	}
 
@@ -29,6 +30,9 @@ struct Device final : drvcore::BusDevice {
 	uint32_t pciBus;
 	uint32_t pciSlot;
 	uint32_t pciFunction;
+	uint8_t pciClass;
+	uint8_t pciSubclass;
+	uint8_t pciProgif;
 	uint32_t vendorId;
 	uint32_t deviceId;
 	uint32_t subsystemVendorId;
