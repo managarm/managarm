@@ -7,6 +7,7 @@
 #include <linux/cdrom.h>
 #include <linux/fs.h>
 
+#include <frg/scope_exit.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
@@ -23,16 +24,26 @@ namespace blockfs {
 
 bool tracingInitialized = false;
 
+constinit protocols::ostrace::Event ostEvtGetLink{"libblockfs.getLink"};
+constinit protocols::ostrace::Event ostEvtTraverseLinks{"libblockfs.traverseLinks"};
 constinit protocols::ostrace::Event ostEvtRead{"libblockfs.read"};
 constinit protocols::ostrace::Event ostEvtReadDir{"libblockfs.readDir"};
+constinit protocols::ostrace::Event ostEvtWrite{"libblockfs.write"};
 constinit protocols::ostrace::Event ostEvtRawRead{"libblockfs.rawRead"};
+constinit protocols::ostrace::Event ostEvtExt2ManageInode{"ext2.manageInode"};
+constinit protocols::ostrace::Event ostEvtExt2ManageFile{"ext2.manageFile"};
 constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 
 protocols::ostrace::Vocabulary ostVocabulary{
+	ostEvtGetLink,
+	ostEvtTraverseLinks,
 	ostEvtRead,
 	ostEvtReadDir,
+	ostEvtWrite,
 	ostEvtRawRead,
+	ostEvtExt2ManageInode,
+	ostEvtExt2ManageFile,
 	ostAttrTime,
 	ostAttrNumBytes,
 };
@@ -179,6 +190,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 	if(!length) {
 		co_return 0;
 	}
+	protocols::ostrace::Timer timer;
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	if(self->append) {
@@ -186,6 +198,13 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 	}
 	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
 	self->offset += length;
+
+	ostContext.emit(
+		ostEvtWrite,
+		ostAttrNumBytes(length),
+		ostAttrTime(timer.elapsed())
+	);
+
 	co_return length;
 }
 
@@ -257,6 +276,15 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::GetLinkResult>>
 getLink(std::shared_ptr<void> object,
 		std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtGetLink,
+			ostAttrTime(timer.elapsed())
+		);
+	}};
+
 
 	assert(!name.empty() && name != "." && name != "..");
 	auto entry = FRG_CO_TRY(co_await self->findEntry(name));
@@ -443,6 +471,14 @@ async::result<void> obstructLink(std::shared_ptr<void> object, std::string name)
 async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<void> object,
 		std::deque<std::string> components) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtTraverseLinks,
+			ostAttrTime(timer.elapsed())
+		);
+	}};
 
 	std::optional<ext2fs::DirEntry> entry;
 	std::shared_ptr<ext2fs::Inode> parent = self;

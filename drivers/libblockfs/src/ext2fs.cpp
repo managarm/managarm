@@ -594,6 +594,8 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
 
+		protocols::ostrace::Timer timer;
+
 		// TODO: Make sure that we do not read/write past the end of the table.
 		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
 
@@ -620,6 +622,11 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
+
+		ostContext.emit(
+			ostEvtExt2ManageInode,
+			ostAttrTime(timer.elapsed())
+		);
 	}
 }
 
@@ -869,6 +876,8 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
+		protocols::ostrace::Timer timer;
+
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
 					static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtWrite};
@@ -900,6 +909,11 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
+
+		ostContext.emit(
+			ostEvtExt2ManageFile,
+			ostAttrTime(timer.elapsed())
+		);
 	}
 }
 
