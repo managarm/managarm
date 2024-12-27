@@ -80,5 +80,19 @@ void Command::setupBuffer(arch::dma_buffer_view view, spec::DataTransfer policy)
 
 		command_.readWrite.dataPtr.prp.prp1 = convert_endian<endian::little, endian::native>(prp1);
 		command_.readWrite.dataPtr.prp.prp2 = convert_endian<endian::little, endian::native>(prp2);
+	} else {
+		// TODO(no92): this heavily assumes NVMe-over-fabrics; we might want to support SGL on
+		// PCIe bindings, too. Conveniently, qemu's emulation supports the most basic tier of SGLs.
+		command_.common.flags &= ~0xB0;
+		command_.common.flags |= 0x40;
+		command_.common.dataPtr.sgl.dataBlock.length = view.size();
+
+		if(view.size() && (command_.common.opcode & 1)) {
+			command_.common.dataPtr.sgl.generic.sglDescriptorType = 0;
+			command_.common.dataPtr.sgl.generic.sglSubType = 1;
+		} else {
+			command_.common.dataPtr.sgl.generic.sglDescriptorType = 0x05;
+			command_.common.dataPtr.sgl.generic.sglSubType = 0x0A;
+		}
 	}
 }
