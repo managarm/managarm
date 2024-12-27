@@ -25,6 +25,7 @@
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
 #include "observations.hpp"
+#include "ostrace.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <kerncfg.bragi.hpp>
@@ -167,6 +168,7 @@ async::result<void> enumeratePm() {
 // --------------------------------------------------------
 
 async::detached runInit() {
+	co_await posix::initOstrace();
 	co_await enumerateKerncfg();
 	async::detach(enumeratePm());
 	co_await clk::enumerateTracker();
