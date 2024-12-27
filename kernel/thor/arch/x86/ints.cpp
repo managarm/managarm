@@ -5,6 +5,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
+#include <thor-internal/arch/system.hpp>
 
 extern char stubsPtr[], stubsLimit[];
 
@@ -110,6 +111,8 @@ extern "C" void thorRtPreemption();
 extern "C" void nmiStub();
 
 namespace thor {
+
+extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 
 static constexpr bool logEveryFault = false;
 static constexpr bool logEveryPreemption = false;
@@ -292,7 +295,7 @@ bool inStub(uintptr_t ip) {
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
-void handleIrq(IrqImageAccessor image, int number);
+void handleIrq(IrqImageAccessor image, IrqPin *irq);
 void handlePreemption(IrqImageAccessor image);
 void handleSyscall(SyscallImageAccessor image);
 
@@ -380,7 +383,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	handleIrq(image, number);
+	handleIrq(image, globalIrqSlots[number]->pin());
 }
 
 extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {

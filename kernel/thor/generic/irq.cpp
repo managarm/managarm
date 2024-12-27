@@ -123,6 +123,8 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
 		_inService{false}, _dueSinks{0},
 		_maskState{0} {
+	_hash = frg::hash<frg::string<KernelAlloc>>{}(name);
+
 	[] (IrqPin *self, enable_detached_coroutine = {}) -> void {
 		while(true) {
 			co_await self->_unstallEvent.async_wait_if([&] () -> bool {

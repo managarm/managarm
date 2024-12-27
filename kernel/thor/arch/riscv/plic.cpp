@@ -230,11 +230,12 @@ initgraph::Task initPlic{
 
 } // namespace
 
-unsigned int claimExternalIrq() {
+IrqPin *claimExternalIrq() {
 	auto *ourExternalIrq = &riscvExternalIrq.get();
 	if (!ourExternalIrq->plic)
-		return 0;
-	return ourExternalIrq->plic->claim(ourExternalIrq->ctx);
+		return nullptr;
+	auto idx = ourExternalIrq->plic->claim(ourExternalIrq->ctx);
+	return globalIrqSlots[idx]->pin();
 }
 
 } // namespace thor

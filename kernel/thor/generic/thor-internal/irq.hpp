@@ -167,8 +167,11 @@ public:
 
 	IrqPin &operator= (const IrqPin &) = delete;
 
-	const frg::string<KernelAlloc> &name() {
+	const frg::string<KernelAlloc> &name() const {
 		return _name;
+	}
+	uint32_t hash() const {
+		return _hash;
 	}
 
 	void configure(IrqConfiguration cfg);
@@ -203,6 +206,8 @@ private:
 	void _updateMask();
 
 	frg::string<KernelAlloc> _name;
+	// Hash of the IRQ name. Mostly useful when extracting entropy from IRQs.
+	uint32_t _hash;
 
 	// Must be protected against IRQs.
 	frg::ticket_spinlock _mutex;

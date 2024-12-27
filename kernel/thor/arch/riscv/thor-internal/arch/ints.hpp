@@ -5,6 +5,7 @@
 #include <riscv/csr.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/irq.hpp>
 
 namespace thor {
 
@@ -24,6 +25,6 @@ inline void halt() { asm volatile("wfi"); }
 
 void suspendSelf();
 
-unsigned int claimExternalIrq();
+IrqPin *claimExternalIrq();
 
 } // namespace thor

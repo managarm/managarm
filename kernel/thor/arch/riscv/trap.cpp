@@ -11,7 +11,7 @@ extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
 
 // TODO: Move declaration to header.
 void handlePreemption(IrqImageAccessor image);
-void handleIrq(IrqImageAccessor image, int number);
+void handleIrq(IrqImageAccessor image, IrqPin *irq);
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleSyscall(SyscallImageAccessor image);
@@ -168,9 +168,9 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 	} else if (code == riscv::interrupts::sti) {
 		onTimerInterrupt(IrqImageAccessor{frame});
 	} else if (code == riscv::interrupts::sei) {
-		auto idx = claimExternalIrq();
-		if (idx) {
-			handleIrq(IrqImageAccessor{frame}, idx);
+		auto irq = claimExternalIrq();
+		if (irq) {
+			handleIrq(IrqImageAccessor{frame}, irq);
 		} else {
 			thor::infoLogger() << "Spurious external interrupt" << frg::endlog;
 		}

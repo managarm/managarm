@@ -471,20 +471,21 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	}
 }
 
-void handleIrq(IrqImageAccessor image, int number) {
+void handleIrq(IrqImageAccessor image, IrqPin *irq) {
 	assert(!intsAreEnabled());
+	assert(irq);
 	auto cpuData = getCpuData();
 
 	if(logEveryIrq)
-		infoLogger() << "thor: IRQ slot #" << number << frg::endlog;
+		infoLogger() << "thor: IRQ " << irq->name() << frg::endlog;
 
-	globalIrqSlots[number]->raise();
+	irq->raise();
 
 	// Inject IRQ timing entropy into the PRNG accumulator.
 	// Since we track the sequence number per CPU, we also include the CPU number.
 	uint64_t tsc = getRawTimestampCounter();
 	uint8_t entropy[6];
-	entropy[0] = number;
+	entropy[0] = irq->hash(); // We may want to use more than 8 bits here.
 	entropy[1] = cpuData->cpuIndex;
 	entropy[2] = tsc & 0xFF; // Assumption: only the low 32 bits contain entropy.
 	entropy[3] = (tsc >> 8) & 0xFF;
