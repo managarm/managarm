@@ -563,9 +563,23 @@ bool Udp4::unbind(Endpoint e) {
 	return binds.erase(e) != 0;
 }
 
-void Udp4::serveSocket(int flags, helix::UniqueLane lane) {
-	using protocols::fs::servePassthrough;
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<Udp4Socket> sock
+) {
+	// TODO: This could use race_and_cancel().
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &Udp4Socket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &Udp4Socket::ops, cancelPt);
+	std::println("netserver: UDP socket closed");
+}
+
+void Udp4::serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane) {
 	auto sock = Udp4Socket::make_socket(this, flags & SOCK_NONBLOCK);
-	async::detach(servePassthrough(std::move(lane), std::move(sock),
-			&Udp4Socket::ops));
+	async::detach(serveLanes(std::move(ctrlLane), std::move(ptLane), std::move(sock)));
 }

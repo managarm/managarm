@@ -427,13 +427,13 @@ std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
 	return {};
 }
 
-managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int proto, int flags) {
+managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane, int type, int proto, int flags) {
 	using namespace protocols::fs;
 	switch (type) {
 	case SOCK_RAW: {
 		auto sock = smarter::make_shared<Ip4Socket>(proto);
 		sockets.emplace(proto, sock);
-		async::detach(servePassthrough(std::move(lane),
+		async::detach(servePassthrough(std::move(ptLane),
 				sock, &Ip4Socket::ops),
 			[this, socket = sock.get()] {
 				for (auto i = sockets.begin();
@@ -450,15 +450,15 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 	case SOCK_DGRAM:
 		switch(proto) {
 		case IPPROTO_ICMP:
-			icmp->serveSocket(std::move(lane));
+			icmp->serveSocket(std::move(ptLane));
 			break;
 		default:
-			udp->serveSocket(flags, std::move(lane));
+			udp->serveSocket(flags, std::move(ctrlLane), std::move(ptLane));
 			break;
 		}
 		return managarm::fs::Errors::SUCCESS;
 	case SOCK_STREAM:
-		tcp->serveSocket(flags, std::move(lane));
+		tcp->serveSocket(flags, std::move(ctrlLane), std::move(ptLane));
 		return managarm::fs::Errors::SUCCESS;
 	default:
 		return managarm::fs::Errors::ILLEGAL_ARGUMENT;

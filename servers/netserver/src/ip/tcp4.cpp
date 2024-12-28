@@ -184,6 +184,11 @@ protocols::fs::Error checkAddress(const void *addrPtr, size_t addrLength, TcpEnd
 
 } // anonymous namespace
 
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<Tcp4Socket> sock);
+
 struct Tcp4Socket {
 	Tcp4Socket(Tcp4 *parent, bool nonBlock)
 	: parent_(parent), nonBlock_{nonBlock}, recvRing_{14}, sendRing_{14} {}
@@ -351,7 +356,7 @@ struct Tcp4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
-	static async::result<frg::expected<protocols::fs::Error, helix::UniqueLane>> accept(void *object) {
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::AcceptResult>> accept(void *object) {
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		if(self->pendingConnections_.empty()) {
@@ -366,7 +371,8 @@ struct Tcp4Socket {
 		auto connection = self->pendingConnections_.front();
 		self->pendingConnections_.erase(self->pendingConnections_.begin());
 
-		auto [localLane, remoteLane] = helix::createStream();
+		auto [localCtrl, remoteCtrl] = helix::createStream();
+		auto [localPt, remotePt] = helix::createStream();
 
 		auto sock = Tcp4Socket::makeSocket(self->parent_, 0);
 
@@ -396,10 +402,10 @@ struct Tcp4Socket {
 		}
 
 		async::detach(
-			protocols::fs::servePassthrough(std::move(localLane), std::move(sock), &Tcp4Socket::ops)
+			serveLanes(std::move(localCtrl), std::move(localPt), std::move(sock))
 		);
 
-		co_return std::move(remoteLane);
+		co_return std::make_pair(std::move(remotePt), std::move(remoteCtrl));
 	}
 
 	static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView creds,
@@ -1117,9 +1123,23 @@ bool Tcp4::unbind(TcpEndpoint e) {
 	return binds.erase(e) != 0;
 }
 
-void Tcp4::serveSocket(int flags, helix::UniqueLane lane) {
-	using protocols::fs::servePassthrough;
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<Tcp4Socket> sock
+) {
+	// TODO: This could use race_and_cancel().
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &Tcp4Socket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &Tcp4Socket::ops, cancelPt);
+	std::println("netserver: TCP socket closed");
+}
+
+void Tcp4::serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane) {
 	auto sock = Tcp4Socket::makeSocket(this, flags & SOCK_NONBLOCK);
-	async::detach(servePassthrough(std::move(lane), std::move(sock),
-			&Tcp4Socket::ops));
+	async::detach(serveLanes(std::move(ctrlLane), std::move(ptLane), std::move(sock)));
 }
