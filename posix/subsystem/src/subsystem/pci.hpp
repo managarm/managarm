@@ -8,8 +8,6 @@ namespace pci_subsystem {
 
 async::detached run();
 
-std::shared_ptr<drvcore::Device> getDeviceByMbus(int id);
-
 struct Device final : drvcore::BusDevice {
 	Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw_device, std::shared_ptr<drvcore::Device> parent = nullptr);
 

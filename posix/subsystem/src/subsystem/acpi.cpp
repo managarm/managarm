@@ -25,8 +25,16 @@ struct PathAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct UidAttribute : sysfs::Attribute {
+	UidAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 HidAttribute hidAttr{"hid"};
 PathAttribute pathAttr{"path"};
+UidAttribute uidAttr{"uid"};
 
 struct Device final : drvcore::BusDevice {
 	Device(std::string sysfs_name, int64_t mbus_id, std::string path, std::string hid_name,
@@ -42,6 +50,7 @@ struct Device final : drvcore::BusDevice {
 	int64_t mbusId;
 	std::string path;
 	std::string hid;
+	std::string uid;
 	unsigned int instance;
 };
 
@@ -55,9 +64,15 @@ async::result<frg::expected<Error, std::string>> PathAttribute::show(sysfs::Obje
 	co_return std::format("{}\n", device->path);
 }
 
+async::result<frg::expected<Error, std::string>> UidAttribute::show(sysfs::Object *object) {
+	auto device = static_cast<Device *>(object);
+	co_return std::format("{}\n", device->uid);
+}
+
 async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 	auto hid_name = std::get<mbus_ng::StringItem>(properties["acpi.hid"]).value;
 	auto path = std::get<mbus_ng::StringItem>(properties["acpi.path"]).value;
+	auto uid_str = std::get_if<mbus_ng::StringItem>(&properties["acpi.uid"]);
 	auto instance = std::stoul(std::get<mbus_ng::StringItem>(properties["acpi.instance"]).value);
 	assert(instance < std::numeric_limits<unsigned int>::max());
 
@@ -68,8 +83,13 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 	device->realizeAttribute(&hidAttr);
 	device->realizeAttribute(&pathAttr);
 
+	if(uid_str) {
+		device->uid = uid_str->value;
+		device->realizeAttribute(&uidAttr);
+	}
+
 	drvcore::registerMbusDevice(entity.id(), device);
-	mbusMap.insert(std::make_pair(entity.id(), device));
+
 
 	co_return;
 }

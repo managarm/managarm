@@ -356,7 +356,7 @@ struct efi_boot_services {
 	    uint32_t *descriptor_version
 	);
 	efi_status (*allocate_pool)(efi_memory_type pool_type, size_t size, void **buffer);
-	void *free_pool;
+	efi_status (*free_pool)(void *buffer);
 	void *create_event;
 	void *set_timer;
 	void *wait_for_event;

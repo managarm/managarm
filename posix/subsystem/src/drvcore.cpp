@@ -201,9 +201,12 @@ std::map<mbus_ng::EntityId, std::shared_ptr<Device>> mbusMap;
 
 } // namespace
 
+async::recurring_event mbusMapUpdate;
+
 // TODO(no92): also attach type info (USB, PCI, etc.) about the device here?
 void registerMbusDevice(mbus_ng::EntityId id, std::shared_ptr<Device> dev) {
 	mbusMap.insert({id, std::move(dev)});
+	mbusMapUpdate.raise();
 }
 
 std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId id) {
