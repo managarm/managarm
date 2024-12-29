@@ -54,6 +54,10 @@ EirInfo *getEirInfo() {
 	return reinterpret_cast<EirInfo *>(memoryLayoutNote->eirInfo);
 }
 
+frg::string_view getKernelCmdline() {
+	return *kernelCommandLine;
+}
+
 using InitializerPtr = void (*)();
 extern "C" InitializerPtr __init_array_start[];
 extern "C" InitializerPtr __init_array_end[];

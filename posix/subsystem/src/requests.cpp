@@ -19,6 +19,7 @@
 #include "fifo.hpp"
 #include "inotify.hpp"
 #include "memfd.hpp"
+#include "ostrace.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "signalfd.hpp"
@@ -50,6 +51,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix_ng::recvInline()
 				)
 			);
+
+		protocols::ostrace::Timer timer;
 
 		if(accept.error() == kHelErrLaneShutdown)
 			break;
@@ -3579,6 +3582,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}
+
+		if (preamble.id() == managarm::posix::CntRequest::message_id) {
+			posix::ostContext.emit(
+				posix::ostEvtLegacyRequest,
+				posix::ostAttrRequest(req.request_type()),
+				posix::ostAttrTime(timer.elapsed())
+			);
+		} else {
+			posix::ostContext.emit(
+				posix::ostEvtRequest,
+				posix::ostAttrRequest(preamble.id()),
+				posix::ostAttrTime(timer.elapsed())
+			);
 		}
 	}
 

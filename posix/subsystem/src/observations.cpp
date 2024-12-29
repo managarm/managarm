@@ -2,7 +2,9 @@
 
 #include "gdbserver.hpp"
 #include "observations.hpp"
+#include "ostrace.hpp"
 
+#include <frg/scope_exit.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 
@@ -117,6 +119,16 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 		HEL_CHECK(observe.error());
 		sequence = observe.sequence();
+
+		protocols::ostrace::Timer timer;
+
+		frg::scope_exit traceOnExit{[&] {
+			posix::ostContext.emit(
+				posix::ostEvtObservation,
+				posix::ostAttrRequest(observe.observation()),
+				posix::ostAttrTime(timer.elapsed())
+			);
+		}};
 
 		if(observe.observation() == kHelObserveSuperCall + posix::superAnonAllocate) {
 			uintptr_t gprs[kHelNumGprs];

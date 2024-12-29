@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <protocols/ostrace/ostrace.hpp>
 #include <stdint.h>
 
 namespace blockfs {
@@ -27,5 +28,17 @@ protected:
 };
 
 async::detached runDevice(BlockDevice *device);
+
+extern protocols::ostrace::Event ostEvtGetLink;
+extern protocols::ostrace::Event ostEvtTraverseLinks;
+extern protocols::ostrace::Event ostEvtRead;
+extern protocols::ostrace::Event ostEvtRawRead;
+extern protocols::ostrace::Event ostEvtExt2InitiateInode;
+extern protocols::ostrace::Event ostEvtExt2ManageInode;
+extern protocols::ostrace::Event ostEvtExt2ManageFile;
+extern protocols::ostrace::UintAttribute ostAttrTime;
+extern protocols::ostrace::UintAttribute ostAttrNumBytes;
+
+extern protocols::ostrace::Context ostContext;
 
 } // namespace blockfs

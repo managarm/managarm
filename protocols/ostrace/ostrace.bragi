@@ -2,33 +2,31 @@ namespace "managarm::ostrace";
 
 // Records stored in the output file.
 
-struct CounterItem {
-	uint64 id;
-	int64 value;
-}
-
 group {
 
-message EventRecord 1 {
+message Definition 1 {
 head(8):
 tail:
+	uint64 id;
+	string name;
+}
+
+message EndOfRecord 2 {
+head(8):
+}
+
+message EventRecord 3 {
+head(8):
+tail:
+	uint64 id;
 	uint64 ts; // Timestamp in nanoseconds.
-	uint64 id;
-	CounterItem[] ctrs;
 }
 
-message AnnounceEventRecord 2 {
+message UintAttribute 32 {
 head(8):
 tail:
 	uint64 id;
-	string name;
-}
-
-message AnnounceItemRecord 3 {
-head(8):
-tail:
-	uint64 id;
-	string name;
+	uint64 v;
 }
 
 }
@@ -46,18 +44,14 @@ message NegotiateReq 1 {
 head(128):
 }
 
-message EmitEventReq 2 {
+message EmitReq 2 {
 head(128):
-	uint64 id;
-	CounterItem[] ctrs;
+	uint64 size;
 }
 
-message AnnounceEventReq 3 {
-head(128):
-	string name;
-}
-
-message AnnounceItemReq 4 {
+// TODO(AvdG): in the future, we want each source to emit its definitions independently
+//             from other sources. This can be done by adding source IDs to the record header.
+message AnnounceItemReq 3 {
 head(128):
 	string name;
 }
