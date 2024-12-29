@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -62,28 +63,29 @@ async::result<protocols::fs::Error> flock(void *object, int flags) {
 }
 
 async::result<protocols::fs::ReadResult> read(void *object, const char *,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token ce) {
 	if (!length)
-		co_return size_t{0};
+		co_return {protocols::fs::Error::none, 0};
 
 	uint64_t start;
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-
 	if(self->inode->fileType == FileType::kTypeDirectory) {
-		co_return protocols::fs::Error::isDirectory;
+		co_return {protocols::fs::Error::isDirectory, 0};
 	}
 
-	co_await self->inode->readyJump.wait();
+	co_await self->inode->readyJump.wait(ce);
+	if (ce.is_cancellation_requested())
+		co_return {protocols::fs::Error::interrupted, 0};
 
 	if(self->offset >= self->inode->fileSize())
-		co_return size_t{0};
+		co_return {protocols::fs::Error::none, 0};
 
 	auto remaining = self->inode->fileSize() - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return {protocols::fs::Error::none, 0}; // TODO: Return an explicit end-of-file error?
 
 	auto chunk_offset = self->offset;
 	self->offset += chunkSize;
@@ -122,7 +124,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
 	co_await oste.emit();
 
-	co_return chunkSize;
+	co_return {protocols::fs::Error::none, chunkSize};
 }
 
 async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, const char *,
@@ -130,15 +132,16 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	assert(length);
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+	//TODO(geert): pass cancellation token
 	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
-		co_return size_t{0};
+		co_return {protocols::fs::Error::none, 0};
 
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return {protocols::fs::Error::endOfFile, 0};
 
 	auto chunk_offset = offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
@@ -157,7 +160,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 
 	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
 			chunk_size);
-	co_return chunk_size;
+	co_return {protocols::fs::Error::none, chunk_size};
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *,
@@ -510,26 +513,28 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 };
 
 async::result<protocols::fs::ReadResult> rawRead(void *object, const char *,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token ct) {
 	assert(length);
 
 	uint64_t start;
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<raw::OpenFile *>(object);
+	//TODO(geert): pass cancellation token through here
 	auto file_size = co_await self->rawFs->device->getSize();
 
 	if(self->offset >= file_size)
-		co_return size_t{0};
+		co_return {protocols::fs::Error::none, 0};
 
 	auto remaining = file_size - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return {protocols::fs::Error::endOfFile, 0};
 
 	auto chunk_offset = self->offset;
 	self->offset += chunkSize;
 
+	//TODO(geert): use cancellation token here
 	auto readMemory = co_await helix_ng::readMemory(
 			helix::BorrowedDescriptor(self->rawFs->frontalMemory),
 			chunk_offset, chunkSize, buffer);
@@ -543,7 +548,7 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, const char *,
 	oste.withCounter(ostTimeCounter, static_cast<int64_t>(end - start));
 	co_await oste.emit();
 
-	co_return chunkSize;
+	co_return {protocols::fs::Error::none, chunkSize};
 }
 
 async::result<protocols::fs::Error> rawFlock(void *object, int flags) {

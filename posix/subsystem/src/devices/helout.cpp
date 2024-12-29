@@ -12,8 +12,8 @@ namespace {
 
 struct HeloutFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token) override {
 		(void)data;
 		(void)max_length;
 		assert(!"Not implemented");

@@ -4,15 +4,14 @@
 #include "null.hpp"
 
 #include <bitset>
-#include <coroutine>
 
 namespace {
 
 struct NullFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *, size_t) override {
-		co_return 0;
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *, size_t, async::cancellation_token) override {
+		co_return {protocols::fs::Error::none, 0};
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {

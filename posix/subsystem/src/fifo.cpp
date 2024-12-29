@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 #include <iostream>
@@ -11,6 +12,7 @@
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
+#include "protocols/fs/common.hpp"
 
 #include <sys/ioctl.h>
 
@@ -76,25 +78,30 @@ public:
 		_channel = nullptr;
 	}
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
 		if(!maxLength)
-			co_return 0;
+			co_return {protocols::fs::Error::none, 0};
 
 		while(_channel->packetQueue.empty() && _channel->writerCount) {
 			if(nonBlock_) {
 				if(logFifos)
 					std::cout << "posix: FIFO pipe would block" << std::endl;
-				co_return Error::wouldBlock;
+				co_return {protocols::fs::Error::wouldBlock, 0};
 			}
-			co_await _channel->statusBell.async_wait();
+			co_await _channel->statusBell.async_wait(ce);
+			if (ce.is_cancellation_requested()) {
+				if (logFifos)
+					std::cout << "posix: FIFO pipe read interrupted" << std::endl;
+				co_return {protocols::fs::Error::interrupted, 0};
+			}
 		}
 
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
-			co_return 0;
+			co_return {protocols::fs::Error::none, 0};
 		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
@@ -105,7 +112,7 @@ public:
 		packet->offset += chunk;
 		if(packet->offset == packet->buffer.size())
 			_channel->packetQueue.pop_front();
-		co_return chunk;
+		co_return {protocols::fs::Error::none, chunk};
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>

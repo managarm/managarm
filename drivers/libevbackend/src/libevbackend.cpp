@@ -86,18 +86,22 @@ async::detached issueReset() {
 // ----------------------------------------------------------------------------
 
 async::result<protocols::fs::ReadResult>
-File::read(void *object, const char *, void *buffer, size_t max_size) {
+File::read(void *object, const char *, void *buffer, size_t max_size,
+		async::cancellation_token ct) {
 	auto self = static_cast<File *>(object);
 
 	// Make sure that we can at least write the SYN_DROPPED packet.
 	if(max_size < sizeof(input_event))
-		co_return protocols::fs::Error::illegalArguments;
+		co_return {protocols::fs::Error::illegalArguments, 0};
 
 	if(self->_nonBlock && self->_pending.empty() && !self->_overflow)
-		co_return protocols::fs::Error::wouldBlock;
+		co_return {protocols::fs::Error::wouldBlock, 0};
 
-	while(self->_pending.empty() && !self->_overflow)
-		co_await self->_statusBell.async_wait();
+	while(self->_pending.empty() && !self->_overflow) {
+		co_await self->_statusBell.async_wait(ct);
+		if (ct.is_cancellation_requested())
+			co_return {protocols::fs::Error::interrupted, 0};
+	}
 
 	if(self->_overflow) {
 		struct timespec now;
@@ -116,7 +120,7 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 		self->_pending.clear();
 		self->_overflow = false;
 
-		co_return sizeof(input_event);
+		co_return {protocols::fs::Error::none, sizeof(input_event)};
 	}else{
 		size_t written = 0;
 		while(!self->_pending.empty()
@@ -138,7 +142,7 @@ File::read(void *object, const char *, void *buffer, size_t max_size) {
 		}
 
 		assert(written);
-		co_return written;
+		co_return {protocols::fs::Error::none, written};
 	}
 }
 

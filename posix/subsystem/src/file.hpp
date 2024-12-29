@@ -123,7 +123,8 @@ public:
 	ptSeekEof(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(void *object, const char *credentials, void *buffer, size_t length);
+	ptRead(void *object, const char *credentials, void *buffer, size_t length,
+			async::cancellation_token ce);
 
 	static async::result<protocols::fs::ReadResult>
 	ptPread(void *object, int64_t offset, const char *credentials, void *buffer, size_t length);
@@ -295,8 +296,9 @@ public:
 	virtual async::result<frg::expected<Error, off_t>>
 	seek(off_t offset, VfsSeek whence);
 
-	virtual async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t max_length);
+	virtual async::result<protocols::fs::ReadResult>
+	readSome(Process *process, void *data, size_t max_length,
+			async::cancellation_token ce);
 
 	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
@@ -304,7 +306,7 @@ public:
 	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
 	getControllingTerminal();
 
-	virtual async::result<frg::expected<Error, size_t>>
+	virtual async::result<protocols::fs::ReadResult>
 	pread(Process *process, int64_t offset, void *buffer, size_t length);
 
 	virtual async::result<frg::expected<Error, size_t>>

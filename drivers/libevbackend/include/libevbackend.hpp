@@ -5,6 +5,7 @@
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
+#include <async/cancellation.hpp>
 #include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <linux/input.h>
@@ -49,7 +50,8 @@ struct File {
 	// ------------------------------------------------------------------------
 
 	static async::result<protocols::fs::ReadResult>
-	read(void *object, const char *, void *buffer, size_t length);
+	read(void *object, const char *, void *buffer, size_t length,
+			async::cancellation_token ct);
 
 	static async::result<void>
 	write(void *object, const char *, const void *buffer, size_t length);

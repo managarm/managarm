@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
@@ -7,6 +8,7 @@
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 #include "signalfd.hpp"
 
 namespace {
@@ -25,20 +27,28 @@ public:
 	OpenFile(uint64_t mask, bool nonBlock)
 	: File{StructName::get("signalfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, _mask{mask}, _nonBlock{nonBlock} { }
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t maxLength) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ce) override {
 		if(maxLength < sizeof(struct signalfd_siginfo))
-			co_return Error::illegalArguments;
+			co_return {protocols::fs::Error::illegalArguments, 0};
 
-		auto active = co_await process->signalContext()->fetchSignal(_mask, _nonBlock);
-		if(!active)
-			co_return Error::wouldBlock;
+		async::cancellation_event ev;
+		if (_nonBlock) {
+			ev.cancel();
+			ce = async::cancellation_token{ev};
+		}
+		auto active = co_await process->signalContext()->fetchSignal(_mask, ce);
+		if(!active && _nonBlock)
+			co_return {protocols::fs::Error::wouldBlock, 0};
+		if (!active && !_nonBlock)
+			co_return {protocols::fs::Error::interrupted, 0};
 
 		struct signalfd_siginfo si = {};
 		si.ssi_signo = active->signalNumber;
 
 		memcpy(data, &si, sizeof(struct signalfd_siginfo));
-		co_return sizeof(struct signalfd_siginfo);
+		co_return {protocols::fs::Error::none,
+				sizeof(struct signalfd_siginfo)};
 	}
 	
 	async::result<frg::expected<Error, PollWaitResult>>

@@ -36,10 +36,10 @@ extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHa
 };
 
 extern inline __attribute__ (( always_inline )) HelError helTransferDescriptor(HelHandle handle,
-		HelHandle universe_handle, HelHandle *out_handle) {
+		HelHandle universe_handle, HelHandle *out_handle, int in) {
 	HelWord hel_out_handle;
-	HelError error = helSyscall2_1(kHelCallTransferDescriptor, (HelWord)handle,
-			(HelWord) universe_handle, &hel_out_handle);
+	HelError error = helSyscall3_1(kHelCallTransferDescriptor, (HelWord)handle,
+			(HelWord) universe_handle, (HelWord) in, &hel_out_handle);
 	*out_handle = (HelHandle)hel_out_handle;
 	return error;
 };

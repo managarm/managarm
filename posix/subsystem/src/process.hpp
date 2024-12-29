@@ -275,9 +275,7 @@ public:
 
 	CheckSignalResult checkSignal();
 
-	// TODO: If we ever need to cancel this operation, it would be better to
-	//       take a cancellation token instead of nonBlock.
-	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock);
+	async::result<SignalItem *> fetchSignal(uint64_t mask, async::cancellation_token ce);
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
@@ -525,6 +523,7 @@ public:
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 	void *clientAuxBegin() { return _clientAuxBegin; }
 	void *clientAuxEnd() { return _clientAuxEnd; }
+	void *clientCancelEvent() { return _clientCancelEvent; }
 
 	ThreadPage *accessThreadPage() {
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
@@ -540,7 +539,8 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats = nullptr);
+	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state,
+			async::cancellation_token ct, ResourceUsage *stats = nullptr);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;
@@ -605,10 +605,14 @@ private:
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
+	helix::UniqueDescriptor _cancelEventMemory;
+	helix::Mapping _cancelEventMapping;
+
 	HelHandle _clientPosixLane;
 	void *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
+	void *_clientCancelEvent;
 	// Pointers to the aux vector in the client.
 	void *_clientAuxBegin = nullptr;
 	void *_clientAuxEnd = nullptr;

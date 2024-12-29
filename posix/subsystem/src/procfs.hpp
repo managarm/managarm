@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/cancellation.hpp>
 #include <protocols/fs/server.hpp>
 
 #include "vfs.hpp"
@@ -36,8 +37,8 @@ public:
 
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override;
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override;
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override;
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;

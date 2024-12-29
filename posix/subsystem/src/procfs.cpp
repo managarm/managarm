@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -6,6 +7,7 @@
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 
 #include <bitset>
 
@@ -61,13 +63,14 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-RegularFile::readSome(Process *, void *data, size_t max_length) {
+async::result<protocols::fs::ReadResult>
+RegularFile::readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
+		// TODO(geert): We assume this can't block (probably wrong).
 		_buffer = co_await node->show();
 		_cached = true;
 	}
@@ -76,7 +79,7 @@ RegularFile::readSome(Process *, void *data, size_t max_length) {
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
-	co_return chunk;
+	co_return {protocols::fs::Error::none, chunk};
 }
 
 async::result<frg::expected<Error, size_t>>

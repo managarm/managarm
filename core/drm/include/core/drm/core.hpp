@@ -46,7 +46,8 @@ struct File {
 	/**
 	 * A read operation on a DRM fd returning pending events, if any.
 	 */
-	read(void *object, const char *, void *buffer, size_t length);
+	read(void *object, const char *, void *buffer, size_t length,
+			async::cancellation_token ce);
 
 	static async::result<helix::BorrowedDescriptor>
 	accessMemory(void *object);

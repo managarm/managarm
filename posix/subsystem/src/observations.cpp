@@ -147,7 +147,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				self->fileContext()->clientMbusLane(),
 				self->clientThreadPage(),
 				static_cast<HelHandle *>(self->clientFileTable()),
-				self->clientClkTrackerPage()
+				self->clientClkTrackerPage(),
+				static_cast<HelHandle*>(self->clientCancelEvent())
 			};
 
 			if(logRequests)
@@ -315,8 +316,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
+				async::cancellation_event ev;
+				ev.cancel();
 				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
+						~self->signalMask(), {ev});
 				if(active) {
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 				}
@@ -339,7 +342,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			bool killed = false;
-			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+			async::cancellation_event ev;
+			ev.cancel();
+			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), {ev});
 			if(active)
 				co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			if(killed)
@@ -406,8 +411,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			// If the process signalled itself, we should process the signal before resuming.
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
+				async::cancellation_event ev;
+				ev.cancel();
 				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
+						~self->signalMask(), {ev});
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}
@@ -509,8 +516,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;
 			if(self->checkOrRequestSignalRaise()) {
+				async::cancellation_event ev;
+				ev.cancel();
 				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
+						~self->signalMask(), {ev});
 				if(active)
 					co_await self->signalContext()->raiseContext(active, self.get(), killed);
 			}

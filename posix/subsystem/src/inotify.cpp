@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
@@ -10,6 +11,7 @@
 #include "fs.hpp"
 #include "inotify.hpp"
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 
 namespace inotify {
 
@@ -62,14 +64,14 @@ public:
 		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
 	}
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
 		// TODO: As an optimization, we could return multiple events at the same time.
 		Packet packet = std::move(_queue.front());
 		_queue.pop_front();
 
 		if(maxLength < sizeof(inotify_event) + packet.name.size() + 1)
-			co_return Error::illegalArguments;
+			co_return {protocols::fs::Error::illegalArguments, 0};
 
 		inotify_event e;
 		memset(&e, 0, sizeof(inotify_event));
@@ -81,7 +83,8 @@ public:
 		memcpy(data, &e, sizeof(inotify_event));
 		memcpy(reinterpret_cast<char *>(data) + sizeof(inotify_event),
 				packet.name.c_str(), packet.name.size() + 1);
-		co_return sizeof(inotify_event) + packet.name.size() + 1;
+		co_return {protocols::fs::Error::none,
+				sizeof(inotify_event) + packet.name.size() + 1};
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>

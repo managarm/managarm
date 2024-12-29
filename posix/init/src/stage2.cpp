@@ -221,8 +221,13 @@ int main() {
 		//execl("/usr/bin/kmscube", "kmscube", nullptr);
 	}else assert(desktop != -1);
 
-	if(waitpid(desktop, nullptr, 0) < 0)
-		throw std::runtime_error("waitpid() failed");
+	while(true) {
+		int e = waitpid(desktop, nullptr, 0);
+		if (e < 0 && errno != EINTR)
+			throw std::runtime_error("waitpid() failed");
+		else if (e == 0)
+			break;
+	}
 	std::cout << "init: Launched process terminated" << std::endl;
 
 	while(true)

@@ -12,8 +12,10 @@ namespace {
 
 struct KmsgFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t length, async::cancellation_token ct) override {
+		//TODO(geert): Make this cancellable.
+		(void) ct;
 		std::vector<char> buffer(2048);
 
 		uint32_t flags = managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD;
@@ -42,17 +44,18 @@ private:
 		auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
 
 		if(resp.error() == managarm::kerncfg::Error::WOULD_BLOCK)
-			co_return Error::wouldBlock;
+			co_return {protocols::fs::Error::wouldBlock, 0};
 
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
+		// TODO: Why is this an int?
 		int ret_len = snprintf(reinterpret_cast<char *>(data), length,
 			"%s", reinterpret_cast<char *>(buffer.data()));
 
 		assert(offset_ == resp.effective_dequeue());
 		offset_ = resp.new_dequeue();
 
-		co_return ret_len;
+		co_return {protocols::fs::Error::none, static_cast<size_t>(ret_len)};
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *data, size_t length) override {

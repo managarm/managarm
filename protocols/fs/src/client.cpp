@@ -36,19 +36,29 @@ async::result<void> File::seekAbsolute(int64_t offset) {
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 }
 
-async::result<size_t> File::readSome(void *data, size_t max_length) {
+async::result<ReadResult> File::readSome(void *data, 
+		size_t max_length, async::cancellation_token ce) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
 	req.set_size(max_length);
 
+	HelHandle cancel_handle;
+	HEL_CHECK(helCreateOneshotEvent(&cancel_handle));
+	helix::UniqueDescriptor cancel_event{cancel_handle};
+
+	async::cancellation_callback cancel_cb{ce, [&cancel_event] {
+		HEL_CHECK(helRaiseEvent(cancel_event.getHandle()));
+	}};
+
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 
-	auto [offer, send_req, imbue_creds, recv_resp, recv_data] =
+	auto [offer, push_req, send_req, imbue_creds, recv_resp, recv_data] =
 		co_await helix_ng::exchangeMsgs(
 			_lane,
 			helix_ng::offer(
 				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(cancel_event),
 				helix_ng::imbueCredentials(),
 				helix_ng::recvBuffer(buffer, 128),
 				helix_ng::recvBuffer(data, max_length)
@@ -56,6 +66,7 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 		);
 
 	HEL_CHECK(offer.error());
+	HEL_CHECK(push_req.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(imbue_creds.error());
 	HEL_CHECK(recv_resp.error());
@@ -64,10 +75,14 @@ async::result<size_t> File::readSome(void *data, size_t max_length) {
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	if(resp.error() == managarm::fs::Errors::END_OF_FILE) {
-		co_return 0;
+		co_return {Error::endOfFile, 0};
 	}
+	if (resp.error() == managarm::fs::Errors::INTERRUPTED) {
+		co_return {Error::interrupted, recv_data.actualLength()};
+	}
+
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	co_return recv_data.actualLength();
+	co_return {Error::none, recv_data.actualLength()};
 }
 
 async::result<size_t> File::writeSome(const void *data, size_t maxLength) {

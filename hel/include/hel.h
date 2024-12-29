@@ -641,7 +641,7 @@ HEL_C_LINKAGE HelError helCreateUniverse(HelHandle *handle);
 //!    	Handle to the destination universe.
 //! @param[out] outHandle
 //!    	Handle to the copied descriptor (valid in the universe specified by @p universeHandle).
-HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universeHandle,
+HEL_C_LINKAGE HelError helTransferDescriptor(HelHandle handle, HelHandle universeHandle, int in,
 		HelHandle *outHandle);
 
 HEL_C_LINKAGE HelError helDescriptorInfo(HelHandle handle, struct HelDescriptorInfo *info);

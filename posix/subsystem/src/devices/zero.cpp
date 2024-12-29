@@ -1,6 +1,7 @@
 #include <string.h>
 
 #include "../common.hpp"
+#include "protocols/fs/common.hpp"
 #include "zero.hpp"
 
 #include <bitset>
@@ -10,10 +11,10 @@ namespace {
 
 struct ZeroFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
 		memset(data, 0, length);
-		co_return length;
+		co_return {protocols::fs::Error::none, length};
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {
