@@ -1,12 +1,16 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch/gic.hpp>
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/thread.hpp>
 #include <assert.h>
 
 namespace thor {
+
+// TODO: Remove this on aarch64.
+extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
 
 extern "C" void *thorExcVectors;
 
@@ -205,7 +209,7 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 		panicLogger() << "thor: Panic due to unrecoverable error" << frg::endlog;
 }
 
-void handleIrq(IrqImageAccessor image, int number);
+void handleIrq(IrqImageAccessor image, IrqPin *irq);
 void handlePreemption(IrqImageAccessor image);
 
 static constexpr bool logSGIs = false;
@@ -245,7 +249,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			infoLogger() << "thor: on CPU " << getCpuData()->cpuIndex << ", spurious IRQ " << irq << " occured" << frg::endlog;
 		// no need to EOI spurious irqs
 	} else {
-		handleIrq(image, irq);
+		handleIrq(image, globalIrqSlots[irq]->pin());
 	}
 }
 

@@ -8,9 +8,6 @@
 
 namespace thor {
 
-// TODO: Remove this on RISC-V.
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-
 namespace {
 
 const frg::array<frg::string_view, 1> plicCompatible = {"riscv,plic0"};
@@ -82,12 +79,6 @@ struct Plic : dt::IrqController {
 		irqs_ = {numIrqs, *kernelAlloc};
 		for (size_t i = 0; i < numIrqs; ++i)
 			irqs_[i] = frg::construct<Irq>(*kernelAlloc, this, i);
-		// TODO: This assumes a single PLIC.
-		//       Get rid of globalIrqSlots for non-x86 systems.
-		for (size_t i = 0; i < numIrqs; ++i) {
-			assert(globalIrqSlots[i]->isAvailable());
-			globalIrqSlots[i]->link(irqs_[i]);
-		}
 
 		// Set all IRQs to the highest priority.
 		for (size_t i = 0; i < numIrqs; ++i)
@@ -230,11 +221,13 @@ initgraph::Task initPlic{
 
 } // namespace
 
-unsigned int claimExternalIrq() {
+IrqPin *claimExternalIrq() {
 	auto *ourExternalIrq = &riscvExternalIrq.get();
 	if (!ourExternalIrq->plic)
-		return 0;
-	return ourExternalIrq->plic->claim(ourExternalIrq->ctx);
+		return nullptr;
+	auto *plic = ourExternalIrq->plic;
+	auto idx = plic->claim(ourExternalIrq->ctx);
+	return plic->getIrq(idx);
 }
 
 } // namespace thor
