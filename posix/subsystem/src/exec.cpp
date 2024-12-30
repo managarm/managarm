@@ -265,7 +265,7 @@ execute(ViewPath root, ViewPath workdir,
 	}
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
-	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, "/lib/ld-init.so", self));
+	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, "/usr/lib/ld-init.so", self));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
 	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), 0x40000000));
 

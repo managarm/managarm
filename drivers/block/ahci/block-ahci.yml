@@ -1,4 +1,4 @@
 name: block-ahci
-exec: /sbin/block-ahci
+exec: /usr/bin/block-ahci
 files:
-  - /sbin/block-ahci
+  - /usr/bin/block-ahci

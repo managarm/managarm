@@ -90,6 +90,17 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 
 	drvcore::registerMbusDevice(entity.id(), device);
 
+	if(properties.contains("acpi.physical_node")) {
+		auto physical_node = std::get<mbus_ng::StringItem>(properties["acpi.physical_node"]).value;
+		while(true) {
+			co_await drvcore::mbusMapUpdate.async_wait();
+			auto target = drvcore::getMbusDevice(std::stoul(physical_node));
+			if(target) {
+				device->createSymlink("physical_node", target);
+				break;
+			}
+		}
+	}
 
 	co_return;
 }

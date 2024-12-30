@@ -175,7 +175,7 @@ int main() {
 #if defined (__x86_64__)
 	auto uart = fork();
 	if(!uart) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/uart", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/uart", nullptr);
 	}else assert(uart != -1);
 #endif
 
@@ -183,40 +183,40 @@ int main() {
 #if defined (__x86_64__)
 	auto ehci = fork();
 	if(!ehci) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/ehci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/ehci", nullptr);
 	}else assert(ehci != -1);
 #endif
 
 	auto xhci = fork();
 	if(!xhci) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/xhci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/xhci", nullptr);
 	}else assert(xhci != -1);
 
 	auto virtio = fork();
 	if(!virtio) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/virtio-block", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/virtio-block", nullptr);
 	}else assert(virtio != -1);
 
 #if defined (__x86_64__)
 	auto block_ata = fork();
 	if(!block_ata) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-ata", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/block-ata", nullptr);
 	}else assert(block_ata != -1);
 #endif
 
 	auto block_ahci = fork();
 	if(!block_ahci) {
-		execl("/bin/runsvr", "/bin/runsvr", "run", "/lib/block-ahci.bin", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "run", "/usr/lib/managarm/server/block-ahci.bin", nullptr);
 	}else assert(block_ahci != -1);
 
 	auto block_nvme = fork();
 	if(!block_nvme) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/block-nvme", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/block-nvme", nullptr);
 	}else assert(block_nvme != -1);
 
 	auto block_usb = fork();
 	if(!block_usb) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/storage", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/storage", nullptr);
 	}else assert(block_usb != -1);
 
 	std::optional<std::string> rootPath;
@@ -257,7 +257,7 @@ int main() {
 	// Hack: Start UHCI only after EHCI devices are ready.
 	auto uhci = fork();
 	if(!uhci) {
-		execl("/bin/runsvr", "/bin/runsvr", "runsvr", "/sbin/uhci", nullptr);
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/uhci", nullptr);
 	}else assert(uhci != -1);
 #endif
 

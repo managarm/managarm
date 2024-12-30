@@ -18,7 +18,7 @@ extern efi_handle handle;
 
 efi_status fsOpen(efi_file_protocol **file, char16_t *path);
 efi_status fsRead(efi_file_protocol *file, size_t len, size_t offset, efi_physical_addr buf);
-efi_file_info *fsGetInfo(efi_file_protocol *file);
+size_t fsGetSize(efi_file_protocol *file);
 
 char16_t *asciiToUcs2(frg::string_view &s);
 

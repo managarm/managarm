@@ -10,10 +10,9 @@
 
 namespace thor::acpi {
 
-coroutine<void> AcpiObject::run() {
+coroutine<void> AcpiObject::run(Properties acpi_properties) {
 	auto path = uacpi_namespace_node_generate_absolute_path(node);
 
-	Properties acpi_properties;
 	acpi_properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "acpi"));
 	acpi_properties.stringProperty("acpi.path", frg::string<KernelAlloc>(path, *kernelAlloc));
 	if(hid_name)

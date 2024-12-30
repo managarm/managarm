@@ -35,69 +35,69 @@ def add_file(src_prefix, tree_prefix, filename, rename_to=None, strip=False):
 
 # Add all the files.
 
-add_dir('bin')
-add_dir('sbin')
-add_dir('lib')
-add_dir('managarm')
-add_dir('managarm/server')
+add_dir('usr')
+add_dir('usr/bin')
+add_dir('usr/lib')
+add_dir('usr/lib/managarm')
+add_dir('usr/lib/managarm/server')
 
 # The kernel
 add_file('system-root/usr/managarm/bin', '', 'thor', strip=True)
 
 # Runtime libraries.
-add_file('system-root/usr/lib', 'lib', 'libhelix.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libc.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libm.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'ld.so', rename_to='ld-init.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'liblewis.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libz.so.1', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libvirtio_core.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libarch.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libfs_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libhw_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libkernlet_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libmbus.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libostrace_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libsvrctl_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'lib', 'libusb_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libhelix.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libc.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libm.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'liblewis.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libz.so.1', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libvirtio_core.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libarch.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libfs_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libhw_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libkernlet_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libmbus.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libostrace_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libsvrctl_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libusb_protocol.so', strip=True)
 if args.arch == 'riscv64-managarm':
-	add_file('system-root/usr/lib', 'lib', 'libgcc_s.so.1', strip=True)
-	add_file('system-root/usr/lib', 'lib', 'libstdc++.so.6', strip=True)
+	add_file('system-root/usr/lib', 'usr/lib', 'libgcc_s.so.1', strip=True)
+	add_file('system-root/usr/lib', 'usr/lib', 'libstdc++.so.6', strip=True)
 else:
-	add_file('system-root/usr/lib64', 'lib', 'libgcc_s.so.1', strip=True)
-	add_file('system-root/usr/lib64', 'lib', 'libstdc++.so.6', strip=True)
+	add_file('system-root/usr/lib64', 'usr/lib', 'libgcc_s.so.1', strip=True)
+	add_file('system-root/usr/lib64', 'usr/lib', 'libstdc++.so.6', strip=True)
 
 # User-space core components.
-add_file('system-root/usr/bin', 'sbin', 'mbus', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'kernletcc', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'clocktracker', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'posix-subsystem', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'posix-init', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'mbus', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'kernletcc', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'clocktracker', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'posix-subsystem', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'posix-init', strip=True)
 
 # Essential drivers.
-add_file('system-root/usr/lib', 'lib', 'libblockfs.so', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'ehci', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'xhci', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'block-ahci', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'block-nvme', strip=True)
-add_file('system-root/usr/lib/managarm/server', 'lib', 'block-ahci.bin')
-add_file('system-root/usr/bin', 'sbin', 'storage', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'virtio-block', strip=True)
-add_file('system-root/usr/bin', 'sbin', 'virtio-console', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libblockfs.so', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'ehci', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'xhci', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'netserver', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'block-ahci', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'block-nvme', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'storage', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'virtio-block', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'virtio-console', strip=True)
 
 if args.arch == 'x86_64-managarm':
-	add_file('system-root/usr/bin', 'sbin', 'uhci', strip=True)
-	add_file('system-root/usr/bin', 'sbin', 'block-ata', strip=True)
-	add_file('system-root/usr/bin', 'sbin', 'uart', strip=True)
+	add_file('system-root/usr/bin', 'usr/bin', 'uhci', strip=True)
+	add_file('system-root/usr/bin', 'usr/bin', 'block-ata', strip=True)
+	add_file('system-root/usr/bin', 'usr/bin', 'uart', strip=True)
 
 # Essential utilities.
-add_file('system-root/usr/bin', 'bin', 'runsvr', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'runsvr', strip=True)
 
 # Server descriptions.
 for fname in os.listdir('system-root/usr/lib/managarm/server'):
 	if not fname.endswith('.bin'):
 		continue
-	add_file('system-root/usr/lib/managarm/server', 'managarm/server', fname)
+	add_file('system-root/usr/lib/managarm/server', 'usr/lib/managarm/server', fname)
 
 # Copy (= hard link) the files to a temporary directory, run GNU cpio.
 

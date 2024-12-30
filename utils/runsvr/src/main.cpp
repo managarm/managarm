@@ -1,4 +1,5 @@
 #include <fcntl.h>
+#include <format>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -44,7 +45,7 @@ static std::vector<std::byte> readEntireFile(const char *path) {
 
 	auto fd = open(path, O_RDONLY);
 	if(fd < 0)
-		throw std::runtime_error("Could not open file");
+		throw std::runtime_error(std::format("Could not open file '{}'", path));
 
 	std::vector<std::byte> buffer;
 

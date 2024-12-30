@@ -245,10 +245,11 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 		uacpi_find_devices_at(
 			uacpi_namespace_get_predefined(UACPI_PREDEFINED_NAMESPACE_SB),
 			pciRootIds, [](void*, uacpi_namespace_node *node, uint32_t) {
-				uint64_t seg = 0, bus = 0;
+				uint64_t seg = 0, bus = 0, uid = 0;
 
 				uacpi_eval_simple_integer(node, "_SEG", &seg);
 				uacpi_eval_simple_integer(node, "_BBN", &bus);
+				auto uid_status = uacpi_eval_simple_integer(node, "_UID", &uid);
 
 				infoLogger() << "thor: Found PCI host bridge " << frg::hex_fmt{seg} << ":"
 					<< frg::hex_fmt{bus} << frg::endlog;
@@ -268,6 +269,15 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 						getConfigIoFor(seg, bus), msiController, seg, bus);
 				rootBus->irqRouter = frg::construct<AcpiPciIrqRouter>(*kernelAlloc, nullptr, rootBus, node);
 				addRootBus(rootBus);
+
+				rootBus->acpiNode = frg::construct<acpi::AcpiObject>(*kernelAlloc, node, uid);
+				async::detach_with_allocator(*kernelAlloc, [&]() -> coroutine<void> {
+					Properties props;
+					if(uid_status == UACPI_STATUS_OK)
+						props.decStringProperty("acpi.uid", uid, 1);
+					co_await rootBus->acpiNode->run(std::move(props));
+				}());
+
 				return UACPI_ITERATION_DECISION_CONTINUE;
 		}, nullptr);
 	}

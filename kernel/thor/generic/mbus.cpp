@@ -62,7 +62,61 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	async::detach_with_allocator(*kernelAlloc,
 			handleMbusComms_(descriptor.get<LaneDescriptor>().handle));
 
+	mbusId_ = resp->id();
+
 	co_return resp->id();
+}
+
+coroutine<Error> KernelBusObject::updateProperties(Properties &properties) {
+	auto [offerError, conversation] = co_await OfferSender{*mbusClient};
+	if (offerError != Error::success)
+		co_return offerError;
+
+	managarm::mbus::UpdatePropertiesRequest<KernelAlloc> req(*kernelAlloc);
+	req.set_id(mbusId_);
+	for(auto &[name, value] : properties.properties_) {
+		managarm::mbus::Property<KernelAlloc> prop(*kernelAlloc);
+		prop.set_name(name);
+		// TODO(no92): have thor support non-string item types
+		managarm::mbus::AnyItem<KernelAlloc> item(*kernelAlloc);
+		item.set_type(managarm::mbus::ItemType::STRING);
+		item.set_string_item(std::move(value));
+		prop.set_item(item);
+		req.add_properties(prop);
+	}
+
+	assert(req.properties_size());
+
+	frg::unique_memory<KernelAlloc> headBuffer{*kernelAlloc, req.size_of_head()};
+	frg::unique_memory<KernelAlloc> tailBuffer{*kernelAlloc, req.size_of_tail()};
+	bragi::write_head_tail(req, headBuffer, tailBuffer);
+	auto headError = co_await SendBufferSender{conversation, std::move(headBuffer)};
+	auto tailError = co_await SendBufferSender{conversation, std::move(tailBuffer)};
+
+	if (headError != Error::success)
+		co_return headError;
+	if (tailError != Error::success)
+		co_return tailError;
+
+	auto [respError, respBuffer] = co_await RecvBufferSender{conversation};
+
+	if (respError != Error::success)
+		co_return respError;
+
+	auto maybeResp = bragi::parse_head_only<managarm::mbus::UpdatePropertiesResponse>(respBuffer, *kernelAlloc);
+	if (!maybeResp)
+		co_return Error::protocolViolation;
+
+	auto &resp = *maybeResp;
+	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
+		co_return Error::illegalArgs;
+
+	if(resp.error() != managarm::mbus::Error::SUCCESS) {
+		infoLogger() << "thor: unexpected return code in updateProperties" << frg::endlog;
+		co_return Error::protocolViolation;
+	}
+
+	co_return Error::success;
 }
 
 coroutine<void> KernelBusObject::handleMbusComms_(LaneHandle mgmtLane) {
