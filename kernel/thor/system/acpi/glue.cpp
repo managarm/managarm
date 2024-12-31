@@ -52,17 +52,6 @@ void *uacpi_kernel_alloc(uacpi_size size) {
 	return kernelAlloc->allocate(size);
 }
 
-void *uacpi_kernel_calloc(uacpi_size count, uacpi_size size) {
-	auto bytes = count * size;
-
-	auto *ptr = uacpi_kernel_alloc(bytes);
-	if (ptr == nullptr)
-		return ptr;
-
-	memset(ptr, 0, bytes);
-	return ptr;
-}
-
 void uacpi_kernel_free(void *ptr) {
 	kernelAlloc->free(ptr);
 }
@@ -254,29 +243,46 @@ uacpi_status uacpi_kernel_io_write(
 	return uacpi_kernel_raw_io_write(addr + offset, byte_width, value);
 }
 
+
+static_assert(sizeof(uacpi_handle) >= sizeof(uacpi_pci_address));
+
+uacpi_status uacpi_kernel_pci_device_open(
+	uacpi_pci_address address, uacpi_handle *out_handle
+) {
+	memcpy(out_handle, &address, sizeof(uacpi_pci_address));
+	return UACPI_STATUS_OK;
+}
+
+void uacpi_kernel_pci_device_close(uacpi_handle) {
+	// No-op.
+}
+
 uacpi_status uacpi_kernel_pci_read(
-	uacpi_pci_address *address, uacpi_size offset,
+	uacpi_handle handle, uacpi_size offset,
 	uacpi_u8 byte_width, uacpi_u64 *value
 ) {
+	uacpi_pci_address address;
+	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+
 	switch (byte_width) {
 	case 1: {
 		*value = pci::readConfigByte(
-			address->segment, address->bus, address->device,
-			address->function, offset
+			address.segment, address.bus, address.device,
+			address.function, offset
 		);
 		break;
 	}
 	case 2: {
 		*value = pci::readConfigHalf(
-			address->segment, address->bus, address->device,
-			address->function, offset
+			address.segment, address.bus, address.device,
+			address.function, offset
 		);
 		break;
 	}
 	case 4: {
 		*value = pci::readConfigWord(
-			address->segment, address->bus, address->device,
-			address->function, offset
+			address.segment, address.bus, address.device,
+			address.function, offset
 		);
 		break;
 	}
@@ -288,28 +294,31 @@ uacpi_status uacpi_kernel_pci_read(
 }
 
 uacpi_status uacpi_kernel_pci_write(
-	uacpi_pci_address *address, uacpi_size offset,
+	uacpi_handle handle, uacpi_size offset,
 	uacpi_u8 byte_width, uacpi_u64 value
 ) {
+	uacpi_pci_address address;
+	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+
 	switch (byte_width) {
 	case 1: {
 		pci::writeConfigByte(
-			address->segment, address->bus, address->device,
-			address->function, offset, value
+			address.segment, address.bus, address.device,
+			address.function, offset, value
 		);
 		break;
 	}
 	case 2: {
 		pci::writeConfigHalf(
-			address->segment, address->bus, address->device,
-			address->function, offset, value
+			address.segment, address.bus, address.device,
+			address.function, offset, value
 		);
 		break;
 	}
 	case 4: {
 		pci::writeConfigWord(
-			address->segment, address->bus, address->device,
-			address->function, offset, value
+			address.segment, address.bus, address.device,
+			address.function, offset, value
 		);
 		break;
 	}
