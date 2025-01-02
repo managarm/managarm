@@ -288,6 +288,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
+	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -717,6 +718,21 @@ expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
 	std::cout << "\e[31mposix: Fix procfs CwdLink::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+// MASSIVE STUBS
+async::result<std::string> CgroupNode::show() {
+	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "0::/init.scope\n";
+	co_return stream.str();
+}
+
+async::result<void> CgroupNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/cgroup file" << std::endl;
+	co_return;
 }
 
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
