@@ -38,13 +38,13 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
-					   helix::UniqueDescriptor, helix::UniqueDescriptor irq)
-	: hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(hbaRegs)},
-	  regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId} {
+PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+					   helix::UniqueDescriptor irq)
+	: Controller(parentId, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(regsMapping)},
+	  regs_{regsMapping_.get()}, irq_{std::move(irq)} {
 }
 
-async::detached Controller::run() {
+async::detached PciExpressController::run() {
 	co_await hwDevice_.enableBusIrq();
 
 	handleIrqs();
@@ -56,7 +56,7 @@ async::detached Controller::run() {
 		ns->run();
 }
 
-async::detached Controller::handleIrqs() {
+async::detached PciExpressController::handleIrqs() {
 	irqSequence_ = 0;
 
 	while (true) {
@@ -69,7 +69,7 @@ async::detached Controller::handleIrqs() {
 
 		int found = 0;
 		for (auto &q : activeQueues_) {
-			found |= q->handleIrq();
+			found |= static_cast<PciExpressQueue *>(q.get())->handleIrq();
 		}
 
 		regs_.store(regs::intmc, 1);
@@ -82,14 +82,14 @@ async::detached Controller::handleIrqs() {
 	}
 }
 
-async::result<void> Controller::waitStatus(bool enabled) {
+async::result<void> PciExpressController::waitStatus(bool enabled) {
 	auto readyBit = enabled ? flags::csts::ready : 0;
 
 	co_await helix::kindaBusyWait(50'000'000,
 								  [&] { return (regs_.load(regs::csts) & flags::csts::ready) == readyBit; });
 }
 
-async::result<void> Controller::enable() {
+async::result<void> PciExpressController::enable() {
 	auto cc = regs_.load(regs::cc);
 	auto new_val = cc / flags::cc::iosqes(6) / flags::cc::iocqes(4) / flags::cc::enable(true);
 	regs_.store(regs::cc, new_val);
@@ -97,7 +97,7 @@ async::result<void> Controller::enable() {
 	co_await waitStatus(true);
 }
 
-async::result<void> Controller::disable() {
+async::result<void> PciExpressController::disable() {
 	auto cc = regs_.load(regs::cc);
 	auto new_val = cc / flags::cc::enable(false);
 	regs_.store(regs::cc, new_val);
@@ -105,7 +105,7 @@ async::result<void> Controller::disable() {
 	co_await waitStatus(false);
 }
 
-async::result<void> Controller::reset() {
+async::result<void> PciExpressController::reset() {
 	auto cap = regs_.load(regs::cap);
 	const auto doorbellsOffset = 0x1000;
 
@@ -116,8 +116,8 @@ async::result<void> Controller::reset() {
 
 	co_await disable();
 
-	auto adminQ = std::make_unique<Queue>(0, 32, regs_.subspace(doorbellsOffset));
-	adminQ->init();
+	auto adminQ = std::make_unique<PciExpressQueue>(0, 32, regs_.subspace(doorbellsOffset));
+	co_await adminQ->init();
 
 	uint32_t aqa = (31 << 16) | 31;
 	regs_.store(regs::aqa, aqa);
@@ -129,8 +129,8 @@ async::result<void> Controller::reset() {
 
 	co_await enable();
 
-	auto ioQ = std::make_unique<Queue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_));
-	ioQ->init();
+	auto ioQ = std::make_unique<PciExpressQueue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_));
+	co_await ioQ->init();
 
 	if (co_await setupIoQueue(ioQ.get())) {
 		ioQ->run();
@@ -140,19 +140,19 @@ async::result<void> Controller::reset() {
 	assert(activeQueues_.size() >= 2 && "At least need one IO queue");
 }
 
-async::result<bool> Controller::setupIoQueue(Queue *q) {
+async::result<bool> PciExpressController::setupIoQueue(PciExpressQueue *q) {
 	auto cqRes = co_await createCQ(q);
-	if (cqRes.first != 0)
+	if (!cqRes.first.successful())
 		co_return false;
 
 	auto sqRes = co_await createSQ(q);
-	if (sqRes.first != 0)
+	if (!sqRes.first.successful())
 		co_return false;
 
 	co_return true;
 }
 
-async::result<Command::Result> Controller::createCQ(Queue *q) {
+async::result<Command::Result> PciExpressController::createCQ(PciExpressQueue *q) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -162,7 +162,7 @@ async::result<Command::Result> Controller::createCQ(Queue *q) {
 
 	uint16_t flags = spec::kQueuePhysContig | spec::kCQIrqEnabled;
 
-	cmdBuf.opcode = spec::kCreateCQ;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateCQ);
 	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getCqPhysAddr());
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
@@ -172,7 +172,7 @@ async::result<Command::Result> Controller::createCQ(Queue *q) {
 	return adminQ->submitCommand(std::move(cmd));
 }
 
-async::result<Command::Result> Controller::createSQ(Queue *q) {
+async::result<Command::Result> PciExpressController::createSQ(PciExpressQueue *q) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -182,7 +182,7 @@ async::result<Command::Result> Controller::createSQ(Queue *q) {
 
 	uint16_t flags = spec::kQueuePhysContig;
 
-	cmdBuf.opcode = spec::kCreateSQ;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateSQ);
 	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getSqPhysAddr());
 	cmdBuf.sqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
@@ -197,14 +197,14 @@ async::result<Command::Result> Controller::identifyController(spec::IdentifyCont
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyController;
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)});
+	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
 
 	return adminQ->submitCommand(std::move(cmd));
 }
 
-async::result<Command::Result> Controller::identifyNamespaceList(unsigned int nsid, uint32_t *list) {
+async::result<Command::Result> Controller::identifyNamespaceList(unsigned int nsid, arch::dma_buffer_view list) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -212,10 +212,10 @@ async::result<Command::Result> Controller::identifyNamespaceList(unsigned int ns
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyActiveList;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, list, 0x1000});
+	cmd->setupBuffer(list, preferredDataTransfer_);
 
 	return adminQ->submitCommand(std::move(cmd));
 }
@@ -228,10 +228,10 @@ async::result<Command::Result> Controller::identifyNamespace(unsigned int nsid, 
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
-	cmdBuf.opcode = spec::kIdentify;
+	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyNamespace;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)});
+	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
 
 	return adminQ->submitCommand(std::move(cmd));
 }
@@ -243,7 +243,7 @@ async::result<void> Controller::scanNamespaces() {
 	spec::IdentifyController idCtrl;
 	int nn;
 
-	if ((co_await identifyController(idCtrl)).first != 0)
+	if (!(co_await identifyController(idCtrl)).first.successful())
 		co_return;
 
 	nn = convert_endian<endian::little>(idCtrl.nn);
@@ -253,7 +253,7 @@ async::result<void> Controller::scanNamespaces() {
 		int numLists = (nn + 1023) >> 10;
 		unsigned int prev = 0;
 		for (auto i = 0; i < numLists; i++) {
-			if ((co_await identifyNamespaceList(prev, nsList.data())).first != 0)
+			if (!(co_await identifyNamespaceList(prev, nsList.view_buffer())).first.successful())
 				co_return;
 
 			int j;
@@ -281,7 +281,7 @@ async::result<void> Controller::scanNamespaces() {
 async::result<void> Controller::createNamespace(unsigned int nsid) {
 	spec::IdentifyNamespace id;
 
-	if ((co_await identifyNamespace(nsid, id)).first != 0)
+	if (!(co_await identifyNamespace(nsid, id)).first.successful())
 		co_return;
 
 	if (!id.ncap)
@@ -295,7 +295,7 @@ async::result<void> Controller::createNamespace(unsigned int nsid) {
 	activeNamespaces_.push_back(std::move(ns));
 }
 
-async::result<Command::Result> Controller::submitIoCommand(std::unique_ptr<Command> cmd) {
+async::result<Command::Result> PciExpressController::submitIoCommand(std::unique_ptr<Command> cmd) {
 	auto &ioQ = activeQueues_.back();
 
 	return ioQ->submitCommand(std::move(cmd));

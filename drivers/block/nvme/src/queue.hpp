@@ -11,10 +11,16 @@
 #include "spec.hpp"
 
 struct Queue {
-	Queue(unsigned int index, unsigned int depth, arch::mem_space doorbells);
+	Queue(unsigned int index, unsigned int depth) : qid_{index}, depth_{depth} {
+		queuedCmds_.resize(depth);
+	};
 
-	void init();
-	async::detached run();
+	virtual ~Queue() = default;
+
+	virtual async::result<void> init() = 0;
+	virtual async::detached run() = 0;
+
+	virtual async::result<Command::Result> submitCommand(std::unique_ptr<Command> cmd) = 0;
 
 	unsigned int getQueueId() const {
 		return qid_;
@@ -23,6 +29,24 @@ struct Queue {
 		return depth_;
 	}
 
+	async::result<size_t> findFreeSlot();
+
+protected:
+	unsigned int qid_;
+	unsigned int depth_;
+
+	async::queue<std::unique_ptr<Command>, frg::stl_allocator> pendingCmdQueue_;
+	std::vector<std::unique_ptr<Command>> queuedCmds_;
+	async::recurring_event freeSlotDoorbell_;
+	size_t commandsInFlight_ = 0;
+};
+
+struct PciExpressQueue final : Queue {
+	PciExpressQueue(unsigned int index, unsigned int depth, arch::mem_space doorbells);
+
+	async::result<void> init() override;
+	async::detached run() override;
+
 	uintptr_t getCqPhysAddr() const {
 		return cqPhys_;
 	}
@@ -30,13 +54,9 @@ struct Queue {
 		return sqPhys_;
 	}
 
-	async::result<Command::Result> submitCommand(std::unique_ptr<Command> cmd);
-
 	int handleIrq();
 
 private:
-	unsigned int qid_;
-	unsigned int depth_;
 	arch::mem_space doorbells_;
 	spec::CompletionEntry *cqes_;
 	void *sqCmds_;
@@ -46,14 +66,8 @@ private:
 	uint16_t cqHead_;
 	uint8_t cqPhase_;
 
-	async::queue<std::unique_ptr<Command>, frg::stl_allocator> pendingCmdQueue_;
-
-	std::vector<std::unique_ptr<Command>> queuedCmds_;
-	async::recurring_event freeSlotDoorbell_;
-	size_t commandsInFlight_;
-
-	async::result<size_t> findFreeSlot();
 	async::detached submitPendingLoop();
 
+	async::result<Command::Result> submitCommand(std::unique_ptr<Command> cmd) override;
 	async::result<void> submitCommandToDevice(std::unique_ptr<Command> cmd);
 };

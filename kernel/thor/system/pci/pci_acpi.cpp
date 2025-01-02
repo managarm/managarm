@@ -271,12 +271,18 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 				addRootBus(rootBus);
 
 				rootBus->acpiNode = frg::construct<acpi::AcpiObject>(*kernelAlloc, node, uid);
-				async::detach_with_allocator(*kernelAlloc, [&]() -> coroutine<void> {
+				async::detach_with_allocator(*kernelAlloc, [&](PciBus *bus) -> coroutine<void> {
 					Properties props;
 					if(uid_status == UACPI_STATUS_OK)
 						props.decStringProperty("acpi.uid", uid, 1);
-					co_await rootBus->acpiNode->run(std::move(props));
-				}());
+					co_await bus->acpiNode->run(std::move(props));
+
+					co_await bus->mbusPublished.wait();
+					Properties updateProps;
+					updateProps.stringProperty("unix.subsystem", frg::string<KernelAlloc>{*kernelAlloc, "acpi"});
+					updateProps.decStringProperty("acpi.physical_node", bus->mbusId, 1);
+					co_await bus->acpiNode->updateProperties(updateProps);
+				}(rootBus));
 
 				return UACPI_ITERATION_DECISION_CONTINUE;
 		}, nullptr);

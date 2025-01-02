@@ -241,7 +241,12 @@ if build_drivers
 		subdir(dir)
 	endforeach
 
-	rules = [ 'drivers/gfx/90-managarm-vga.rules', 'drivers/nic/90-managarm-nic.rules', 'drivers/usb/90-managarm-usb.rules' ]
+	rules = [
+		'drivers/gfx/90-managarm-vga.rules',
+		'drivers/nic/90-managarm-nic.rules',
+		'drivers/usb/90-managarm-usb.rules',
+		'drivers/block/90-managarm-block.rules'
+	]
 
 	install_data(rules, install_dir : 'lib/udev/rules.d')
 endif

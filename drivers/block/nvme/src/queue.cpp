@@ -5,12 +5,12 @@
 #include "queue.hpp"
 #include "spec.hpp"
 
-Queue::Queue(unsigned int qid, unsigned int depth, arch::mem_space doorbells)
-	: qid_(qid), depth_(depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1) {
-	queuedCmds_.resize(depth);
+PciExpressQueue::PciExpressQueue(unsigned int qid, unsigned int depth, arch::mem_space doorbells)
+	: Queue(qid, depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1) {
+
 }
 
-void Queue::init() {
+async::result<void> PciExpressQueue::init() {
 	auto align = 0x1000;
 	size_t sqSize = ((depth_ << 6) + align - 1) & ~size_t(align - 1);
 	size_t cqSize = ((depth_ * sizeof(spec::CompletionEntry)) + align - 1) & ~size_t(align - 1);
@@ -34,25 +34,27 @@ void Queue::init() {
 
 	cqPhys_ = helix::ptrToPhysical(cqes_);
 	sqPhys_ = helix::ptrToPhysical(sqCmds_);
+
+	co_return;
 }
 
-async::detached Queue::run() {
+async::detached PciExpressQueue::run() {
 	submitPendingLoop();
 
 	co_return;
 }
 
-int Queue::handleIrq() {
+int PciExpressQueue::handleIrq() {
 	using arch::convert_endian;
 	using arch::endian;
 
 	int found = 0;
 	spec::CompletionEntry *cqe = &cqes_[cqHead_];
 
-	while ((convert_endian<endian::little>(cqe->status) & 1) == cqPhase_) {
+	while ((convert_endian<endian::little>(cqe->status.status) & 1) == cqPhase_) {
 		found++;
 
-		auto status = convert_endian<endian::little>(cqe->status) >> 1;
+		auto status = spec::CompletionStatus{convert_endian<endian::little>(cqe->status.status)};
 		auto slot = cqe->commandId;
 		assert(slot < queuedCmds_.size());
 		assert(queuedCmds_[slot]);
@@ -93,7 +95,7 @@ async::result<size_t> Queue::findFreeSlot() {
 	co_return 0;
 }
 
-async::detached Queue::submitPendingLoop() {
+async::detached PciExpressQueue::submitPendingLoop() {
 	while (true) {
 		auto cmd = co_await pendingCmdQueue_.async_get();
 		assert(cmd);
@@ -101,7 +103,7 @@ async::detached Queue::submitPendingLoop() {
 	}
 }
 
-async::result<void> Queue::submitCommandToDevice(std::unique_ptr<Command> cmd) {
+async::result<void> PciExpressQueue::submitCommandToDevice(std::unique_ptr<Command> cmd) {
 	auto slot = co_await findFreeSlot();
 
 	auto &cmdBuf = cmd->getCommandBuffer();
@@ -116,7 +118,7 @@ async::result<void> Queue::submitCommandToDevice(std::unique_ptr<Command> cmd) {
 	commandsInFlight_++;
 }
 
-async::result<Command::Result> Queue::submitCommand(std::unique_ptr<Command> cmd) {
+async::result<Command::Result> PciExpressQueue::submitCommand(std::unique_ptr<Command> cmd) {
 	auto future = cmd->getFuture();
 
 	pendingCmdQueue_.put(std::move(cmd));

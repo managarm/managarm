@@ -1,0 +1,6 @@
+ACTION!="add", GOTO="managarm_block_end"
+SUBSYSTEM!="pci", GOTO="managarm_block_end"
+
+ATTR{class}=="0x010802", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/block-nvme.bin", GOTO="managarm_block_end"
+
+LABEL="managarm_block_end"

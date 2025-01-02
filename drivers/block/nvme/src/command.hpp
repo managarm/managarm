@@ -10,24 +10,29 @@
 #include <vector>
 
 struct Command {
-	using Result = std::pair<uint16_t, spec::CompletionEntry::Result>;
+	using Result = std::pair<spec::CompletionStatus, spec::CompletionEntry::Result>;
 
 	spec::Command &getCommandBuffer() {
 		return command_;
 	}
 
-	void setupBuffer(arch::dma_buffer_view view);
+	void setupBuffer(arch::dma_buffer_view view, spec::DataTransfer policy);
 
 	async::future<Result, frg::stl_allocator> getFuture() {
 		return promise_.get_future();
 	}
 
-	void complete(uint16_t status, spec::CompletionEntry::Result result) {
+	void complete(spec::CompletionStatus status, spec::CompletionEntry::Result result) {
 		promise_.set_value(Result{status, result});
+	}
+
+	arch::dma_buffer_view &view() {
+		return view_;
 	}
 
 private:
 	spec::Command command_;
 	async::promise<Result, frg::stl_allocator> promise_;
 	std::vector<arch::dma_array<uint64_t>> prpLists;
+	arch::dma_buffer_view view_;
 };

@@ -7,18 +7,59 @@
 
 #include "queue.hpp"
 #include "namespace.hpp"
+#include "spec.hpp"
+
+enum class ControllerType {
+	PciExpress,
+	FabricsTcp,
+};
 
 struct Controller {
-	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs,
-			   helix::UniqueDescriptor ahciBar, helix::UniqueDescriptor irq);
+	Controller(int64_t parentId, ControllerType type) : parentId_{parentId}, type_{type} {}
+	virtual ~Controller() = default;
 
-	async::detached run();
+	virtual async::detached run() = 0;
 
-	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd);
+	virtual async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) = 0;
 
 	inline int64_t getParentId() const {
 		return parentId_;
 	}
+
+	inline ControllerType getType() const {
+		return type_;
+	}
+
+	async::result<void> scanNamespaces();
+
+	async::result<Command::Result> identifyController(spec::IdentifyController &id);
+	async::result<Command::Result> identifyNamespaceList(unsigned int nsid, arch::dma_buffer_view list);
+	async::result<Command::Result> identifyNamespace(unsigned int nsid, spec::IdentifyNamespace &id);
+
+	async::result<void> createNamespace(unsigned int nsid);
+
+	spec::DataTransfer dataTransferPolicy() const {
+		return preferredDataTransfer_;
+	}
+
+protected:
+	spec::DataTransfer preferredDataTransfer_ = spec::DataTransfer::PRP;
+
+	int64_t parentId_;
+	uint32_t version_;
+	const ControllerType type_;
+
+	std::vector<std::unique_ptr<Queue>> activeQueues_;
+	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;
+};
+
+struct PciExpressController final : public Controller {
+	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+			   helix::UniqueDescriptor irq);
+
+	async::detached run() override;
+
+	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
 private:
 	static constexpr int IO_QUEUE_DEPTH = 1024;
 
@@ -27,32 +68,20 @@ private:
 	arch::mem_space regs_;
 	helix::UniqueDescriptor irq_;
 
-	std::vector<std::unique_ptr<Queue>> activeQueues_;
-	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;
-
-	int64_t parentId_;
 	unsigned int queueDepth_;
 	uint32_t dbStride_;
-	uint32_t version_;
 
 	uint64_t irqSequence_;
 
 	async::result<void> reset();
-	async::result<void> scanNamespaces();
 
 	async::result<void> waitStatus(bool enabled);
 	async::result<void> enable();
 	async::result<void> disable();
 
-	async::result<bool> setupIoQueue(Queue *q);
-	async::result<Command::Result> createCQ(Queue *q);
-	async::result<Command::Result> createSQ(Queue *q);
-
-	async::result<Command::Result> identifyController(spec::IdentifyController &id);
-	async::result<Command::Result> identifyNamespaceList(unsigned int nsid, uint32_t *list);
-	async::result<Command::Result> identifyNamespace(unsigned int nsid, spec::IdentifyNamespace &id);
-
-	async::result<void> createNamespace(unsigned int nsid);
+	async::result<bool> setupIoQueue(PciExpressQueue *q);
+	async::result<Command::Result> createCQ(PciExpressQueue *q);
+	async::result<Command::Result> createSQ(PciExpressQueue *q);
 
 	async::detached handleIrqs();
 };
