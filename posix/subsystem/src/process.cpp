@@ -1222,10 +1222,10 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats) {
+async::result<std::shared_ptr<Process>> Process::wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats) {
 	assert(pid == -1 || pid > 0);
 
-	int result = 0;
+	std::shared_ptr<Process> result = 0;
 	TerminationState resultState;
 	ResourceUsage resultStats;
 	while(true) {
@@ -1233,7 +1233,7 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 			if(pid > 0 && pid != it->pid())
 				continue;
 			_notifyQueue.erase(it);
-			result = it->pid();
+			result = it->shared_from_this();
 			resultState = it->_state;
 			if(stats)
 				resultStats = it->_generationUsage;
@@ -1245,7 +1245,7 @@ async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *st
 			*state = resultState;
 			if(stats)
 				*stats = resultStats;
-			co_return result;
+			co_return std::move(result);
 		}
 		co_await _notifyBell.async_wait();
 	}
