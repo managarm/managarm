@@ -27,6 +27,7 @@
 #include "un-socket.hpp"
 #include "timerfd.hpp"
 #include "eventfd.hpp"
+#include "signalfd.hpp"
 #include "tmp_fs.hpp"
 
 #include <bragi/helpers-std.hpp>
@@ -319,11 +320,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "\e[31mposix: WAIT_ID flag WNOWAIT is silently ignored\e[39m" << std::endl;
 
 			TerminationState state;
-			int pid;
+			std::shared_ptr<Process> proc;
 			if(req->idtype() == P_PID) {
-				pid = co_await self->wait(req->id(), req->flags() & WNOHANG, &state);
+				proc = co_await self->wait(req->id(), req->flags() & WNOHANG, &state);
 			} else if(req->idtype() == P_ALL) {
-				pid = co_await self->wait(-1, req->flags() & WNOHANG, &state);
+				proc = co_await self->wait(-1, req->flags() & WNOHANG, &state);
 			} else {
 				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -334,8 +335,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::WaitIdResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
-			resp.set_uid(self->findProcess(pid)->uid());
+			resp.set_pid(proc->pid());
+			resp.set_uid(proc->uid());
 
 			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
 				resp.set_sig_status(W_EXITCODE(byExit->code, 0));
@@ -372,13 +373,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			TerminationState state;
 			ResourceUsage stats;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state, &stats);
+			auto proc = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state, &stats);
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
+			resp.set_pid(proc->pid());
 			resp.set_ru_user_time(stats.userTime);
 
 			uint32_t mode = 0;
@@ -2939,14 +2940,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto file = createSignalFile(req.sigset(),
-					req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
-			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+
+			if(req.fd() == -1) {
+				auto file = createSignalFile(req.sigset(),
+						req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+				auto fd = self->fileContext()->attachFile(file,
+						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+				resp.set_fd(fd);
+			} else {
+				auto file = self->fileContext()->getFile(req.fd());
+				if(file) {
+					auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
+					signal_file->mask() = req.sigset();
+					resp.set_fd(req.fd());
+				} else {
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+				}
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -3462,7 +3474,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto handle = self->threadDescriptor().getHandle();
 
-			if(self->pid() != req->pid()) {
+			if(req->pid() && self->pid() != req->pid()) {
 				// TODO: permission checking
 				auto target_process = self->findProcess(req->pid());
 				if(target_process == nullptr) {
