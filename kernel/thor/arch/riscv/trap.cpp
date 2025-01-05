@@ -7,6 +7,8 @@
 
 namespace thor {
 
+THOR_DEFINE_PERCPU(riscvExternalIrq);
+
 extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
 
 // TODO: Move declaration to header.
@@ -168,15 +170,23 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 	} else if (code == riscv::interrupts::sti) {
 		onTimerInterrupt(IrqImageAccessor{frame});
 	} else if (code == riscv::interrupts::sei) {
-		auto irq = claimExternalIrq();
+		auto *ourExternalIrq = &riscvExternalIrq.get();
+
+		IrqPin *irq = nullptr;
+		if (ourExternalIrq->type == ExternalIrqType::plic) {
+			irq = claimPlicIrq();
+		} else {
+			panicLogger() << "IRQ was raised on CPU with no valid external IRQ controller"
+			              << frg::endlog;
+		}
+
 		if (irq) {
 			handleIrq(IrqImageAccessor{frame}, irq);
 		} else {
-			thor::infoLogger() << "Spurious external interrupt" << frg::endlog;
+			infoLogger() << "Spurious external interrupt" << frg::endlog;
 		}
 	} else {
-		thor::panicLogger() << "thor: Unexpected interrupt " << code << " was raised"
-		                    << frg::endlog;
+		panicLogger() << "thor: Unexpected interrupt " << code << " was raised" << frg::endlog;
 	}
 }
 
