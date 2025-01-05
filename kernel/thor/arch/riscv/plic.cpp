@@ -42,7 +42,9 @@ struct Plic : dt::IrqController {
 	}
 
 	struct Irq final : IrqPin {
-		Irq(Plic *plic, size_t idx) : IrqPin{buildName(plic, idx)}, plic_{plic}, idx_{idx} {}
+		Irq(Plic *plic, size_t idx) : IrqPin{buildName(plic, idx)}, plic_{plic}, idx_{idx} {
+			assert(idx_);
+		}
 
 		Irq(const Irq &) = delete;
 		Irq &operator=(const Irq &) = delete;
@@ -78,11 +80,12 @@ struct Plic : dt::IrqController {
 		space_ = arch::mem_space{ptr};
 
 		irqs_ = {numIrqs, *kernelAlloc};
-		for (size_t i = 0; i < numIrqs; ++i)
+		irqs_[0] = nullptr;
+		for (size_t i = 1; i < numIrqs; ++i)
 			irqs_[i] = frg::construct<Irq>(*kernelAlloc, this, i);
 
 		// Set all IRQs to the highest priority.
-		for (size_t i = 0; i < numIrqs; ++i)
+		for (size_t i = 1; i < numIrqs; ++i)
 			space_.store(plicPriorityRegister(i), 0xFFFF'FFFF);
 
 		// Accept IRQs of any priority.
@@ -220,6 +223,8 @@ IrqPin *claimPlicIrq() {
 	assert(ourExternalIrq->controller);
 	auto *plic = static_cast<Plic *>(ourExternalIrq->controller);
 	auto idx = plic->claim(ourExternalIrq->context);
+	if (!idx)
+		return nullptr;
 	return plic->getIrq(idx);
 }
 
