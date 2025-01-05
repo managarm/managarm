@@ -1,4 +1,5 @@
 src += files(
+	'aplic.cpp',
 	'cpu.cpp',
 	'debug.cpp',
 	'entry.S',
