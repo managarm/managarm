@@ -22,8 +22,11 @@ struct BlockDevice {
 
 	size_t size;
 	const size_t sectorSize;
-	const int64_t parentId;
+	int64_t parentId;
 
+	std::string diskNamePrefix = "sd";
+	std::string diskNameSuffix = "sd";
+	std::string partNameSuffix = "";
 protected:
 };
 
