@@ -148,6 +148,8 @@ private:
 
 void initialize();
 
+sysfs::Object *virtualDeviceParent();
+
 void registerMbusDevice(mbus_ng::EntityId, std::shared_ptr<Device>);
 extern async::recurring_event mbusMapUpdate;
 std::shared_ptr<Device> getMbusDevice(mbus_ng::EntityId);

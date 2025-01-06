@@ -8,6 +8,7 @@
 namespace drvcore {
 
 std::shared_ptr<sysfs::Object> globalDevicesObject;
+std::shared_ptr<sysfs::Object> globalVirtualDeviceParent;
 std::shared_ptr<sysfs::Object> globalBusObject;
 std::shared_ptr<sysfs::Object> globalClassObject;
 std::shared_ptr<sysfs::Object> globalCharObject;
@@ -17,6 +18,11 @@ std::shared_ptr<sysfs::Object> globalBlockObject;
 sysfs::Object *devicesObject() {
 	assert(globalDevicesObject);
 	return globalDevicesObject.get();
+}
+
+sysfs::Object *virtualDeviceParent() {
+	assert(globalVirtualDeviceParent);
+	return globalVirtualDeviceParent.get();
 }
 
 sysfs::Object *busObject() {
@@ -183,10 +189,12 @@ void initialize() {
 
 	// Create the global /sys/{devices,class,dev} directories.
 	globalDevicesObject = std::make_shared<sysfs::Object>(nullptr, "devices");
+	globalVirtualDeviceParent = std::make_shared<sysfs::Object>(globalDevicesObject, "virtual");
 	globalBusObject = std::make_shared<sysfs::Object>(nullptr, "bus");
 	globalClassObject = std::make_shared<sysfs::Object>(nullptr, "class");
 	globalBlockObject = std::make_shared<sysfs::Object>(nullptr, "block");
 	globalDevicesObject->addObject();
+	globalVirtualDeviceParent->addObject();
 	globalBusObject->addObject();
 	globalClassObject->addObject();
 	globalBlockObject->addObject();
