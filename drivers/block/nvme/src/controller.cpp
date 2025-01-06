@@ -246,6 +246,24 @@ async::result<void> Controller::scanNamespaces() {
 	if (!(co_await identifyController(idCtrl)).first.successful())
 		co_return;
 
+	auto type = idCtrl.cntrltype;
+	if (version_ >= flags::vs::version(1, 4, 0)) {
+		// error out on reserved controller type
+		if(type == 0) {
+			std::cout << std::format("block/nvme: invalid controller type {} reported in identify controller request", type) << std::endl;
+			co_return;
+		}
+
+		// TODO: support non-I/O controllers
+		if(type != 1) {
+			std::cout << std::format("block/nvme: unsupported controller type {} reported in identify controller request", type) << std::endl;
+			co_return;
+		}
+	} else if(type != 0 && type != 1) {
+		std::cout << std::format("block/nvme: invalid controller type {} reported in identify controller request", type) << std::endl;
+		co_return;
+	}
+
 	nn = convert_endian<endian::little>(idCtrl.nn);
 
 	if (version_ >= flags::vs::version(1, 1, 0)) {
