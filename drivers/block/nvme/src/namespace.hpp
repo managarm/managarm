@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <protocols/mbus/client.hpp>
 #include <blockfs.hpp>
 
 struct Controller;
@@ -18,4 +19,5 @@ private:
 	Controller *controller_;
 	unsigned int nsid_;
 	int lbaShift_;
+	std::unique_ptr<mbus_ng::EntityManager> mbusEntity_;
 };

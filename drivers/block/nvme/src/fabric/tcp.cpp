@@ -262,12 +262,12 @@ async::result<Command::Result> TcpQueue::submitCommand(std::unique_ptr<Command> 
 	co_return *(co_await future.get());
 }
 
-Tcp::Tcp(mbus_ng::EntityId entity, in_addr addr, in_port_t port, helix::UniqueLane netserver)
-: Controller(entity, ControllerType::FabricsTcp), serverAddr_{addr}, serverPort_{port}, netserverLane_{std::move(netserver)} {
+Tcp::Tcp(mbus_ng::EntityId entity, in_addr addr, in_port_t port, std::string location, helix::UniqueLane netserver)
+: Controller(entity, location, ControllerType::FabricsTcp), serverAddr_{addr}, serverPort_{port}, netserverLane_{std::move(netserver)} {
 	preferredDataTransfer_ = spec::DataTransfer::SGL;
 }
 
-async::detached Tcp::run() {
+async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 	uint8_t uuid[16];
 	size_t n = 0;
 	while(n < 16) {
@@ -286,6 +286,17 @@ async::detached Tcp::run() {
 	activeQueues_.push_back(std::move(adminq));
 
 	std::cout << std::format("block/nvme: TCP socket connected to controller") << std::endl;
+
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"nvme-controller"}},
+		{"nvme.subsystem", mbus_ng::StringItem{std::to_string(subsystem)}},
+		{"nvme.address", mbus_ng::StringItem{location_}},
+		{"nvme.transport", mbus_ng::StringItem{"tcp"}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{"-1"}},
+	};
+
+	mbusEntity_ = std::make_unique<mbus_ng::EntityManager>((co_await mbus_ng::Instance::global().createEntity(
+		"nvme-controller", descriptor)).unwrap());
 
 	auto set_prop_err = co_await fabricSetProperty(0x14, 0x00460060, 4);
 	if(!set_prop_err) {

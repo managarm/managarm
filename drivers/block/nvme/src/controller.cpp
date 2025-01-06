@@ -1,5 +1,7 @@
 #include <arch/bit.hpp>
+#include <format>
 #include <helix/timer.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "controller.hpp"
 
@@ -38,14 +40,25 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping,
 					   helix::UniqueDescriptor irq)
-	: Controller(parentId, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(regsMapping)},
-	  regs_{regsMapping_.get()}, irq_{std::move(irq)} {
+	: Controller(parentId, location, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)},
+		regsMapping_{std::move(regsMapping)}, regs_{regsMapping_.get()}, irq_{std::move(irq)} {
 }
 
-async::detached PciExpressController::run() {
+async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await hwDevice_.enableBusIrq();
+
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"nvme-controller"}},
+		{"nvme.subsystem", mbus_ng::StringItem{std::to_string(subsystem)}},
+		{"nvme.address", mbus_ng::StringItem{location_}},
+		{"nvme.transport", mbus_ng::StringItem{"pcie"}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(parentId_)}},
+	};
+
+	mbusEntity_ = std::make_unique<mbus_ng::EntityManager>((co_await mbus_ng::Instance::global().createEntity(
+		"nvme-controller", descriptor)).unwrap());
 
 	handleIrqs();
 

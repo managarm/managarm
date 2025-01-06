@@ -4,6 +4,7 @@
 #include <async/result.hpp>
 #include <helix/memory.hpp>
 #include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "queue.hpp"
 #include "namespace.hpp"
@@ -15,16 +16,21 @@ enum class ControllerType {
 };
 
 struct Controller {
-	Controller(int64_t parentId, ControllerType type) : parentId_{parentId}, type_{type} {}
+	Controller(int64_t parentId, std::string location, ControllerType type) : parentId_{parentId}, location_{location}, type_{type} {}
 	virtual ~Controller() = default;
 
-	virtual async::detached run() = 0;
+	virtual async::detached run(mbus_ng::EntityId subsystem) = 0;
 
 	virtual async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) = 0;
 	virtual async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) = 0;
 
 	inline int64_t getParentId() const {
 		return parentId_;
+	}
+
+	inline int64_t getMbusId() const {
+		assert(mbusEntity_);
+		return mbusEntity_->id();
 	}
 
 	inline ControllerType getType() const {
@@ -47,7 +53,9 @@ protected:
 	spec::DataTransfer preferredDataTransfer_ = spec::DataTransfer::PRP;
 
 	int64_t parentId_;
+	std::unique_ptr<mbus_ng::EntityManager> mbusEntity_;
 	uint32_t version_;
+	std::string location_;
 	const ControllerType type_;
 
 	std::vector<std::unique_ptr<Queue>> activeQueues_;
@@ -55,10 +63,10 @@ protected:
 };
 
 struct PciExpressController final : public Controller {
-	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping,
 			   helix::UniqueDescriptor irq);
 
-	async::detached run() override;
+	async::detached run(mbus_ng::EntityId subsystem) override;
 
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
@@ -66,6 +74,7 @@ private:
 	static constexpr int IO_QUEUE_DEPTH = 1024;
 
 	protocols::hw::Device hwDevice_;
+	std::string location_;
 	helix::Mapping regsMapping_;
 	arch::mem_space regs_;
 	helix::UniqueDescriptor irq_;
