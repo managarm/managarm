@@ -29,10 +29,21 @@ private:
 
 struct ClassDevice;
 
+struct Subsystem {
+	Subsystem(std::shared_ptr<sysfs::Object> obj) : _object(std::move(obj)) {}
+
+	std::shared_ptr<sysfs::Object> object() {
+		return _object;
+	}
+
+private:
+	std::shared_ptr<sysfs::Object> _object;
+};
+
 // This struct corresponds to Linux' struct Device (i.e. a device that is part of sysfs).
 // TODO: Make the sysfs::Object private?
 struct Device : sysfs::Object {
-	Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device);
+	Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device, Subsystem *subsys = nullptr);
 
 protected:
 	~Device() = default;
@@ -48,6 +59,10 @@ public:
 
 	std::shared_ptr<Device> parentDevice() {
 		return _parentDevice;
+	}
+
+	Subsystem *subsystem() {
+		return _subsystem;
 	}
 
 	UnixDevice *unixDevice() {
@@ -71,19 +86,18 @@ private:
 	std::weak_ptr<Device> _devicePtr;
 	UnixDevice *_unixDevice;
 	std::shared_ptr<Device> _parentDevice;
+	Subsystem *_subsystem;
 
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> _classDevices;
 };
 
-struct BusSubsystem {
+struct BusSubsystem : Subsystem {
 	BusSubsystem(std::string name);
 
-	std::shared_ptr<sysfs::Object> object() { return _object; }
 	std::shared_ptr<sysfs::Object> devicesObject() { return _devicesObject; }
 	std::shared_ptr<sysfs::Object> driversObject() { return _driversObject; }
 
 private:
-	std::shared_ptr<sysfs::Object> _object;
 	std::shared_ptr<sysfs::Object> _devicesObject;
 	std::shared_ptr<sysfs::Object> _driversObject;
 };
@@ -97,25 +111,15 @@ protected:
 
 public:
 	void linkToSubsystem() override;
-
-private:
-	BusSubsystem *_subsystem;
 };
 
 struct BusDriver : sysfs::Object {
-	BusDriver(std::shared_ptr<BusSubsystem> parent, std::string name)
+	BusDriver(BusSubsystem *parent, std::string name)
 	: sysfs::Object(parent->driversObject(), name) {}
 };
 
-struct ClassSubsystem {
+struct ClassSubsystem : Subsystem {
 	ClassSubsystem(std::string name);
-
-	std::shared_ptr<sysfs::Object> object() {
-		return _object;
-	}
-
-private:
-	std::shared_ptr<sysfs::Object> _object;
 };
 
 struct ClassDevice : Device {
@@ -127,9 +131,6 @@ protected:
 
 public:
 	void linkToSubsystem() override;
-
-private:
-	ClassSubsystem *_subsystem;
 };
 
 struct BlockDevice : Device {
@@ -141,9 +142,6 @@ protected:
 
 public:
 	void linkToSubsystem() override;
-
-private:
-	ClassSubsystem *_subsystem;
 };
 
 void initialize();
