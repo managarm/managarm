@@ -7,7 +7,7 @@
 struct Controller;
 
 struct Namespace : blockfs::BlockDevice {
-	Namespace(Controller *controller, unsigned int nsid, int lbaShift);
+	Namespace(Controller *controller, unsigned int nsid, int lbaShift, size_t lbaCount);
 
 	async::detached run();
 
@@ -21,4 +21,5 @@ private:
 	Controller *controller_;
 	unsigned int nsid_;
 	int lbaShift_;
+	size_t lbaCount_;
 };
