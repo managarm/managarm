@@ -235,6 +235,48 @@ async::detached run() {
 			} else {
 				diskNames.emplace(event.id, diskPrefix + std::to_string(diskId));
 			}
+
+			auto parent_property = std::get<mbus_ng::StringItem>(event.properties.at("drvcore.mbus-parent"));
+			auto mbus_parent = std::stoi(parent_property.value);
+			std::shared_ptr<drvcore::Device> parent_device;
+			if (mbus_parent != -1) {
+				parent_device = drvcore::getMbusDevice(mbus_parent);
+				assert(parent_device);
+			}
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+
+			managarm::fs::GenericIoctlRequest req;
+			req.set_command(BLKGETSIZE64);
+
+			auto ser = req.SerializeAsString();
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
+				helix_ng::offer(
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::recvInline()
+				)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			managarm::fs::GenericIoctlReply resp;
+			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			recv_resp.reset();
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+			size_t size = resp.size();
+
+			auto device = std::make_shared<Device>(VfsType::blockDevice,
+				diskNames.at(event.id) + diskSuffix,
+				std::move(lane),
+				parent_device,
+				size);
+
+			device->assignId({8, minorAllocator.allocate()});
+			blockRegistry.install(device);
+			drvcore::installDevice(device);
 		}
 	}
 }

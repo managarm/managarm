@@ -680,12 +680,22 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 		auto conversation = accept.descriptor();
 
 		auto preamble = bragi::read_preamble(recv_head);
-		assert(!preamble.error());
+		if(preamble.error()) {
+			std::cout << "libblockfs: error decoding preamble" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
 
 		managarm::fs::CntRequest req;
 		if (preamble.id() == managarm::fs::CntRequest::message_id) {
 			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_head);
-			assert(o);
+			if(!o) {
+				std::cout << "libblockfs: error decoding CntRequest" << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+			}
 
 			req = *o;
 		}
@@ -870,7 +880,115 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 				HEL_CHECK(dismiss.error());
 			}
 		}else{
-			throw std::runtime_error("Unexpected request type " + std::to_string((int)req.req_type()));
+			std::cout << "Unexpected request type " + std::to_string((int)req.req_type()) << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+	}
+}
+
+async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> rawFs) {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
+				lane,
+				helix_ng::accept(
+					helix_ng::recvInline()
+				)
+			);
+
+		HEL_CHECK(accept.error());
+		HEL_CHECK(recv_head.error());
+
+		auto conversation = accept.descriptor();
+
+		auto preamble = bragi::read_preamble(recv_head);
+		if(preamble.error()) {
+			std::cout << "libblockfs: error decoding preamble" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+
+		managarm::fs::CntRequest req;
+		if (preamble.id() == managarm::fs::CntRequest::message_id) {
+			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_head);
+			if(!o) {
+				std::cout << "libblockfs: error decoding CntRequest" << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+			}
+
+			req = *o;
+		}
+		recv_head.reset();
+
+		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor({})
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		}else if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			helix::UniqueLane local_lane, remote_lane;
+			std::tie(local_lane, remote_lane) = helix::createStream();
+			auto file = smarter::make_shared<raw::OpenFile>(rawFs.get());
+			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
+					file,
+					&rawOperations));
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(remote_lane)
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(push_node.error());
+		} else if(preamble.id() == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(recv_head);
+
+			if(!req) {
+				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			if(req->command() == BLKGETSIZE64) {
+				managarm::fs::GenericIoctlReply rsp;
+				rsp.set_error(managarm::fs::Errors::SUCCESS);
+				rsp.set_size(co_await rawFs->device->getSize());
+
+				auto ser = rsp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+			} else {
+				std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+						<< req->command() << "\e[39m" << std::endl;
+
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+			}
+		}else{
+			std::cout << "Unexpected request type " + std::to_string((int)req.req_type()) << " to device" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}
 }
@@ -901,18 +1019,20 @@ async::detached runDevice(BlockDevice *device) {
 					"disk", descriptor)).unwrap();
 		diskId = entity.id();
 
+		auto rawFs = std::make_unique<raw::RawFs>(device);
+		co_await rawFs->init();
+
 		// See comment in mbus_ng::~EntityManager as to why this is necessary.
-		[] (mbus_ng::EntityManager entity) -> async::detached {
+		[] (mbus_ng::EntityManager entity, std::unique_ptr<raw::RawFs> rawFs) -> async::detached {
 			while (true) {
 				auto [localLane, remoteLane] = helix::createStream();
 
 				// If this fails, too bad!
 				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
 
-				// TODO(qookie): Handle requests on disks
-				std::cout << "\e[31mlibblockfs: Disks don't currently serve requests\e[39m" << std::endl;
+				serveDevice(std::move(localLane), std::move(rawFs));
 			}
-		}(std::move(entity));
+		}(std::move(entity), std::move(rawFs));
 	}
 
 	int partId = 0;
