@@ -322,7 +322,7 @@ async::result<void> Controller::createNamespace(unsigned int nsid) {
 	if (!lbaShift)
 		lbaShift = 9;
 
-	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift);
+	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift, id.nsze);
 	activeNamespaces_.push_back(std::move(ns));
 }
 

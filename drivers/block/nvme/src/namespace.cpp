@@ -6,9 +6,9 @@
 #include "namespace.hpp"
 #include "controller.hpp"
 
-Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
+Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift, size_t lbaCount)
 	: BlockDevice{(size_t)1 << lbaShift, -1}, controller_(controller), nsid_(nsid),
-	  lbaShift_(lbaShift) {
+	  lbaShift_(lbaShift), lbaCount_{lbaCount} {
 	diskNamePrefix = "nvme";
 	diskNameSuffix = std::format("n{}", nsid);
 	partNameSuffix = std::format("n{}p", nsid);
@@ -63,8 +63,7 @@ async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer,
 }
 
 async::result<size_t> Namespace::getSize() {
-	std::cout << "nvme: Namespace::getSize() is a stub!" << std::endl;
-	co_return 1;
+	co_return lbaCount_ << lbaShift_;
 }
 
 async::result<void> Namespace::handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) {
