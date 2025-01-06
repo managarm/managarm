@@ -625,7 +625,7 @@ async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset
 }
 async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
-	(void) object;
+	auto self = static_cast<raw::OpenFile *>(object);
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
@@ -641,7 +641,7 @@ async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResu
 			);
 			HEL_CHECK(send_resp.error());
 		} else {
-			co_return;
+			co_await self->rawFs->device->handleIoctl(req.value(), std::move(conversation));
 		}
 	}
 }
