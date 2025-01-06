@@ -326,6 +326,7 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 
 async::detached run() {
 	sysfsSubsystem = new drvcore::BusSubsystem{"pci"};
+	sysfsSubsystem->object()->directoryNode()->directMkdir("slots");
 
 	auto filter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "pci"}
