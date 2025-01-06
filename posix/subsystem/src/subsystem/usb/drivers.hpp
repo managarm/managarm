@@ -3,16 +3,16 @@
 #include "src/drvcore.hpp"
 
 struct CdcMbimDriver final : drvcore::BusDriver {
-	CdcMbimDriver(std::shared_ptr<drvcore::BusSubsystem> parent, std::string name)
+	CdcMbimDriver(drvcore::BusSubsystem *parent, std::string name)
 	: drvcore::BusDriver(parent, name) {}
 };
 
 struct CdcNcmDriver final : drvcore::BusDriver {
-	CdcNcmDriver(std::shared_ptr<drvcore::BusSubsystem> parent, std::string name)
+	CdcNcmDriver(drvcore::BusSubsystem *parent, std::string name)
 	: drvcore::BusDriver(parent, name) {}
 };
 
 struct CdcEtherDriver final : drvcore::BusDriver {
-	CdcEtherDriver(std::shared_ptr<drvcore::BusSubsystem> parent, std::string name)
+	CdcEtherDriver(drvcore::BusSubsystem *parent, std::string name)
 	: drvcore::BusDriver(parent, name) {}
 };

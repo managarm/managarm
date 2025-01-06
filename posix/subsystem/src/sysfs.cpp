@@ -456,11 +456,6 @@ void Object::addObject() {
 	if(_parent) {
 		assert(_parent->_dirLink);
 		auto parent_dir = static_cast<DirectoryNode *>(_parent->_dirLink->getTarget().get());
-
-		auto class_path = getClassPath();
-		if(class_path.has_value())
-			parent_dir = static_cast<DirectoryNode *>(parent_dir->directMkdir(class_path.value())->getTarget().get());
-
 		_dirLink = parent_dir->directMkdir(_name);
 	}else{
 		auto parent_dir = static_cast<DirectoryNode *>(getSysfs()->getTarget().get());
