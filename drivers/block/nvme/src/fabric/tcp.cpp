@@ -321,6 +321,10 @@ async::detached Tcp::run() {
 		ns->run();
 }
 
+async::result<Command::Result> Tcp::submitAdminCommand(std::unique_ptr<Command> cmd) {
+	co_return co_await activeQueues_.at(0)->submitCommand(std::move(cmd));
+}
+
 async::result<Command::Result> Tcp::submitIoCommand(std::unique_ptr<Command> cmd) {
 	co_return co_await activeQueues_.at(1)->submitCommand(std::move(cmd));
 }

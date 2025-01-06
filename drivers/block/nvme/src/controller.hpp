@@ -20,6 +20,7 @@ struct Controller {
 
 	virtual async::detached run() = 0;
 
+	virtual async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) = 0;
 	virtual async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) = 0;
 
 	inline int64_t getParentId() const {
@@ -59,6 +60,7 @@ struct PciExpressController final : public Controller {
 
 	async::detached run() override;
 
+	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
 private:
 	static constexpr int IO_QUEUE_DEPTH = 1024;

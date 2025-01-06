@@ -313,6 +313,12 @@ async::result<void> Controller::createNamespace(unsigned int nsid) {
 	activeNamespaces_.push_back(std::move(ns));
 }
 
+async::result<Command::Result> PciExpressController::submitAdminCommand(std::unique_ptr<Command> cmd) {
+	auto &q = activeQueues_.front();
+
+	return q->submitCommand(std::move(cmd));
+}
+
 async::result<Command::Result> PciExpressController::submitIoCommand(std::unique_ptr<Command> cmd) {
 	auto &ioQ = activeQueues_.back();
 
