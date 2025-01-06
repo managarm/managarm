@@ -892,6 +892,8 @@ async::detached runDevice(BlockDevice *device) {
 		mbus_ng::Properties descriptor {
 			{"unix.devtype", mbus_ng::StringItem{"block"}},
 			{"unix.blocktype", mbus_ng::StringItem{"disk"}},
+			{"unix.diskname-prefix", mbus_ng::StringItem{device->diskNamePrefix}},
+			{"unix.diskname-suffix", mbus_ng::StringItem{device->diskNameSuffix}},
 			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}}
 		};
 
@@ -923,11 +925,10 @@ async::detached runDevice(BlockDevice *device) {
 		if(type == gpt::type_guids::managarmRootPartition)
 			printf("  It's a Managarm root partition!\n");
 
-		auto device = &table->getPartition(i);
+		auto paritition = &table->getPartition(i);
 
-		auto rawFs = std::make_unique<raw::RawFs>(device);
+		auto rawFs = std::make_unique<raw::RawFs>(paritition);
 		co_await rawFs->init();
-		printf("rawfs is ready!\n");
 
 		// Create an mbus object for the partition.
 		mbus_ng::Properties descriptor{
@@ -935,7 +936,8 @@ async::detached runDevice(BlockDevice *device) {
 			{"unix.blocktype", mbus_ng::StringItem{"partition"}},
 			{"unix.partid", mbus_ng::StringItem{std::to_string(partId++)}},
 			{"unix.diskid", mbus_ng::StringItem{std::to_string(diskId)}},
-			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(device->parentId)}},
+			{"unix.partname-suffix", mbus_ng::StringItem{device->partNameSuffix}},
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(paritition->parentId)}},
 			{"unix.is-managarm-root", mbus_ng::StringItem{std::to_string(type == gpt::type_guids::managarmRootPartition)}}
 		};
 
@@ -951,7 +953,7 @@ async::detached runDevice(BlockDevice *device) {
 
 				servePartition(std::move(localLane), partition, std::move(rawFs));
 			}
-		}(std::move(entity), device, std::move(rawFs));
+		}(std::move(entity), paritition, std::move(rawFs));
 	}
 }
 

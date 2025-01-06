@@ -6,6 +6,9 @@
 Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
 	: BlockDevice{(size_t)1 << lbaShift, controller->getParentId()}, controller_(controller), nsid_(nsid),
 	  lbaShift_(lbaShift) {
+	diskNamePrefix = "nvme";
+	diskNameSuffix = std::format("n{}", nsid);
+	partNameSuffix = std::format("n{}p", nsid);
 }
 
 async::detached Namespace::run() {
