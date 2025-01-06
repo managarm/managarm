@@ -102,7 +102,9 @@ struct IdentifyController {
 	uint32_t rtd3e;
 	uint32_t oaes;
 	uint32_t ctratt;
-	uint8_t __reserved100[28];
+	uint8_t __reserved100[11];
+	uint8_t cntrltype;
+	uint8_t __reserved112[16];
 	uint16_t crdt1;
 	uint16_t crdt2;
 	uint16_t crdt3;
