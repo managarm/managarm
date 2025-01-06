@@ -27,9 +27,9 @@ struct Subsystem final : drvcore::ClassDevice {
 
 struct Controller final : drvcore::ClassDevice {
 	Controller(drvcore::ClassSubsystem *subsystem, size_t num, std::shared_ptr<Device> parent,
-		std::shared_ptr<Device> subsys, std::string address, std::string transport)
+		std::shared_ptr<Device> subsys, std::string address, std::string transport, std::string serial, std::string model, std::string fw_rev)
 		: drvcore::ClassDevice{subsystem, parent, std::format("nvme{}", num), nullptr},
-		subsystem{subsys}, address{address}, transport{transport} {
+		subsystem{subsys}, address{address}, transport{transport}, serial{serial}, model{model}, fw_rev{fw_rev} {
 
 	}
 
@@ -43,6 +43,9 @@ struct Controller final : drvcore::ClassDevice {
 	std::shared_ptr<Device> subsystem;
 	std::string address;
 	std::string transport;
+	std::string serial;
+	std::string model;
+	std::string fw_rev;
 };
 
 struct Namespace final : drvcore::Device {
@@ -127,6 +130,27 @@ struct NumaNodeAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
+struct SerialAttribute : sysfs::Attribute {
+	SerialAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct ModelAttribute : sysfs::Attribute {
+	ModelAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
+struct FwRevAttribute : sysfs::Attribute {
+	FwRevAttribute(std::string name)
+	: sysfs::Attribute{std::move(name), false} { }
+
+	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
+};
+
 struct CntrlTypeAttribute : sysfs::Attribute {
 	CntrlTypeAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
@@ -195,6 +219,21 @@ async::result<frg::expected<Error, std::string>> NumaNodeAttribute::show(sysfs::
 	co_return "-1\n";
 }
 
+async::result<frg::expected<Error, std::string>> SerialAttribute::show(sysfs::Object *object) {
+	auto c = static_cast<Controller *>(object);
+	co_return c->serial + "\n";
+}
+
+async::result<frg::expected<Error, std::string>> ModelAttribute::show(sysfs::Object *object) {
+	auto c = static_cast<Controller *>(object);
+	co_return c->model + "\n";
+}
+
+async::result<frg::expected<Error, std::string>> FwRevAttribute::show(sysfs::Object *object) {
+	auto c = static_cast<Controller *>(object);
+	co_return c->fw_rev + "\n";
+}
+
 async::result<frg::expected<Error, std::string>> CntrlTypeAttribute::show(sysfs::Object *) {
 	co_return "io\n";
 }
@@ -221,7 +260,11 @@ AddressAttribute addressAttr{"address"};
 StateAttribute stateAttr{"state"};
 CntlIdAttribute cntlIdAttr{"cntlid"};
 CntrlTypeAttribute cntrlTypeAttr{"cntrltype"};
-NumaNodeAttribute numeNodeAttr{"numa_node"};
+NumaNodeAttribute numaNodeAttr{"numa_node"};
+SerialAttribute serialAttr{"serial"};
+ModelAttribute modelAttr{"model"};
+FwRevAttribute fwRevAttr{"firmware_rev"};
+
 NsidAttribute nsidAttr{"nsid"};
 NsSizeAttribute nsSizeAttr{"size"};
 QueueLogicalBlocksizeAttribute lbaSizeAttr{"logical_block_size"};
@@ -293,11 +336,14 @@ async::detached run() {
 
 				auto nvme_device_address = std::get<mbus_ng::StringItem>(event.properties.at("nvme.address")).value;
 				auto nvme_transport = std::get<mbus_ng::StringItem>(event.properties.at("nvme.transport")).value;
+				auto nvme_model = std::get<mbus_ng::StringItem>(event.properties.at("nvme.model")).value;
+				auto nvme_serial = std::get<mbus_ng::StringItem>(event.properties.at("nvme.serial")).value;
+				auto nvme_fw_rev = std::get<mbus_ng::StringItem>(event.properties.at("nvme.fw-rev")).value;
 
 				if(!parent && nvme_transport == "tcp")
 					parent = fabricsSubsystemCtl;
 
-				auto controller = std::make_shared<Controller>(nvmeSubsystem, controllers++, parent, subsys, nvme_device_address, nvme_transport);
+				auto controller = std::make_shared<Controller>(nvmeSubsystem, controllers++, parent, subsys, nvme_device_address, nvme_transport, nvme_serial, nvme_model, nvme_fw_rev);
 
 				assert(controller);
 				drvcore::installDevice(controller);
@@ -309,7 +355,10 @@ async::detached run() {
 				controller->realizeAttribute(&stateAttr);
 				controller->realizeAttribute(&cntlIdAttr);
 				controller->realizeAttribute(&cntrlTypeAttr);
-				controller->realizeAttribute(&numeNodeAttr);
+				controller->realizeAttribute(&numaNodeAttr);
+				controller->realizeAttribute(&serialAttr);
+				controller->realizeAttribute(&modelAttr);
+				controller->realizeAttribute(&fwRevAttr);
 
 				std::cout << std::format("posix: installed {} (mbus ID {})", controller->name(), entity.id()) << std::endl;
 				drvcore::registerMbusDevice(entity.id(), std::move(controller));

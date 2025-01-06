@@ -58,6 +58,10 @@ protected:
 	std::string location_;
 	const ControllerType type_;
 
+	std::string serial;
+	std::string model;
+	std::string fw_rev;
+
 	std::vector<std::unique_ptr<Queue>> activeQueues_;
 	std::vector<std::unique_ptr<Namespace>> activeNamespaces_;
 };
