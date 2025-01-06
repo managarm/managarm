@@ -10,9 +10,10 @@
 #include <netinet/in.h>
 
 #include "controller.hpp"
+#include "subsystem.hpp"
 #include "fabric/tcp.hpp"
 
-std::map<mbus_ng::EntityId, std::unique_ptr<Controller>> globalControllers;
+std::map<mbus_ng::EntityId, std::unique_ptr<nvme::Subsystem>> globalSubsystems;
 
 namespace {
 
@@ -31,9 +32,6 @@ async::detached runFabrics(mbus_ng::EntityId entity_id) {
 	if(!use_fabric)
 		co_return;
 
-	if(globalControllers.contains(entity_id))
-		co_return;
-
 	std::string remote = std::string{server.data(), server.size()};
 	std::cout << std::format("block/nvme: using NVMe-over-fabric to {}\n", remote);
 
@@ -48,15 +46,22 @@ async::detached runFabrics(mbus_ng::EntityId entity_id) {
 	in_addr server_ip{};
 	convert_ip(server, &server_ip);
 
-	auto controller = std::make_unique<nvme::fabric::Tcp>(-1, server_ip, 4420, std::move(netserverLane));
-	controller->run();
+	auto nvme_subsystem = std::make_unique<nvme::Subsystem>();
+	co_await nvme_subsystem->run();
 
-	globalControllers.insert({entity_id, std::move(controller)});
+	auto addr = std::format("traddr={},trsvcid={},src_addr=127.0.0.1", remote, 4420);
+
+	auto controller = std::make_unique<nvme::fabric::Tcp>(-1, server_ip, 4420, addr, std::move(netserverLane));
+	controller->run(nvme_subsystem->id());
+	nvme_subsystem->addController(entity_id, std::move(controller));
+	globalSubsystems.insert({nvme_subsystem->id(), std::move(nvme_subsystem)});
 }
 
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
-	if(globalControllers.contains(base_id))
-		co_return protocols::svrctl::Error::success;
+	for(auto &[_, subsys] : globalSubsystems) {
+		if(subsys->controllers().contains(base_id))
+			co_return protocols::svrctl::Error::success;
+	}
 
 	auto entity = co_await mbus_ng::Instance::global().getEntity(base_id);
 
@@ -80,12 +85,21 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		auto bar0 = co_await device.accessBar(0);
 		auto irq = co_await device.accessIrq();
 
+		auto loc = std::format("{}:{}:{}.{}",
+			std::get<mbus_ng::StringItem>(properties.at("pci-segment")).value,
+			std::get<mbus_ng::StringItem>(properties.at("pci-bus")).value,
+			std::get<mbus_ng::StringItem>(properties.at("pci-slot")).value,
+			std::get<mbus_ng::StringItem>(properties.at("pci-function")).value);
+
 		helix::Mapping mapping{bar0, barInfo.offset, barInfo.length};
 
-		auto controller = std::make_unique<PciExpressController>(base_id, std::move(device), std::move(mapping),
+		auto nvme_subsystem = std::make_unique<nvme::Subsystem>();
+		co_await nvme_subsystem->run();
+		auto controller = std::make_unique<PciExpressController>(base_id, std::move(device), loc, std::move(mapping),
 				std::move(irq));
-		controller->run();
-		globalControllers.insert({base_id, std::move(controller)});
+		controller->run(nvme_subsystem->id());
+		nvme_subsystem->addController(base_id, std::move(controller));
+		globalSubsystems.insert({nvme_subsystem->id(), std::move(nvme_subsystem)});
 	} else {
 		co_return protocols::svrctl::Error::deviceNotSupported;
 	}

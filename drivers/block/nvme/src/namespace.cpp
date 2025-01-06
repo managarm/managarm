@@ -1,10 +1,13 @@
 #include <arch/bit.hpp>
+#include <asm/ioctl.h>
+#include <format>
+#include <linux/nvme_ioctl.h>
 
 #include "namespace.hpp"
 #include "controller.hpp"
 
 Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
-	: BlockDevice{(size_t)1 << lbaShift, controller->getParentId()}, controller_(controller), nsid_(nsid),
+	: BlockDevice{(size_t)1 << lbaShift, -1}, controller_(controller), nsid_(nsid),
 	  lbaShift_(lbaShift) {
 	diskNamePrefix = "nvme";
 	diskNameSuffix = std::format("n{}", nsid);
@@ -12,6 +15,28 @@ Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift)
 }
 
 async::detached Namespace::run() {
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"nvme-namespace"}},
+		{"nvme.nsid", mbus_ng::StringItem{std::to_string(nsid_)}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(controller_->getMbusId())}},
+	};
+
+	auto namespace_entity = (co_await mbus_ng::Instance::global().createEntity(
+		"nvme-namespace", descriptor)).unwrap();
+
+	parentId = namespace_entity.id();
+
+	[](mbus_ng::EntityManager entity) -> async::detached {
+		while (true) {
+			auto [localLane, remoteLane] = helix::createStream();
+
+			// If this fails, too bad!
+			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+			// TODO: do we need to serve something on localLane?
+		}
+	}(std::move(namespace_entity));
+
 	blockfs::runDevice(this);
 
 	co_return;
