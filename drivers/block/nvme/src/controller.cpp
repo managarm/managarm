@@ -49,11 +49,19 @@ PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Devi
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await hwDevice_.enableBusIrq();
 
+	handleIrqs();
+
+	co_await reset();
+	co_await scanNamespaces();
+
 	mbus_ng::Properties descriptor{
 		{"class", mbus_ng::StringItem{"nvme-controller"}},
 		{"nvme.subsystem", mbus_ng::StringItem{std::to_string(subsystem)}},
 		{"nvme.address", mbus_ng::StringItem{location_}},
 		{"nvme.transport", mbus_ng::StringItem{"pcie"}},
+		{"nvme.serial", mbus_ng::StringItem{serial}},
+		{"nvme.model", mbus_ng::StringItem{model}},
+		{"nvme.fw-rev", mbus_ng::StringItem{fw_rev}},
 		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(parentId_)}},
 	};
 
@@ -72,11 +80,6 @@ async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 			// TODO: do we need to serve something on localLane?
 		}
 	}(std::move(controller_entity));
-
-	handleIrqs();
-
-	co_await reset();
-	co_await scanNamespaces();
 
 	for (auto &ns : activeNamespaces_)
 		ns->run();
@@ -291,6 +294,10 @@ async::result<void> Controller::scanNamespaces() {
 	}
 
 	nn = convert_endian<endian::little>(idCtrl.nn);
+
+	model = std::string{idCtrl.mn, sizeof(idCtrl.mn)};
+	serial = std::string{idCtrl.sn, sizeof(idCtrl.sn)};
+	fw_rev = std::string{idCtrl.fr, sizeof(idCtrl.fr)};
 
 	if (version_ >= flags::vs::version(1, 1, 0)) {
 		auto nsList = arch::dma_array<uint32_t>{nullptr, 1024};

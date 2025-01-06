@@ -292,6 +292,9 @@ async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 		{"nvme.subsystem", mbus_ng::StringItem{std::to_string(subsystem)}},
 		{"nvme.address", mbus_ng::StringItem{location_}},
 		{"nvme.transport", mbus_ng::StringItem{"tcp"}},
+		{"nvme.serial", mbus_ng::StringItem{serial}},
+		{"nvme.model", mbus_ng::StringItem{model}},
+		{"nvme.fw-rev", mbus_ng::StringItem{fw_rev}},
 		{"drvcore.mbus-parent", mbus_ng::StringItem{"-1"}},
 	};
 
