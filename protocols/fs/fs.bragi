@@ -671,6 +671,8 @@ head(128):
 		tag(72) uint32[] drm_handles;
 
 		tag(73) uint64 size;
+
+		tag(74) uint32 status;
 	}
 }
 

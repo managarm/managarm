@@ -66,3 +66,75 @@ async::result<size_t> Namespace::getSize() {
 	std::cout << "nvme: Namespace::getSize() is a stub!" << std::endl;
 	co_return 1;
 }
+
+async::result<void> Namespace::handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) {
+	if(req.command() == NVME_IOCTL_ID) {
+		managarm::fs::GenericIoctlReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_result(nsid_);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else if(req.command() == NVME_IOCTL_ADMIN_CMD) {
+		nvme_admin_cmd param;
+
+		auto [recv_buffer] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(&param, sizeof(param))
+		);
+		HEL_CHECK(recv_buffer.error());
+
+		auto cmd = std::make_unique<Command>();
+		auto &cmdBuf = cmd->getCommandBuffer().common;
+
+		cmdBuf.opcode = param.opcode;
+		cmdBuf.flags = param.flags;
+		cmdBuf.namespaceId = param.nsid;
+		cmdBuf.cdw2[0] = param.cdw2;
+		cmdBuf.cdw2[1] = param.cdw3;
+		cmdBuf.cdw10 = param.cdw10;
+		cmdBuf.cdw11 = param.cdw11;
+		cmdBuf.cdw12 = param.cdw12;
+		cmdBuf.cdw13 = param.cdw13;
+		cmdBuf.cdw14 = param.cdw14;
+		cmdBuf.cdw15 = param.cdw15;
+
+		size_t data_size = param.data_len;
+		std::vector<std::byte> data_buf(data_size);
+
+		auto [recv_data] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(data_buf.data(), param.data_len)
+		);
+		HEL_CHECK(recv_data.error());
+
+		cmd->setupBuffer(arch::dma_buffer_view{nullptr, data_buf.data(), data_size}, controller_->dataTransferPolicy());
+
+		auto res = co_await controller_->submitAdminCommand(std::move(cmd));
+
+		managarm::fs::GenericIoctlReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_status(res.first.status);
+		resp.set_result(res.second.u64);
+
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(data_buf.data(), data_size)
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	} else {
+		std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+				<< req.command() << "\e[39m" << std::endl;
+
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
+	}
+}
