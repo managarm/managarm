@@ -1228,7 +1228,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					relative_to, req->path(), self.get());
-			auto resolveResult = co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve(resolveDontFollow);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::isDirectory) {
 					co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
