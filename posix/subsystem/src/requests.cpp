@@ -1747,6 +1747,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto tailResult = co_await directory->getLink(resolver.nextComponent());
+				if(!tailResult) {
+					if(tailResult.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+				}
 				assert(tailResult);
 				auto tail = tailResult.value();
 				if(tail) {
