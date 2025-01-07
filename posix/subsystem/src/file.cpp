@@ -286,6 +286,12 @@ async::result<frg::expected<protocols::fs::Error>> File::ptSetSocketOption(void 
 	co_return co_await self->setSocketOption(layer, number, optbuf);
 }
 
+async::result<frg::expected<protocols::fs::Error>> File::ptGetSocketOption(void *object,
+		int layer, int number, std::vector<char> &optbuf) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->getSocketOption(layer, number, optbuf);
+}
+
 File::~File() {
 	// Nothing to do here.
 	if(logDestruction)
@@ -528,6 +534,18 @@ async::result<frg::expected<protocols::fs::Error>> File::setSocketOption(int lay
 
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement setSocketOption()" << std::endl;
+
+	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+async::result<frg::expected<protocols::fs::Error>> File::getSocketOption(int layer,
+		int number, std::vector<char> &optbuf) {
+	(void) layer;
+	(void) number;
+	(void) optbuf;
+
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement getSocketOption()" << std::endl;
 
 	co_return protocols::fs::Error::illegalOperationTarget;
 }

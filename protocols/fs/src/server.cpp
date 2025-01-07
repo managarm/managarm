@@ -1180,6 +1180,47 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
+	} else if(preamble.id() == managarm::fs::GetSockOpt::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::GetSockOpt>(recv_req);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		std::vector<char> optbuf;
+		optbuf.resize(req->optlen());
+
+		managarm::fs::SvrResponse resp;
+
+		if(!file_ops->getSocketOption) {
+			std::cout << "protocols/fs: getsockopt not supported on socket" << std::endl;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto ret = co_await file_ops->getSocketOption(file.get(), req->layer(), req->number(), optbuf);
+		if(!ret) {
+			assert(ret.error() != protocols::fs::Error::none);
+			resp.set_error(mapFsError(ret.error()));
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto [send_resp, send_buf] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(optbuf.data(), req->optlen())
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_buf.error());
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");

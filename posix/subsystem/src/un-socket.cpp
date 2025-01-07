@@ -503,6 +503,19 @@ public:
 		co_return flags;
 	}
 
+	async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer, int number,
+			std::vector<char> &optbuf) override {
+		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+			int protocol = 0;
+			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else {
+			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+
+		co_return {};
+	}
+
 	async::result<void>
 	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
 		managarm::fs::GenericIoctlReply resp;

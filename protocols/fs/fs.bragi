@@ -772,3 +772,10 @@ head(128):
 tail:
 	uint32[] values;
 }
+
+message GetSockOpt 27 {
+head(128):
+	int32 layer;
+	int32 number;
+	uint64 optlen;
+}
