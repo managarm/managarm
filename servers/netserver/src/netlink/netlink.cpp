@@ -98,6 +98,16 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 			ctrl.write(ucreds);
 	}
 
+	if(self->pktinfo_) {
+		struct nl_pktinfo info;
+		info.group = packet.group;
+		auto truncated = ctrl.message(SOL_NETLINK, NETLINK_PKTINFO, sizeof(info));
+		if(!truncated)
+			ctrl.write(info);
+		else
+			reply_flags |= MSG_CTRUNC;
+	}
+
 	if(!(flags & MSG_PEEK))
 		self->_recvQueue.pop_front();
 
@@ -274,6 +284,11 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 
 			if(logGroups)
 				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", val);
+			break;
+		}
+		case NETLINK_PKTINFO: {
+			auto val = *reinterpret_cast<int *>(optbuf.data());
+			self->pktinfo_ = val;
 			break;
 		}
 		default:

@@ -160,6 +160,17 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 			reply_flags |= MSG_CTRUNC;
 	}
 
+	if(pktinfo_) {
+		struct nl_pktinfo info;
+		info.group = packet->group;
+
+		auto truncated = ctrl.message(SOL_NETLINK, NETLINK_PKTINFO, sizeof(info));
+		if(truncated)
+			reply_flags |= MSG_CTRUNC;
+		else
+			ctrl.write(info);
+	}
+
 	if(!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
 	}
@@ -316,6 +327,9 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 		assert(it != globalGroupMap.end());
 		auto group = it->second.get();
 		group->subscriptions.push_back(this);
+	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {
+		auto val = *reinterpret_cast<int *>(optbuf.data());
+		pktinfo_ = (val != 0);
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
