@@ -98,6 +98,7 @@ private:
 	uint64_t _inSeq = 0;
 	bool _passCreds = false;
 	bool _nonBlock = false;
+	bool pktinfo_ = false;
 
 	std::deque<core::netlink::Packet> _recvQueue;
 };
