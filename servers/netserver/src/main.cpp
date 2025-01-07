@@ -485,7 +485,7 @@ async::detached serve(helix::UniqueLane lane) {
 						continue;
 					}
 				} else if(req.domain() == AF_NETLINK) {
-					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags());
+					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags(), req.protocol());
 					async::detach(servePassthrough(std::move(local_lane), nl_socket,
 							&nl::NetlinkSocket::ops));
 				} else if(req.domain() == AF_PACKET) {

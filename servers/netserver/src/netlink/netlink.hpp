@@ -20,7 +20,7 @@ void initialize();
 
 class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
-	NetlinkSocket(int flags);
+	NetlinkSocket(int flags, int protocol);
 
 	static async::result<protocols::fs::RecvResult> recvMsg(void *obj,
 			const char *creds, uint32_t flags, void *data,
@@ -47,6 +47,9 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>>
 	setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
 
+	static async::result<frg::expected<protocols::fs::Error>>
+	getSocketOption(void *object, int layer, int number, std::vector<char> &optbuf);
+
 	static async::result<void> setFileFlags(void *object, int flags);
 	static async::result<int> getFileFlags(void *object);
 
@@ -61,10 +64,12 @@ public:
 		.recvMsg = &recvMsg,
 		.sendMsg = &sendMsg,
 		.setSocketOption = &setSocketOption,
+		.getSocketOption = &getSocketOption,
 	};
 
 	void deliver(core::netlink::Packet packet) override;
 
+	const int protocol;
 private:
 	void broadcast(core::netlink::Packet packet);
 
