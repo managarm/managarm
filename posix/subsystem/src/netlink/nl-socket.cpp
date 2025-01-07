@@ -23,6 +23,7 @@ using core::netlink::Group;
 struct OpenFile;
 
 constexpr bool logSockets = false;
+constexpr bool logBroadcasts = false;
 
 std::map<int, const ops *> globalProtocolOpsMap;
 
@@ -379,6 +380,9 @@ void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer) {
 	assert(it != globalGroupMap.end());
 	auto group = it->second.get();
 	group->carbonCopy(packet);
+
+	if(logBroadcasts)
+		std::cout << std::format("posix/netlink: broadcasting \"{}\"", buffer) << std::endl;
 }
 
 bool protocol_supported(int protocol) {
