@@ -32,10 +32,10 @@ int main() {
 	std::cout << "init: Starting udevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
-		execl("/usr/sbin/udevd", "udevd", nullptr);
+		execl("/usr/bin/udevadm", "udevd", nullptr);
 	}else assert(udev != -1);
 
-	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
+	while(access("/run/udev/control", F_OK)) { // TODO: Use some other file to wait on?
 		assert(errno == ENOENT);
 		sleep(1);
 	}
