@@ -1177,6 +1177,10 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 void Process::retire(Process *process) {
 	assert(process->_parent);
 	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
+
+	std::erase_if(process->_parent->_children, [process](auto e) {
+		return e.get() == process;
+	});
 }
 
 async::result<void> Process::terminate(TerminationState state) {
@@ -1222,33 +1226,52 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<int> Process::wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats) {
+async::result<frg::expected<Error, Process::WaitResult>> Process::wait(int pid, WaitFlags flags) {
 	assert(pid == -1 || pid > 0);
+	assert(flags & waitExited);
+	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
 
-	int result = 0;
-	TerminationState resultState;
-	ResourceUsage resultStats;
+	if(_children.empty() || (pid > 0 && !hasChild(pid)))
+		co_return Error::noChildProcesses;
+
+	std::optional<WaitResult> result{};
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
 			if(pid > 0 && pid != it->pid())
 				continue;
-			_notifyQueue.erase(it);
-			result = it->pid();
-			resultState = it->_state;
-			if(stats)
-				resultStats = it->_generationUsage;
-			Process::retire(&(*it));
+			if(std::holds_alternative<TerminationByExit>(it->_state) && !(flags & (waitExited)))
+				continue;
+			if(std::holds_alternative<TerminationBySignal>(it->_state) && !(flags & (waitExited)))
+				continue;
+
+			result = WaitResult{
+				.pid = it->pid(),
+				.uid = it->uid(),
+				.state = it->_state,
+				.stats = it->_generationUsage,
+			};
+
+			if(!(flags & waitLeaveZombie)) {
+				// erasing from the queue invalidates the iterator, so we take a pointer before
+				auto proc = &(*it);
+				_notifyQueue.erase(it);
+				Process::retire(proc);
+			}
+
 			break;
 		}
 
-		if(result > 0 || nonBlocking) {
-			*state = resultState;
-			if(stats)
-				*stats = resultStats;
-			co_return result;
-		}
+		if(result || (flags & waitNonBlocking))
+			co_return result.value_or(WaitResult{});
+
 		co_await _notifyBell.async_wait();
 	}
+}
+
+bool Process::hasChild(int pid) {
+	return std::ranges::find_if(_children, [pid](auto e) {
+		return e->pid() == pid;
+	}) != _children.end();
 }
 
 // --------------------------------------------------------------------------------------

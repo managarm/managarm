@@ -304,11 +304,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: WAIT_ID" << std::endl;
 
-			if(req->flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) {
+			if((req->flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) ||
+				!(req->flags() & (WEXITED /*| WSTOPPED | WCONTINUED*/))) {
 				std::cout << "posix: WAIT_ID invalid flags: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
+
+			WaitFlags flags = 0;
+
+			if(req->flags() & WNOHANG)
+				flags |= waitNonBlocking;
+
+			if(req->flags() & WEXITED)
+				flags |= waitExited;
 
 			if(req->flags() & WSTOPPED)
 				std::cout << "\e[31mposix: WAIT_ID flag WSTOPPED is silently ignored\e[39m" << std::endl;
@@ -317,37 +326,44 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "\e[31mposix: WAIT_ID flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
 			if(req->flags() & WNOWAIT)
-				std::cout << "\e[31mposix: WAIT_ID flag WNOWAIT is silently ignored\e[39m" << std::endl;
+				flags |= waitLeaveZombie;
 
-			TerminationState state;
-			int pid;
+			int wait_pid = 0;
 			if(req->idtype() == P_PID) {
-				pid = co_await self->wait(req->id(), req->flags() & WNOHANG, &state);
+				wait_pid = req->id();
 			} else if(req->idtype() == P_ALL) {
-				pid = co_await self->wait(-1, req->flags() & WNOHANG, &state);
+				wait_pid = -1;
 			} else {
 				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
+			auto wait_result = co_await self->wait(wait_pid, flags);
+
 			helix::SendBuffer send_resp;
-
 			managarm::posix::WaitIdResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
-			resp.set_uid(self->findProcess(pid)->uid());
 
-			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
-				resp.set_sig_status(W_EXITCODE(byExit->code, 0));
-				resp.set_sig_code(CLD_EXITED);
-			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
-				resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
-				resp.set_sig_code(CLD_KILLED);
-			}else{
-				resp.set_sig_status(0);
-				resp.set_sig_code(0);
-				assert(std::holds_alternative<std::monostate>(state));
+			if(wait_result) {
+				auto proc_state = wait_result.value();
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(proc_state.pid);
+				resp.set_uid(proc_state.uid);
+
+				if(auto byExit = std::get_if<TerminationByExit>(&proc_state.state); byExit) {
+					resp.set_sig_status(W_EXITCODE(byExit->code, 0));
+					resp.set_sig_code(CLD_EXITED);
+				}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
+					resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
+					resp.set_sig_code(CLD_KILLED);
+				}else{
+					resp.set_sig_status(0);
+					resp.set_sig_code(0);
+					assert(std::holds_alternative<std::monostate>(proc_state.state));
+				}
+			} else {
+				assert(wait_result.error() == Error::noChildProcesses);
+				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
 			}
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
@@ -365,32 +381,41 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			WaitFlags flags = waitExited;
+
+			if(req.flags() & WNOHANG)
+				flags |= waitNonBlocking;
+
 			if(req.flags() & WUNTRACED)
 				std::cout << "\e[31mposix: WAIT flag WUNTRACED is silently ignored\e[39m" << std::endl;
 
 			if(req.flags() & WCONTINUED)
 				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
 
-			TerminationState state;
-			ResourceUsage stats;
-			auto pid = co_await self->wait(req.pid(), req.flags() & WNOHANG, &state, &stats);
+			auto wait_result = co_await self->wait(req.pid(), flags);
 
 			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_pid(pid);
-			resp.set_ru_user_time(stats.userTime);
+			if(wait_result) {
+				auto proc_state = wait_result.value();
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(proc_state.pid);
+				resp.set_ru_user_time(proc_state.stats.userTime);
 
-			uint32_t mode = 0;
-			if(auto byExit = std::get_if<TerminationByExit>(&state); byExit) {
-				mode |= W_EXITCODE(byExit->code, 0);
-			}else if(auto bySignal = std::get_if<TerminationBySignal>(&state); bySignal) {
-				mode |= W_EXITCODE(0, bySignal->signo);
-			}else{
-				assert(std::holds_alternative<std::monostate>(state));
+				uint32_t mode = 0;
+				if(auto byExit = std::get_if<TerminationByExit>(&proc_state.state); byExit) {
+					mode |= W_EXITCODE(byExit->code, 0);
+				}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
+					mode |= W_EXITCODE(0, bySignal->signo);
+				}else{
+					assert(std::holds_alternative<std::monostate>(proc_state.state));
+				}
+				resp.set_mode(mode);
+			} else {
+				assert(wait_result.error() == Error::noChildProcesses);
+				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
 			}
-			resp.set_mode(mode);
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -425,7 +450,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(offer.error());
 			HEL_CHECK(hwSendResp.error());
 			HEL_CHECK(hwResp.error());
-			
+
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
@@ -3423,7 +3448,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(recv_tail.error());
 
 			auto req = bragi::parse_head_tail<managarm::posix::SetAffinityRequest>(recv_head, tail);
-			
+
 			if (!req) {
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
@@ -3465,7 +3490,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(sendResp.error());
 		}else if(preamble.id() == managarm::posix::GetAffinityRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::GetAffinityRequest>(recv_head);
-			
+
 			if (!req) {
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;

@@ -26,6 +26,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::noMemory: err_string = "noMemory"; break;
 		case Error::directoryNotEmpty: err_string = "directoryNotEmpty"; break;
 		case Error::ioError: err_string = "ioError"; break;
+		case Error::noChildProcesses: err_string = "noChildProcesses"; break;
 	}
 
 	return os << err_string;

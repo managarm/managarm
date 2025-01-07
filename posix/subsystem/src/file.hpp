@@ -69,7 +69,9 @@ enum class Error {
 	directoryNotEmpty,
 
 	// Failure of the underlying device, corresponds to EIO
-	ioError
+	ioError,
+
+	noChildProcesses,
 };
 
 std::ostream& operator<<(std::ostream& os, const Error& err);
