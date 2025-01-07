@@ -37,12 +37,12 @@ void NetlinkSocket::deliver(core::netlink::Packet packet) {
 	_statusBell.raise();
 }
 
-void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h) {
+void NetlinkSocket::sendLinkPacket(std::shared_ptr<nic::Link> nic, void *h, uint16_t flags) {
 	struct nlmsghdr *hdr = reinterpret_cast<struct nlmsghdr *>(h);
 
 	NetlinkBuilder b;
 
-	b.header(RTM_NEWLINK, NLM_F_MULTI, hdr->nlmsg_seq, 0);
+	b.header(RTM_NEWLINK, flags, hdr->nlmsg_seq, hdr->nlmsg_pid);
 
 	b.message<struct ifinfomsg>({
 		.ifi_family = AF_UNSPEC,

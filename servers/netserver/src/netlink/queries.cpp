@@ -67,7 +67,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 
 		for(auto m = links.begin(); m != links.end(); m++) {
 			if(!if_name.has_value() || if_name == m->second->name()) {
-				sendLinkPacket(m->second, hdr);
+				sendLinkPacket(m->second, hdr, NLM_F_MULTI);
 			}
 		}
 	} else {
@@ -79,7 +79,7 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 		}
 
 		if(!if_name.has_value() || if_name == nic->name()) {
-			sendLinkPacket(nic, hdr);
+			sendLinkPacket(nic, hdr, 0);
 		} else {
 			sendError(this, hdr, ENODEV);
 			return;
