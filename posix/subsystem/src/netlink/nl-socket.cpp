@@ -324,6 +324,18 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 	co_return {};
 }
 
+async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int layer, int number,
+		std::vector<char> &optbuf) {
+	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+		memcpy(optbuf.data(), &_protocol, std::min(optbuf.size(), sizeof(_protocol)));
+	} else {
+		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
+
+	co_return {};
+}
+
 async::result<void> OpenFile::setFileFlags(int flags) {
 	if (flags & ~O_NONBLOCK) {
 		std::cout << "posix: setFileFlags on netlink socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;

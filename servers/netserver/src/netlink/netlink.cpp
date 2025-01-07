@@ -21,8 +21,8 @@ std::map<unsigned, std::unique_ptr<Group>> globalGroupMap;
 
 namespace nl {
 
-NetlinkSocket::NetlinkSocket(int flags)
-: flags(flags)
+NetlinkSocket::NetlinkSocket(int flags, int protocol)
+: protocol{protocol}, flags(flags)
 { }
 
 async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max_addr_length) {
@@ -279,6 +279,20 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 		default:
 			std::cout << std::format("netserver: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::getSocketOption(void *object,
+int layer, int number, std::vector<char> &optbuf) {
+	auto self = static_cast<NetlinkSocket *>(object);
+
+	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+		memcpy(optbuf.data(), &self->protocol, std::min(optbuf.size(), sizeof(self->protocol)));
+	} else {
+		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
 	co_return {};
