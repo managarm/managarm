@@ -78,11 +78,16 @@ void NetlinkSocket::getLink(struct nlmsghdr *hdr) {
 			return;
 		}
 
-		if(!if_name.has_value() || if_name == nic->name())
+		if(!if_name.has_value() || if_name == nic->name()) {
 			sendLinkPacket(nic, hdr);
+		} else {
+			sendError(this, hdr, ENODEV);
+			return;
+		}
 	}
 
-	sendDone(this, hdr);
+	if(hdr->nlmsg_flags & NLM_F_DUMP)
+		sendDone(this, hdr);
 
 	return;
 }
@@ -194,7 +199,8 @@ void NetlinkSocket::getRoute(struct nlmsghdr *hdr) {
 		sendRoutePacket(hdr, route);
 	}
 
-	sendDone(this, hdr);
+	if(hdr->nlmsg_flags & NLM_F_DUMP)
+		sendDone(this, hdr);
 }
 
 void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
@@ -287,7 +293,8 @@ void NetlinkSocket::getAddr(struct nlmsghdr *hdr) {
 		}
 	}
 
-	sendDone(this, hdr);
+	if(hdr->nlmsg_flags & NLM_F_DUMP)
+		sendDone(this, hdr);
 
 	return;
 }
@@ -365,7 +372,8 @@ void NetlinkSocket::getNeighbor(struct nlmsghdr *hdr) {
 		sendNeighPacket(hdr, it->first, it->second);
 	}
 
-	sendDone(this, hdr);
+	if(hdr->nlmsg_flags & NLM_F_DUMP)
+		sendDone(this, hdr);
 
 	return;
 }
