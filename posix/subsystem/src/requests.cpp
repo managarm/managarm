@@ -2237,6 +2237,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(result.error() == Error::directoryNotEmpty) {
 					co_await sendErrorResponse(managarm::posix::Errors::DIRECTORY_NOT_EMPTY);
 					continue;
+				} else if(result.error() == Error::notDirectory) {
+					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
 				}
 
 				std::cout << "posix: Unexpected failure from rmdir()" << std::endl;
