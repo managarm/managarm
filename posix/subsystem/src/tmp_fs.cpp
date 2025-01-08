@@ -323,13 +323,8 @@ private:
 			co_return Error::noSuchFile;
 
 		auto target = it->get()->getTarget();
-		if(target->getType() == VfsType::directory) {
-			auto dir_target = reinterpret_cast<DirectoryNode *>(target.get());
-			
-			if(dir_target->_entries.size()) {
-				co_return Error::directoryNotEmpty;
-			}
-		}
+		if(target->getType() == VfsType::directory)
+			co_return Error::directoryNotEmpty;
 
 		_entries.erase(it);
 
@@ -340,12 +335,24 @@ private:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name) override;
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
-		auto result = co_await unlink(name);
-		if(!result) {
-			assert(result.error() == Error::noSuchFile
-				|| result.error() == Error::directoryNotEmpty);
-			co_return result.error();
+		auto it = _entries.find(name);
+		if(it == _entries.end())
+			co_return Error::noSuchFile;
+
+		auto target = it->get()->getTarget();
+		if(target->getType() == VfsType::directory) {
+			auto dir_target = reinterpret_cast<DirectoryNode *>(target.get());
+			
+			if(dir_target->_entries.size()) {
+				co_return Error::directoryNotEmpty;
+			}
+		} else {
+			co_return Error::notDirectory;
 		}
+
+		_entries.erase(it);
+
+		notifyObservers(FsObserver::deleteEvent, name, 0);
 		co_return {};
 	}
 
@@ -519,6 +526,9 @@ struct Superblock final : FsSuperblock {
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
+
+		if(dest_fs_dir->getType() != VfsType::directory)
+			co_return Error::notDirectory;
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 
 		auto src_dir = static_cast<DirectoryNode *>(src_link->getOwner().get());

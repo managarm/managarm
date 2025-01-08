@@ -316,6 +316,11 @@ using TerminationState = std::variant<
 	TerminationBySignal
 >;
 
+using WaitFlags = uint32_t;
+inline constexpr WaitFlags waitNonBlocking = 1;
+inline constexpr WaitFlags waitLeaveZombie = 2;
+inline constexpr WaitFlags waitExited = 4;
+
 struct ResourceUsage {
 	uint64_t userTime;
 };
@@ -340,7 +345,7 @@ struct ThreadPage {
 // The 'Process' class.
 // --------------------------------------------------------------------------------------
 
-// This struct own the PID.
+// This struct owns the PID.
 // It remains alive until the PID can be recycled.
 struct PidHull : std::enable_shared_from_this<PidHull> {
 	PidHull(pid_t pid);
@@ -540,7 +545,16 @@ public:
 
 	async::result<void> terminate(TerminationState state);
 
-	async::result<int> wait(int pid, bool nonBlocking, TerminationState *state, ResourceUsage *stats = nullptr);
+	struct WaitResult {
+		int pid = 0;
+		int uid = 0;
+		TerminationState state = std::monostate{};
+		ResourceUsage stats = {};
+	};
+
+	async::result<frg::expected<Error, WaitResult>> wait(int pid, WaitFlags flags);
+
+	bool hasChild(int pid);
 
 	ResourceUsage accumulatedUsage() {
 		return _childrenUsage;
