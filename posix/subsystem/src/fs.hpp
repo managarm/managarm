@@ -33,6 +33,12 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
+// Internal representation of struct statfs
+struct FsFileStats {
+	unsigned long f_type;
+	// struct statfs has more members but we don't care about them yet
+};
+
 
 // Forward declarations.
 struct FsLink;
@@ -116,6 +122,8 @@ public:
 
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
+
+	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats();
 
 	// For directories only: Returns a pointer to the link
 	// that links this directory from its parent.

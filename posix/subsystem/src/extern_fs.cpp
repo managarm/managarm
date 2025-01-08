@@ -80,6 +80,12 @@ struct Node : FsNode {
 		co_return stats;
 	}
 
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		std::cout << "posix: fsstats on extern fs!" << std::endl;
+		FsFileStats stats{};
+		co_return stats;
+	}
+
 	async::result<Error> chmod(int mode) override {
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_CHMOD);
