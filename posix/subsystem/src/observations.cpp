@@ -573,6 +573,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
 			if(killed) {
@@ -601,6 +605,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(!self->checkSignalRaise())
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
+			if(debugFaults) {
+				launchGdbServer(self.get());
+				co_await async::suspend_indefinitely({});
+			}
 			bool killed;
 			co_await self->signalContext()->raiseContext(item, self.get(), killed);
 			if(killed) {			
