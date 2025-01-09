@@ -199,6 +199,12 @@ void initialize() {
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
 	globalBlockDevObject->addObject();
+
+	// Create /sys/fs/cgroup directories
+	auto fs_object = std::make_shared<sysfs::Object>(nullptr, "fs");
+	auto cgroup_object = std::make_shared<sysfs::Object>(fs_object, "cgroup");
+	fs_object->addObject();
+	cgroup_object->addObject();
 }
 
 namespace {
