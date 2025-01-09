@@ -675,7 +675,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 			auto target = resolveResult.value();
 
-			if(req->fs_type() == "procfs") {
+			if(req->fs_type() == "procfs" || req->fs_type() == "proc") {
 				co_await target.first->mount(target.second, getProcfs());
 			}else if(req->fs_type() == "sysfs") {
 				co_await target.first->mount(target.second, getSysfs());
@@ -686,6 +686,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else if(req->fs_type() == "devpts") {
 				co_await target.first->mount(target.second, pts::getFsRoot());
 			}else{
+				if(req->fs_type() != "ext2") {
+					std::cout << "posix: Trying to mount unsupported FS of type: " << req->fs_type() << std::endl;
+				}
 				assert(req->fs_type() == "ext2");
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req->path(), self.get());
