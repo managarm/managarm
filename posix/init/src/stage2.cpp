@@ -29,10 +29,10 @@ int main() {
 	waitpid(xbps_reconfigure, nullptr, 0);
 
 	// Start udev which loads the remaining drivers.
-	std::cout << "init: Starting udevd" << std::endl;
+	std::cout << "init: Starting systemd-udevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
-		execl("/usr/bin/udevadm", "udevd", nullptr);
+		execl("/usr/bin/udevadm", "systemd-udevd", nullptr);
 	}else assert(udev != -1);
 
 	while(access("/run/udev/control", F_OK)) { // TODO: Use some other file to wait on?
