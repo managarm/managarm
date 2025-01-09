@@ -2411,7 +2411,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: SIG_ACTION" << std::endl;
 
-			if(req.flags() & ~(SA_ONSTACK | SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP)) {
+			if(req.flags() & ~(SA_ONSTACK | SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP | SA_NOCLDWAIT)) {
 				std::cout << "\e[31mposix: Unknown SIG_ACTION flags: 0x"
 						<< std::hex << req.flags()
 						<< std::dec << "\e[39m" << std::endl;
@@ -2460,6 +2460,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDSTOP)
 					std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
+				if(req.flags() & SA_NOCLDWAIT)
+					std::cout << "\e[31mposix: Ignoring SA_NOCLDWAIT\e[39m" << std::endl;
 
 				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{
