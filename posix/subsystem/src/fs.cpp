@@ -42,8 +42,8 @@ FsSuperblock *getAnonymousSuperblock() {
 // --------------------------------------------------------
 
 async::result<frg::expected<Error>> FsLink::obstruct() {
-	assert(getOwner());
-	assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
+	if(getOwner() != nullptr)
+		assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
 	co_return Error::illegalOperationTarget;
 }
 
