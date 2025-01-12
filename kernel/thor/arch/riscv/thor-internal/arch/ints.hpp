@@ -25,6 +25,4 @@ inline void halt() { asm volatile("wfi"); }
 
 void suspendSelf();
 
-IrqPin *claimExternalIrq();
-
 } // namespace thor

@@ -1,5 +1,6 @@
 #include <frg/dyn_array.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/arch/trap.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/dtb/irq.hpp>
@@ -41,7 +42,9 @@ struct Plic : dt::IrqController {
 	}
 
 	struct Irq final : IrqPin {
-		Irq(Plic *plic, size_t idx) : IrqPin{buildName(plic, idx)}, plic_{plic}, idx_{idx} {}
+		Irq(Plic *plic, size_t idx) : IrqPin{buildName(plic, idx)}, plic_{plic}, idx_{idx} {
+			assert(idx_);
+		}
 
 		Irq(const Irq &) = delete;
 		Irq &operator=(const Irq &) = delete;
@@ -77,11 +80,12 @@ struct Plic : dt::IrqController {
 		space_ = arch::mem_space{ptr};
 
 		irqs_ = {numIrqs, *kernelAlloc};
-		for (size_t i = 0; i < numIrqs; ++i)
+		irqs_[0] = nullptr;
+		for (size_t i = 1; i < numIrqs; ++i)
 			irqs_[i] = frg::construct<Irq>(*kernelAlloc, this, i);
 
 		// Set all IRQs to the highest priority.
-		for (size_t i = 0; i < numIrqs; ++i)
+		for (size_t i = 1; i < numIrqs; ++i)
 			space_.store(plicPriorityRegister(i), 0xFFFF'FFFF);
 
 		// Accept IRQs of any priority.
@@ -138,15 +142,6 @@ private:
 	size_t bspCtx_;
 };
 
-struct ExternalIrq {
-	Plic *plic{nullptr};
-	// Index of the PLIC context.
-	size_t ctx{~size_t{0}};
-};
-
-extern PerCpu<ExternalIrq> riscvExternalIrq;
-THOR_DEFINE_PERCPU(riscvExternalIrq);
-
 void enumeratePlic(DeviceTreeNode *plicNode) {
 	const auto &reg = plicNode->reg();
 	if (reg.size() != 1)
@@ -201,8 +196,9 @@ void enumeratePlic(DeviceTreeNode *plicNode) {
 	plicNode->associateIrqController(plic);
 
 	auto *ourExternalIrq = &riscvExternalIrq.get();
-	ourExternalIrq->plic = plic;
-	ourExternalIrq->ctx = bspCtx;
+	ourExternalIrq->type = ExternalIrqType::plic;
+	ourExternalIrq->controller = plic;
+	ourExternalIrq->context = bspCtx;
 }
 
 initgraph::Task initPlic{
@@ -221,12 +217,14 @@ initgraph::Task initPlic{
 
 } // namespace
 
-IrqPin *claimExternalIrq() {
+IrqPin *claimPlicIrq() {
 	auto *ourExternalIrq = &riscvExternalIrq.get();
-	if (!ourExternalIrq->plic)
+	assert(ourExternalIrq->type == ExternalIrqType::plic);
+	assert(ourExternalIrq->controller);
+	auto *plic = static_cast<Plic *>(ourExternalIrq->controller);
+	auto idx = plic->claim(ourExternalIrq->context);
+	if (!idx)
 		return nullptr;
-	auto *plic = ourExternalIrq->plic;
-	auto idx = plic->claim(ourExternalIrq->ctx);
 	return plic->getIrq(idx);
 }
 
