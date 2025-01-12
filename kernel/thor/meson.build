@@ -42,6 +42,7 @@ src = files(
 	'generic/kernel-io.cpp',
 	'generic/kernel-log.cpp',
 	'generic/kernel-stack.cpp',
+	'generic/load-balancing.cpp',
 	'generic/main.cpp',
 	'generic/mbus.cpp',
 	'generic/memory-view.cpp',
