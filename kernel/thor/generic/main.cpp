@@ -12,6 +12,7 @@
 #include <thor-internal/kerncfg.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/kernel-log.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/pci/pci.hpp>
@@ -353,6 +354,7 @@ extern "C" void thorMain() {
 	Scheduler::resume(getCpuData()->wqFiber);
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
+	LoadBalancer::singleton().setOnline(getCpuData());
 	localScheduler()->update();
 	localScheduler()->forceReschedule();
 	localScheduler()->commitReschedule();
