@@ -5,6 +5,7 @@
 
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
@@ -15,6 +16,7 @@ namespace thor {
 namespace {
 	constexpr bool logTransitions = false;
 	constexpr bool logRunStates = false;
+	constexpr bool logMigration = false;
 	constexpr bool logCleanup = false;
 }
 
@@ -326,6 +328,32 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			localScheduler()->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
+	}else if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
+		// Handle thread migration due to load balancing.
+		assert(assignedCpu);
+		if(logMigration)
+			infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " is moved to CPU " << assignedCpu->cpuIndex << frg::endlog;
+
+		this_thread->_updateRunTime();
+		this_thread->_runState = kRunSuspended;
+		saveExecutor(&this_thread->_executor, image);
+		getCpuData()->scheduler.update();
+		Scheduler::suspendCurrent();
+		this_thread->_uninvoke();
+		Scheduler::unassociate(this_thread.get());
+
+		auto newScheduler = &assignedCpu->scheduler;
+		Scheduler::associate(this_thread.get(), newScheduler);
+		Scheduler::resume(this_thread.get());
+		localScheduler()->forceReschedule();
+
+		runOnStack([] (Continuation cont, SyscallImageAccessor image,
+				frg::unique_lock<Mutex> lock) {
+			scrubStack(image, cont);
+			lock.unlock();
+			localScheduler()->commitReschedule();
+		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}
 }
 
