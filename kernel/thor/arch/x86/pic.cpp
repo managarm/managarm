@@ -374,13 +374,18 @@ void calibrateApicTimer() {
 	}
 
 	// Calibrate the TSC.
-	auto tsc_start = getRawTimestampCounter();
-	pollSleepNano(millis * 1'000'000);
-	auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
+	if (getCpuData() == getCpuData(0) || !getGlobalCpuFeatures()->haveInvariantTsc) {
+		auto tsc_start = getRawTimestampCounter();
+		pollSleepNano(millis * 1'000'000);
+		auto tsc_elapsed = getRawTimestampCounter() - tsc_start;
 
-	localApicContext()->tscTicksPerMilli = tsc_elapsed / millis;
-	infoLogger() << "thor: TSC ticks/ms: " << localApicContext()->tscTicksPerMilli
-				<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+		localApicContext()->tscTicksPerMilli = tsc_elapsed / millis;
+		infoLogger() << "thor: TSC ticks/ms: " << localApicContext()->tscTicksPerMilli
+					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
+	} else {
+		// Linux assumes invariant TSC to be globally synchronized.
+		localApicContext()->tscTicksPerMilli = getCpuData(0)->apicContext.tscTicksPerMilli;
+	}
 
 	localApicContext()->timersAreCalibrated = true;
 }
