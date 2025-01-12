@@ -5,6 +5,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
@@ -79,6 +80,7 @@ void smpMain(StatusBlock *statusBlock) {
 
 		    Scheduler::resume(getCpuData()->wqFiber);
 
+		    LoadBalancer::singleton().setOnline(getCpuData());
 		    localScheduler()->update();
 		    localScheduler()->forceReschedule();
 		    localScheduler()->commitReschedule();

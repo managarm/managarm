@@ -4,6 +4,7 @@
 #include <elf.h>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/universe.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/module.hpp>
@@ -367,6 +368,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	thread.ctr()->increment();
 	thread.ctr()->increment();
 
+	LoadBalancer::singleton().connect(thread.get(), getCpuData());
 	Scheduler::associate(thread.get(), scheduler);
 	Thread::resumeOther(remove_tag_cast(thread));
 }
