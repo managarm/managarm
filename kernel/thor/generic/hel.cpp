@@ -13,6 +13,7 @@
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/stream.hpp>
@@ -1662,6 +1663,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
 //	infoLogger() << "thor: New thread on CPU #" << cpu << frg::endlog;
+	LoadBalancer::singleton().connect(new_thread.get(), getCpuData(cpu));
 	Scheduler::associate(new_thread.get(), &getCpuData(cpu)->scheduler);
 //	Scheduler::associate(new_thread.get(), localScheduler());
 	if(!(flags & kHelThreadStopped))

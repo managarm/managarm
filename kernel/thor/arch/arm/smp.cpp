@@ -8,6 +8,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
@@ -76,6 +77,7 @@ namespace {
 
 		Scheduler::resume(cpuContext->wqFiber);
 
+		LoadBalancer::singleton().setOnline(cpuContext);
 		localScheduler()->update();
 		localScheduler()->forceReschedule();
 		localScheduler()->commitReschedule();
