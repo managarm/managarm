@@ -25,6 +25,9 @@ enum Interrupt {
 	kIntrSuperCall = 0x80000000
 };
 
+// Shift for fixed point numbers that represent the load level.
+constexpr int loadShift = 10;
+
 struct Thread;
 
 template <template<typename, typename> typename Ptr, typename T, typename H>
@@ -272,6 +275,7 @@ public:
 	void handlePreemption(IrqImageAccessor accessor) override;
 
 private:
+	void _updateRunTime();
 	void _uninvoke();
 	void _kill();
 
@@ -349,6 +353,26 @@ private:
 public:
 	// TODO: This should be private.
 	Executor _executor;
+
+	// Timestamp at which _updateRunTime() was last called.
+	uint64_t _lastRunTimeUpdate{0};
+	// Contributions to the load factor due to time during which the thread was (not) runnable.
+	// The thread is runnable if it is either running or waiting in a scheduler queue
+	// (i.e., not blocked).
+	uint64_t _loadRunnable{0};
+	uint64_t _loadNotRunnable{0};
+	// Load level of the thread.
+	std::atomic<uint64_t> _loadLevel{0};
+
+	// Update the load factor.
+	void updateLoad();
+	// Called periodically by load balancing code.
+	void decayLoad(uint64_t decayFactor, int decayScale);
+
+	// Return the load factor.
+	uint64_t loadLevel() {
+		return _loadLevel.load(std::memory_order_relaxed);
+	}
 
 private:
 	smarter::shared_ptr<Universe> _universe;
