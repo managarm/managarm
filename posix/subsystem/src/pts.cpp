@@ -1,4 +1,5 @@
 #include <asm/ioctls.h>
+#include <linux/magic.h>
 #include <numeric>
 #include <termios.h>
 #include <sys/epoll.h>
@@ -279,6 +280,34 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 	return;
 }
 
+struct PtsSuperblock final : FsSuperblock {
+public:
+	PtsSuperblock() = default;
+
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+		std::cout << "posix: createRegular on PtsSuperblock unsupported" << std::endl;
+		co_return nullptr;
+	}
+
+	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
+		std::cout << "posix: createSocket on PtsSuperblock unsupported" << std::endl;
+		co_return nullptr;
+	}
+
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+			rename(FsLink *, FsNode *, std::string) override {
+		co_return Error::noSuchFile;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{};
+		stats.f_type = DEVPTS_SUPER_MAGIC;
+		co_return stats;
+	}
+};
+
+PtsSuperblock ptsSuperblock{};
+
 } // namespace
 
 //-----------------------------------------------------------------------------
@@ -494,7 +523,7 @@ struct LinkCompare {
 struct DeviceNode final : FsNode {
 public:
 	DeviceNode(DeviceId id)
-	: _type{VfsType::charDevice}, _id{id} { }
+	: FsNode(&ptsSuperblock), _type{VfsType::charDevice}, _id{id} { }
 
 	VfsType getType() override {
 		return _type;
@@ -525,6 +554,8 @@ struct RootNode final : FsNode, std::enable_shared_from_this<RootNode> {
 	friend struct DirectoryFile;
 
 public:
+	RootNode() : FsNode(&ptsSuperblock) {}
+
 	VfsType getType() override {
 		return VfsType::directory;
 	}

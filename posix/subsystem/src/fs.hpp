@@ -33,6 +33,12 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
+// Internal representation of struct statfs
+struct FsFileStats {
+	unsigned long f_type;
+	// struct statfs has more members but we don't care about them yet
+};
+
 
 // Forward declarations.
 struct FsLink;
@@ -64,7 +70,10 @@ public:
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
+	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats() = 0;
 };
+
+FsSuperblock *getAnonymousSuperblock();
 
 // ----------------------------------------------------------------------------
 // FsObserver class.
@@ -96,10 +105,6 @@ inline constexpr SemanticFlags semanticAppend = 8;
 struct FsNode {
 	using DefaultOps = uint32_t;
 	static inline constexpr DefaultOps defaultSupportsObservers = 1 << 1;
-
-	// TODO: Remove this constructor once every FS has a superblock.
-	FsNode(DefaultOps default_ops = 0)
-	: _superblock{nullptr}, _defaultOps{default_ops} { }
 
 	FsNode(FsSuperblock *superblock, DefaultOps default_ops = 0)
 	: _superblock{superblock}, _defaultOps{default_ops} { }
@@ -222,6 +227,8 @@ private:
 	// SpecialLinks can never be linked into "real" file systems,
 	// hence the can only ever be one link per node.
 	struct EmbeddedNode final : FsNode {
+		EmbeddedNode() : FsNode(getAnonymousSuperblock()) {}
+
 		VfsType getType() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
 			return node->fileType_;

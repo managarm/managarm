@@ -1,7 +1,41 @@
 
+#include <linux/magic.h>
 #include <string.h>
 
 #include "fs.hpp"
+
+namespace {
+
+struct AnonymousSuperblock : FsSuperblock {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+		std::cout << "posix: createRegular on AnonymousSuperblock unsupported" << std::endl;
+		co_return nullptr;
+	}
+
+	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
+		std::cout << "posix: createSocket on AnonymousSuperblock unsupported" << std::endl;
+		co_return nullptr;
+	}
+
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+	rename(FsLink *, FsNode *, std::string) override {
+		co_return Error::noSuchFile;
+	}
+
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
+		FsFileStats stats{
+			.f_type = ANON_INODE_FS_MAGIC,
+		};
+		co_return stats;
+	}
+};
+
+} // namespace
+
+FsSuperblock *getAnonymousSuperblock() {
+	static AnonymousSuperblock sb{};
+	return &sb;
+}
 
 // --------------------------------------------------------
 // FsLink implementation.

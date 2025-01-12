@@ -21,6 +21,18 @@ struct Hierarchy;
 // This API is only intended for private use.
 // ----------------------------------------------------------------------------
 
+struct SysfsSuperblock final : FsSuperblock {
+public:
+	SysfsSuperblock() = default;
+
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
+	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
+
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+			rename(FsLink *source, FsNode *directory, std::string name) override;
+	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+};
+
 struct LinkCompare {
 	struct is_transparent { };
 
