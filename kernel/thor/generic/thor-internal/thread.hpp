@@ -29,6 +29,7 @@ enum Interrupt {
 constexpr int loadShift = 10;
 
 struct Thread;
+struct LbControlBlock;
 
 template <template<typename, typename> typename Ptr, typename T, typename H>
 	requires (!std::is_same_v<H, void>)
@@ -373,6 +374,8 @@ public:
 	uint64_t loadLevel() {
 		return _loadLevel.load(std::memory_order_relaxed);
 	}
+
+	LbControlBlock *_lbCb{nullptr};
 
 private:
 	smarter::shared_ptr<Universe> _universe;
