@@ -7,8 +7,28 @@
 
 #include <bitset>
 
+namespace {
+
+sysfs::SysfsSuperblock sysfsSuperblock{};
+
+} // namespace
+
 namespace sysfs {
 
+FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *) {
+	std::cout << "posix: createRegular on SysfsSuperblock unsupported" << std::endl;
+	co_return nullptr;
+}
+
+FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createSocket() {
+	std::cout << "posix: createSocket on SysfsSuperblock unsupported" << std::endl;
+	co_return nullptr;
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
+SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
+	co_return Error::noSuchFile;
+};
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
 // ----------------------------------------------------------------------------
@@ -202,7 +222,7 @@ std::shared_ptr<FsNode> Link::getTarget() {
 // ----------------------------------------------------------------------------
 
 AttributeNode::AttributeNode(Object *object, Attribute *attr)
-: _object{object}, _attr{attr} { }
+: FsNode(&sysfsSuperblock), _object{object}, _attr{attr} { }
 
 VfsType AttributeNode::getType() {
 	return VfsType::regular;
@@ -250,7 +270,7 @@ AttributeNode::open(std::shared_ptr<MountView> mount,
 // ----------------------------------------------------------------------------
 
 SymlinkNode::SymlinkNode(std::weak_ptr<Object> target)
-: _target{std::move(target)} { }
+: FsNode(&sysfsSuperblock), _target{std::move(target)} { }
 
 VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
@@ -305,7 +325,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 }
 
 DirectoryNode::DirectoryNode()
-: _treeLink{nullptr} { }
+: FsNode(&sysfsSuperblock), _treeLink{nullptr} { }
 
 std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());

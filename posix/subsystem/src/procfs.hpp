@@ -150,53 +150,57 @@ private:
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
 
-struct SelfLink final : FsNode, std::enable_shared_from_this<SelfLink> {
+struct LinkNode : FsNode, std::enable_shared_from_this<LinkNode> {
+	LinkNode();
+
+	async::result<frg::expected<Error, FileStats>> getStats() override {
+		std::cout << "\e[31mposix: Fix procfs LinkNode::getStats()\e[39m" << std::endl;
+		co_return FileStats{};
+	}
+
+
+	VfsType getType() override {
+		return VfsType::symlink;
+	}
+};
+
+struct SelfLink final : LinkNode, std::enable_shared_from_this<SelfLink> {
 	SelfLink() = default;
 
-	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
-struct SelfThreadLink final : FsNode, std::enable_shared_from_this<SelfThreadLink> {
+struct SelfThreadLink final : LinkNode, std::enable_shared_from_this<SelfThreadLink> {
 	SelfThreadLink() = default;
 
-	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
-struct ExeLink final : FsNode, std::enable_shared_from_this<ExeLink> {
+struct ExeLink final : LinkNode, std::enable_shared_from_this<ExeLink> {
 	ExeLink(Process *process)
 	: _process(process)
 	{ }
 
-	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;
 };
 
-struct RootLink final : FsNode, std::enable_shared_from_this<RootLink> {
+struct RootLink final : LinkNode, std::enable_shared_from_this<RootLink> {
 	RootLink(Process *process)
 	: _process(process)
 	{ }
 
-	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;
 };
 
-struct CwdLink final : FsNode, std::enable_shared_from_this<CwdLink> {
+struct CwdLink final : LinkNode, std::enable_shared_from_this<CwdLink> {
 	CwdLink(Process *process)
 	: _process(process)
 	{ }
 
-	async::result<frg::expected<Error, FileStats>> getStats() override;
-	VfsType getType() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 private:
 	Process *_process;

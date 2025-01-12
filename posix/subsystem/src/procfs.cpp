@@ -11,7 +11,7 @@
 
 namespace procfs {
 
-SuperBlock procfs_superblock;
+SuperBlock procfsSuperblock;
 
 // ----------------------------------------------------------------------------
 // LinkCompare implementation.
@@ -160,7 +160,7 @@ std::shared_ptr<FsNode> Link::getTarget() {
 // RegularNode implementation.
 // ----------------------------------------------------------------------------
 
-RegularNode::RegularNode() = default;
+RegularNode::RegularNode() : FsNode(&procfsSuperblock, 0) {}
 
 VfsType RegularNode::getType() {
 	return VfsType::regular;
@@ -204,10 +204,12 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 }
 
 FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
+	std::cout << "posix: createRegular on procfs Superblock unsupported" << std::endl;
 	co_return nullptr;
 }
 
 FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createSocket() {
+	std::cout << "posix: createSocket on procfs Superblock unsupported" << std::endl;
 	co_return nullptr;
 }
 
@@ -247,7 +249,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 }
 
 DirectoryNode::DirectoryNode()
-: FsNode{&procfs_superblock}, _treeLink{nullptr} { }
+: FsNode{&procfsSuperblock}, _treeLink{nullptr} { }
 
 std::shared_ptr<Link> DirectoryNode::directMkregular(std::string name,
 		std::shared_ptr<RegularNode> regular) {
@@ -351,6 +353,9 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
+LinkNode::LinkNode()
+: FsNode{&procfsSuperblock} { }
+
 async::result<std::string> UptimeNode::show() {
 	auto uptime = clk::getTimeSinceBoot();
 	// See man 5 proc for more details.
@@ -418,43 +423,16 @@ async::result<void> ArchNode::store(std::string) {
 	co_return;
 }
 
-VfsType SelfLink::getType() {
-	return VfsType::symlink;
-}
-
 expected<std::string> SelfLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid());
-}
-
-async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
-	std::cout << "\e[31mposix: Fix procfs SelfLink::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
-}
-
-VfsType SelfThreadLink::getType() {
-	return VfsType::symlink;
 }
 
 expected<std::string> SelfThreadLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
 }
 
-async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
-	std::cout << "\e[31mposix: Fix procfs SelfThreadLink::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
-}
-
-VfsType ExeLink::getType() {
-	return VfsType::symlink;
-}
-
 expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
-}
-
-async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
-	std::cout << "\e[31mposix: Fix procfs ExeLink::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
 }
 
 async::result<std::string> MapNode::show() {
@@ -516,17 +494,8 @@ async::result<void> CommNode::store(std::string name) {
 	co_return;
 }
 
-VfsType RootLink::getType() {
-	return VfsType::symlink;
-}
-
 expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
-}
-
-async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
-	std::cout << "\e[31mposix: Fix procfs RootLink::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
 }
 
 async::result<std::string> StatNode::show() {
@@ -706,17 +675,8 @@ async::result<void> StatusNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/status file!");
 }
 
-VfsType CwdLink::getType() {
-	return VfsType::symlink;
-}
-
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
-}
-
-async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
-	std::cout << "\e[31mposix: Fix procfs CwdLink::getStats()\e[39m" << std::endl;
-	co_return FileStats{};
 }
 
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
@@ -747,7 +707,7 @@ helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
 }
 
 FdDirectoryNode::FdDirectoryNode(Process *process)
-: _process{process} {}
+: FsNode(&procfsSuperblock), _process{process} {}
 
 VfsType FdDirectoryNode::getType() {
 	return VfsType::directory;
