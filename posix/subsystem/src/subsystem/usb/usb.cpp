@@ -31,7 +31,7 @@ id_allocator<uint64_t> usbControllerAllocator{};
 
 namespace usb_subsystem {
 
-std::shared_ptr<drvcore::BusSubsystem> sysfsSubsystem;
+drvcore::BusSubsystem *sysfsSubsystem;
 drvcore::ClassSubsystem *netSubsystem;
 drvcore::ClassSubsystem *usbmiscSubsystem;
 
@@ -433,7 +433,7 @@ async::detached observeDevicesOnController(mbus_ng::EntityId controllerId) {
 }
 
 async::detached run() {
-	sysfsSubsystem = std::make_shared<drvcore::BusSubsystem>("usb");
+	sysfsSubsystem = new drvcore::BusSubsystem("usb");
 	netSubsystem = new drvcore::ClassSubsystem{"net"};
 	usbmiscSubsystem = new drvcore::ClassSubsystem{"usbmisc"};
 

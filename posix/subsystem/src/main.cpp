@@ -20,6 +20,7 @@
 #include "subsystem/generic.hpp"
 #include "subsystem/input.hpp"
 #include "subsystem/net.hpp"
+#include "subsystem/nvme.hpp"
 #include "subsystem/pci.hpp"
 #include "subsystem/power_supply.hpp"
 #include "subsystem/usb/usb.hpp"
@@ -197,6 +198,7 @@ int main() {
 	drm_subsystem::run();
 	input_subsystem::run();
 	net_subsystem::run();
+	nvme_subsystem::run();
 	usbmisc_subsystem::run();
 	power_supply_subsystem::run();
 

@@ -4,6 +4,7 @@ src = [
 	'src/queue.cpp',
 	'src/command.cpp',
 	'src/namespace.cpp',
+	'src/subsystem.cpp',
 	'src/fabric/tcp.cpp',
 ]
 
