@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <span>
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
@@ -95,9 +96,11 @@ struct CtrlBuilder {
 	CtrlBuilder(size_t max_size)
 	: _maxSize{max_size}, _offset{0} { }
 
-	bool message(int layer, int type, size_t payload) {
-		if(_buffer.size() + CMSG_SPACE(payload) > _maxSize)
-			return false;
+	std::pair<bool, size_t> message(int layer, int type, size_t payload) {
+		size_t remaining_space = _maxSize - _buffer.size();
+		if(remaining_space < CMSG_ALIGN(sizeof(struct cmsghdr)))
+			return {true, 0};
+		ssize_t payload_space = std::max(0UL, remaining_space - CMSG_ALIGN(sizeof(struct cmsghdr)));
 
 		_offset = _buffer.size();
 		_buffer.resize(_offset + CMSG_SPACE(payload));
@@ -111,13 +114,21 @@ struct CtrlBuilder {
 		memcpy(_buffer.data() + _offset, &h, sizeof(struct cmsghdr));
 		_offset += CMSG_ALIGN(sizeof(struct cmsghdr));
 
-		return true;
+		if(CMSG_SPACE(payload) > remaining_space)
+			return {true, std::max(0L, payload_space)};
+		return {false, 0};
 	}
 
 	template<typename T>
 	void write(T data) {
 		memcpy(_buffer.data() + _offset, &data, sizeof(T));
 		_offset += sizeof(T);
+	}
+
+	void write_span(std::span<char> span) {
+		for(auto v : span) {
+			_buffer[_offset++] = v;
+		}
 	}
 
 	std::vector<char> buffer() {

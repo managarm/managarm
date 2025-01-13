@@ -21,8 +21,8 @@ std::map<unsigned, std::unique_ptr<Group>> globalGroupMap;
 
 namespace nl {
 
-NetlinkSocket::NetlinkSocket(int flags)
-: flags(flags)
+NetlinkSocket::NetlinkSocket(int flags, int protocol)
+: protocol{protocol}, flags(flags)
 { }
 
 async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max_addr_length) {
@@ -91,9 +91,18 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memset(&ucreds, 0, sizeof(struct ucred));
 		ucreds.pid = senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
+		auto [truncated, payload_len] = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(truncated)
 			throw std::runtime_error("netserver: Implement CMSG truncation");
 		ctrl.write<struct ucred>(ucreds);
+	}
+
+	if(self->pktinfo_) {
+		struct nl_pktinfo info;
+		info.group = packet.group;
+		auto [truncated, _] = ctrl.message(SOL_NETLINK, NETLINK_PKTINFO, sizeof(info));
+		assert(!truncated);
+		ctrl.write(info);
 	}
 
 	if(!(flags & MSG_PEEK))
@@ -275,9 +284,28 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", val);
 			break;
 		}
+		case NETLINK_PKTINFO: {
+			auto val = *reinterpret_cast<int *>(optbuf.data());
+			self->pktinfo_ = val;
+			break;
+		}
 		default:
 			std::cout << std::format("netserver: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::getSocketOption(void *object,
+int layer, int number, std::vector<char> &optbuf) {
+	auto self = static_cast<NetlinkSocket *>(object);
+
+	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+		memcpy(optbuf.data(), &self->protocol, sizeof(self->protocol));
+	} else {
+		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
 	co_return {};

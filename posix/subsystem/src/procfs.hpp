@@ -311,6 +311,17 @@ private:
 	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
 };
 
+struct CgroupNode final : RegularNode {
+	CgroupNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
 struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
 public:
 	explicit FdDirectoryNode(Process *process);
@@ -323,6 +334,16 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 private:
 	Process *_process;
+};
+
+struct SymlinkNode final : LinkNode, std::enable_shared_from_this<SymlinkNode> {
+	SymlinkNode(std::shared_ptr<MountView>, std::weak_ptr<FsLink>);
+
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+private:
+	std::shared_ptr<MountView> _mount;
+	std::weak_ptr<FsLink> _link;
 };
 
 } // namespace procfs
