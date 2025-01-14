@@ -29,6 +29,7 @@
 #include "eventfd.hpp"
 #include "signalfd.hpp"
 #include "tmp_fs.hpp"
+#include "cgroupfs.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
@@ -697,6 +698,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await target.first->mount(target.second, tmp_fs::createRoot());
 			}else if(req->fs_type() == "devpts") {
 				co_await target.first->mount(target.second, pts::getFsRoot());
+			}else if(req->fs_type() == "cgroup2") {
+				co_await target.first->mount(target.second, getCgroupfs());
 			}else{
 				assert(req->fs_type() == "ext2");
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
