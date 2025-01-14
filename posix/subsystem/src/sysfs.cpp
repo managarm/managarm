@@ -230,7 +230,9 @@ std::shared_ptr<FsNode> Link::getTarget() {
 // ----------------------------------------------------------------------------
 
 AttributeNode::AttributeNode(Object *object, Attribute *attr)
-: FsNode(&sysfsSuperblock), _object{object}, _attr{attr} { }
+: FsNode(&sysfsSuperblock), _object{object}, _attr{attr} {
+	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
+}
 
 VfsType AttributeNode::getType() {
 	return VfsType::regular;
@@ -241,7 +243,7 @@ async::result<frg::expected<Error, FileStats>> AttributeNode::getStats() {
 	auto now = clk::getRealtime();
 
 	FileStats stats;
-	stats.inodeNumber = 0; // FIXME
+	stats.inodeNumber = inode_;
 	stats.numLinks = 1;
 	stats.fileSize = _attr->size();
 	stats.mode = _attr->writable() ? 0666 : 0444; // TODO: Some files can be written.
@@ -278,7 +280,9 @@ AttributeNode::open(std::shared_ptr<MountView> mount,
 // ----------------------------------------------------------------------------
 
 SymlinkNode::SymlinkNode(std::weak_ptr<Object> target)
-: FsNode(&sysfsSuperblock), _target{std::move(target)} { }
+: FsNode(&sysfsSuperblock), _target{std::move(target)} {
+	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
+}
 
 VfsType SymlinkNode::getType() {
 	return VfsType::symlink;
@@ -286,6 +290,7 @@ VfsType SymlinkNode::getType() {
 
 async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 	auto fs = FileStats{};
+	fs.inodeNumber = inode_;
 	fs.numLinks = 1;
 	fs.mode = 0777;
 	co_return fs;
@@ -333,7 +338,9 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 }
 
 DirectoryNode::DirectoryNode()
-: FsNode(&sysfsSuperblock), _treeLink{nullptr} { }
+: FsNode(&sysfsSuperblock), _treeLink{nullptr} {
+	inode_ = static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().allocate();
+}
 
 std::shared_ptr<Link> DirectoryNode::directMkattr(Object *object, Attribute *attr) {
 	assert(_entries.find(attr->name()) == _entries.end());
@@ -370,6 +377,7 @@ VfsType DirectoryNode::getType() {
 
 async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 	auto fs = FileStats{};
+	fs.inodeNumber = inode_;
 	fs.numLinks = 2;
 	fs.fileSize = 0;
 	fs.mode = 0755;

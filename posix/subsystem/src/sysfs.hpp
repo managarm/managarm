@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/id-allocator.hpp>
 #include <protocols/fs/server.hpp>
 
 #include "vfs.hpp"
@@ -31,6 +32,13 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+
+	id_allocator<uint64_t> &inodeAllocator() {
+		return inodeAllocator_;
+	}
+
+private:
+	id_allocator<uint64_t> inodeAllocator_{1};
 };
 
 struct LinkCompare {
@@ -115,6 +123,9 @@ struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode>
 	friend struct AttributeFile;
 
 	AttributeNode(Object *object, Attribute *attr);
+	~AttributeNode() {
+		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
+	}
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
@@ -125,10 +136,14 @@ struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode>
 private:
 	Object *_object;
 	Attribute *_attr;
+	uint64_t inode_;
 };
 
 struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 	SymlinkNode(std::weak_ptr<Object> target);
+	~SymlinkNode()  {
+		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
+	}
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
@@ -136,6 +151,7 @@ struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 
 private:
 	std::weak_ptr<Object> _target;
+	uint64_t inode_;
 };
 
 struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {
@@ -144,6 +160,9 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	static std::shared_ptr<Link> createRootDirectory();
 
 	DirectoryNode();
+	~DirectoryNode() {
+		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
+	}
 
 	std::shared_ptr<Link> directMkattr(Object *object, Attribute *attr);
 	std::shared_ptr<Link> directMklink(std::string name, std::weak_ptr<Object> target);
@@ -161,6 +180,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 private:
 	Link *_treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
+	uint64_t inode_;
 };
 
 // ----------------------------------------------------------------------------

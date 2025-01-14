@@ -1058,9 +1058,10 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		std::vector<uint32_t> files;
 		struct ucred ucreds;
 
-		if(req->has_cmsg_rights()) {
+		if(req->has_cmsg_rights())
 			files.assign(req->fds().cbegin(), req->fds().cend());
-		} else if(req->has_cmsg_creds()) {
+
+		if(req->has_cmsg_creds()) {
 			ucreds.pid = req->creds_pid();
 			ucreds.uid = req->creds_uid();
 			ucreds.gid = req->creds_gid();

@@ -1760,7 +1760,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					| managarm::posix::OpenFlags::OF_RDWR
 					| managarm::posix::OpenFlags::OF_PATH
 					| managarm::posix::OpenFlags::OF_NOCTTY
-					| managarm::posix::OpenFlags::OF_APPEND))) {
+					| managarm::posix::OpenFlags::OF_APPEND
+					| managarm::posix::OpenFlags::OF_NOFOLLOW
+					| managarm::posix::OpenFlags::OF_DIRECTORY))) {
 				std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
@@ -1875,7 +1877,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(file);
 				}
 			}else{
-				auto resolveResult = co_await resolver.resolve();
+				ResolveFlags resolveFlags = 0;
+
+				if(req->flags() & managarm::posix::OpenFlags::OF_NOFOLLOW)
+					resolveFlags |= resolveDontFollow;
+
+				auto resolveResult = co_await resolver.resolve(resolveFlags);
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::isDirectory) {
 						// TODO: Verify additional constraints for sending EISDIR.
@@ -1894,12 +1901,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 
 				auto target = resolver.currentLink()->getTarget();
+				if(req->flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
+					if(target->getType() != VfsType::directory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					}
+				}
 
 				if(req->flags() & managarm::posix::OpenFlags::OF_PATH) {
 					auto dummyFile = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
 					DummyFile::serve(dummyFile);
 					file = File::constructHandle(std::move(dummyFile));
 				} else {
+					// this can only be a symlink if O_NOFOLLOW has been passed
+					if(target->getType() == VfsType::symlink) {
+						co_await sendErrorResponse(managarm::posix::Errors::SYMBOLIC_LINK_LOOP);
+						continue;
+					}
+
 					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
 					if(!fileResult) {
 						if(fileResult.error() == Error::noBackingDevice) {
