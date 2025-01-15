@@ -170,7 +170,7 @@ public:
 	async::result<protocols::fs::RecvResult>
 	recvMsg(Process *process, uint32_t flags, void *data, size_t max_length,
 			void *, size_t, size_t max_ctrl_length) override {
-		if((flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL))) {
+		if((flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL | MSG_TRUNC | MSG_PEEK))) {
 			std::cout << "posix: Unimplemented flag in un-socket " << std::hex << flags << std::dec << " for pid: " << process->pid() << std::endl;
 		}
 
@@ -192,6 +192,7 @@ public:
 			co_await _statusBell.async_wait();
 
 		auto packet = &_recvQueue.front();
+		uint32_t reply_flags = 0;
 
 		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
@@ -202,35 +203,51 @@ public:
 			creds.uid = packet->senderUid;
 			creds.gid = packet->senderGid;
 
-			if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-				throw std::runtime_error("posix: Implement CMSG truncation");
-			ctrl.write<struct ucred>(creds);
+			auto truncated = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+			if(truncated)
+				reply_flags |= MSG_CTRUNC;
+			else
+				ctrl.write(creds);
 		}
 
 		if(!packet->files.empty()) {
-			if(ctrl.message(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size())) {
-				for(auto &file : packet->files)
-					ctrl.write<int>(process->fileContext()->attachFile(std::move(file),
-							flags & MSG_CMSG_CLOEXEC));
-			}else{
-				throw std::runtime_error("posix: CMSG truncation is not implemented");
+			auto [truncated, payload_len] = ctrl.message_truncated(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size(), sizeof(int));
+			assert(!(payload_len % sizeof(int)));
+			for(auto &file : packet->files) {
+				if(truncated && payload_len < sizeof(int))
+					break;
+
+				ctrl.write<int>(process->fileContext()->attachFile(std::move(file), flags & MSG_CMSG_CLOEXEC));
+
+				if(truncated)
+					payload_len -= sizeof(int);
 			}
 
-			packet->files.clear();
+			if(truncated)
+				reply_flags |= MSG_CTRUNC;
+
+			if(!(flags & MSG_PEEK))
+				packet->files.clear();
 		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
-		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
+		auto data_length = packet->buffer.size() - packet->offset;
+		auto chunk = std::min(data_length, max_length);
+		auto returned_length = (flags & MSG_TRUNC) ? data_length : chunk;
 		memcpy(data, packet->buffer.data() + packet->offset, chunk);
-		packet->offset += chunk;
+		if(data_length != returned_length)
+			reply_flags |= MSG_TRUNC;
+		// TODO: this is incorrect for datagram sockets
+		if(!(flags & MSG_PEEK))
+			packet->offset += chunk;
 
-		if(packet->offset == packet->buffer.size())
+		if(packet->offset == packet->buffer.size() && (flags & MSG_PEEK) == 0)
 			_recvQueue.pop_front();
-		co_return protocols::fs::RecvData{ctrl.buffer(), chunk, 0, 0};
+		co_return protocols::fs::RecvData{ctrl.buffer(), returned_length, 0, reply_flags};
 	}
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
-	sendMsg(Process *, uint32_t flags, const void *data, size_t max_length,
+	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
 			const void *, size_t,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
 		assert(!(flags & ~(MSG_DONTWAIT)));
@@ -242,6 +259,8 @@ public:
 			co_return protocols::fs::Error::notConnected;
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		protocols::fs::utils::handleSoPasscred(_passCreds, ucreds, process->pid(), process->uid(), process->gid());
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
@@ -482,6 +501,19 @@ public:
 		if(nonBlock_)
 			flags |= O_NONBLOCK;
 		co_return flags;
+	}
+
+	async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer, int number,
+			std::vector<char> &optbuf) override {
+		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+			int protocol = 0;
+			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else {
+			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+
+		co_return {};
 	}
 
 	async::result<void>

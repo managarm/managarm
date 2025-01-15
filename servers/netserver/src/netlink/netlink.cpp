@@ -21,8 +21,8 @@ std::map<unsigned, std::unique_ptr<Group>> globalGroupMap;
 
 namespace nl {
 
-NetlinkSocket::NetlinkSocket(int flags)
-: flags(flags)
+NetlinkSocket::NetlinkSocket(int flags, int protocol)
+: protocol{protocol}, flags(flags)
 { }
 
 async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max_addr_length) {
@@ -73,9 +73,9 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 	}
 
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
+	uint32_t reply_flags = 0;
 
 	if(self->_passCreds) {
-		assert(!"netlink: This code is untested!");
 		struct ucred ucreds;
 		auto senderPid = 0;
 
@@ -91,15 +91,26 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		memset(&ucreds, 0, sizeof(struct ucred));
 		ucreds.pid = senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-			throw std::runtime_error("netserver: Implement CMSG truncation");
-		ctrl.write<struct ucred>(ucreds);
+		auto truncated = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(truncated)
+			reply_flags |= MSG_CTRUNC;
+		else
+			ctrl.write(ucreds);
+	}
+
+	if(self->pktinfo_) {
+		struct nl_pktinfo info;
+		info.group = packet.group;
+		auto truncated = ctrl.message(SOL_NETLINK, NETLINK_PKTINFO, sizeof(info));
+		if(!truncated)
+			ctrl.write(info);
+		else
+			reply_flags |= MSG_CTRUNC;
 	}
 
 	if(!(flags & MSG_PEEK))
 		self->_recvQueue.pop_front();
 
-	uint32_t reply_flags = 0;
 
 	if(!(flags & MSG_TRUNC) && truncated_size < size) {
 		reply_flags |= MSG_TRUNC;
@@ -275,9 +286,28 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", val);
 			break;
 		}
+		case NETLINK_PKTINFO: {
+			auto val = *reinterpret_cast<int *>(optbuf.data());
+			self->pktinfo_ = val;
+			break;
+		}
 		default:
 			std::cout << std::format("netserver: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::getSocketOption(void *object,
+int layer, int number, std::vector<char> &optbuf) {
+	auto self = static_cast<NetlinkSocket *>(object);
+
+	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+		memcpy(optbuf.data(), &self->protocol, std::min(optbuf.size(), sizeof(self->protocol)));
+	} else {
+		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
 	co_return {};

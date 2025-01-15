@@ -195,6 +195,8 @@ public:
 
 	static async::result<frg::expected<protocols::fs::Error>> ptSetSocketOption(void *obj,
 			int layer, int number, std::vector<char> optbuf);
+	static async::result<frg::expected<protocols::fs::Error>> ptGetSocketOption(void *obj,
+			int layer, int number, std::vector<char> &optbuf);
 
 	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
 
@@ -225,6 +227,7 @@ public:
 		.getSeals = &ptGetSeals,
 		.addSeals = &ptAddSeals,
 		.setSocketOption = &ptSetSocketOption,
+		.getSocketOption = &ptGetSocketOption,
 	};
 
 	// ------------------------------------------------------------------------
@@ -381,6 +384,9 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error>> setSocketOption(int layer,
 			int number, std::vector<char> optbuf);
+
+	virtual async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer,
+			int number, std::vector<char> &optbuf);
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
@@ -407,6 +413,10 @@ public:
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
+	}
+
+	void handleClose() override {
+		_cancelServe.cancel();
 	}
 
 private:

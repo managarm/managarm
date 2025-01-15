@@ -348,12 +348,15 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 				auto childResult = co_await _currentPath.second->getTarget()->getLink(std::move(name));
 				if(!childResult) {
 					assert(childResult.error() == Error::notDirectory
-							|| childResult.error() == Error::illegalOperationTarget);
+							|| childResult.error() == Error::illegalOperationTarget
+							|| childResult.error() == Error::noSuchFile);
 					_currentPath = ViewPath{_currentPath.first, nullptr};
 					if(childResult.error() == Error::notDirectory) {
 						co_return protocols::fs::Error::notDirectory;
 					} else if(childResult.error() == Error::illegalOperationTarget) {
 						std::cout << "\e[33mposix: Illegal operation target in PathResolver::resolve\e[39m" << std::endl;
+						co_return protocols::fs::Error::fileNotFound;
+					} else if(childResult.error() == Error::noSuchFile) {
 						co_return protocols::fs::Error::fileNotFound;
 					}
 				}

@@ -79,6 +79,9 @@ public:
 	async::result<frg::expected<protocols::fs::Error>>
 	setSocketOption(int layer, int number, std::vector<char> optbuf) override;
 
+	async::result<frg::expected<protocols::fs::Error>>
+	getSocketOption(int layer, int number, std::vector<char> &optbuf) override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -115,6 +118,7 @@ private:
 	// Socket options.
 	bool _passCreds;
 	bool nonBlock_;
+	bool pktinfo_;
 
 	// BPF filter
 	std::optional<std::vector<char>> filter_ = std::nullopt;

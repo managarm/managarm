@@ -129,6 +129,7 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 
 	auto size = packet->buffer.size();
 	auto truncated_size = std::min(size, max_length);
+	uint32_t reply_flags = 0;
 
 	auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 	memcpy(data, packet->buffer.data() + packet->offset, chunk);
@@ -152,16 +153,27 @@ OpenFile::recvMsg(Process *, uint32_t flags, void *data, size_t max_length,
 		memset(&creds, 0, sizeof(struct ucred));
 		creds.pid = packet->senderPid;
 
-		if(!ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred)))
-			throw std::runtime_error("posix: Implement CMSG truncation");
-		ctrl.write<struct ucred>(creds);
+		auto truncated = ctrl.message(SOL_SOCKET, SCM_CREDENTIALS, sizeof(struct ucred));
+		if(!truncated)
+			ctrl.write(creds);
+		else
+			reply_flags |= MSG_CTRUNC;
+	}
+
+	if(pktinfo_) {
+		struct nl_pktinfo info;
+		info.group = packet->group;
+
+		auto truncated = ctrl.message(SOL_NETLINK, NETLINK_PKTINFO, sizeof(info));
+		if(truncated)
+			reply_flags |= MSG_CTRUNC;
+		else
+			ctrl.write(info);
 	}
 
 	if(!(flags & MSG_PEEK)) {
 		_recvQueue.pop_front();
 	}
-
-	uint32_t reply_flags = 0;
 
 	if(truncated_size < size) {
 		reply_flags |= MSG_TRUNC;
@@ -315,8 +327,23 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 		assert(it != globalGroupMap.end());
 		auto group = it->second.get();
 		group->subscriptions.push_back(this);
+	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {
+		auto val = *reinterpret_cast<int *>(optbuf.data());
+		pktinfo_ = (val != 0);
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int layer, int number,
+		std::vector<char> &optbuf) {
+	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
+		memcpy(optbuf.data(), &_protocol, std::min(optbuf.size(), sizeof(_protocol)));
+	} else {
+		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 

@@ -12,8 +12,24 @@
 #include "fs.bragi.hpp"
 #include "protocols/fs/common.hpp"
 
-namespace protocols {
-namespace fs {
+namespace protocols::fs {
+
+namespace utils {
+
+// overrides `ucred` if `so_passcred` is true and `ucred` does not already hold data
+bool handleSoPasscred(bool so_passcred, struct ucred &ucred, pid_t process_pid, uid_t process_uid, gid_t process_gid) {
+	if(so_passcred && ucred.pid == 0 && ucred.uid == 0 && ucred.gid == 0) {
+		ucred.pid = process_pid;
+		ucred.uid = process_uid;
+		ucred.gid = process_gid;
+
+		return true;
+	}
+
+	return false;
+}
+
+} // namespace utils
 
 namespace {
 
@@ -998,6 +1014,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
 		auto data = std::get<RecvData>(result);
+		assert(data.ctrl.size() <= req->ctrl_size());
 		resp.set_addr_size(data.addressLength);
 		resp.set_ret_val(data.dataLength);
 		resp.set_flags(data.flags);
@@ -1164,6 +1181,47 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
+	} else if(preamble.id() == managarm::fs::GetSockOpt::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::GetSockOpt>(recv_req);
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		std::vector<char> optbuf;
+		optbuf.resize(req->optlen());
+
+		managarm::fs::SvrResponse resp;
+
+		if(!file_ops->getSocketOption) {
+			std::cout << "protocols/fs: getsockopt not supported on socket" << std::endl;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto ret = co_await file_ops->getSocketOption(file.get(), req->layer(), req->number(), optbuf);
+		if(!ret) {
+			assert(ret.error() != protocols::fs::Error::none);
+			resp.set_error(mapFsError(ret.error()));
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto [send_resp, send_buf] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(optbuf.data(), req->optlen())
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_buf.error());
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");
@@ -1584,7 +1642,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			if(!result) {
 				assert(result.error() == protocols::fs::Error::fileNotFound
 					|| result.error() == protocols::fs::Error::directoryNotEmpty);
-				
+
 				resp.set_error(mapFsError(result.error()));
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1703,4 +1761,4 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 	}
 }
 
-} } // namespace protocols::fs
+} // namespace protocols::fs
