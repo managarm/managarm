@@ -5,7 +5,7 @@
 #include <protocols/mbus/client.hpp>
 #include <bragi/helpers-std.hpp>
 
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include <clock.bragi.hpp>
 
 namespace clk {

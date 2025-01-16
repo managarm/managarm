@@ -1,7 +1,6 @@
 posix_bragi = cxxbragi.process(protos/'posix/posix.bragi')
 
 src = [
-	'src/clock.cpp',
 	'src/device.cpp',
 	'src/devices/full.cpp',
 	'src/devices/helout.cpp',

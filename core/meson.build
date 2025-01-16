@@ -2,6 +2,7 @@ inc = [ 'include' ]
 
 headers = [
 	'include/core/bpf.hpp',
+	'include/core/clock.hpp',
 	'include/core/cmdline.hpp',
 	'include/core/device-path.hpp',
 	'include/core/logging.hpp',
@@ -12,13 +13,14 @@ headers = [
 
 core_lib_sources = files(
 	'lib/bpf/bpf.cpp',
+	'lib/clock.cpp',
 	'lib/cmdline.cpp',
 	'lib/kernel-logs.cpp',
 )
 
 core_lib = static_library('core-lib', core_lib_sources,
 	include_directories: [ inc ],
-	dependencies: [ libarch, frigg, hel_dep, bragi_dep, mbus_proto_dep, kerncfg_proto_dep ]
+	dependencies: [ libarch, frigg, hel_dep, bragi_dep, mbus_proto_dep, kerncfg_proto_dep, clock_proto_dep ]
 )
 
 core_dep = declare_dependency(

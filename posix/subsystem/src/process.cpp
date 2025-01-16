@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "common.hpp"
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"

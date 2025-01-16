@@ -3,7 +3,7 @@
 #include <protocols/mbus/client.hpp>
 
 #include "net.hpp"
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "drvcore.hpp"
 #include "devices/full.hpp"
 #include "devices/helout.hpp"

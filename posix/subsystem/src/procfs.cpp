@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iomanip>
 
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
