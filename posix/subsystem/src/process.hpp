@@ -593,6 +593,10 @@ public:
 		_enteredSignalSeq++;
 	}
 
+	void setParentDeathSignal(std::optional<int> sig) {
+		parentDeathSignal_ = sig;
+	}
+
 private:
 	Process *_parent;
 
@@ -659,6 +663,8 @@ private:
 	// Used for tracking signals that happened between sigprocmask and
 	// a call that resumes on a signal.
 	uint64_t _enteredSignalSeq = 0;
+
+	std::optional<int> parentDeathSignal_ = std::nullopt;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);

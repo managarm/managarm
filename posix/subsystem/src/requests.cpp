@@ -3690,6 +3690,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::ParentDeathSignalRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::ParentDeathSignalRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			self->setParentDeathSignal(req->signal() ? std::optional{req->signal()} : std::nullopt);
+
+			managarm::posix::ParentDeathSignalResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;

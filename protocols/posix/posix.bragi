@@ -597,3 +597,13 @@ head(128):
 	Errors error;
 	uint64 fstype;
 }
+
+message ParentDeathSignalRequest 97 {
+head(128):
+	int32 signal;
+}
+
+message ParentDeathSignalResponse 98 {
+head(128):
+	Errors error;
+}
