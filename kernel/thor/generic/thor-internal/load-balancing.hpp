@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/barrier.hpp>
+#include <frg/span.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/thread.hpp>
@@ -14,11 +15,46 @@ struct LbControlBlock {
 	friend struct LbNode;
 	friend struct LoadBalancer;
 
+	static size_t affinityMaskSize() {
+		return (getCpuCount() + 7) / 8;
+	}
+
 	LbControlBlock(Thread *thread, LbNode *node)
-	: thread_{thread->self.lock()}, node_{node} {}
+	: thread_{thread->self.lock()}, node_{node}, affinityMask_{*kernelAlloc} {
+		affinityMask_.resize(affinityMaskSize());
+		for (size_t i = 0; i < getCpuCount(); ++i)
+			affinityMask_[i / 8] |= (1 << (i % 8));
+	}
 
 	CpuData *getAssignedCpu() {
 		return _assignedCpu.load(std::memory_order_relaxed);
+	}
+
+	// Precondition: mask.size() == affinityMaskSize().
+	void getAffinityMask(frg::span<uint8_t> mask) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		assert(affinityMask_.size() == mask.size());
+		memcpy(mask.data(), affinityMask_.data(), affinityMaskSize());
+	}
+
+	// Precondition: mask.size() == affinityMaskSize().
+	// Precondition: at least one bit of mask is set.
+	void setAffinityMask(frg::span<const uint8_t> mask) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		assert(affinityMask_.size() == mask.size());
+		assert(std::any_of(mask.begin(), mask.end(), [] (uint8_t x) -> bool { return x; }));
+		memcpy(affinityMask_.data(), mask.data(), affinityMaskSize());
+	}
+
+	bool inAffinityMask(size_t cpuIndex) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		return affinityMask_[cpuIndex / 8] & (1 << (cpuIndex % 8));
 	}
 
 private:
@@ -38,6 +74,13 @@ private:
 	// Load of the thread associated with this control block.
 	// Protected by the LbNode that currently owns the node.
 	uint64_t load_{0};
+
+	// Protects members that can be written by public functions.
+	// Note that this mutex does not protect assigendCpu_, node_, hook_, load_ etc.
+	frg::ticket_spinlock mutex_;
+
+	// Protected by mutex_;
+	frg::vector<uint8_t, KernelAlloc> affinityMask_;
 };
 
 // Per-CPU load balancing data structure.

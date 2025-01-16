@@ -3464,6 +3464,10 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 }
 
 HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *actualSize) {
+	auto maskSize = LbControlBlock::affinityMaskSize();
+	if(size < maskSize)
+		return kHelErrBufferTooSmall;
+
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -3480,10 +3484,9 @@ HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *ac
 		thread = remove_tag_cast(thread_wrapper->get<ThreadDescriptor>().thread);
 	}
 
-	frg::vector<uint8_t, KernelAlloc> buf = thread->getAffinityMask();
-
-	if(buf.size() > size)
-		return kHelErrBufferTooSmall;
+	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
+	buf.resize(maskSize);
+	thread->_lbCb->getAffinityMask({buf.data(), maskSize});
 
 	size_t used_size = size > buf.size() ? buf.size() : size;
 
@@ -3498,9 +3501,12 @@ HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *ac
 }
 
 HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
-	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
-	buf.resize(size);
+	auto maskSize = LbControlBlock::affinityMaskSize();
+	if (size > maskSize)
+		return kHelErrOutOfBounds;
 
+	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
+	buf.resize(maskSize);
 	if (!readUserArray(mask, buf.data(), size))
 		return kHelErrFault;
 
@@ -3517,7 +3523,7 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 	auto this_universe = this_thread->getUniverse();
 
 	if(handle == kHelThisThread) {
-		this_thread->setAffinityMask(std::move(buf));
+		this_thread->_lbCb->setAffinityMask({buf.data(), maskSize});
 		Thread::migrateCurrent();
 	} else {
 		smarter::borrowed_ptr<Thread> thread;
@@ -3533,7 +3539,7 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 			thread = remove_tag_cast(thread_wrapper->get<ThreadDescriptor>().thread);
 		}
 
-		thread->setAffinityMask(std::move(buf));
+		thread->_lbCb->setAffinityMask({buf.data(), maskSize});
 		infoLogger() << "thor: TODO: helSetAffinity does not migrate other threads!" << frg::endlog;
 	}
 

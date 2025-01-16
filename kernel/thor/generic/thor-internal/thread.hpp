@@ -281,16 +281,6 @@ private:
 	void _kill();
 
 public:
-	frg::vector<uint8_t, KernelAlloc> getAffinityMask() {
-		auto lock = frg::guard(&_mutex);
-		return _affinityMask;
-	}
-
-	void setAffinityMask(frg::vector<uint8_t, KernelAlloc> &&mask) {
-		auto lock = frg::guard(&_mutex);
-		_affinityMask = std::move(mask);
-	}
-
 	// TODO: Tidy this up.
 	smarter::borrowed_ptr<Thread> self;
 
@@ -391,7 +381,6 @@ private:
 	>;
 
 	ObserveQueue _observeQueue;
-	frg::vector<uint8_t, KernelAlloc> _affinityMask;
 };
 
 } // namespace thor

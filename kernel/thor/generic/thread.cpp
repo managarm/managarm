@@ -26,6 +26,11 @@ namespace {
 
 void Thread::migrateCurrent() {
 	auto this_thread = getCurrentThread().get();
+	auto maskSize = LbControlBlock::affinityMaskSize();
+
+	frg::vector<uint8_t, KernelAlloc> mask{*kernelAlloc};
+	mask.resize(maskSize);
+	this_thread->_lbCb->getAffinityMask({mask.data(), maskSize});
 
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -42,14 +47,16 @@ void Thread::migrateCurrent() {
 	size_t n = -1;
 	for (size_t i = 0; i < getCpuCount(); i++) {
 		bool bit = 0;
-		if ((i + 7) / 8 < this_thread->_affinityMask.size())
-			bit = this_thread->_affinityMask[(i + 7) / 8] & (1 << (i % 8));
+		if ((i + 7) / 8 < mask.size())
+			bit = mask[(i + 7) / 8] & (1 << (i % 8));
 
 		if (bit) {
 			n = i;
 			break;
 		}
 	}
+	// Affinity masks are guaranteed to not be all zeros.
+	assert(n != static_cast<size_t>(-1));
 
 	auto new_scheduler = &getCpuData(n)->scheduler;
 
@@ -419,8 +426,7 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
-		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
-		_affinityMask{*kernelAlloc} {
+		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
 	_lastRunTimeUpdate = systemClockSource()->currentNanos();
 }
 

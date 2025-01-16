@@ -191,6 +191,9 @@ void LoadBalancer::balanceBetween_(LbNode *srcNode, LbNode *dstNode, uint64_t &n
 			if (!cb->load_)
 				continue;
 
+			if (!cb->inAffinityMask(dstNode->cpu->cpuIndex))
+				continue;
+
 			if (!improvesBalance(srcNode->currentLoad, newLoad, cb->load_))
 				continue;
 
