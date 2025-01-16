@@ -107,12 +107,13 @@ async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
 	protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
 
 	if(self->packetAuxData_) {
-		ctrl.message(SOL_PACKET, PACKET_AUXDATA, sizeof(struct tpacket_auxdata));
-		ctrl.write<struct tpacket_auxdata>({
-			.tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
-			.tp_len = static_cast<uint32_t>(element->len),
-			.tp_snaplen = static_cast<uint32_t>(element->view.size()),
-		});
+		auto truncated = ctrl.message(SOL_PACKET, PACKET_AUXDATA, sizeof(struct tpacket_auxdata));
+		if(!truncated)
+			ctrl.write<struct tpacket_auxdata>({
+				.tp_status = (TP_STATUS_USER | TP_STATUS_CSUM_VALID),
+				.tp_len = static_cast<uint32_t>(element->len),
+				.tp_snaplen = static_cast<uint32_t>(element->view.size()),
+			});
 	}
 
 	co_return protocols::fs::RecvData{ctrl.buffer(), data_len, 0, 0};

@@ -146,6 +146,7 @@ struct CtrlBuilder {
 	: _maxSize{max_size}, _offset{0} { }
 
 	// returns true if the message gets truncated
+	[[nodiscard("You must check whether the message is truncated")]]
 	bool message(int layer, int type, size_t payload) {
 		size_t remaining_space = _maxSize - _buffer.size();
 		if(remaining_space < CMSG_ALIGN(sizeof(struct cmsghdr)))
@@ -170,6 +171,7 @@ struct CtrlBuilder {
 
 	// returns whether the message gets truncated, and if true, how many bytes of payload
 	// (aligned to data_unit_size) still fit in the buffer.
+	[[nodiscard("You must check whether the message is truncated")]]
 	std::pair<bool, size_t> message_truncated(int layer, int type, size_t payload, size_t data_unit_size) {
 		// the space remaining in the control buffer before this message
 		size_t remaining_space = _maxSize - _buffer.size();
