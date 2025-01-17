@@ -33,6 +33,9 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length) override;
 
+	async::result<frg::expected<Error, size_t>>
+	readSome(Process *process, void *data, size_t max_length) override;
+
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
