@@ -1213,6 +1213,25 @@ async::result<void> Process::terminate(TerminationState state) {
 		(void)result;
 	}
 
+	auto reparent_to = parent;
+	// walk up the chain until we hit a process that has no parent
+	while(reparent_to->getParent())
+		reparent_to = reparent_to->getParent();
+
+	for(auto it = _children.begin(); it != _children.end();) {
+		(*it)->_parent = reparent_to;
+		reparent_to->_children.push_back((*it));
+
+		// send the signal if it requested one on parent death
+		if((*it)->parentDeathSignal_) {
+			UserSignal info;
+			info.pid = pid();
+			(*it)->signalContext()->issueSignal((*it)->parentDeathSignal_.value(), info);
+		}
+
+		it = _children.erase(it);
+	}
+
 	// Notify the parent of our status change.
 	assert(_notifyType == NotifyType::null);
 	_notifyType = NotifyType::terminated;
