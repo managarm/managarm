@@ -1001,7 +1001,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 
 		auto error = std::get_if<Error>(&result);
 		if(error) {
-			resp.set_error(mapFsError(*error));
+			resp.set_error(*error | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1094,7 +1094,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		managarm::fs::SendMsgReply resp;
 
 		if(!res) {
-			resp.set_error(mapFsError(res.error()));
+			resp.set_error(res.error() | toFsError);
 		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_size(res.value());
@@ -1171,7 +1171,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		auto ret = co_await file_ops->setSocketOption(file.get(), req->layer(), req->number(), optbuf);
 		if(!ret) {
 			assert(ret.error() != protocols::fs::Error::none);
-			resp.set_error(mapFsError(ret.error()));
+			resp.set_error(ret.error() | toFsError);
 		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
@@ -1210,7 +1210,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		auto ret = co_await file_ops->getSocketOption(file.get(), req->layer(), req->number(), optbuf);
 		if(!ret) {
 			assert(ret.error() != protocols::fs::Error::none);
-			resp.set_error(mapFsError(ret.error()));
+			resp.set_error(ret.error() | toFsError);
 		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
@@ -1643,7 +1643,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				assert(result.error() == protocols::fs::Error::fileNotFound
 					|| result.error() == protocols::fs::Error::directoryNotEmpty);
 
-				resp.set_error(mapFsError(result.error()));
+				resp.set_error(result.error() | toFsError);
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,

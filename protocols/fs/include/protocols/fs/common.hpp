@@ -36,14 +36,22 @@ enum class Error {
 	alreadyExists = 18,
 	illegalOperationTarget = 19,
 	noSpaceLeft = 21,
+	notTerminal = 22,
 	noBackingDevice = 23,
 	isDirectory = 24,
 	invalidProtocolOption = 25,
 	directoryNotEmpty = 26,
 	connectionRefused = 27,
+	internalError = 28,
 };
 
-inline managarm::fs::Errors mapFsError(Error e) {
+struct ToFsError {
+	template<typename E>
+	auto operator() (E e) const { return e | *this; }
+};
+constexpr ToFsError toFsError;
+
+inline managarm::fs::Errors operator|(Error e, ToFsError) {
 	switch(e) {
 		case Error::none: return managarm::fs::Errors::SUCCESS;
 		case Error::fileNotFound: return managarm::fs::Errors::FILE_NOT_FOUND;
@@ -66,11 +74,52 @@ inline managarm::fs::Errors mapFsError(Error e) {
 		case Error::alreadyExists: return managarm::fs::Errors::ALREADY_EXISTS;
 		case Error::illegalOperationTarget: return managarm::fs::Errors::ILLEGAL_OPERATION_TARGET;
 		case Error::noSpaceLeft: return managarm::fs::Errors::NO_SPACE_LEFT;
+		case Error::notTerminal: return managarm::fs::Errors::NOT_A_TERMINAL;
 		case Error::noBackingDevice: return managarm::fs::Errors::NO_BACKING_DEVICE;
 		case Error::isDirectory: return managarm::fs::Errors::IS_DIRECTORY;
 		case Error::invalidProtocolOption: return managarm::fs::Errors::INVALID_PROTOCOL_OPTION;
 		case Error::directoryNotEmpty: return managarm::fs::Errors::DIRECTORY_NOT_EMPTY;
 		case Error::connectionRefused: return managarm::fs::Errors::CONNECTION_REFUSED;
+		case Error::internalError: return managarm::fs::Errors::INTERNAL_ERROR;
+	}
+}
+
+struct ToFsProtoError {
+	template<typename E>
+	auto operator() (E e) const { return e | *this; }
+};
+constexpr ToFsProtoError toFsProtoError;
+
+inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
+	switch(e) {
+		case managarm::fs::Errors::SUCCESS: return Error::none;
+		case managarm::fs::Errors::FILE_NOT_FOUND: return Error::fileNotFound;
+		case managarm::fs::Errors::END_OF_FILE: return Error::endOfFile;
+		case managarm::fs::Errors::ILLEGAL_ARGUMENT: return Error::illegalArguments;
+		case managarm::fs::Errors::WOULD_BLOCK: return Error::wouldBlock;
+		case managarm::fs::Errors::SEEK_ON_PIPE: return Error::seekOnPipe;
+		case managarm::fs::Errors::BROKEN_PIPE: return Error::brokenPipe;
+		case managarm::fs::Errors::ACCESS_DENIED: return Error::accessDenied;
+		case managarm::fs::Errors::NOT_DIRECTORY: return Error::notDirectory;
+		case managarm::fs::Errors::AF_NOT_SUPPORTED: return Error::afNotSupported;
+		case managarm::fs::Errors::DESTINATION_ADDRESS_REQUIRED: return Error::destAddrRequired;
+		case managarm::fs::Errors::NETWORK_UNREACHABLE: return Error::netUnreachable;
+		case managarm::fs::Errors::MESSAGE_TOO_LARGE: return Error::messageSize;
+		case managarm::fs::Errors::HOST_UNREACHABLE: return Error::hostUnreachable;
+		case managarm::fs::Errors::INSUFFICIENT_PERMISSIONS: return Error::insufficientPermissions;
+		case managarm::fs::Errors::ADDRESS_IN_USE: return Error::addressInUse;
+		case managarm::fs::Errors::ADDRESS_NOT_AVAILABLE: return Error::addressNotAvailable;
+		case managarm::fs::Errors::NOT_CONNECTED: return Error::notConnected;
+		case managarm::fs::Errors::ALREADY_EXISTS: return Error::alreadyExists;
+		case managarm::fs::Errors::ILLEGAL_OPERATION_TARGET: return Error::illegalOperationTarget;
+		case managarm::fs::Errors::NO_SPACE_LEFT: return Error::noSpaceLeft;
+		case managarm::fs::Errors::NOT_A_TERMINAL: return Error::notTerminal;
+		case managarm::fs::Errors::NO_BACKING_DEVICE: return Error::noBackingDevice;
+		case managarm::fs::Errors::IS_DIRECTORY: return Error::isDirectory;
+		case managarm::fs::Errors::INVALID_PROTOCOL_OPTION: return Error::invalidProtocolOption;
+		case managarm::fs::Errors::DIRECTORY_NOT_EMPTY: return Error::directoryNotEmpty;
+		case managarm::fs::Errors::CONNECTION_REFUSED: return Error::connectionRefused;
+		case managarm::fs::Errors::INTERNAL_ERROR: return Error::internalError;
 	}
 }
 

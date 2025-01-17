@@ -74,6 +74,34 @@ enum class Error {
 	noChildProcesses,
 };
 
+inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
+	switch(e) {
+		case Error::success: return protocols::fs::Error::none;
+		case Error::noSuchFile: return protocols::fs::Error::fileNotFound;
+		case Error::eof: return protocols::fs::Error::endOfFile;
+		case Error::illegalArguments: return protocols::fs::Error::illegalArguments;
+		case Error::wouldBlock: return protocols::fs::Error::wouldBlock;
+		case Error::seekOnPipe: return protocols::fs::Error::seekOnPipe;
+		case Error::brokenPipe: return protocols::fs::Error::brokenPipe;
+		case Error::accessDenied: return protocols::fs::Error::accessDenied;
+		case Error::notDirectory: return protocols::fs::Error::notDirectory;
+		case Error::insufficientPermissions: return protocols::fs::Error::insufficientPermissions;
+		case Error::notConnected: return protocols::fs::Error::notConnected;
+		case Error::alreadyExists: return protocols::fs::Error::alreadyExists;
+		case Error::illegalOperationTarget: return protocols::fs::Error::illegalOperationTarget;
+		case Error::noSpaceLeft: return protocols::fs::Error::noSpaceLeft;
+		case Error::notTerminal: return protocols::fs::Error::notTerminal;
+		case Error::noBackingDevice: return protocols::fs::Error::noBackingDevice;
+		case Error::isDirectory: return protocols::fs::Error::isDirectory;
+		case Error::directoryNotEmpty: return protocols::fs::Error::directoryNotEmpty;
+		case Error::fileClosed: return protocols::fs::Error::internalError;
+		case Error::badExecutable: return protocols::fs::Error::internalError;
+		case Error::noMemory: return protocols::fs::Error::noSpaceLeft;
+		case Error::ioError: return protocols::fs::Error::internalError;
+		case Error::noChildProcesses: return protocols::fs::Error::internalError;
+	}
+}
+
 std::ostream& operator<<(std::ostream& os, const Error& err);
 
 // TODO: Rename this enum as is not part of the VFS.
