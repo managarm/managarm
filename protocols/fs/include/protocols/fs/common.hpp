@@ -1,7 +1,6 @@
 #pragma once
 
 #include <optional>
-#include <span>
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
@@ -202,6 +201,17 @@ struct CtrlBuilder {
 		if(CMSG_SPACE(payload) > remaining_space)
 			return {true, std::max(0UL, remaining_payload_space - (remaining_payload_space % data_unit_size))};
 		return {false, 0};
+	}
+
+	template<typename T>
+	requires requires(T t) {
+		{ t.size() } -> std::same_as<size_t>;
+		{ t.data() } -> std::same_as<void *>;
+	}
+	void write_buffer(T data) {
+		assert(_buffer.size() >= _offset + data.size());
+		memcpy(_buffer.data() + _offset, data.data(), data.size());
+		_offset += data.size();
 	}
 
 	template<typename T>
