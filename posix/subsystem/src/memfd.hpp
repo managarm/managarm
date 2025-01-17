@@ -30,6 +30,9 @@ public:
 	async::result<frg::expected<protocols::fs::Error, int>> getSeals() override;
 	async::result<frg::expected<protocols::fs::Error, int>> addSeals(int seals) override;
 
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *process, const void *data, size_t length) override;
+
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -37,7 +40,7 @@ public:
 	}
 
 private:
-	void _resizeFile(size_t new_size);
+	frg::expected<Error> _resizeFile(size_t new_size);
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;

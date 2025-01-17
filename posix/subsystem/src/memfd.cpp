@@ -18,8 +18,7 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 }
 
 async::result<frg::expected<protocols::fs::Error>> MemoryFile::truncate(size_t size) {
-	_resizeFile(size);
-	co_return {};
+	co_return _resizeFile(size).map_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error>>
@@ -31,11 +30,8 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 	/* check if the file size is enough */
 	if(offset + size <= _fileSize)
 		co_return {};
-	/* if the file size isn't enough */
-	if(_seals & F_SEAL_GROW)
-		co_return protocols::fs::Error::insufficientPermissions;
-	_resizeFile(offset + size);
-	co_return {};
+
+	co_return _resizeFile(offset + size).map_error(protocols::fs::toFsProtoError);
 }
 
 FutureMaybe<helix::UniqueDescriptor>
@@ -43,12 +39,18 @@ MemoryFile::accessMemory() {
 	co_return _memory.dup();
 }
 
-void MemoryFile::_resizeFile(size_t new_size) {
+frg::expected<Error> MemoryFile::_resizeFile(size_t new_size) {
+	if(new_size > _fileSize && _seals & F_SEAL_GROW)
+		return Error::insufficientPermissions;
+
+	if(new_size < _fileSize && _seals & F_SEAL_SHRINK)
+		return Error::insufficientPermissions;
+
 	_fileSize = new_size;
 
 	size_t aligned_size = (new_size + 0xFFF) & ~size_t(0xFFF);
 	if(aligned_size <= _areaSize)
-		return;
+		return {};
 
 	if(_memory) {
 		HEL_CHECK(helResizeMemory(_memory.getHandle(), aligned_size));
@@ -60,6 +62,8 @@ void MemoryFile::_resizeFile(size_t new_size) {
 
 	_mapping = helix::Mapping{_memory, 0, aligned_size};
 	_areaSize = aligned_size;
+
+	return {};
 }
 
 async::result<frg::expected<protocols::fs::Error, int>>
@@ -75,4 +79,19 @@ MemoryFile::addSeals(int seals) {
 
 	_seals |= seals;
 	co_return int{_seals};
+}
+
+async::result<frg::expected<Error, size_t>>
+MemoryFile::writeAll(Process *, const void *data, size_t length) {
+	if(_seals & F_SEAL_WRITE)
+		co_return Error::insufficientPermissions;
+
+	auto end_size = _offset + length;
+	if(end_size > _fileSize) {
+		FRG_CO_TRY(_resizeFile(end_size));
+	}
+
+	memcpy(reinterpret_cast<std::byte *>(_mapping.get()) + _offset, data, length);
+	_offset += length;
+	co_return length;
 }
