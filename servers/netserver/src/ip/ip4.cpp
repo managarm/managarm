@@ -358,6 +358,7 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	auto hdrs = smarter::make_shared<const Ip4Packet>(std::move(hdr));
 
 	switch (static_cast<IpProto>(proto)) {
+	case IpProto::icmp: icmp.feedDatagram(hdrs, link); break;
 	case IpProto::udp: udp.feedDatagram(hdrs, link); break;
 	case IpProto::tcp: tcp.feedDatagram(hdrs); break;
 	default: break;
@@ -440,7 +441,14 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 		return managarm::fs::Errors::SUCCESS;
 	}
 	case SOCK_DGRAM:
-		udp.serveSocket(std::move(lane));
+		switch(proto) {
+		case IPPROTO_ICMP:
+			icmp.serveSocket(std::move(lane));
+			break;
+		default:
+			udp.serveSocket(std::move(lane));
+			break;
+		}
 		return managarm::fs::Errors::SUCCESS;
 	case SOCK_STREAM:
 		tcp.serveSocket(flags, std::move(lane));

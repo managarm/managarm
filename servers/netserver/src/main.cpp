@@ -9,6 +9,7 @@
 
 #include <async/result.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/clock.hpp>
 #include <core/cmdline.hpp>
 #include <frg/cmdline.hpp>
 #include <hel.h>
@@ -710,6 +711,7 @@ static constexpr protocols::svrctl::ControlOperations controlOps = {
 int main() {
 	printf("netserver: Starting driver\n");
 
+	async::run(clk::enumerateTracker(), helix::currentDispatcher);
 	nl::initialize();
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
