@@ -191,6 +191,7 @@ public:
 
 		auto packet = &_recvQueue.front();
 		uint32_t reply_flags = 0;
+		size_t returned_length = 0;
 
 		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
@@ -228,19 +229,28 @@ public:
 				packet->files.clear();
 		}
 
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
+		// datagram packets are always read from their beginning, so offsets are illegal
+		assert(!packet->offset || socktype_ == SOCK_STREAM);
 		auto data_length = packet->buffer.size() - packet->offset;
-		auto chunk = std::min(data_length, max_length);
-		auto returned_length = (flags & MSG_TRUNC) ? data_length : chunk;
+		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+
+		if(socktype_ == SOCK_STREAM) {
+			returned_length = chunk;
+			if(!(flags & MSG_PEEK)) {
+				packet->offset += chunk;
+				if(packet->offset == packet->buffer.size())
+					_recvQueue.pop_front();
+			}
+		} else {
+			returned_length = (flags & MSG_TRUNC) ? data_length : chunk;
+			if(!(flags & MSG_PEEK))
+				_recvQueue.pop_front();
+		}
+
 		if(data_length != returned_length)
 			reply_flags |= MSG_TRUNC;
-		// TODO: this is incorrect for datagram sockets
-		if(!(flags & MSG_PEEK))
-			packet->offset += chunk;
 
-		if(packet->offset == packet->buffer.size() && (flags & MSG_PEEK) == 0)
-			_recvQueue.pop_front();
 		co_return protocols::fs::RecvData{ctrl.buffer(), returned_length, 0, reply_flags};
 	}
 
