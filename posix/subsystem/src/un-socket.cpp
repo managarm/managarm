@@ -646,9 +646,9 @@ smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t so
 	return File::constructHandle(std::move(file));
 }
 
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process) {
-	auto file0 = smarter::make_shared<OpenFile>(process);
-	auto file1 = smarter::make_shared<OpenFile>(process);
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process, bool nonBlock, int32_t socktype) {
+	auto file0 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
+	auto file1 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
 	file0->setupWeakFile(file0);
 	file1->setupWeakFile(file1);
 	OpenFile::serve(file0);

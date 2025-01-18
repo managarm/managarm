@@ -2689,7 +2689,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto pair = un_socket::createSocketPair(self.get());
+			auto pair = un_socket::createSocketPair(self.get(), req->flags() & SOCK_NONBLOCK, req->socktype());
 			auto fd0 = self->fileContext()->attachFile(std::get<0>(pair),
 					req->flags() & SOCK_CLOEXEC);
 			auto fd1 = self->fileContext()->attachFile(std::get<1>(pair),
