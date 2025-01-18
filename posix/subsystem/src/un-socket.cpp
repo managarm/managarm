@@ -111,8 +111,8 @@ public:
 public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		if(_currentState != State::connected)
-			co_return Error::wouldBlock;
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
+			co_return Error::notConnected;
 
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -174,18 +174,16 @@ public:
 			std::cout << "posix: Unimplemented flag in un-socket " << std::hex << flags << std::dec << " for pid: " << process->pid() << std::endl;
 		}
 
-		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::RecvData{{}, 0, 0, 0};
-
-		if(_currentState != State::connected)
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
 			co_return protocols::fs::Error::notConnected;
+
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return protocols::fs::RecvResult { protocols::fs::Error::wouldBlock };
+			co_return protocols::fs::Error::wouldBlock;
 		}
 
 		while(_recvQueue.empty())
