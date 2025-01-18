@@ -9,6 +9,7 @@
 #include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
 #include <frg/expected.hpp>
+#include <sys/time.h>
 
 #include "vfs.hpp"
 #include "procfs.hpp"
@@ -596,6 +597,72 @@ public:
 	void setParentDeathSignal(std::optional<int> sig) {
 		parentDeathSignal_ = sig;
 	}
+
+	struct IntervalTimer {
+		std::weak_ptr<Process> process;
+		itimerval timer = {};
+		uint64_t next_expiration = 0;
+
+		~IntervalTimer() {
+			cancel();
+		}
+
+		async::detached arm() {
+			if(!timer.it_value.tv_sec && !timer.it_value.tv_usec)
+				co_return;
+
+			HEL_CHECK(helGetClock(&next_expiration));
+
+			helix::AwaitClock await_initial;
+			next_expiration += (timer.it_value.tv_sec * 1'000'000'000) + (timer.it_value.tv_usec * 1'000);
+			auto &&submit = helix::submitAwaitClock(&await_initial, next_expiration, helix::Dispatcher::global());
+			asyncId_ = await_initial.asyncId();
+			co_await submit.async_wait();
+			asyncId_ = 0;
+			if(await_initial.error() == kHelErrCancelled)
+				co_return;
+			assert(!await_initial.error());
+			auto proc_lock = process.lock();
+			if(proc_lock)
+				proc_lock->signalContext()->issueSignal(SIGALRM, {});
+			else
+				co_return;
+
+			if(!timer.it_interval.tv_sec && !timer.it_interval.tv_usec)
+				co_return;
+
+			timer.it_value = timer.it_interval;
+
+			while(true) {
+				helix::AwaitClock await_interval;
+				next_expiration += (timer.it_interval.tv_sec * 1'000'000'000) + (timer.it_interval.tv_usec * 1'000);
+				auto &&submit = helix::submitAwaitClock(&await_interval, next_expiration, helix::Dispatcher::global());
+				asyncId_ = await_interval.asyncId();
+				co_await submit.async_wait();
+				asyncId_ = 0;
+				if(await_interval.error() == kHelErrCancelled)
+					co_return;
+				assert(!await_interval.error());
+				auto proc_lock = process.lock();
+				if(proc_lock)
+					proc_lock->signalContext()->issueSignal(SIGALRM, {});
+				else
+					co_return;
+			}
+		}
+
+		void cancel() {
+			if(asyncId_)
+				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), asyncId_));
+			next_expiration = 0;
+			timer.it_value = {};
+			timer.it_interval = {};
+		}
+	private:
+		uint64_t asyncId_ = 0;
+	};
+
+	IntervalTimer realTimer;
 
 private:
 	Process *_parent;

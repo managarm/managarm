@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "common.hpp"
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"
@@ -912,6 +912,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
 	process->_signalContext = SignalContext::create();
+	process->realTimer.process = process;
 
 	TerminalSession::initializeNewSession(process.get());
 
@@ -984,6 +985,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->_signalContext = SignalContext::clone(original->_signalContext);
+	process->realTimer.process = process;
 
 	original->_pgPointer->reassociateProcess(process.get());
 
@@ -1049,6 +1051,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_fsContext = original->_fsContext;
 	process->_fileContext = original->_fileContext;
 	process->_signalContext = original->_signalContext;
+	process->realTimer.process = process;
 
 	// TODO: ProcessGroups should probably store ThreadGroups and not processes.
 	original->_pgPointer->reassociateProcess(process.get());

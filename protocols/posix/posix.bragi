@@ -607,3 +607,21 @@ message ParentDeathSignalResponse 98 {
 head(128):
 	Errors error;
 }
+
+message SetIntervalTimerRequest 99 {
+head(128):
+	int32 which;
+	uint64 value_sec;
+	uint64 value_usec;
+	uint64 interval_sec;
+	uint64 interval_usec;
+}
+
+message SetIntervalTimerResponse 100 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_usec;
+	uint64 interval_sec;
+	uint64 interval_usec;
+}

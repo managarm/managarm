@@ -3709,6 +3709,53 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			);
 
 			HEL_CHECK(send_resp.error());
+		}else if(preamble.id() == managarm::posix::SetIntervalTimerRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SetIntervalTimerRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			managarm::posix::SetIntervalTimerResponse resp;
+			if(req->which() == ITIMER_REAL) {
+				if(logRequests)
+					std::cout << std::format("posix: SETITIMER {}.{:06d} s", req->value_sec(), req->value_usec()) << std::endl;
+
+				uint64_t ticks;
+				HEL_CHECK(helGetClock(&ticks));
+
+				uint64_t until_next_expiration = 0;
+				if(self->realTimer.next_expiration > ticks)
+					until_next_expiration = self->realTimer.next_expiration - ticks;
+
+				resp.set_value_sec(until_next_expiration / 1'000'000'000);
+				resp.set_value_usec((until_next_expiration % 1'000'000'000) / 1'000);
+				resp.set_interval_sec(self->realTimer.timer.it_interval.tv_sec);
+				resp.set_interval_usec(self->realTimer.timer.it_interval.tv_usec);
+
+				self->realTimer.cancel();
+
+				self->realTimer.timer.it_value.tv_sec = req->value_sec();
+				self->realTimer.timer.it_value.tv_usec = req->value_usec();
+				self->realTimer.timer.it_interval.tv_sec = req->interval_sec();
+				self->realTimer.timer.it_interval.tv_usec = req->interval_usec();
+
+				self->realTimer.arm();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			} else {
+				// TODO: handle ITIMER_VIRTUAL and ITIMER_PROF
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				std::cout << "posix: ITIMER_VIRTUAL and ITIMER_PROF are unsupported" << std::endl;
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;

@@ -2,7 +2,7 @@
 #include <linux/magic.h>
 #include <string.h>
 
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "common.hpp"
 #include "sysfs.hpp"
 
