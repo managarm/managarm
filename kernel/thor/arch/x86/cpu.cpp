@@ -4,6 +4,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
@@ -764,6 +765,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 
 	Scheduler::resume(cpuContext->wqFiber);
 
+	LoadBalancer::singleton().setOnline(cpuContext);
 	auto scheduler = localScheduler();
 	scheduler->update();
 	scheduler->forceReschedule();

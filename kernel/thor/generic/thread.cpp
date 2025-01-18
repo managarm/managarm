@@ -5,8 +5,10 @@
 
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
+#include <thor-internal/timer.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 
 namespace thor {
@@ -14,6 +16,7 @@ namespace thor {
 namespace {
 	constexpr bool logTransitions = false;
 	constexpr bool logRunStates = false;
+	constexpr bool logMigration = false;
 	constexpr bool logCleanup = false;
 }
 
@@ -23,6 +26,11 @@ namespace {
 
 void Thread::migrateCurrent() {
 	auto this_thread = getCurrentThread().get();
+	auto maskSize = LbControlBlock::affinityMaskSize();
+
+	frg::vector<uint8_t, KernelAlloc> mask{*kernelAlloc};
+	mask.resize(maskSize);
+	this_thread->_lbCb->getAffinityMask({mask.data(), maskSize});
 
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -30,6 +38,7 @@ void Thread::migrateCurrent() {
 	assert(this_thread->_runState == kRunActive);
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
+	this_thread->_updateRunTime();
 	this_thread->_runState = kRunDeferred;
 	this_thread->_uninvoke();
 
@@ -38,14 +47,16 @@ void Thread::migrateCurrent() {
 	size_t n = -1;
 	for (size_t i = 0; i < getCpuCount(); i++) {
 		bool bit = 0;
-		if ((i + 7) / 8 < this_thread->_affinityMask.size())
-			bit = this_thread->_affinityMask[(i + 7) / 8] & (1 << (i % 8));
+		if ((i + 7) / 8 < mask.size())
+			bit = mask[(i + 7) / 8] & (1 << (i % 8));
 
 		if (bit) {
 			n = i;
 			break;
 		}
 	}
+	// Affinity masks are guaranteed to not be all zeros.
+	assert(n != static_cast<size_t>(-1));
 
 	auto new_scheduler = &getCpuData(n)->scheduler;
 
@@ -83,6 +94,7 @@ void Thread::blockCurrent() {
 				<< " is blocked" << frg::endlog;
 
 	assert(thisThread->_runState == kRunActive);
+	thisThread->_updateRunTime();
 	thisThread->_runState = kRunBlocked;
 	getCpuData()->scheduler.update();
 	Scheduler::suspendCurrent();
@@ -108,6 +120,7 @@ void Thread::deferCurrent() {
 				<< " is deferred" << frg::endlog;
 
 	assert(thisThread->_runState == kRunActive);
+	thisThread->_updateRunTime();
 	thisThread->_runState = kRunDeferred;
 	getCpuData()->scheduler.update();
 	getCpuData()->scheduler.forceReschedule();
@@ -132,6 +145,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 				<< " is deferred" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
+	this_thread->_updateRunTime();
 	this_thread->_runState = kRunDeferred;
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
@@ -155,6 +169,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 				<< " is suspended" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
+	this_thread->_updateRunTime();
 	this_thread->_runState = kRunSuspended;
 	saveExecutor(&this_thread->_executor, image);
 	getCpuData()->scheduler.update();
@@ -178,6 +193,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 				<< " is (synchronously) interrupted" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
+	this_thread->_updateRunTime();
 	this_thread->_runState = kRunInterrupted;
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
@@ -216,6 +232,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 				<< " is (synchronously) interrupted" << frg::endlog;
 
 	assert(this_thread->_runState == kRunActive);
+	this_thread->_updateRunTime();
 	this_thread->_runState = kRunInterrupted;
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
@@ -259,6 +276,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) killed" << frg::endlog;
 
+		this_thread->_updateRunTime();
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
 		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
@@ -289,6 +307,7 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 			infoLogger() << "thor: " << (void *)this_thread.get()
 					<< " was (asynchronously) interrupted" << frg::endlog;
 
+		this_thread->_updateRunTime();
 		this_thread->_runState = kRunInterrupted;
 		this_thread->_lastInterrupt = kIntrRequested;
 		++this_thread->_stateSeq;
@@ -316,6 +335,32 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			localScheduler()->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
+	}else if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
+		// Handle thread migration due to load balancing.
+		assert(assignedCpu);
+		if(logMigration)
+			infoLogger() << "thor: " << (void *)this_thread.get()
+					<< " is moved to CPU " << assignedCpu->cpuIndex << frg::endlog;
+
+		this_thread->_updateRunTime();
+		this_thread->_runState = kRunSuspended;
+		saveExecutor(&this_thread->_executor, image);
+		getCpuData()->scheduler.update();
+		Scheduler::suspendCurrent();
+		this_thread->_uninvoke();
+		Scheduler::unassociate(this_thread.get());
+
+		auto newScheduler = &assignedCpu->scheduler;
+		Scheduler::associate(this_thread.get(), newScheduler);
+		Scheduler::resume(this_thread.get());
+		localScheduler()->forceReschedule();
+
+		runOnStack([] (Continuation cont, SyscallImageAccessor image,
+				frg::unique_lock<Mutex> lock) {
+			scrubStack(image, cont);
+			lock.unlock();
+			localScheduler()->commitReschedule();
+		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}
 }
 
@@ -337,6 +382,7 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is deferred (via unblock)" << frg::endlog;
 
+	thread->_updateRunTime();
 	thread->_runState = kRunDeferred;
 	Scheduler::resume(thread.get());
 }
@@ -368,6 +414,7 @@ Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 		infoLogger() << "thor: " << (void *)thread.get()
 				<< " is suspended (via resume)" << frg::endlog;
 
+	thread->_updateRunTime();
 	thread->_runState = kRunSuspended;
 	Scheduler::resume(thread.get());
 	return Error::success;
@@ -379,8 +426,8 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
-		_universe{std::move(universe)}, _addressSpace{std::move(address_space)},
-		_affinityMask{*kernelAlloc} {
+		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
+	_lastRunTimeUpdate = systemClockSource()->currentNanos();
 }
 
 Thread::~Thread() {
@@ -463,6 +510,7 @@ void Thread::invoke() {
 		workOnExecutor(&_executor);
 
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
+	_updateRunTime();
 	_runState = kRunActive;
 
 	lock.unlock();
@@ -486,6 +534,7 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 			infoLogger() << "thor: " << (void *)this << " is deferred" << frg::endlog;
 
 		assert(_runState == kRunActive);
+		_updateRunTime();
 		if(image.inManipulableDomain()) {
 			_runState = kRunSuspended;
 		}else{
@@ -504,6 +553,20 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 	}
 }
 
+void Thread::_updateRunTime() {
+	auto now = systemClockSource()->currentNanos();
+	assert(now >= _lastRunTimeUpdate);
+	auto elapsed = now - _lastRunTimeUpdate;
+	if (_runState == kRunActive || _runState == kRunSuspended || _runState == kRunDeferred) {
+		_loadRunnable += elapsed;
+	} else {
+		// TODO: Terminated counts as not runnable; we may want to revisit this.
+		assert(_runState == kRunBlocked || _runState == kRunInterrupted || _runState == kRunTerminated);
+		_loadNotRunnable += elapsed;
+	}
+	_lastRunTimeUpdate = now;
+}
+
 void Thread::_uninvoke() {
 	UserContext::deactivate();
 }
@@ -516,6 +579,7 @@ void Thread::_kill() {
 		return;
 
 	if(_runState == kRunSuspended || _runState == kRunInterrupted) {
+		_updateRunTime();
 		_runState = kRunTerminated;
 		++_stateSeq;
 		Scheduler::unassociate(this);
@@ -538,6 +602,30 @@ void Thread::_kill() {
 
 void Thread::AssociatedWorkQueue::wakeup() {
 	unblockOther(_thread->self);
+}
+
+void Thread::updateLoad() {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	_updateRunTime();
+
+	uint64_t factor = 0;
+	// Protect against division by zero.
+	if (_loadRunnable)
+		factor = (_loadRunnable << loadShift) / (_loadRunnable + _loadNotRunnable);
+	_loadLevel.store(factor, std::memory_order_relaxed);
+}
+
+void Thread::decayLoad(uint64_t decayFactor, int decayScale) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	// Apply a decay factor. Since this affects both numerator and denominator of the load level,
+	// the load level is not immediately affected by this decay.
+	auto decayTime = [&] (uint64_t t) -> uint64_t { return (t * decayFactor) >> decayScale; };
+	_loadRunnable = decayTime(_loadRunnable);
+	_loadNotRunnable = decayTime(_loadNotRunnable);
 }
 
 } // namespace thor
