@@ -128,6 +128,11 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 
 	std::shared_ptr<Link> directMkregular(std::string name,
 			std::shared_ptr<RegularNode> regular);
+
+	template<typename T>
+	requires requires (T t) { {t._treeLink} -> std::same_as<Link *&>; }
+	std::shared_ptr<Link> directMknodeDir(std::string name, std::shared_ptr<T> node);
+
 	std::shared_ptr<Link> directMknode(std::string name,
 			std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
@@ -324,6 +329,8 @@ private:
 
 struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
 public:
+	friend DirectoryNode;
+
 	explicit FdDirectoryNode(Process *process);
 
 	VfsType getType() override;
@@ -331,9 +338,11 @@ public:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
+	std::shared_ptr<FsLink> treeLink() override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 private:
 	Process *_process;
+	Link *_treeLink;
 };
 
 struct SymlinkNode final : LinkNode, std::enable_shared_from_this<SymlinkNode> {
