@@ -305,7 +305,6 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 		}
 
 		drvcore::registerMbusDevice(entity.id(), device);
-		drvcore::mbusMapUpdate.raise();
 	} else if(type == "pci-root-bus") {
 		auto segment = std::get<mbus_ng::StringItem>(properties["pci-segment"]).value;
 		auto bus = std::get<mbus_ng::StringItem>(properties["pci-bus"]).value;
@@ -319,7 +318,6 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 				<< " (mbus ID: " << entity.id() << ")" << std::endl;
 
 		drvcore::registerMbusDevice(entity.id(), device);
-		drvcore::mbusMapUpdate.raise();
 	} else {
 		std::cout << "posix: unsupported PCI dev type '" << type << "'" << std::endl;
 		assert(!"unsupported");
@@ -328,6 +326,7 @@ async::detached bind(mbus_ng::Entity entity, mbus_ng::Properties properties) {
 
 async::detached run() {
 	sysfsSubsystem = new drvcore::BusSubsystem{"pci"};
+	sysfsSubsystem->object()->directoryNode()->directMkdir("slots");
 
 	auto filter = mbus_ng::Conjunction({
 		mbus_ng::EqualsFilter{"unix.subsystem", "pci"}

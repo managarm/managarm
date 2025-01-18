@@ -1,6 +1,8 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <protocols/fs/common.hpp>
+#include <protocols/mbus/client.hpp>
 #include <protocols/ostrace/ostrace.hpp>
 #include <stdint.h>
 
@@ -20,10 +22,22 @@ struct BlockDevice {
 
 	virtual async::result<size_t> getSize() = 0;
 
+	virtual async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) {
+		std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+				<< req.command() << "\e[39m" << std::endl;
+
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
+	}
+
 	size_t size;
 	const size_t sectorSize;
-	const int64_t parentId;
+	int64_t parentId;
 
+	std::string diskNamePrefix = "sd";
+	std::string diskNameSuffix = "sd";
+	std::string partNameSuffix = "";
 protected:
 };
 

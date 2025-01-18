@@ -1,5 +1,7 @@
 #include <arch/bit.hpp>
+#include <format>
 #include <helix/timer.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include "controller.hpp"
 
@@ -38,19 +40,33 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping regsMapping,
+PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping,
 					   helix::UniqueDescriptor irq)
-	: Controller(parentId, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)}, regsMapping_{std::move(regsMapping)},
-	  regs_{regsMapping_.get()}, irq_{std::move(irq)} {
+	: Controller(parentId, location, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)},
+		regsMapping_{std::move(regsMapping)}, regs_{regsMapping_.get()}, irq_{std::move(irq)} {
 }
 
-async::detached PciExpressController::run() {
+async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await hwDevice_.enableBusIrq();
 
 	handleIrqs();
 
 	co_await reset();
 	co_await scanNamespaces();
+
+	mbus_ng::Properties descriptor{
+		{"class", mbus_ng::StringItem{"nvme-controller"}},
+		{"nvme.subsystem", mbus_ng::StringItem{std::to_string(subsystem)}},
+		{"nvme.address", mbus_ng::StringItem{location_}},
+		{"nvme.transport", mbus_ng::StringItem{"pcie"}},
+		{"nvme.serial", mbus_ng::StringItem{serial}},
+		{"nvme.model", mbus_ng::StringItem{model}},
+		{"nvme.fw-rev", mbus_ng::StringItem{fw_rev}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(parentId_)}},
+	};
+
+	mbusEntity_ = std::make_unique<mbus_ng::EntityManager>((co_await mbus_ng::Instance::global().createEntity(
+		"nvme-controller", descriptor)).unwrap());
 
 	for (auto &ns : activeNamespaces_)
 		ns->run();
@@ -246,7 +262,29 @@ async::result<void> Controller::scanNamespaces() {
 	if (!(co_await identifyController(idCtrl)).first.successful())
 		co_return;
 
+	auto type = idCtrl.cntrltype;
+	if (version_ >= flags::vs::version(1, 4, 0)) {
+		// error out on reserved controller type
+		if(type == 0) {
+			std::cout << std::format("block/nvme: invalid controller type {} reported in identify controller request", type) << std::endl;
+			co_return;
+		}
+
+		// TODO: support non-I/O controllers
+		if(type != 1) {
+			std::cout << std::format("block/nvme: unsupported controller type {} reported in identify controller request", type) << std::endl;
+			co_return;
+		}
+	} else if(type != 0 && type != 1) {
+		std::cout << std::format("block/nvme: invalid controller type {} reported in identify controller request", type) << std::endl;
+		co_return;
+	}
+
 	nn = convert_endian<endian::little>(idCtrl.nn);
+
+	model = std::string{idCtrl.mn, sizeof(idCtrl.mn)};
+	serial = std::string{idCtrl.sn, sizeof(idCtrl.sn)};
+	fw_rev = std::string{idCtrl.fr, sizeof(idCtrl.fr)};
 
 	if (version_ >= flags::vs::version(1, 1, 0)) {
 		auto nsList = arch::dma_array<uint32_t>{nullptr, 1024};
@@ -291,8 +329,14 @@ async::result<void> Controller::createNamespace(unsigned int nsid) {
 	if (!lbaShift)
 		lbaShift = 9;
 
-	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift);
+	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift, id.nsze);
 	activeNamespaces_.push_back(std::move(ns));
+}
+
+async::result<Command::Result> PciExpressController::submitAdminCommand(std::unique_ptr<Command> cmd) {
+	auto &q = activeQueues_.front();
+
+	return q->submitCommand(std::move(cmd));
 }
 
 async::result<Command::Result> PciExpressController::submitIoCommand(std::unique_ptr<Command> cmd) {

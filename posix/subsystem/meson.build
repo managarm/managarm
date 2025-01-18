@@ -39,6 +39,7 @@ src = [
 	'src/subsystem/generic.cpp',
 	'src/subsystem/input.cpp',
 	'src/subsystem/net.cpp',
+	'src/subsystem/nvme.cpp',
 	'src/subsystem/pci.cpp',
 	'src/subsystem/power_supply.cpp',
 	'src/subsystem/usbmisc.cpp',

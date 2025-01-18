@@ -19,8 +19,12 @@ namespace {
 drvcore::ClassSubsystem *sysfsSubsystem;
 
 id_allocator<uint32_t> minorAllocator{0};
-id_allocator<uint32_t> diskAllocator{0};
-std::unordered_map<int64_t, char> diskNames;
+std::unordered_map<std::string, id_allocator<uint32_t>> idAllocators;
+std::unordered_map<int64_t, std::string> diskNames;
+
+std::unordered_set<std::string_view> alphabetizedIds = {
+	"sd",
+};
 
 struct Device final : UnixDevice, drvcore::BlockDevice {
 	Device(VfsType type, std::string name, helix::UniqueLane lane,
@@ -137,10 +141,12 @@ async::detached observePartitions() {
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
 			auto &properties = event.properties;
 
-			auto diskId = std::stoll(std::get<mbus_ng::StringItem>(properties.at("unix.diskid")).value);
-			auto diskName = diskNames.at(diskId);
+			auto diskEntityId = std::stoll(std::get<mbus_ng::StringItem>(properties.at("unix.diskid")).value);
+			auto diskSuffix = std::get<mbus_ng::StringItem>(properties.at("unix.partname-suffix")).value;
+			auto diskId = diskNames.at(diskEntityId);
+			auto partId = std::get<mbus_ng::StringItem>(properties.at("unix.partid")).value;
 
-			auto name = std::string("sd") + diskName + std::get<mbus_ng::StringItem>(properties.at("unix.partid")).value;
+			auto name = diskId + diskSuffix + partId;
 			std::cout << "POSIX: Installing block device " << name << std::endl;
 
 			auto parent_property = std::get<mbus_ng::StringItem>(properties.at("drvcore.mbus-parent"));
@@ -158,10 +164,10 @@ async::detached observePartitions() {
 
 			auto ser = req.SerializeAsString();
 			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
-					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
-						helix_ng::recvInline()
-					)
+				helix_ng::offer(
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::recvInline()
+				)
 			);
 			HEL_CHECK(offer.error());
 			HEL_CHECK(send_req.error());
@@ -214,11 +220,63 @@ async::detached run() {
 			if (event.type != mbus_ng::EnumerationEvent::Type::created)
 				continue;
 
-			constexpr std::string_view alphabet{"abcdefghijklmnopqrstuvwxyz"};
+			auto diskPrefix = std::get<mbus_ng::StringItem>(event.properties.at("unix.diskname-prefix")).value;
+			auto diskSuffix = std::get<mbus_ng::StringItem>(event.properties.at("unix.diskname-suffix")).value;
 
-			int diskId = diskAllocator.allocate();
-			assert(static_cast<size_t>(diskId) < alphabet.size());
-			diskNames.emplace(event.id, alphabet[diskId]);
+			if(!idAllocators.contains(diskPrefix))
+				idAllocators.insert({diskPrefix, {0}});
+
+			int diskId = idAllocators.at(diskPrefix).allocate();
+
+			if(alphabetizedIds.contains(diskPrefix)) {
+				constexpr std::string_view alphabet{"abcdefghijklmnopqrstuvwxyz"};
+				assert(static_cast<size_t>(diskId) < alphabet.size());
+				diskNames.emplace(event.id, diskPrefix + alphabet[diskId]);
+			} else {
+				diskNames.emplace(event.id, diskPrefix + std::to_string(diskId));
+			}
+
+			auto parent_property = std::get<mbus_ng::StringItem>(event.properties.at("drvcore.mbus-parent"));
+			auto mbus_parent = std::stoi(parent_property.value);
+			std::shared_ptr<drvcore::Device> parent_device;
+			if (mbus_parent != -1) {
+				parent_device = drvcore::getMbusDevice(mbus_parent);
+				assert(parent_device);
+			}
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto lane = (co_await entity.getRemoteLane()).unwrap();
+
+			managarm::fs::GenericIoctlRequest req;
+			req.set_command(BLKGETSIZE64);
+
+			auto ser = req.SerializeAsString();
+			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(lane,
+				helix_ng::offer(
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::recvInline()
+				)
+			);
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(recv_resp.error());
+
+			managarm::fs::GenericIoctlReply resp;
+			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			recv_resp.reset();
+			assert(resp.error() == managarm::fs::Errors::SUCCESS);
+
+			size_t size = resp.size();
+
+			auto device = std::make_shared<Device>(VfsType::blockDevice,
+				diskNames.at(event.id) + diskSuffix,
+				std::move(lane),
+				parent_device,
+				size);
+
+			device->assignId({8, minorAllocator.allocate()});
+			blockRegistry.install(device);
+			drvcore::installDevice(device);
 		}
 	}
 }
