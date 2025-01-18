@@ -336,8 +336,10 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 }
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {
-	// TODO: Even the root should return a valid link.
-	return _treeLink ? _treeLink->shared_from_this() : nullptr;
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -753,7 +755,10 @@ async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 }
 
 std::shared_ptr<FsLink> FdDirectoryNode::treeLink() {
-	return _treeLink ? _treeLink->shared_from_this() : nullptr;
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
