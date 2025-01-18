@@ -846,10 +846,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
-			if(req->flags()) {
-				if(req->flags() & AT_SYMLINK_NOFOLLOW) {
-					std::cout << "posix: ACCESSAT flag handling AT_SYMLINK_NOFOLLOW is unimplemented" << std::endl;
-				} else if(req->flags() & AT_EACCESS) {
+			ResolveFlags resolveFlags = {};
+
+			if(req->flags() & AT_SYMLINK_NOFOLLOW)
+				resolveFlags |= resolveDontFollow;
+
+			if(req->flags() & ~(AT_SYMLINK_NOFOLLOW)) {
+				if(req->flags() & AT_EACCESS) {
 					std::cout << "posix: ACCESSAT flag handling AT_EACCESS is unimplemented" << std::endl;
 				} else {
 					std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req->flags() << std::endl;
@@ -872,7 +875,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					relative_to, req->path(), self.get());
+					relative_to, req->path(), self.get(), resolveFlags);
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
