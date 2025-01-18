@@ -34,8 +34,6 @@ static constexpr bool logOtherFaults = false;
 static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
 
-static constexpr bool noScheduleOnIrq = false;
-
 bool debugToSerial = false;
 bool debugToBochs = false;
 
@@ -499,9 +497,12 @@ void handleIrq(IrqImageAccessor image, IrqPin *irq) {
 	entropy[5] = (tsc >> 24) & 0xFF;
 	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
 
+	// This IRQ may have woken up threads on this CPU.
+	// Call handlePreemption() to check for preemption (e.g., due to a change in priority)
+	// and to renew the schedule (e.g., if the length of the time slice has changed).
+	// See Scheduler::resume() for details.
 	assert(image.inPreemptibleDomain());
-	if(!noScheduleOnIrq)
-		localScheduler()->currentRunnable()->handlePreemption(image);
+	localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
 void handlePreemption(IrqImageAccessor image) {
@@ -870,7 +871,14 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	Thread::raiseSignals(image);
 
-//	infoLogger() << "exit syscall" << frg::endlog;
+	// Note: Thread::raiseSignals() only returns if nothing needs to be raised.
+	//       Otherwise, it saves the syscall image and suspends this thread.
+
+	// This syscall may have woken up threads on this CPU.
+	// TODO: Call handlePreemption() to check for preemption (e.g., due to a change in priority)
+	// and to renew the schedule (e.g., if the length of the time slice has changed).
+	// See Scheduler::resume() for details.
+	// TODO: This needs an overload of handlePreemption() that takes a SyscallImageAccessor.
 }
 
 } // namespace thor
