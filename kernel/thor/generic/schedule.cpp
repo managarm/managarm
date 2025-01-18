@@ -181,6 +181,11 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 }
 
 void Scheduler::update() {
+	updateState();
+	updateQueue();
+}
+
+void Scheduler::updateState() {
 	// Returns the reciprocal in 0.8 fixed point format.
 	auto fixedInverse = [] (uint32_t x) -> uint32_t {
 		assert(x < (1 << 6));
@@ -202,8 +207,10 @@ void Scheduler::update() {
 		_systemProgress += deltaTime * fixedInverse(n);
 
 	_updateCurrentEntity();
+}
 
-	// Finally, process all pending entities.
+// Move entities from the pending queue to the waiting queue.
+void Scheduler::updateQueue() {
 	frg::intrusive_list<
 		ScheduleEntity,
 		frg::locate_member<
