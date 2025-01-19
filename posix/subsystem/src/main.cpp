@@ -80,6 +80,10 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 		serveSignals(self, generation),
 		serveRequests(self, generation)
 	);
+
+	std::erase_if(globalCredentialsMap, [&](const auto &p) {
+		return !memcmp(p.first.data(), creds.data(), 16);
+	});
 }
 
 // --------------------------------------------------------
