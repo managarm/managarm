@@ -113,6 +113,8 @@ private:
 
 public:
 	void update();
+	void updateState();
+	void updateQueue();
 
 	bool maybeReschedule();
 	void forceReschedule();

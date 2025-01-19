@@ -198,27 +198,32 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
-	getCpuData()->scheduler.update();
-	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
+
+	getCpuData()->scheduler.updateState();
+	Scheduler::suspendCurrent();
 
 	runOnStack([] (Continuation cont, FaultImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
+		scrubStack(image, cont);
+		auto *scheduler = localScheduler();
+
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
 		auto sequence = thread->_stateSeq;
 
-		scrubStack(image, cont);
 		lock.unlock();
 
+		// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
 					frg::make_tuple(Error::success, sequence, interrupt));
 		}
 
-		localScheduler()->commitReschedule();
+		scheduler->updateQueue();
+		scheduler->forceReschedule();
+		scheduler->commitReschedule();
 	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -237,27 +242,32 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	this_thread->_lastInterrupt = interrupt;
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
-	getCpuData()->scheduler.update();
-	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.forceReschedule();
 	this_thread->_uninvoke();
+
+	getCpuData()->scheduler.updateState();
+	Scheduler::suspendCurrent();
 
 	runOnStack([] (Continuation cont, SyscallImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
+		scrubStack(image, cont);
+		auto *scheduler = localScheduler();
+
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
 		auto sequence = thread->_stateSeq;
 
-		scrubStack(image, cont);
 		lock.unlock();
 
+		// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
 					frg::make_tuple(Error::success, sequence, interrupt));
 		}
 
-		localScheduler()->commitReschedule();
+		scheduler->updateQueue();
+		scheduler->forceReschedule();
+		scheduler->commitReschedule();
 	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
@@ -280,27 +290,32 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_runState = kRunTerminated;
 		++this_thread->_stateSeq;
 		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
-		getCpuData()->scheduler.update();
+		this_thread->_uninvoke();
+
+		getCpuData()->scheduler.updateState();
 		Scheduler::suspendCurrent();
 		Scheduler::unassociate(this_thread.get());
-		getCpuData()->scheduler.forceReschedule();
-		this_thread->_uninvoke();
 
 		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
+			scrubStack(image, cont);
+			auto *scheduler = localScheduler();
+
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
 
-			scrubStack(image, cont);
 			lock.unlock();
 
+			// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
 			while(!queue.empty()) {
 				auto node = queue.pop_front();
 				async::execution::set_value(node->receiver,
 						frg::make_tuple(Error::threadExited, 0, kIntrNull));
 			}
 
-			localScheduler()->commitReschedule();
+			scheduler->updateQueue();
+			scheduler->forceReschedule();
+			scheduler->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
 	}else if(this_thread->_pendingSignal == kSigInterrupt) {
 		if(logRunStates)
@@ -313,27 +328,32 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		++this_thread->_stateSeq;
 		this_thread->_pendingSignal = kSigNone;
 		saveExecutor(&this_thread->_executor, image);
-		getCpuData()->scheduler.update();
-		Scheduler::suspendCurrent();
-		getCpuData()->scheduler.forceReschedule();
 		this_thread->_uninvoke();
+
+		getCpuData()->scheduler.updateState();
+		Scheduler::suspendCurrent();
 
 		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
+			scrubStack(image, cont);
+			auto *scheduler = localScheduler();
+
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
 			auto sequence = thread->_stateSeq;
 
-			scrubStack(image, cont);
 			lock.unlock();
 
+			// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
 			while(!queue.empty()) {
 				auto node = queue.pop_front();
 				async::execution::set_value(node->receiver,
 						frg::make_tuple(Error::success, sequence, kIntrRequested));
 			}
 
-			localScheduler()->commitReschedule();
+			scheduler->updateQueue();
+			scheduler->forceReschedule();
+			scheduler->commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
 	}else if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
 		// Handle thread migration due to load balancing.

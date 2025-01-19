@@ -131,7 +131,17 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 	if(wasEmpty) {
 		if(self == &getCpuData()->scheduler) {
-			sendPingIpi(self->_cpuContext);
+			// Note that IPIs have a significant cost (especially within virtual machines)
+			// that we want to avoid if possible.
+			//
+			// Resuming an entity on the current CPU never needs an IPI to guarantee progress:
+			// - If this function is called from a IRQ handler, fault handler or syscall,
+			//   no ping is necessary since the kernel checks whether we need to reschedule
+			//   before exiting the IRQ/fault/syscall handler.
+			// - Otherwise, this function is called from a kernel fiber that eventually blocks.
+
+			// TODO: In the case of kernel threads, it can be necessary to issue a self IPI
+			//       to ensure that a higher priority thread gets to run as soon as possible.
 		}else{
 			sendPingIpi(self->_cpuContext);
 		}
@@ -181,6 +191,11 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 }
 
 void Scheduler::update() {
+	updateState();
+	updateQueue();
+}
+
+void Scheduler::updateState() {
 	// Returns the reciprocal in 0.8 fixed point format.
 	auto fixedInverse = [] (uint32_t x) -> uint32_t {
 		assert(x < (1 << 6));
@@ -202,8 +217,10 @@ void Scheduler::update() {
 		_systemProgress += deltaTime * fixedInverse(n);
 
 	_updateCurrentEntity();
+}
 
-	// Finally, process all pending entities.
+// Move entities from the pending queue to the waiting queue.
+void Scheduler::updateQueue() {
 	frg::intrusive_list<
 		ScheduleEntity,
 		frg::locate_member<
