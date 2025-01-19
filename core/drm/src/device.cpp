@@ -76,14 +76,14 @@ std::unique_ptr<drm_core::AtomicState> drm_core::Device::atomicState() {
 /**
  * Adds a (credentials, BufferObject) pair to the list of exported BOs for this device
  */
-void drm_core::Device::registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, std::array<char, 16> creds) {
+void drm_core::Device::registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, helix_ng::Credentials creds) {
 	_exportedBufferObjects.insert({creds, obj});
 }
 
 /**
  * Retrieves a BufferObject from the list of exported BOs for this device, given the credentials for it
  */
-std::shared_ptr<drm_core::BufferObject> drm_core::Device::findBufferObject(std::array<char, 16> creds) {
+std::shared_ptr<drm_core::BufferObject> drm_core::Device::findBufferObject(helix_ng::Credentials creds) {
 	auto it = _exportedBufferObjects.find(creds);
 	if(it == _exportedBufferObjects.end())
 		return nullptr;

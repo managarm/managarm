@@ -222,7 +222,7 @@ async::detached handleIrqs() {
 }
 
 async::result<protocols::fs::ReadResult>
-read(void *, const char *, void *buffer, size_t length) {
+read(void *, helix_ng::CredentialsView , void *buffer, size_t length) {
 	if(!length)
 		co_return size_t{0};
 
@@ -237,7 +237,7 @@ read(void *, const char *, void *buffer, size_t length) {
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
-write(void *, const char *, const void *buffer, size_t length) {
+write(void *, helix_ng::CredentialsView , const void *buffer, size_t length) {
 	if(!length)
 		co_return 0;
 

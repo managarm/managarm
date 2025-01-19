@@ -200,7 +200,7 @@ struct Tcp4Socket {
 	}
 
 	static async::result<protocols::fs::Error> bind(void *object,
-			const char *creds,
+			helix_ng::CredentialsView creds,
 			const void *addrPtr, size_t addrLength) {
 		(void) creds;
 
@@ -304,7 +304,7 @@ struct Tcp4Socket {
 	}
 
 	static async::result<protocols::fs::Error> connect(void *object,
-			const char *creds,
+			helix_ng::CredentialsView creds,
 			const void *addrPtr, size_t addrLength) {
 		(void) creds;
 
@@ -342,7 +342,7 @@ struct Tcp4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
-	static async::result<protocols::fs::ReadResult> read(void *object, const char *creds,
+	static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView creds,
 			void *data, size_t size) {
 		auto result = co_await recvMsg(object, creds, 0, data, size, nullptr, 0, {});
 		if(auto e = std::get_if<protocols::fs::Error>(&result); e)
@@ -350,13 +350,13 @@ struct Tcp4Socket {
 		co_return std::get<protocols::fs::RecvData>(result).dataLength;
 	}
 
-	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *creds,
+	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, helix_ng::CredentialsView creds,
 			const void *data, size_t size) {
 		co_return co_await sendMsg(object, creds, 0, const_cast<void *>(data), size, nullptr, 0, {}, {});
 	}
 
 	static async::result<protocols::fs::RecvResult> recvMsg(void *object,
-			const char *creds, uint32_t flags,
+			helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t size,
 			void *addrPtr, size_t addrLength, size_t max_ctrl_len) {
 		(void) creds;
@@ -399,7 +399,7 @@ struct Tcp4Socket {
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(void *object,
-			const char *creds, uint32_t flags,
+			helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t size,
 			void *addrPtr, size_t addrSize,
 			std::vector<uint32_t> fds, struct ucred) {

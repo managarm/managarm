@@ -153,16 +153,16 @@ public:
 	ptSeekEof(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(void *object, const char *credentials, void *buffer, size_t length);
+	ptRead(void *object, helix_ng::CredentialsView credentials, void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadResult>
-	ptPread(void *object, int64_t offset, const char *credentials, void *buffer, size_t length);
+	ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length);
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
-	ptWrite(void *object, const char *credentials, const void *buffer, size_t length);
+	ptWrite(void *object, helix_ng::CredentialsView credentials, const void *buffer, size_t length);
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
-	ptPwrite(void *object, int64_t offset, const char *credentials, const void *buffer, size_t length);
+	ptPwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::ReadEntriesResult>
 	ptReadEntries(void *object);
@@ -180,11 +180,11 @@ public:
 	ptSetOption(void *object, int option, int value);
 
 	static async::result<protocols::fs::Error>
-	ptBind(void *object, const char *credentials,
+	ptBind(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length);
 
 	static async::result<protocols::fs::Error>
-	ptConnect(void *object, const char *credentials,
+	ptConnect(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length);
 
 	static async::result<size_t>
@@ -201,13 +201,13 @@ public:
 	ptSetFileFlags(void *object, int flags);
 
 	static async::result<protocols::fs::RecvResult>
-	ptRecvMsg(void *object, const char *creds, uint32_t flags,
+	ptRecvMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr, size_t addr_len,
 			size_t max_ctrl_len);
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
-	ptSendMsg(void *object, const char *creds, uint32_t flags,
+	ptSendMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr, size_t addr_len,
 			std::vector<uint32_t> fds, struct ucred ucreds);

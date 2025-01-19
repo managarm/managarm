@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <span>
 #include <type_traits>
 #include <frg/array.hpp>
 #include <frg/tuple.hpp>
@@ -201,6 +203,32 @@ private:
 	HelError _error;
 };
 
+struct CredentialsView : std::span<const char, 16> {};
+
+struct Credentials {
+	Credentials(CredentialsView data) : data_{
+		data[0], data[1], data[2], data[3],
+		data[4], data[5], data[6], data[7],
+		data[8], data[9], data[10], data[11],
+		data[12], data[13], data[14], data[15],
+	} {}
+
+	auto operator<=>(const Credentials &c) const {
+		return this->data_ <=> c.data_;
+	}
+
+	operator CredentialsView() {
+		return view();
+	}
+
+	CredentialsView view() {
+		return CredentialsView{data_};
+	}
+
+private:
+	std::array<const char, 16> data_;
+};
+
 struct ExtractCredentialsResult {
 	ExtractCredentialsResult() :_valid{false} {}
 
@@ -209,9 +237,9 @@ struct ExtractCredentialsResult {
 		return _error;
 	}
 
-	char *credentials() {
+	Credentials credentials() {
 		FRG_ASSERT(_valid);
-		return _credentials;
+		return {{_credentials}};
 	}
 
 	void parse(void *&ptr, ElementHandle) {

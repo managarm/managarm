@@ -36,13 +36,14 @@
 
 std::map<
 	std::array<char, 16>,
-	std::shared_ptr<Process>
+	Process *
 > globalCredentialsMap;
 
-std::shared_ptr<Process> findProcessWithCredentials(const char *credentials) {
+std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView credentials) {
 	std::array<char, 16> creds;
-	memcpy(creds.data(), credentials, 16);
-	return globalCredentialsMap.at(creds);
+	memcpy(creds.data(), credentials.data(), 16);
+	globalCredentialsMap.at(creds)->shared_from_this();
+	return globalCredentialsMap.at(creds)->shared_from_this();
 }
 
 async::result<void> serveSignals(std::shared_ptr<Process> self,
@@ -72,7 +73,7 @@ async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generat
 
 	std::array<char, 16> creds;
 	HEL_CHECK(helGetCredentials(thread.getHandle(), 0, creds.data()));
-	auto res = globalCredentialsMap.insert({creds, self});
+	auto res = globalCredentialsMap.insert({creds, self.get()});
 	assert(res.second);
 
 	co_await async::when_all(

@@ -1062,9 +1062,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			// Request POSIX to register our file as a passthrough file, while giving out a fd we can pass back to our client
 			managarm::posix::CntRequest fd_req;
 			fd_req.set_request_type(managarm::posix::CntReqType::FD_SERVE);
-			const char *proc_cred_str = proc_creds.credentials();
-			for(size_t i = 0; i < 16; i++) {
-				fd_req.add_passthrough_credentials(proc_cred_str[i]);
+			auto proc_cred_str = proc_creds.credentials();
+			for(auto c : proc_cred_str.view()) {
+				fd_req.add_passthrough_credentials(c);
 			}
 
 			auto fd_ser = fd_req.SerializeAsString();
@@ -1084,9 +1084,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			posix_resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 			recv_resp.reset();
 
+			char creds_data[16];
 			// 'export' the object so that we can locate it from other threads, too
-			std::array<char, 16> creds;
-			HEL_CHECK(helGetCredentials(remote_lane.getHandle(), 0, creds.data()));
+			HEL_CHECK(helGetCredentials(remote_lane.getHandle(), 0, creds_data));
+			helix_ng::Credentials creds{{creds_data}};
 
 			if(self->exportBufferObject(req->drm_prime_handle(), creds)) {
 				resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -1114,8 +1115,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			HEL_CHECK(creds.error());
 
 			// 'import' the BufferObject while returning or creating the DRM handle that references it
-			std::array<char, 16> credentials;
-			std::copy_n(creds.credentials(), 16, std::begin(credentials));
+			helix_ng::Credentials credentials = creds.credentials();
 			auto [bo, handle] = self->importBufferObject(credentials);
 
 			if(bo) {

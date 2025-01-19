@@ -46,7 +46,7 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 }
 
 async::result<protocols::fs::Error> RawSocket::bind(void* obj,
-		const char *creds, const void *addr_ptr, size_t addr_size) {
+		helix_ng::CredentialsView creds, const void *addr_ptr, size_t addr_size) {
 	(void) creds;
 
 	if(!addr_ptr || addr_size < sizeof(sockaddr))
@@ -74,7 +74,7 @@ async::result<protocols::fs::Error> RawSocket::bind(void* obj,
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> RawSocket::write(void *obj,
-		const char *credentials, const void *buffer, size_t length) {
+		helix_ng::CredentialsView credentials, const void *buffer, size_t length) {
 	(void) credentials;
 
 	auto self = static_cast<RawSocket *>(obj);
@@ -89,7 +89,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> RawSocket::write(void
 }
 
 async::result<protocols::fs::RecvResult> RawSocket::recvmsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
+			helix_ng::CredentialsView creds, uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 	(void) creds;
 	(void) flags;

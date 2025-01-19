@@ -103,11 +103,11 @@ private:
 	std::shared_ptr<Property> _crtcHProperty;
 	std::shared_ptr<Property> _inFormatsProperty;
 
-	std::map<std::array<char, 16>, std::shared_ptr<drm_core::BufferObject>> _exportedBufferObjects;
+	std::map<helix_ng::Credentials, std::shared_ptr<drm_core::BufferObject>> _exportedBufferObjects;
 
 public:
-	void registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, std::array<char, 16> creds);
-	std::shared_ptr<drm_core::BufferObject> findBufferObject(std::array<char, 16> creds);
+	void registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, helix_ng::Credentials creds);
+	std::shared_ptr<drm_core::BufferObject> findBufferObject(helix_ng::Credentials creds);
 
 	id_allocator<uint32_t> allocator;
 

@@ -25,13 +25,13 @@ struct RawSocket {
 	explicit RawSocket(Raw *parent, int proto) : parent{parent}, proto(proto) {}
 
 	static async::result<protocols::fs::Error> bind(void* obj,
-			const char *creds, const void *addr_ptr, size_t addr_size);
+			helix_ng::CredentialsView creds, const void *addr_ptr, size_t addr_size);
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object,
-			const char *credentials, const void *buffer, size_t length);
+			helix_ng::CredentialsView credentials, const void *buffer, size_t length);
 
 	static async::result<protocols::fs::RecvResult> recvmsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
+			helix_ng::CredentialsView creds, uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len);
 
 	static async::result<frg::expected<protocols::fs::Error>>

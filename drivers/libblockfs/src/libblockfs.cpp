@@ -82,7 +82,7 @@ async::result<protocols::fs::Error> flock(void *object, int flags) {
 	co_return result;
 }
 
-async::result<protocols::fs::ReadResult> read(void *object, const char *,
+async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length) {
 	if (!length)
 		co_return size_t{0};
@@ -142,7 +142,7 @@ async::result<protocols::fs::ReadResult> read(void *object, const char *,
 	co_return chunkSize;
 }
 
-async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, const char *,
+async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, helix_ng::CredentialsView,
 		void *buffer, size_t length) {
 	assert(length);
 
@@ -185,7 +185,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, con
 	co_return chunk_size;
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, const char *,
+async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, helix_ng::CredentialsView,
 		const void *buffer, size_t length) {
 	if(!length) {
 		co_return 0;
@@ -208,7 +208,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, c
 	co_return length;
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, int64_t offset, const char *credentials,
+async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) {
 	(void) credentials;
 
@@ -560,7 +560,7 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	.traverseLinks = &traverseLinks
 };
 
-async::result<protocols::fs::ReadResult> rawRead(void *object, const char *,
+async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length) {
 	assert(length);
 

@@ -86,7 +86,7 @@ async::detached issueReset() {
 // ----------------------------------------------------------------------------
 
 async::result<protocols::fs::ReadResult>
-File::read(void *object, const char *, void *buffer, size_t max_size) {
+File::read(void *object, helix_ng::CredentialsView, void *buffer, size_t max_size) {
 	auto self = static_cast<File *>(object);
 
 	// Make sure that we can at least write the SYN_DROPPED packet.
