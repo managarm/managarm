@@ -276,6 +276,17 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
+template<typename T>
+requires requires (T t) { {t._treeLink} -> std::same_as<Link *&>; }
+std::shared_ptr<Link> DirectoryNode::directMknodeDir(std::string name, std::shared_ptr<T> dirnode) {
+	assert(_entries.find(name) == _entries.end());
+	auto dirnodePtr = dirnode.get();
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(dirnode));
+	dirnodePtr->_treeLink = link.get();
+	_entries.insert(link);
+	return link;
+}
+
 std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
 	assert(_entries.find(name) == _entries.end());
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
@@ -291,7 +302,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
-	proc_dir->directMknode("fd", std::make_shared<FdDirectoryNode>(process));
+	proc_dir->directMknodeDir("fd", std::make_shared<FdDirectoryNode>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
@@ -325,8 +336,10 @@ async::result<frg::expected<Error, FileStats>> DirectoryNode::getStats() {
 }
 
 std::shared_ptr<FsLink> DirectoryNode::treeLink() {
-	// TODO: Even the root should return a valid link.
-	return _treeLink ? _treeLink->shared_from_this() : nullptr;
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -739,6 +752,13 @@ VfsType FdDirectoryNode::getType() {
 async::result<frg::expected<Error, FileStats>> FdDirectoryNode::getStats() {
 	std::cout << "\e[31mposix: Fix procfs FdDirectoryNode::getStats()\e[39m" << std::endl;
 	co_return FileStats{};
+}
+
+std::shared_ptr<FsLink> FdDirectoryNode::treeLink() {
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>

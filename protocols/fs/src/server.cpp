@@ -90,12 +90,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto error = std::get_if<Error>(&result);
 
 		managarm::fs::SvrResponse resp;
-		if(error && *error == Error::seekOnPipe) {
-			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-		} else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		if(error) {
+			resp.set_error(*error | toFsError);
 		} else {
-			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_offset(std::get<int64_t>(result));
 		}
@@ -123,12 +120,9 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto error = std::get_if<Error>(&result);
 
 		managarm::fs::SvrResponse resp;
-		if(error && *error == Error::seekOnPipe) {
-			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-		} else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		if(error) {
+			resp.set_error(*error | toFsError);
 		} else {
-			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_offset(std::get<int64_t>(result));
 		}
@@ -167,18 +161,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		managarm::fs::SvrResponse resp;
 		auto error = std::get_if<Error>(&res);
 		if(error) {
-			if(*error == Error::wouldBlock) {
-				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-			}else if(*error == Error::illegalArguments) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-			}else if(*error == Error::isDirectory) {
-				resp.set_error(managarm::fs::Errors::IS_DIRECTORY);
-			}else if(*error == Error::notConnected) {
-				resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
-			} else {
-				std::cout << "Unknown error '" << size_t(*error) << "' from read()" << std::endl;
-				co_return;
-			}
+			resp.set_error(*error | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -288,20 +271,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		if(!res) {
-			if(res.error() == Error::noSpaceLeft) {
-				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
-			} else if(res.error() == Error::wouldBlock) {
-				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-			} else if(res.error() == Error::seekOnPipe) {
-				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-			} else if(res.error() == Error::notConnected) {
-				resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
-			} else if(res.error() == Error::illegalOperationTarget) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-			} else {
-				std::cout << "Unknown error from write()" << std::endl;
-				co_return;
-			}
+			resp.set_error(res.error() | toFsError);
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -349,14 +319,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		if(!res) {
-			if(res.error() == Error::noSpaceLeft) {
-				resp.set_error(managarm::fs::Errors::NO_SPACE_LEFT);
-			} else if(res.error() == Error::wouldBlock) {
-				resp.set_error(managarm::fs::Errors::WOULD_BLOCK);
-			} else {
-				std::cout << "Unknown error from pwrite()" << std::endl;
-				co_return;
-			}
+			resp.set_error(res.error() | toFsError);
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -1665,14 +1628,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
-				assert(result.error() == protocols::fs::Error::fileNotFound
-					|| result.error() == protocols::fs::Error::directoryNotEmpty);
-
-				if(result.error() == protocols::fs::Error::fileNotFound) {
-					resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-				} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
-					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
-				}
+				resp.set_error(result.error() | toFsError);
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,

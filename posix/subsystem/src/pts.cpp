@@ -565,6 +565,10 @@ public:
 		_entries.insert(std::move(link));
 	}
 
+	std::shared_ptr<FsLink> treeLink() override {
+		return globalRootLink;
+	}
+
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts RootNode::getStats()\e[39m" << std::endl;
 		co_return FileStats{};

@@ -270,6 +270,7 @@ private:
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {
+		assert(_treeLink);
 		return _treeLink;
 	}
 

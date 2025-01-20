@@ -111,8 +111,8 @@ public:
 public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		if(_currentState != State::connected)
-			co_return Error::wouldBlock;
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
+			co_return Error::notConnected;
 
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -174,18 +174,16 @@ public:
 			std::cout << "posix: Unimplemented flag in un-socket " << std::hex << flags << std::dec << " for pid: " << process->pid() << std::endl;
 		}
 
-		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::RecvData{{}, 0, 0, 0};
-
-		if(_currentState != State::connected)
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
 			co_return protocols::fs::Error::notConnected;
+
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
 		if(_recvQueue.empty() && ((flags & MSG_DONTWAIT) || nonBlock_)) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return protocols::fs::RecvResult { protocols::fs::Error::wouldBlock };
+			co_return protocols::fs::Error::wouldBlock;
 		}
 
 		while(_recvQueue.empty())
@@ -193,6 +191,7 @@ public:
 
 		auto packet = &_recvQueue.front();
 		uint32_t reply_flags = 0;
+		size_t returned_length = 0;
 
 		protocols::fs::CtrlBuilder ctrl{max_ctrl_length};
 
@@ -230,19 +229,28 @@ public:
 				packet->files.clear();
 		}
 
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
+		// datagram packets are always read from their beginning, so offsets are illegal
+		assert(!packet->offset || socktype_ == SOCK_STREAM);
 		auto data_length = packet->buffer.size() - packet->offset;
-		auto chunk = std::min(data_length, max_length);
-		auto returned_length = (flags & MSG_TRUNC) ? data_length : chunk;
+		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+
+		if(socktype_ == SOCK_STREAM) {
+			returned_length = chunk;
+			if(!(flags & MSG_PEEK)) {
+				packet->offset += chunk;
+				if(packet->offset == packet->buffer.size())
+					_recvQueue.pop_front();
+			}
+		} else {
+			returned_length = (flags & MSG_TRUNC) ? data_length : chunk;
+			if(!(flags & MSG_PEEK))
+				_recvQueue.pop_front();
+		}
+
 		if(data_length != returned_length)
 			reply_flags |= MSG_TRUNC;
-		// TODO: this is incorrect for datagram sockets
-		if(!(flags & MSG_PEEK))
-			packet->offset += chunk;
 
-		if(packet->offset == packet->buffer.size() && (flags & MSG_PEEK) == 0)
-			_recvQueue.pop_front();
 		co_return protocols::fs::RecvData{ctrl.buffer(), returned_length, 0, reply_flags};
 	}
 
@@ -648,9 +656,9 @@ smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t so
 	return File::constructHandle(std::move(file));
 }
 
-std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process) {
-	auto file0 = smarter::make_shared<OpenFile>(process);
-	auto file1 = smarter::make_shared<OpenFile>(process);
+std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process, bool nonBlock, int32_t socktype) {
+	auto file0 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
+	auto file1 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
 	file0->setupWeakFile(file0);
 	file1->setupWeakFile(file1);
 	OpenFile::serve(file0);
