@@ -1464,8 +1464,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::FstatfsRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::posix::FstatfsRequest>(recv_head);
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+			);
 
+			HEL_CHECK(recvTail.error());
+			auto req = bragi::parse_head_tail<managarm::posix::FstatfsRequest>(recv_head, tail);
 			if (!req) {
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
@@ -1476,38 +1482,71 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
-
-			file = self->fileContext()->getFile(req->fd());
-
-			if (!file) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
-				continue;
-			}
-
-			target_link = file->associatedLink();
-
-			// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
-			// Instead of blowing up, return ENOENT.
-			// TODO: fstatfs can't return ENOENT, verify this is needed
-			if(target_link == nullptr) {
-				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
-				continue;
-			}
-
-			auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
-			if(!fsstatsResult) {
-				if(fsstatsResult.error() == Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-				} else {
-					co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-				}
-				continue;
-			}
-			auto fsstats = fsstatsResult.value();
-
 			managarm::posix::FstatfsResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fstype(fsstats.f_type);
+
+			if(req->fd() >= 0) {
+				file = self->fileContext()->getFile(req->fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				target_link = file->associatedLink();
+
+				// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
+				// Instead of blowing up, return ENOENT.
+				// TODO: fstatfs can't return ENOENT, verify this is needed
+				if(target_link == nullptr) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				}
+
+				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
+				if(!fsstatsResult) {
+					if(fsstatsResult.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+					} else {
+						co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+					}
+					continue;
+				}
+				auto fsstats = fsstatsResult.value();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fstype(fsstats.f_type);
+			} else {
+				std::cout << "posix: STATFS request on path: " << req->path() << std::endl;
+				PathResolver resolver;
+				resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
+						req->path(), self.get());
+				auto resolveResult = co_await resolver.resolve();
+				if(!resolveResult) {
+					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+				}
+
+				target_link = resolver.currentLink();
+				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
+				if(!fsstatsResult) {
+					if(fsstatsResult.error() == Error::illegalOperationTarget) {
+						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+						continue;
+					}
+				}
+				auto fsstats = fsstatsResult.value();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fstype(fsstats.f_type);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -2325,6 +2364,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					continue;
 				} else if(result.error() == Error::notDirectory) {
 					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					continue;
+				} else if(result.error() == Error::illegalOperationTarget) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
 
