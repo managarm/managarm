@@ -192,13 +192,14 @@ void setTime(File *file, struct timespec initial, struct timespec interval) {
 
 	uint64_t initial_nanos;
 	if(__builtin_mul_overflow(static_cast<uint64_t>(initial.tv_sec), 1000000000, &initial_nanos)
-			|| __builtin_add_overflow(initial.tv_nsec, initial_nanos, &initial_nanos))
-		throw std::runtime_error("Overflow in timerfd setup");
+			|| __builtin_add_overflow(initial.tv_nsec, initial_nanos, &initial_nanos)) {
+		initial_nanos = UINT64_MAX;
+	}
 
 	uint64_t interval_nanos;
 	if(__builtin_mul_overflow(static_cast<uint64_t>(interval.tv_sec), 1000000000, &interval_nanos)
 			|| __builtin_add_overflow(interval.tv_nsec, interval_nanos, &interval_nanos))
-		throw std::runtime_error("Overflow in timerfd setup");
+		interval_nanos = UINT64_MAX;
 
 	auto timerfd = static_cast<OpenFile *>(file);
 	timerfd->setTime(initial_nanos, interval_nanos);

@@ -10,6 +10,7 @@
 #include <hel.h>
 #include <protocols/fs/server.hpp>
 #include <protocols/fs/client.hpp>
+#include <posix.bragi.hpp>
 #include "common.hpp"
 
 struct File;
@@ -99,6 +100,42 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::noMemory: return protocols::fs::Error::noSpaceLeft;
 		case Error::ioError: return protocols::fs::Error::internalError;
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
+	}
+}
+
+struct ToPosixProtoError {
+	template<typename E>
+	auto operator() (E e) const { return e | *this; }
+};
+constexpr ToPosixProtoError toPosixProtoError;
+
+inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
+	switch(e) {
+		case Error::success: return managarm::posix::Errors::SUCCESS;
+		case Error::noSuchFile: return managarm::posix::Errors::FILE_NOT_FOUND;
+		case Error::eof: return managarm::posix::Errors::END_OF_FILE;
+		case Error::illegalArguments: return managarm::posix::Errors::ILLEGAL_ARGUMENTS;
+		case Error::wouldBlock: return managarm::posix::Errors::WOULD_BLOCK;
+		case Error::brokenPipe: return managarm::posix::Errors::BROKEN_PIPE;
+		case Error::accessDenied: return managarm::posix::Errors::ACCESS_DENIED;
+		case Error::notDirectory: return managarm::posix::Errors::NOT_A_DIRECTORY;
+		case Error::insufficientPermissions: return managarm::posix::Errors::INSUFFICIENT_PERMISSION;
+		case Error::alreadyExists: return managarm::posix::Errors::ALREADY_EXISTS;
+		case Error::illegalOperationTarget: return managarm::posix::Errors::ILLEGAL_OPERATION_TARGET;
+		case Error::notTerminal: return managarm::posix::Errors::NOT_A_TTY;
+		case Error::noBackingDevice: return managarm::posix::Errors::NO_BACKING_DEVICE;
+		case Error::isDirectory: return managarm::posix::Errors::IS_DIRECTORY;
+		case Error::directoryNotEmpty: return managarm::posix::Errors::DIRECTORY_NOT_EMPTY;
+		case Error::noMemory: return managarm::posix::Errors::NO_MEMORY;
+		case Error::ioError: return managarm::posix::Errors::INTERNAL_ERROR;
+		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
+		case Error::fileClosed:
+		case Error::badExecutable:
+		case Error::seekOnPipe:
+		case Error::notConnected:
+		case Error::noSpaceLeft:
+			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			return managarm::posix::Errors::INTERNAL_ERROR;
 	}
 }
 

@@ -583,6 +583,8 @@ head(128):
 message FstatfsRequest 95 {
 head(128):
 	int64 fd;
+tail:
+	string path;
 }
 
 message FstatfsResponse 96 {
