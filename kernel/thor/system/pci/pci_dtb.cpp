@@ -117,9 +117,6 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			if (!childIrq.read(index))
 				panicLogger() << "Failed to read pin index from interrupt-map" << frg::endlog;
 
-			if (parentAddress.numCells())
-				panicLogger() << "thor: ECAM interrupt-maps with non-zero parent #address-cells are unsupported" << frg::endlog;
-
 			auto *irqController = parentNode->getAssociatedIrqController();
 			if (!irqController)
 				panicLogger() << "No IRQ controller associated with "

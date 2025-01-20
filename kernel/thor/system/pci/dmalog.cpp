@@ -64,6 +64,7 @@ struct DmalogDevice final : IrqSink, KernelIoChannel {
 				inPhysical_, page_access::write, CachingMode::writeBack);
 		KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(inView_) + kPageSize,
 				inPhysical_, page_access::write, CachingMode::writeBack);
+		pageTableUpdateBarrier();
 
 		PageAccessor ctrlAccessor{ctrlPhysical_};
 		auto ctrlPtr = reinterpret_cast<std::byte *>(ctrlAccessor.get());
@@ -262,6 +263,7 @@ static initgraph::Task enumerateDmalog{&globalInitEngine, "pci.enumerate-dmalog"
 			auto mmioPtr = KernelVirtualMemory::global().allocate(0x10000);
 			KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(mmioPtr),
 					pciDevice->bars[0].address, page_access::write, CachingMode::null);
+			pageTableUpdateBarrier();
 
 			char tag[64]{};
 			size_t n;

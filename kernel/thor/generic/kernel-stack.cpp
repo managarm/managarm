@@ -17,6 +17,7 @@ UniqueKernelStack UniqueKernelStack::make() {
 				reinterpret_cast<VirtualAddr>(pointer) + guardedSize - kSize + offset,
 				physical, page_access::write, CachingMode::null);
 	}
+	pageTableUpdateBarrier();
 
 	return UniqueKernelStack(reinterpret_cast<char *>(pointer) + guardedSize);
 }

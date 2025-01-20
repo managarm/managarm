@@ -1,6 +1,7 @@
 #pragma once
 
 #include <thor-internal/arch/gic.hpp>
+#include <thor-internal/dtb/irq.hpp>
 #include <frg/manual_box.hpp>
 
 namespace thor {
@@ -60,7 +61,7 @@ private:
 	uint32_t irq_;
 };
 
-struct GicV3 : public Gic {
+struct GicV3 : public Gic, public dt::IrqController {
 	GicV3();
 
 	void sendIpi(int cpuId, uint8_t id) override;
@@ -71,6 +72,8 @@ struct GicV3 : public Gic {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
 	Pin *getPin(uint32_t irq) override;
+
+	IrqPin *resolveDtIrq(dtb::Cells irq) override;
 
 private:
 	frg::vector<GicPinV3 *, KernelAlloc> irqPins_;

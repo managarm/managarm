@@ -77,7 +77,7 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 	}
 
 	void disarm() {
-		asm volatile ("msr cntv_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
+		asm volatile ("msr cntv_cval_el0, %0" :: "r"(0xFFFF'FFFF'FFFF'FFFFULL));
 	}
 };
 
@@ -103,7 +103,10 @@ void armPreemption(uint64_t nanos) {
 }
 
 void disarmPreemption() {
-	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
+	// although it *should* be correct to set this to 0xFFFF'FFFF'FFFF'FFFFULL,
+	// this does not work on apple platforms for whatever reason. work around this
+	// by setting a smaller value that still works.
+	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFF'FFFF'FFF0'0000ULL));
 	getCpuData()->preemptionIsArmed = false;
 }
 

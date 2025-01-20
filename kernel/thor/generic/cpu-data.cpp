@@ -69,6 +69,7 @@ std::tuple<CpuData *, size_t> extendPerCpuData() {
 
 		KernelPageSpace::global().mapSingle4k(base + pg, page, page_access::write, CachingMode::null);
 	}
+	pageTableUpdateBarrier();
 	unpoisonKasanShadow(reinterpret_cast<void *>(base), size);
 
 	auto context = reinterpret_cast<CpuData *>(base);

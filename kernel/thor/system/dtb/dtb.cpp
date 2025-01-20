@@ -517,6 +517,7 @@ static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 			va += kPageSize;
 			pa += kPageSize;
 		}
+		pageTableUpdateBarrier();
 
 		ptr = reinterpret_cast<void *>(
 				reinterpret_cast<uintptr_t>(ptr) + dtbPageOff);

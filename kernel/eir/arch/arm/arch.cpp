@@ -154,7 +154,7 @@ void initProcessorEarly() {
 	uint64_t aa64mmfr0;
 	asm volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(aa64mmfr0));
 
-	if (aa64mmfr0 & (0xF << 28))
+	if (aa64mmfr0 & (uint64_t(0xF) << 28))
 		eir::panicLogger() << "PANIC! This CPU doesn't support 4K memory translation granules"
 		                   << frg::endlog;
 

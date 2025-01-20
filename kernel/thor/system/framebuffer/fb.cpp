@@ -123,6 +123,7 @@ void transitionBootFb() {
 	for(size_t pg = 0; pg < windowSize; pg += kPageSize)
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(window) + pg,
 				bootInfo->address + pg, page_access::write, CachingMode::writeCombine);
+	pageTableUpdateBarrier();
 
 	// Transition to the kernel mapping window.
 	bootDisplay->setWindow(window);

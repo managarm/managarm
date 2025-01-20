@@ -229,6 +229,7 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
 				page_access::write, CachingMode::null);
 	}
+	pageTableUpdateBarrier();
 	kernelMemoryUsage += length;
 
 	return uintptr_t(p);

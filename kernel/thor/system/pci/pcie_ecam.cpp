@@ -26,6 +26,7 @@ arch::mem_space EcamPcieConfigIo::spaceForBus_(uint32_t bus) {
 				VirtualAddr(ptr) + i, mmioBase_ + i + offset,
 				page_access::write, CachingMode::mmio);
 	}
+	pageTableUpdateBarrier();
 
 	busMappings_.insert(bus, ptr);
 

@@ -227,6 +227,7 @@ extern "C" void thorMain() {
 			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
 						modules[0].physicalBase + pg, 0, CachingMode::null);
+			pageTableUpdateBarrier();
 
 			struct Header {
 				char magic[6];

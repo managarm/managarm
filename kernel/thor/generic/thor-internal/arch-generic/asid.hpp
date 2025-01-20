@@ -294,6 +294,10 @@ void invalidateAsid(int asid);
 // (globalBindingId for the global page tables).
 void invalidatePage(int asid, const void *address);
 
+// Wait for all preceding page table updates to finish. This is required
+// after mapping new page table entries for the newly created entries to be
+// observable.
+void pageTableUpdateBarrier();
 
 struct CpuData;
 

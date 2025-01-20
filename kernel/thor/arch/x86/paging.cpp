@@ -67,6 +67,8 @@ void invalidatePage(int asid, const void *address) {
 	}
 }
 
+void pageTableUpdateBarrier() {}
+
 // --------------------------------------------------------
 // Kernel paging management.
 // --------------------------------------------------------

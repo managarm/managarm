@@ -37,6 +37,8 @@ void invalidatePage(int asid, const void *address) {
 	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
 }
 
+void pageTableUpdateBarrier() {}
+
 void initializeAsidContext(CpuData *cpuData) {
 	auto irqLock = frg::guard(&irqMutex());
 

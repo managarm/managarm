@@ -3428,6 +3428,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(window + off),
 						range.get<0>(), page_access::write, range.get<1>());
 			}
+			pageTableUpdateBarrier();
 
 			bound->setupMemoryViewBinding(i, window);
 		}else{
