@@ -511,6 +511,7 @@ tail:
 message MkdirAtRequest 40 {
 head(128):
 	int32 fd;
+	int32 mode;
 tail:
 	string path;
 }
@@ -783,4 +784,15 @@ head(128):
 message TimerDeleteResponse 124 {
 head(128):
 	Errors error;
+}
+
+message UmaskRequest 125 {
+head(128):
+	int32 newmask;
+}
+
+message UmaskResponse 126 {
+head(128):
+	// umask calls always succeed, no errors needed
+	int32 oldmask;
 }

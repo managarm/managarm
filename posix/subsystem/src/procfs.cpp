@@ -746,7 +746,7 @@ async::result<std::string> StatusNode::show(Process *) {
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
 	stream << "Name: " << _process->name() << "\n"; // Name is hardcoded to be the last part of the path
-	stream << "Umask: 0022\n"; // Hardcoded to 0022, which is what we hardcode in the mlibc sysdeps.
+	stream << std::format("Umask: 0{:03o}\n", _process->fsContext()->getUmask());
 	stream << "State: R\n"; // Hardcoded to R, running.
 	stream << "Tgid: " << _process->pid() << "\n"; // Thread group id, same as gid for now
 	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
