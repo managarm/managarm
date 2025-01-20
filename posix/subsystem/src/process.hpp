@@ -141,13 +141,16 @@ struct FsContext {
 
 	ViewPath getRoot();
 	ViewPath getWorkingDirectory();
+	int getUmask();
 
 	void changeRoot(ViewPath root);
 	void changeWorkingDirectory(ViewPath root);
+	int changeUmask(int mask);
 
 private:
 	ViewPath _root;
 	ViewPath _workDir;
+	int _umask;
 };
 
 struct FileDescriptor {

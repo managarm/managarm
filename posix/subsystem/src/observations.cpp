@@ -496,7 +496,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetTid){
-			if(logRequests)
+			if(logSpammyRequests)
 				std::cout << "posix: GET_TID supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];

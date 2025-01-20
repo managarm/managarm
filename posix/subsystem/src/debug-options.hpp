@@ -2,6 +2,7 @@
 
 namespace {
 	constexpr bool logRequests = false;
+	constexpr bool logSpammyRequests = false;
 	constexpr bool logPaths = false;
 	constexpr bool logSignals = false;
 	constexpr bool logCleanup = false;
