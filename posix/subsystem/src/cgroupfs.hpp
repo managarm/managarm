@@ -119,7 +119,7 @@ public:
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 };
 
-struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {
+struct DirectoryNode : FsNode, std::enable_shared_from_this<DirectoryNode> {
 	friend struct DirectoryFile;
 
 	static std::shared_ptr<Link> createRootDirectory();
@@ -131,6 +131,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMknode(std::string name,
 			std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
+	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
+	mkdir(std::string name) override;
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
@@ -145,9 +147,30 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;
 
+	std::shared_ptr<Link> createCgroupDirectory(std::string name);
+	void createCgroupFiles();
+
 private:
 	Link *_treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
+};
+
+struct ProcsNode final : RegularNode {
+	ProcsNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	// Process *_process;
+};
+
+struct ControllersNode final : RegularNode {
+	ControllersNode() {}
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	// Process *_process;
 };
 
 struct LinkNode : FsNode, std::enable_shared_from_this<LinkNode> {

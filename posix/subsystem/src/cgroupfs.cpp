@@ -3,7 +3,7 @@
 #include <sstream>
 #include <iomanip>
 
-#include "clock.hpp"
+#include <core/clock.hpp>
 #include "common.hpp"
 #include "cgroupfs.hpp"
 #include "process.hpp"
@@ -236,6 +236,9 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link.get();
 
+	// the_node->directMkregular("cgroup.controllers", std::make_shared<ControllersNode>());
+	the_node->createCgroupFiles();
+
 	return link;
 }
 
@@ -258,6 +261,18 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	_entries.insert(link);
 	the_node->_treeLink = link.get();
 	return link;
+}
+
+async::result<std::variant<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkdir(std::string name) {
+	if(!(_entries.find(name) == _entries.end()))
+		co_return Error::alreadyExists;
+	// auto node = std::make_shared<DirectoryNode>(name);
+	// auto the_node = node.get();
+	// auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	auto link = createCgroupDirectory(name);
+	// _entries.insert(link);
+	// the_node->_treeLink = link.get();
+	co_return link;
 }
 
 std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_ptr<FsNode> node) {
@@ -316,6 +331,50 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 		co_return Error::noSuchFile;
 	_entries.erase(it);
 	co_return frg::expected<Error>{};
+}
+
+std::shared_ptr<Link> DirectoryNode::createCgroupDirectory(std::string name) {
+	auto link = directMkdir(name);
+	auto cgroup_dir = static_cast<DirectoryNode*>(link->getTarget().get());
+
+	cgroup_dir->createCgroupFiles();
+
+	return link;
+}
+
+void DirectoryNode::createCgroupFiles() {
+	this->directMkregular("cgroup.procs", std::make_shared<ProcsNode>());
+	this->directMkregular("cgroup.controllers", std::make_shared<ControllersNode>());
+}
+
+async::result<std::string> ProcsNode::show() {
+	// Everything that has a value of N/A is not implemented yet.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "";
+	co_return stream.str();
+}
+
+async::result<void> ProcsNode::store(std::string string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: writing to cgroup.procs with: " << string << std::endl;
+	co_return;
+}
+
+async::result<std::string> ControllersNode::show() {
+	// Everything that has a value of N/A is not implemented yet.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "";
+	co_return stream.str();
+}
+
+async::result<void> ControllersNode::store(std::string string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: writing to cgroup.procs with: " << string << std::endl;
+	co_return;
 }
 
 LinkNode::LinkNode()
