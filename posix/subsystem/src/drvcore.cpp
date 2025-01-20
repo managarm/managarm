@@ -203,10 +203,10 @@ void initialize() {
 	// Create /sys/fs/cgroup directories
 	auto fs_object = std::make_shared<sysfs::Object>(nullptr, "fs");
 	auto cgroup_object = std::make_shared<sysfs::Object>(fs_object, "cgroup");
-	auto systemd_object = std::make_shared<sysfs::Object>(cgroup_object, "systemd");
+	// auto systemd_object = std::make_shared<sysfs::Object>(cgroup_object, "systemd");
 	fs_object->addObject();
 	cgroup_object->addObject();
-	systemd_object->addObject();
+	// systemd_object->addObject();
 }
 
 namespace {
