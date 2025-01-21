@@ -1,6 +1,7 @@
 src = [
 	'src/ip/arp.cpp',
 	'src/ip/checksum.cpp',
+	'src/ip/icmp.cpp',
 	'src/ip/ip4.cpp',
 	'src/ip/tcp4.cpp',
 	'src/ip/udp4.cpp',

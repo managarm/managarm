@@ -1,7 +1,6 @@
 #pragma once
 
 #include <optional>
-#include <span>
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
@@ -146,6 +145,7 @@ struct CtrlBuilder {
 	: _maxSize{max_size}, _offset{0} { }
 
 	// returns true if the message gets truncated
+	[[nodiscard("You must check whether the message is truncated")]]
 	bool message(int layer, int type, size_t payload) {
 		size_t remaining_space = _maxSize - _buffer.size();
 		if(remaining_space < CMSG_ALIGN(sizeof(struct cmsghdr)))
@@ -170,6 +170,7 @@ struct CtrlBuilder {
 
 	// returns whether the message gets truncated, and if true, how many bytes of payload
 	// (aligned to data_unit_size) still fit in the buffer.
+	[[nodiscard("You must check whether the message is truncated")]]
 	std::pair<bool, size_t> message_truncated(int layer, int type, size_t payload, size_t data_unit_size) {
 		// the space remaining in the control buffer before this message
 		size_t remaining_space = _maxSize - _buffer.size();
@@ -200,6 +201,17 @@ struct CtrlBuilder {
 		if(CMSG_SPACE(payload) > remaining_space)
 			return {true, std::max(0UL, remaining_payload_space - (remaining_payload_space % data_unit_size))};
 		return {false, 0};
+	}
+
+	template<typename T>
+	requires requires(T t) {
+		{ t.size() } -> std::same_as<size_t>;
+		{ t.data() } -> std::same_as<void *>;
+	}
+	void write_buffer(T data) {
+		assert(_buffer.size() >= _offset + data.size());
+		memcpy(_buffer.data() + _offset, data.data(), data.size());
+		_offset += data.size();
 	}
 
 	template<typename T>

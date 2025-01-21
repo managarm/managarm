@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 
+#include "icmp.hpp"
 #include "udp4.hpp"
 #include "tcp4.hpp"
 
@@ -150,6 +151,7 @@ private:
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
 
 	Udp4 udp;
+	Icmp icmp;
 	Tcp4 tcp;
 };
 

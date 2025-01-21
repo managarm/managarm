@@ -182,6 +182,17 @@ struct Udp4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
+	static async::result<size_t> sockname(void *object, void *addr_ptr, size_t max_addr_length) {
+		auto self = static_cast<Udp4Socket *>(object);
+		sockaddr_in sa{};
+		sa.sin_family = AF_INET;
+		sa.sin_port = htons(self->local_.port);
+		sa.sin_addr.s_addr = htonl(self->local_.addr);
+		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
+
+		co_return sizeof(sockaddr_in);
+	}
+
 	static async::result<protocols::fs::Error> bind(void* obj,
 			const char *creds,
 			const void *addr_ptr, size_t addr_size) {
@@ -253,12 +264,13 @@ struct Udp4Socket {
 		protocols::fs::CtrlBuilder ctrl{max_ctrl_len};
 
 		if(self->ipPacketInfo_) {
-			ctrl.message(IPPROTO_IP, IP_PKTINFO, sizeof(struct in_pktinfo));
-			ctrl.write<struct in_pktinfo>({
-				.ipi_ifindex = unsigned(element->link.lock()->index()),
-				.ipi_spec_dst = { .s_addr = convert_endian<endian::big>(element->packet->header.destination) },
-				.ipi_addr = { .s_addr = convert_endian<endian::big>(element->packet->header.source) },
-			});
+			auto truncated = ctrl.message(IPPROTO_IP, IP_PKTINFO, sizeof(struct in_pktinfo));
+			if(!truncated)
+				ctrl.write<struct in_pktinfo>({
+					.ipi_ifindex = unsigned(element->link.lock()->index()),
+					.ipi_spec_dst = { .s_addr = convert_endian<endian::big>(element->packet->header.destination) },
+					.ipi_addr = { .s_addr = convert_endian<endian::big>(element->packet->header.source) },
+				});
 		}
 
 		co_return RecvData{ctrl.buffer(), copy_size, sizeof(addr), 0};
@@ -413,6 +425,7 @@ struct Udp4Socket {
 		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
+		.sockname = &sockname,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
 		.setSocketOption = &setSocketOption,
