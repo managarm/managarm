@@ -92,7 +92,7 @@ std::optional<uint32_t> drm_core::File::getHandle(std::shared_ptr<drm_core::Buff
  * the credentials `creds` to the device. It also creates the mapping between credentials and the
  * DRM handle in this file.
  */
-bool drm_core::File::exportBufferObject(uint32_t handle, std::array<char, 16> creds) {
+bool drm_core::File::exportBufferObject(uint32_t handle, helix_ng::Credentials creds) {
 	auto bo = resolveHandle(handle);
 	if(!bo)
 		return false;
@@ -107,7 +107,7 @@ bool drm_core::File::exportBufferObject(uint32_t handle, std::array<char, 16> cr
  * returns a pair of (BufferObject, DRM handle) for the `File`.
  */
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
-drm_core::File::importBufferObject(std::array<char, 16> creds) {
+drm_core::File::importBufferObject(helix_ng::Credentials creds) {
 	auto bo = _device->findBufferObject(creds);
 	if(!bo)
 		return {};
@@ -133,7 +133,7 @@ void drm_core::File::postEvent(drm_core::Event event) {
 }
 
 async::result<protocols::fs::ReadResult>
-drm_core::File::read(void *object, const char *,
+drm_core::File::read(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length) {
 	auto self = static_cast<drm_core::File *>(object);
 

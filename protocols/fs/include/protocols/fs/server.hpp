@@ -74,17 +74,17 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withRead(async::result<ReadResult> (*f)(void *object,
-			const char *, void *buffer, size_t length)) {
+			helix_ng::CredentialsView , void *buffer, size_t length)) {
 		read = f;
 		return *this;
 	}
 	constexpr FileOperations &withWrite(async::result<frg::expected<protocols::fs::Error, size_t>> (*f)(void *object,
-			const char *, const void *buffer, size_t length)) {
+			helix_ng::CredentialsView, const void *buffer, size_t length)) {
 		write = f;
 		return *this;
 	}
 	constexpr FileOperations &withPwrite(async::result<frg::expected<protocols::fs::Error, size_t>> (*f)(void *object,
-			int64_t offset, const char *, const void *buffer, size_t length)) {
+			int64_t offset, helix_ng::CredentialsView, const void *buffer, size_t length)) {
 		pwrite = f;
 		return *this;
 	}
@@ -127,12 +127,12 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withBind(async::result<Error> (*f)(void *object,
-			const char *, const void *addr_ptr, size_t addr_length)) {
+			helix_ng::CredentialsView , const void *addr_ptr, size_t addr_length)) {
 		bind = f;
 		return *this;
 	}
 	constexpr FileOperations &withConnect(async::result<Error> (*f)(void *object,
-			const char *, const void *addr_ptr, size_t addr_length)) {
+			helix_ng::CredentialsView , const void *addr_ptr, size_t addr_length)) {
 		connect = f;
 		return *this;
 	}
@@ -155,13 +155,13 @@ struct FileOperations {
 	async::result<SeekResult> (*seekAbs)(void *object, int64_t offset) = nullptr;
 	async::result<SeekResult> (*seekRel)(void *object, int64_t offset) = nullptr;
 	async::result<SeekResult> (*seekEof)(void *object, int64_t offset) = nullptr;
-	async::result<ReadResult> (*read)(void *object, const char *credentials,
+	async::result<ReadResult> (*read)(void *object, helix_ng::CredentialsView credentials,
 			void *buffer, size_t length) = nullptr;
-	async::result<ReadResult> (*pread)(void *object, int64_t offset, const char *credentials,
+	async::result<ReadResult> (*pread)(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			void *buffer, size_t length) = nullptr;
-	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, const char *credentials,
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*write)(void *object, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) = nullptr;
-	async::result<frg::expected<protocols::fs::Error, size_t>> (*pwrite)(void *object, int64_t offset, const char *credentials,
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*pwrite)(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) = nullptr;
 	async::result<ReadEntriesResult> (*readEntries)(void *object) = nullptr;
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object) = nullptr;
@@ -177,18 +177,18 @@ struct FileOperations {
 			async::cancellation_token cancellation) = nullptr;
 	async::result<frg::expected<Error, PollStatusResult>>
 	(*pollStatus)(void *object) = nullptr;
-	async::result<Error> (*bind)(void *object, const char *credentials,
+	async::result<Error> (*bind)(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length) = nullptr;
 	async::result<Error> (*listen)(void *object) = nullptr;
-	async::result<Error> (*connect)(void *object, const char *credentials,
+	async::result<Error> (*connect)(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length) = nullptr;
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length) = nullptr;
 	async::result<int> (*getFileFlags)(void *object) = nullptr;
 	async::result<void> (*setFileFlags)(void *object, int flags) = nullptr;
-	async::result<RecvResult> (*recvMsg)(void *object, const char *creds,
+	async::result<RecvResult> (*recvMsg)(void *object, helix_ng::CredentialsView creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) = nullptr;
-	async::result<frg::expected<protocols::fs::Error, size_t>> (*sendMsg)(void *object, const char *creds,
+	async::result<frg::expected<protocols::fs::Error, size_t>> (*sendMsg)(void *object, helix_ng::CredentialsView creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size,
 			std::vector<uint32_t> fds, struct ucred ucreds) = nullptr;

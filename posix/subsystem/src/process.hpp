@@ -734,7 +734,7 @@ private:
 	std::optional<int> parentDeathSignal_ = std::nullopt;
 };
 
-std::shared_ptr<Process> findProcessWithCredentials(const char *credentials);
+std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
 
 // --------------------------------------------------------------------------------------
 // Process groups and sessions.

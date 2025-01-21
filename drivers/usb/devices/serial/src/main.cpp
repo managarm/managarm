@@ -68,7 +68,7 @@ async::result<void> dumpKernelMessages(smarter::shared_ptr<Controller> c) {
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
-write(void *object, const char *, const void *buffer, size_t length) {
+write(void *object, helix_ng::CredentialsView, const void *buffer, size_t length) {
 	auto self = static_cast<Controller *>(object);
 
 	if(!length)

@@ -119,7 +119,7 @@ struct Ip4Socket {
 	explicit Ip4Socket(int proto) : proto(proto) {}
 
 	static async::result<RecvResult> recvmsg(void *obj,
-			const char *creds,
+			helix_ng::CredentialsView creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 		(void) creds;
@@ -147,13 +147,13 @@ struct Ip4Socket {
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *obj,
-			const char *creds, uint32_t flags,
+			helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
 			std::vector<uint32_t> fds, struct ucred ucreds);
 
 	static async::result<Error> connect(void* obj,
-			const char *creds,
+			helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_size) {
 		(void) creds;
 
@@ -186,7 +186,7 @@ private:
 };
 
 async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(void *obj,
-		const char *creds, uint32_t flags,
+		helix_ng::CredentialsView creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr_ptr, size_t addr_size,
 		std::vector<uint32_t> fds, struct ucred) {

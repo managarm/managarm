@@ -63,7 +63,7 @@ File::ptSeekEof(void *object, int64_t offset) {
 }
 
 async::result<protocols::fs::ReadResult>
-File::ptRead(void *object, const char *credentials,
+File::ptRead(void *object, helix_ng::CredentialsView credentials,
 		void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
@@ -86,7 +86,7 @@ File::ptRead(void *object, const char *credentials,
 }
 
 async::result<protocols::fs::ReadResult>
-File::ptPread(void *object, int64_t offset, const char *credentials, void *buffer, size_t length) {
+File::ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
 	auto result = co_await self->pread(process.get(), offset, buffer, length);
@@ -105,7 +105,7 @@ File::ptPread(void *object, int64_t offset, const char *credentials, void *buffe
 	}
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, const char *credentials,
+async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, helix_ng::CredentialsView credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
@@ -126,7 +126,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *o
 	co_return result.value();
 }
 
-async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *object, int64_t offset, const char *credentials,
+async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
@@ -171,7 +171,7 @@ async::result<void> File::ptSetOption(void *object, int option, int value) {
 }
 
 async::result<protocols::fs::Error> File::ptBind(void *object,
-		const char *credentials,
+		helix_ng::CredentialsView credentials,
 		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
@@ -184,7 +184,7 @@ async::result<protocols::fs::Error> File::ptListen(void *object) {
 }
 
 async::result<protocols::fs::Error> File::ptConnect(void *object,
-		const char *credentials, const void *addr, size_t addr_len) {
+		helix_ng::CredentialsView credentials, const void *addr, size_t addr_len) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
 	return self->connect(process.get(), addr, addr_len);
@@ -227,7 +227,7 @@ async::result<frg::expected<protocols::fs::Error, int>> File::ptAddSeals(void *o
 }
 
 async::result<protocols::fs::RecvResult>
-File::ptRecvMsg(void *object, const char *creds, uint32_t flags,
+File::ptRecvMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr, size_t addr_len,
 		size_t max_ctrl_len) {
@@ -240,7 +240,7 @@ File::ptRecvMsg(void *object, const char *creds, uint32_t flags,
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
-File::ptSendMsg(void *object, const char *creds, uint32_t flags,
+File::ptSendMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 		void *data, size_t len,
 		void *addr, size_t addr_len,
 		std::vector<uint32_t> fds, struct ucred ucreds) {

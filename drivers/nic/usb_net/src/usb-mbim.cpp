@@ -74,7 +74,7 @@ pollStatus(void *object) {
 }
 
 static async::result<frg::expected<protocols::fs::Error, size_t>>
-write(void *object, const char *credentials, const void *buffer, size_t length) {
+write(void *object, helix_ng::CredentialsView credentials, const void *buffer, size_t length) {
 	(void) credentials;
 
 	auto self = static_cast<CdcWdmDevice *>(object);
@@ -84,7 +84,7 @@ write(void *object, const char *credentials, const void *buffer, size_t length) 
 	co_return length;
 }
 
-static async::result<protocols::fs::ReadResult> read(void *object, const char *credentials,
+static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView credentials,
 			void *buffer, size_t length) {
 	(void) credentials;
 

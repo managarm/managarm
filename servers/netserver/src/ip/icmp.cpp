@@ -57,7 +57,7 @@ struct IcmpSocket {
 	static smarter::shared_ptr<IcmpSocket> make_socket(Icmp *parent);
 
 	static async::result<RecvResult> recvmsg(void *obj,
-			const char *creds,
+			helix_ng::CredentialsView creds,
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 		using arch::endian, arch::convert_endian;
@@ -124,7 +124,7 @@ struct IcmpSocket {
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendmsg(void *,
-			const char *creds, uint32_t flags,
+			helix_ng::CredentialsView creds, uint32_t flags,
 			void *data, size_t len,
 			void *addr_ptr, size_t addr_size,
 			std::vector<uint32_t> fds, struct ucred) {

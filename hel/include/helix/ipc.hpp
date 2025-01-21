@@ -500,8 +500,13 @@ struct ExtractCredentials : Operation {
 		return result()->error;
 	}
 
-	char *credentials() {
-		return result()->credentials;
+	std::array<const char, 16> credentials() {
+		return std::array<const char, 16>{
+			result()->credentials[0], result()->credentials[1], result()->credentials[2], result()->credentials[3],
+			result()->credentials[4], result()->credentials[5], result()->credentials[6], result()->credentials[7],
+			result()->credentials[8], result()->credentials[9], result()->credentials[10], result()->credentials[11],
+			result()->credentials[12], result()->credentials[13], result()->credentials[14], result()->credentials[15],
+		};
 	}
 
 	void parse(void *&ptr) override {

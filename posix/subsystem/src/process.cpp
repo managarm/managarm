@@ -875,7 +875,7 @@ Process::Process(std::shared_ptr<PidHull> hull, Process *parent)
 		_notifyType{NotifyType::null} { }
 
 Process::~Process() {
-	std::cout << "\e[33mposix: Process is destructed\e[39m" << std::endl;
+	std::cout << std::format("\e[33mposix: Process {} is destructed\e[39m", pid()) << std::endl;
 	_pgPointer->dropProcess(this);
 }
 

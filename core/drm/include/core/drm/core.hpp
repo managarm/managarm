@@ -46,7 +46,7 @@ struct File {
 	/**
 	 * A read operation on a DRM fd returning pending events, if any.
 	 */
-	read(void *object, const char *, void *buffer, size_t length);
+	read(void *object, helix_ng::CredentialsView, void *buffer, size_t length);
 
 	static async::result<helix::BorrowedDescriptor>
 	accessMemory(void *object);
@@ -81,10 +81,10 @@ struct File {
 	BufferObject *resolveHandle(uint32_t handle);
 	std::optional<uint32_t> getHandle(std::shared_ptr<drm_core::BufferObject> bo);
 
-	bool exportBufferObject(uint32_t handle, std::array<char, 16> creds);
+	bool exportBufferObject(uint32_t handle, helix_ng::Credentials creds);
 
 	std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
-	importBufferObject(std::array<char, 16> creds);
+	importBufferObject(helix_ng::Credentials creds);
 
 	/**
 	 * Add an @p event to the queue of pending events to be read by userspace.

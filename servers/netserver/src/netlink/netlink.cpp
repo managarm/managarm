@@ -42,7 +42,7 @@ async::result<void> NetlinkSocket::setOption(void *obj, int option, int value) {
 }
 
 async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
-		const char *creds, uint32_t flags, void *data,
+		helix_ng::CredentialsView creds, uint32_t flags, void *data,
 		size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 	(void) creds;
 
@@ -120,7 +120,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
+			helix_ng::CredentialsView creds, uint32_t flags, void *data, size_t len,
 			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred) {
 	(void) creds;
 	(void) addr_ptr;
@@ -179,7 +179,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> NetlinkSocket::sendMs
 	co_return orig_len;
 }
 
-async::result<protocols::fs::Error> NetlinkSocket::bind(void *obj, const char *creds,
+async::result<protocols::fs::Error> NetlinkSocket::bind(void *obj, helix_ng::CredentialsView creds,
 		const void *addr_ptr, size_t addr_length) {
 	(void) creds;
 

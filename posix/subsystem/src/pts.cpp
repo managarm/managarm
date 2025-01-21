@@ -599,7 +599,8 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
-			auto process = findProcessWithCredentials(extractCreds.credentials());
+			auto creds = extractCreds.credentials();
+			auto process = findProcessWithCredentials(creds);
 
 			managarm::fs::GenericIoctlReply resp;
 			if(auto e = cts.assignSessionOf(process.get()); e == Error::illegalArguments) {
@@ -626,7 +627,8 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
-			auto process = findProcessWithCredentials(extractCreds.credentials());
+			auto creds = extractCreds.credentials();
+			auto process = findProcessWithCredentials(creds);
 
 			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
@@ -650,7 +652,8 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
-			auto process = findProcessWithCredentials(extractCreds.credentials());
+			auto creds = extractCreds.credentials();
+			auto process = findProcessWithCredentials(creds);
 			auto group = process->pgPointer()->getSession()->getProcessGroupById(req->pgid());
 			if(!group) {
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
@@ -679,7 +682,8 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
-			auto process = findProcessWithCredentials(extractCreds.credentials());
+			auto creds = extractCreds.credentials();
+			auto process = findProcessWithCredentials(creds);
 
 			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);

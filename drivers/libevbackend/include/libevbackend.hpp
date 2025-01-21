@@ -49,10 +49,10 @@ struct File {
 	// ------------------------------------------------------------------------
 
 	static async::result<protocols::fs::ReadResult>
-	read(void *object, const char *, void *buffer, size_t length);
+	read(void *object, helix_ng::CredentialsView, void *buffer, size_t length);
 
 	static async::result<void>
-	write(void *object, const char *, const void *buffer, size_t length);
+	write(void *object, helix_ng::CredentialsView, const void *buffer, size_t length);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 	pollWait(void *object, uint64_t past_seq, int mask,

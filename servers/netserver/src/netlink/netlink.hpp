@@ -23,15 +23,15 @@ public:
 	NetlinkSocket(int flags, int protocol);
 
 	static async::result<protocols::fs::RecvResult> recvMsg(void *obj,
-			const char *creds, uint32_t flags, void *data,
+			helix_ng::CredentialsView creds, uint32_t flags, void *data,
 			size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len);
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> sendMsg(void *obj,
-			const char *creds, uint32_t flags, void *data, size_t len,
+			helix_ng::CredentialsView creds, uint32_t flags, void *data, size_t len,
 			void *addr_ptr, size_t addr_size, std::vector<uint32_t> fds, struct ucred ucreds);
 
 
-	static async::result<protocols::fs::Error> bind(void *obj, const char *creds,
+	static async::result<protocols::fs::Error> bind(void *obj, helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_length);
 
 	static async::result<void> setOption(void *, int option, int value);
