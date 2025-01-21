@@ -1338,6 +1338,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(logRequests)
 				std::cout << "posix: FSTATAT request" << std::endl;
 
+			if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT)) {
+				std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req->flags()) << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
