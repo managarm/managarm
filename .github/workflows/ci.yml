@@ -11,6 +11,8 @@ jobs:
         runs-on: ubuntu-24.04
         outputs:
             bootstrap-commit: ${{ steps.head.outputs.bootstrap-commit }}
+            mlibc-commit: ${{ steps.head.outputs.mlibc-commit }}
+            caching-key: ${{ steps.head.outputs.caching-key }}
         steps:
           - id: head
             name: Get HEAD of bootstrap-managarm
@@ -19,11 +21,16 @@ jobs:
                 head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $remote)"
                 echo "git ls-remote on bootstrap-managarm: $head"
                 echo "bootstrap-commit=$head" > "$GITHUB_OUTPUT"
+                mlibc_remote="$(git ls-remote https://github.com/managarm/mlibc.git refs/heads/master)"
+                mlibc_head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $mlibc_remote)"
+                echo "git ls-remote on mlibc: $mlibc_head"
+                echo "mlibc-commit=$mlibc_head" > "$GITHUB_OUTPUT"
+                echo "caching-key=$head-$mlibc_head" > "$GITHUB_OUTPUT"
           - id: cache-rootfs
             name: Cache rootfs
             uses: actions/cache@v4
             with:
-                key: "rootfs-${{ steps.head.outputs.bootstrap-commit }}"
+                key: "rootfs-${{ steps.head.outputs.caching-key }}"
                 # Note: must be kept in sync with the restore action (effectively part of the key).
                 path: rootfs/
           - name: Download rootfs
@@ -45,7 +52,7 @@ jobs:
             name: Cache xbps packages
             uses: actions/cache@v4
             with:
-                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.bootstrap-commit }}"
+                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.caching-key }}"
                 # Note: must be kept in sync with the restore action (effectively part of the key).
                 path: build/xbps-repo/*.xbps
           - name: Install prerequisites
@@ -119,14 +126,14 @@ jobs:
           - name: Restore rootfs cache
             uses: actions/cache/restore@v4
             with:
-                key: "rootfs-${{ needs.cache-generic.outputs.bootstrap-commit }}"
+                key: "rootfs-${{ needs.cache-generic.outputs.caching-key }}"
                 # Note: must be kept in sync with the cache action (effectively part of the key).
                 path: rootfs/
                 fail-on-cache-miss: true
           - name: Restore xbps cache
             uses: actions/cache/restore@v4
             with:
-                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.bootstrap-commit }}"
+                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.caching-key }}"
                 # Note: must be kept in sync with the restore action (effectively part of the key).
                 path: build/xbps-repo/*.xbps
                 fail-on-cache-miss: true
@@ -202,7 +209,7 @@ jobs:
           - name: Restore xbps cache
             uses: actions/cache/restore@v4
             with:
-                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.bootstrap-commit }}"
+                key: "xbps-${{ matrix.arch }}-${{ needs.cache-generic.outputs.caching-key }}"
                 # Note: must be kept in sync with the restore action (effectively part of the key).
                 path: build/xbps-repo/*.xbps
                 fail-on-cache-miss: true
