@@ -275,6 +275,11 @@ void panic() {
 		halt();
 }
 
+// We do not expect this to be called; however, libstdc++ contains references to abort().
+extern "C" void abort() {
+	panicLogger() << "abort() was called" << frg::endlog;
+}
+
 constinit frg::stack_buffer_logger<DebugSink, logLineLength> debugLogger;
 constinit frg::stack_buffer_logger<WarningSink, logLineLength> warningLogger;
 constinit frg::stack_buffer_logger<InfoSink, logLineLength> infoLogger;
