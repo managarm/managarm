@@ -553,12 +553,11 @@ namespace {
 		}
 
 		void mask() override {
-			// TODO: Support this.
-			warningLogger() << "thor: Masking of APIC-MSIs is not implemented" << frg::endlog;
+			// TODO: This may be worth implementing (but it is not needed for correctness).
 		}
 
 		void unmask() override {
-			// TODO: Implement this when mask() is implemented.
+			// TODO: This may be worth implementing (but it is not needed for correctness).
 		}
 
 		void sendEoi() override {
