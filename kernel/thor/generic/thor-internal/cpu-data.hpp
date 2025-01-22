@@ -119,10 +119,14 @@ private:
 
 using PerCpuInitializer = void(*)(CpuData *context);
 
+template<auto *C>
+void doInitializePerCpu(CpuData *context) {
+	C->initialize(context);
+}
+
 #define THOR_DEFINE_PERCPU_INITIALIZER_PRIV(Name)			\
 	[[gnu::section(".percpu_init"), gnu::used]]			\
-	const constinit PerCpuInitializer Name ## _initializer_ =	\
-		[] (CpuData *context) { Name.initialize(context); }	\
+	const constinit PerCpuInitializer Name ## _initializer_ = doInitializePerCpu<&Name>;
 
 #define THOR_DEFINE_PERCPU_UNINITIALIZED_PRIV(Name, Suffix)	\
 	[[gnu::section(".percpu" Suffix), gnu::used]]		\

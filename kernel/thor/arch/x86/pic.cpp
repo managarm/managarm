@@ -8,6 +8,7 @@
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/ostrace.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
@@ -189,6 +190,8 @@ void LocalApicContext::_updateLocalTimer() {
 	consider(localApicContext()->_globalDeadline);
 
 	if(localApicContext()->useTscMode) {
+		ostrace::emit(ostEvtArmCpuTimer);
+
 		if(!deadline) {
 			common::x86::wrmsr(common::x86::kMsrIa32TscDeadline, 0);
 			return;

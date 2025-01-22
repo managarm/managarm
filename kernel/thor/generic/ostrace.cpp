@@ -39,6 +39,7 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 		};
 		frg::parse_arguments(getKernelCmdline(), args);
 
+		infoLogger() << "thor: ostrace is " << (wantOsTrace ? "enabled" : "disabled") << frg::endlog;
 		if(!wantOsTrace)
 			return;
 
@@ -46,6 +47,8 @@ initgraph::Task initOsTraceCore{&globalInitEngine, "generic.init-ostrace-core",
 		globalOsTraceRing.initialize(reinterpret_cast<uintptr_t>(osTraceMemory), 1 << 20);
 
 		osTraceInUse.store(true);
+
+		ostrace::setup();
 	}
 };
 
@@ -258,5 +261,44 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 };
 
 } // anonymous namespace
+
+// --------------------------------------------------------------------------------------
+// Kernel ostrace infrastructure.
+// --------------------------------------------------------------------------------------
+
+namespace ostrace {
+
+std::atomic<bool> available{false};
+
+THOR_DEFINE_PERCPU(context);
+
+void setup() {
+	auto setupTerm = [] (ostrace::Term &term) {
+		assert(!term.id_);
+		term.id_ = nextId.fetch_add(1, std::memory_order_relaxed);
+
+		managarm::ostrace::Definition<KernelAlloc> record{*kernelAlloc};
+		record.set_id(term.id_);
+		record.set_name(frg::string<KernelAlloc>{*kernelAlloc, term.name_});
+		commitOsTrace(std::move(record));
+	};
+
+	setupTerm(ostEvtArmPreemption);
+	setupTerm(ostEvtArmCpuTimer);
+	available.store(true, std::memory_order_relaxed);
+}
+
+void emitBuffer(frg::span<char> payload) {
+	doEmit(payload);
+}
+
+} // namespace ostrace
+
+// --------------------------------------------------------------------------------------
+// Kernel ostrace events.
+// --------------------------------------------------------------------------------------
+
+ostrace::Event ostEvtArmPreemption{"thor.arm-preemption"};
+ostrace::Event ostEvtArmCpuTimer{"thor.arm-cpu-timer"};
 
 } // namespace thor
