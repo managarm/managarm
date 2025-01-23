@@ -1,5 +1,6 @@
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/schedule.hpp>
@@ -43,23 +44,20 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 };
 
 extern ClockSource *globalClockSource;
-extern PrecisionTimerEngine *globalTimerEngine;
 
-struct VirtualGenericTimer : IrqSink, AlarmTracker {
+struct VirtualGenericTimer : IrqSink {
 	VirtualGenericTimer()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "virtual-generic-timer-irq"}} { }
 
 	virtual ~VirtualGenericTimer() = default;
 
-	using AlarmTracker::fireAlarm;
-
 	IrqStatus raise() override {
 		disarm();
-		fireAlarm();
+		generalTimerEngine()->firedAlarm();
 		return IrqStatus::acked;
 	}
 
-	void arm(uint64_t deadline) override {
+	void arm(uint64_t deadline) {
 		if (!deadline) {
 			disarm();
 			return;
@@ -84,6 +82,14 @@ struct VirtualGenericTimer : IrqSink, AlarmTracker {
 
 frg::manual_box<PhysicalGenericTimer> globalPGTInstance;
 frg::manual_box<VirtualGenericTimer> globalVGTInstance;
+
+void setTimerDeadline(frg::optional<uint64_t> deadline) {
+	if (deadline) {
+		globalVGTInstance->arm(*deadline);
+	} else {
+		globalVGTInstance->disarm();
+	}
+}
 
 void initializeTimers() {
 	asm volatile ("mrs %0, cntfrq_el0" : "=r"(ticksPerSecond));
@@ -124,8 +130,6 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		globalClockSource = globalPGTInstance.get();
 
 		globalVGTInstance.initialize();
-		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
-			globalClockSource, globalVGTInstance.get());
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {

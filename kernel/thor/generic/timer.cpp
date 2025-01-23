@@ -7,13 +7,10 @@ namespace thor {
 static constexpr bool logTimers = false;
 static constexpr bool logProgress = false;
 
-ClockSource *globalClockSource;
-PrecisionTimerEngine *globalTimerEngine;
+extern PerCpu<PrecisionTimerEngine> timerEngine;
+THOR_DEFINE_PERCPU(timerEngine);
 
-PrecisionTimerEngine::PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm)
-: _clock{clock}, _alarm{alarm} {
-	_alarm->setSink(this);
-}
+ClockSource *globalClockSource;
 
 void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	assert(!timer->_engine);
@@ -24,7 +21,7 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	assert(timer->_state == TimerState::none);
 
 	if(logTimers) {
-		auto current = _clock->currentNanos();
+		auto current = systemClockSource()->currentNanos();
 		infoLogger() << "thor: Setting timer at " << timer->_deadline
 				<< " (counter is " << current << ")" << frg::endlog;
 	}
@@ -71,14 +68,14 @@ void PrecisionTimerEngine::firedAlarm() {
 // This function is somewhat complicated because we have to avoid a race between
 // the comparator setup and the main counter.
 void PrecisionTimerEngine::_progress() {
-	auto current = _clock->currentNanos();
+	auto current = systemClockSource()->currentNanos();
 	do {
 		// Process all timers that elapsed in the past.
 		if(logProgress)
 			infoLogger() << "thor: Processing timers until " << current << frg::endlog;
 		while(true) {
 			if(_timerQueue.empty()) {
-				_alarm->arm(0);
+				setTimerDeadline(frg::null_opt);
 				return;
 			}
 
@@ -102,8 +99,8 @@ void PrecisionTimerEngine::_progress() {
 
 		// Setup the comparator and iterate if there was a race.
 		assert(!_timerQueue.empty());
-		_alarm->arm(_timerQueue.top()->_deadline);
-		current = _clock->currentNanos();
+		setTimerDeadline(_timerQueue.top()->_deadline);
+		current = systemClockSource()->currentNanos();
 	} while(_timerQueue.top()->_deadline <= current);
 }
 
@@ -112,7 +109,7 @@ ClockSource *systemClockSource() {
 }
 
 PrecisionTimerEngine *generalTimerEngine() {
-	return globalTimerEngine;
+	return &timerEngine.get();
 }
 
 } // namespace thor

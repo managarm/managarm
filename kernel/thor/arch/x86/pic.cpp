@@ -11,6 +11,7 @@
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 
 namespace thor {
 
@@ -125,6 +126,14 @@ void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	LocalApicContext::_updateLocalTimer();
 }
 
+void setTimerDeadline(frg::optional<uint64_t> deadline) {
+	if (deadline) {
+		globalApicContext()->globalAlarm()->arm(*deadline);
+	} else {
+		globalApicContext()->globalAlarm()->arm(0);
+	}
+}
+
 LocalApicContext::LocalApicContext()
 : _timerDeadline{0}, _preemptionDeadline{0} { }
 
@@ -155,7 +164,7 @@ void LocalApicContext::handleTimerIrq() {
 
 	if(self->_timerDeadline && now > self->_timerDeadline) {
 		self->_timerDeadline = 0;
-		globalApicContext()->_globalAlarmInstance.fireAlarm();
+		generalTimerEngine()->firedAlarm();
 	}
 
 	localApicContext()->_updateLocalTimer();
@@ -345,7 +354,6 @@ namespace {
 extern ClockSource *hpetClockSource;
 extern AlarmTracker *hpetAlarmTracker;
 extern ClockSource *globalClockSource;
-extern PrecisionTimerEngine *globalTimerEngine;
 
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
@@ -394,10 +402,6 @@ static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
 
 			globalClockSource = hpetClockSource;
 		}
-
-		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
-				globalClockSource, globalApicContext()->globalAlarm());
-	//			globalClockSource, hpetAlarmTracker);
 	}
 };
 

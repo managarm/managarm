@@ -8,6 +8,7 @@
 #include <frg/intrusive.hpp>
 #include <frg/pairing_heap.hpp>
 #include <frg/spinlock.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -115,15 +116,15 @@ struct CompareTimer {
 	}
 };
 
-struct PrecisionTimerEngine final : private AlarmSink {
+struct PrecisionTimerEngine final {
 	friend struct PrecisionTimerNode;
 
 private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm);
-	
+	PrecisionTimerEngine() = default;
+
 	void installTimer(PrecisionTimerNode *timer);
 
 	// ----------------------------------------------------------------------------------
@@ -190,13 +191,11 @@ public:
 private:
 	void cancelTimer(PrecisionTimerNode *timer);
 
+public:
 	void firedAlarm();
 
 private:
 	void _progress();
-
-	ClockSource *_clock;
-	AlarmTracker *_alarm;
 
 	Mutex _mutex;
 
@@ -209,7 +208,7 @@ private:
 		>,
 		CompareTimer
 	> _timerQueue;
-	
+
 	size_t _activeTimers;
 };
 
