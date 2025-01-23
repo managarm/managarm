@@ -121,16 +121,12 @@ GlobalApicContext *globalApicContext() {
 void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
 	assert(localApicContext()->timersAreCalibrated);
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&globalApicContext()->_mutex);
-		globalApicContext()->_globalDeadline = nanos;
-	}
+	localApicContext()->_timerDeadline = nanos;
 	LocalApicContext::_updateLocalTimer();
 }
 
 LocalApicContext::LocalApicContext()
-: _preemptionDeadline{0}, _globalDeadline{0} { }
+: _timerDeadline{0}, _preemptionDeadline{0} { }
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
 	assert(localApicContext()->timersAreCalibrated);
@@ -157,16 +153,9 @@ void LocalApicContext::handleTimerIrq() {
 		localScheduler()->forcePreemptionCall();
 	}
 
-	if(self->_globalDeadline && now > self->_globalDeadline) {
-		self->_globalDeadline = 0;
+	if(self->_timerDeadline && now > self->_timerDeadline) {
+		self->_timerDeadline = 0;
 		globalApicContext()->_globalAlarmInstance.fireAlarm();
-
-		// Update the global deadline to avoid calling fireAlarm() on the next IRQ.
-		{
-			auto irq_lock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&globalApicContext()->_mutex);
-			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
-		}
 	}
 
 	localApicContext()->_updateLocalTimer();
@@ -181,15 +170,8 @@ void LocalApicContext::_updateLocalTimer() {
 			deadline = dc;
 	};
 
-	// Copy the global deadline so we can access it without locking.
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&globalApicContext()->_mutex);
-		localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
-	}
-
+	consider(localApicContext()->_timerDeadline);
 	consider(localApicContext()->_preemptionDeadline);
-	consider(localApicContext()->_globalDeadline);
 
 	if(localApicContext()->useTscMode) {
 		ostrace::emit(ostEvtArmCpuTimer);

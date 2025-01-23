@@ -97,8 +97,8 @@ private:
 	static void _updateLocalTimer();
 
 private:
+	uint64_t _timerDeadline;
 	uint64_t _preemptionDeadline;
-	uint64_t _globalDeadline;
 };
 
 GlobalApicContext *globalApicContext();
