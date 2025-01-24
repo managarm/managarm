@@ -521,8 +521,14 @@ public:
 		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 			int protocol = 0;
 			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else if(layer == SOL_SOCKET && number == SO_TYPE) {
+			int socktype = socktype_;
+			memcpy(optbuf.data(), &socktype, std::min(optbuf.size(), sizeof(socktype)));
+		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
+			int listen = listen_;
+			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
 		} else {
-			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
 		}
 
