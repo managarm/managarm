@@ -535,6 +535,13 @@ public:
 		co_return {};
 	}
 
+	async::result<frg::expected<protocols::fs::Error>> setSocketOption(int layer, int number,
+		std::vector<char> optbuf) override {
+		(void)optbuf;
+		printf("posix un-socket: unhandled setsockopt layer %d number %d\n", layer, number);
+		co_return protocols::fs::Error::invalidProtocolOption;
+	}
+
 	async::result<void>
 	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
 		managarm::fs::GenericIoctlReply resp;
