@@ -67,8 +67,9 @@ void PrecisionTimerEngine::firedAlarm() {
 	_progress();
 }
 
-// This function is somewhat complicated because we have to avoid a race between
-// the comparator setup and the main counter.
+// This function unconditionally calls into setTimerDeadline().
+// This is necessary since we assume that timer IRQs are one shot
+// and not necessarily perfectly accurate.
 void PrecisionTimerEngine::_progress() {
 	assert(getCpuData() == _ourCpu);
 
@@ -101,9 +102,12 @@ void PrecisionTimerEngine::_progress() {
 			}
 		}
 
-		// Setup the comparator and iterate if there was a race.
+		// Setup the interrupt.
 		assert(!_timerQueue.empty());
 		setTimerDeadline(_timerQueue.top()->_deadline);
+
+		// We iterate if there was a race.
+		// Technically, this is optional but it may help to avoid unnecessary IRQs.
 		current = systemClockSource()->currentNanos();
 	} while(_timerQueue.top()->_deadline <= current);
 }
