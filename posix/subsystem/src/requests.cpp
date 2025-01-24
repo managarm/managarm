@@ -2042,50 +2042,62 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
-		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
-			logRequest(logRequests, "DUP2", "fd={}", req.fd());
+		}else if(preamble.id() == bragi::message_id<managarm::posix::Dup2Request>) {
+			auto req = bragi::parse_head_only<managarm::posix::Dup2Request>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+			if(logRequests)
+				logRequest(logRequests, "DUP2", "fd={}", req->fd());
 
-			auto file = self->fileContext()->getFile(req.fd());
+			auto file = self->fileContext()->getFile(req->fd());
 
-			if (!file || req.newfd() < 0) {
-				helix::SendBuffer send_resp;
+			managarm::posix::Dup2Response resp;
 
-				managarm::posix::SvrResponse resp;
+			if (!file || req->newfd() < 0) {
 				resp.set_error(managarm::posix::Errors::BAD_FD);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
 
-			if(req.flags()) {
-				helix::SendBuffer send_resp;
+			if(req->flags()) {
+				if(!(req->flags() & O_CLOEXEC)) {
+						resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+						auto [send_resp] = co_await helix_ng::exchangeMsgs(
+							conversation,
+							helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+						);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
-				HEL_CHECK(send_resp.error());
-				continue;
+						HEL_CHECK(send_resp.error());
+						continue;
+				}
 			}
+			bool closeOnExec = (req->flags() & O_CLOEXEC);
 
-			self->fileContext()->attachFile(req.newfd(), file);
+			int result = req->newfd();
+			if(req->fcntl_mode())
+				result = self->fileContext()->attachFile(file, closeOnExec, req->newfd());
+			else
+				self->fileContext()->attachFile(req->newfd(), file, closeOnExec);
 
-			helix::SendBuffer send_resp;
-
-			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			if(result != req->newfd())
+				resp.set_fd(result);
+			else
+				resp.set_fd(req->newfd());
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
 			auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(recv_head);

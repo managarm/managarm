@@ -618,3 +618,17 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_usec;
 }
+
+message Dup2Request 101 {
+head(128):
+	int32 fd;
+	int32 newfd;
+	int32 flags;
+	int32 fcntl_mode;
+}
+
+message Dup2Response 102 {
+head(128):
+	Errors error;
+	int32 fd;
+}
