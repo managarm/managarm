@@ -54,33 +54,10 @@ private:
 	static constexpr uint32_t x2apic_msr_base = 0x800;
 };
 
-struct GlobalApicContext {
-	friend struct LocalApicContext;
-
-	struct GlobalAlarmSlot final : AlarmTracker {
-		using AlarmTracker::fireAlarm;
-
-		void arm(uint64_t nanos) override;
-	};
-
-	AlarmTracker *globalAlarm() {
-		return &_globalAlarmInstance;
-	}
-
-private:
-	GlobalAlarmSlot _globalAlarmInstance;
-
-private:
-	frg::ticket_spinlock _mutex;
-
-	uint64_t _globalDeadline;
-};
-
 struct LocalApicContext {
-	friend struct GlobalApicContext;
-
 	LocalApicContext();
 
+	static void setTimer(uint64_t nanos);
 	static void setPreemption(uint64_t nanos);
 	static bool checkPreemption();
 
@@ -101,8 +78,6 @@ private:
 	uint64_t _preemptionDeadline;
 	uint64_t _currentDeadline{0};
 };
-
-GlobalApicContext *globalApicContext();
 
 initgraph::Stage *getApicDiscoveryStage();
 

@@ -26,37 +26,6 @@ protected:
 
 ClockSource *systemClockSource();
 
-struct AlarmSink {
-	virtual void firedAlarm() = 0;
-
-protected:
-	~AlarmSink() = default;
-};
-
-struct AlarmTracker {
-	AlarmTracker()
-	: _sink{nullptr} { }
-
-	void setSink(AlarmSink *sink) {
-		assert(!_sink.load(std::memory_order_relaxed));
-		_sink.store(sink, std::memory_order_release);
-	}
-
-	virtual void arm(uint64_t nanos) = 0;
-
-protected:
-	void fireAlarm() {
-		auto sink = _sink.load(std::memory_order_acquire);
-		if(sink)
-			sink->firedAlarm();
-	}
-
-	~AlarmTracker() = default;
-
-private:
-	std::atomic<AlarmSink *> _sink;
-};
-
 enum class TimerState {
 	none,
 	queued,

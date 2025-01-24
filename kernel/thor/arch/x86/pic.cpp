@@ -108,34 +108,28 @@ uint64_t getRawTimestampCounter() {
 // --------------------------------------------------------
 
 namespace {
-	frg::eternal<GlobalApicContext> globalApicContextInstance;
-
 	LocalApicContext *localApicContext() {
 		return &getCpuData()->apicContext;
 	}
 }
 
-GlobalApicContext *globalApicContext() {
-	return &globalApicContextInstance.get();
-}
-
-void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
-	assert(localApicContext()->timersAreCalibrated);
-
-	localApicContext()->_timerDeadline = nanos;
-	LocalApicContext::_updateLocalTimer();
-}
-
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
-		globalApicContext()->globalAlarm()->arm(*deadline);
+		localApicContext()->setTimer(*deadline);
 	} else {
-		globalApicContext()->globalAlarm()->arm(0);
+		localApicContext()->setTimer(0);
 	}
 }
 
 LocalApicContext::LocalApicContext()
 : _timerDeadline{0}, _preemptionDeadline{0} { }
+
+void LocalApicContext::setTimer(uint64_t nanos) {
+	assert(localApicContext()->timersAreCalibrated);
+
+	localApicContext()->_timerDeadline = nanos;
+	LocalApicContext::_updateLocalTimer();
+}
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
 	assert(localApicContext()->timersAreCalibrated);
@@ -360,7 +354,6 @@ namespace {
 }
 
 extern ClockSource *hpetClockSource;
-extern AlarmTracker *hpetAlarmTracker;
 extern ClockSource *globalClockSource;
 
 void calibrateApicTimer() {
