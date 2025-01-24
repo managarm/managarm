@@ -56,7 +56,7 @@ with open(args.profile_path, 'rb') as f:
 			n_kernel += 1
 
 		if args.aggregate_by == 'symbol':
-			idx = bisect.bisect_left(sym_index, ip)
+			idx = bisect.bisect_right(sym_index, ip)
 			if idx == 0:
 				continue
 			start, symbol = sym_table[idx - 1];
@@ -83,9 +83,11 @@ with open(args.profile_path, 'rb') as f:
 
 n_all = n_user + n_kernel
 
+cumulative = 0
 out = sorted(profile.keys(), key=lambda loc: profile[loc])
 for loc in out:
-	print("{:.2f}% ({} samples) in:".format(profile[loc]/n_kernel*100, profile[loc]))
+	print("{:.2f}% (cumulative: {:.2f}%) ({} samples) in:".format(profile[loc]/n_kernel*100, 100-cumulative/n_kernel*100, profile[loc]))
 	print("    {} in {}".format(loc[0], loc[1]))
+	cumulative += profile[loc]
 print("{} (= {:.2f}% of all samples) in the kernel".format(n_kernel, n_kernel/(n_user + n_kernel)*100))
 print("{:.2f}% of all kernel samples could be resolved".format(n_resolved/n_kernel*100))
