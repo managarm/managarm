@@ -525,7 +525,7 @@ extern "C" void onPlatformWork() {
 
 namespace {
 	void interruptIseq(IseqContext *iseq, NmiImageAccessor image) {
-		if (!(iseq->state & IseqContext::STATE_TX))
+		if (!(iseq->state & IseqContext::STATE_TX)) [[likely]]
 			return;
 
 		// Always set the interrupted flag.
@@ -561,6 +561,8 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	if(pmcMechanism == ProfileMechanism::intelPmc && checkIntelPmcOverflow()) {
 		uintptr_t ip = *image.ip();
 		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
+		// Note: on Intel, the PMI is automatically masked on raises.
+		LocalApicContext::clearPmi();
 		setIntelPmc();
 		explained = true;
 	}else if(pmcMechanism == ProfileMechanism::amdPmc && checkAmdPmcOverflow()) {
@@ -570,7 +572,7 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 		explained = true;
 	}
 
-	if(!explained) {
+	if(!explained) [[unlikely]] {
 		infoLogger() << "thor [CPU " << getLocalApicId()
 				<< "]: NMI triggered at heartbeat "
 				<< cpuData->heartbeat.load(std::memory_order_relaxed) << frg::endlog;

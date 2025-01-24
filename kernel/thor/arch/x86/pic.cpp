@@ -233,6 +233,10 @@ void LocalApicContext::_updateLocalTimer() {
 	}
 }
 
+void LocalApicContext::clearPmi() {
+	picBase.store(lApicLvtPerfCount, apicLvtMode(4));
+}
+
 void armPreemption(uint64_t nanos) {
 	LocalApicContext::setPreemption(systemClockSource()->currentNanos() + nanos);
 }

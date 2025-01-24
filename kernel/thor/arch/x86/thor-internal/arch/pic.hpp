@@ -86,6 +86,8 @@ struct LocalApicContext {
 
 	static void handleTimerIrq();
 
+	static void clearPmi();
+
 	bool useTscMode = false;
 	bool timersAreCalibrated = false;
 	uint32_t localTicksPerMilli = 0;
