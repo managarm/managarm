@@ -375,19 +375,19 @@ FileContext::~FileContext() {
 }
 
 int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
-		bool close_on_exec) {
+		bool closeOnExec, int startAt) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
 			_universe.getHandle(), &handle));
 
-	for(int fd = 0; ; fd++) {
+	for(int fd = startAt; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
 
 		if(logFileAttach)
 			std::cout << "posix: Attaching FD " << fd << std::endl;
 
-		_fileTable.insert({fd, {std::move(file), close_on_exec}});
+		_fileTable.insert({fd, {std::move(file), closeOnExec}});
 		_fileTableWindow[fd] = handle;
 		return fd;
 	}
