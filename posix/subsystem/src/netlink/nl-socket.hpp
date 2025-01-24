@@ -36,11 +36,7 @@ public:
 
 	void deliver(core::netlink::Packet packet) override;
 
-	void handleClose() override {
-		_isClosed = true;
-		_statusBell.raise();
-		_cancelServe.cancel();
-	}
+	void handleClose() override;
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -122,6 +118,9 @@ private:
 
 	// BPF filter
 	std::optional<std::vector<char>> filter_ = std::nullopt;
+
+	// Group subscriptions
+	uint32_t joinedGroups_ = 0;
 };
 
 // Configures the given netlink protocol.
