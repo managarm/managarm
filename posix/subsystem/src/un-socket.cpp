@@ -84,7 +84,7 @@ public:
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
-			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype} {
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, listen_{false} {
 		if(process)
 			_ownerPid = process->pid();
 	}
@@ -300,6 +300,11 @@ public:
 		assert(option == SO_PASSCRED);
 		_passCreds = value;
 		co_return;
+	}
+
+	async::result<protocols::fs::Error> listen() override {
+		listen_ = true;
+		co_return protocols::fs::Error::none;
 	}
 
 	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
@@ -647,6 +652,8 @@ private:
 	bool _isInherited;
 
 	int32_t socktype_;
+
+	bool listen_;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
