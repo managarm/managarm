@@ -99,6 +99,7 @@ private:
 private:
 	uint64_t _timerDeadline;
 	uint64_t _preemptionDeadline;
+	uint64_t _currentDeadline{0};
 };
 
 GlobalApicContext *globalApicContext();

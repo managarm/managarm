@@ -157,6 +157,8 @@ void LocalApicContext::handleTimerIrq() {
 	auto self = localApicContext();
 	auto now = systemClockSource()->currentNanos();
 
+	self->_currentDeadline = 0;
+
 	if(self->_preemptionDeadline && now > self->_preemptionDeadline) {
 		self->_preemptionDeadline = 0;
 		localScheduler()->forcePreemptionCall();
@@ -182,7 +184,13 @@ void LocalApicContext::_updateLocalTimer() {
 	consider(localApicContext()->_timerDeadline);
 	consider(localApicContext()->_preemptionDeadline);
 
+	// Avoid re-programming the timer if the deadline did not change.
+	if (deadline == localApicContext()->_currentDeadline)
+		return;
+	localApicContext()->_currentDeadline = deadline;
+
 	if(localApicContext()->useTscMode) {
+
 		ostrace::emit(ostEvtArmCpuTimer);
 
 		if(!deadline) {
