@@ -14,6 +14,7 @@
 
 namespace thor {
 
+struct CpuData;
 struct PrecisionTimerEngine;
 
 struct ClockSource {
@@ -123,7 +124,8 @@ private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	PrecisionTimerEngine() = default;
+	PrecisionTimerEngine(CpuData *ourCpu)
+	: _ourCpu{ourCpu} {}
 
 	void installTimer(PrecisionTimerNode *timer);
 
@@ -196,6 +198,8 @@ public:
 
 private:
 	void _progress();
+
+	CpuData *_ourCpu;
 
 	Mutex _mutex;
 

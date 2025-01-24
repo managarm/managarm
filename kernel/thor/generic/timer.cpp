@@ -59,6 +59,8 @@ void PrecisionTimerEngine::cancelTimer(PrecisionTimerNode *timer) {
 }
 
 void PrecisionTimerEngine::firedAlarm() {
+	assert(getCpuData() == _ourCpu);
+
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -68,6 +70,8 @@ void PrecisionTimerEngine::firedAlarm() {
 // This function is somewhat complicated because we have to avoid a race between
 // the comparator setup and the main counter.
 void PrecisionTimerEngine::_progress() {
+	assert(getCpuData() == _ourCpu);
+
 	auto current = systemClockSource()->currentNanos();
 	do {
 		// Process all timers that elapsed in the past.

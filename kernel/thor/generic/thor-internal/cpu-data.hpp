@@ -76,6 +76,10 @@ inline CpuData *getCpuData() {
 
 extern "C" char percpuStart[], percpuEnd[];
 
+template<typename T>
+concept HasCpuDataConstructor = requires(CpuData *cpuData) {
+	{ T(cpuData) };
+};
 
 // To add a new per-CPU variable, add a forward declaration like
 // "extern PerCpu<Foo> foo;" in a header or source file, and then use
@@ -109,7 +113,11 @@ struct PerCpu {
 
 		auto ptr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(context) + offset);
 
-		new(ptr) T{}; // Value-initialize primitive types.
+		if constexpr (HasCpuDataConstructor<T>) {
+			new(ptr) T{context};
+		} else {
+			new(ptr) T{}; // Value-initialize primitive types.
+		}
 	}
 
 private:
