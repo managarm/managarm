@@ -344,7 +344,7 @@ void IrqPin::warnIfPending() {
 	if(!_inService || (_maskState & maskedForNack))
 		return;
 
-	if(systemClockSource()->currentNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
+	if(getClockNanos() - _raiseClock > 1000000000 && !_warnedAfterPending) {
 		auto log = debugLogger();
 		log << "thor: Pending IRQ " << _name << " has not been"
 				" acked/nacked for more than one second.";
@@ -377,7 +377,7 @@ void IrqPin::_doService() {
 	_dispatchAcks = false;
 	_dispatchKicks = false;
 
-	_raiseClock = systemClockSource()->currentNanos();
+	_raiseClock = getClockNanos();
 	_warnedAfterPending = false;
 
 	if(_sinkList.empty())

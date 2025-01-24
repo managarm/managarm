@@ -10,8 +10,6 @@ static constexpr bool logProgress = false;
 extern PerCpu<PrecisionTimerEngine> timerEngine;
 THOR_DEFINE_PERCPU(timerEngine);
 
-ClockSource *globalClockSource;
-
 void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	assert(!timer->_engine);
 	timer->_engine = this;
@@ -21,7 +19,7 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	assert(timer->_state == TimerState::none);
 
 	if(logTimers) {
-		auto current = systemClockSource()->currentNanos();
+		auto current = getClockNanos();
 		infoLogger() << "thor: Setting timer at " << timer->_deadline
 				<< " (counter is " << current << ")" << frg::endlog;
 	}
@@ -73,7 +71,7 @@ void PrecisionTimerEngine::firedAlarm() {
 void PrecisionTimerEngine::_progress() {
 	assert(getCpuData() == _ourCpu);
 
-	auto current = systemClockSource()->currentNanos();
+	auto current = getClockNanos();
 	do {
 		// Process all timers that elapsed in the past.
 		if(logProgress)
@@ -108,12 +106,8 @@ void PrecisionTimerEngine::_progress() {
 
 		// We iterate if there was a race.
 		// Technically, this is optional but it may help to avoid unnecessary IRQs.
-		current = systemClockSource()->currentNanos();
+		current = getClockNanos();
 	} while(_timerQueue.top()->_deadline <= current);
-}
-
-ClockSource *systemClockSource() {
-	return globalClockSource;
 }
 
 PrecisionTimerEngine *generalTimerEngine() {

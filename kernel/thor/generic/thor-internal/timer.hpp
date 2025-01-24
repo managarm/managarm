@@ -24,8 +24,6 @@ protected:
 	~ClockSource() = default;
 };
 
-ClockSource *systemClockSource();
-
 enum class TimerState {
 	none,
 	queued,
@@ -124,7 +122,7 @@ public:
 	}
 
 	SleepSender sleepFor(uint64_t nanos, async::cancellation_token cancellation = {}) {
-		return {this, systemClockSource()->currentNanos() + nanos, cancellation};
+		return {this, getClockNanos() + nanos, cancellation};
 	}
 
 	template<typename R>

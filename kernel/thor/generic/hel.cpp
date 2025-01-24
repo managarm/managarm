@@ -2258,7 +2258,7 @@ HelError helReadGsBase(void **pointer) {
 }
 
 HelError helGetClock(uint64_t *counter) {
-	*counter = systemClockSource()->currentNanos();
+	*counter = getClockNanos();
 	return kHelErrNone;
 }
 

@@ -56,7 +56,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 	auto *thisNode = &lbNode.get(cpu);
 
 	bool joined = false;
-	uint64_t lastDecay = systemClockSource()->currentNanos();
+	uint64_t lastDecay = getClockNanos();
 
 	while(true) {
 		// Global barrier to wait for initiation of load balancing.
@@ -73,7 +73,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 			infoLogger() << "CPU #" << cpu->cpuIndex << " enters load balancing" << frg::endlog;
 
 		bool applyDecay = false;
-		auto now = systemClockSource()->currentNanos();
+		auto now = getClockNanos();
 		if (now - lastDecay >= lbDecayInterval) {
 			applyDecay = true;
 			lastDecay = now;
@@ -146,7 +146,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		// Balance load again after some time has passed.
 		// Note that we only wait on CPU zero. All other CPUs wait on the barrier instead.
 		if (!cpu->cpuIndex)
-			co_await generalTimerEngine()->sleep(systemClockSource()->currentNanos() + lbInterval);
+			co_await generalTimerEngine()->sleep(getClockNanos() + lbInterval);
 	}
 
 	co_return;

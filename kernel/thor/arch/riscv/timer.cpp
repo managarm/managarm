@@ -11,8 +11,6 @@
 
 namespace thor {
 
-extern ClockSource *globalClockSource;
-
 namespace {
 
 // Frequency and inverse frequency of the CPU timer in nHz and ns, respectively.
@@ -40,12 +38,6 @@ void updateSmodeTimer() {
 		sbi::time::setTimer(deadline);
 	}
 }
-
-struct RiscvClockSource : ClockSource {
-	uint64_t currentNanos() override { return inverseFreq * getRawTimestampCounter(); }
-};
-
-constinit frg::manual_box<RiscvClockSource> riscvClockSource;
 
 initgraph::Task initTimer{
     &globalInitEngine,
@@ -78,10 +70,6 @@ initgraph::Task initTimer{
 	    uint64_t divisor = 1'000'000'000;
 	    freq = computeFreqFraction(freqSeconds, divisor);
 	    inverseFreq = computeFreqFraction(divisor, freqSeconds);
-
-	    riscvClockSource.initialize();
-
-	    globalClockSource = riscvClockSource.get();
     }
 };
 
@@ -91,6 +79,10 @@ uint64_t getRawTimestampCounter() {
 	uint64_t v;
 	asm volatile("rdtime %0" : "=r"(v));
 	return v;
+}
+
+uint64_t getClockNanos() {
+	return inverseFreq * getRawTimestampCounter();
 }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {

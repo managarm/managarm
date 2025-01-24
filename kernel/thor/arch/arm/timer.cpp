@@ -43,8 +43,6 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 	}
 };
 
-extern ClockSource *globalClockSource;
-
 struct VirtualGenericTimer : IrqSink {
 	VirtualGenericTimer()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "virtual-generic-timer-irq"}} { }
@@ -63,7 +61,7 @@ struct VirtualGenericTimer : IrqSink {
 			return;
 		}
 
-		auto now = systemClockSource()->currentNanos();
+		auto now = getClockNanos();
 		auto diff = deadline - now;
 
 		if (deadline < now) {
@@ -82,6 +80,10 @@ struct VirtualGenericTimer : IrqSink {
 
 frg::manual_box<PhysicalGenericTimer> globalPGTInstance;
 frg::manual_box<VirtualGenericTimer> globalVGTInstance;
+
+uint64_t getClockNanos() {
+	return globalPGTInstance->currentNanos();
+}
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
@@ -127,8 +129,6 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
 		globalPGTInstance.initialize();
-		globalClockSource = globalPGTInstance.get();
-
 		globalVGTInstance.initialize();
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {

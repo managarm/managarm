@@ -125,7 +125,7 @@ private:
 		if(preamble.id() == bragi::message_id<managarm::clock::GetRtcTimeRequest>) {
 			managarm::clock::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::clock::Error::SUCCESS);
-			resp.set_ref_nanos(systemClockSource()->currentNanos());
+			resp.set_ref_nanos(getClockNanos());
 			resp.set_rtc_nanos(getCmosTime());
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));

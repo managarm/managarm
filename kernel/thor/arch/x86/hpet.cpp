@@ -103,7 +103,7 @@ public:
 public:
 	void arm(uint64_t nanos) {
 		uint64_t ticks;
-		auto now = systemClockSource()->currentNanos();
+		auto now = getClockNanos();
 		if(nanos < now) {
 			ticks = 1;
 		}else{

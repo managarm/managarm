@@ -447,7 +447,7 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
-	_lastRunTimeUpdate = systemClockSource()->currentNanos();
+	_lastRunTimeUpdate = getClockNanos();
 }
 
 Thread::~Thread() {
@@ -574,7 +574,7 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 }
 
 void Thread::_updateRunTime() {
-	auto now = systemClockSource()->currentNanos();
+	auto now = getClockNanos();
 	assert(now >= _lastRunTimeUpdate);
 	auto elapsed = now - _lastRunTimeUpdate;
 	if (_runState == kRunActive || _runState == kRunSuspended || _runState == kRunDeferred) {
