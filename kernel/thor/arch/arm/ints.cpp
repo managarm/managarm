@@ -210,12 +210,12 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 }
 
 void handleIrq(IrqImageAccessor image, IrqPin *irq);
-void handlePreemption(IrqImageAccessor image);
 
 static constexpr bool logSGIs = false;
 static constexpr bool logSpurious = false;
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
+	auto *cpuData = getCpuData();
 	auto [cpu, irq] = gic->getIrq();
 
 	asm volatile ("isb" ::: "memory");
@@ -227,7 +227,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 		gic->eoi(cpu, irq);
 
 		if (irq == 0) {
-			handlePreemption(image);
+			cpuData->scheduler.forcePreemptionCall();
 		} else if (irq == 1) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
@@ -244,6 +244,8 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 		} else {
 			panicLogger() << "Received unexpected SGI number " << irq << frg::endlog;
 		}
+
+		cpuData->scheduler.checkPreemption(image);
 	} else if (irq >= 1020) {
 		if constexpr (logSpurious)
 			infoLogger() << "thor: on CPU " << getCpuData()->cpuIndex << ", spurious IRQ " << irq << " occured" << frg::endlog;
