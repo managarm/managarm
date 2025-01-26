@@ -152,8 +152,10 @@ void LocalApicContext::handleTimerIrq() {
 	auto self = localApicContext();
 	auto now = systemClockSource()->currentNanos();
 
-	if(self->_preemptionDeadline && now > self->_preemptionDeadline)
+	if(self->_preemptionDeadline && now > self->_preemptionDeadline) {
 		self->_preemptionDeadline = 0;
+		localScheduler()->forcePreemptionCall();
+	}
 
 	if(self->_globalDeadline && now > self->_globalDeadline) {
 		self->_globalDeadline = 0;
