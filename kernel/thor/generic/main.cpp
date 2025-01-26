@@ -497,12 +497,9 @@ void handleIrq(IrqImageAccessor image, IrqPin *irq) {
 	entropy[5] = (tsc >> 24) & 0xFF;
 	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
 
-	// This IRQ may have woken up threads on this CPU.
-	// Call handlePreemption() to check for preemption (e.g., due to a change in priority)
-	// and to renew the schedule (e.g., if the length of the time slice has changed).
 	// See Scheduler::resume() for details.
-	assert(image.inPreemptibleDomain());
-	localScheduler()->currentRunnable()->handlePreemption(image);
+	auto *scheduler = &cpuData->scheduler;
+	scheduler->checkPreemption(image);
 }
 
 void handlePreemption(IrqImageAccessor image) {
