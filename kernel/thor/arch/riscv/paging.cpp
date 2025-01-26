@@ -27,7 +27,13 @@ void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
 	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
 }
 
-void switchAwayFromPageTable(int asid) { unimplementedOnRiscv(); }
+void switchAwayFromPageTable(int asid) {
+	// Switch to kernel page tables and invalidate.
+	auto root = KernelPageSpace::global().rootTable();
+	uint64_t mode = 8 + (ClientCursorPolicy::numLevels() - 3);
+	riscv::writeCsr<riscv::Csr::satp>((root >> 12) | (mode << 60));
+	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
+}
 
 void invalidateAsid(int asid) {
 	asm volatile("sfence.vma" : : : "memory"); // This is too coarse (also invalidates global).
