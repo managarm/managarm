@@ -31,7 +31,6 @@ static constexpr bool logEveryPageFault = false;
 static constexpr bool logUnhandledPageFaults = false;
 static constexpr bool logEveryIrq = false;
 static constexpr bool logOtherFaults = false;
-static constexpr bool logPreemptionIrq = false;
 static constexpr bool logEverySyscall = false;
 
 bool debugToSerial = false;
@@ -500,16 +499,6 @@ void handleIrq(IrqImageAccessor image, IrqPin *irq) {
 	// See Scheduler::resume() for details.
 	auto *scheduler = &cpuData->scheduler;
 	scheduler->checkPreemption(image);
-}
-
-void handlePreemption(IrqImageAccessor image) {
-	assert(!intsAreEnabled());
-
-	if(logPreemptionIrq)
-		infoLogger() << "thor: Preemption IRQ" << frg::endlog;
-
-	assert(image.inPreemptibleDomain());
-	localScheduler()->currentRunnable()->handlePreemption(image);
 }
 
 void handleSyscall(SyscallImageAccessor image) {
