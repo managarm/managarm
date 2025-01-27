@@ -296,7 +296,6 @@ bool inStub(uintptr_t ip) {
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
 void handleIrq(IrqImageAccessor image, IrqPin *irq);
-void handlePreemption(IrqImageAccessor image);
 void handleSyscall(SyscallImageAccessor image);
 
 void handleDebugFault(FaultImageAccessor image) {
@@ -434,7 +433,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 
 	acknowledgeIrq(0);
 
-	handlePreemption(image);
+	localScheduler()->checkPreemption(image);
 }
 
 extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
@@ -468,6 +467,8 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	getCpuData()->asidData->globalBinding.shootdown();
 
 	acknowledgeIpi();
+
+	localScheduler()->checkPreemption(image);
 }
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
@@ -486,7 +487,9 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 
 	acknowledgeIpi();
 
-	handlePreemption(image);
+	auto *scheduler = localScheduler();
+	scheduler->forcePreemptionCall();
+	scheduler->checkPreemption(image);
 }
 
 extern "C" void onPlatformCall(IrqImageAccessor image) {
@@ -506,6 +509,8 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 	acknowledgeIpi();
 
 	SelfIntCallBase::runScheduledCalls();
+
+	localScheduler()->checkPreemption(image);
 }
 
 extern "C" void onPlatformWork() {

@@ -12,7 +12,6 @@ THOR_DEFINE_PERCPU(riscvExternalIrq);
 extern "C" [[noreturn]] void thorRestoreExecutorRegs(void *frame);
 
 // TODO: Move declaration to header.
-void handlePreemption(IrqImageAccessor image);
 void handleIrq(IrqImageAccessor image, IrqPin *irq);
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode);
 void handleOtherFault(FaultImageAccessor image, Interrupt fault);
@@ -112,6 +111,9 @@ void handleRiscvIpi(Frame *frame) {
 	// Read the bitmask of pending IPIs and process all of them.
 	auto mask = cpuData->pendingIpis.exchange(0, std::memory_order_acq_rel);
 
+	if (mask & PlatformCpuData::ipiPing)
+		cpuData->scheduler.forcePreemptionCall();
+
 	if (mask & PlatformCpuData::ipiShootdown) {
 		for (auto &binding : getCpuData()->asidData->bindings)
 			binding.shootdown();
@@ -122,10 +124,7 @@ void handleRiscvIpi(Frame *frame) {
 	if (mask & PlatformCpuData::ipiSelfCall)
 		SelfIntCallBase::runScheduledCalls();
 
-	// Note: since the following code can re-schedule and discard the current call chain,
-	//       we *must* handle ping IPIs last.
-	if (mask & PlatformCpuData::ipiPing)
-		handlePreemption(IrqImageAccessor{frame});
+	cpuData->scheduler.checkPreemption(IrqImageAccessor{frame});
 }
 
 void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }

@@ -112,6 +112,31 @@ private:
 	int64_t _liveRuntime(const ScheduleEntity *entity);
 
 public:
+	// This function *must* be called in IRQ/fault/syscall exit paths
+	// if the IRQ/fault/syscall handler may have woken up threads.
+	// Note that this includes timer interrupts and IPIs.
+	//
+	// In particular, we need to check for preemption (e.g., due to a change in priority)
+	// and/or renew the schedule (e.g., if the length of the time slice has changed).
+	// See Scheduler::resume() for details.
+	//
+	// If this function returns true, IRQs/faults/syscalls *must* call into handlePreemption().
+	bool mustCallPreemption() {
+		return _mustCallPreemption;
+	}
+
+	// Force mustCallPreemption() to return true.
+	// For example, this is useful to implement the preemption IRQ.
+	void forcePreemptionCall() {
+		_mustCallPreemption = true;
+	}
+
+	void checkPreemption(IrqImageAccessor image) {
+		assert(image.inPreemptibleDomain());
+		if (mustCallPreemption())
+			currentRunnable()->handlePreemption(image);
+	}
+
 	void update();
 	void updateState();
 	void updateQueue();
@@ -152,6 +177,9 @@ private:
 	> _waitQueue;
 
 	size_t _numWaiting = 0;
+
+	// See mustCallPreemption().
+	bool _mustCallPreemption{false};
 
 	// The last tick at which the scheduler's state (i.e. progress) was updated.
 	// In our model this is the time point at which slice T started.

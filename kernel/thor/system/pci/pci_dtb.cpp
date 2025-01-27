@@ -66,7 +66,7 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			}
 		}
 
-#ifdef __aarch64
+#ifdef __aarch64__
 		// TODO: Get rid of this case, the one below is more general.
 		for (auto ent : map) {
 			auto addr = ent.childAddrHi + disp;

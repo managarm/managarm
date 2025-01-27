@@ -10,9 +10,6 @@
 
 namespace thor {
 
-// TODO: Move declaration to header.
-void handlePreemption(IrqImageAccessor image);
-
 extern ClockSource *globalClockSource;
 extern PrecisionTimerEngine *globalTimerEngine;
 
@@ -148,13 +145,13 @@ void onTimerInterrupt(IrqImageAccessor image) {
 	updateSmodeTimer();
 
 	// Finally, take action for the deadlines that have expired.
-	// Note that preemption has to be done last.
-
 	if (timerExpired)
 		riscvTimer->fireAlarm();
 
 	if (preemptionExpired)
-		handlePreemption(image);
+		cpuData->scheduler.forcePreemptionCall();
+
+	cpuData->scheduler.checkPreemption(image);
 }
 
 } // namespace thor

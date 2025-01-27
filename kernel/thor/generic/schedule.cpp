@@ -143,6 +143,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 
 			// TODO: In the case of kernel threads, it can be necessary to issue a self IPI
 			//       to ensure that a higher priority thread gets to run as soon as possible.
+			self->_mustCallPreemption = true;
 		}else{
 			sendPingIpi(self->_cpuContext);
 		}
@@ -301,6 +302,7 @@ void Scheduler::forceReschedule() {
 	_current = _scheduled;
 	_scheduled = nullptr;
 	_sliceClock = _refClock;
+	_mustCallPreemption = false;
 
 	if(!preemptionIsArmed())
 		_updatePreemption();
@@ -309,6 +311,8 @@ void Scheduler::forceReschedule() {
 }
 
 void Scheduler::renewSchedule() {
+	_mustCallPreemption = false;
+
 	if(!preemptionIsArmed())
 		_updatePreemption();
 }
