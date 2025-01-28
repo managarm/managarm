@@ -136,10 +136,6 @@ head(128):
 
 		tag(34) int64 pid;
 
-		// used by MOUNT
-		tag(12) string target_path;
-		tag(13) string fs_type;
-
 		// used by OPEN
 		tag(3) OpenFlags flags;
 		tag(10) OpenMode mode;
@@ -153,9 +149,6 @@ head(128):
 
 		// used by READ
 		tag(5) uint32 size;
-
-		// used by WRITE
-		tag(6) uint8[] buffer;
 
 		// used by SEEK_ABS, SEEK_REL
 		tag(11) int64 rel_offset;
