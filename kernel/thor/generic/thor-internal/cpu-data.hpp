@@ -1,6 +1,6 @@
 #pragma once
 
-#include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/executor-context.hpp>
 #include <thor-internal/kernel-locks.hpp>
 

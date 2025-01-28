@@ -4,6 +4,7 @@
 #include <atomic>
 
 #include <frg/container_of.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
