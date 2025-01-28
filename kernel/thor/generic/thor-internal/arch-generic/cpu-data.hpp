@@ -1,5 +1,8 @@
 #pragma once
 
+#include <assert.h>
+#include <atomic>
+#include <smarter.hpp>
 #include <thor-internal/arch/cpu-data.hpp>
 
 namespace thor {

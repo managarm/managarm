@@ -1,6 +1,5 @@
 #pragma once
 
-#include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/kernel-stack.hpp>
 #include <x86/tss.hpp>
 
@@ -33,8 +32,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	UniqueKernelStack nmiStack;
 
 	common::x86::Tss64 tss;
-
-	frg::manual_box<AsidCpuData> asidData;
 
 	bool havePcids = false;
 	bool haveSmap = false;

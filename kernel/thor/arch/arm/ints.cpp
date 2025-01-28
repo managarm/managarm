@@ -232,10 +232,10 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
-			for(auto &binding : getCpuData()->asidData->bindings)
+			for(auto &binding : asidData.get()->bindings)
 				binding.shootdown();
 
-			getCpuData()->asidData->globalBinding.shootdown();
+			asidData.get()->globalBinding.shootdown();
 		} else if (irq == 2) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();

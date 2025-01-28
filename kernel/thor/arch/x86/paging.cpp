@@ -108,9 +108,9 @@ void initializeAsidContext(CpuData *cpuData) {
 	// If PCIDs are not supported, create only one binding.
 	auto pcidCount = getCpuData()->havePcids ? maxPcidCount : 1;
 
-	cpuData->asidData.initialize(pcidCount);
-	cpuData->asidData->globalBinding.initialize(globalBindingId);
-	cpuData->asidData->globalBinding.initialBind(*kernelSpacePtr);
+	asidData.get(cpuData).initialize(pcidCount);
+	asidData.get(cpuData)->globalBinding.initialize(globalBindingId);
+	asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
 }
 
 

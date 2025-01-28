@@ -1,6 +1,5 @@
 #pragma once
 
-#include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/kernel-stack.hpp>
 
 namespace thor {
@@ -31,8 +30,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	int archCpuIndex;
 
 	UniqueKernelStack irqStack;
-
-	frg::manual_box<AsidCpuData> asidData;
 
 	uint32_t profileFlags = 0;
 

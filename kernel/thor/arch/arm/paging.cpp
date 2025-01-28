@@ -102,9 +102,9 @@ void initializeAsidContext(CpuData *cpuData) {
 	auto irqLock = frg::guard(&irqMutex());
 
 	// TODO(qookie): Check the max number of ASIDs. 256 is safe, but it could also be 65536.
-	cpuData->asidData.initialize(256);
-	cpuData->asidData->globalBinding.initialize(globalBindingId);
-	cpuData->asidData->globalBinding.initialBind(*kernelSpacePtr);
+	asidData.get(cpuData).initialize(256);
+	asidData.get(cpuData)->globalBinding.initialize(globalBindingId);
+	asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
 }
 
 

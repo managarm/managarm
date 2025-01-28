@@ -115,10 +115,10 @@ void handleRiscvIpi(Frame *frame) {
 		localScheduler.get(cpuData).forcePreemptionCall();
 
 	if (mask & PlatformCpuData::ipiShootdown) {
-		for (auto &binding : getCpuData()->asidData->bindings)
+		for (auto &binding : asidData.get()->bindings)
 			binding.shootdown();
 
-		getCpuData()->asidData->globalBinding.shootdown();
+		asidData.get()->globalBinding.shootdown();
 	}
 
 	if (mask & PlatformCpuData::ipiSelfCall)
