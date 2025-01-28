@@ -6,14 +6,22 @@
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 
 struct IrqSpinlock {
 	constexpr IrqSpinlock() = default;
 
-	void lock();
-	void unlock();
+	void lock() {
+		irqMutex().lock();
+		_spinlock.lock();
+	}
+
+	void unlock() {
+		_spinlock.unlock();
+		irqMutex().unlock();
+	}
 
 private:
 	frg::ticket_spinlock _spinlock;

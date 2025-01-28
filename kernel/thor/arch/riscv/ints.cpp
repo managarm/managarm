@@ -1,6 +1,7 @@
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/debug.hpp>
 
 namespace thor {
 

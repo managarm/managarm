@@ -6,6 +6,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
