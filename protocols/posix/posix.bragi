@@ -187,7 +187,7 @@ head(128):
 		tag(21) uint64 interval_nanos;
 
 		tag(33) uint64 sigset;
-		tag(35) char[] passthrough_credentials;
+		tag(35) char[16] passthrough_credentials;
 	}
 }
 
