@@ -575,8 +575,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	bool havePcids = false;
 	bool haveSmap = false;
 	bool haveVirtualization = false;
-
-	LocalApicContext apicContext;
 };
 
 // Get a pointer to this CPU's PlatformCpuData instance.

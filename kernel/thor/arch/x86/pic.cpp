@@ -107,9 +107,12 @@ uint64_t getRawTimestampCounter() {
 // Local APIC timer
 // --------------------------------------------------------
 
+extern PerCpu<LocalApicContext> apicContext;
+THOR_DEFINE_PERCPU(apicContext);
+
 namespace {
 	LocalApicContext *localApicContext() {
-		return &getCpuData()->apicContext;
+		return &apicContext.get();
 	}
 }
 
@@ -371,7 +374,7 @@ void calibrateApicTimer() {
 					<< " on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 	} else {
 		// Linux assumes invariant TSC to be globally synchronized.
-		localApicContext()->tscTicksPerMilli = getCpuData(0)->apicContext.tscTicksPerMilli;
+		localApicContext()->tscTicksPerMilli = apicContext.getFor(0).tscTicksPerMilli;
 	}
 
 	localApicContext()->timersAreCalibrated = true;
