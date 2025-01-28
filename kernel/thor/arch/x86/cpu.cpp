@@ -766,7 +766,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 	Scheduler::resume(cpuContext->wqFiber);
 
 	LoadBalancer::singleton().setOnline(cpuContext);
-	auto scheduler = localScheduler();
+	auto scheduler = &localScheduler.get();
 	scheduler->update();
 	scheduler->forceReschedule();
 	scheduler->commitReschedule();

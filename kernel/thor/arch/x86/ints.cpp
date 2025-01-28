@@ -433,7 +433,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 
 	acknowledgeIrq(0);
 
-	localScheduler()->checkPreemption(image);
+	localScheduler.get().checkPreemption(image);
 }
 
 extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
@@ -468,7 +468,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 
 	acknowledgeIpi();
 
-	localScheduler()->checkPreemption(image);
+	localScheduler.get().checkPreemption(image);
 }
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
@@ -487,7 +487,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 
 	acknowledgeIpi();
 
-	auto *scheduler = localScheduler();
+	auto *scheduler = &localScheduler.get();
 	scheduler->forcePreemptionCall();
 	scheduler->checkPreemption(image);
 }
@@ -510,7 +510,7 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 
 	SelfIntCallBase::runScheduledCalls();
 
-	localScheduler()->checkPreemption(image);
+	localScheduler.get().checkPreemption(image);
 }
 
 extern "C" void onPlatformWork() {

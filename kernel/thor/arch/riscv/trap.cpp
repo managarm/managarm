@@ -112,7 +112,7 @@ void handleRiscvIpi(Frame *frame) {
 	auto mask = cpuData->pendingIpis.exchange(0, std::memory_order_acq_rel);
 
 	if (mask & PlatformCpuData::ipiPing)
-		cpuData->scheduler.forcePreemptionCall();
+		localScheduler.get(cpuData).forcePreemptionCall();
 
 	if (mask & PlatformCpuData::ipiShootdown) {
 		for (auto &binding : getCpuData()->asidData->bindings)
@@ -124,7 +124,7 @@ void handleRiscvIpi(Frame *frame) {
 	if (mask & PlatformCpuData::ipiSelfCall)
 		SelfIntCallBase::runScheduledCalls();
 
-	cpuData->scheduler.checkPreemption(IrqImageAccessor{frame});
+	localScheduler.get(cpuData).checkPreemption(IrqImageAccessor{frame});
 }
 
 void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }

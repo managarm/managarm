@@ -81,9 +81,10 @@ void smpMain(StatusBlock *statusBlock) {
 		    Scheduler::resume(getCpuData()->wqFiber);
 
 		    LoadBalancer::singleton().setOnline(getCpuData());
-		    localScheduler()->update();
-		    localScheduler()->forceReschedule();
-		    localScheduler()->commitReschedule();
+		    auto *scheduler = &localScheduler.get();
+		    scheduler->update();
+		    scheduler->forceReschedule();
+		    scheduler->commitReschedule();
 	    },
 	    getCpuData()->detachedStack.base(),
 	    statusBlock

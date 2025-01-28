@@ -393,7 +393,7 @@ coroutine<void> runMbus() {
 	assert(module && module->type == MfsType::regular);
 	co_await executeModule("/usr/bin/mbus", static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
-			std::move(*futureMbusServer), localScheduler());
+			std::move(*futureMbusServer), &localScheduler.get());
 }
 
 coroutine<LaneHandle> runServer(frg::string_view name) {
@@ -418,7 +418,7 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 
 	co_await executeModule(name, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
-			LaneHandle{}, localScheduler());
+			LaneHandle{}, &localScheduler.get());
 
 	co_return controlStream.get<1>();
 }

@@ -155,7 +155,7 @@ void LocalApicContext::handleTimerIrq() {
 
 	if(self->_preemptionDeadline && now > self->_preemptionDeadline) {
 		self->_preemptionDeadline = 0;
-		localScheduler()->forcePreemptionCall();
+		localScheduler.get().forcePreemptionCall();
 	}
 
 	if(self->_timerDeadline && now > self->_timerDeadline) {

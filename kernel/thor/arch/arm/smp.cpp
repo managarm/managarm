@@ -78,9 +78,10 @@ namespace {
 		Scheduler::resume(cpuContext->wqFiber);
 
 		LoadBalancer::singleton().setOnline(cpuContext);
-		localScheduler()->update();
-		localScheduler()->forceReschedule();
-		localScheduler()->commitReschedule();
+		auto *scheduler = &localScheduler.get();
+		scheduler->update();
+		scheduler->forceReschedule();
+		scheduler->commitReschedule();
 
 		while(1);
 	}

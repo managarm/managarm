@@ -6,6 +6,7 @@
 #include <frg/list.hpp>
 #include <frg/pairing_heap.hpp>
 #include <frg/spinlock.hpp>
+#include <thor-internal/cpu-data.hpp>
 
 namespace thor {
 
@@ -209,6 +210,6 @@ private:
 	> _pendingList;
 };
 
-Scheduler *localScheduler();
+extern PerCpu<Scheduler> localScheduler;
 
 } // namespace thor

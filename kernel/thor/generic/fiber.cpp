@@ -29,16 +29,16 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		this_fiber->_blocked = true;
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
-		getCpuData()->scheduler.update();
+		localScheduler.get().update();
 		Scheduler::suspendCurrent();
-		localScheduler()->forceReschedule();
+		localScheduler.get().forceReschedule();
 
 		forkExecutor([&] {
 			runOnStack([] (Continuation cont, Executor *executor,
 					frg::unique_lock<frg::ticket_spinlock> lock) {
 				scrubStack(executor, cont);
 				lock.unlock();
-				localScheduler()->commitReschedule();
+				localScheduler.get().commitReschedule();
 			}, getCpuData()->detachedStack.base(), &this_fiber->_executor, std::move(lock));
 		}, &this_fiber->_executor);
 	}

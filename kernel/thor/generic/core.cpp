@@ -328,7 +328,7 @@ constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()
-: scheduler{this}, activeFiber{nullptr}, heartbeat{0} {
+: activeFiber{nullptr}, heartbeat{0} {
 	iseqPtr = &regularIseq;
 }
 

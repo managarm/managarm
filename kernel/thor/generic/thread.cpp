@@ -36,7 +36,7 @@ void Thread::migrateCurrent() {
 	auto lock = frg::guard(&this_thread->_mutex);
 
 	assert(this_thread->_runState == kRunActive);
-	getCpuData()->scheduler.update();
+	localScheduler.get().update();
 	Scheduler::suspendCurrent();
 	this_thread->_updateRunTime();
 	this_thread->_runState = kRunDeferred;
@@ -58,17 +58,17 @@ void Thread::migrateCurrent() {
 	// Affinity masks are guaranteed to not be all zeros.
 	assert(n != static_cast<size_t>(-1));
 
-	auto new_scheduler = &getCpuData(n)->scheduler;
+	auto *new_scheduler = &localScheduler.getFor(n);
 
 	Scheduler::associate(this_thread, new_scheduler);
 	Scheduler::resume(this_thread);
-	localScheduler()->forceReschedule();
+	localScheduler.get().forceReschedule();
 
 	forkExecutor([&] {
 		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), &this_thread->_executor, std::move(lock));
 	}, &this_thread->_executor);
 }
@@ -96,16 +96,16 @@ void Thread::blockCurrent() {
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_updateRunTime();
 	thisThread->_runState = kRunBlocked;
-	getCpuData()->scheduler.update();
+	localScheduler.get().update();
 	Scheduler::suspendCurrent();
-	getCpuData()->scheduler.forceReschedule();
+	localScheduler.get().forceReschedule();
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
 		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
 }
@@ -122,15 +122,15 @@ void Thread::deferCurrent() {
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_updateRunTime();
 	thisThread->_runState = kRunDeferred;
-	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.forceReschedule();
+	localScheduler.get().update();
+	localScheduler.get().forceReschedule();
 	thisThread->_uninvoke();
 
 	forkExecutor([&] {
 		runOnStack([] (Continuation cont, Executor *executor, frg::unique_lock<Mutex> lock) {
 			scrubStack(executor, cont);
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
 }
@@ -148,14 +148,14 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 	this_thread->_updateRunTime();
 	this_thread->_runState = kRunDeferred;
 	saveExecutor(&this_thread->_executor, image);
-	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.forceReschedule();
+	localScheduler.get().update();
+	localScheduler.get().forceReschedule();
 	this_thread->_uninvoke();
 
 	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
-		localScheduler()->commitReschedule();
+		localScheduler.get().commitReschedule();
 	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
@@ -172,14 +172,14 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	this_thread->_updateRunTime();
 	this_thread->_runState = kRunSuspended;
 	saveExecutor(&this_thread->_executor, image);
-	getCpuData()->scheduler.update();
-	getCpuData()->scheduler.forceReschedule();
+	localScheduler.get().update();
+	localScheduler.get().forceReschedule();
 	this_thread->_uninvoke();
 
 	runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
 		lock.unlock();
-		localScheduler()->commitReschedule();
+		localScheduler.get().commitReschedule();
 	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
@@ -200,13 +200,13 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	saveExecutor(&this_thread->_executor, image);
 	this_thread->_uninvoke();
 
-	getCpuData()->scheduler.updateState();
+	localScheduler.get().updateState();
 	Scheduler::suspendCurrent();
 
 	runOnStack([] (Continuation cont, FaultImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
-		auto *scheduler = localScheduler();
+		auto *scheduler = &localScheduler.get();
 
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
@@ -244,13 +244,13 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	saveExecutor(&this_thread->_executor, image);
 	this_thread->_uninvoke();
 
-	getCpuData()->scheduler.updateState();
+	localScheduler.get().updateState();
 	Scheduler::suspendCurrent();
 
 	runOnStack([] (Continuation cont, SyscallImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
 		scrubStack(image, cont);
-		auto *scheduler = localScheduler();
+		auto *scheduler = &localScheduler.get();
 
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
@@ -292,14 +292,14 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
 		this_thread->_uninvoke();
 
-		getCpuData()->scheduler.updateState();
+		localScheduler.get().updateState();
 		Scheduler::suspendCurrent();
 		Scheduler::unassociate(this_thread.get());
 
 		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
-			auto *scheduler = localScheduler();
+			auto *scheduler = &localScheduler.get();
 
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
@@ -330,13 +330,13 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		saveExecutor(&this_thread->_executor, image);
 		this_thread->_uninvoke();
 
-		getCpuData()->scheduler.updateState();
+		localScheduler.get().updateState();
 		Scheduler::suspendCurrent();
 
 		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				Thread *thread, frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
-			auto *scheduler = localScheduler();
+			auto *scheduler = &localScheduler.get();
 
 			ObserveQueue queue;
 			queue.splice(queue.end(), thread->_observeQueue);
@@ -365,21 +365,21 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 		this_thread->_updateRunTime();
 		this_thread->_runState = kRunSuspended;
 		saveExecutor(&this_thread->_executor, image);
-		getCpuData()->scheduler.update();
+		localScheduler.get().update();
 		Scheduler::suspendCurrent();
 		this_thread->_uninvoke();
 		Scheduler::unassociate(this_thread.get());
 
-		auto newScheduler = &assignedCpu->scheduler;
+		auto *newScheduler = &localScheduler.get(assignedCpu);
 		Scheduler::associate(this_thread.get(), newScheduler);
 		Scheduler::resume(this_thread.get());
-		localScheduler()->forceReschedule();
+		localScheduler.get().forceReschedule();
 
 		runOnStack([] (Continuation cont, SyscallImageAccessor image,
 				frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}
 }
@@ -546,8 +546,10 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 	assert(!intsAreEnabled());
 	assert(getCurrentThread().get() == this);
 
-	localScheduler()->update();
-	if(localScheduler()->maybeReschedule()) {
+	auto *scheduler = &localScheduler.get();
+
+	scheduler->update();
+	if(scheduler->maybeReschedule()) {
 		auto lock = frg::guard(&_mutex);
 
 		if(logRunStates)
@@ -566,10 +568,10 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 		runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
 			lock.unlock();
-			localScheduler()->commitReschedule();
+			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), image, std::move(lock));
 	}else{
-		localScheduler()->renewSchedule();
+		scheduler->renewSchedule();
 	}
 }
 
