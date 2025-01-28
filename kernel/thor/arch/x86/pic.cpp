@@ -11,6 +11,7 @@
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 
 namespace thor {
 
@@ -107,30 +108,28 @@ uint64_t getRawTimestampCounter() {
 // --------------------------------------------------------
 
 namespace {
-	frg::eternal<GlobalApicContext> globalApicContextInstance;
-
 	LocalApicContext *localApicContext() {
 		return &getCpuData()->apicContext;
 	}
 }
 
-GlobalApicContext *globalApicContext() {
-	return &globalApicContextInstance.get();
-}
-
-void GlobalApicContext::GlobalAlarmSlot::arm(uint64_t nanos) {
-	assert(localApicContext()->timersAreCalibrated);
-
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&globalApicContext()->_mutex);
-		globalApicContext()->_globalDeadline = nanos;
+void setTimerDeadline(frg::optional<uint64_t> deadline) {
+	if (deadline) {
+		localApicContext()->setTimer(*deadline);
+	} else {
+		localApicContext()->setTimer(0);
 	}
-	LocalApicContext::_updateLocalTimer();
 }
 
 LocalApicContext::LocalApicContext()
-: _preemptionDeadline{0}, _globalDeadline{0} { }
+: _timerDeadline{0}, _preemptionDeadline{0} { }
+
+void LocalApicContext::setTimer(uint64_t nanos) {
+	assert(localApicContext()->timersAreCalibrated);
+
+	localApicContext()->_timerDeadline = nanos;
+	LocalApicContext::_updateLocalTimer();
+}
 
 void LocalApicContext::setPreemption(uint64_t nanos) {
 	assert(localApicContext()->timersAreCalibrated);
@@ -150,23 +149,18 @@ void LocalApicContext::handleTimerIrq() {
 		infoLogger() << "thor [CPU " << getLocalApicId() << "]: Timer IRQ triggered"
 				<< frg::endlog;
 	auto self = localApicContext();
-	auto now = systemClockSource()->currentNanos();
+	auto now = getClockNanos();
+
+	self->_currentDeadline = 0;
 
 	if(self->_preemptionDeadline && now > self->_preemptionDeadline) {
 		self->_preemptionDeadline = 0;
 		localScheduler()->forcePreemptionCall();
 	}
 
-	if(self->_globalDeadline && now > self->_globalDeadline) {
-		self->_globalDeadline = 0;
-		globalApicContext()->_globalAlarmInstance.fireAlarm();
-
-		// Update the global deadline to avoid calling fireAlarm() on the next IRQ.
-		{
-			auto irq_lock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&globalApicContext()->_mutex);
-			localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
-		}
+	if(self->_timerDeadline && now > self->_timerDeadline) {
+		self->_timerDeadline = 0;
+		generalTimerEngine()->firedAlarm();
 	}
 
 	localApicContext()->_updateLocalTimer();
@@ -181,17 +175,16 @@ void LocalApicContext::_updateLocalTimer() {
 			deadline = dc;
 	};
 
-	// Copy the global deadline so we can access it without locking.
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&globalApicContext()->_mutex);
-		localApicContext()->_globalDeadline = globalApicContext()->_globalDeadline;
-	}
-
+	consider(localApicContext()->_timerDeadline);
 	consider(localApicContext()->_preemptionDeadline);
-	consider(localApicContext()->_globalDeadline);
+
+	// Avoid re-programming the timer if the deadline did not change.
+	if (deadline == localApicContext()->_currentDeadline)
+		return;
+	localApicContext()->_currentDeadline = deadline;
 
 	if(localApicContext()->useTscMode) {
+
 		ostrace::emit(ostEvtArmCpuTimer);
 
 		if(!deadline) {
@@ -213,7 +206,7 @@ void LocalApicContext::_updateLocalTimer() {
 			return;
 		}
 
-		auto now = systemClockSource()->currentNanos();
+		auto now = getClockNanos();
 		uint64_t ticks;
 		if(deadline < now) {
 			if(debugTimer)
@@ -240,7 +233,7 @@ void LocalApicContext::clearPmi() {
 }
 
 void armPreemption(uint64_t nanos) {
-	LocalApicContext::setPreemption(systemClockSource()->currentNanos() + nanos);
+	LocalApicContext::setPreemption(getClockNanos() + nanos);
 }
 
 void disarmPreemption() {
@@ -348,22 +341,7 @@ uint64_t localTicks() {
 	return picBase.load(lApicCurCount);
 }
 
-namespace {
-	struct TscClockSource final : ClockSource {
-		uint64_t currentNanos() override {
-			auto r = getRawTimestampCounter() * 1'000'000 / localApicContext()->tscTicksPerMilli;
-	//		infoLogger() << r << frg::endlog;
-			return r;
-		}
-	};
-
-	frg::manual_box<TscClockSource> globalTscClockSource;
-}
-
 extern ClockSource *hpetClockSource;
-extern AlarmTracker *hpetAlarmTracker;
-extern ClockSource *globalClockSource;
-extern PrecisionTimerEngine *globalTimerEngine;
 
 void calibrateApicTimer() {
 	const uint64_t millis = 100;
@@ -403,21 +381,22 @@ static initgraph::Task assessTimersTask{&globalInitEngine, "x86.assess-timers",
 	initgraph::Requires{getHpetInitializedStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
-		if(getGlobalCpuFeatures()->haveInvariantTsc) {
-			globalTscClockSource.initialize();
-			globalClockSource = globalTscClockSource.get();
-		}else{
+		if(!getGlobalCpuFeatures()->haveInvariantTsc) {
 			infoLogger() << "thor: No invariant TSC; using HPET as system clock source"
 					<< frg::endlog;
 
-			globalClockSource = hpetClockSource;
 		}
-
-		globalTimerEngine = frg::construct<PrecisionTimerEngine>(*kernelAlloc,
-				globalClockSource, globalApicContext()->globalAlarm());
-	//			globalClockSource, hpetAlarmTracker);
 	}
 };
+
+uint64_t getClockNanos() {
+	assert(localApicContext()->timersAreCalibrated);
+	if(getGlobalCpuFeatures()->haveInvariantTsc) [[likely]] {
+		return getRawTimestampCounter() * 1'000'000 / localApicContext()->tscTicksPerMilli;
+	} else {
+		return hpetClockSource->currentNanos();
+	}
+}
 
 void acknowledgeIpi() {
 	picBase.store(lApicEoi, 0);

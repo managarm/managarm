@@ -64,7 +64,7 @@ inline constexpr arch::bit_register<uint8_t> command(67);
 inline constexpr arch::field<uint8_t, int> operatingMode(1, 3);
 inline constexpr arch::field<uint8_t, int> accessMode(4, 2);
 
-struct HpetDevice final : IrqSink, ClockSource, AlarmTracker {
+struct HpetDevice final : IrqSink, ClockSource {
 	friend void setupHpet(PhysicalAddr);
 
 private:
@@ -82,7 +82,8 @@ public:
 //		auto irq_lock = frg::guard(&irqMutex());
 //		auto lock = frg::guard(&_mutex);
 
-		fireAlarm();
+		// TODO: We do not use HPET to provide timer interrupts anymore.
+		// fireAlarm();
 
 		// TODO: For edge-triggered mode this is correct (and the IRQ cannot be shared).
 		// For level-triggered mode we need to inspect the ISR.
@@ -100,9 +101,9 @@ public:
 	}
 
 public:
-	void arm(uint64_t nanos) override {
+	void arm(uint64_t nanos) {
 		uint64_t ticks;
-		auto now = systemClockSource()->currentNanos();
+		auto now = getClockNanos();
 		if(nanos < now) {
 			ticks = 1;
 		}else{
@@ -127,7 +128,6 @@ private:
 
 frg::manual_box<HpetDevice> hpetDevice;
 ClockSource *hpetClockSource;
-AlarmTracker *hpetAlarmTracker;
 
 bool haveTimer() {
 	return hpetAvailable;
@@ -192,7 +192,6 @@ void setupHpet(PhysicalAddr address) {
 	}
 
 	hpetClockSource = hpetDevice.get();
-	hpetAlarmTracker = hpetDevice.get();
 	hpetAvailable = true;
 	
 	// TODO: Move this somewhere else.

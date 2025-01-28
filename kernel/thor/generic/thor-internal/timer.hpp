@@ -8,11 +8,13 @@
 #include <frg/intrusive.hpp>
 #include <frg/pairing_heap.hpp>
 #include <frg/spinlock.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
+struct CpuData;
 struct PrecisionTimerEngine;
 
 struct ClockSource {
@@ -20,39 +22,6 @@ struct ClockSource {
 
 protected:
 	~ClockSource() = default;
-};
-
-ClockSource *systemClockSource();
-
-struct AlarmSink {
-	virtual void firedAlarm() = 0;
-
-protected:
-	~AlarmSink() = default;
-};
-
-struct AlarmTracker {
-	AlarmTracker()
-	: _sink{nullptr} { }
-
-	void setSink(AlarmSink *sink) {
-		assert(!_sink.load(std::memory_order_relaxed));
-		_sink.store(sink, std::memory_order_release);
-	}
-
-	virtual void arm(uint64_t nanos) = 0;
-
-protected:
-	void fireAlarm() {
-		auto sink = _sink.load(std::memory_order_acquire);
-		if(sink)
-			sink->firedAlarm();
-	}
-
-	~AlarmTracker() = default;
-
-private:
-	std::atomic<AlarmSink *> _sink;
 };
 
 enum class TimerState {
@@ -115,15 +84,16 @@ struct CompareTimer {
 	}
 };
 
-struct PrecisionTimerEngine final : private AlarmSink {
+struct PrecisionTimerEngine final {
 	friend struct PrecisionTimerNode;
 
 private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	PrecisionTimerEngine(ClockSource *clock, AlarmTracker *alarm);
-	
+	PrecisionTimerEngine(CpuData *ourCpu)
+	: _ourCpu{ourCpu} {}
+
 	void installTimer(PrecisionTimerNode *timer);
 
 	// ----------------------------------------------------------------------------------
@@ -152,7 +122,7 @@ public:
 	}
 
 	SleepSender sleepFor(uint64_t nanos, async::cancellation_token cancellation = {}) {
-		return {this, systemClockSource()->currentNanos() + nanos, cancellation};
+		return {this, getClockNanos() + nanos, cancellation};
 	}
 
 	template<typename R>
@@ -190,13 +160,13 @@ public:
 private:
 	void cancelTimer(PrecisionTimerNode *timer);
 
+public:
 	void firedAlarm();
 
 private:
 	void _progress();
 
-	ClockSource *_clock;
-	AlarmTracker *_alarm;
+	CpuData *_ourCpu;
 
 	Mutex _mutex;
 
@@ -209,7 +179,7 @@ private:
 		>,
 		CompareTimer
 	> _timerQueue;
-	
+
 	size_t _activeTimers;
 };
 

@@ -330,14 +330,14 @@ uacpi_status uacpi_kernel_pci_write(
 }
 
 uacpi_u64 uacpi_kernel_get_nanoseconds_since_boot(void) {
-	return systemClockSource()->currentNanos();
+	return getClockNanos();
 }
 
 void uacpi_kernel_stall(uacpi_u8 usec) {
-	auto now = systemClockSource()->currentNanos();
+	auto now = getClockNanos();
 	auto deadline = now + usec * 1000;
 
-	while (systemClockSource()->currentNanos() < deadline);
+	while (getClockNanos() < deadline);
 }
 
 void uacpi_kernel_sleep(uacpi_u64 msec) {

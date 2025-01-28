@@ -1,5 +1,6 @@
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -9,9 +10,6 @@
 #include <thor-internal/util.hpp>
 
 namespace thor {
-
-extern ClockSource *globalClockSource;
-extern PrecisionTimerEngine *globalTimerEngine;
 
 namespace {
 
@@ -40,23 +38,6 @@ void updateSmodeTimer() {
 		sbi::time::setTimer(deadline);
 	}
 }
-
-struct RiscvClockSource : ClockSource {
-	uint64_t currentNanos() override { return inverseFreq * getRawTimestampCounter(); }
-};
-
-struct RiscvTimer : AlarmTracker {
-	using AlarmTracker::fireAlarm;
-
-	virtual void arm(uint64_t nanos) {
-		assert(!intsAreEnabled());
-		getCpuData()->timerDeadline = freq * nanos;
-		updateSmodeTimer();
-	}
-};
-
-constinit frg::manual_box<RiscvClockSource> riscvClockSource;
-constinit frg::manual_box<RiscvTimer> riscvTimer;
 
 initgraph::Task initTimer{
     &globalInitEngine,
@@ -89,13 +70,6 @@ initgraph::Task initTimer{
 	    uint64_t divisor = 1'000'000'000;
 	    freq = computeFreqFraction(freqSeconds, divisor);
 	    inverseFreq = computeFreqFraction(divisor, freqSeconds);
-
-	    riscvClockSource.initialize();
-	    riscvTimer.initialize();
-
-	    globalClockSource = riscvClockSource.get();
-	    globalTimerEngine =
-	        frg::construct<PrecisionTimerEngine>(*kernelAlloc, globalClockSource, riscvTimer.get());
     }
 };
 
@@ -105,6 +79,20 @@ uint64_t getRawTimestampCounter() {
 	uint64_t v;
 	asm volatile("rdtime %0" : "=r"(v));
 	return v;
+}
+
+uint64_t getClockNanos() {
+	return inverseFreq * getRawTimestampCounter();
+}
+
+void setTimerDeadline(frg::optional<uint64_t> deadline) {
+	assert(!intsAreEnabled());
+	if (deadline) {
+		getCpuData()->timerDeadline = freq * (*deadline);
+	} else {
+		getCpuData()->timerDeadline = frg::null_opt;
+	}
+	updateSmodeTimer();
 }
 
 bool haveTimer() { return static_cast<bool>(freq); }
@@ -146,7 +134,7 @@ void onTimerInterrupt(IrqImageAccessor image) {
 
 	// Finally, take action for the deadlines that have expired.
 	if (timerExpired)
-		riscvTimer->fireAlarm();
+		generalTimerEngine()->firedAlarm();
 
 	if (preemptionExpired)
 		cpuData->scheduler.forcePreemptionCall();

@@ -212,7 +212,7 @@ void Scheduler::updateState() {
 		n++;
 
 	assert(haveTimer());
-	auto now = systemClockSource()->currentNanos();
+	auto now = getClockNanos();
 	auto deltaTime = now - _refClock;
 	_refClock = now;
 	if(n)

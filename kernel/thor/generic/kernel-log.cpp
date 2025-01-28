@@ -108,7 +108,7 @@ namespace {
 
 	void setPriority(KmsgLogHandlerContext *ctx, Severity prio) {
 		assert(ctx->buffer_.empty());
-		auto now = systemClockSource()->currentNanos() / 1000;
+		auto now = getClockNanos() / 1000;
 		frg::output_to(ctx->buffer_) << frg::fmt("{},{},{};", uint8_t(prio), ctx->kmsgSeq_++, now);
 	}
 
