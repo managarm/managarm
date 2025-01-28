@@ -581,7 +581,7 @@ inline auto pullDescriptor() {
 template <typename Message, typename Allocator>
 inline auto sendBragiHeadTail(Message &msg, Allocator allocator = Allocator()) {
 	SendBragiHeadTail<Allocator> item{allocator};
-	item.head.resize(Message::head_size);
+	item.head.resize(msg.size_of_head());
 	item.tail.resize(msg.size_of_tail());
 
 	bragi::write_head_tail(msg, item.head, item.tail);
@@ -592,7 +592,7 @@ inline auto sendBragiHeadTail(Message &msg, Allocator allocator = Allocator()) {
 template <typename Message, typename Allocator>
 inline auto sendBragiHeadOnly(Message &msg, Allocator allocator = Allocator()) {
 	SendBragiHeadOnly<Allocator> item{allocator};
-	item.head.resize(Message::head_size);
+	item.head.resize(msg.size_of_head());
 	FRG_ASSERT(!msg.size_of_tail());
 
 	bragi::write_head_only(msg, item.head);
