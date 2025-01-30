@@ -247,10 +247,14 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
 	auto kernelLink = sys->directMkdir("kernel");
 	auto kernel = std::static_pointer_cast<DirectoryNode>(kernelLink->getTarget());
+	auto randomLink = kernel->directMkdir("random");
+	auto random = std::static_pointer_cast<DirectoryNode>(randomLink->getTarget());
 
 	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
 	kernel->directMkregular("osrelease", std::make_shared<OsreleaseNode>());
 	kernel->directMkregular("arch", std::make_shared<ArchNode>());
+
+	random->directMkregular("boot_id", std::make_shared<BootIdNode>());
 
 	return link;
 }
@@ -441,6 +445,41 @@ async::result<std::string> ArchNode::show() {
 async::result<void> ArchNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/sys/kernel/arch file" << std::endl;
+	co_return;
+}
+
+BootIdNode::BootIdNode() {
+	uint8_t uuid[16];
+	size_t n = 0;
+	while(n < 16) {
+		size_t chunk;
+		HEL_CHECK(helGetRandomBytes(uuid + n, 16 - n, &chunk));
+		n += chunk;
+	}
+
+	uint32_t a = 0;
+	uint16_t b = 0;
+	uint16_t c = 0;
+	uint8_t d[8] = { 0 };
+	memcpy(&a, &uuid[0], sizeof(a));
+	memcpy(&b, &uuid[4], sizeof(b));
+	memcpy(&c, &uuid[6], sizeof(c));
+	memcpy(&d, &uuid[8], sizeof(d));
+
+	bootId_ = std::format(
+		"{:08x}-{:04x}-{:04x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+		a, b, c, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
+}
+
+async::result<std::string> BootIdNode::show() {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	co_return bootId_ + "\n";
+}
+
+async::result<void> BootIdNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/random/boot_id file" << std::endl;
 	co_return;
 }
 
