@@ -240,7 +240,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					gprs[kHelRegArg4], gprs[kHelRegArg5], env_area.data());
 			HEL_CHECK(loadEnv.error());
 
-			if(logRequests || logPaths)
+			// if(logRequests || logPaths)
 				std::cout << "posix: execve path: " << path << std::endl;
 
 			// Parse both the arguments and the environment areas.
@@ -496,8 +496,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetTid){
-			if(logRequests)
-				std::cout << "posix: GET_TID supercall" << std::endl;
+			// if(logRequests)
+			// 	std::cout << "posix: GET_TID supercall" << std::endl;
 
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));

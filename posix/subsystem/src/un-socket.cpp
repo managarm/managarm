@@ -61,6 +61,7 @@ public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
 		assert(a->_currentState == State::null);
 		assert(b->_currentState == State::null);
+		// TODO Check with getRemote
 		a->_remote = b;
 		b->_remote = a;
 		a->_currentState = State::connected;
@@ -96,7 +97,7 @@ public:
 		}
 
 		if(_currentState == State::connected) {
-			auto rf = _remote;
+			auto rf = getRemote();
 			rf->_currentState = State::remoteShutDown;
 			if(socktype_ == SOCK_STREAM) {
 				rf->_hupSeq = ++rf->_currentSeq;
@@ -163,9 +164,9 @@ public:
 		memcpy(packet.buffer.data(), data, length);
 		packet.offset = 0;
 
-		_remote->_recvQueue.push_back(std::move(packet));
-		_remote->_inSeq = ++_remote->_currentSeq;
-		_remote->_statusBell.raise();
+		getRemote()->_recvQueue.push_back(std::move(packet));
+		getRemote()->_inSeq = ++getRemote()->_currentSeq;
+		getRemote()->_statusBell.raise();
 		co_return length;
 	}
 
@@ -337,7 +338,13 @@ public:
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		protocols::fs::utils::handleSoPasscred(_passCreds, ucreds, process->pid(), process->uid(), process->gid());
+		std::cout << "posix: before _passCreds: " << _passCreds << " and ucreds.pid: " << ucreds.pid << std::endl;
+
+		protocols::fs::utils::handleSoPasscred(remote->_passCreds, ucreds, process->pid(), process->uid(), process->gid());
+
+		std::cout << "posix: after _passCreds: " << _passCreds << " and ucreds.pid: " << ucreds.pid << std::endl;
+
+		std::cout << "remote passcreds: " << remote->_passCreds << std::endl;
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
@@ -362,7 +369,7 @@ public:
 		assert(option == SO_PEERCRED);
 		if (_currentState != State::connected)
 			co_return -1;
-		co_return _remote->_ownerPid;
+		co_return getRemote()->_ownerPid;
 	}
 
 	async::result<void> setOption(int option, int value) override {
@@ -377,17 +384,21 @@ public:
 	}
 
 	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
+		std::cout << "un-socket accept for: " << _sockpath << std::endl;
 		if(_acceptQueue.empty() && nonBlock_) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block on accept" << std::endl;
 			co_return Error::wouldBlock;
 		}
+		std::cout << "un-socket accept for: " << _sockpath << " 1" << std::endl;
 
 		while (!_acceptQueue.size())
 			co_await _statusBell.async_wait();
+		std::cout << "un-socket accept for: " << _sockpath << " 2" << std::endl;
 
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
+		std::cout << "un-socket accept for: " << _sockpath << " 3" << std::endl;
 
 		// Create a new socket and connect it to the queued one.
 		auto local = smarter::make_shared<OpenFile>(process);
@@ -395,24 +406,34 @@ public:
 		local->_nameType = _nameType;
 		local->_isInherited = true;
 		local->setupWeakFile(local);
+		std::cout << "un-socket accept for: " << _sockpath << " 4" << std::endl;
 		OpenFile::serve(local);
 		connectPair(remote, local.get());
+		std::cout << "un-socket accept for: " << _sockpath << " 5" << std::endl;
 		co_return File::constructHandle(std::move(local));
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
+		std::cout << "un-socket: polling on: " << _sockpath << std::endl;
+		std::cout << "un-socket: polling on address: " << (void *)this << std::endl;
 		(void)mask; // TODO: utilize mask.
 		if(_currentState == State::closed)
 			co_return Error::fileClosed;
+		std::cout << "un-socket: polling on 1: " << _sockpath << std::endl;
 
 		assert(past_seq <= _currentSeq);
-		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
+		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested()) {
+			std::cout << "un-socket: polling on wait 1: " << _sockpath << " with past_seq: " << past_seq << " and currentSeq: " << _currentSeq << std::endl;
 			co_await _statusBell.async_wait(cancellation);
+			std::cout << "un-socket: polling on wait 2: " << _sockpath << " with past_seq: " << past_seq << " and currentSeq: " << _currentSeq << std::endl;
+		}
+		std::cout << "un-socket: polling on 2: " << _sockpath << std::endl;
 
 		if(_currentState == State::closed)
 			co_return Error::fileClosed;
+		std::cout << "un-socket: polling on 3: " << _sockpath << std::endl;
 
 		// For now making sockets always writable is sufficient.
 		int edges = 0;
@@ -423,10 +444,11 @@ public:
 		}
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
+		std::cout << "un-socket: polling on 4: " << _sockpath << std::endl;
 
-//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _currentSeq
-//				<< ", " << edges << ")" << std::endl;
+		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
+				<< " returns (" << _currentSeq
+				<< ", " << edges << ")" << " and hupSeq: " << _hupSeq << std::endl;
 
 		co_return PollWaitResult{_currentSeq, edges};
 	}
@@ -504,11 +526,13 @@ public:
 
 	async::result<protocols::fs::Error>
 	connect(Process *process, const void *addr_ptr, size_t addr_length) override {
+		std::cout << "un-socket: Connecting....." << std::endl;
 		// Resolve the socket node in the FS.
 		struct sockaddr_un sa;
 		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
+		std::cout << "un-socket: connect 1" << std::endl;
 
 		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
 			co_return protocols::fs::Error::illegalArguments;
@@ -519,8 +543,9 @@ public:
 			path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 			memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 		}
+		std::cout << "un-socket: connect 2" << std::endl;
 
-		if(logSockets)
+		// if(logSockets)
 			std::cout << "posix: Connect to " << path << std::endl;
 
 		if (sa.sun_path[0] == '\0') {
@@ -539,6 +564,7 @@ public:
 			assert(_currentState == State::connected);
 			co_return protocols::fs::Error::none;
 		} else {
+			std::cout << "un-socket: connect 3" << std::endl;
 			PathResolver resolver;
 			resolver.setup(process->fsContext()->getRoot(),
 					process->fsContext()->getWorkingDirectory(), std::move(path), process);
@@ -546,12 +572,14 @@ public:
 			if(!resolveResult) {
 				co_return resolveResult.error();
 			}
+			std::cout << "un-socket: connect 4" << std::endl;
 			assert(resolveResult);
 			if(!resolver.currentLink())
 				co_return protocols::fs::Error::fileNotFound;
 
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
+			std::cout << "un-socket: connect 5" << std::endl;
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
@@ -575,6 +603,8 @@ public:
 			}
 
 			assert(_currentState == State::connected);
+			assert(_remote != nullptr);
+			std::cout << "un-socket: connect 7" << std::endl;
 			co_return protocols::fs::Error::none;
 		}
 	}
@@ -704,6 +734,19 @@ private:
 		return outSize;
 	}
 
+	OpenFile *getRemote() {
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_DGRAM) {
+			return _remote;
+		// } else if(socktype_ == SOCK_DGRAM) {
+		// 	return nullptr;
+		// 	// Weird korona shit
+		// 	// return <weird shit>
+		} else {
+			std::cout << "posix: socktype: " << socktype_ << std::endl;
+			assert(!"posix: unix: unhandled socktype in getRemote");
+		}
+	}
+
 public:
 	async::result<frg::expected<protocols::fs::Error, size_t>>
 	peername(void *addrPtr, size_t maxAddrLength) override {
@@ -711,7 +754,7 @@ public:
 			co_return protocols::fs::Error::notConnected;
 		}
 
-		co_return getNameFor(_remote, addrPtr, maxAddrLength);
+		co_return getNameFor(getRemote(), addrPtr, maxAddrLength);
 	}
 
 	async::result<size_t> sockname(void *addrPtr, size_t maxAddrLength) override {

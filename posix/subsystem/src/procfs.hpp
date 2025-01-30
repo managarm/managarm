@@ -44,6 +44,12 @@ public:
 
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
+			uint64_t sequence, int mask,
+			async::cancellation_token cancellation = {}) override;
+
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override;
+
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
@@ -327,6 +333,17 @@ private:
 
 struct CgroupNode final : RegularNode {
 	CgroupNode(Process *process)
+	: _process(process)
+	{ }
+
+	async::result<std::string> show() override;
+	async::result<void> store(std::string) override;
+private:
+	Process *_process;
+};
+
+struct MountinfoNode final : RegularNode {
+	MountinfoNode(Process *process)
 	: _process(process)
 	{ }
 

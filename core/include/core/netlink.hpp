@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <iostream>
 
 namespace core::netlink {
 
@@ -38,8 +39,10 @@ struct Group {
 
 	// Sends a copy of the given message to this group.
 	void carbonCopy(const core::netlink::Packet &packet) {
-		for(auto socket : subscriptions)
+		for(auto socket : subscriptions) {
+			std::cout << "NETLINK: Going to deliver to: " << (void *)socket << " and packet: " << &packet << std::endl;
 			socket->deliver(packet);
+		}
 	}
 
 	std::vector<NetlinkFile *> subscriptions;

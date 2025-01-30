@@ -305,6 +305,7 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 			auto it = globalGroupMap.find({_protocol, i + 1});
 			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
+			std::cout << "pushing back in bind: " << (void *)this << std::endl;
 			group->subscriptions.push_back(this);
 			joinedGroups_ |= 1 << i;
 		}
@@ -346,6 +347,7 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 		auto it = globalGroupMap.find({_protocol, val});
 		assert(it != globalGroupMap.end());
 		auto group = it->second.get();
+		std::cout << "pushing back in ioctl: " << (void *)this << std::endl;
 		group->subscriptions.push_back(this);
 		joinedGroups_ |= 1 << val;
 	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {

@@ -2034,7 +2034,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 			if(logRequests)
-				std::cout << "posix: CLOSE file descriptor " << req->fd() << std::endl;
+				std::cout << "posix: CLOSE file descriptor " << req->fd() << " in process: " << self->name() << std::endl;
 
 			auto closeErr = self->fileContext()->closeFile(req->fd());
 
@@ -2058,7 +2058,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
 			if(logRequests)
-				std::cout << "posix: DUP" << std::endl;
+				std::cout << "posix: DUP from process: " << self->name() << std::endl;
 
 			auto file = self->fileContext()->getFile(req.fd());
 
@@ -2781,8 +2781,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: ACCEPT" << std::endl;
+			// if(logRequests)
+				std::cout << "posix: ACCEPT for pid: " << self->pid() << std::endl;
 
 			auto sockfile = self->fileContext()->getFile(req->fd());
 			if(!sockfile) {

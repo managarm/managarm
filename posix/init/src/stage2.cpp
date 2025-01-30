@@ -35,6 +35,12 @@ int main() {
 		execl("/usr/bin/udevadm", "systemd-udevd", nullptr);
 	}else assert(udev != -1);
 
+	// std::cout << "init: Starting eudevd" << std::endl;
+	// auto udev = fork();
+	// if(!udev) {
+	// 	execl("/usr/sbin/udevd", "udevd", nullptr);
+	// }else assert(udev != -1);
+
 	while(access("/run/udev/control", F_OK)) { // TODO: Use some other file to wait on?
 		assert(errno == ENOENT);
 		sleep(1);

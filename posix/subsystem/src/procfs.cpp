@@ -51,6 +51,16 @@ void RegularFile::handleClose() {
 	_cancelServe.cancel();
 }
 
+async::result<frg::expected<Error, PollWaitResult>> RegularFile::pollWait(Process *,
+			uint64_t sequence, int mask,
+			async::cancellation_token cancellation) {
+	co_return Error::fileClosed;
+}
+
+async::result<frg::expected<Error, PollStatusResult>> RegularFile::pollStatus(Process *) {
+	co_return Error::fileClosed;
+}
+
 async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSeek whence) {
 	if(whence == VfsSeek::relative)
 		_offset = _offset + offset;
@@ -313,6 +323,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
+	proc_dir->directMkregular("mountinfo", std::make_shared<MountinfoNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -745,6 +756,26 @@ async::result<std::string> CgroupNode::show() {
 }
 
 async::result<void> CgroupNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/cgroup file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> MountinfoNode::show() {
+	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	// stream << "22 28 0:20 / /sys rw,nosuid,nodev,noexec,relatime shared:7 - sysfs sysfs rw";
+	// stream << "23 28 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:13 - proc proc rw";
+	// stream << "24 28 0:5 / /dev rw,nosuid,relatime shared:2 - devtmpfs udev rw,size=15930648k,nr_inodes=3982662,mode=755,inode64";
+	// stream << "25 24 0:22 / /dev/pts rw,nosuid,noexec,relatime shared:3 - devpts devpts rw,gid=5,mode=620,ptmxmode=000";
+	// stream << "26 28 0:23 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=3193652k,mode=755,inode64";
+	// stream << "28 1 259:6 / / rw,relatime shared:1 - ext2 /dev/nvme0n1p6 rw,errors=remount-ro";
+	stream << "\n";
+	co_return stream.str();
+}
+
+async::result<void> MountinfoNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/cgroup file" << std::endl;
 	co_return;
