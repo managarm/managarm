@@ -264,7 +264,7 @@ public:
 		OpenFile *remote = nullptr;
 		assert(!(flags & ~(MSG_DONTWAIT)));
 
-		if(socktype_ == SOCK_STREAM) {
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			if((addr_ptr != nullptr || addr_length != 0) && _currentState == State::connected) {
 				// Return EISCONN
 			}
@@ -366,10 +366,19 @@ public:
 	}
 
 	async::result<int> getOption(int option) override {
+		std::cout << "curState: " << (int)_currentState << std::endl;
 		assert(option == SO_PEERCRED);
-		if (_currentState != State::connected)
-			co_return -1;
-		co_return getRemote()->_ownerPid;
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
+			if (_currentState != State::connected)
+				co_return _ownerPid; // HACK
+			co_return getRemote()->_ownerPid;
+		} else if(socktype_ == SOCK_DGRAM) {
+			if (_currentState != State::connected)
+				co_return _ownerPid;
+			co_return getRemote()->_ownerPid;
+		} else {
+			assert(socktype_ == SOCK_STREAM);
+		}
 	}
 
 	async::result<void> setOption(int option, int value) override {
@@ -437,7 +446,7 @@ public:
 
 		// For now making sockets always writable is sufficient.
 		int edges = 0;
-		if(socktype_ == SOCK_STREAM) {
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			edges |= EPOLLOUT;
 			if(_hupSeq > past_seq)
 				edges |= EPOLLHUP;
@@ -456,7 +465,7 @@ public:
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
 		int events = 0;
-		if(socktype_ == SOCK_STREAM) {
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			events |= EPOLLOUT;
 			if(_currentState == State::remoteShutDown)
 				events |= EPOLLHUP;
@@ -579,12 +588,13 @@ public:
 
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
+			assert(_ownerPid >= 1);
 			std::cout << "un-socket: connect 5" << std::endl;
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
 			auto server = globalBindMap.at(node);
-			if(socktype_ == SOCK_STREAM) {
+			if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 				server->_acceptQueue.push_back(this);
 				server->_inSeq = ++server->_currentSeq;
 				server->_statusBell.raise();
@@ -598,8 +608,12 @@ public:
 				_remote = server;
 				_currentState = State::connected;
 				_remote->_currentState = State::connected;
+				_remote->_ownerPid = _ownerPid;
 				_remote->_remote = this;
 				_remote->_statusBell.raise();
+			} else {
+				std::cout << "WAT DE ABSOLUTE KANKER: " << socktype_ << std::endl;
+				assert(socktype_ == SOCK_DGRAM || socktype_ == SOCK_STREAM);
 			}
 
 			assert(_currentState == State::connected);
@@ -735,7 +749,7 @@ private:
 	}
 
 	OpenFile *getRemote() {
-		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_DGRAM) {
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_DGRAM || socktype_ == SOCK_SEQPACKET) {
 			return _remote;
 		// } else if(socktype_ == SOCK_DGRAM) {
 		// 	return nullptr;

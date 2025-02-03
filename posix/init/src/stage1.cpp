@@ -28,7 +28,7 @@
 #include <fstream>
 
 bool logDiscovery = false;
-bool systemd = true;
+bool systemd = false;
 
 using Uevent = std::unordered_map<std::string, std::string>;
 

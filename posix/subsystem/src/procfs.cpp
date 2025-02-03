@@ -323,7 +323,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
-	proc_dir->directMkregular("mountinfo", std::make_shared<MountinfoNode>(process));
+	// proc_dir->directMkregular("mountinfo", std::make_shared<MountinfoNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
