@@ -28,6 +28,7 @@
 #include <fstream>
 
 bool logDiscovery = false;
+bool systemd = false;
 
 using Uevent = std::unordered_map<std::string, std::string>;
 
@@ -334,25 +335,27 @@ int main() {
 	if(mount(rootPath->data(), "/realfs", "ext2", 0, ""))
 		throw std::runtime_error("mount() failed");
 
-	if(mount("", "/realfs/proc", "procfs", 0, ""))
-		throw std::runtime_error("mount() failed");
-	if(mount("", "/realfs/sys", "sysfs", 0, ""))
-		throw std::runtime_error("mount() failed");
-	if(mount("", "/realfs/dev", "devtmpfs", 0, ""))
-		throw std::runtime_error("mount() failed");
-	if(mount("", "/realfs/run", "tmpfs", 0, ""))
-		throw std::runtime_error("mount() failed");
-	if(mount("", "/realfs/tmp", "tmpfs", 0, ""))
-		throw std::runtime_error("mount() failed");
+	if(!systemd) {
+		if(mount("", "/realfs/proc", "procfs", 0, ""))
+			throw std::runtime_error("mount() failed");
+		if(mount("", "/realfs/sys", "sysfs", 0, ""))
+			throw std::runtime_error("mount() failed");
+		if(mount("", "/realfs/dev", "devtmpfs", 0, ""))
+			throw std::runtime_error("mount() failed");
+		if(mount("", "/realfs/run", "tmpfs", 0, ""))
+			throw std::runtime_error("mount() failed");
+		if(mount("", "/realfs/tmp", "tmpfs", 0, ""))
+			throw std::runtime_error("mount() failed");
 
-	if(mkdir("/dev/pts", 0620))
-		throw std::runtime_error("mkdir() failed");
-	if(mount("", "/realfs/dev/pts", "devpts", 0, ""))
-		throw std::runtime_error("mount() failed");
-	if(mkdir("/dev/shm", 1777)) // Seems to be the same as linux
-		throw std::runtime_error("mkdir() failed");
-	if(mount("", "/realfs/dev/shm", "tmpfs", 0, ""))
-		throw std::runtime_error("mount() failed");
+		if(mkdir("/dev/pts", 0620))
+			throw std::runtime_error("mkdir() failed");
+		if(mount("", "/realfs/dev/pts", "devpts", 0, ""))
+			throw std::runtime_error("mount() failed");
+		if(mkdir("/dev/shm", 1777)) // Seems to be the same as linux
+			throw std::runtime_error("mkdir() failed");
+		if(mount("", "/realfs/dev/shm", "tmpfs", 0, ""))
+			throw std::runtime_error("mount() failed");
+	}
 
 	if(chroot("/realfs"))
 		throw std::runtime_error("chroot() failed");
@@ -362,22 +365,27 @@ int main() {
 
 	std::cout << "init: On /realfs" << std::endl;
 
-	// /run needs to be 0700 or programs start complaining.
-	if(chmod("/run", 0700))
-		throw std::runtime_error("chmod() failed");
+	if(!systemd) {
+		// /run needs to be 0700 or programs start complaining.
+		if(chmod("/run", 0700))
+			throw std::runtime_error("chmod() failed");
 
-	// /run/utmp must exist for login to be satisfied.
-	int utmp = open("/run/utmp", O_CREAT, O_RDWR);
-	if(utmp == -1)
-		throw std::runtime_error("Opening /run/utmp failed");
-	close(utmp);
+		// /run/utmp must exist for login to be satisfied.
+		int utmp = open("/run/utmp", O_CREAT, O_RDWR);
+		if(utmp == -1)
+			throw std::runtime_error("Opening /run/utmp failed");
+		close(utmp);
+	}
 
 	// Symlink /var/run to /run, just like LFS does
 	int varrun = symlink("/run", "/var/run");
 	if(varrun == -1)
 		throw std::runtime_error("Symlinking /var/run failed");
 
-	execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
+	if(!systemd)
+		execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
+	else
+		execl("/usr/sbin/init", "init", nullptr);
 	std::cout << "init: Failed to execve() second stage" << std::endl;
 	abort();
 }

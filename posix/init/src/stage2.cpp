@@ -29,13 +29,19 @@ int main() {
 	waitpid(xbps_reconfigure, nullptr, 0);
 
 	// Start udev which loads the remaining drivers.
-	std::cout << "init: Starting udevd" << std::endl;
+	// std::cout << "init: Starting systemd-udevd" << std::endl;
+	// auto udev = fork();
+	// if(!udev) {
+	// 	execl("/usr/bin/udevadm", "systemd-udevd", nullptr);
+	// }else assert(udev != -1);
+
+	std::cout << "init: Starting eudevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
 		execl("/usr/sbin/udevd", "udevd", nullptr);
 	}else assert(udev != -1);
 
-	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
+	while(access("/run/udev/control", F_OK)) { // TODO: Use some other file to wait on?
 		assert(errno == ENOENT);
 		sleep(1);
 	}
@@ -126,35 +132,36 @@ int main() {
 	}
 
 	std::cout << "init: Waiting for devices to show up" << std::endl;
-	while(need_drm || need_kbd || need_mouse) {
-		auto dev = udev_monitor_receive_device(init_udev_mon);
-		if(!dev) {
-			std::cerr << "\e[31m" "init: udev_monitor_receive_device() failed"
-					"\e[39m" << std::endl;
-			abort();
-		}
-		auto syspath = udev_device_get_syspath(dev);
-		assert(syspath);
-		auto subsystem = udev_device_get_subsystem(dev);
-		assert(subsystem);
+	// while(need_drm || need_kbd || need_mouse) {
+	// 	auto dev = udev_monitor_receive_device(init_udev_mon);
+	// 	if(!dev) {
+	// 		std::cerr << "\e[31m" "init: udev_monitor_receive_device() failed"
+	// 				"\e[39m" << std::endl;
+	// 		abort();
+	// 	}
+	// 	auto syspath = udev_device_get_syspath(dev);
+	// 	assert(syspath);
+	// 	auto subsystem = udev_device_get_subsystem(dev);
+	// 	assert(subsystem);
 
-		if(!strcmp(subsystem, "drm")) {
-			std::cout << "init: Found DRM device " << syspath << std::endl;
-			need_drm = false;
-		}
-		if(!strcmp(subsystem, "input")) {
-			if(udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD")) {
-				std::cout << "init: Found keyboard " << syspath << std::endl;
-				need_kbd = false;
-			}
-			if(udev_device_get_property_value(dev, "ID_INPUT_MOUSE")) {
-				std::cout << "init: Found mouse " << syspath << std::endl;
-				need_mouse = false;
-			}
-		}
+	// 	if(!strcmp(subsystem, "drm")) {
+	// 		std::cout << "init: Found DRM device " << syspath << std::endl;
+	// 		need_drm = false;
+	// 	}
+	// 	if(!strcmp(subsystem, "input")) {
+	// 		if(udev_device_get_property_value(dev, "ID_INPUT_KEYBOARD")) {
+	// 			std::cout << "init: Found keyboard " << syspath << std::endl;
+	// 			need_kbd = false;
+	// 		}
+	// 		if(udev_device_get_property_value(dev, "ID_INPUT_MOUSE")) {
+	// 			std::cout << "init: Found mouse " << syspath << std::endl;
+	// 			need_mouse = false;
+	// 		}
+	// 	}
 
-		udev_device_unref(dev);
-	}
+	// 	udev_device_unref(dev);
+	// }
+	sleep(3);
 
 	// Launch dbus if it's available.
 	if(!access("/usr/bin/dbus-daemon", X_OK)) {

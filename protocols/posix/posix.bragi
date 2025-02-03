@@ -590,6 +590,8 @@ head(128):
 message FstatfsRequest 95 {
 head(128):
 	int64 fd;
+tail:
+	string path;
 }
 
 message FstatfsResponse 96 {
@@ -624,4 +626,18 @@ head(128):
 	uint64 value_usec;
 	uint64 interval_sec;
 	uint64 interval_usec;
+}
+
+message Dup2Request 101 {
+head(128):
+	int32 fd;
+	int32 newfd;
+	int32 flags;
+	int32 dupfd;
+}
+
+message Dup2Response 102 {
+head(128):
+	Errors error;
+	int32 fd;
 }
