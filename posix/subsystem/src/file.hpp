@@ -173,12 +173,6 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>>
 	ptAllocate(void *object, int64_t offset, size_t size);
 
-	static async::result<int>
-	ptGetOption(void *object, int option);
-
-	static async::result<void>
-	ptSetOption(void *object, int option, int value);
-
 	static async::result<protocols::fs::Error>
 	ptBind(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length);
@@ -241,8 +235,6 @@ public:
 		.truncate = &ptTruncate,
 		.fallocate = &ptAllocate,
 		.ioctl = &ptIoctl,
-		.getOption = &ptGetOption,
-		.setOption = &ptSetOption,
 		.bind = &ptBind,
 		.listen = &ptListen,
 		.connect = &ptConnect,
@@ -377,9 +369,6 @@ public:
 	// Returns immediately.
 	// Returns (current-sequence, active events).
 	virtual async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *);
-
-	virtual async::result<int> getOption(int option);
-	virtual async::result<void> setOption(int option, int value);
 
 	virtual async::result<frg::expected<Error, AcceptResult>> accept(Process *process);
 

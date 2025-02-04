@@ -58,12 +58,6 @@ public:
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override;
 
-	async::result<void> setOption(int option, int value) override {
-		assert(option == SO_PASSCRED);
-		_passCreds = value;
-		co_return;
-	};
-
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override;

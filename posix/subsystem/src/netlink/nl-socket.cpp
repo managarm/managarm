@@ -330,6 +330,9 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {
 		auto val = *reinterpret_cast<int *>(optbuf.data());
 		pktinfo_ = (val != 0);
+	} else if(layer == SOL_SOCKET && number == SO_PASSCRED) {
+		if(optbuf.size() >= sizeof(int))
+			_passCreds = *reinterpret_cast<int *>(optbuf.data());
 	} else {
 		printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;

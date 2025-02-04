@@ -78,13 +78,13 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM)
+	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM, bool socketpair = false)
 	: File{StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
-			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype} {
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, socketpair_{socketpair} {
 		if(process)
 			_ownerPid = process->pid();
 	}
@@ -287,19 +287,6 @@ public:
 		_remote->_statusBell.raise();
 
 		co_return max_length;
-	}
-
-	async::result<int> getOption(int option) override {
-		assert(option == SO_PEERCRED);
-		if (_currentState != State::connected)
-			co_return -1;
-		co_return _remote->_ownerPid;
-	}
-
-	async::result<void> setOption(int option, int value) override {
-		assert(option == SO_PASSCRED);
-		_passCreds = value;
-		co_return;
 	}
 
 	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
@@ -516,9 +503,39 @@ public:
 		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 			int protocol = 0;
 			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else if(layer == SOL_SOCKET && number == SO_PEERCRED) {
+			struct ucred creds;
+
+			// man page:
+			// "The use of this option is possible only for connected AF_UNIX stream sockets
+			// and for AF_UNIX stream and datagram socket pairs created using socketpair(2)."
+			if((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_) {
+				creds.pid = _remote->_ownerPid;
+				creds.uid = 0;
+				creds.gid = 0;
+			} else {
+				creds.pid = 0;
+				creds.uid = -1;
+				creds.gid = -1;
+			}
+
+			memcpy(optbuf.data(), &creds, std::min(optbuf.size(), sizeof(creds)));
 		} else {
 			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+
+		co_return {};
+	}
+
+	async::result<frg::expected<protocols::fs::Error>> setSocketOption(int layer,
+			int number, std::vector<char> optbuf) override {
+		if(layer == SOL_SOCKET && number == SO_PASSCRED) {
+			if(optbuf.size() >= sizeof(int))
+				_passCreds = *reinterpret_cast<int *>(optbuf.data());
+		} else {
+			std::cout << std::format("un-socket: unknown setsockopt 0x{:x}\n", number);
+			co_return protocols::fs::Error::illegalArguments;
 		}
 
 		co_return {};
@@ -647,6 +664,8 @@ private:
 	bool _isInherited;
 
 	int32_t socktype_;
+
+	bool socketpair_;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
@@ -657,8 +676,8 @@ smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t so
 }
 
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createSocketPair(Process *process, bool nonBlock, int32_t socktype) {
-	auto file0 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
-	auto file1 = smarter::make_shared<OpenFile>(process, nonBlock, socktype);
+	auto file0 = smarter::make_shared<OpenFile>(process, nonBlock, socktype, true);
+	auto file1 = smarter::make_shared<OpenFile>(process, nonBlock, socktype, true);
 	file0->setupWeakFile(file0);
 	file1->setupWeakFile(file1);
 	OpenFile::serve(file0);
