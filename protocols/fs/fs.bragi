@@ -492,7 +492,7 @@ message GenericIoctlRequest 10 {
 head(128):
 	tags {
 		tag(1) int32 size;
-		tag(2) int64 command;
+		tag(2) @format(hex) uint64 command;
 
 		// PTS and TTY ioctls.
 		tag(3) int32 pts_width;
@@ -712,7 +712,7 @@ tail:
 
 struct Ifconf {
 	string name;
-	int32 ip4;
+	@format(ipv4) int32 ip4;
 }
 
 message IfreqReply 19 {
