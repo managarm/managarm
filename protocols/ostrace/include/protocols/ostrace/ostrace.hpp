@@ -121,7 +121,7 @@ struct Context {
 	}
 
 	template<typename... Args>
-	void emit(const Event &event, Args... args) {
+	void emitWithTimestamp(const Event &event, size_t ts, Args... args) {
 		if (!isActive())
 			return;
 
@@ -132,6 +132,7 @@ struct Context {
 
 		managarm::ostrace::EventRecord eventRecord;
 		eventRecord.set_id(static_cast<uint64_t>(event.id()));
+		eventRecord.set_ts(ts);
 
 		managarm::ostrace::EndOfRecord endOfRecord;
 
@@ -165,13 +166,18 @@ struct Context {
 		queue_.put(std::move(buffer));
 	}
 
+	template<typename... Args>
+	void emit(const Event &event, Args... args) {
+		emitWithTimestamp(event, 0, std::forward<Args>(args)...);
+	}
+
 private:
 	async::result<ItemId> announceItem_(std::string_view name);
 	async::result<void> run_();
 
 	Vocabulary *vocabulary_;
 	helix::UniqueLane lane_;
-	bool enabled_;
+	bool enabled_ = false;
 	async::queue<std::vector<char>, frg::stl_allocator> queue_;
 };
 
