@@ -3,7 +3,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <iostream>
 
 #include <bragi/helpers-std.hpp>
 #include <CLI/App.hpp>
@@ -11,6 +10,67 @@
 #include <CLI/Config.hpp>
 #include <frg/span.hpp>
 #include <ostrace.bragi.hpp>
+
+void FRG_INTF(panic)(const char *cstring) {
+	std::cout << "PANIC: " << cstring << std::endl;
+}
+
+namespace {
+
+template<typename T>
+concept Policy = requires(T &a, managarm::ostrace::EventRecord &event, managarm::ostrace::Definition &def, managarm::ostrace::UintAttribute &uintAttr, managarm::ostrace::BufferAttribute &bufferAttr, size_t pass) {
+	{ a.onEvent(event, pass) } -> std::same_as<bool>;
+	{ a.onDefinition(def, pass) } -> std::same_as<bool>;
+	{ a.onEndOfRecord(pass) } -> std::same_as<bool>;
+
+	{ a.onUintAttribute(uintAttr, pass) } -> std::same_as<bool>;
+	{ a.onBufferAttribute(bufferAttr, pass) } -> std::same_as<bool>;
+
+	{ a.passes() } -> std::same_as<size_t>;
+	{ a.reset() } -> std::same_as<void>;
+
+	requires std::is_same_v<decltype(a.parsedRecords), size_t>;
+	requires std::is_same_v<decltype(a.terms), std::unordered_map<uint64_t, std::string>>;
+};
+
+struct JsonPolicy {
+	bool onEvent(managarm::ostrace::EventRecord &record, size_t) {
+		std::cout << "{\"_event\":\"" << terms.at(record.id()) << "\",\"_ts\":" << record.ts();
+		return true;
+	}
+
+	bool onDefinition(managarm::ostrace::Definition &, size_t) {
+		return true;
+	}
+
+	bool onEndOfRecord(size_t) {
+		std::cout << "}\n";
+		return true;
+	}
+
+	bool onUintAttribute(managarm::ostrace::UintAttribute &record, size_t) {
+		std::cout << ",\"" << terms.at(record.id()) << "\":" << record.v();
+		return true;
+	}
+
+	bool onBufferAttribute(managarm::ostrace::BufferAttribute &record, size_t) {
+		std::cout << ",\"" << terms.at(record.id()) << "\":<buffer of size " << record.buffer().size() << ">";
+		return true;
+	}
+
+	size_t passes() {
+		return 1;
+	}
+
+	void reset() {
+
+	}
+
+	std::unordered_map<uint64_t, std::string> terms;
+	size_t parsedRecords;
+};
+
+} // namespace
 
 int main(int argc, char **argv) {
 	std::string path{"virtio-trace.bin"};
@@ -41,13 +101,7 @@ int main(int argc, char **argv) {
 	frg::span<const char> fileBuffer{reinterpret_cast<const char *>(ptr),
 			static_cast<size_t>(st.st_size)};
 
-	size_t nRecords = 0;
-
-	std::vector<uint64_t> ts;
-	std::vector<uint64_t> value;
-	std::unordered_map<uint64_t, std::string> terms;
-
-	auto extractMsg = [&] (frg::span<const char> &buffer) -> bool {
+	auto handleMessage = []<Policy T>(T &policy, frg::span<const char> &buffer, size_t pass) -> bool {
 		auto preamble = bragi::read_preamble(buffer);
 		if(preamble.error()) {
 			warnx("halting due to broken preamble");
@@ -56,6 +110,10 @@ int main(int argc, char **argv) {
 
 		// All records have a head size of 8.
 		auto head_span = buffer.subspan(0, 8);
+		if(buffer.size() < 8 + preamble.tail_size()) {
+			warnx("halting due to truncated record head");
+			return false;
+		}
 		auto tail_span = buffer.subspan(8, preamble.tail_size());
 
 		switch (preamble.id()) {
@@ -65,10 +123,17 @@ int main(int argc, char **argv) {
 			assert(maybeRecord);
 			auto &record = maybeRecord.value();
 
-			terms[record.id()] = record.name();
+			policy.terms[record.id()] = record.name();
+			if(!policy.onDefinition(record, pass)) {
+				warnx("failed to parse Definition");
+				return false;
+			}
 		} break;
 		case bragi::message_id<managarm::ostrace::EndOfRecord>:
-			std::cout << "}\n";
+			if(!policy.onEndOfRecord(pass)) {
+				warnx("failed to parse EndOfRecord");
+				return false;
+			}
 			break;
 		case bragi::message_id<managarm::ostrace::EventRecord>: {
 			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::EventRecord>(
@@ -79,7 +144,10 @@ int main(int argc, char **argv) {
 			}
 			auto &record = maybeRecord.value();
 
-			std::cout << "{\"_event\":\"" << terms.at(record.id()) << "\",\"_ts\":" << record.ts();
+			if(!policy.onEvent(record, pass)) {
+				warnx("failed to parse EventRecord");
+				return false;
+			}
 		} break;
 		case bragi::message_id<managarm::ostrace::UintAttribute>: {
 			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::UintAttribute>(
@@ -87,45 +155,78 @@ int main(int argc, char **argv) {
 			assert(maybeRecord);
 			auto &record = maybeRecord.value();
 
-			std::cout << ",\"" << terms.at(record.id()) << "\":" << record.v();
+			if(!policy.onUintAttribute(record, pass)) {
+				warnx("failed to parse UintAttribute");
+				return false;
+			}
+		} break;
+		case bragi::message_id<managarm::ostrace::BufferAttribute>: {
+			auto maybeRecord = bragi::parse_head_tail<managarm::ostrace::BufferAttribute>(
+					head_span, tail_span);
+			assert(maybeRecord);
+			auto &record = maybeRecord.value();
+
+			if(!policy.onBufferAttribute(record, pass)) {
+				warnx("failed to parse BufferAttribute");
+				return false;
+			}
 		} break;
 		default:
 			warnx("halting due to unexpected message ID %u", preamble.id());
 			return false;
 		}
 
-		buffer = buffer.subspan(8 + preamble.tail_size());
-		return true;
+		if(buffer.size() >= 8 + preamble.tail_size()) {
+			buffer = buffer.subspan(8 + preamble.tail_size());
+			return true;
+		}
+
+		return false;
 	};
 
-	auto extractRecords = [&] () -> bool {
+	auto extractRecords = [&handleMessage]<Policy T>(T &policy, frg::span<const char> &bufferView, size_t pass) -> bool {
 		struct Header {
 			uint32_t size;
 		};
 
-		if (fileBuffer.size() < sizeof(Header)) {
+		if (bufferView.size() < sizeof(Header)) {
 			std::cerr << "failed to extract header" << std::endl;
 			return false;
 		}
 		Header hdr;
-		memcpy(&hdr, fileBuffer.data(), sizeof(Header));
+		memcpy(&hdr, bufferView.data(), sizeof(Header));
 
-		auto buffer = fileBuffer.subspan(sizeof(Header), hdr.size);
+		auto buffer = bufferView.subspan(sizeof(Header), hdr.size);
 		while (buffer.size()) {
-			if(!extractMsg(buffer))
+			if(!handleMessage(policy, buffer, pass)) {
 				return false;
-			++nRecords;
+			}
+			++policy.parsedRecords;
 		}
 
-		fileBuffer = fileBuffer.subspan(sizeof(Header) + hdr.size);
+		bufferView = bufferView.subspan(sizeof(Header) + hdr.size);
 		return true;
 	};
 
-	while (fileBuffer.size()) {
-		if (!extractRecords())
-			break;
-	}
+	auto parseWithPolicy = [&extractRecords]<Policy T>(T &policy, frg::span<const char> &fileBuffer) {
+		for(size_t pass = 0; pass < policy.passes(); pass++) {
+			auto bufferView = fileBuffer.subspan(0);
+			policy.parsedRecords = 0;
+			policy.reset();
 
-	std::cerr << "extracted " << nRecords << " records"
+			while (bufferView.size()) {
+				if (!extractRecords(policy, bufferView, pass))
+					break;
+			}
+
+			if(pass == policy.passes() - 1)
+				fileBuffer = bufferView;
+		}
+
+		std::cerr << "extracted " << policy.parsedRecords << " records"
 			<< " (" << fileBuffer.size() << " bytes remain)" << std::endl;
+	};
+
+	auto policy = JsonPolicy{};
+	parseWithPolicy(policy, fileBuffer);
 }
