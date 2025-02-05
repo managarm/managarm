@@ -70,12 +70,171 @@ struct JsonPolicy {
 	size_t parsedRecords;
 };
 
+struct WiresharkPolicy {
+	WiresharkPolicy() {
+		pcapfd_ = open("bragi.pcap", O_CREAT | O_TRUNC | O_RDWR, 0666);
+		if(pcapfd_ < 0)
+			err(1, "failed to open pcap file");
+
+		struct pcap_hdr_s {
+			uint32_t magic_number;
+			uint16_t version_major;
+			uint16_t version_minor;
+			int32_t thiszone;
+			uint32_t sigfigs;
+			uint32_t snaplen;
+			uint32_t network;
+		} pcap_hdr {
+			.magic_number = 0xa1b2c3d4,
+			.version_major = 2,
+			.version_minor = 4,
+			.thiszone = 0,
+			.sigfigs = 0,
+			.snaplen = 65536,
+			.network = 147
+		};
+
+		write(pcapfd_, &pcap_hdr, sizeof(pcap_hdr));
+	}
+
+	std::set<std::string_view> requests = {
+		"posix.request",
+		"fs.request",
+	};
+
+	bool onEvent(managarm::ostrace::EventRecord &record, size_t) {
+		if(requests.contains(terms.at(record.id())))
+			state_.ts = record.ts();
+		return true;
+	}
+
+	bool onDefinition(managarm::ostrace::Definition &, size_t) {
+		return true;
+	}
+
+	bool onEndOfRecord(size_t) {
+		state_ = {};
+		return true;
+	}
+
+	bool onUintAttribute(managarm::ostrace::UintAttribute &record, size_t) {
+		if(terms.at(record.id()) == "pid") {
+			state_.last_pid = record.v();
+		} else if(terms.at(record.id()) == "time") {
+			state_.last_request_ts = record.v();
+		} else if(terms.at(record.id()) == "request") {
+			state_.last_request = record.v();
+		}
+		return true;
+	}
+
+	bool onBufferAttribute(managarm::ostrace::BufferAttribute &record, size_t pass) {
+		auto name = terms.at(record.id());
+
+		if(!name.starts_with("0x") || name.size() > 10)
+			return true;
+
+		uint32_t proto_hash = std::stoul(name, nullptr, 16);
+
+		bragi_msg_metadata metadata {state_.last_pid, 0, 0};
+		if(state_.last_request) {
+			metadata.last_request = state_.last_request;
+			metadata.last_request_ts = state_.last_request_ts;
+		} else {
+			metadata.last_request = *reinterpret_cast<uint32_t *>(record.buffer().data());
+			metadata.last_request_ts = state_.ts;
+		}
+
+		if(pass == 0) {
+			if(state_.last_request) {
+				if(requests_.contains(metadata)) {
+					auto &convo = requests_.at(metadata);
+					convo.second = frame_id;
+				}
+			} else {
+				requests_.insert({metadata, {frame_id, 0}});
+			}
+		} else {
+			if(!requests_.contains(metadata)) {
+				printf("No metadata found for PID %u Request %u TS %zu\n",
+					metadata.last_pid, metadata.last_request, metadata.last_request_ts);
+				exit(1);
+			}
+			auto convo = requests_.at(metadata);
+			size_t request_time = 0;
+			if(state_.ts > metadata.last_request_ts)
+				request_time = state_.ts - metadata.last_request_ts;
+			uint32_t packet_size = record.buffer().size()
+				+ sizeof(proto_hash) + sizeof(state_.last_pid) + sizeof(convo.first) + sizeof(convo.second) + sizeof(request_time);
+
+			struct pcaprec_hdr_s {
+				uint32_t ts_sec;
+				uint32_t ts_usec;
+				uint32_t incl_len;
+				uint32_t orig_len;
+			} rec_hdr {
+				.ts_sec = static_cast<uint32_t>(state_.ts / 1'000'000'000),
+				.ts_usec = static_cast<uint32_t>((state_.ts % 1'000'000'000) / 1'000),
+				.incl_len = packet_size,
+				.orig_len = packet_size,
+			};
+
+			write(pcapfd_, &rec_hdr, sizeof(rec_hdr));
+			write(pcapfd_, &proto_hash, sizeof(proto_hash));
+			write(pcapfd_, &state_.last_pid, sizeof(state_.last_pid));
+			write(pcapfd_, &convo.first, sizeof(convo.first));
+			write(pcapfd_, &convo.second, sizeof(convo.second));
+			write(pcapfd_, &request_time, sizeof(request_time));
+			write(pcapfd_, record.buffer().data(), record.buffer().size());
+		}
+
+		frame_id++;
+
+		return true;
+	}
+
+	size_t passes() {
+		return 2;
+	}
+
+	void reset() {
+		state_ = {};
+		frame_id = 1;
+	}
+
+	size_t parsedRecords;
+	std::unordered_map<uint64_t, std::string> terms;
+
+private:
+	int pcapfd_;
+	size_t frame_id = 1;
+
+	struct pcap_packet_state {
+		pid_t last_pid = 0;
+		uint32_t last_request = 0;
+		uint64_t last_request_ts = 0;
+		uint64_t ts = 0;
+	} state_;
+
+	struct bragi_msg_metadata {
+		pid_t last_pid;
+		uint32_t last_request;
+		uint64_t last_request_ts;
+
+		auto operator<=>(const bragi_msg_metadata &) const = default;
+	};
+
+	std::map<bragi_msg_metadata, std::pair<size_t, size_t>> requests_;
+};
+
 } // namespace
 
 int main(int argc, char **argv) {
 	std::string path{"virtio-trace.bin"};
+	bool pcap = false;
 
 	CLI::App app{"extract-ostrace: extract records from ostrace logs"};
+	app.add_flag("--pcap", pcap, "Produce a bragi.pcap");
 	app.add_option("path", path, "Path to the input file");
 	CLI11_PARSE(app, argc, argv);
 
@@ -90,7 +249,7 @@ int main(int argc, char **argv) {
 	if(!st.st_size)
 		err(1, "input file is empty");
 
-	auto ptr = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	auto ptr = mmap(nullptr, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
 	if(ptr == MAP_FAILED) {
 		ptr = nullptr;
 		err(1, "failed to mmap file");
@@ -227,6 +386,11 @@ int main(int argc, char **argv) {
 			<< " (" << fileBuffer.size() << " bytes remain)" << std::endl;
 	};
 
-	auto policy = JsonPolicy{};
-	parseWithPolicy(policy, fileBuffer);
+	if(pcap) {
+		auto policy = WiresharkPolicy{};
+		parseWithPolicy(policy, fileBuffer);
+	} else {
+		auto policy = JsonPolicy{};
+		parseWithPolicy(policy, fileBuffer);
+	}
 }
