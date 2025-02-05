@@ -78,6 +78,25 @@ struct UintAttribute : Term {
 	}
 };
 
+struct BragiAttribute : Term {
+	friend struct Context;
+
+	using Record = managarm::ostrace::BufferAttribute;
+
+	constexpr BragiAttribute(const char *name)
+	: Term{name} { }
+
+	std::pair<BragiAttribute *, Record> operator() (std::span<uint8_t> head, std::span<uint8_t> tail) {
+		Record record;
+		record.set_id(static_cast<uint64_t>(id()));
+		record.set_buffer(std::vector<uint8_t>(head.size_bytes() + tail.size_bytes()));
+		std::ranges::copy(head, record.buffer().data());
+		if(!tail.empty())
+			std::ranges::copy(tail, &record.buffer().at(head.size_bytes()));
+		return {this, std::move(record)};
+	}
+};
+
 // Lifetime:
 //   * The Vocabulary needs to outlive the Context.
 struct Context {

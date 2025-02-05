@@ -29,6 +29,13 @@ tail:
 	uint64 v;
 }
 
+message BufferAttribute 33 {
+head(8):
+tail:
+	uint64 id;
+	byte[] buffer;
+}
+
 }
 
 // Messages of the IPC protocol.
