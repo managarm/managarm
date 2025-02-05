@@ -123,11 +123,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		protocols::ostrace::Timer timer;
 
 		frg::scope_exit traceOnExit{[&] {
-			posix::ostContext.emit(
-				posix::ostEvtObservation,
-				posix::ostAttrRequest(observe.observation()),
-				posix::ostAttrTime(timer.elapsed())
-			);
+			if(posix::ostContext.isActive()) {
+				posix::ostContext.emit(
+					posix::ostEvtObservation,
+					posix::ostAttrRequest(observe.observation()),
+					posix::ostAttrTime(timer.elapsed())
+				);
+			}
 		}};
 
 		if(observe.observation() == kHelObserveSuperCall + posix::superAnonAllocate) {

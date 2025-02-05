@@ -249,7 +249,7 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 				if(channel) {
 					infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
 					async::detach_with_allocator(*kernelAlloc,
-							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 256));
+							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 2048));
 				}
 			}
 		});
