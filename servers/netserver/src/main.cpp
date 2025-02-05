@@ -34,6 +34,7 @@
 # include <nic/freebsd-e1000/common.hpp>
 #endif
 #include <nic/usb_net/usb_net.hpp>
+#include <protocols/ostrace/ostrace.hpp>
 #include <protocols/usb/client.hpp>
 
 // Maps mbus IDs to device objects
@@ -438,7 +439,35 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_return protocols::svrctl::Error::success;
 }
 
+namespace {
+
+constinit protocols::ostrace::Event ostEvtRequest{"fs.request"};
+constinit protocols::ostrace::UintAttribute ostAttrRequest{"request"};
+constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
+constinit protocols::ostrace::BragiAttribute ostBragi{managarm::fs::protocol_hash};
+
+protocols::ostrace::Vocabulary ostVocabulary{
+	ostEvtRequest,
+	ostAttrRequest,
+	ostAttrTime,
+	ostBragi,
+};
+
+bool ostraceInit = false;
+protocols::ostrace::Context ostContext{ostVocabulary};
+
+async::result<void> initOstrace() {
+	co_await ostContext.create();
+}
+
+}
+
 async::detached serve(helix::UniqueLane lane) {
+	if(!ostraceInit) {
+		co_await initOstrace();
+		ostraceInit = true;
+	}
+
 	while (true) {
 		auto [accept, recv_req] =
 			co_await helix_ng::exchangeMsgs(
@@ -451,7 +480,62 @@ async::detached serve(helix::UniqueLane lane) {
 		HEL_CHECK(recv_req.error());
 
 		auto conversation = accept.descriptor();
-		auto sendError = [&conversation] (managarm::fs::Errors err)
+		auto preamble = bragi::read_preamble(recv_req);
+		assert(!preamble.error());
+
+		timespec requestTimestamp = {};
+		auto logBragiRequest = [&recv_req, &requestTimestamp](std::span<uint8_t> tail) {
+			if(!ostContext.isActive())
+				return;
+
+			requestTimestamp = clk::getTimeSinceBoot();
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_req.data()), recv_req.size()}, tail)
+			);
+		};
+
+		auto logBragiReply = [&preamble, &requestTimestamp](auto &resp) {
+			if(!ostContext.isActive())
+				return;
+
+			auto ts = clk::getTimeSinceBoot();
+			std::string replyHead;
+			std::string replyTail;
+			replyHead.resize(resp.size_of_head());
+			replyTail.resize(resp.size_of_tail());
+			bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+			bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+			auto headOk = resp.encode_head(headWriter);
+			auto tailOk = resp.encode_tail(tailWriter);
+			assert(headOk);
+			assert(tailOk);
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+				ostAttrRequest(preamble.id()),
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+			);
+		};
+
+		auto logBragiSerializedReply = [&preamble, &requestTimestamp](std::string &ser) {
+			if(!ostContext.isActive())
+				return;
+
+			auto ts = clk::getTimeSinceBoot();
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+				ostAttrRequest(preamble.id()),
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+			);
+		};
+
+		auto sendError = [&conversation, &logBragiSerializedReply] (managarm::fs::Errors err)
 				-> async::result<void> {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(err);
@@ -462,10 +546,11 @@ async::detached serve(helix::UniqueLane lane) {
 						buff.data(), buff.size())
 				);
 			HEL_CHECK(send.error());
+			logBragiSerializedReply(buff);
 		};
 
-		auto preamble = bragi::read_preamble(recv_req);
-		assert(!preamble.error());
+		if(!preamble.tail_size())
+			logBragiRequest({});
 
 		if(preamble.id() == managarm::fs::CntRequest::message_id) {
 			managarm::fs::CntRequest req;
@@ -512,6 +597,7 @@ async::detached serve(helix::UniqueLane lane) {
 					);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_socket.error());
+				logBragiSerializedReply(ser);
 			} else {
 				std::cout << "netserver: received unknown request type: "
 					<< (int32_t)req.req_type() << std::endl;
@@ -528,6 +614,7 @@ async::detached serve(helix::UniqueLane lane) {
 				helix_ng::recvBuffer(tail.data(), tail.size())
 			);
 			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
 
 			auto req = bragi::parse_head_tail<managarm::fs::IfreqRequest>(recv_req, tail);
 			recv_req.reset();
@@ -565,6 +652,7 @@ async::detached serve(helix::UniqueLane lane) {
 					);
 				HEL_CHECK(send_head.error());
 				HEL_CHECK(send_tail.error());
+				logBragiReply(ifconf_resp);
 
 				continue;
 			}else if(req->command() == SIOCGIFNETMASK) {
@@ -673,6 +761,7 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(send.error());
 			HEL_CHECK(send_tail.error());
+			logBragiReply(resp);
 		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
 			co_await helix_ng::exchangeMsgs(
 				conversation,

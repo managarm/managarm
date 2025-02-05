@@ -184,8 +184,16 @@ if build_drivers or provide_deps
 	# all other protocols depend on
 	subdir('hel')
 
-	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
-	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
+	subdir('protocols/mbus')
+	subdir('protocols/kerncfg')
+	subdir('protocols/clock')
+
+	if build_drivers
+		subdir('core')
+	endif
+
+	protocols = [ 'ostrace', 'fs', 'hw', 'usb', 'svrctl', 'kernlet' ]
+	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries
