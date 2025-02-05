@@ -522,14 +522,25 @@ async::detached serve(helix::UniqueLane lane) {
 				HEL_CHECK(dismiss.error());
 			}
 		}else if(preamble.id() == managarm::fs::IfreqRequest::message_id) {
-			managarm::fs::IfreqRequest req;
-			req.ParseFromArray(recv_req.data(), recv_req.length());
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(tail.data(), tail.size())
+			);
+			HEL_CHECK(recv_tail.error());
+
+			auto req = bragi::parse_head_tail<managarm::fs::IfreqRequest>(recv_req, tail);
 			recv_req.reset();
+
+			if(!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				co_return;
+			}
 
 			managarm::fs::IfreqReply resp;
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
-			if(req.command() == SIOCGIFCONF) {
+			if(req->command() == SIOCGIFCONF) {
 				std::vector<managarm::fs::Ifconf> ifconf;
 
 				for(auto [_, link] : nic::Link::getLinks()) {
@@ -543,21 +554,21 @@ async::detached serve(helix::UniqueLane lane) {
 					ifconf.push_back(conf);
 				}
 
-				managarm::fs::IfconfReply resp;
+				managarm::fs::IfconfReply ifconf_resp;
 
-				resp.set_ifconf(std::move(ifconf));
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+				ifconf_resp.set_ifconf(std::move(ifconf));
+				ifconf_resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				auto [send_head, send_tail] =
 					co_await helix_ng::exchangeMsgs(conversation,
-						helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+						helix_ng::sendBragiHeadTail(ifconf_resp, frg::stl_allocator{})
 					);
 				HEL_CHECK(send_head.error());
 				HEL_CHECK(send_tail.error());
 
 				continue;
-			}else if(req.command() == SIOCGIFNETMASK) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFNETMASK) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
@@ -571,8 +582,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFINDEX) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFINDEX) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					resp.set_index(link->index());
@@ -580,8 +591,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFNAME) {
-				auto link = nic::Link::byIndex(req.index());
+			}else if(req->command() == SIOCGIFNAME) {
+				auto link = nic::Link::byIndex(req->index());
 
 				if(link) {
 					resp.set_name(link->name());
@@ -589,8 +600,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFFLAGS) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFFLAGS) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					resp.set_flags(IFF_UP | IFF_RUNNING | link->iff_flags());
@@ -598,8 +609,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFADDR) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFADDR) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
@@ -613,8 +624,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFMTU) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFMTU) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					resp.set_mtu(link->mtu);
@@ -622,8 +633,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFBRDADDR) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFBRDADDR) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
@@ -643,8 +654,8 @@ async::detached serve(helix::UniqueLane lane) {
 				} else {
 					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 				}
-			}else if(req.command() == SIOCGIFHWADDR) {
-				auto link = nic::Link::byName(req.name());
+			}else if(req->command() == SIOCGIFHWADDR) {
+				auto link = nic::Link::byName(req->name());
 
 				if(link) {
 					std::array<uint8_t, 6> mac{};
@@ -656,11 +667,12 @@ async::detached serve(helix::UniqueLane lane) {
 				}
 			}
 
-			auto [send] =
+			auto [send, send_tail] =
 				co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
 				);
 			HEL_CHECK(send.error());
+			HEL_CHECK(send_tail.error());
 		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
 			co_await helix_ng::exchangeMsgs(
 				conversation,

@@ -705,8 +705,9 @@ head(128):
 message IfreqRequest 18 {
 head(128):
 	int32 command;
-	string name;
 	int32 index;
+tail:
+	string name;
 }
 
 struct Ifconf {
@@ -717,7 +718,6 @@ struct Ifconf {
 message IfreqReply 19 {
 head(128):
 	Errors error;
-	string name;
 	int32 mtu;
 	int32 ip4_addr;
 	int32 ip4_netmask;
@@ -725,6 +725,8 @@ head(128):
 	int32 index;
 	int32 flags;
 	uint8[6] mac;
+tail:
+	string name;
 }
 
 message IfconfReply 20 {
