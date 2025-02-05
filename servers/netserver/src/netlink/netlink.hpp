@@ -34,8 +34,6 @@ public:
 	static async::result<protocols::fs::Error> bind(void *obj, helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_length);
 
-	static async::result<void> setOption(void *, int option, int value);
-
 	static async::result<size_t> sockname(void *, void *, size_t);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
@@ -54,7 +52,6 @@ public:
 	static async::result<int> getFileFlags(void *object);
 
 	constexpr static protocols::fs::FileOperations ops {
-		.setOption = &setOption,
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,

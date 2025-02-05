@@ -116,16 +116,6 @@ struct FileOperations {
 		flock = f;
 		return *this;
 	}
-	constexpr FileOperations &withGetOption(async::result<int> (*f)(void *object,
-			int option)) {
-		getOption = f;
-		return *this;
-	}
-	constexpr FileOperations &withSetOption(async::result<void> (*f)(void *object,
-			int option, int value)) {
-		setOption = f;
-		return *this;
-	}
 	constexpr FileOperations &withBind(async::result<Error> (*f)(void *object,
 			helix_ng::CredentialsView , const void *addr_ptr, size_t addr_length)) {
 		bind = f;
@@ -170,8 +160,6 @@ struct FileOperations {
 	async::result<void> (*ioctl)(void *object, uint32_t id, helix_ng::RecvInlineResult req,
 			helix::UniqueLane conversation) = nullptr;
 	async::result<protocols::fs::Error> (*flock)(void *object, int flags) = nullptr;
-	async::result<int> (*getOption)(void *object, int option) = nullptr;
-	async::result<void> (*setOption)(void *object, int option, int value) = nullptr;
 	async::result<frg::expected<Error, PollWaitResult>>
 	(*pollWait)(void *object, uint64_t sequence, int mask,
 			async::cancellation_token cancellation) = nullptr;

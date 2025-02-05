@@ -105,9 +105,6 @@ enum CntReqType {
 	SEEK_REL = 7,
 	SEEK_EOF = 8,
 
-	PT_GET_OPTION = 26,
-	PT_SET_OPTION = 25,
-
 	// Socket API
 	CREATE_SOCKET = 32,
 
@@ -182,9 +179,6 @@ head(128):
 
 		//used by FLOCK
 		tag(9) int32 flock_flags;
-
-		// used by PT_SET_OPTION.
-		tag(42) int32 value;
 
 		// Sequence number for FILE_POLL_WAIT / FILE_POLL_STATUS.
 		tag(38) uint64 sequence;

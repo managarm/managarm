@@ -330,7 +330,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 			);
 			HEL_CHECK(recv_handle.error());
 
-			auto creds = helix_ng::CredentialsView{std::span<const char, 16>{req.passthrough_credentials().data(), req.passthrough_credentials().size()}};
+			auto creds = helix_ng::CredentialsView{req.passthrough_credentials()};
 			auto process = findProcessWithCredentials(creds);
 
 			auto handle = helix::UniqueLane(recv_handle.descriptor());

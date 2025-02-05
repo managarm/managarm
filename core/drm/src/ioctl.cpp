@@ -1063,9 +1063,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::posix::CntRequest fd_req;
 			fd_req.set_request_type(managarm::posix::CntReqType::FD_SERVE);
 			auto proc_cred_str = proc_creds.credentials();
-			for(auto c : proc_cred_str.view()) {
-				fd_req.add_passthrough_credentials(c);
-			}
+			fd_req.set_passthrough_credentials(proc_cred_str);
 
 			auto fd_ser = fd_req.SerializeAsString();
 			auto [offer, send_req, send_handle, recv_resp] = co_await helix_ng::exchangeMsgs(

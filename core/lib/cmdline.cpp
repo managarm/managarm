@@ -5,6 +5,9 @@
 #include <protocols/mbus/client.hpp>
 
 async::result<std::string> Cmdline::get() {
+	if(cmdline_)
+		co_return cmdline_.value();
+
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"class", "kerncfg"}
 	}};

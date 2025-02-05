@@ -34,13 +34,6 @@ async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max
 	co_return sizeof(struct sockaddr_nl);
 };
 
-async::result<void> NetlinkSocket::setOption(void *obj, int option, int value) {
-	auto *self = static_cast<NetlinkSocket *>(obj);
-	assert(option == SO_PASSCRED);
-	self->_passCreds = value;
-	co_return;
-}
-
 async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 		helix_ng::CredentialsView creds, uint32_t flags, void *data,
 		size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
@@ -262,6 +255,12 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResul
 async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOption(void *object,
 		int layer, int number, std::vector<char> optbuf) {
 	auto self = static_cast<NetlinkSocket *>(object);
+
+	if(layer == SOL_SOCKET && number == SO_PASSCRED) {
+		if(optbuf.size() >= sizeof(int))
+			self->_passCreds = *reinterpret_cast<int *>(optbuf.data());
+		co_return {};
+	}
 
 	if(layer != SOL_NETLINK)
 		co_return protocols::fs::Error::illegalArguments;

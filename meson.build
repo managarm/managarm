@@ -1,6 +1,6 @@
 project('managarm',
 	license : 'MIT',
-	meson_version : '>=0.57.0',
+	meson_version : '>=1.4.0',
 	default_options : [
 		'cpp_std=gnu++20',
 		'c_std=gnu11',

@@ -160,16 +160,6 @@ async::result<frg::expected<protocols::fs::Error>> File::ptAllocate(void *object
 	co_return co_await self->allocate(offset, size);
 }
 
-async::result<int> File::ptGetOption(void *object, int option) {
-	auto self = static_cast<File *>(object);
-	return self->getOption(option);
-}
-
-async::result<void> File::ptSetOption(void *object, int option, int value) {
-	auto self = static_cast<File *>(object);
-	return self->setOption(option, value);
-}
-
 async::result<protocols::fs::Error> File::ptBind(void *object,
 		helix_ng::CredentialsView credentials,
 		const void *addr_ptr, size_t addr_length) {
@@ -424,18 +414,6 @@ async::result<frg::expected<Error, PollStatusResult>> File::pollStatus(Process *
 
 	auto result = std::get<PollResult>(resultOrError);
 	co_return PollStatusResult{std::get<0>(result), std::get<2>(result)};
-}
-
-async::result<int> File::getOption(int) {
-	std::cout << "posix \e[1;34m" << structName()
-			<< "\e[0m: Object does not implement getOption()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::getOption()");
-}
-
-async::result<void> File::setOption(int, int) {
-	std::cout << "posix \e[1;34m" << structName()
-			<< "\e[0m: Object does not implement setOption()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::setOption()");
 }
 
 async::result<frg::expected<Error, AcceptResult>> File::accept(Process *) {
