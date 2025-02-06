@@ -632,6 +632,63 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+		}else if(req->command() == DRM_IOCTL_MODE_CURSOR2) {
+			managarm::fs::GenericIoctlReply resp;
+
+			if(logDrmRequests)
+				std::cout << "core/drm: MODE_CURSOR2()" << std::endl;
+
+			auto crtc_obj = self->_device->findObject(req->drm_crtc_id());
+			assert(crtc_obj);
+			auto crtc = crtc_obj->asCrtc();
+
+			auto cursor_plane = crtc->cursorPlane();
+
+			if(cursor_plane == nullptr) {
+				resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
+
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
+			std::vector<Assignment> assignments;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			auto bo = self->resolveHandle(req->drm_handle());
+			auto width = req->drm_width();
+			auto height = req->drm_height();
+
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcWProperty(), width << 16));
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
+
+			if(bo) {
+				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+				assert(fb);
+				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
+			} else {
+				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), nullptr));
+			}
+
+			auto x = req->drm_x();
+			auto y = req->drm_y();
+
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->crtcXProperty(), x));
+			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->crtcYProperty(), y));
+
+			auto config = self->_device->createConfiguration();
+			auto state = self->_device->atomicState();
+			auto valid = config->capture(assignments, state);
+			assert(valid);
+			config->commit(std::move(state));
+
+			co_await config->waitForCompletion();
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
 		}else if(req->command() == DRM_IOCTL_MODE_DESTROY_DUMB){
 			if(logDrmRequests)
 				std::cout << "core/drm: DESTROY_DUMB(" << req->drm_handle() << ")" << std::endl;
