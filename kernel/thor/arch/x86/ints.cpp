@@ -6,6 +6,7 @@
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/arch/pic.hpp>
 
 extern char stubsPtr[], stubsLimit[];
 

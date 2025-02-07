@@ -6,6 +6,7 @@
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/stream.hpp>
 #include <hw.frigg_bragi.hpp>
+#include <thor-internal/arch/pic.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>

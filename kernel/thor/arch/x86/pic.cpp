@@ -2,6 +2,7 @@
 #include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
+#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
