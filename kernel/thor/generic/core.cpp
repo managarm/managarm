@@ -19,20 +19,6 @@ size_t kernelVirtualUsage = 0;
 size_t kernelMemoryUsage = 0;
 
 // --------------------------------------------------------
-// Locking primitives
-// --------------------------------------------------------
-
-void IrqSpinlock::lock() {
-	irqMutex().lock();
-	_spinlock.lock();
-}
-
-void IrqSpinlock::unlock() {
-	_spinlock.unlock();
-	irqMutex().unlock();
-}
-
-// --------------------------------------------------------
 // Memory management
 // --------------------------------------------------------
 
@@ -328,7 +314,7 @@ constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
 ExecutorContext::ExecutorContext() { }
 
 CpuData::CpuData()
-: scheduler{this}, activeFiber{nullptr}, heartbeat{0} {
+: activeFiber{nullptr}, heartbeat{0} {
 	iseqPtr = &regularIseq;
 }
 

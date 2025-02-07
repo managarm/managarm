@@ -34,7 +34,7 @@ struct PhysicalGenericTimer : IrqSink, ClockSource {
 
 	IrqStatus raise() override {
 		disarmPreemption();
-		getCpuData()->scheduler.forcePreemptionCall();
+		localScheduler.get().forcePreemptionCall();
 		return IrqStatus::acked;
 	}
 

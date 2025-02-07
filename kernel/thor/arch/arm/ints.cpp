@@ -227,15 +227,15 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 		gic->eoi(cpu, irq);
 
 		if (irq == 0) {
-			cpuData->scheduler.forcePreemptionCall();
+			localScheduler.get(cpuData).forcePreemptionCall();
 		} else if (irq == 1) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
 
-			for(auto &binding : getCpuData()->asidData->bindings)
+			for(auto &binding : asidData.get()->bindings)
 				binding.shootdown();
 
-			getCpuData()->asidData->globalBinding.shootdown();
+			asidData.get()->globalBinding.shootdown();
 		} else if (irq == 2) {
 			assert(!irqMutex().nesting());
 			disableUserAccess();
@@ -245,7 +245,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			panicLogger() << "Received unexpected SGI number " << irq << frg::endlog;
 		}
 
-		cpuData->scheduler.checkPreemption(image);
+		localScheduler.get(cpuData).checkPreemption(image);
 	} else if (irq >= 1020) {
 		if constexpr (logSpurious)
 			infoLogger() << "thor: on CPU " << getCpuData()->cpuIndex << ", spurious IRQ " << irq << " occured" << frg::endlog;

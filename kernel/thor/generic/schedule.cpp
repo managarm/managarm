@@ -36,14 +36,15 @@ namespace {
 		}
 
 		void handlePreemption(IrqImageAccessor image) override {
-			localScheduler()->update();
-			if(localScheduler()->maybeReschedule()) {
+			auto *scheduler = &localScheduler.get();
+			scheduler->update();
+			if(scheduler->maybeReschedule()) {
 				runOnStack([] (Continuation cont, IrqImageAccessor image) {
 					scrubStack(image, cont);
-					localScheduler()->commitReschedule();
+					localScheduler.get().commitReschedule();
 				}, getCpuData()->detachedStack.base(), image);
 			}else{
-				localScheduler()->renewSchedule();
+				scheduler->renewSchedule();
 			}
 		}
 	};
@@ -131,7 +132,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 	}
 
 	if(wasEmpty) {
-		if(self == &getCpuData()->scheduler) {
+		if(self == &localScheduler.get()) {
 			// Note that IPIs have a significant cost (especially within virtual machines)
 			// that we want to avoid if possible.
 			//
@@ -153,7 +154,7 @@ void Scheduler::resume(ScheduleEntity *entity) {
 void Scheduler::suspendCurrent() {
 	assert(!intsAreEnabled());
 
-	auto self = localScheduler();
+	auto self = &localScheduler.get();
 	auto entity = self->_current;
 	assert(entity);
 	assert(entity->type() == ScheduleType::regular);
@@ -440,9 +441,7 @@ void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
 	entity->_refClock = _refClock;
 }
 
-Scheduler *localScheduler() {
-	return &getCpuData()->scheduler;
-}
+THOR_DEFINE_PERCPU(localScheduler);
 
 smarter::borrowed_ptr<Thread> getCurrentThread() {
 	return getCpuData()->activeThread;

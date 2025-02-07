@@ -7,6 +7,8 @@
 
 namespace thor {
 
+THOR_DEFINE_PERCPU(asidData);
+
 namespace {
 
 void invalidateNode(int asid, ShootNode *node) {
@@ -71,7 +73,7 @@ PageBinding::completeShootdown_(PageSpace *space, uint64_t afterSequence, bool d
 
 bool PageBinding::isPrimary() {
 	assert(!intsAreEnabled());
-	auto &context = getCpuData()->asidData->pageContext;
+	auto &context = asidData.get()->pageContext;
 
 	return context.primaryBinding_ == this;
 }
@@ -79,7 +81,7 @@ bool PageBinding::isPrimary() {
 void PageBinding::rebind() {
 	assert(!intsAreEnabled());
 	assert(boundSpace_);
-	auto &context = getCpuData()->asidData->pageContext;
+	auto &context = asidData.get()->pageContext;
 
 	// The global binding should always be current
 	assert(id_ != globalBindingId);
@@ -93,7 +95,7 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	assert(!intsAreEnabled());
 	assert(!boundSpace_ || boundSpace_.get() != space.get()); // This would be unnecessary work.
 	assert(id_ != globalBindingId);
-	auto &context = getCpuData()->asidData->pageContext;
+	auto &context = asidData.get()->pageContext;
 
 	// Disallow mapping the kernel page space to the ASID bindings.
 	assert(space.get() != &KernelPageSpace::global());
@@ -225,7 +227,7 @@ void PageBinding::shootdown() {
 
 
 void PageSpace::activate(smarter::shared_ptr<PageSpace> space) {
-	auto &bindings = getCpuData()->asidData->bindings;
+	auto &bindings = asidData.get()->bindings;
 
 	size_t lruIdx = 0;
 	for(size_t i = 0; i < bindings.size(); i++) {
@@ -284,7 +286,7 @@ bool PageSpace::submitShootdown(ShootNode *node) {
 
 		auto unshotBindings = numBindings_;
 
-		auto &bindings = getCpuData()->asidData->bindings;
+		auto &bindings = asidData.get()->bindings;
 
 		// Perform synchronous shootdown.
 		if(this == &KernelPageSpace::global()) {

@@ -8,13 +8,11 @@
 #include <x86/gdt.hpp>
 #include <x86/idt.hpp>
 #include <x86/machine.hpp>
-#include <x86/tss.hpp>
+#include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/arch/pic.hpp>
-#include <thor-internal/types.hpp>
 #include <thor-internal/kernel-stack.hpp>
-
-#include <thor-internal/arch-generic/asid.hpp>
+#include <thor-internal/types.hpp>
 
 // NOTE: This header only provides architecture-specific structure and
 // inline function definitions. Check arch-generic/cpu.hpp for the
@@ -528,63 +526,6 @@ extern CpuFeatures globalCpuFeatures;
 }
 
 initgraph::Stage *getCpuFeaturesKnownStage();
-
-// Note: These constants we mirrored in assembly.
-// Do not change their values!
-inline constexpr unsigned int uarRead = 1;
-inline constexpr unsigned int uarWrite = 2;
-
-// Note: This struct is accessed from assembly.
-// Do not change the field offsets!
-struct UserAccessRegion {
-	void *startIp;
-	void *endIp;
-	void *faultIp;
-	unsigned int flags;
-};
-
-struct IseqContext;
-
-// Note: This struct is accessed from assembly.
-// Do not change the field offsets!
-struct AssemblyCpuData {
-	AssemblyCpuData *selfPointer;
-	void *syscallStack;
-	UserAccessRegion *currentUar;
-	IseqContext *iseqPtr{nullptr};
-};
-
-struct Thread;
-
-struct PlatformCpuData : public AssemblyCpuData {
-	PlatformCpuData();
-
-	int localApicId;
-
-	uint32_t gdt[14 * 2];
-	uint32_t idt[256 * 4];
-
-	UniqueKernelStack irqStack;
-	UniqueKernelStack dfStack;
-	UniqueKernelStack nmiStack;
-
-	common::x86::Tss64 tss;
-
-	frg::manual_box<AsidCpuData> asidData;
-
-	bool havePcids = false;
-	bool haveSmap = false;
-	bool haveVirtualization = false;
-
-	LocalApicContext apicContext;
-};
-
-// Get a pointer to this CPU's PlatformCpuData instance.
-inline PlatformCpuData *getPlatformCpuData() {
-	AssemblyCpuData *cpu_data;
-	asm volatile ("mov %%gs:0, %0" : "=r"(cpu_data));
-	return static_cast<PlatformCpuData *>(cpu_data);
-}
 
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {

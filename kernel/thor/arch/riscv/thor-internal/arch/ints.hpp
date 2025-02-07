@@ -1,11 +1,6 @@
 #pragma once
 
-#include <assert.h>
-#include <frg/spinlock.hpp>
 #include <riscv/csr.hpp>
-#include <thor-internal/arch/unimplemented.hpp>
-#include <thor-internal/debug.hpp>
-#include <thor-internal/irq.hpp>
 
 namespace thor {
 

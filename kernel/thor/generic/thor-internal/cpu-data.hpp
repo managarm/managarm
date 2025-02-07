@@ -1,9 +1,8 @@
 #pragma once
 
-#include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/executor-context.hpp>
 #include <thor-internal/kernel-locks.hpp>
-#include <thor-internal/schedule.hpp>
 
 #include <new>
 #include <tuple>
@@ -37,7 +36,6 @@ struct CpuData : public PlatformCpuData {
 	IrqMutex irqMutex;
 	UniqueKernelStack detachedStack;
 	UniqueKernelStack idleStack;
-	Scheduler scheduler;
 	bool haveVirtualization;
 
 	int cpuIndex;

@@ -407,7 +407,7 @@ void thor::acpi::initGlue() {
 				acpiGpeWorkQueue.async_get());
 			workExec(*work);
 		}
-		}, &getCpuData(0)->scheduler);
+		}, &localScheduler.getFor(0));
 
 	KernelFiber::run([] {
 		while (true) {

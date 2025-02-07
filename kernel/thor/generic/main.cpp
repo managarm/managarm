@@ -352,9 +352,10 @@ extern "C" void thorMain() {
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	LoadBalancer::singleton().setOnline(getCpuData());
-	localScheduler()->update();
-	localScheduler()->forceReschedule();
-	localScheduler()->commitReschedule();
+	auto *scheduler = &localScheduler.get();
+	scheduler->update();
+	scheduler->forceReschedule();
+	scheduler->commitReschedule();
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
@@ -497,8 +498,7 @@ void handleIrq(IrqImageAccessor image, IrqPin *irq) {
 	injectEntropy(entropySrcIrqs, cpuData->irqEntropySeq++, entropy, 6);
 
 	// See Scheduler::resume() for details.
-	auto *scheduler = &cpuData->scheduler;
-	scheduler->checkPreemption(image);
+	localScheduler.get(cpuData).checkPreemption(image);
 }
 
 void handleSyscall(SyscallImageAccessor image) {

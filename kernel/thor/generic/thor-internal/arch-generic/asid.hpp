@@ -2,6 +2,7 @@
 
 #include <smarter.hpp>
 #include <async/basic.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/types.hpp>
 #include <frg/list.hpp>
@@ -296,6 +297,8 @@ void invalidatePage(int asid, const void *address);
 
 
 struct CpuData;
+
+extern PerCpu<frg::manual_box<AsidCpuData>> asidData;
 
 // Initialize the ASID context on the given CPU.
 void initializeAsidContext(CpuData *cpuData);

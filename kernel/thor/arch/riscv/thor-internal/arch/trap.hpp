@@ -4,6 +4,8 @@
 
 namespace thor {
 
+struct IrqPin;
+
 extern "C" void thorExceptionEntry();
 
 void handleRiscvWorkOnExecutor(Executor *executor, Frame *frame);

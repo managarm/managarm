@@ -1661,11 +1661,11 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	new_thread->self = remove_tag_cast(new_thread);
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
-	auto cpu = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
+	auto cpuIndex = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
 //	infoLogger() << "thor: New thread on CPU #" << cpu << frg::endlog;
-	LoadBalancer::singleton().connect(new_thread.get(), getCpuData(cpu));
-	Scheduler::associate(new_thread.get(), &getCpuData(cpu)->scheduler);
-//	Scheduler::associate(new_thread.get(), localScheduler());
+	auto *cpu = getCpuData(cpuIndex);
+	LoadBalancer::singleton().connect(new_thread.get(), cpu);
+	Scheduler::associate(new_thread.get(), &localScheduler.get(cpu));
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(remove_tag_cast(new_thread));
 

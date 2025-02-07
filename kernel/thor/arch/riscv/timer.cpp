@@ -6,6 +6,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/schedule.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/util.hpp>
 
@@ -137,9 +138,9 @@ void onTimerInterrupt(IrqImageAccessor image) {
 		generalTimerEngine()->firedAlarm();
 
 	if (preemptionExpired)
-		cpuData->scheduler.forcePreemptionCall();
+		localScheduler.get(cpuData).forcePreemptionCall();
 
-	cpuData->scheduler.checkPreemption(image);
+	localScheduler.get(cpuData).checkPreemption(image);
 }
 
 } // namespace thor
