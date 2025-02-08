@@ -99,7 +99,7 @@ static int picModel = kModelLegacy;
 
 uint64_t getRawTimestampCounter() {
 	uint32_t lsw, msw;
-	asm volatile ("rdtsc" : "=a"(lsw), "=d"(msw));
+	asm volatile ("lfence; rdtsc" : "=a"(lsw), "=d"(msw));
 	return (static_cast<uint64_t>(msw) << 32)
 			| static_cast<uint64_t>(lsw);
 }
