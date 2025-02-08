@@ -1884,6 +1884,7 @@ void configureDevice(PciDevice *device) {
 					reinterpret_cast<uintptr_t>(window) + page,
 					(bar.address + tableOffset + page) & ~(kPageSize - 1),
 					page_access::write, CachingMode::null);
+		pageTableUpdateBarrier();
 		device->msixMapping = reinterpret_cast<std::byte *>(window) + mappingDisp;
 
 		// Mask all MSIs.

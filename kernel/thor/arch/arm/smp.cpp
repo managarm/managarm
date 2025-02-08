@@ -119,6 +119,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(codeVirtPtr), codePhysPtr,
 			page_access::write, CachingMode::uncached);
+	pageTableUpdateBarrier();
 
 	// We use a ClientPageSpace here to create an identity mapping for the trampoline
 	ClientPageSpace lowMapping;
@@ -161,6 +162,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 			KernelPageSpace::global().mapSingle4k(VirtualAddr(virtPtr), page,
 					page_access::write, CachingMode::uncached);
+			pageTableUpdateBarrier();
 
 			auto space = arch::mem_space{virtPtr};
 
@@ -169,6 +171,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 			asm volatile ("sev" ::: "memory");
 
 			KernelPageSpace::global().unmapSingle4k(VirtualAddr(virtPtr));
+			invalidatePage(globalBindingId, virtPtr);
 
 			KernelVirtualMemory::global().deallocate(virtPtr, kPageSize);
 
@@ -214,8 +217,8 @@ bool bootSecondary(DeviceTreeNode *node) {
 	}
 
 	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
-	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
 	KernelFiber::asyncBlockCurrent(shootdown(&KernelPageSpace::global(), VirtualAddr(codeVirtPtr), kPageSize));
+	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {

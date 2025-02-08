@@ -59,6 +59,7 @@ GicDistributorV2::GicDistributorV2(uintptr_t addr)
 	auto register_ptr = KernelVirtualMemory::global().allocate(0x1000);
 	KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), addr,
 			page_access::write, CachingMode::mmio);
+	pageTableUpdateBarrier();
 	space_ = arch::mem_space{register_ptr};
 }
 
@@ -297,6 +298,7 @@ GicCpuInterfaceV2::GicCpuInterfaceV2(GicDistributorV2 *dist, uintptr_t addr, siz
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(ptr) + i, addr + i,
 				page_access::write, CachingMode::mmio);
 	}
+	pageTableUpdateBarrier();
 	space_ = arch::mem_space{ptr};
 }
 

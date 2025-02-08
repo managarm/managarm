@@ -101,6 +101,7 @@ GicDistributorV3::GicDistributorV3(uintptr_t addr, uintptr_t size)
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(ptr) + i, addr + i,
 				page_access::write, CachingMode::mmio);
 	}
+	pageTableUpdateBarrier();
 	space_ = arch::mem_space{ptr};
 }
 
@@ -267,6 +268,7 @@ bool initGicV3() {
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(redistPtr) + i, reg[1].addr + i,
 				page_access::write, CachingMode::mmio);
 	}
+	pageTableUpdateBarrier();
 
 	auto redistCount = reg[1].size / 0x20000;
 	redists.initialize(*kernelAlloc);
@@ -283,6 +285,7 @@ bool initGicV3() {
 
 	gicV3.initialize();
 	gic = gicV3.get();
+	gicNode->associateIrqController(gicV3.get());
 
 	initGicOnThisCpuV3();
 
@@ -382,6 +385,20 @@ Gic::CpuIrq GicV3::getIrq() {
 
 void GicV3::eoi(uint32_t, uint32_t id) {
 	asm volatile("msr icc_dir_el1, %0" : : "r"(uint64_t {id}));
+}
+
+IrqPin *GicV3::resolveDtIrq(dtb::Cells irq) {
+	if (irq.numCells() != 3)
+		panicLogger() << "thor: invalid GICv3 #interrupt-cell count " << irq.numCells() << frg::endlog;
+
+	uint32_t pin, flags;
+	bool success = irq.readSlice(pin, 1, 1);
+	assert(success);
+
+	success = irq.readSlice(flags, 2, 1);
+	assert(success);
+
+	return setupIrq(pin+32, TriggerMode::edge);
 }
 
 Gic::Pin *GicV3::setupIrq(uint32_t irq, TriggerMode trigger) {

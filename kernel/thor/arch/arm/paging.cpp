@@ -47,6 +47,10 @@ void switchToPageTable(PhysicalAddr root, int asid, bool invalidate) {
 		: "memory");
 }
 
+void pageTableUpdateBarrier() {
+	asm volatile("dsb ishst; isb");
+}
+
 namespace {
 
 PhysicalAddr nullTable = PhysicalAddr(-1);

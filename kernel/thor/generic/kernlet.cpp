@@ -149,6 +149,7 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 				KernelPageSpace::global().mapSingle4k(va, physical,
 						pf, CachingMode::null);
 			}
+			pageTableUpdateBarrier();
 
 			// Fill the segment.
 			memset(base + phdr.p_vaddr, 0, phdr.p_memsz);

@@ -118,6 +118,7 @@ BrcmStbPcie::BrcmStbPcie(DeviceTreeNode *node, uint16_t seg, uint8_t busStart, u
 				VirtualAddr(ptr) + i, addr + i,
 				page_access::write, CachingMode::mmioNonPosted);
 	}
+	pageTableUpdateBarrier();
 
 	regSpace_ = arch::mem_space{ptr};
 
