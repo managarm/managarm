@@ -4,6 +4,7 @@
 #include <cralgo/aes.hpp>
 #include <cralgo/sha2_32.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/debug.hpp>

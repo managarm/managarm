@@ -428,7 +428,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	LocalApicContext::handleTimerIrq();
+	handleTimerInterrupt();
 
 	getCpuData()->heartbeat.fetch_add(1, std::memory_order_relaxed);
 

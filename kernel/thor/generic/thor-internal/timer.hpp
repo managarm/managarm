@@ -189,6 +189,11 @@ inline void PrecisionTimerNode::CancelFunctor::operator() () {
 
 PrecisionTimerEngine *generalTimerEngine();
 
-bool haveTimer();
+// Schedules preemption to happen when the monotonic clock reaches the
+// deadline, or disarms preemption when deadline is frg::null_opt.
+void setPreemptionDeadline(frg::optional<uint64_t> deadline);
+// Returns the current preemption deadline, or frg::null_opt if there
+// is none.
+frg::optional<uint64_t> getPreemptionDeadline();
 
 } // namespace thor
