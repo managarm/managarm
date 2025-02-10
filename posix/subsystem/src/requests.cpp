@@ -39,6 +39,13 @@
 
 async::result<void> serveRequests(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
+	auto logRequest = [&self]<class... Args>(bool cond, std::string_view name,
+	std::format_string<Args...> fmt = {""}, Args&&... args) {
+		if(cond)
+			std::cout << "posix: [" << self->pid() << "] " << name << " "
+			          << std::format(fmt, std::forward<Args>(args)...) << std::endl;
+	};
+
 	async::cancellation_token cancellation = generation->cancelServe;
 
 	async::cancellation_callback cancel_callback{cancellation, [&] {
@@ -100,8 +107,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			if(logRequests)
-				std::cout << "posix: GET_PID" << std::endl;
+
+			logRequest(logRequests, "GET_PID", "pid={}", self->pid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -120,8 +127,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_PPID" << std::endl;
+			logRequest(logRequests, "GET_PPID", "ppid={}", self->getParent()->pid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -141,8 +147,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_UID" << std::endl;
+			logRequest(logRequests, "GET_UID", "uid={}", self->uid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -162,8 +167,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_UID" << std::endl;
+			logRequest(logRequests, "SET_UID", "uid={}", req->uid());
 
 			Error err = self->setUid(req->uid());
 			if(err == Error::accessDenied) {
@@ -181,8 +185,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_EUID" << std::endl;
+			logRequest(logRequests, "GET_EUID", "euid={}", self->euid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -202,8 +205,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_EUID" << std::endl;
+			logRequest(logRequests, "SET_EUID", "euid={}", req->uid());
 
 			Error err = self->setEuid(req->uid());
 			if(err == Error::accessDenied) {
@@ -221,8 +223,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_GID" << std::endl;
+			logRequest(logRequests, "GET_GID", "gid={}", self->gid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -242,8 +243,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_EGID" << std::endl;
+			logRequest(logRequests, "GET_EGID", "egid={}", self->egid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -263,8 +263,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_GID" << std::endl;
+			logRequest(logRequests, "SET_GID");
 
 			Error err = self->setGid(req->uid());
 			if(err == Error::accessDenied) {
@@ -282,8 +281,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_EGID" << std::endl;
+			logRequest(logRequests, "SET_EGID");
 
 			Error err = self->setEgid(req->uid());
 			if(err == Error::accessDenied) {
@@ -300,9 +298,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-
-			if(logRequests)
-				std::cout << "posix: WAIT_ID" << std::endl;
 
 			if((req->flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) ||
 				!(req->flags() & (WEXITED /*| WSTOPPED | WCONTINUED*/))) {
@@ -339,6 +334,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			logRequest(logRequests, "WAIT_ID", "pid={}", wait_pid);
+
 			auto wait_result = co_await self->wait(wait_pid, flags);
 
 			helix::SendBuffer send_resp;
@@ -372,9 +369,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			);
 			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
-			if(logRequests)
-				std::cout << "posix: WAIT" << std::endl;
-
 			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
 				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -391,6 +385,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(req.flags() & WCONTINUED)
 				std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
+
+			logRequest(logRequests, "WAIT", "pid={}", req.pid());
 
 			auto wait_result = co_await self->wait(req.pid(), flags);
 
@@ -430,8 +426,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: REBOOT with command: " << req->cmd() << std::endl;
+			logRequest(logRequests, "REBOOT", "command={}", req->cmd());
 
 			if(self->uid() != 0) {
 				sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
@@ -462,8 +457,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
-			if(logRequests)
-				std::cout << "posix: GET_RESOURCE_USAGE" << std::endl;
+			logRequest(logRequests, "GET_RESOURCE_USAGE");
 
 			HelThreadStats stats;
 			HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
@@ -498,8 +492,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			if(logRequests)
-				std::cout << "posix: VM_MAP size: " << (void *)(size_t)req->size() << std::endl;
+
+			logRequest(logRequests, "VM_MAP", "size={:#x}", req->size());
 
 			// TODO: Validate req->flags().
 
@@ -585,8 +579,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			);
 			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
-			if(logRequests)
-				std::cout << "posix: VM_REMAP" << std::endl;
+			logRequest(logRequests, "VM_REMAP");
 
 			helix::SendBuffer send_resp;
 
@@ -603,8 +596,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_PROTECT) {
-			if(logRequests)
-				std::cout << "posix: VM_PROTECT" << std::endl;
+			logRequest(logRequests, "VM_PROTECT");
 			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
@@ -636,9 +628,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
-			if(logRequests)
-				std::cout << "posix: VM_UNMAP address: " << (void *)req.address()
-						<< ", size: " << (void *)(size_t)req.size() << std::endl;
+			logRequest(logRequests, "VM_UNMAP", "address={:#08x} size={:#x}", req.address(), req.size());
 
 			helix::SendBuffer send_resp;
 
@@ -667,9 +657,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: MOUNT " << req->fs_type() << " on " << req->path()
-						<< " to " << req->target_path() << std::endl;
+			logRequest(logRequests, "MOUNT", "fstype={} on={} to={}", req->fs_type(), req->path(), req->target_path());
 
 			auto resolveResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req->target_path(), self.get());
@@ -721,8 +709,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await target.first->mount(target.second, std::move(link));
 			}
 
-			if(logRequests)
-				std::cout << "posix:     MOUNT succeeds" << std::endl;
+			logRequest(logRequests, "MOUNT", "succeeded");
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -734,8 +721,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
-			if(logRequests)
-				std::cout << "posix: CHROOT" << std::endl;
+			logRequest(logRequests, "CHROOT");
 
 			helix::SendBuffer send_resp;
 
@@ -765,8 +751,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::CHDIR) {
-			if(logRequests)
-				std::cout << "posix: CHDIR" << std::endl;
+			logRequest(logRequests, "CHDIR");
 
 			helix::SendBuffer send_resp;
 
@@ -796,8 +781,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FCHDIR) {
-			if(logRequests)
-				std::cout << "posix: CHDIR" << std::endl;
+			logRequest(logRequests, "FCHDIR");
 
 			managarm::posix::SvrResponse resp;
 			helix::SendBuffer send_resp;
@@ -839,9 +823,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-
-			if(logRequests || logPaths)
-				std::cout << "posix: ACCESSAT " << req->path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
@@ -889,6 +870,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
+			logRequest(logRequests || logPaths, "ACCESSAT", "'{}'", pathResult.value().getPath(self->fsContext()->getRoot()));
+
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == managarm::posix::MkdirAtRequest::message_id) {
 			std::vector<std::byte> tail(preamble.tail_size());
@@ -905,8 +888,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: MKDIRAT " << req->path() << std::endl;
+			logRequest(logRequests || logPaths, "MKDIRAT", "path='{}'", req->path());
 
 			if(!req->path().size()) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -984,8 +966,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: MKFIFOAT " << req->fd() << " " << req->path() << std::endl;
+			logRequest(logRequests || logPaths, "MKFIFOAT", "path='{}'", req->path());
 
 			if (!req->path().size()) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1049,8 +1030,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto req = bragi::parse_head_tail<managarm::posix::LinkAtRequest>(recv_head, tail);
 
-			if(logRequests)
-				std::cout << "posix: LINKAT" << std::endl;
+			logRequest(logRequests, "LINKAT");
 
 			if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -1157,9 +1137,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: SYMLINK " << req->path() << std::endl;
-
 			ViewPath relativeTo;
 			smarter::shared_ptr<File, FileHandle> file;
 
@@ -1198,6 +1175,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
+			logRequest(logRequests || logPaths, "SYMLINK", "'{}{}' -> '{}'",
+				ViewPath{resolver.currentView(), resolver.currentLink()}
+					.getPath(self->fsContext()->getRoot()),
+				resolver.nextComponent(),
+				req->target_path());
+
 			auto parent = resolver.currentLink()->getTarget();
 			auto result = co_await parent->symlink(resolver.nextComponent(), req->target_path());
 			if(auto error = std::get_if<Error>(&result); error) {
@@ -1233,10 +1216,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-
-			if(logRequests || logPaths)
-				std::cout << "posix: RENAMEAT " << req->path()
-						<< " to " << req->target_path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
@@ -1308,6 +1287,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
+			logRequest(logRequests || logPaths, "RENAMEAT", "'{}' -> '{}{}'",
+				ViewPath(resolver.currentView(), resolver.currentLink())
+				.getPath(self->fsContext()->getRoot()),
+				ViewPath(new_resolver.currentView(), new_resolver.currentLink())
+				.getPath(self->fsContext()->getRoot()),
+				new_resolver.nextComponent());
+
 			auto superblock = resolver.currentLink()->getTarget()->superblock();
 			auto directory = new_resolver.currentLink()->getTarget();
 			assert(superblock == directory->superblock());
@@ -1335,8 +1321,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: FSTATAT request" << std::endl;
+			logRequest(logRequests, "FSTATAT");
 
 			if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT)) {
 				std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req->flags()) << std::endl;
@@ -1465,8 +1450,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: FSTATFS request" << std::endl;
+			logRequest(logRequests, "FSTATFS");
 
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
@@ -1519,8 +1503,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto req = bragi::parse_head_tail<managarm::posix::FchmodAtRequest>(recv_head, tail);
 
-			if(logRequests)
-				std::cout << "posix: FCHMODAT request" << std::endl;
+			logRequest(logRequests, "FCHMODAT");
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
@@ -1594,8 +1577,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: UTIMENSAT " << req->path() << std::endl;
+			logRequest(logRequests || logPaths, "UTIMENSAT");
 
 			ViewPath relativeTo;
 			smarter::shared_ptr<File, FileHandle> file;
@@ -1662,9 +1644,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-
-			if(logRequests || logPaths)
-				std::cout << "posix: READLINKAT path: " << req->path() << std::endl;
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
@@ -1733,6 +1712,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}else{
 				auto &target = std::get<std::string>(result);
 
+				logRequest(logRequests || logPaths, "READLINKAT", "'{}' -> '{}'",
+					path.getPath(self->fsContext()->getRoot()),
+					target);
+
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -1756,8 +1739,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			if(logRequests || logPaths)
-				std::cout << "posix: OPENAT path: " << req->path() << std::endl;
 
 			if((req->flags() & ~(managarm::posix::OpenFlags::OF_CREATE
 					| managarm::posix::OpenFlags::OF_EXCLUSIVE
@@ -1831,8 +1812,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					}
 				}
 
-				if(logRequests)
-					std::cout << "posix: Creating file " << req->path() << std::endl;
+				logRequest(logRequests || logPaths, "OPENAT", "create '{}'",
+					ViewPath{resolver.currentView(), resolver.currentLink()}
+					.getPath(self->fsContext()->getRoot()));
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto tailResult = co_await directory->getLink(resolver.nextComponent());
@@ -1909,6 +1891,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					}
 				}
 
+				logRequest(logRequests || logPaths, "OPENAT", "open '{}'",
+					ViewPath{resolver.currentView(), resolver.currentLink()}
+					.getPath(self->fsContext()->getRoot()));
+
 				auto target = resolver.currentLink()->getTarget();
 				if(req->flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
 					if(target->getType() != VfsType::directory) {
@@ -1947,8 +1933,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			if(!file) {
-				if(logRequests)
-					std::cout << "posix:     OPEN failed: file not found" << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 				continue;
 			}
@@ -1988,8 +1972,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			if(logRequests)
-				std::cout << "posix: CLOSE file descriptor " << req->fd() << std::endl;
+
+			logRequest(logRequests, "CLOSE", "fd={}", req->fd());
 
 			auto closeErr = self->fileContext()->closeFile(req->fd());
 
@@ -2012,8 +1996,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
-			if(logRequests)
-				std::cout << "posix: DUP" << std::endl;
+			logRequest(logRequests, "DUP", "fd={}", req.fd());
 
 			auto file = self->fileContext()->getFile(req.fd());
 
@@ -2060,8 +2043,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::DUP2) {
-			if(logRequests)
-				std::cout << "posix: DUP2" << std::endl;
+			logRequest(logRequests, "DUP2", "fd={}", req.fd());
 
 			auto file = self->fileContext()->getFile(req.fd());
 
@@ -2111,8 +2093,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			if(logRequests)
-				std::cout << "posix: IS_TTY" << std::endl;
+			logRequest(logRequests, "IS_TTY", "fd={}", req->fd());
 
 			auto file = self->fileContext()->getFile(req->fd());
 			if(!file) {
@@ -2132,8 +2113,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 			HEL_CHECK(sendResp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
-			if(logRequests)
-				std::cout << "posix: TTY_NAME" << std::endl;
+			logRequest(logRequests, "TTY_NAME", "fd={}", req.fd());
 
 			helix::SendBuffer send_resp;
 
@@ -2162,11 +2142,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::GETCWD) {
-			if(logRequests)
-				std::cout << "posix: GETCWD" << std::endl;
-
 			std::string path = self->fsContext()->getWorkingDirectory().getPath(
 					self->fsContext()->getRoot());
+
+			logRequest(logRequests, "GETCWD", "path={}", path);
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_path;
@@ -2197,9 +2176,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-
-			if(logRequests || logPaths)
-				std::cout << "posix: UNLINKAT path: " << req->path() << std::endl;
 
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
@@ -2249,6 +2225,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
+			logRequest(logRequests || logPaths, "UNLINKAT", "path='{}'",
+				ViewPath(resolver.currentView(), resolver.currentLink())
+				.getPath(self->fsContext()->getRoot()));
+
 			target_link = resolver.currentLink();
 
 			auto owner = target_link->getOwner();
@@ -2286,9 +2266,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: RMDIR " << req->path() << std::endl;
-
 			std::shared_ptr<FsLink> target_link;
 
 			PathResolver resolver;
@@ -2308,6 +2285,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_return;
 				}
 			}
+
+			logRequest(logRequests || logPaths, "RMDIR", "path='{}'",
+				ViewPath(resolver.currentView(), resolver.currentLink())
+				.getPath(self->fsContext()->getRoot()));
 
 			target_link = resolver.currentLink();
 
@@ -2329,8 +2310,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
-			if(logRequests)
-				std::cout << "posix: FD_GET_FLAGS" << std::endl;
+			logRequest(logRequests, "FD_GET_FLAGS");
 
 			helix::SendBuffer send_resp;
 
@@ -2361,8 +2341,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_SET_FLAGS) {
-			if(logRequests)
-				std::cout << "posix: FD_SET_FLAGS" << std::endl;
+			logRequest(logRequests, "FD_SET_FLAGS");
 
 			if(req.flags() & ~FD_CLOEXEC) {
 				std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
@@ -2389,8 +2368,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: FIOCLEX" << std::endl;
+			logRequest(logRequests, "FIOCLEX");
 
 			if(self->fileContext()->setDescriptor(req->fd(), true) != Error::success) {
 				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
@@ -2405,8 +2383,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix_ng::sendBuffer(ser.data(), ser.size()));
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
-			if(logRequests)
-				std::cout << "posix: SIG_ACTION" << std::endl;
+			logRequest(logRequests, "SIG_ACTION");
 
 			if(req.flags() & ~(SA_ONSTACK | SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP)) {
 				std::cout << "\e[31mposix: Unknown SIG_ACTION flags: 0x"
@@ -2492,8 +2469,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::PIPE_CREATE) {
-			if(logRequests)
-				std::cout << "posix: PIPE_CREATE" << std::endl;
+			logRequest(logRequests, "PIPE_CREATE");
 
 			assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
 
@@ -2521,8 +2497,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SETSID) {
-			if(logRequests)
-				std::cout << "posix: SETSID" << std::endl;
+			logRequest(logRequests, "SETSID");
 
 			managarm::posix::SvrResponse resp;
 
@@ -2545,8 +2520,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(pt_msg.error());
 
-			if(logRequests)
-				std::cout << "posix: passing through ioctl to netserver" << std::endl;
+			logRequest(logRequests, "NETSERVER_REQUEST", "ioctl");
 
 			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
 				co_await net::getNetLane(),
@@ -2602,8 +2576,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SOCKET" << std::endl;
+			logRequest(logRequests, "SOCKET");
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -2666,8 +2639,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SOCKPAIR" << std::endl;
+			logRequest(logRequests, "SOCKPAIR");
 
 			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
@@ -2720,8 +2692,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: ACCEPT" << std::endl;
+			logRequest(logRequests, "ACCEPT", "fd={}", req->fd());
 
 			auto sockfile = self->fileContext()->getFile(req->fd());
 			if(!sockfile) {
@@ -2749,8 +2720,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_CALL" << std::endl;
+			logRequest(logRequests, "EPOLL_CALL");
 
 			helix::SendBuffer send_resp;
 
@@ -2850,8 +2820,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_CREATE" << std::endl;
+			logRequest(logRequests, "EPOLL_CREATE");
 
 			helix::SendBuffer send_resp;
 
@@ -2871,8 +2840,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_ADD) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_ADD" << std::endl;
+			logRequest(logRequests, "EPOLL_ADD", "epollfd={} fd={}", req.fd(), req.newfd());
 
 			helix::SendBuffer send_resp;
 
@@ -2902,8 +2870,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_MODIFY) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_MODIFY" << std::endl;
+			logRequest(logRequests, "EPOLL_MODIFY");
 
 			helix::SendBuffer send_resp;
 
@@ -2929,8 +2896,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_DELETE) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_DELETE" << std::endl;
+			logRequest(logRequests, "EPOLL_DELETE");
 
 			helix::SendBuffer send_resp;
 
@@ -2958,8 +2924,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
-			if(logRequests)
-				std::cout << "posix: EPOLL_WAIT request" << std::endl;
+			logRequest(logRequests, "EPOLL_WAIT", "epollfd={}", req.fd());
 
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_data;
@@ -3006,8 +2971,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
-			if(logRequests)
-				std::cout << "posix: TIMERFD_CREATE" << std::endl;
+			logRequest(logRequests, "TIMERFD_CREATE");
 
 			helix::SendBuffer send_resp;
 
@@ -3026,8 +2990,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_SETTIME) {
-			if(logRequests)
-				std::cout << "posix: TIMERFD_SETTIME" << std::endl;
+			logRequest(logRequests, "TIMERFD_SETTIME");
 
 			helix::SendBuffer send_resp;
 
@@ -3046,8 +3009,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
-			if(logRequests)
-				std::cout << "posix: SIGNALFD_CREATE" << std::endl;
+			logRequest(logRequests, "SIGNALFD_CREATE");
 
 			helix::SendBuffer send_resp;
 
@@ -3090,8 +3052,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: INOTIFY_CREATE" << std::endl;
+			logRequest(logRequests, "INOTIFY_CREATE");
 
 			assert(!(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)));
 
@@ -3130,8 +3091,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 
-			if(logRequests || logPaths)
-				std::cout << "posix: INOTIFY_ADD" << req->path() << std::endl;
+			logRequest(logRequests || logPaths, "INOTIFY_ADD");
 
 			auto ifile = self->fileContext()->getFile(req->fd());
 			if(!ifile) {
@@ -3176,8 +3136,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: EVENTFD_CREATE" << std::endl;
+			logRequest(logRequests, "EVENTFD_CREATE");
 
 			managarm::posix::SvrResponse resp;
 
@@ -3219,8 +3178,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests || logPaths)
-				std::cout << "posix: MKNODAT for path " << req->path() << " with mode " << req->mode() << " and device " << req->device() << std::endl;
+			logRequest(logRequests || logPaths, "MKNODAT", "path='{}' mode={:o} device={:#x}", req->path(), req->mode(), req->device());
 
 			managarm::posix::SvrResponse resp;
 
@@ -3351,8 +3309,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_PGID" << std::endl;
+			logRequest(logRequests, "GET_PGID");
 
 			std::shared_ptr<Process> target;
 			if(req->pid()) {
@@ -3383,8 +3340,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_PGID" << std::endl;
+			logRequest(logRequests, "SET_PGID");
 
 			std::shared_ptr<Process> target;
 			if(req->pid()) {
@@ -3454,8 +3410,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_SID on pid " << req->pid() << std::endl;
+			logRequest(logRequests, "GET_SID", "pid={}", req->pid());
 
 			std::shared_ptr<Process> target;
 			if(req->pid()) {
@@ -3493,8 +3448,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: MEMFD_CREATE " << req->name() << std::endl;
+			logRequest(logRequests, "MEMFD_CREATE", "'{}'", req->name());
 
 			if(req->flags() & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING)) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -3537,8 +3491,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SET_AFFINITY" << std::endl;
+			logRequest(logRequests, "SET_AFFINITY");
 
 			auto handle = self->threadDescriptor().getHandle();
 
@@ -3579,8 +3532,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_AFFINITY" << std::endl;
+			logRequest(logRequests, "GET_AFFINITY");
 
 			if(!req->size()) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -3631,8 +3583,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: GET_MEMORY_INFORMATION" << std::endl;
+			logRequest(logRequests, "GET_MEMORY_INFORMATION");
 
 			managarm::kerncfg::GetMemoryInformationRequest kerncfgRequest;
 			auto [offer, kerncfgSendResp, kerncfgResp] = co_await helix_ng::exchangeMsgs(
@@ -3666,8 +3617,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if(logRequests)
-				std::cout << "posix: SYSCONF" << std::endl;
+			logRequest(logRequests, "SYSCONF");
 
 			managarm::posix::SysconfResponse resp;
 
@@ -3728,8 +3678,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SetIntervalTimerResponse resp;
 			if(req->which() == ITIMER_REAL) {
-				if(logRequests)
-					std::cout << std::format("posix: SETITIMER {}.{:06d} s", req->value_sec(), req->value_usec()) << std::endl;
+				logRequest(logRequests, "SETITIMER", "value={}.{:06d}s", req->value_sec(), req->value_usec());
 
 				uint64_t ticks;
 				HEL_CHECK(helGetClock(&ticks));
