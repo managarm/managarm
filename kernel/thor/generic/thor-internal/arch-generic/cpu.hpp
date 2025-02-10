@@ -177,17 +177,4 @@ void forkExecutor(F functor, Executor *executor) {
 // Fill buffer with entropy obtained from the CPU.
 Error getEntropyFromCpu(void *buffer, size_t size);
 
-
-// Arm the preemption timer to fire in nanos nanoseconds.
-void armPreemption(uint64_t nanos);
-
-// Disarm the preemption timer.
-void disarmPreemption();
-
-// Check whether the preemption timer is armed.
-bool preemptionIsArmed();
-
-// Get the raw timestamp in preemption timer ticks.
-uint64_t getRawTimestampCounter();
-
 } // namespace thor

@@ -5,7 +5,7 @@
 
 namespace thor {
 
-int ceil_log2(unsigned long x) { return 8 * sizeof(unsigned long) - __builtin_clzl(x); }
+inline int ceil_log2(unsigned long x) { return 8 * sizeof(unsigned long) - __builtin_clzl(x); }
 
 // Helper class to store the frequency or inverse frequency (= tick duration) of a timer.
 // Designed to support the conversion of ticks into durations and vice versa with high accuracy.
@@ -27,7 +27,7 @@ struct FreqFraction {
 };
 
 // Converts the fraction (num / denom) to a FreqFraction.
-FreqFraction computeFreqFraction(uint64_t num, uint64_t denom) {
+inline FreqFraction computeFreqFraction(uint64_t num, uint64_t denom) {
 	// TODO: We could use a higher shift (i.e., subtract floor_log2(denom))
 	//       since the division by denom would bring the number back below 64-bit.
 	//       For now, we do not use this fact as it requires a 128-bit division.

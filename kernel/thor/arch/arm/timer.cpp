@@ -8,116 +8,62 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/util.hpp>
 
 namespace thor {
 
-static uint64_t ticksPerSecond;
-static uint64_t ticksPerMilli;
+// Timer frequency and it's inverse stored in nHz and ns respectively.
+constinit FreqFraction timerFreq;
+constinit FreqFraction timerInverseFreq;
 
 uint64_t getRawTimestampCounter() {
-	uint64_t cntpct;
-	asm volatile ("mrs %0, cntpct_el0" : "=r"(cntpct));
-	return cntpct;
+	uint64_t cnt;
+	asm volatile ("mrs %0, cntvct_el0" : "=r"(cnt));
+	return cnt;
 }
 
-uint64_t getVirtualTimestampCounter() {
-	uint64_t cntvct;
-	asm volatile ("mrs %0, cntvct_el0" : "=r"(cntvct));
-	return cntvct;
-}
+struct GenericTimer : IrqSink {
+	GenericTimer()
+	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "generic-timer-irq"}} { }
 
-struct PhysicalGenericTimer : IrqSink, ClockSource {
-	PhysicalGenericTimer()
-	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "physical-generic-timer-irq"}} { }
-
-	virtual ~PhysicalGenericTimer() = default;
+	virtual ~GenericTimer() = default;
 
 	IrqStatus raise() override {
-		disarmPreemption();
-		localScheduler.get().forcePreemptionCall();
+		handleTimerInterrupt();
 		return IrqStatus::acked;
-	}
-
-	uint64_t currentNanos() override {
-		return getRawTimestampCounter() * 1000000 / ticksPerMilli;
 	}
 };
 
-struct VirtualGenericTimer : IrqSink {
-	VirtualGenericTimer()
-	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "virtual-generic-timer-irq"}} { }
-
-	virtual ~VirtualGenericTimer() = default;
-
-	IrqStatus raise() override {
-		disarm();
-		generalTimerEngine()->firedAlarm();
-		return IrqStatus::acked;
-	}
-
-	void arm(uint64_t deadline) {
-		if (!deadline) {
-			disarm();
-			return;
-		}
-
-		auto now = getClockNanos();
-		auto diff = deadline - now;
-
-		if (deadline < now) {
-			diff = 0;
-		}
-
-		uint64_t compare = getVirtualTimestampCounter() + ticksPerSecond * diff / 1000000000;
-
-		asm volatile ("msr cntv_cval_el0, %0" :: "r"(compare));
-	}
-
-	void disarm() {
-		asm volatile ("msr cntv_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
-	}
-};
-
-frg::manual_box<PhysicalGenericTimer> globalPGTInstance;
-frg::manual_box<VirtualGenericTimer> globalVGTInstance;
+frg::manual_box<GenericTimer> globalTimerSink;
 
 uint64_t getClockNanos() {
-	return globalPGTInstance->currentNanos();
+	return timerInverseFreq * getRawTimestampCounter();
 }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	if (deadline) {
-		globalVGTInstance->arm(*deadline);
+		uint64_t rawDeadline = timerFreq * *deadline;
+
+		asm volatile ("msr cntv_cval_el0, %0" :: "r"(rawDeadline));
+		// Unmask the timer interrupt.
+		asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b01}));
 	} else {
-		globalVGTInstance->disarm();
+		// Mask the timer interrupt.
+		asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b11}));
 	}
 }
 
 void initializeTimers() {
-	asm volatile ("mrs %0, cntfrq_el0" : "=r"(ticksPerSecond));
-	ticksPerMilli = ticksPerSecond / 1000;
+	constexpr uint64_t divisor = 1'000'000'000;
+	uint64_t freqHz;
+	asm volatile ("mrs %0, cntfrq_el0" : "=r"(freqHz));
 
-	// enable and unmask generic timers
-	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
-	asm volatile ("msr cntp_ctl_el0, %0" :: "r"(uint64_t{1}));
-	asm volatile ("msr cntv_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
-	asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{1}));
-}
+	// Divide by 10^9 to convert Hz to nHz.
+	timerFreq = computeFreqFraction(freqHz, divisor);
+	timerInverseFreq = computeFreqFraction(divisor, freqHz);
 
-void armPreemption(uint64_t nanos) {
-	uint64_t compare = getRawTimestampCounter() + ticksPerSecond * nanos / 1000000000;
-
-	asm volatile ("msr cntp_cval_el0, %0" :: "r"(compare));
-	getCpuData()->preemptionIsArmed = true;
-}
-
-void disarmPreemption() {
-	asm volatile ("msr cntp_cval_el0, %0" :: "r"(0xFFFFFFFFFFFFFFFF));
-	getCpuData()->preemptionIsArmed = false;
-}
-
-bool preemptionIsArmed() {
-	return getCpuData()->preemptionIsArmed;
+	// Enable and mask the timer interrupt.
+	asm volatile ("msr cntv_ctl_el0, %0" :: "r"(uint64_t{0b11}));
 }
 
 static bool timersFound = false;
@@ -128,8 +74,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
-		globalPGTInstance.initialize();
-		globalVGTInstance.initialize();
+		globalTimerSink.initialize();
 
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {
@@ -142,15 +87,16 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 
 		assert(timerNode && "Failed to find timer");
 
-		// These offsets are defined in the Linux DTB binding for compatible nodes
-		auto irqPhys = timerNode->irqs()[1];
+		// TODO(qookie): I think Linux has some logic to pick
+		// either the physical or virtual timer, which we
+		// should probably replicate instead of always picking
+		// the virtual one.
+
+		// This offset is defined in the Linux DTB binding for compatible nodes.
 		auto irqVirt = timerNode->irqs()[2];
 
-		auto ppin = gic->setupIrq(irqPhys.id, irqPhys.trigger);
-		IrqPin::attachSink(ppin, globalPGTInstance.get());
-
 		auto vpin = gic->setupIrq(irqVirt.id, irqVirt.trigger);
-		IrqPin::attachSink(vpin, globalVGTInstance.get());
+		IrqPin::attachSink(vpin, globalTimerSink.get());
 
 		timersFound = true;
 	}
@@ -162,10 +108,6 @@ bool haveTimer() {
 
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
-	auto irqPhys = timerNode->irqs()[1];
-	auto physPin = gic->getPin(irqPhys.id);
-	physPin->setMode(irqPhys.trigger, irqPhys.polarity);
-
 	auto irqVirt = timerNode->irqs()[2];
 	auto virtPin = gic->getPin(irqVirt.id);
 	virtPin->setMode(irqVirt.trigger, irqVirt.polarity);

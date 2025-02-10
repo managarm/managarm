@@ -18,28 +18,6 @@ namespace {
 constinit FreqFraction freq;
 constinit FreqFraction inverseFreq;
 
-void updateSmodeTimer() {
-	assert(!intsAreEnabled());
-	auto *cpuData = getCpuData();
-
-	auto deadline = ~UINT64_C(0);
-	if (cpuData->timerDeadline)
-		deadline = frg::min(deadline, *cpuData->timerDeadline);
-	if (cpuData->preemptionDeadline)
-		deadline = frg::min(deadline, *cpuData->preemptionDeadline);
-
-	// Avoid an SBI call if the deadline did not change.
-	if (deadline == cpuData->currentDeadline)
-		return;
-	cpuData->currentDeadline = deadline;
-
-	if (riscvHartCapsNote->hasExtension(RiscvExtension::sstc)) {
-		riscv::writeCsr<riscv::Csr::stimecmp>(deadline);
-	} else {
-		sbi::time::setTimer(deadline);
-	}
-}
-
 initgraph::Task initTimer{
     &globalInitEngine,
     "riscv.init-timer",
@@ -88,59 +66,18 @@ uint64_t getClockNanos() {
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	assert(!intsAreEnabled());
-	if (deadline) {
-		getCpuData()->timerDeadline = freq * (*deadline);
+
+	uint64_t rawDeadline = ~UINT64_C(0);
+	if (deadline)
+		rawDeadline = freq * (*deadline);
+
+	if (riscvHartCapsNote->hasExtension(RiscvExtension::sstc)) {
+		riscv::writeCsr<riscv::Csr::stimecmp>(rawDeadline);
 	} else {
-		getCpuData()->timerDeadline = frg::null_opt;
+		sbi::time::setTimer(rawDeadline);
 	}
-	updateSmodeTimer();
 }
 
 bool haveTimer() { return static_cast<bool>(freq); }
-
-bool preemptionIsArmed() {
-	assert(!intsAreEnabled());
-	return static_cast<bool>(getCpuData()->preemptionDeadline);
-}
-
-void armPreemption(uint64_t nanos) {
-	assert(!intsAreEnabled());
-	getCpuData()->preemptionDeadline = getRawTimestampCounter() + freq * nanos;
-	updateSmodeTimer();
-}
-
-void disarmPreemption() {
-	assert(!intsAreEnabled());
-	getCpuData()->preemptionDeadline = frg::null_opt;
-	updateSmodeTimer();
-}
-
-void onTimerInterrupt(IrqImageAccessor image) {
-	auto *cpuData = getCpuData();
-	auto tsc = getRawTimestampCounter();
-
-	// Clear all deadlines that have expired.
-	auto checkAndClear = [&](frg::optional<uint64_t> &deadline) -> bool {
-		if (!deadline || tsc < *deadline)
-			return false;
-		deadline = frg::null_opt;
-		return true;
-	};
-
-	auto timerExpired = checkAndClear(cpuData->timerDeadline);
-	auto preemptionExpired = checkAndClear(cpuData->preemptionDeadline);
-
-	// Update the timer hardware.
-	updateSmodeTimer();
-
-	// Finally, take action for the deadlines that have expired.
-	if (timerExpired)
-		generalTimerEngine()->firedAlarm();
-
-	if (preemptionExpired)
-		localScheduler.get(cpuData).forcePreemptionCall();
-
-	localScheduler.get(cpuData).checkPreemption(image);
-}
 
 } // namespace thor

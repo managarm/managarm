@@ -25,6 +25,7 @@
 #include <thor-internal/arch/vmx.hpp>
 #include <thor-internal/arch/npt.hpp>
 #include <thor-internal/arch/svm.hpp>
+#include <thor-internal/arch/pic.hpp>
 #endif
 #include <hel.h>
 

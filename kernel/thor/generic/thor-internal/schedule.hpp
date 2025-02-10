@@ -7,6 +7,7 @@
 #include <frg/pairing_heap.hpp>
 #include <frg/spinlock.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/arch-generic/cpu.hpp>
 
 namespace thor {
 

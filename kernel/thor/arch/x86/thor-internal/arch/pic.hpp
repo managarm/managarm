@@ -6,6 +6,7 @@
 #include <thor-internal/irq.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/types.hpp>
+#include <thor-internal/util.hpp>
 
 namespace thor {
 
@@ -55,28 +56,19 @@ private:
 };
 
 struct LocalApicContext {
-	LocalApicContext();
-
-	static void setTimer(uint64_t nanos);
-	static void setPreemption(uint64_t nanos);
-	static bool checkPreemption();
-
-	static void handleTimerIrq();
+	constexpr LocalApicContext() = default;
 
 	static void clearPmi();
 
 	bool useTscMode = false;
 	bool timersAreCalibrated = false;
-	uint32_t localTicksPerMilli = 0;
-	uint64_t tscTicksPerMilli = 0;
 
-private:
-	static void _updateLocalTimer();
-
-private:
-	uint64_t _timerDeadline;
-	uint64_t _preemptionDeadline;
-	uint64_t _currentDeadline{0};
+	// Inverse of the TSC frequency in ns.
+	// Used for the timestamp -> monotonic clock time conversion.
+	FreqFraction tscInverseFreq;
+	// Frequency of the timer in nHz (1/tscInverseFreq if using
+	// TSC deadline mode, freq. of the APIC timer otherwise).
+	FreqFraction timerFreq;
 };
 
 initgraph::Stage *getApicDiscoveryStage();
@@ -84,8 +76,6 @@ initgraph::Stage *getApicDiscoveryStage();
 void initLocalApicPerCpu();
 
 uint32_t getLocalApicId();
-
-uint64_t localTicks();
 
 void calibrateApicTimer();
 

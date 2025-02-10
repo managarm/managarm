@@ -10,7 +10,8 @@
 #include <x86/machine.hpp>
 #include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/arch/ints.hpp>
-#include <thor-internal/arch/pic.hpp>
+#include <initgraph.hpp>
+#include <thor-internal/error.hpp>
 #include <thor-internal/kernel-stack.hpp>
 #include <thor-internal/types.hpp>
 

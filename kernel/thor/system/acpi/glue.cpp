@@ -12,10 +12,12 @@
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/timer.hpp>
 #include <async/queue.hpp>
 #include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <stdlib.h>
+#include <thor-internal/arch/pic.hpp>
 
 #include <uacpi/kernel_api.h>
 

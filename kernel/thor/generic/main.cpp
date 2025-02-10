@@ -23,6 +23,7 @@
 #include <thor-internal/servers.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 
 namespace thor {
 

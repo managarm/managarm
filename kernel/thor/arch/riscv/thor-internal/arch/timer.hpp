@@ -4,6 +4,4 @@
 
 namespace thor {
 
-void onTimerInterrupt(IrqImageAccessor image);
-
 } // namespace thor

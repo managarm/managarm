@@ -305,7 +305,7 @@ void Scheduler::forceReschedule() {
 	_sliceClock = _refClock;
 	_mustCallPreemption = false;
 
-	if(!preemptionIsArmed())
+	if(!getPreemptionDeadline())
 		_updatePreemption();
 
 	currentRunnable()->invoke();
@@ -314,7 +314,7 @@ void Scheduler::forceReschedule() {
 void Scheduler::renewSchedule() {
 	_mustCallPreemption = false;
 
-	if(!preemptionIsArmed())
+	if(!getPreemptionDeadline())
 		_updatePreemption();
 }
 
@@ -398,7 +398,7 @@ void Scheduler::_updatePreemption() {
 	}
 
 	ostrace::emit(ostEvtArmPreemption);
-	armPreemption(sliceGranularity);
+	setPreemptionDeadline(getClockNanos() + sliceGranularity);
 }
 
 void Scheduler::_updateCurrentEntity() {

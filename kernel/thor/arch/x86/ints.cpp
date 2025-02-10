@@ -6,6 +6,7 @@
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/arch/pic.hpp>
 
 extern char stubsPtr[], stubsLimit[];
 
@@ -427,7 +428,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	assert(!irqMutex().nesting());
 	disableUserAccess();
 
-	LocalApicContext::handleTimerIrq();
+	handleTimerInterrupt();
 
 	getCpuData()->heartbeat.fetch_add(1, std::memory_order_relaxed);
 

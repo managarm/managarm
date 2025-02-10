@@ -9,6 +9,7 @@
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/arch/pic.hpp>
 
 namespace thor {
 

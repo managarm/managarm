@@ -7,6 +7,7 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
 #include <uacpi/resources.h>
+#include <thor-internal/arch/pic.hpp>
 
 namespace thor::acpi {
 
