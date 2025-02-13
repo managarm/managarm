@@ -297,6 +297,33 @@ static inline frg::array<frg::string_view, 3> dtPciCompatible = {
 namespace dt {
 
 template<typename Fn>
+[[nodiscard]] bool walkInterrupts(Fn fn, DeviceTreeNode *node) {
+	auto prop = node->dtNode().findProperty("interrupts");
+	if (!prop) {
+		warningLogger() << node->path() << " has no interrupts" << frg::endlog;
+		return false;
+	}
+
+	auto it = prop->access();
+	while (it != dtb::endOfProperty) {
+		auto *parentNode = node->interruptParent();
+		auto parentInterruptCells = parentNode->interruptCells();
+
+		dtb::Cells parentIrq;
+		if (!it.intoCells(parentIrq, parentInterruptCells)) {
+			warningLogger() << node->path() << ": failed to read parent IRQ from interrupts"
+					<< frg::endlog;
+			return false;
+		}
+		it += parentInterruptCells * sizeof(uint32_t);
+
+		fn(parentNode, parentIrq);
+	}
+
+	return true;
+}
+
+template<typename Fn>
 [[nodiscard]] bool walkInterruptsExtended(Fn fn, DeviceTreeNode *node) {
 	auto prop = node->dtNode().findProperty("interrupts-extended");
 	if (!prop) {
