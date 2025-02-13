@@ -27,8 +27,7 @@ struct DeviceTreeNode {
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
-	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
-	interruptMapRaw_{nullptr, 0}, interruptController_{false},
+	irqs_{*kernelAlloc}, interruptController_{false},
 	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
 	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0},
 	cpuOn_{0xc4000003}, method_{} { }
@@ -167,14 +166,6 @@ struct DeviceTreeNode {
 		return busRange_;
 	}
 
-	const auto &interruptMap() const {
-		return interruptMap_;
-	}
-
-	const auto &interruptMapMask() const {
-		return interruptMapMask_;
-	}
-
 	const auto &enableMethod() const {
 		return enableMethod_;
 	}
@@ -253,9 +244,6 @@ private:
 
 	frg::span<const std::byte> irqData_;
 	frg::vector<DeviceIrq, KernelAlloc> irqs_;
-	frg::vector<InterruptMapEntry, KernelAlloc> interruptMap_;
-	frg::vector<uint32_t, KernelAlloc> interruptMapMask_;
-	frg::span<const std::byte> interruptMapRaw_;
 
 	bool interruptController_;
 

@@ -46,11 +46,16 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 		return;
 	}
 
-	auto &map = node->interruptMap();
-	assert(map.size());
+	auto maskProp = node->dtNode().findProperty("interrupt-map-mask");
+	if (!maskProp)
+		panicLogger() << node->path() << " has no interrupt-map-mask" << frg::endlog;
 
-	auto mask = node->interruptMapMask()[0];
+	auto it = maskProp->access();
+	uint32_t mask;
+	if (!it.readCells(mask, 1))
+		panicLogger() << node->path() << ": failed to read interrupt-map-mask field" << frg::endlog;
 
+	// TODO(qookie): We mask off the function bits here.
 	auto ignored = (~mask & 0x0000F800);
 	size_t nIgnoredComb = 1 << __builtin_popcount(ignored);
 

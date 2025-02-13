@@ -120,8 +120,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 		} else if (pn == "interrupts") {
 			// This is parsed by the interrupt controller node
 			irqData_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
-		} else if (pn == "interrupt-map") {
-			interruptMapRaw_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
 		} else if (pn == "enable-method") {
 			auto methods = parseStringList(prop);
 
@@ -181,11 +179,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 
 				ranges_.push_back(reg);
 			}
-		} else if (pn == "interrupt-map-mask") {
-			size_t size = interruptCells_ + addressCells_;
-			for (size_t i = 0; i < size; i++) {
-				interruptMapMask_.push_back(prop.asU32(i * 4));
-			}
 		}
 	}
 
@@ -230,54 +223,6 @@ void DeviceTreeNode::finalizeInit() {
 
 		for (auto &r : ranges_) {
 			r.parentAddr = parent_->translateAddress(r.parentAddr);
-		}
-	}
-
-	// parse interrupt-map
-	if (interruptMapRaw_.data()) {
-		auto childAddrCells = addressCells_;
-		auto nexusInterruptCells = interruptCells_;
-
-		::DeviceTreeProperty prop{"", interruptMapRaw_};
-
-		size_t j = 0;
-		while (j < prop.size()) {
-			InterruptMapEntry entry;
-			// PCI(e) buses have a 3 cell long child addresses
-			if (childAddrCells == 3) {
-				entry.childAddrHi = prop.asPropArrayEntry(1, j);
-				j += 4;
-				entry.childAddr = prop.asPropArrayEntry(2, j);
-				j += 8;
-				entry.childAddrHiValid = true;
-			} else {
-				assert(childAddrCells < 3);
-				entry.childAddr = prop.asPropArrayEntry(childAddrCells, j);
-				j += childAddrCells * 4;
-			}
-
-			entry.childIrq = prop.asPropArrayEntry(nexusInterruptCells, j);
-			j += nexusInterruptCells * 4;
-
-			auto phandle = prop.asPropArrayEntry(1, j);
-			j += 4;
-
-			auto intParent = (*phandles)[phandle];
-			entry.interruptController = intParent;
-
-			auto parentAddrCells = intParent->hasAddressCells_
-				? intParent->addressCells_
-				: 0;
-			auto parentInterruptCells = intParent->interruptCells_;
-
-			assert(parentAddrCells < 3);
-			entry.parentAddr = prop.asPropArrayEntry(parentAddrCells, j);
-			j += parentAddrCells * 4;
-
-			entry.parentIrq = intParent->parseIrq_(&prop, j);
-			j += parentInterruptCells * 4;
-
-			interruptMap_.push_back(entry);
 		}
 	}
 
@@ -336,19 +281,6 @@ void DeviceTreeNode::finalizeInit() {
 					infoLogger() << "\t\t- child " << (void *)range.childAddr << " translates to host "
 						<< (void *)range.parentAddr << " - "
 						<< (void *)range.size << " bytes" << frg::endlog;
-				}
-			}
-		}
-
-		if (interruptMap_.size()) {
-			constexpr const char *pciPins[] = {"null", "#INTA", "#INTB", "#INTC", "#INTD"};
-
-			infoLogger() << "\t- interrupt mappings:" << frg::endlog;
-			for (auto ent : interruptMap_) {
-				if (ent.childAddrHiValid && isCompatible(dtPciCompatible)) {
-					infoLogger() << "\t\t- " << pciPins[ent.childIrq] << " of "
-						<< frg::hex_fmt{ent.childAddrHi} << " to " << ent.parentIrq.id << " of "
-						<< ent.interruptController->path() << frg::endlog;
 				}
 			}
 		}
