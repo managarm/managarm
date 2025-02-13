@@ -6,9 +6,6 @@
 
 namespace thor {
 
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-extern IrqSpinlock globalIrqSlotsLock;
-
 static frg::manual_box<GicDistributorV3> dist;
 static frg::manual_box<frg::vector<GicRedistributorV3, KernelAlloc>> redists;
 static frg::manual_box<GicV3> gicV3;
@@ -173,16 +170,11 @@ bool GicPinV3::setMode(TriggerMode trigger, Polarity polarity) {
 }
 
 IrqStrategy GicPinV3::program(TriggerMode mode, Polarity polarity) {
-	auto guard = frg::guard(&globalIrqSlotsLock);
-
 	bool success = setMode(mode, polarity);
 	assert(success);
 
 	if(irq_ >= 32)
 		setAffinity_(getCpuData()->affinity);
-
-	assert(globalIrqSlots[irq_]->isAvailable());
-	globalIrqSlots[irq_]->link(this);
 
 	unmask();
 
