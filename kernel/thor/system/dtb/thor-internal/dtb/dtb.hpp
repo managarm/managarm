@@ -27,9 +27,7 @@ struct DeviceTreeNode {
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
-	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
-	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0},
-	cpuOn_{0xc4000003}, method_{} { }
+	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();
@@ -101,12 +99,6 @@ struct DeviceTreeNode {
 		bool childAddrHiValid;
 	};
 
-	enum class EnableMethod {
-		unknown,
-		spintable,
-		psci
-	};
-
 	frg::string_view path() const {
 		return path_;
 	}
@@ -137,22 +129,6 @@ struct DeviceTreeNode {
 
 	const auto &busRange() const {
 		return busRange_;
-	}
-
-	const auto &enableMethod() const {
-		return enableMethod_;
-	}
-
-	const auto &method() const {
-		return method_;
-	}
-
-	const auto &cpuOn() const {
-		return cpuOn_;
-	}
-
-	const auto &cpuReleaseAddr() const {
-		return cpuReleaseAddr_;
 	}
 
 	template <typename F>
@@ -219,12 +195,6 @@ private:
 	DeviceTreeNode *interruptParent_;
 
 	BusRange busRange_;
-
-	EnableMethod enableMethod_;
-	uintptr_t cpuReleaseAddr_;
-
-	uint32_t cpuOn_;
-	frg::string_view method_;
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};

@@ -30,11 +30,24 @@ namespace {
 
 	struct Psci {
 		Psci(DeviceTreeNode *node) {
-			cpuOn_ = node->cpuOn();
-			usesHvc_ = node->method() == "hvc";
+			auto methodProp = node->dtNode().findProperty("method");
+			if (!methodProp)
+				panicLogger() << node->path() << " has no method" << frg::endlog;
+			auto method = methodProp->asString();
 
+			usesHvc_ = method == "hvc";
 			if (!usesHvc_)
-				assert(node->method() == "smc");
+				assert(method == "smc");
+
+			auto onProp = node->dtNode().findProperty("cpu-on");
+			if (!onProp) {
+				cpuOn_ = 0xC4000003;
+			} else {
+				auto it = onProp->access();
+				if (!it.readCells(cpuOn_, 1))
+					panicLogger()
+						<< node->path() << ": failed to read cpu-on" << frg::endlog;
+			}
 		}
 
 		int turnOnCpu(uint64_t id, uintptr_t addr) {
@@ -95,9 +108,28 @@ bool bootSecondary(DeviceTreeNode *node) {
 	if (id == 0)
 		return false;
 
-	using EnableMethod = DeviceTreeNode::EnableMethod;
+	auto methodProp = node->dtNode().findProperty("enable-method");
+	if (!methodProp)
+		panicLogger() << node->path() << " has no enable-method" << frg::endlog;
 
-	if (node->enableMethod() == EnableMethod::unknown) {
+	enum class EnableMethod {
+		unknown,
+		spinTable,
+		psci
+	} method = EnableMethod::unknown;
+
+	size_t i = 0;
+	while (i < methodProp->size()) {
+		frg::string_view sv{reinterpret_cast<const char *>(methodProp->data()) + i};
+		i += sv.size() + 1;
+
+		if (sv == "psci")
+			method = EnableMethod::psci;
+		else if (sv == "spin-table")
+			method = EnableMethod::spinTable;
+	}
+
+	if (method == EnableMethod::unknown) {
 		infoLogger() << "thor: We don't know how to start this CPU" << frg::endlog;
 		return false;
 	}
@@ -146,11 +178,22 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	bool dontWait = false;
 
-	switch(node->enableMethod()) {
-		case EnableMethod::spintable: {
+	switch(method) {
+		case EnableMethod::spinTable: {
 			infoLogger() << "thor: This CPU uses a spin-table" << frg::endlog;
 
-			auto ptr = node->cpuReleaseAddr();
+
+			auto addrProp = node->dtNode().findProperty("cpu-release-addr");
+			if (!addrProp)
+				panicLogger() << node->path() << " has no cpu-release-addr" << frg::endlog;
+
+			uint64_t ptr;
+			auto it = addrProp->access();
+			if(!it.readCells(ptr, 2)) {
+				if(!it.readCells(ptr, 1)) {
+					panicLogger() << node->path() << " has an empty cpu-release-addr" << frg::endlog;
+				}
+			}
 
 			infoLogger() << "thor: Release address is " << frg::hex_fmt{ptr} << frg::endlog;
 

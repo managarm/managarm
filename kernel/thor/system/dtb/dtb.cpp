@@ -117,25 +117,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 
 				reg_.push_back(reg);
 			}
-		} else if (pn == "enable-method") {
-			auto methods = parseStringList(prop);
-
-			// Look for the first known method
-			for (auto method : methods) {
-				if (method == "spin-table") {
-					enableMethod_ = EnableMethod::spintable;
-					break;
-				} else if (method == "psci") {
-					enableMethod_ = EnableMethod::psci;
-					break;
-				}
-			}
-		} else if (pn == "cpu-release-addr") {
-			cpuReleaseAddr_ = prop.asU64();
-		} else if (pn == "method") {
-			method_ = reinterpret_cast<const char *>(prop.data());
-		} else if (pn == "cpu_on") {
-			cpuOn_ = prop.asU32();
 		} else if (pn == "bus-range") {
 			busRange_.from = prop.asPropArrayEntry(1, 0);
 			busRange_.to = prop.asPropArrayEntry(1, 4);
