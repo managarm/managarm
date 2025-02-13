@@ -26,8 +26,7 @@ struct DeviceTreeNode {
 	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
-	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
-	irqs_{*kernelAlloc}, interruptController_{false},
+	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
 	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
 	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0},
 	cpuOn_{0xc4000003}, method_{} { }
@@ -102,28 +101,6 @@ struct DeviceTreeNode {
 		bool childAddrHiValid;
 	};
 
-	struct DeviceIrq {
-		uint32_t id;
-		Polarity polarity;
-		TriggerMode trigger;
-
-		// GIC-specific
-		uint8_t ppiCpuMask;
-	};
-
-	struct InterruptMapEntry {
-		uint32_t childAddrHi;
-		uint64_t childAddr;
-		uint32_t childIrq;
-
-		DeviceTreeNode *interruptController;
-
-		uint64_t parentAddr;
-		DeviceIrq parentIrq;
-
-		bool childAddrHiValid;
-	};
-
 	enum class EnableMethod {
 		unknown,
 		spintable,
@@ -156,10 +133,6 @@ struct DeviceTreeNode {
 
 	const auto &children() const {
 		return children_;
-	}
-
-	const auto &irqs() const {
-		return irqs_;
 	}
 
 	const auto &busRange() const {
@@ -211,8 +184,6 @@ struct DeviceTreeNode {
 	}
 
 private:
-	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
-	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
 	void generatePath_();
 
 	::DeviceTreeNode dtNode_;
@@ -241,9 +212,6 @@ private:
 
 	frg::vector<RegRange, KernelAlloc> reg_;
 	frg::vector<AddrTranslateRange, KernelAlloc> ranges_;
-
-	frg::span<const std::byte> irqData_;
-	frg::vector<DeviceIrq, KernelAlloc> irqs_;
 
 	bool interruptController_;
 
