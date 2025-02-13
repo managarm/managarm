@@ -525,8 +525,11 @@ public:
 			}
 
 			memcpy(optbuf.data(), &creds, std::min(optbuf.size(), sizeof(creds)));
+		} else if(layer == SOL_SOCKET && number == SO_TYPE) {
+			int type = socktype_;
+			memcpy(optbuf.data(), &type, std::min(optbuf.size(), sizeof(type)));
 		} else {
-			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
 		}
 
