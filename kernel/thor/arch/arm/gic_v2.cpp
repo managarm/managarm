@@ -373,6 +373,8 @@ bool initGicV2() {
 	cpuInterfaceSize = gicNode->reg()[1].size;
 	gic = &gicV2;
 
+	gicNode->associateIrqController(gic);
+
 	return true;
 }
 

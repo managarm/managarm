@@ -286,6 +286,8 @@ bool initGicV3() {
 
 	initGicOnThisCpuV3();
 
+	gicNode->associateIrqController(gic);
+
 	return true;
 }
 
