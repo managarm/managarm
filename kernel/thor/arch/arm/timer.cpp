@@ -22,19 +22,17 @@ uint64_t getRawTimestampCounter() {
 	return cnt;
 }
 
-struct GenericTimer : IrqSink {
-	GenericTimer()
+struct GenericTimerSink : IrqSink {
+	GenericTimerSink()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "generic-timer-irq"}} { }
 
-	virtual ~GenericTimer() = default;
+	virtual ~GenericTimerSink() = default;
 
 	IrqStatus raise() override {
 		handleTimerInterrupt();
 		return IrqStatus::acked;
 	}
 };
-
-frg::manual_box<GenericTimer> globalTimerSink;
 
 uint64_t getClockNanos() {
 	return timerInverseFreq * getRawTimestampCounter();
@@ -77,8 +75,6 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
-		globalTimerSink.initialize();
-
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {
 				timerNode = node;
@@ -110,8 +106,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 
 		assert(success && "Failed to parse generic timer interrupts");
 
-		auto pin = timerIrqParent->resolveDtIrq(*timerIrq);
-		IrqPin::attachSink(pin, globalTimerSink.get());
+		initTimerOnThisCpu();
 
 		timersFound = true;
 	}
@@ -123,8 +118,9 @@ bool haveTimer() {
 
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
+	auto sink = frg::construct<GenericTimerSink>(*kernelAlloc);
 	auto pin = timerIrqParent->resolveDtIrq(*timerIrq);
-	(void)pin;
+	IrqPin::attachSink(pin, sink);
 }
 
 } // namespace thor

@@ -6,6 +6,17 @@
 
 namespace thor {
 
+namespace {
+
+struct LocalInterruptPins {
+	frg::array<GicPinV3 *, 32> pins{};
+};
+
+extern PerCpu<LocalInterruptPins> localPins;
+THOR_DEFINE_PERCPU(localPins);
+
+} // namespace anonymous
+
 static frg::manual_box<GicDistributorV3> dist;
 static frg::manual_box<frg::vector<GicRedistributorV3, KernelAlloc>> redists;
 static frg::manual_box<GicV3> gicV3;
@@ -308,8 +319,12 @@ void initGicOnThisCpuV3() {
 	igrpen1 |= 1;
 	asm volatile("msr icc_igrpen1_el1, %0" : : "r"(igrpen1));
 
+	auto *pins = &localPins.get();
+
 	for(int i = 0; i < 32; ++i) {
-		auto pin = static_cast<GicPinV3 *>(gicV3->getPin(i));
+		auto pin = frg::construct<GicPinV3>(*kernelAlloc, dist.get(), i);
+		pins->pins[i] = pin;
+
 		pin->mask();
 		pin->setPriority_(defaultPrio);
 		if(i < 16)
@@ -331,14 +346,12 @@ GicV3::GicV3() : irqPins_{*kernelAlloc} {
 		<< (securityExtensions ? "supports" : "doesn't support") << " security extensions" << frg::endlog;
 
 	irqPins_.resize(pins);
-	for(uint32_t i = 0; i < pins; ++i) {
+	for(uint32_t i = 32; i < pins; ++i) {
 		irqPins_[i] = frg::construct<GicPinV3>(*kernelAlloc, dist.get(), i);
 
-		if(i >= 32) {
-			irqPins_[i]->mask();
-			irqPins_[i]->setPriority_(defaultPrio);
-			irqPins_[i]->setAffinity_(affinity);
-		}
+		irqPins_[i]->mask();
+		irqPins_[i]->setPriority_(defaultPrio);
+		irqPins_[i]->setAffinity_(affinity);
 	}
 }
 
@@ -379,16 +392,18 @@ void GicV3::eoi(uint32_t, uint32_t id) {
 }
 
 Gic::Pin *GicV3::setupIrq(uint32_t irq, TriggerMode trigger) {
-	if(irq >= irqPins_.size())
+	Pin *pin = getPin(irq);
+	if (!pin)
 		return nullptr;
 
-	auto pin = irqPins_[irq];
 	pin->configure({trigger, Polarity::high});
 
 	return pin;
 }
 
 Gic::Pin *GicV3::getPin(uint32_t irq) {
+	if (irq < 32)
+		return localPins.get().pins[irq];
 	if(irq >= irqPins_.size())
 		return nullptr;
 

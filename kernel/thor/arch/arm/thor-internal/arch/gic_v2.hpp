@@ -48,12 +48,7 @@ struct GicDistributorV2 {
 	};
 
 	Pin *setupIrq(uint32_t irq, TriggerMode mode);
-	Pin *getPin(uint32_t irq) {
-		if (irq >= irqPins_.size())
-			return nullptr;
-
-		return irqPins_[irq];
-	}
+	Pin *getPin(uint32_t irq);
 
 private:
 	uint8_t getCurrentCpuIfaceNo_();
