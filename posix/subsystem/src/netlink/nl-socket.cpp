@@ -43,6 +43,23 @@ OpenFile::OpenFile(int protocol, bool nonBlock)
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
 		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
 
+void OpenFile::handleClose() {
+	_isClosed = true;
+	_statusBell.raise();
+	_cancelServe.cancel();
+	for(int i = 0; i < MAX_SUPPORTED_GROUP_ID; i++) {
+		if(joinedGroups_ & (1 << i)) {
+			// Remove the netlink socket from the subscription vector
+			auto it = globalGroupMap.find({_protocol, i + 1});
+			assert(it != globalGroupMap.end());
+			auto group = it->second.get();
+			auto self = std::find(group->subscriptions.begin(), group->subscriptions.end(), this);
+			assert(self != group->subscriptions.end());
+			group->subscriptions.erase(self);
+		}
+	}
+}
+
 void OpenFile::deliver(core::netlink::Packet packet) {
 	if(filter_) {
 		Bpf bpf{filter_.value()};
@@ -279,7 +296,7 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 	}
 
 	if(sa.nl_groups) {
-		for(int i = 0; i < 32; i++) {
+		for(int i = 0; i < MAX_BITMAP_GROUP_ID; i++) {
 			if(!(sa.nl_groups & (1 << i)))
 				continue;
 			std::cout << "posix: Join netlink group "
@@ -289,6 +306,7 @@ async::result<protocols::fs::Error> OpenFile::bind(Process *,
 			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
 			group->subscriptions.push_back(this);
+			joinedGroups_ |= 1 << i;
 		}
 	}
 
@@ -323,10 +341,13 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 		auto val = *reinterpret_cast<int *>(optbuf.data());
 		std::cout << "posix: Join netlink group "
 					<< _protocol << "." << val << std::endl;
+		if(val >= MAX_SUPPORTED_GROUP_ID)
+			co_return protocols::fs::Error::illegalArguments;
 		auto it = globalGroupMap.find({_protocol, val});
 		assert(it != globalGroupMap.end());
 		auto group = it->second.get();
 		group->subscriptions.push_back(this);
+		joinedGroups_ |= 1 << val;
 	} else if(layer == SOL_NETLINK && number == NETLINK_PKTINFO) {
 		auto val = *reinterpret_cast<int *>(optbuf.data());
 		pktinfo_ = (val != 0);
@@ -346,7 +367,7 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 		memcpy(optbuf.data(), &_protocol, std::min(optbuf.size(), sizeof(_protocol)));
 	} else {
-		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		printf("posix nl-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
@@ -388,7 +409,7 @@ void setupProtocols() {
 }
 
 void configure(int protocol, size_t num_groups, const ops *ops) {
-	assert(num_groups <= 32);
+	assert(num_groups <= MAX_SUPPORTED_GROUP_ID);
 
 	globalProtocolOpsMap.insert({protocol, ops});
 

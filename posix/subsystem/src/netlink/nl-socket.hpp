@@ -9,6 +9,9 @@
 
 namespace netlink::nl_socket {
 
+constexpr int MAX_SUPPORTED_GROUP_ID = 32;
+constexpr int MAX_BITMAP_GROUP_ID = 32;
+
 void setupProtocols();
 
 struct OpenFile;
@@ -36,11 +39,7 @@ public:
 
 	void deliver(core::netlink::Packet packet) override;
 
-	void handleClose() override {
-		_isClosed = true;
-		_statusBell.raise();
-		_cancelServe.cancel();
-	}
+	void handleClose() override;
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override;
@@ -116,6 +115,10 @@ private:
 
 	// BPF filter
 	std::optional<std::vector<char>> filter_ = std::nullopt;
+
+	// Group subscriptions
+	// TODO(no92): handle group IDs >= MAX_BITMAP_GROUP_ID
+	uint32_t joinedGroups_ = 0;
 };
 
 // Configures the given netlink protocol.
