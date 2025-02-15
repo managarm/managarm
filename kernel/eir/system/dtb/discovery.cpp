@@ -10,14 +10,14 @@
 
 namespace eir {
 
-size_t findSizeCells(DeviceTreeNode parent) {
+size_t findAddressCells(DeviceTreeNode parent) {
 	auto maybeProperty = parent.findProperty("#address-cells");
 	if (maybeProperty)
 		return maybeProperty->asU32();
 	return 2;
 }
 
-size_t findAddressCells(DeviceTreeNode parent) {
+size_t findSizeCells(DeviceTreeNode parent) {
 	auto maybeProperty = parent.findProperty("#size-cells");
 	if (maybeProperty)
 		return maybeProperty->asU32();
