@@ -9,9 +9,6 @@
 
 namespace thor {
 
-// TODO: Remove this on aarch64.
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-
 extern "C" void *thorExcVectors;
 
 void initializeIrqVectors() {
@@ -251,7 +248,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 			infoLogger() << "thor: on CPU " << getCpuData()->cpuIndex << ", spurious IRQ " << irq << " occured" << frg::endlog;
 		// no need to EOI spurious irqs
 	} else {
-		handleIrq(image, globalIrqSlots[irq]->pin());
+		handleIrq(image, gic->getPin(irq));
 	}
 }
 

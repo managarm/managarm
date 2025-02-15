@@ -117,30 +117,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 
 				reg_.push_back(reg);
 			}
-		} else if (pn == "interrupts") {
-			// This is parsed by the interrupt controller node
-			irqData_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
-		} else if (pn == "interrupt-map") {
-			interruptMapRaw_ = {static_cast<const std::byte *>(prop.data()), prop.size()};
-		} else if (pn == "enable-method") {
-			auto methods = parseStringList(prop);
-
-			// Look for the first known method
-			for (auto method : methods) {
-				if (method == "spin-table") {
-					enableMethod_ = EnableMethod::spintable;
-					break;
-				} else if (method == "psci") {
-					enableMethod_ = EnableMethod::psci;
-					break;
-				}
-			}
-		} else if (pn == "cpu-release-addr") {
-			cpuReleaseAddr_ = prop.asU64();
-		} else if (pn == "method") {
-			method_ = reinterpret_cast<const char *>(prop.data());
-		} else if (pn == "cpu_on") {
-			cpuOn_ = prop.asU32();
 		} else if (pn == "bus-range") {
 			busRange_.from = prop.asPropArrayEntry(1, 0);
 			busRange_.to = prop.asPropArrayEntry(1, 4);
@@ -181,11 +157,6 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 
 				ranges_.push_back(reg);
 			}
-		} else if (pn == "interrupt-map-mask") {
-			size_t size = interruptCells_ + addressCells_;
-			for (size_t i = 0; i < size; i++) {
-				interruptMapMask_.push_back(prop.asU32(i * 4));
-			}
 		}
 	}
 
@@ -216,10 +187,6 @@ void DeviceTreeNode::finalizeInit() {
 		} else {
 			interruptParent_ = ipIt->get<1>();
 		}
-
-		if (irqData_.size()) {
-			irqs_ = interruptParent_->parseIrqs_(irqData_);
-		}
 	}
 
 	// perform address translation
@@ -233,57 +200,8 @@ void DeviceTreeNode::finalizeInit() {
 		}
 	}
 
-	// parse interrupt-map
-	if (interruptMapRaw_.data()) {
-		auto childAddrCells = addressCells_;
-		auto nexusInterruptCells = interruptCells_;
-
-		::DeviceTreeProperty prop{"", interruptMapRaw_};
-
-		size_t j = 0;
-		while (j < prop.size()) {
-			InterruptMapEntry entry;
-			// PCI(e) buses have a 3 cell long child addresses
-			if (childAddrCells == 3) {
-				entry.childAddrHi = prop.asPropArrayEntry(1, j);
-				j += 4;
-				entry.childAddr = prop.asPropArrayEntry(2, j);
-				j += 8;
-				entry.childAddrHiValid = true;
-			} else {
-				assert(childAddrCells < 3);
-				entry.childAddr = prop.asPropArrayEntry(childAddrCells, j);
-				j += childAddrCells * 4;
-			}
-
-			entry.childIrq = prop.asPropArrayEntry(nexusInterruptCells, j);
-			j += nexusInterruptCells * 4;
-
-			auto phandle = prop.asPropArrayEntry(1, j);
-			j += 4;
-
-			auto intParent = (*phandles)[phandle];
-			entry.interruptController = intParent;
-
-			auto parentAddrCells = intParent->hasAddressCells_
-				? intParent->addressCells_
-				: 0;
-			auto parentInterruptCells = intParent->interruptCells_;
-
-			assert(parentAddrCells < 3);
-			entry.parentAddr = prop.asPropArrayEntry(parentAddrCells, j);
-			j += parentAddrCells * 4;
-
-			entry.parentIrq = intParent->parseIrq_(&prop, j);
-			j += parentInterruptCells * 4;
-
-			interruptMap_.push_back(entry);
-		}
-	}
-
 	if (logNodeInfo &&
-			(irqs_.size()
-			 || reg_.size()
+			(reg_.size()
 			 || ranges_.size())) {
 		infoLogger() << "Node \"" << path() << "\" has the following:" << frg::endlog;
 
@@ -291,19 +209,6 @@ void DeviceTreeNode::finalizeInit() {
 			infoLogger() << "\t- compatible names:" << frg::endlog;
 			for (auto c : compatible_) {
 				infoLogger() << "\t\t- " << c << frg::endlog;
-			}
-		}
-
-		if (irqs_.size()) {
-			constexpr const char *polarityNames[] = {"null", "high", "low"};
-			constexpr const char *triggerNames[] = {"null", "edge", "level"};
-
-			infoLogger() << "\t- interrupts:" << frg::endlog;
-			for (auto irq : irqs_) {
-				infoLogger() << "\t\t- ID: " << irq.id << ", polarity: "
-					<< polarityNames[(int)irq.polarity]
-					<< ", trigger: " << triggerNames[(int)irq.trigger]
-					<< frg::endlog;
 			}
 		}
 
@@ -339,91 +244,11 @@ void DeviceTreeNode::finalizeInit() {
 				}
 			}
 		}
-
-		if (interruptMap_.size()) {
-			constexpr const char *pciPins[] = {"null", "#INTA", "#INTB", "#INTC", "#INTD"};
-
-			infoLogger() << "\t- interrupt mappings:" << frg::endlog;
-			for (auto ent : interruptMap_) {
-				if (ent.childAddrHiValid && isCompatible(dtPciCompatible)) {
-					infoLogger() << "\t\t- " << pciPins[ent.childIrq] << " of "
-						<< frg::hex_fmt{ent.childAddrHi} << " to " << ent.parentIrq.id << " of "
-						<< ent.interruptController->path() << frg::endlog;
-				}
-			}
-		}
 	}
 
 	// Recurse into children
 	for (auto &[_, child] : children_)
 		child->finalizeInit();
-}
-
-auto DeviceTreeNode::parseIrq_(::DeviceTreeProperty *prop, size_t i) -> DeviceIrq {
-	DeviceIrq irq{};
-	// TODO: This code assumes the GIC.
-	//       Revise it to simply store a reference to the property in DeviceIrq.
-#ifndef __riscv
-	bool isPPI = prop->asU32(i);
-	uint32_t rawId = prop->asU32(i + 4);
-	uint32_t flags = prop->asU32(i + 8);
-
-	if (isPPI)
-		irq.id = rawId + 16;
-	else
-		irq.id = rawId + 32;
-
-	switch (flags & 0xF) {
-		case 1:
-			irq.polarity = Polarity::high;
-			irq.trigger = TriggerMode::edge;
-			break;
-		case 2:
-			irq.polarity = Polarity::low;
-			irq.trigger = TriggerMode::edge;
-			break;
-		case 4:
-			irq.polarity = Polarity::high;
-			irq.trigger = TriggerMode::level;
-			break;
-		case 8:
-			irq.polarity = Polarity::low;
-			irq.trigger = TriggerMode::level;
-			break;
-		default:
-			infoLogger() << "thor: Illegal IRQ flags " << (flags & 0xF)
-				<< " found when parsing IRQ property"
-				<< frg::endlog;
-			irq.polarity = Polarity::null;
-			irq.trigger = TriggerMode::null;
-	}
-
-	irq.ppiCpuMask = isPPI ? ((flags >> 8) & 0xFF) : 0;
-#endif
-	return irq;
-}
-
-auto DeviceTreeNode::parseIrqs_(frg::span<const std::byte> data) -> frg::vector<DeviceIrq, KernelAlloc> {
-	frg::vector<DeviceIrq, KernelAlloc> ret{*kernelAlloc};
-
-	::DeviceTreeProperty prop{"", data};
-
-	// We only support GIC irqs for now
-	if (!isCompatible(dtGicV2Compatible) && !isCompatible(dtGicV3Compatible)) {
-		infoLogger() << "thor: warning: Skipping parsing IRQs using node \"" << path()
-			<< "\", it's not compatible with the GIC" << frg::endlog;
-		return ret;
-	}
-
-	assert(interruptCells_ >= 3);
-
-	size_t j = 0;
-	while (j < prop.size()) {
-		ret.push_back(parseIrq_(&prop, j));
-		j += interruptCells_ * 4;
-	}
-
-	return ret;
 }
 
 void DeviceTreeNode::generatePath_() {

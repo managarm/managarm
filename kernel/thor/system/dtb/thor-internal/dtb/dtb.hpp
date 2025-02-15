@@ -26,12 +26,8 @@ struct DeviceTreeNode {
 	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
-	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, irqData_{nullptr, 0},
-	irqs_{*kernelAlloc}, interruptMap_{*kernelAlloc}, interruptMapMask_{*kernelAlloc},
-	interruptMapRaw_{nullptr, 0}, interruptController_{false},
-	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF},
-	enableMethod_{EnableMethod::unknown}, cpuReleaseAddr_{0},
-	cpuOn_{0xc4000003}, method_{} { }
+	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
+	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();
@@ -103,34 +99,6 @@ struct DeviceTreeNode {
 		bool childAddrHiValid;
 	};
 
-	struct DeviceIrq {
-		uint32_t id;
-		Polarity polarity;
-		TriggerMode trigger;
-
-		// GIC-specific
-		uint8_t ppiCpuMask;
-	};
-
-	struct InterruptMapEntry {
-		uint32_t childAddrHi;
-		uint64_t childAddr;
-		uint32_t childIrq;
-
-		DeviceTreeNode *interruptController;
-
-		uint64_t parentAddr;
-		DeviceIrq parentIrq;
-
-		bool childAddrHiValid;
-	};
-
-	enum class EnableMethod {
-		unknown,
-		spintable,
-		psci
-	};
-
 	frg::string_view path() const {
 		return path_;
 	}
@@ -159,36 +127,8 @@ struct DeviceTreeNode {
 		return children_;
 	}
 
-	const auto &irqs() const {
-		return irqs_;
-	}
-
 	const auto &busRange() const {
 		return busRange_;
-	}
-
-	const auto &interruptMap() const {
-		return interruptMap_;
-	}
-
-	const auto &interruptMapMask() const {
-		return interruptMapMask_;
-	}
-
-	const auto &enableMethod() const {
-		return enableMethod_;
-	}
-
-	const auto &method() const {
-		return method_;
-	}
-
-	const auto &cpuOn() const {
-		return cpuOn_;
-	}
-
-	const auto &cpuReleaseAddr() const {
-		return cpuReleaseAddr_;
 	}
 
 	template <typename F>
@@ -220,8 +160,6 @@ struct DeviceTreeNode {
 	}
 
 private:
-	DeviceIrq parseIrq_(::DeviceTreeProperty *prop, size_t i);
-	frg::vector<DeviceIrq, KernelAlloc> parseIrqs_(frg::span<const std::byte> prop);
 	void generatePath_();
 
 	::DeviceTreeNode dtNode_;
@@ -251,24 +189,12 @@ private:
 	frg::vector<RegRange, KernelAlloc> reg_;
 	frg::vector<AddrTranslateRange, KernelAlloc> ranges_;
 
-	frg::span<const std::byte> irqData_;
-	frg::vector<DeviceIrq, KernelAlloc> irqs_;
-	frg::vector<InterruptMapEntry, KernelAlloc> interruptMap_;
-	frg::vector<uint32_t, KernelAlloc> interruptMapMask_;
-	frg::span<const std::byte> interruptMapRaw_;
-
 	bool interruptController_;
 
 	uint32_t interruptParentId_;
 	DeviceTreeNode *interruptParent_;
 
 	BusRange busRange_;
-
-	EnableMethod enableMethod_;
-	uintptr_t cpuReleaseAddr_;
-
-	uint32_t cpuOn_;
-	frg::string_view method_;
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
@@ -307,6 +233,33 @@ static inline frg::array<frg::string_view, 3> dtPciCompatible = {
 };
 
 namespace dt {
+
+template<typename Fn>
+[[nodiscard]] bool walkInterrupts(Fn fn, DeviceTreeNode *node) {
+	auto prop = node->dtNode().findProperty("interrupts");
+	if (!prop) {
+		warningLogger() << node->path() << " has no interrupts" << frg::endlog;
+		return false;
+	}
+
+	auto it = prop->access();
+	while (it != dtb::endOfProperty) {
+		auto *parentNode = node->interruptParent();
+		auto parentInterruptCells = parentNode->interruptCells();
+
+		dtb::Cells parentIrq;
+		if (!it.intoCells(parentIrq, parentInterruptCells)) {
+			warningLogger() << node->path() << ": failed to read parent IRQ from interrupts"
+					<< frg::endlog;
+			return false;
+		}
+		it += parentInterruptCells * sizeof(uint32_t);
+
+		fn(parentNode, parentIrq);
+	}
+
+	return true;
+}
 
 template<typename Fn>
 [[nodiscard]] bool walkInterruptsExtended(Fn fn, DeviceTreeNode *node) {

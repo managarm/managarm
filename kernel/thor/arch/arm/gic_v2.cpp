@@ -21,6 +21,17 @@ static constexpr uint8_t defaultPrio = 0xA0;
 // GicDistributor
 // ---------------------------------------------------------------------
 
+namespace {
+
+struct LocalInterruptPins {
+	frg::array<GicDistributorV2::Pin *, 32> pins{};
+};
+
+extern PerCpu<LocalInterruptPins> localPins;
+THOR_DEFINE_PERCPU(localPins);
+
+} // namespace anonymous
+
 namespace dist_reg {
 	static constexpr uintptr_t irqGroupBase = 0x80;
 	static constexpr uintptr_t irqSetEnableBase = 0x100;
@@ -77,23 +88,25 @@ void GicDistributorV2::init() {
 	auto iface = getCurrentCpuIfaceNo_();
 
 	irqPins_.resize(noLines, nullptr);
-	for (int i = 0; i < noLines; i++) {
+	for (int i = 32; i < noLines; i++) {
 		auto pin = frg::construct<Pin>(*kernelAlloc, this, i);
 		irqPins_[i] = pin;
 
-		if (i >= 32) {
-			pin->mask();
-			pin->setPriority_(defaultPrio);
-			pin->setAffinity_(iface);
-		}
+		pin->mask();
+		pin->setPriority_(defaultPrio);
+		pin->setAffinity_(iface);
 	}
 
 	space_.store_relaxed(dist_reg::control, dist_control::enable(true));
 }
 
 void GicDistributorV2::initOnThisCpu() {
+	auto *pins = &localPins.get();
+
 	for (int i = 0; i < 32; i++) {
-		auto pin = irqPins_[i];
+		auto pin = frg::construct<Pin>(*kernelAlloc, this, i);
+		pins->pins[i] = pin;
+
 		pin->mask();
 		pin->setPriority_(defaultPrio);
 		if (i < 16)
@@ -116,30 +129,31 @@ frg::string<KernelAlloc> GicDistributorV2::buildPinName(uint32_t irq) {
 			+ frg::to_allocated_string(*kernelAlloc, irq);
 }
 
-extern frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-extern IrqSpinlock globalIrqSlotsLock;
-
-auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
+auto GicDistributorV2::getPin(uint32_t irq) -> Pin * {
+	if (irq < 32)
+		return localPins.get().pins[irq];
 	if (irq >= irqPins_.size())
 		return nullptr;
 
-	auto pin = irqPins_[irq];
+	return irqPins_[irq];
+}
+
+auto GicDistributorV2::setupIrq(uint32_t irq, TriggerMode trigger) -> Pin * {
+	Pin *pin = getPin(irq);
+	if (!pin)
+		return nullptr;
+
 	pin->configure({trigger, Polarity::high});
 
 	return pin;
 }
 
 IrqStrategy GicDistributorV2::Pin::program(TriggerMode mode, Polarity polarity) {
-	auto guard = frg::guard(&globalIrqSlotsLock);
-
 	bool success = setMode(mode, polarity);
 	assert(success);
 
 	if (irq_ >= 32)
 		setAffinity_(getCpuData()->gicCpuInterfaceV2->interfaceNumber());
-
-	assert(globalIrqSlots[irq_]->isAvailable());
-	globalIrqSlots[irq_]->link(this);
 
 	unmask();
 
@@ -372,6 +386,8 @@ bool initGicV2() {
 	cpuInterfaceAddr = gicNode->reg()[1].addr;
 	cpuInterfaceSize = gicNode->reg()[1].size;
 	gic = &gicV2;
+
+	gicNode->associateIrqController(gic);
 
 	return true;
 }

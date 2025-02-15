@@ -22,19 +22,17 @@ uint64_t getRawTimestampCounter() {
 	return cnt;
 }
 
-struct GenericTimer : IrqSink {
-	GenericTimer()
+struct GenericTimerSink : IrqSink {
+	GenericTimerSink()
 	: IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "generic-timer-irq"}} { }
 
-	virtual ~GenericTimer() = default;
+	virtual ~GenericTimerSink() = default;
 
 	IrqStatus raise() override {
 		handleTimerInterrupt();
 		return IrqStatus::acked;
 	}
 };
-
-frg::manual_box<GenericTimer> globalTimerSink;
 
 uint64_t getClockNanos() {
 	return timerInverseFreq * getRawTimestampCounter();
@@ -70,12 +68,13 @@ static bool timersFound = false;
 
 static DeviceTreeNode *timerNode = nullptr;
 
+static dt::IrqController *timerIrqParent = nullptr;
+static frg::manual_box<dtb::Cells> timerIrq;
+
 static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
-		globalTimerSink.initialize();
-
 		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {
 				timerNode = node;
@@ -92,11 +91,22 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		// should probably replicate instead of always picking
 		// the virtual one.
 
-		// This offset is defined in the Linux DTB binding for compatible nodes.
-		auto irqVirt = timerNode->irqs()[2];
+		int idx = 0;
+		bool success = dt::walkInterrupts(
+			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
+				// This offset is defined in the Linux
+				// DTB binding for compatible nodes.
+				if (idx == 2) {
+					timerIrqParent = parentNode->getAssociatedIrqController();
+					timerIrq.initialize(irqCells);
+				}
 
-		auto vpin = gic->setupIrq(irqVirt.id, irqVirt.trigger);
-		IrqPin::attachSink(vpin, globalTimerSink.get());
+				idx++;
+			}, timerNode);
+
+		assert(success && "Failed to parse generic timer interrupts");
+
+		initTimerOnThisCpu();
 
 		timersFound = true;
 	}
@@ -108,9 +118,9 @@ bool haveTimer() {
 
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
-	auto irqVirt = timerNode->irqs()[2];
-	auto virtPin = gic->getPin(irqVirt.id);
-	virtPin->setMode(irqVirt.trigger, irqVirt.polarity);
+	auto sink = frg::construct<GenericTimerSink>(*kernelAlloc);
+	auto pin = timerIrqParent->resolveDtIrq(*timerIrq);
+	IrqPin::attachSink(pin, sink);
 }
 
 } // namespace thor

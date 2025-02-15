@@ -46,11 +46,16 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 		return;
 	}
 
-	auto &map = node->interruptMap();
-	assert(map.size());
+	auto maskProp = node->dtNode().findProperty("interrupt-map-mask");
+	if (!maskProp)
+		panicLogger() << node->path() << " has no interrupt-map-mask" << frg::endlog;
 
-	auto mask = node->interruptMapMask()[0];
+	auto it = maskProp->access();
+	uint32_t mask;
+	if (!it.readCells(mask, 1))
+		panicLogger() << node->path() << ": failed to read interrupt-map-mask field" << frg::endlog;
 
+	// TODO(qookie): We mask off the function bits here.
 	auto ignored = (~mask & 0x0000F800);
 	size_t nIgnoredComb = 1 << __builtin_popcount(ignored);
 
@@ -66,35 +71,6 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			}
 		}
 
-#ifdef __aarch64__
-		// TODO: Get rid of this case, the one below is more general.
-		for (auto ent : map) {
-			auto addr = ent.childAddrHi + disp;
-			uint32_t bus = (addr >> 16) & 0xFF;
-			uint32_t slot = (addr >> 11) & 0x1F;
-			uint32_t func = (addr >> 8) & 0x07;
-
-			auto index = static_cast<IrqIndex>(ent.childIrq);
-
-			assert(bus == associatedBus->busId);
-			assert(!func && "TODO: support routing of individual functions");
-			infoLogger() << "    Route for slot " << slot
-					<< ", " << nameOf(index) << ": "
-					<< "IRQ " << ent.parentIrq.id << " on "
-					<< ent.interruptController->path() << frg::endlog;
-
-			// TODO: care about polarity
-			auto irq = ent.parentIrq.id;
-			if (globalIrqSlots[irq]->isAvailable()) {
-				// TODO: Do not assume the GIC here.
-				auto pin = gic->setupIrq(irq, ent.parentIrq.trigger);
-				routingTable.push({slot, index, pin});
-			} else {
-				auto pin = globalIrqSlots[irq]->pin();
-				routingTable.push({slot, index, pin});
-			}
-		}
-#else
 		auto success = dt::walkInterruptMap([&] (
 				dtb::Cells childAddress,
 				dtb::Cells childIrq,
@@ -116,9 +92,9 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 			uint32_t index;
 			if (!childIrq.read(index))
 				panicLogger() << "Failed to read pin index from interrupt-map" << frg::endlog;
-
-			if (parentAddress.numCells())
-				panicLogger() << "thor: ECAM interrupt-maps with non-zero parent #address-cells are unsupported" << frg::endlog;
+			// Parent address does not matter in this case
+			// (and is not present on QEMU's virt machine on AArch64).
+			(void)parentAddress;
 
 			auto *irqController = parentNode->getAssociatedIrqController();
 			if (!irqController)
@@ -132,7 +108,6 @@ DtbPciIrqRouter::DtbPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_,
 		}, node);
 		if (!success)
 			panicLogger() << "Failed to walk interrupt-map of " << node->path() << frg::endlog;
-#endif
 	}
 
 	routingModel = RoutingModel::rootTable;

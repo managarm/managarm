@@ -22,14 +22,16 @@ struct DtRegister {
 };
 
 struct DtIrqObject final : IrqObject {
-	DtIrqObject(frg::string<KernelAlloc> name, DeviceTreeNode::DeviceIrq deviceIrq, IrqPin *pin)
-	: IrqObject{name}, deviceIrq{deviceIrq}, pin{pin} { }
+	DtIrqObject(frg::string<KernelAlloc> name, dt::IrqController *controller, dtb::Cells irqCells)
+	: IrqObject{name}, controller{controller}, irqCells{irqCells}, pin{nullptr} { }
 
 	void dumpHardwareState() override {
 		infoLogger() << "thor: DT IRQ " << name() << frg::endlog;
 	}
 
-	DeviceTreeNode::DeviceIrq deviceIrq;
+	dt::IrqController *controller;
+	dtb::Cells irqCells;
+
 	IrqPin *pin;
 };
 
@@ -55,25 +57,21 @@ struct MbusNode final : private KernelBusObject {
 					CachingMode::mmioNonPosted)
 			);
 		}
-	}
 
-	smarter::shared_ptr<IrqObject> obtainIrqObject(uint32_t index) {
-		auto deviceIrq = node->irqs()[index];
-#ifdef __aarch64__
-		auto *pin = gic->getPin(deviceIrq.id);
-#else
-#error Missing architecture specific code
-#endif
-
-		auto object = smarter::allocate_shared<DtIrqObject>(*kernelAlloc,
-				frg::string<KernelAlloc>{*kernelAlloc, "dt-irq."} + node->name(),
-				deviceIrq,
-				pin);
-
-		IrqPin::attachSink(pin, object.get());
-
-		irqs.push_back(object);
-		return object;
+		bool success = dt::walkInterrupts(
+			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
+				auto object = smarter::allocate_shared<DtIrqObject>(*kernelAlloc,
+						frg::string<KernelAlloc>{*kernelAlloc, "dt-irq."}
+						+ node->name(),
+						parentNode->getAssociatedIrqController(),
+						irqCells);
+				irqs.push_back(object);
+			}, node);
+		if(!success)
+			warningLogger()
+				<< node->path() << ": failed to parse interrupts for mbus node."
+				<< frg::endlog;
+		// TODO(qookie): Try interrupts-extended if interrupts failed.
 	}
 
 	void run(enable_detached_coroutine = {}) {
@@ -142,7 +140,7 @@ struct MbusNode final : private KernelBusObject {
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			resp.set_num_dt_irqs(node->irqs().size());
+			resp.set_num_dt_irqs(irqs.size());
 
 			for(const auto &reg : regs) {
 				managarm::hw::DtRegister<KernelAlloc> msg(*kernelAlloc);
@@ -189,12 +187,12 @@ struct MbusNode final : private KernelBusObject {
 
 			auto index = req->index();
 
-			if(index >= node->irqs().size()) {
+			if(index >= irqs.size()) {
 				infoLogger() << "thor: Closing lane due to out-ouf-bounds DT irq " << index << " in HW request." << frg::endlog;
 				co_return Error::illegalArgs;
 			}
 
-			auto object = obtainIrqObject(index);
+			auto object = irqs[index];
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -214,7 +212,8 @@ struct MbusNode final : private KernelBusObject {
 			}
 
 			for(auto &irq : irqs) {
-				irq->pin->configure({irq->deviceIrq.trigger, irq->deviceIrq.polarity});
+				auto pin = irq->controller->resolveDtIrq(irq->irqCells);
+				IrqPin::attachSink(pin, irq.get());
 			}
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
