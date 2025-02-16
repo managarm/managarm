@@ -84,7 +84,7 @@ public:
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
-			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, socketpair_{socketpair} {
+			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, socketpair_{socketpair}, listen_{false} {
 		if(process)
 			_ownerPid = process->pid();
 	}
@@ -287,6 +287,11 @@ public:
 		_remote->_statusBell.raise();
 
 		co_return max_length;
+	}
+
+	async::result<protocols::fs::Error> listen() override {
+		listen_ = true;
+		co_return protocols::fs::Error::none;
 	}
 
 	async::result<frg::expected<Error, AcceptResult>> accept(Process *process) override {
@@ -520,8 +525,14 @@ public:
 			}
 
 			memcpy(optbuf.data(), &creds, std::min(optbuf.size(), sizeof(creds)));
+		} else if(layer == SOL_SOCKET && number == SO_TYPE) {
+			int type = socktype_;
+			memcpy(optbuf.data(), &type, std::min(optbuf.size(), sizeof(type)));
+		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
+			int listen = listen_;
+			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
 		} else {
-			printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
 		}
 
@@ -666,6 +677,8 @@ private:
 	int32_t socktype_;
 
 	bool socketpair_;
+
+	bool listen_;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
