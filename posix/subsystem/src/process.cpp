@@ -281,6 +281,7 @@ std::shared_ptr<FsContext> FsContext::create() {
 
 	context->_root = rootPath();
 	context->_workDir = rootPath();
+	context->_umask = 022;
 
 	return context;
 }
@@ -290,6 +291,7 @@ std::shared_ptr<FsContext> FsContext::clone(std::shared_ptr<FsContext> original)
 
 	context->_root = original->_root;
 	context->_workDir = original->_workDir;
+	context->_umask = original->_umask;
 
 	return context;
 }
@@ -308,6 +310,16 @@ void FsContext::changeRoot(ViewPath root) {
 
 void FsContext::changeWorkingDirectory(ViewPath workdir) {
 	_workDir = std::move(workdir);
+}
+
+int FsContext::getUmask() {
+	return _umask;
+}
+
+int FsContext::changeUmask(int mask) {
+	int old = _umask;
+	_umask = mask;
+	return old;
 }
 
 // ----------------------------------------------------------------------------

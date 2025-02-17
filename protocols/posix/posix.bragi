@@ -509,6 +509,7 @@ tail:
 message MkdirAtRequest 40 {
 head(128):
 	int32 fd;
+	int32 mode;
 tail:
 	string path;
 }
@@ -619,4 +620,14 @@ head(128):
 	uint64 value_usec;
 	uint64 interval_sec;
 	uint64 interval_usec;
+}
+
+message UmaskRequest 101 {
+head(128):
+	int32 newmask;
+}
+
+message UmaskResponse 102 {
+head(128):
+	int32 oldmask;
 }

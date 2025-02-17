@@ -177,7 +177,7 @@ head(128):
 		// used by PT_IOCTL, PT_SET_OPTION.
 		tag(8) int64 command;
 
-		//used by FLOCK
+		// used by FLOCK
 		tag(9) int32 flock_flags;
 
 		// Sequence number for FILE_POLL_WAIT / FILE_POLL_STATUS.
