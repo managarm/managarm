@@ -754,6 +754,21 @@ async::result<void> CgroupNode::store(std::string) {
 	co_return;
 }
 
+// MASSIVE STUBS
+async::result<std::string> CgroupNode::show() {
+	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "0::/init.scope\n";
+	co_return stream.str();
+}
+
+async::result<void> CgroupNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/cgroup file" << std::endl;
+	co_return;
+}
+
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
