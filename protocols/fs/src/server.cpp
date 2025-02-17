@@ -7,7 +7,9 @@
 
 #include <helix/ipc.hpp>
 
+#include <core/clock.hpp>
 #include <protocols/fs/server.hpp>
+#include <protocols/ostrace/ostrace.hpp>
 #include <bragi/helpers-std.hpp>
 #include "fs.bragi.hpp"
 #include "protocols/fs/common.hpp"
@@ -33,12 +35,48 @@ bool handleSoPasscred(bool so_passcred, struct ucred &ucred, pid_t process_pid, 
 
 namespace {
 
+constinit protocols::ostrace::Event ostEvtRequest{"posix.request"};
+constinit protocols::ostrace::UintAttribute ostAttrRequest{"request"};
+constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
+constinit protocols::ostrace::UintAttribute ostAttrPid{"pid"};
+constinit protocols::ostrace::BragiAttribute ostBragi{managarm::fs::protocol_hash};
+
+protocols::ostrace::Vocabulary ostVocabulary{
+	ostEvtRequest,
+	ostAttrRequest,
+	ostAttrTime,
+	ostAttrPid,
+	ostBragi,
+};
+
+bool ostraceInit = false;
+protocols::ostrace::Context ostContext{ostVocabulary};
+
+async::result<void> initOstrace() {
+	co_await ostContext.create();
+}
+
 async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
-		managarm::fs::CntRequest req, helix::UniqueLane conversation) {
+		managarm::fs::CntRequest req, helix::UniqueLane conversation, timespec requestTimestamp) {
 	if(file_ops->logRequests)
 		std::cout << "handlePassThrough(): serving request of type " <<
 			(int)req.req_type() << std::endl;
+
+	auto logBragiSerializedReply = [&requestTimestamp](std::string &ser) {
+		if(!ostContext.isActive())
+			return;
+
+		auto ts = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(managarm::fs::CntRequest::message_id),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostAttrPid(0),
+			ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+		);
+	};
 
 	if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
 		if(!file_ops->seekAbs) {
@@ -73,6 +111,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
 		if(!file_ops->seekRel) {
 			managarm::fs::SvrResponse resp;
@@ -84,6 +123,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->seekRel(file.get(), req.rel_offset());
@@ -103,6 +143,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::SEEK_EOF) {
 		if(!file_ops->seekEof) {
 			managarm::fs::SvrResponse resp;
@@ -114,6 +155,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->seekEof(file.get(), req.rel_offset());
@@ -133,6 +175,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -150,6 +193,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -169,6 +213,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -183,6 +228,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PREAD) {
 		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -200,6 +246,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -219,6 +266,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(error && *error == Error::illegalArguments) {
 			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
@@ -228,6 +276,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -240,6 +289,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
+			logBragiSerializedReply(ser);
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::WRITE) {
 		std::vector<uint8_t> buffer;
@@ -263,6 +313,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -278,6 +329,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_size(res.value());
@@ -288,6 +340,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PWRITE) {
 		std::vector<uint8_t> buffer;
@@ -311,6 +364,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -326,6 +380,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_size(res.value());
@@ -336,6 +391,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}
 	}else if(req.req_type() == managarm::fs::CntReqType::FLOCK) {
 		if(!file_ops->flock) {
@@ -348,6 +404,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->flock(file.get(), req.flock_flags());
@@ -367,6 +424,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
 		if(!file_ops->readEntries) {
 			managarm::fs::SvrResponse resp;
@@ -378,6 +436,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->readEntries(file.get());
@@ -395,6 +454,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			conversation,
 			helix_ng::sendBuffer(ser.data(), ser.size()));
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
 		if(!file_ops->accessMemory) {
 			managarm::fs::SvrResponse resp;
@@ -422,6 +482,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(push_memory.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_TRUNCATE) {
 		if(!file_ops->truncate) {
 			managarm::fs::SvrResponse resp;
@@ -433,6 +494,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->truncate(file.get(), req.size());
@@ -450,6 +512,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_FALLOCATE) {
 		if(!file_ops->fallocate) {
 			managarm::fs::SvrResponse resp;
@@ -461,6 +524,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->fallocate(file.get(), req.rel_offset(), req.size());
@@ -481,6 +545,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_WAIT) {
 		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -498,6 +563,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -514,6 +580,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -530,6 +597,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_STATUS) {
 		if(!file_ops->pollStatus) {
 			managarm::fs::SvrResponse resp;
@@ -541,6 +609,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -555,6 +624,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -571,6 +641,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
 		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -590,6 +661,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -607,6 +679,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
 		auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -626,6 +699,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -643,6 +717,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
@@ -654,6 +729,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -675,6 +751,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_PEERNAME) {
 		if(!file_ops->peername) {
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
@@ -697,7 +774,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -717,6 +794,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_GET_FILE_FLAGS) {
 		if(!file_ops->getFileFlags) {
 			managarm::fs::SvrResponse resp;
@@ -728,6 +806,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -743,6 +822,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SET_FILE_FLAGS) {
 		if(!file_ops->setFileFlags) {
 			managarm::fs::SvrResponse resp;
@@ -754,6 +834,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -768,6 +849,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_LISTEN) {
 		if(!file_ops->listen) {
 			managarm::fs::SvrResponse resp;
@@ -779,6 +861,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -793,6 +876,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_ADD_SEALS) {
 		managarm::fs::SvrResponse resp;
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -821,6 +905,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	} else if (req.req_type() == managarm::fs::CntReqType::PT_GET_SEALS) {
 		managarm::fs::SvrResponse resp;
 
@@ -834,6 +919,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -855,6 +941,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	} else {
 		std::cout << "protocols/fs: Unexpected request "
 			<< static_cast<unsigned int>(req.req_type())
@@ -872,6 +959,64 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		bragi::preamble preamble,
 		helix_ng::RecvInlineResult recv_req,
 		helix::UniqueLane conversation) {
+	timespec requestTimestamp = {};
+	auto logBragiRequest = [&recv_req, &requestTimestamp](std::span<uint8_t> tail) {
+		if(!ostContext.isActive())
+			return;
+
+		requestTimestamp = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+			ostAttrPid(0),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_req.data()), recv_req.size()}, tail)
+		);
+	};
+
+	auto logBragiReply = [&preamble, &requestTimestamp](auto &resp) {
+		if(!ostContext.isActive())
+			return;
+
+		auto ts = clk::getTimeSinceBoot();
+		std::string replyHead;
+		std::string replyTail;
+		replyHead.resize(resp.size_of_head());
+		replyTail.resize(resp.size_of_tail());
+		bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+		bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+		auto headOk = resp.encode_head(headWriter);
+		auto tailOk = resp.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(preamble.id()),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostAttrPid(0),
+			ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+		);
+	};
+
+	auto logBragiSerializedReply = [&preamble, &requestTimestamp](std::string &ser) {
+		if(!ostContext.isActive())
+			return;
+
+		auto ts = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(preamble.id()),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostAttrPid(0),
+			ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+		);
+	};
+
+	if(!preamble.tail_size())
+		logBragiRequest({});
+
 	if(preamble.id() == managarm::fs::RecvMsgRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::RecvMsgRequest>(recv_req);
 		recv_req.reset();
@@ -944,13 +1089,15 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_addr.error());
 		HEL_CHECK(send_data.error());
 		HEL_CHECK(send_ctrl.error());
+		logBragiSerializedReply(ser);
 	} else if(preamble.id() == managarm::fs::SendMsgRequest::message_id) {
-		std::vector<std::byte> tail(preamble.tail_size());
+		std::vector<uint8_t> tail(preamble.tail_size());
 		auto [recv_tail] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::recvBuffer(tail.data(), tail.size())
 		);
 		HEL_CHECK(recv_tail.error());
+		logBragiRequest(tail);
 
 		auto req = bragi::parse_head_tail<managarm::fs::SendMsgRequest>(recv_req, tail);
 		recv_req.reset();
@@ -1020,6 +1167,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			helix_ng::sendBuffer(ser.data(), ser.size())
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	} else if(preamble.id() == managarm::fs::IoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::IoctlRequest>(recv_req);
 		recv_req.reset();
@@ -1095,6 +1243,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiReply(resp);
 	} else if(preamble.id() == managarm::fs::GetSockOpt::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GetSockOpt>(recv_req);
 		recv_req.reset();
@@ -1136,6 +1285,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_buf.error());
+		logBragiReply(resp);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");
@@ -1164,6 +1314,11 @@ serveFile(helix::UniqueLane lane, void *file, const FileOperations *file_ops) {
 async::result<void> servePassthrough(helix::UniqueLane lane,
 		smarter::shared_ptr<void> file, const FileOperations *file_ops,
 		async::cancellation_token cancellation) {
+	if(!ostraceInit) {
+		ostraceInit = true;
+		co_await initOstrace();
+	}
+
 	async::cancellation_callback cancel_callback{cancellation, [&] {
 		HEL_CHECK(helShutdownLane(lane.getHandle()));
 	}};
@@ -1187,6 +1342,18 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 		auto preamble = bragi::read_preamble(recv_req);
 		recv_req.reset();
 		if(preamble.id() == managarm::fs::CntRequest::message_id) {
+			timespec requestTimestamp = {};
+			if(ostContext.isActive()) {
+				requestTimestamp = clk::getTimeSinceBoot();
+				ostContext.emitWithTimestamp(
+					ostEvtRequest,
+					(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+					ostAttrPid(0),
+					ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+					ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_req.data()), recv_req.size()}, {})
+				);
+			}
+
 			managarm::fs::CntRequest req;
 			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_req);
 			recv_req.reset();
@@ -1198,7 +1365,7 @@ async::result<void> servePassthrough(helix::UniqueLane lane,
 
 			req = *o;
 
-			handlePassthrough(file, file_ops, std::move(req), std::move(conversation));
+			handlePassthrough(file, file_ops, std::move(req), std::move(conversation), requestTimestamp);
 			continue;
 		} else {
 			handleMessages(file, file_ops, preamble, std::move(recv_req), std::move(conversation));
@@ -1257,6 +1424,39 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 		}
 		assert(!preamble.error());
 
+		timespec requestTimestamp = {};
+		auto logBragiRequest = [&recv_req, &requestTimestamp](std::span<uint8_t> tail) {
+			if(!ostContext.isActive())
+				return;
+
+			requestTimestamp = clk::getTimeSinceBoot();
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+				ostAttrPid(0),
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_req.data()), recv_req.size()}, tail)
+			);
+		};
+
+		auto logBragiSerializedReply = [&preamble, &requestTimestamp](std::string &ser) {
+			if(!ostContext.isActive())
+				return;
+
+			auto ts = clk::getTimeSinceBoot();
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+				ostAttrRequest(preamble.id()),
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostAttrPid(0),
+				ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+			);
+		};
+
+		if(!preamble.tail_size())
+			logBragiRequest({});
+
 		// managarm::posix::CntRequest req;
 		if (preamble.id() == managarm::fs::CntRequest::message_id) {
 			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_req);
@@ -1268,6 +1468,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 			req = *o;
 		}
+
 		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
@@ -1292,6 +1493,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
 			auto result = co_await node_ops->getLink(node, req.path());
 			if(!result) {
@@ -1304,6 +1506,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 				continue;
 			}
 
@@ -1337,6 +1540,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
+				logBragiSerializedReply(ser);
 			}else{
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
@@ -1347,14 +1551,16 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 			}
 		}else if(preamble.id() == managarm::fs::NodeTraverseLinksRequest::message_id) {
-			std::vector<std::byte> tail(preamble.tail_size());
+			std::vector<uint8_t> tail(preamble.tail_size());
 			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
 					conversation,
 					helix_ng::recvBuffer(tail.data(), tail.size())
 				);
 			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
 
 			auto req = bragi::parse_head_tail<managarm::fs::NodeTraverseLinksRequest>(recv_req, tail);
 			recv_req.reset();
@@ -1380,6 +1586,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 				continue;
 			}
 
@@ -1419,6 +1626,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_desc.error());
+			logBragiSerializedReply(ser);
 
 			for (auto &[node, _] : nodes) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -1452,6 +1660,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
+				logBragiSerializedReply(ser);
 			}else{
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT); // TODO
@@ -1462,6 +1671,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_SYMLINK) {
 			std::string name;
@@ -1496,6 +1706,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(sendResp.error());
 				HEL_CHECK(pushNode.error());
+				logBragiSerializedReply(ser);
 			}else{
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT); // TODO
@@ -1506,6 +1717,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(sendResp.error());
+				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
 			auto result = co_await node_ops->link(node, req.path(), req.fd());
@@ -1539,6 +1751,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				);
 				HEL_CHECK(send_resp.error());
 				HEL_CHECK(push_node.error());
+				logBragiSerializedReply(ser);
 			}else{
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
@@ -1549,6 +1762,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
 			auto result = co_await node_ops->unlink(node, req.path());
@@ -1564,6 +1778,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 				continue;
 			}
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -1574,6 +1789,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_RMDIR) {
 			// TODO: This should probably be it's own operation, for now, let it be
 			auto result = co_await node_ops->unlink(node, req.path());
@@ -1586,6 +1802,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					helix_ng::sendBuffer(ser.data(), ser.size())
 				);
 				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
 				continue;
 			}
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -1596,6 +1813,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
 			auto result = co_await node_ops->open(node, req.append());
 
@@ -1612,6 +1830,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_file.error());
 			HEL_CHECK(push_pt.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
 			auto link = co_await node_ops->readSymlink(node);
 
@@ -1626,6 +1845,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_link.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_CHMOD) {
 			co_await node_ops->chmod(node, req.mode());
 
@@ -1638,6 +1858,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
 			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
 
@@ -1650,6 +1871,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
 			co_await node_ops->obstructLink(node, req.link_name());
 
@@ -1662,6 +1884,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}
