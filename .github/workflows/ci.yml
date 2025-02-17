@@ -87,6 +87,11 @@ jobs:
             run: |
                 set -x
                 xbstrap init ../src
+                xbstrap prereqs cbuildrt xbps
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+                xbstrap download-tool-archive host-python
+                xbstrap install-tool host-bragi
                 xbstrap pull-pack -c --deps-of managarm-system
                 xbstrap pull-pack -c --deps-of managarm-kernel
                 rm xbps-repo/managarm-system*.xbps
