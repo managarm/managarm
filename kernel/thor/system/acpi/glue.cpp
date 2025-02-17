@@ -23,6 +23,162 @@
 
 using namespace thor;
 
+namespace {
+
+#ifdef THOR_ARCH_SUPPORTS_PIO
+template<typename T>
+uacpi_status uacpi_kernel_raw_io_write(
+	uacpi_io_addr address, T in_value
+) {
+	uint16_t p = address;
+
+	switch (sizeof(T)) {
+	case 1: {
+		uint8_t v = in_value;
+		asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	case 2: {
+		uint16_t v = in_value;
+		asm volatile ("outw %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	case 4: {
+		uint32_t v = in_value;
+		asm volatile ("outl %0, %1" : : "a"(v), "d"(p));
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+template<typename T>
+uacpi_status uacpi_kernel_raw_io_read(
+	uacpi_io_addr address, T *out_value
+) {
+	uint16_t p = address;
+
+	switch (sizeof(T)) {
+	case 1: {
+		uint8_t v;
+		asm volatile ("inb %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	case 2: {
+		uint16_t v;
+		asm volatile ("inw %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	case 4: {
+		uint32_t v;
+		asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
+		*out_value = v;
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+#else
+template<typename T>
+uacpi_status uacpi_kernel_raw_io_read(
+	uacpi_io_addr address, T *out_value
+) {
+	return UACPI_STATUS_UNIMPLEMENTED;
+}
+
+uacpi_kernel_raw_io_write
+uacpi_status uacpi_kernel_raw_io_write(
+	uacpi_io_addr, T
+) {
+	return UACPI_STATUS_UNIMPLEMENTED;
+}
+
+#endif
+
+template<typename T>
+uacpi_status uacpi_kernel_raw_pci_read(
+	uacpi_handle handle, uacpi_size offset,
+	T *value
+) {
+	uacpi_pci_address address;
+	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+
+	switch (sizeof(T)) {
+	case 1: {
+		*value = pci::readConfigByte(
+			address.segment, address.bus, address.device,
+			address.function, offset
+		);
+		break;
+	}
+	case 2: {
+		*value = pci::readConfigHalf(
+			address.segment, address.bus, address.device,
+			address.function, offset
+		);
+		break;
+	}
+	case 4: {
+		*value = pci::readConfigWord(
+			address.segment, address.bus, address.device,
+			address.function, offset
+		);
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+template<typename T>
+uacpi_status uacpi_kernel_raw_pci_write(
+	uacpi_handle handle, uacpi_size offset,
+	T value
+) {
+	uacpi_pci_address address;
+	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+
+	switch (sizeof(T)) {
+	case 1: {
+		pci::writeConfigByte(
+			address.segment, address.bus, address.device,
+			address.function, offset, value
+		);
+		break;
+	}
+	case 2: {
+		pci::writeConfigHalf(
+			address.segment, address.bus, address.device,
+			address.function, offset, value
+		);
+		break;
+	}
+	case 4: {
+		pci::writeConfigWord(
+			address.segment, address.bus, address.device,
+			address.function, offset, value
+		);
+		break;
+	}
+	default:
+		return UACPI_STATUS_INVALID_ARGUMENT;
+	}
+
+	return UACPI_STATUS_OK;
+}
+
+} // namespace
+
 void uacpi_kernel_log(enum uacpi_log_level lvl, const char *msg) {
 	const char *lvlStr;
 
@@ -146,80 +302,6 @@ uacpi_status uacpi_kernel_raw_memory_write(
 	return UACPI_STATUS_OK;
 }
 
-#ifdef THOR_ARCH_SUPPORTS_PIO
-uacpi_status uacpi_kernel_raw_io_write(
-	uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64 in_value
-) {
-	uint16_t p = address;
-
-	switch (byte_width) {
-	case 1: {
-		uint8_t v = in_value;
-		asm volatile ("outb %0, %1" : : "a"(v), "d"(p));
-		break;
-	}
-	case 2: {
-		uint16_t v = in_value;
-		asm volatile ("outw %0, %1" : : "a"(v), "d"(p));
-		break;
-	}
-	case 4: {
-		uint32_t v = in_value;
-		asm volatile ("outl %0, %1" : : "a"(v), "d"(p));
-		break;
-	}
-	default:
-		return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	return UACPI_STATUS_OK;
-}
-
-uacpi_status uacpi_kernel_raw_io_read(
-	uacpi_io_addr address, uacpi_u8 byte_width, uacpi_u64 *out_value
-) {
-	uint16_t p = address;
-
-	switch (byte_width) {
-	case 1: {
-		uint8_t v;
-		asm volatile ("inb %1, %0" : "=a"(v) : "d"(p));
-		*out_value = v;
-		break;
-	}
-	case 2: {
-		uint16_t v;
-		asm volatile ("inw %1, %0" : "=a"(v) : "d"(p));
-		*out_value = v;
-		break;
-	}
-	case 4: {
-		uint32_t v;
-		asm volatile ("inl %1, %0" : "=a"(v) : "d"(p));
-		*out_value = v;
-		break;
-	}
-	default:
-		return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	return UACPI_STATUS_OK;
-}
-#else
-uacpi_status uacpi_kernel_raw_io_read(
-	uacpi_io_addr, uacpi_u8, uacpi_u64*
-) {
-	return UACPI_STATUS_UNIMPLEMENTED;
-}
-
-uacpi_status uacpi_kernel_raw_io_write(
-	uacpi_io_addr, uacpi_u8, uacpi_u64
-) {
-	return UACPI_STATUS_UNIMPLEMENTED;
-}
-
-#endif
-
 uacpi_status uacpi_kernel_io_map(
 	uacpi_io_addr base, uacpi_size, uacpi_handle *out_handle
 ) {
@@ -229,20 +311,52 @@ uacpi_status uacpi_kernel_io_map(
 void uacpi_kernel_io_unmap(uacpi_handle) { }
 
 
-uacpi_status uacpi_kernel_io_read(
+uacpi_status uacpi_kernel_io_read8(
 	uacpi_handle handle, uacpi_size offset,
-	uacpi_u8 byte_width, uacpi_u64 *value
+	uacpi_u8 *value
 ) {
 	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
-	return uacpi_kernel_raw_io_read(addr + offset, byte_width, value);
+	return uacpi_kernel_raw_io_read(addr + offset, value);
 }
 
-uacpi_status uacpi_kernel_io_write(
+uacpi_status uacpi_kernel_io_read16(
 	uacpi_handle handle, uacpi_size offset,
-	uacpi_u8 byte_width, uacpi_u64 value
+	uacpi_u16 *value
 ) {
 	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
-	return uacpi_kernel_raw_io_write(addr + offset, byte_width, value);
+	return uacpi_kernel_raw_io_read(addr + offset, value);
+}
+
+uacpi_status uacpi_kernel_io_read32(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u32 *value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_read(addr + offset, value);
+}
+
+uacpi_status uacpi_kernel_io_write8(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u8 value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_write(addr + offset, value);
+}
+
+uacpi_status uacpi_kernel_io_write16(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u16 value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_write(addr + offset, value);
+}
+
+uacpi_status uacpi_kernel_io_write32(
+	uacpi_handle handle, uacpi_size offset,
+	uacpi_u32 value
+) {
+	auto addr = reinterpret_cast<uacpi_io_addr>(handle);
+	return uacpi_kernel_raw_io_write(addr + offset, value);
 }
 
 
@@ -259,76 +373,40 @@ void uacpi_kernel_pci_device_close(uacpi_handle) {
 	// No-op.
 }
 
-uacpi_status uacpi_kernel_pci_read(
-	uacpi_handle handle, uacpi_size offset,
-	uacpi_u8 byte_width, uacpi_u64 *value
+uacpi_status uacpi_kernel_pci_read8(
+    uacpi_handle device, uacpi_size offset, uacpi_u8 *value
 ) {
-	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
-
-	switch (byte_width) {
-	case 1: {
-		*value = pci::readConfigByte(
-			address.segment, address.bus, address.device,
-			address.function, offset
-		);
-		break;
-	}
-	case 2: {
-		*value = pci::readConfigHalf(
-			address.segment, address.bus, address.device,
-			address.function, offset
-		);
-		break;
-	}
-	case 4: {
-		*value = pci::readConfigWord(
-			address.segment, address.bus, address.device,
-			address.function, offset
-		);
-		break;
-	}
-	default:
-		return UACPI_STATUS_INVALID_ARGUMENT;
-	}
-
-	return UACPI_STATUS_OK;
+	return uacpi_kernel_raw_pci_read(device, offset, value);
 }
 
-uacpi_status uacpi_kernel_pci_write(
-	uacpi_handle handle, uacpi_size offset,
-	uacpi_u8 byte_width, uacpi_u64 value
+uacpi_status uacpi_kernel_pci_read16(
+    uacpi_handle device, uacpi_size offset, uacpi_u16 *value
 ) {
-	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+	return uacpi_kernel_raw_pci_read(device, offset, value);
+}
 
-	switch (byte_width) {
-	case 1: {
-		pci::writeConfigByte(
-			address.segment, address.bus, address.device,
-			address.function, offset, value
-		);
-		break;
-	}
-	case 2: {
-		pci::writeConfigHalf(
-			address.segment, address.bus, address.device,
-			address.function, offset, value
-		);
-		break;
-	}
-	case 4: {
-		pci::writeConfigWord(
-			address.segment, address.bus, address.device,
-			address.function, offset, value
-		);
-		break;
-	}
-	default:
-		return UACPI_STATUS_INVALID_ARGUMENT;
-	}
+uacpi_status uacpi_kernel_pci_read32(
+    uacpi_handle device, uacpi_size offset, uacpi_u32 *value
+) {
+	return uacpi_kernel_raw_pci_read(device, offset, value);
+}
 
-	return UACPI_STATUS_OK;
+uacpi_status uacpi_kernel_pci_write8(
+    uacpi_handle device, uacpi_size offset, uacpi_u8 value
+) {
+	return uacpi_kernel_raw_pci_write(device, offset, value);
+}
+
+uacpi_status uacpi_kernel_pci_write16(
+    uacpi_handle device, uacpi_size offset, uacpi_u16 value
+) {
+	return uacpi_kernel_raw_pci_write(device, offset, value);
+}
+
+uacpi_status uacpi_kernel_pci_write32(
+    uacpi_handle device, uacpi_size offset, uacpi_u32 value
+) {
+	return uacpi_kernel_raw_pci_write(device, offset, value);
 }
 
 uacpi_u64 uacpi_kernel_get_nanoseconds_since_boot(void) {
