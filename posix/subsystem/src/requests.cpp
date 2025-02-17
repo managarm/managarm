@@ -29,6 +29,7 @@
 #include "eventfd.hpp"
 #include "signalfd.hpp"
 #include "tmp_fs.hpp"
+#include "cgroupfs.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
@@ -675,7 +676,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 			auto target = resolveResult.value();
 
-			if(req->fs_type() == "procfs") {
+			if(req->fs_type() == "procfs" || req->fs_type() == "proc") {
 				co_await target.first->mount(target.second, getProcfs());
 			}else if(req->fs_type() == "sysfs") {
 				co_await target.first->mount(target.second, getSysfs());
@@ -685,7 +686,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				co_await target.first->mount(target.second, tmp_fs::createRoot());
 			}else if(req->fs_type() == "devpts") {
 				co_await target.first->mount(target.second, pts::getFsRoot());
+			}else if(req->fs_type() == "cgroup2") {
+				co_await target.first->mount(target.second, getCgroupfs());
 			}else{
+				if(req->fs_type() != "ext2") {
+					std::cout << "posix: Trying to mount unsupported FS of type: " << req->fs_type() << std::endl;
+				}
 				assert(req->fs_type() == "ext2");
 				auto sourceResult = co_await resolve(self->fsContext()->getRoot(),
 						self->fsContext()->getWorkingDirectory(), req->path(), self.get());
@@ -1443,8 +1449,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == managarm::posix::FstatfsRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::posix::FstatfsRequest>(recv_head);
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+			);
 
+			HEL_CHECK(recvTail.error());
+			auto req = bragi::parse_head_tail<managarm::posix::FstatfsRequest>(recv_head, tail);
 			if (!req) {
 				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
 				break;
@@ -1454,38 +1466,65 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
-
-			file = self->fileContext()->getFile(req->fd());
-
-			if (!file) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
-				continue;
-			}
-
-			target_link = file->associatedLink();
-
-			// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
-			// Instead of blowing up, return ENOENT.
-			// TODO: fstatfs can't return ENOENT, verify this is needed
-			if(target_link == nullptr) {
-				co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
-				continue;
-			}
-
-			auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
-			if(!fsstatsResult) {
-				if(fsstatsResult.error() == Error::illegalOperationTarget) {
-					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-				} else {
-					co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-				}
-				continue;
-			}
-			auto fsstats = fsstatsResult.value();
-
 			managarm::posix::FstatfsResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fstype(fsstats.f_type);
+
+			if(req->fd() >= 0) {
+				file = self->fileContext()->getFile(req->fd());
+
+				if (!file) {
+					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					continue;
+				}
+
+				target_link = file->associatedLink();
+
+				// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
+				// Instead of blowing up, return ENOENT.
+				// TODO: fstatfs can't return ENOENT, verify this is needed
+				if(target_link == nullptr) {
+					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					continue;
+				}
+
+				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
+				if(!fsstatsResult) {
+					co_await sendErrorResponse(fsstatsResult.error() | toPosixProtoError);
+					continue;
+				}
+				auto fsstats = fsstatsResult.value();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fstype(fsstats.f_type);
+			} else {
+				std::cout << "posix: STATFS request on path: " << req->path() << std::endl;
+				PathResolver resolver;
+				resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
+						req->path(), self.get());
+				auto resolveResult = co_await resolver.resolve();
+				if(!resolveResult) {
+					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
+						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
+						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						continue;
+					} else {
+						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
+						co_return;
+					}
+				}
+
+				target_link = resolver.currentLink();
+				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
+				if(!fsstatsResult) {
+					co_await sendErrorResponse(fsstatsResult.error() | toPosixProtoError);
+					continue;
+				}
+				auto fsstats = fsstatsResult.value();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fstype(fsstats.f_type);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -2295,17 +2334,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto owner = target_link->getOwner();
 			auto result = co_await owner->rmdir(target_link->getName());
 			if(!result) {
-				if(result.error() == Error::directoryNotEmpty) {
-					co_await sendErrorResponse(managarm::posix::Errors::DIRECTORY_NOT_EMPTY);
-					continue;
-				} else if(result.error() == Error::notDirectory) {
-					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
-					continue;
-				}
-
-				std::cout << "posix: Unexpected failure from rmdir()" << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-				co_return;
+				co_await sendErrorResponse(result.error() | toPosixProtoError);
+				continue;
 			}
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
@@ -2385,7 +2415,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SIG_ACTION) {
 			logRequest(logRequests, "SIG_ACTION");
 
-			if(req.flags() & ~(SA_ONSTACK | SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP)) {
+			if(req.flags() & ~(SA_ONSTACK | SA_SIGINFO | SA_RESETHAND | SA_NODEFER | SA_RESTART | SA_NOCLDSTOP | SA_NOCLDWAIT)) {
 				std::cout << "\e[31mposix: Unknown SIG_ACTION flags: 0x"
 						<< std::hex << req.flags()
 						<< std::dec << "\e[39m" << std::endl;
@@ -2434,6 +2464,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDSTOP)
 					std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
+				if(req.flags() & SA_NOCLDWAIT)
+					std::cout << "\e[31mposix: Ignoring SA_NOCLDWAIT\e[39m" << std::endl;
 
 				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{

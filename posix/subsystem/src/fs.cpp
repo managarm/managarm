@@ -42,8 +42,8 @@ FsSuperblock *getAnonymousSuperblock() {
 // --------------------------------------------------------
 
 async::result<frg::expected<Error>> FsLink::obstruct() {
-	assert(getOwner());
-	assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
+	if(getOwner() != nullptr)
+		assert(!getOwner()->hasTraverseLinks() && "Node has traverseLinks but no obstruct?");
 	co_return Error::illegalOperationTarget;
 }
 
@@ -106,16 +106,19 @@ FsNode::symlink(std::string, std::string) {
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkdev(std::string, VfsType, DeviceId) {
-	throw std::runtime_error("mkdev() is not implemented for this FsNode");
+	std::cout << "posix: mkdev() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mkfifo(std::string, mode_t) {
-	throw std::runtime_error("mkfifo() is not implemented for this FsNode");
+	std::cout << "posix: mkfifo() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
-
 async::result<frg::expected<Error>> FsNode::unlink(std::string) {
-	throw std::runtime_error("unlink() is not implemented for this FsNode");
+	std::cout << "posix: unlink() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
+
 }
 
 async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
