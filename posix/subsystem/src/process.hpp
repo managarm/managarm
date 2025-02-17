@@ -170,7 +170,7 @@ public:
 		return _fileTableMemory;
 	}
 
-	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
+	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false, int start_at = 0);
 
 	void attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
