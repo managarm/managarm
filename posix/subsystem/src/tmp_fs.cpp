@@ -109,7 +109,7 @@ public:
 
 private:
 	int64_t _inodeNumber;
-	int _numLinks = 0;
+	int _numLinks = 1;
 	mode_t _mode = 0;
 	uid_t _uid = 0;
 	gid_t _gid = 0;
@@ -650,8 +650,6 @@ MemoryFile::truncate(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::allocate(int64_t offset, size_t size) {
-	assert(!offset);
-
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	// TODO: Careful about overflow.
