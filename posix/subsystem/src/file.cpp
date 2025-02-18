@@ -343,12 +343,16 @@ async::result<frg::expected<Error, size_t>> File::pwrite(Process *, int64_t, con
 }
 
 async::result<ReadEntriesResult> File::readEntries() {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement readEntries()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::readEntries()");
 }
 
 async::result<protocols::fs::RecvResult>
 File::recvMsg(Process *, uint32_t, void *, size_t,
 		void *, size_t, size_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement recvMsg()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::recvMsg()");
 }
 
@@ -369,6 +373,8 @@ async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
 }
 
 async::result<frg::expected<protocols::fs::Error>> File::allocate(int64_t, size_t) {
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement allocate()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::allocate()");
 }
 
@@ -448,6 +454,8 @@ async::result<size_t> File::sockname(void *, size_t) {
 
 FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 	// TODO: Return an error.
+	std::cout << "posix \e[1;34m" << structName()
+			<< "\e[0m: Object does not implement accessMemory()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::accessMemory()");
 }
 
