@@ -28,14 +28,23 @@ int main() {
 
 	waitpid(xbps_reconfigure, nullptr, 0);
 
+	if(access("/etc/udev/hwdb.bin", F_OK)) {
+		std::cout << "init: systemd-hwdb update" << std::endl;
+		auto hwdb_update = fork();
+		if(!hwdb_update) {
+			execl("/usr/bin/systemd-hwdb", "systemd-hwdb", "update", nullptr);
+		}else assert(hwdb_update != -1);
+		waitpid(hwdb_update, nullptr, 0);
+	}
+
 	// Start udev which loads the remaining drivers.
 	std::cout << "init: Starting udevd" << std::endl;
 	auto udev = fork();
 	if(!udev) {
-		execl("/usr/sbin/udevd", "udevd", nullptr);
+		execl("/usr/bin/udevadm", "udevd", nullptr);
 	}else assert(udev != -1);
 
-	while(access("/run/udev/rules.d", F_OK)) { // TODO: Use some other file to wait on?
+	while(access("/run/udev/control", F_OK)) { // TODO: Use some other file to wait on?
 		assert(errno == ENOENT);
 		sleep(1);
 	}
