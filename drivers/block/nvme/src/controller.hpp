@@ -94,6 +94,7 @@ private:
 	async::result<void> enable();
 	async::result<void> disable();
 
+	async::result<Command::Result> requestIoQueues(uint16_t sqs, uint16_t cqs);
 	async::result<bool> setupIoQueue(PciExpressQueue *q);
 	async::result<Command::Result> createCQ(PciExpressQueue *q);
 	async::result<Command::Result> createSQ(PciExpressQueue *q);
