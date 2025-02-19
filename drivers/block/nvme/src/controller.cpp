@@ -145,6 +145,8 @@ async::result<void> PciExpressController::reset() {
 
 	co_await enable();
 
+	requestIoQueues(1, 1);
+
 	auto ioQ = std::make_unique<PciExpressQueue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_));
 	co_await ioQ->init();
 
@@ -154,6 +156,18 @@ async::result<void> PciExpressController::reset() {
 	}
 
 	assert(activeQueues_.size() >= 2 && "At least need one IO queue");
+}
+
+async::result<Command::Result> PciExpressController::requestIoQueues(uint16_t sqs, uint16_t cqs) {
+	auto &adminQ = activeQueues_.front();
+	auto cmd = std::make_unique<Command>();
+	auto &setFeat = cmd->getCommandBuffer().setFeatures;
+
+	setFeat.opcode = static_cast<uint8_t>(spec::AdminOpcode::SetFeatures);
+	setFeat.data[0] = 0x07;
+	setFeat.data[1] = ((cqs - 1) << 16) | (sqs - 1);
+
+	return adminQ->submitCommand(std::move(cmd));
 }
 
 async::result<bool> PciExpressController::setupIoQueue(PciExpressQueue *q) {
