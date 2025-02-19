@@ -47,6 +47,7 @@ async::result<PciInfo> Device::getPciInfo() {
 
 	PciInfo info{};
 	info.numMsis = resp.num_msis();
+	info.msiX = resp.msi_x();
 
 	for(size_t i = 0; i < resp.capabilities_size(); i++)
 		info.caps.push_back({resp.capabilities(i).type()});
