@@ -92,7 +92,7 @@ struct IcmpSocket {
 			auto truncated = ctrl.message(IPPROTO_IP, IP_PKTINFO, sizeof(struct in_pktinfo));
 			if(!truncated)
 				ctrl.write<struct in_pktinfo>({
-					.ipi_ifindex = unsigned(element->link.lock()->index()),
+					.ipi_ifindex = element->link.lock()->index(),
 					.ipi_spec_dst = { .s_addr = convert_endian<endian::big>(element->packet->header.destination) },
 					.ipi_addr = { .s_addr = convert_endian<endian::big>(element->packet->header.source) },
 				});
