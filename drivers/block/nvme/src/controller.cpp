@@ -40,17 +40,12 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping,
-					   helix::UniqueDescriptor irq)
+PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping)
 	: Controller(parentId, location, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)},
-		regsMapping_{std::move(regsMapping)}, regs_{regsMapping_.get()}, irq_{std::move(irq)} {
+		regsMapping_{std::move(regsMapping)}, regs_{regsMapping_.get()} {
 }
 
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
-	co_await hwDevice_.enableBusIrq();
-
-	handleIrqs();
-
 	co_await reset();
 	co_await scanNamespaces();
 
@@ -72,11 +67,11 @@ async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 		ns->run();
 }
 
-async::detached PciExpressController::handleIrqs() {
+async::detached PciExpressController::handleIrqs(helix::UniqueDescriptor irq) {
 	irqSequence_ = 0;
 
 	while (true) {
-		auto awaitResult = co_await helix_ng::awaitEvent(irq_, irqSequence_);
+		auto awaitResult = co_await helix_ng::awaitEvent(irq, irqSequence_);
 
 		regs_.store(regs::intms, 1);
 
@@ -91,10 +86,43 @@ async::detached PciExpressController::handleIrqs() {
 		regs_.store(regs::intmc, 1);
 
 		if (found) {
-			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckAcknowledge, irqSequence_));
+			HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, irqSequence_));
 		} else {
-			HEL_CHECK(helAcknowledgeIrq(irq_.getHandle(), kHelAckNack, irqSequence_));
+			HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckNack, irqSequence_));
 		}
+	}
+}
+
+async::detached PciExpressController::handleMsis(helix::UniqueDescriptor irq, size_t queueId, bool isMsiX) {
+	irqSequence_ = 0;
+
+	while (true) {
+		auto awaitResult = co_await helix_ng::awaitEvent(irq, irqSequence_);
+
+		auto q = std::ranges::find_if(activeQueues_, [queueId](auto &q) {
+			return q->getQueueId() == queueId;
+		});
+
+		if(q == activeQueues_.end()) {
+			std::cout << std::format("nvme: Queue ID {} not found, quitting", queueId) << std::endl;
+			break;
+		}
+
+		if(!isMsiX)
+			regs_.store(regs::intms, 1 << queueId);
+
+		HEL_CHECK(awaitResult.error());
+		irqSequence_ = awaitResult.sequence();
+
+		int found = static_cast<PciExpressQueue *>(q->get())->handleIrq();
+
+		if(!found)
+			std::cout << std::format("nvme: Queue ID {} has no completions despite raised MSI", queueId) << std::endl;
+
+		if(!isMsiX)
+			regs_.store(regs::intmc, 1 << queueId);
+
+		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, irqSequence_));
 	}
 }
 
@@ -121,6 +149,13 @@ async::result<void> PciExpressController::disable() {
 	co_await waitStatus(false);
 }
 
+async::result<void> PciExpressController::setupIOQueueInterrupts(size_t queueId, size_t vector) {
+	if(irqMode_ == InterruptMode::Msi || irqMode_ == InterruptMode::MsiX) {
+		auto irq = co_await hwDevice_.installMsi(vector);
+		handleMsis(std::move(irq), queueId, irqMode_ == InterruptMode::MsiX);
+	}
+}
+
 async::result<void> PciExpressController::reset() {
 	auto cap = regs_.load(regs::cap);
 	const auto doorbellsOffset = 0x1000;
@@ -131,6 +166,19 @@ async::result<void> PciExpressController::reset() {
 	version_ = regs_.load(regs::vs);
 
 	co_await disable();
+
+	auto info = co_await hwDevice_.getPciInfo();
+
+	if(info.numMsis) {
+		irqMode_ = info.msiX ? InterruptMode::MsiX : InterruptMode::Msi;
+		co_await hwDevice_.enableMsi();
+		co_await setupIOQueueInterrupts(0, 0);
+	} else {
+		irqMode_ = InterruptMode::LegacyIrq;
+		auto irq = co_await hwDevice_.accessIrq();
+		co_await hwDevice_.enableBusIrq();
+		handleIrqs(std::move(irq));
+	}
 
 	auto adminQ = std::make_unique<PciExpressQueue>(0, 32, regs_.subspace(doorbellsOffset));
 	co_await adminQ->init();
@@ -147,7 +195,8 @@ async::result<void> PciExpressController::reset() {
 
 	requestIoQueues(1, 1);
 
-	auto ioQ = std::make_unique<PciExpressQueue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_));
+	co_await setupIOQueueInterrupts(1, 1);
+	auto ioQ = std::make_unique<PciExpressQueue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_), 1);
 	co_await ioQ->init();
 
 	if (co_await setupIoQueue(ioQ.get())) {
@@ -197,7 +246,7 @@ async::result<Command::Result> PciExpressController::createCQ(PciExpressQueue *q
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
 	cmdBuf.cqFlags = convert_endian<endian::little, endian::native>((uint16_t)flags);
-	cmdBuf.irqVector = 0; // TODO: set to MSI vector
+	cmdBuf.irqVector = q->interruptVector();
 
 	return adminQ->submitCommand(std::move(cmd));
 }
