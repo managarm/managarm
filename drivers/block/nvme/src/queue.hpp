@@ -42,7 +42,7 @@ protected:
 };
 
 struct PciExpressQueue final : Queue {
-	PciExpressQueue(unsigned int index, unsigned int depth, arch::mem_space doorbells);
+	PciExpressQueue(unsigned int index, unsigned int depth, arch::mem_space doorbells, size_t interruptVector = 0);
 
 	async::result<void> init() override;
 	async::detached run() override;
@@ -52,6 +52,10 @@ struct PciExpressQueue final : Queue {
 	}
 	uintptr_t getSqPhysAddr() const {
 		return sqPhys_;
+	}
+
+	size_t interruptVector() const {
+		return interruptVector_;
 	}
 
 	int handleIrq();
@@ -65,6 +69,7 @@ private:
 	uint16_t sqTail_;
 	uint16_t cqHead_;
 	uint8_t cqPhase_;
+	size_t interruptVector_;
 
 	async::detached submitPendingLoop();
 

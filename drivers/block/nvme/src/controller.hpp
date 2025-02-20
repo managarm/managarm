@@ -6,6 +6,13 @@
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 
+enum class InterruptMode {
+	None,
+	LegacyIrq,
+	Msi,
+	MsiX,
+};
+
 #include "queue.hpp"
 #include "namespace.hpp"
 #include "spec.hpp"
@@ -67,26 +74,27 @@ protected:
 };
 
 struct PciExpressController final : public Controller {
-	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping,
-			   helix::UniqueDescriptor irq);
+	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping);
 
 	async::detached run(mbus_ng::EntityId subsystem) override;
 
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
 private:
+	async::result<void> setupIOQueueInterrupts(size_t queueId, size_t vector);
+
 	static constexpr int IO_QUEUE_DEPTH = 1024;
 
 	protocols::hw::Device hwDevice_;
 	std::string location_;
 	helix::Mapping regsMapping_;
 	arch::mem_space regs_;
-	helix::UniqueDescriptor irq_;
 
 	unsigned int queueDepth_;
 	uint32_t dbStride_;
 
 	uint64_t irqSequence_;
+	InterruptMode irqMode_;
 
 	async::result<void> reset();
 
@@ -99,5 +107,6 @@ private:
 	async::result<Command::Result> createCQ(PciExpressQueue *q);
 	async::result<Command::Result> createSQ(PciExpressQueue *q);
 
-	async::detached handleIrqs();
+	async::detached handleIrqs(helix::UniqueDescriptor irq);
+	async::detached handleMsis(helix::UniqueDescriptor irq, size_t queueId, bool isMsiX);
 };
