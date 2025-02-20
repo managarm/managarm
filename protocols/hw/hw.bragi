@@ -119,6 +119,7 @@ tail:
 		tag(1) PciBar[] bars;
 		tag(2) PciCapability[] capabilities;
 		tag(9) uint32 num_msis;
+		tag(13) uint8 msi_x;
 		tag(10) PciExpansionRom expansion_rom;
 
 		tag(3) uint32 word;

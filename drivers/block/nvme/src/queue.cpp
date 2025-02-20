@@ -5,8 +5,8 @@
 #include "queue.hpp"
 #include "spec.hpp"
 
-PciExpressQueue::PciExpressQueue(unsigned int qid, unsigned int depth, arch::mem_space doorbells)
-	: Queue(qid, depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1) {
+PciExpressQueue::PciExpressQueue(unsigned int qid, unsigned int depth, arch::mem_space doorbells, size_t interruptVector)
+	: Queue(qid, depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1), interruptVector_{interruptVector} {
 
 }
 
