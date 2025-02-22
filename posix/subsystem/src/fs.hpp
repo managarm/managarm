@@ -72,6 +72,7 @@ public:
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
 	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats() = 0;
+	virtual std::string getFsType() = 0;
 };
 
 FsSuperblock *getAnonymousSuperblock();
