@@ -36,6 +36,7 @@ struct PciInfo {
 	ExpansionRomInfo expansionRomInfo;
 	std::vector<Capability> caps;
 	unsigned int numMsis;
+	bool msiX = false;
 };
 
 struct FbInfo {

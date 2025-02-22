@@ -83,7 +83,6 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 		auto &barInfo = info.barInfo[0];
 		assert(barInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
 		auto bar0 = co_await device.accessBar(0);
-		auto irq = co_await device.accessIrq();
 
 		auto loc = std::format("{}:{}:{}.{}",
 			std::get<mbus_ng::StringItem>(properties.at("pci-segment")).value,
@@ -95,8 +94,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 		auto nvme_subsystem = std::make_unique<nvme::Subsystem>();
 		co_await nvme_subsystem->run();
-		auto controller = std::make_unique<PciExpressController>(base_id, std::move(device), loc, std::move(mapping),
-				std::move(irq));
+		auto controller = std::make_unique<PciExpressController>(base_id, std::move(device), loc, std::move(mapping));
 		controller->run(nvme_subsystem->id());
 		nvme_subsystem->addController(base_id, std::move(controller));
 		globalSubsystems.insert({nvme_subsystem->id(), std::move(nvme_subsystem)});

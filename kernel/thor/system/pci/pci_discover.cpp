@@ -226,8 +226,10 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
 
-		if (parentBus->msiController)
+		if (parentBus->msiController) {
 			resp.set_num_msis(numMsis);
+			resp.set_msi_x(msixIndex >= 0);
+		}
 
 		for(size_t i = 0; i < caps.size(); i++) {
 			managarm::hw::PciCapability<KernelAlloc> msg(*kernelAlloc);
@@ -367,7 +369,6 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			infoLogger() << "thor: Unsupported operation on PCI entity." << frg::endlog;
 			co_return Error::protocolViolation;
 		}
-
 
 		if ((msiIndex < 0 && msixIndex < 0)
 				|| !parentBus->msiController
