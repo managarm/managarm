@@ -48,9 +48,9 @@ struct Channel {
 	std::deque<Packet> packetQueue;
 };
 
-struct ReaderFile : File {
+struct OpenFile : File {
 public:
-	static void serve(smarter::shared_ptr<ReaderFile> file) {
+	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
 
 		helix::UniqueLane lane;
@@ -59,19 +59,34 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	ReaderFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool nonBlock = false)
-	: File{StructName::get("fifo.read"), mount, link, File::defaultPipeLikeSeek}, nonBlock_{nonBlock} { }
+	OpenFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		bool isReader, bool isWriter, bool nonBlock = false)
+	: File{StructName::get("fifo"), mount, link, File::defaultPipeLikeSeek},
+		isReader_{isReader}, isWriter_{isWriter}, nonBlock_{nonBlock} { }
 
 	void connectChannel(std::shared_ptr<Channel> channel) {
 		assert(!_channel);
 		_channel = std::move(channel);
-		_channel->readerCount++;
+		if (isReader_)
+			_channel->readerCount++;
+		if (isWriter_)
+			_channel->writerCount++;
 	}
 
 	void handleClose() override {
-		if(_channel->readerCount-- == 1) {
-			_channel->noReaderSeq = ++_channel->currentSeq;
-			_channel->statusBell.raise();
+		std::cout << "\e[35mposix: Cancel passthrough on fifo OpenFile::handleClose()\e[39m"
+				<< std::endl;
+		if (isReader_) {
+			if (_channel->readerCount-- == 1) {
+				_channel->noReaderSeq = ++_channel->currentSeq;
+				_channel->statusBell.raise();
+			}
+		}
+		if (isWriter_) {
+			if(_channel->writerCount-- == 1) {
+				_channel->noWriterSeq = ++_channel->currentSeq;
+				_channel->statusBell.raise();
+			}
 		}
 		_channel = nullptr;
 	}
@@ -80,6 +95,8 @@ public:
 	readSome(Process *, void *data, size_t maxLength) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
+		if (!isReader_)
+			co_return Error::insufficientPermissions;
 		if(!maxLength)
 			co_return 0;
 
@@ -108,6 +125,23 @@ public:
 		co_return chunk;
 	}
 
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *, const void *data, size_t maxLength) override {
+		if (!isWriter_)
+			co_return Error::insufficientPermissions;
+
+		Packet packet;
+		packet.buffer.resize(maxLength);
+		memcpy(packet.buffer.data(), data, maxLength);
+		packet.offset = 0;
+
+		_channel->packetQueue.push_back(std::move(packet));
+		_channel->inSeq = ++_channel->currentSeq;
+		_channel->statusBell.raise();
+		co_return maxLength;
+	}
+
+
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
@@ -126,10 +160,17 @@ public:
 			std::cout << "\e[33mposix: fifo::pollWait() cancellation is untested\e[39m" << std::endl;
 
 		int edges = 0;
-		if(_channel->noWriterSeq > pastSeq)
-			edges |= EPOLLHUP;
-		if(_channel->inSeq > pastSeq)
-			edges |= EPOLLIN;
+		if (isReader_) {
+			if(_channel->noWriterSeq > pastSeq)
+				edges |= EPOLLHUP;
+			if(_channel->inSeq > pastSeq)
+				edges |= EPOLLIN;
+		}
+		if (isWriter_) {
+			edges |= EPOLLOUT;
+			if(_channel->noReaderSeq > pastSeq)
+				edges |= EPOLLERR;
+		}
 
 		co_return PollWaitResult(_channel->currentSeq, edges);
 	}
@@ -137,10 +178,17 @@ public:
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
 		int events = 0;
-		if(!_channel->writerCount)
-			events |= EPOLLHUP;
-		if(!_channel->packetQueue.empty())
-			events |= EPOLLIN;
+		if (isReader_) {
+			if(!_channel->writerCount)
+				events |= EPOLLHUP;
+			if(!_channel->packetQueue.empty())
+				events |= EPOLLIN;
+		}
+		if (isWriter_) {
+			events |= EPOLLOUT;
+			if(!_channel->readerCount)
+				events |= EPOLLERR;
+		}
 
 		co_return PollStatusResult(_channel->currentSeq, events);
 	}
@@ -163,7 +211,16 @@ public:
 	}
 
 	async::result<int> getFileFlags() override {
-		int flags = O_RDONLY;
+		int flags;
+		if (isReader_ && isWriter_) {
+			flags = O_RDWR;
+		} else if(isReader_) {
+			flags = O_RDONLY;
+		} else {
+			assert(isWriter_);
+			flags = O_WRONLY;
+		}
+
 		if(nonBlock_)
 			flags |= O_NONBLOCK;
 		co_return flags;
@@ -179,9 +236,13 @@ public:
 
 			switch(req->command()) {
 				case FIONREAD: {
-					size_t count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0, [](size_t sum, const Packet &p) {
-						return sum + (p.buffer.size() - p.offset);
-					});
+					size_t count = 0;
+					if (isReader_)
+						count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0,
+							[](size_t sum, const Packet &p) {
+								return sum + (p.buffer.size() - p.offset);
+							}
+						);
 
 					resp.set_fionread_count(count);
 					resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -217,98 +278,9 @@ private:
 
 	std::shared_ptr<Channel> _channel;
 
+	bool isReader_;
+	bool isWriter_;
 	bool nonBlock_;
-};
-
-struct WriterFile : File {
-public:
-	static void serve(smarter::shared_ptr<WriterFile> file) {
-//TODO:		assert(!file->_passthrough);
-
-		helix::UniqueLane lane;
-		std::tie(lane, file->_passthrough) = helix::createStream();
-		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
-	}
-
-	WriterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("fifo.write"), mount, link, File::defaultPipeLikeSeek} { }
-
-	void connectChannel(std::shared_ptr<Channel> channel) {
-		assert(!_channel);
-		_channel = std::move(channel);
-		_channel->writerCount++;
-	}
-
-	void handleClose() override {
-		std::cout << "\e[35mposix: Cancel passthrough on fifo WriterFile::handleClose()\e[39m"
-				<< std::endl;
-		if(_channel->writerCount-- == 1) {
-			_channel->noWriterSeq = ++_channel->currentSeq;
-			_channel->statusBell.raise();
-		}
-		_channel = nullptr;
-	}
-
-	async::result<frg::expected<Error, size_t>>
-	writeAll(Process *, const void *data, size_t maxLength) override {
-		Packet packet;
-		packet.buffer.resize(maxLength);
-		memcpy(packet.buffer.data(), data, maxLength);
-		packet.offset = 0;
-
-		_channel->packetQueue.push_back(std::move(packet));
-		_channel->inSeq = ++_channel->currentSeq;
-		_channel->statusBell.raise();
-		co_return maxLength;
-	}
-
-	async::result<frg::expected<Error, PollWaitResult>>
-	pollWait(Process *, uint64_t pastSeq, int mask,
-			async::cancellation_token cancellation) override {
-		(void) mask;
-		// TODO: Return Error::fileClosed as appropriate.
-		assert(pastSeq <= _channel->currentSeq);
-		while(_channel && !cancellation.is_cancellation_requested()
-				&& pastSeq == _channel->currentSeq)
-			co_await _channel->statusBell.async_wait(cancellation);
-
-		if(!_channel) {
-			co_return Error::fileClosed;
-		}
-
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: fifo::poll() cancellation is untested\e[39m" << std::endl;
-
-		int edges = EPOLLOUT;
-		if(_channel->noReaderSeq > pastSeq)
-			edges |= EPOLLERR;
-
-		co_return PollWaitResult(_channel->currentSeq, edges);
-	}
-
-	async::result<frg::expected<Error, PollStatusResult>>
-	pollStatus(Process *) override {
-		int events = EPOLLOUT;
-		if(!_channel->readerCount)
-			events |= EPOLLERR;
-
-		co_return PollStatusResult(_channel->currentSeq, events);
-	}
-
-	helix::BorrowedDescriptor getPassthroughLane() override {
-		return _passthrough;
-	}
-
-	async::result<int> getFileFlags() override {
-		// TODO: Check if we need to OR any other bits in
-		co_return O_WRONLY;
-	}
-
-private:
-	helix::UniqueLane _passthrough;
-
-	std::shared_ptr<Channel> _channel;
 };
 
 } // anonymous namespace
@@ -336,7 +308,7 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 	if (flags & semanticRead) {
 		assert(!(flags & semanticWrite));
 
-		auto r_file = smarter::make_shared<ReaderFile>(mount, link);
+		auto r_file = smarter::make_shared<OpenFile>(mount, link, true, false);
 		r_file->setupWeakFile(r_file);
 		r_file->connectChannel(channel);
 
@@ -344,14 +316,14 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		if (!channel->writerCount && !(flags & semanticNonBlock))
 			co_await channel->writerPresent.async_wait();
 
-		ReaderFile::serve(r_file);
+		OpenFile::serve(r_file);
 
 		co_return File::constructHandle(std::move(r_file));
 	} else {
 		assert(flags & semanticWrite);
 		assert(!(flags & semanticRead));
 
-		auto w_file = smarter::make_shared<WriterFile>(mount, link);
+		auto w_file = smarter::make_shared<OpenFile>(mount, link, false, true);
 		w_file->setupWeakFile(w_file);
 		w_file->connectChannel(channel);
 
@@ -359,7 +331,7 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		if (!channel->readerCount && !(flags & semanticNonBlock))
 			co_await channel->readerPresent.async_wait();
 
-		WriterFile::serve(w_file);
+		OpenFile::serve(w_file);
 
 		co_return File::constructHandle(std::move(w_file));
 	}
@@ -368,14 +340,14 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(bool nonBlock) {
 	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0777);
 	auto channel = std::make_shared<Channel>();
-	auto r_file = smarter::make_shared<ReaderFile>(nullptr, link, nonBlock);
-	auto w_file = smarter::make_shared<WriterFile>(nullptr, link);
+	auto r_file = smarter::make_shared<OpenFile>(nullptr, link, true, false, nonBlock);
+	auto w_file = smarter::make_shared<OpenFile>(nullptr, link, false, true, nonBlock);
 	r_file->setupWeakFile(r_file);
 	w_file->setupWeakFile(w_file);
 	r_file->connectChannel(channel);
 	w_file->connectChannel(channel);
-	ReaderFile::serve(r_file);
-	WriterFile::serve(w_file);
+	OpenFile::serve(r_file);
+	OpenFile::serve(w_file);
 	return {File::constructHandle(std::move(r_file)),
 			File::constructHandle(std::move(w_file))};
 }
