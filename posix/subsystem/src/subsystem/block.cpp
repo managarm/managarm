@@ -26,7 +26,7 @@ std::unordered_set<std::string_view> alphabetizedIds = {
 	"sd",
 };
 
-struct Device final : UnixDevice, drvcore::BlockDevice {
+struct Device final : UnixDevice, drvcore::BlockDevice, std::enable_shared_from_this<Device> {
 	Device(VfsType type, std::string name, helix::UniqueLane lane,
 			std::shared_ptr<drvcore::Device> parent, size_t size)
 	: UnixDevice{type},
@@ -49,7 +49,7 @@ struct Device final : UnixDevice, drvcore::BlockDevice {
 	}
 
 	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
-		return mountExternalDevice(_lane);
+		return mountExternalDevice(_lane, shared_from_this());
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {

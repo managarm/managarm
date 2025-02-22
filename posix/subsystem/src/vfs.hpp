@@ -8,6 +8,8 @@
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
 #include <hel.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 
 #include "file.hpp"
 #include "fs.hpp"
@@ -18,26 +20,44 @@ inline constexpr ResolveFlags resolvePrefix = (1 << 4);
 inline constexpr ResolveFlags resolveNoTrailingSlash = (1 << 2);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
 
+using ViewPathPair = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
+
+struct ViewPath : public ViewPathPair {
+	ViewPath() = default;
+
+	ViewPath(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: ViewPathPair(mount, link) {}
+
+	std::string getPath(ViewPath root) const;
+};
+
 //! Represents a virtual view of the file system.
 //! We handle all mount point related logic in this class.
 struct MountView : std::enable_shared_from_this<MountView> {
 	static std::shared_ptr<MountView> createRoot(std::shared_ptr<FsLink> origin);
 
 	// TODO: This is an implementation detail that could be hidden.
-	explicit MountView(std::shared_ptr<MountView> parent, std::shared_ptr<FsLink> anchor,
-			std::shared_ptr<FsLink> origin)
-	: _parent{std::move(parent)}, _anchor{std::move(anchor)}, _origin{std::move(origin)} { }
+	explicit MountView(uint64_t mountId, std::shared_ptr<MountView> parent, std::shared_ptr<FsLink> anchor,
+			std::shared_ptr<FsLink> origin, ViewPath deviceLink)
+	: mountId_{mountId}, _parent{std::move(parent)}, _anchor{std::move(anchor)}, _origin{std::move(origin)},
+		deviceLink_{std::move(deviceLink)}
+	{ }
 
+	uint64_t mountId() const {
+		return mountId_;
+	}
 
 	std::shared_ptr<MountView> getParent() const;
 	std::shared_ptr<FsLink> getAnchor() const;
 	std::shared_ptr<FsLink> getOrigin() const;
+	ViewPath getDevice() const {
+		return deviceLink_;
+	}
 
-	async::result<void> mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin);
+	async::result<void> mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin, ViewPath deviceLink = {});
 
 	std::shared_ptr<MountView> getMount(std::shared_ptr<FsLink> link) const;
 
-private:
 	struct Compare {
 		struct is_transparent { };
 
@@ -56,21 +76,18 @@ private:
 		}
 	};
 
+	const std::set<std::shared_ptr<MountView>, Compare> &mounts() const {
+		return _mounts;
+	}
+
+private:
+
+	uint64_t mountId_;
 	std::shared_ptr<MountView> _parent;
 	std::shared_ptr<FsLink> _anchor;
 	std::shared_ptr<FsLink> _origin;
+	ViewPath deviceLink_;
 	std::set<std::shared_ptr<MountView>, Compare> _mounts;
-};
-
-using ViewPathPair = std::pair<std::shared_ptr<MountView>, std::shared_ptr<FsLink>>;
-
-struct ViewPath : public ViewPathPair {
-	ViewPath() = default;
-
-	ViewPath(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: ViewPathPair(mount, link) {}
-
-	std::string getPath(ViewPath root) const;
 };
 
 struct PathResolver {

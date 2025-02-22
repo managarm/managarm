@@ -772,7 +772,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
-				co_await target.first->mount(target.second, std::move(link));
+				co_await target.first->mount(target.second, std::move(link), source);
 			}
 
 			logRequest(logRequests, "MOUNT", "succeeded");

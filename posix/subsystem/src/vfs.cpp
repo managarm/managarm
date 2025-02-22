@@ -14,14 +14,21 @@
 #include "extern_fs.hpp"
 #include "sysfs.hpp"
 
-static bool debugResolve = false;
+namespace {
+
+constexpr bool debugResolve = false;
+
+id_allocator<uint64_t> mountIdAllocator;
+
+}
+
 
 // --------------------------------------------------------
 // MountView implementation.
 // --------------------------------------------------------
 
 std::shared_ptr<MountView> MountView::createRoot(std::shared_ptr<FsLink> origin) {
-	return std::make_shared<MountView>(nullptr, nullptr, std::move(origin));
+	return std::make_shared<MountView>(mountIdAllocator.allocate(), nullptr, nullptr, std::move(origin), ViewPath{});
 }
 
 std::shared_ptr<MountView> MountView::getParent() const {
@@ -36,15 +43,15 @@ std::shared_ptr<FsLink> MountView::getOrigin() const {
 	return _origin;
 }
 
-async::result<void> MountView::mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin) {
+async::result<void> MountView::mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin, ViewPath deviceLink) {
 	if (anchor) {
 		auto result = co_await anchor->obstruct();
 		(void)result;
 		// result is intentionally ignored to supress warnings
 	}
 
-	_mounts.insert(std::make_shared<MountView>(shared_from_this(),
-			std::move(anchor), std::move(origin)));
+	_mounts.insert(std::make_shared<MountView>(mountIdAllocator.allocate(), shared_from_this(),
+			std::move(anchor), std::move(origin), std::move(deviceLink)));
 	// TODO: check insert return value
 }
 

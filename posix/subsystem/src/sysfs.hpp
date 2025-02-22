@@ -24,7 +24,9 @@ struct Hierarchy;
 
 struct SysfsSuperblock final : FsSuperblock {
 public:
-	SysfsSuperblock() = default;
+	SysfsSuperblock() {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
@@ -33,12 +35,21 @@ public:
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 
+	std::string getFsType() override {
+		return "sysfs";
+	}
+
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
 	id_allocator<uint64_t> &inodeAllocator() {
 		return inodeAllocator_;
 	}
 
 private:
 	id_allocator<uint64_t> inodeAllocator_{1};
+	unsigned int deviceMinor_;
 };
 
 struct LinkCompare {

@@ -18,7 +18,7 @@ struct Node;
 struct DirectoryNode;
 
 struct Superblock final : FsSuperblock {
-	Superblock(helix::UniqueLane lane);
+	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device);
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
@@ -26,6 +26,15 @@ struct Superblock final : FsSuperblock {
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+
+	std::string getFsType() override {
+		return "ext2";
+	}
+
+	dev_t deviceNumber() override {
+		auto id = device_->getId();
+		return makedev(id.first, id.second);
+	}
 
 	std::shared_ptr<Node> internalizeStructural(uint64_t id, helix::UniqueLane lane);
 	std::shared_ptr<Node> internalizeStructural(Node *owner, std::string name,
@@ -39,6 +48,8 @@ private:
 	std::map<uint64_t, std::weak_ptr<DirectoryNode>> _activeStructural;
 	std::map<uint64_t, std::weak_ptr<Node>> _activePeripheralNodes;
 	std::map<std::tuple<uint64_t, std::string, uint64_t>, std::weak_ptr<FsLink>> _activePeripheralLinks;
+
+	std::shared_ptr<UnixDevice> device_;
 };
 
 struct Node : FsNode {
@@ -823,8 +834,8 @@ std::shared_ptr<FsNode> StructuralLink::getTarget() {
 	return std::shared_ptr<Node>{_target->weakNode()};
 }
 
-Superblock::Superblock(helix::UniqueLane lane)
-: _lane{std::move(lane)} { }
+Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device)
+: _lane{std::move(lane)}, device_{device} { }
 
 FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
 	helix::Offer offer;
@@ -970,8 +981,8 @@ async::result<frg::expected<Error, FsFileStats>> Superblock::getFsstats() {
 
 } // anonymous namespace
 
-std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane) {
-	auto sb = new Superblock{std::move(sb_lane)};
+std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane lane, std::shared_ptr<UnixDevice> device) {
+	auto sb = new Superblock{std::move(sb_lane), device};
 	// FIXME: 2 is the ext2fs root inode.
 	auto node = sb->internalizeStructural(2, std::move(lane));
 	return node->treeLink();

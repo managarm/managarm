@@ -109,7 +109,9 @@ protected:
 
 struct SuperBlock final : FsSuperblock {
 public:
-	SuperBlock() = default;
+	SuperBlock() {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
@@ -117,6 +119,17 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+
+	std::string getFsType() override {
+		return "cgroup2";
+	}
+
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
+private:
+	unsigned int deviceMinor_;
 };
 
 struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {

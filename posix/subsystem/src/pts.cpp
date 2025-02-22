@@ -282,7 +282,9 @@ void processIn(const char character, Packet &packet, std::shared_ptr<Channel> ch
 
 struct PtsSuperblock final : FsSuperblock {
 public:
-	PtsSuperblock() = default;
+	PtsSuperblock() {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
 		std::cout << "posix: createRegular on PtsSuperblock unsupported" << std::endl;
@@ -304,6 +306,17 @@ public:
 		stats.f_type = DEVPTS_SUPER_MAGIC;
 		co_return stats;
 	}
+
+	std::string getFsType() override {
+		return "devpts";
+	}
+
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
+private:
+	unsigned int deviceMinor_;
 };
 
 PtsSuperblock ptsSuperblock{};

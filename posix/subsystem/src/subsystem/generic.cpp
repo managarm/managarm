@@ -14,7 +14,7 @@ namespace {
 
 id_allocator<uint32_t> minorAllocator{0};
 
-struct Device final : UnixDevice {
+struct Device final : UnixDevice, std::enable_shared_from_this<Device> {
 	Device(VfsType type, std::string name, helix::UniqueLane lane)
 	: UnixDevice{type},
 			_name{std::move(name)}, _lane{std::move(lane)} { }
@@ -22,7 +22,7 @@ struct Device final : UnixDevice {
 	std::string nodePath() override {
 		return _name;
 	}
-	
+
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
@@ -30,7 +30,7 @@ struct Device final : UnixDevice {
 	}
 
 	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
-		return mountExternalDevice(_lane);
+		return mountExternalDevice(_lane, shared_from_this());
 	}
 
 private:

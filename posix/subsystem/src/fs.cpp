@@ -1,12 +1,17 @@
 
 #include <linux/magic.h>
 #include <string.h>
+#include <sys/sysmacros.h>
 
 #include "fs.hpp"
 
 namespace {
 
 struct AnonymousSuperblock : FsSuperblock {
+	AnonymousSuperblock() {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
+
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
 		std::cout << "posix: createRegular on AnonymousSuperblock unsupported" << std::endl;
 		co_return nullptr;
@@ -28,6 +33,18 @@ struct AnonymousSuperblock : FsSuperblock {
 		};
 		co_return stats;
 	}
+
+	std::string getFsType() override {
+		assert(!"posix: getFsType on AnonymousSuperblock unsupported");
+		return "";
+	}
+
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
+private:
+	unsigned int deviceMinor_;
 };
 
 } // namespace
@@ -35,6 +52,11 @@ struct AnonymousSuperblock : FsSuperblock {
 FsSuperblock *getAnonymousSuperblock() {
 	static AnonymousSuperblock sb{};
 	return &sb;
+}
+
+id_allocator<unsigned int> &getUnnamedDeviceIdAllocator() {
+	static id_allocator<unsigned int> unnamedDeviceIdAllocator{1};
+	return unnamedDeviceIdAllocator;
 }
 
 // --------------------------------------------------------

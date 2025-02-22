@@ -7,8 +7,10 @@
 
 #include <async/result.hpp>
 #include <boost/intrusive/rbtree.hpp>
+#include <core/id-allocator.hpp>
 #include <frg/container_of.hpp>
 #include <hel.h>
+#include <sys/types.h>
 
 #include <fcntl.h>
 
@@ -43,6 +45,7 @@ struct FsFileStats {
 // Forward declarations.
 struct FsLink;
 struct FsNode;
+struct ViewPath;
 
 // ----------------------------------------------------------------------------
 // FsLink class.
@@ -72,9 +75,14 @@ public:
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
 	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats() = 0;
+	virtual std::string getFsType() = 0;
+	virtual dev_t deviceNumber() = 0;
 };
 
 FsSuperblock *getAnonymousSuperblock();
+
+// This is used to allocate device IDs for non-device-based file systems such as tmpfs.
+id_allocator<unsigned int> &getUnnamedDeviceIdAllocator();
 
 // ----------------------------------------------------------------------------
 // FsObserver class.
@@ -108,7 +116,9 @@ struct FsNode {
 	static inline constexpr DefaultOps defaultSupportsObservers = 1 << 1;
 
 	FsNode(FsSuperblock *superblock, DefaultOps default_ops = 0)
-	: _superblock{superblock}, _defaultOps{default_ops} { }
+	: _superblock{superblock}, _defaultOps{default_ops} {
+		assert(_superblock);
+	}
 
 	FsSuperblock *superblock() {
 		return _superblock;
