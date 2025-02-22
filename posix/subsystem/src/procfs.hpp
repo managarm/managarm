@@ -394,6 +394,13 @@ struct MountsNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct MountInfoNode final : RegularNode {
+	MountInfoNode() = default;
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+};
+
 } // namespace procfs
 
 std::shared_ptr<FsLink> getProcfs();

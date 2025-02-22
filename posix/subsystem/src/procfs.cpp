@@ -335,6 +335,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
 	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>());
+	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>());
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -914,6 +915,55 @@ async::result<std::string> MountsNode::show(Process *proc) {
 async::result<void> MountsNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/mounts file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> MountInfoNode::show(Process *proc) {
+	auto root = proc->fsContext()->getRoot();
+
+	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
+		auto mountId = mount->mountId();
+		auto devno = mount->getOrigin()->getTarget()->superblock()->deviceNumber();
+		auto parentId = mount->getParent() ? mount->getParent()->mountId() : mountId;
+		auto dev = mount->getDevice();
+		auto fsType = mount->getOrigin()->getTarget()->superblock()->getFsType();
+
+		auto devName = [&]() -> std::string {
+			if(dev.second) {
+				return dev.getPath(proc->fsContext()->getRoot());
+			} else {
+				return "none";
+			}
+		}();
+
+		auto mountPath = root ? "/" :
+			ViewPath{mount->getParent(), mount->getAnchor()}.getPath(proc->fsContext()->getRoot());
+
+		return std::format("{} {} {}:{} {} {} rw - {} {} rw\n",
+			mountId, parentId, major(devno), minor(devno), "/", mountPath, fsType, devName);
+	};
+
+	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare> &)> processChildren =
+		[&](auto &mounts) -> std::string {
+		std::string ret;
+
+		for(auto mount : mounts) {
+			ret.append(processMount(mount));
+			ret.append(processChildren(mount->mounts()));
+		}
+
+		return ret;
+	};
+
+	std::string ret = processMount(root.first, true);
+	ret.append(processChildren(root.first->mounts()));
+
+	co_return ret;
+}
+
+async::result<void> MountInfoNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/mountinfo file" << std::endl;
 	co_return;
 }
 
