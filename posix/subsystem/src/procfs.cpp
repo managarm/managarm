@@ -1,3 +1,4 @@
+#include <functional>
 #include <linux/magic.h>
 #include <string.h>
 #include <sstream>
@@ -261,6 +262,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+	the_node->directMknode("mounts", std::make_shared<MountsLink>());
 
 	auto sysLink = the_node->directMkdir("sys");
 	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
@@ -332,6 +334,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
+	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>());
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -758,6 +761,10 @@ expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
 }
 
+expected<std::string> MountsLink::readSymlink(FsLink *, Process *) {
+	co_return "self/mounts";
+}
+
 // MASSIVE STUBS
 async::result<std::string> CgroupNode::show(Process *) {
 	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
@@ -862,6 +869,52 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
 	auto path = viewPath.getPath(process->fsContext()->getRoot());
 
 	co_return path;
+}
+
+async::result<std::string> MountsNode::show(Process *proc) {
+	auto root = proc->fsContext()->getRoot();
+
+	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
+		auto dev = mount->getDevice();
+		auto fsType = mount->getOrigin()->getTarget()->superblock()->getFsType();
+
+		std::string devName = [&]() {
+			if(dev.second) {
+				return dev.getPath(proc->fsContext()->getRoot());
+			} else {
+				return fsType;
+			}
+		}();
+
+		auto mountPath = root ? "/" :
+			ViewPath{mount->getParent(), mount->getAnchor()}.getPath(proc->fsContext()->getRoot());
+
+		return std::format("{} {} {} rw 0 0\n",
+			devName, mountPath, fsType);
+	};
+
+	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare>&)> processChildren =
+		[&](auto &mounts) -> std::string {
+		std::string ret;
+
+		for(auto mount : mounts) {
+			ret.append(processMount(mount));
+			ret.append(processChildren(mount->mounts()));
+		}
+
+		return ret;
+	};
+
+	std::string ret = processMount(root.first, true);
+	ret.append(processChildren(root.first->mounts()));
+
+	co_return ret;
+}
+
+async::result<void> MountsNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/mounts file" << std::endl;
+	co_return;
 }
 
 } // namespace procfs

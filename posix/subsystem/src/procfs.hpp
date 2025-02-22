@@ -231,6 +231,10 @@ private:
 	Process *_process;
 };
 
+struct MountsLink final : LinkNode, std::enable_shared_from_this<MountsLink> {
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+};
+
 struct MapNode final : RegularNode {
 	MapNode(Process *process)
 	: _process(process)
@@ -381,6 +385,13 @@ struct SymlinkNode final : LinkNode, std::enable_shared_from_this<SymlinkNode> {
 private:
 	std::shared_ptr<MountView> _mount;
 	std::weak_ptr<FsLink> _link;
+};
+
+struct MountsNode final : RegularNode {
+	MountsNode() = default;
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
 };
 
 } // namespace procfs
