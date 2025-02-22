@@ -288,6 +288,8 @@ private:
 // This maps FsNodes to Channels for named pipes (FIFOs)
 std::map<FsNode *, std::shared_ptr<Channel>> globalChannelMap;
 
+// TODO: Instead of relying on this function, openNamedChannel() should associate
+//       the FsNode with a Channel on demand.
 void createNamedChannel(FsNode *node) {
 	assert(globalChannelMap.find(node) == globalChannelMap.end());
 	globalChannelMap[node] = std::make_shared<Channel>();
@@ -298,42 +300,53 @@ void unlinkNamedChannel(FsNode *node) {
 	globalChannelMap.erase(node);
 }
 
-async::result<smarter::shared_ptr<File, FileHandle>>
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, FsNode *node, SemanticFlags flags) {
 	if (globalChannelMap.find(node) == globalChannelMap.end())
 		co_return nullptr;
 
 	auto channel = globalChannelMap.at(node);
 
-	if (flags & semanticRead) {
-		assert(!(flags & semanticWrite));
+	bool nonBlock = flags & semanticNonBlock;
+	if ((flags & semanticRead) && (flags & semanticWrite)) {
+		auto rw_file = smarter::make_shared<OpenFile>(mount, link, true, true, nonBlock);
+		rw_file->setupWeakFile(rw_file);
+		rw_file->connectChannel(channel);
 
-		auto r_file = smarter::make_shared<OpenFile>(mount, link, true, false);
+		channel->readerPresent.raise();
+		channel->writerPresent.raise();
+
+		OpenFile::serve(rw_file);
+
+		co_return File::constructHandle(std::move(rw_file));
+	} else if (flags & semanticRead) {
+		auto r_file = smarter::make_shared<OpenFile>(mount, link, true, false, nonBlock);
 		r_file->setupWeakFile(r_file);
 		r_file->connectChannel(channel);
 
 		channel->readerPresent.raise();
-		if (!channel->writerCount && !(flags & semanticNonBlock))
+		if (!channel->writerCount && !nonBlock)
 			co_await channel->writerPresent.async_wait();
 
 		OpenFile::serve(r_file);
 
 		co_return File::constructHandle(std::move(r_file));
-	} else {
-		assert(flags & semanticWrite);
-		assert(!(flags & semanticRead));
-
-		auto w_file = smarter::make_shared<OpenFile>(mount, link, false, true);
+	} else if (flags & semanticWrite) {
+		auto w_file = smarter::make_shared<OpenFile>(mount, link, false, true, nonBlock);
 		w_file->setupWeakFile(w_file);
 		w_file->connectChannel(channel);
 
 		channel->writerPresent.raise();
-		if (!channel->readerCount && !(flags & semanticNonBlock))
+		if (!channel->readerCount && !nonBlock)
 			co_await channel->readerPresent.async_wait();
+
+		// TODO: Opening for write-only with no reader present should return NXIO (man 7 fifo).
 
 		OpenFile::serve(w_file);
 
 		co_return File::constructHandle(std::move(w_file));
+	} else {
+		co_return Error::illegalArguments;
 	}
 }
 
