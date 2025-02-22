@@ -33,6 +33,10 @@ public:
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
 
+	std::string getFsType() override {
+		return "sysfs";
+	}
+
 	id_allocator<uint64_t> &inodeAllocator() {
 		return inodeAllocator_;
 	}
