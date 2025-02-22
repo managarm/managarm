@@ -103,7 +103,7 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 			SemanticFlags semantic_flags) override;
 
 protected:
-	virtual async::result<std::string> show() = 0;
+	virtual async::result<std::string> show(Process *) = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
 };
 
@@ -217,7 +217,7 @@ struct MapNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -226,35 +226,35 @@ private:
 struct UptimeNode final : RegularNode {
 	UptimeNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct OstypeNode final : RegularNode {
 	OstypeNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct OsreleaseNode final : RegularNode {
 	OsreleaseNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct ArchNode final : RegularNode {
 	ArchNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct BootIdNode final : RegularNode {
 	BootIdNode();
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	std::string bootId_;
@@ -265,7 +265,7 @@ struct CommNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -276,7 +276,7 @@ struct StatNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -287,7 +287,7 @@ struct StatmNode final : RegularNode {
         : _process(process)
         { }
 
-        async::result<std::string> show() override;
+        async::result<std::string> show(Process *) override;
         async::result<void> store(std::string) override;
 private:
         Process *_process;
@@ -298,7 +298,7 @@ struct StatusNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -330,7 +330,7 @@ struct CgroupNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
