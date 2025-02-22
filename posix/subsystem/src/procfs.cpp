@@ -63,13 +63,13 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 }
 
 async::result<frg::expected<Error, size_t>>
-RegularFile::readSome(Process *, void *data, size_t max_length) {
+RegularFile::readSome(Process *process, void *data, size_t max_length) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
-		_buffer = co_await node->show();
+		_buffer = co_await node->show(process);
 		_cached = true;
 	}
 
@@ -381,7 +381,7 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 LinkNode::LinkNode()
 : FsNode{&procfsSuperblock} { }
 
-async::result<std::string> UptimeNode::show() {
+async::result<std::string> UptimeNode::show(Process *) {
 	auto uptime = clk::getTimeSinceBoot();
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -397,7 +397,7 @@ async::result<void> UptimeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OstypeNode::show() {
+async::result<std::string> OstypeNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -411,7 +411,7 @@ async::result<void> OstypeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OsreleaseNode::show() {
+async::result<std::string> OsreleaseNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	// TODO: The version is a placeholder!
@@ -426,7 +426,7 @@ async::result<void> OsreleaseNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> ArchNode::show() {
+async::result<std::string> ArchNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -471,7 +471,7 @@ BootIdNode::BootIdNode() {
 		a, b, c, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
 }
 
-async::result<std::string> BootIdNode::show() {
+async::result<std::string> BootIdNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	co_return bootId_ + "\n";
@@ -495,7 +495,7 @@ expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
 }
 
-async::result<std::string> MapNode::show() {
+async::result<std::string> MapNode::show(Process *) {
 	auto vmContext = _process->vmContext();
 	std::stringstream stream;
 	for (auto area : *vmContext) {
@@ -540,7 +540,7 @@ async::result<void> MapNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> CommNode::show() {
+async::result<std::string> CommNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -558,7 +558,7 @@ expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
 }
 
-async::result<std::string> StatNode::show() {
+async::result<std::string> StatNode::show(Process *) {
 	// Everything that has a value of 0 is likely not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -628,7 +628,7 @@ async::result<void> StatNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/stat file!");
 }
 
-async::result<std::string> StatmNode::show() {
+async::result<std::string> StatmNode::show(Process *) {
 	(void)_process;
 	// All hardcoded to 0.
 	// See man 5 proc for more details.
@@ -649,7 +649,7 @@ async::result<void> StatmNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/statm file!");
 }
 
-async::result<std::string> StatusNode::show() {
+async::result<std::string> StatusNode::show(Process *) {
 	// Everything that has a value of N/A is not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -740,7 +740,7 @@ expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 }
 
 // MASSIVE STUBS
-async::result<std::string> CgroupNode::show() {
+async::result<std::string> CgroupNode::show(Process *) {
 	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;

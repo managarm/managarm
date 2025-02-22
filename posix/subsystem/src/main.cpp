@@ -103,8 +103,7 @@ helix::UniqueLane &getPmLane() {
 }
 
 struct CmdlineNode final : public procfs::RegularNode {
-	async::result<std::string> show() override {
-
+	async::result<std::string> show(Process *) override {
 		managarm::kerncfg::GetCmdlineRequest req;
 
 		auto [offer, sendReq, recvResp] =
