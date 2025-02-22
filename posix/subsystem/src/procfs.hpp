@@ -42,6 +42,12 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override;
+
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
+		uint64_t sequence, int mask,
+		async::cancellation_token cancellation = {}) override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
