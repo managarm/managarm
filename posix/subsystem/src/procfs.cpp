@@ -9,6 +9,7 @@
 #include "process.hpp"
 
 #include <bitset>
+#include <sys/epoll.h>
 
 namespace procfs {
 
@@ -87,6 +88,24 @@ RegularFile::writeAll(Process *, const void *data, size_t length) {
 	auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
 	co_await node->store(std::string{reinterpret_cast<const char *>(data), length});
 	co_return length;
+}
+
+async::result<frg::expected<Error, PollStatusResult>>
+RegularFile::pollStatus(Process *) {
+	co_return PollStatusResult{1, EPOLLIN};
+}
+
+async::result<frg::expected<Error, PollWaitResult>>
+RegularFile::pollWait(Process *, uint64_t sequence, int mask,
+		async::cancellation_token cancellation) {
+	(void)mask;
+
+	if(sequence > 1)
+		co_return Error::illegalArguments;
+
+	if(sequence)
+		co_await async::suspend_indefinitely(cancellation);
+	co_return PollWaitResult{1, EPOLLIN};
 }
 
 helix::BorrowedDescriptor RegularFile::getPassthroughLane() {
