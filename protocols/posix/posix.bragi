@@ -259,6 +259,8 @@ head(128):
 
 		// returned by GET_RESOURCE_USAGE
 		tag(29) uint64 ru_user_time;
+
+		tag(32) uint32 mount_id;
 	}
 }
 
