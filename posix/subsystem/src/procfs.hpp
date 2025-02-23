@@ -401,6 +401,56 @@ struct MountInfoNode final : RegularNode {
 	async::result<void> store(std::string) override;
 };
 
+struct FdInfoDirectoryNode final : FsNode, std::enable_shared_from_this<FdInfoDirectoryNode> {
+public:
+	friend DirectoryNode;
+
+	explicit FdInfoDirectoryNode(Process *process);
+
+	VfsType getType() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
+	std::shared_ptr<FsLink> treeLink() override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
+private:
+	Process *_process;
+	Link *_treeLink;
+};
+
+struct FdInfoDirectoryFile final : File {
+public:
+	static void serve(smarter::shared_ptr<FdInfoDirectoryFile> file);
+
+	explicit FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process);
+
+	void handleClose() override;
+
+	FutureMaybe<ReadEntriesResult> readEntries() override;
+	helix::BorrowedDescriptor getPassthroughLane() override;
+
+private:
+	Process *_process;
+
+	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
+
+	std::unordered_map<int, FileDescriptor> _fileTable;
+	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
+};
+
+struct FdInfoNode final : RegularNode {
+	FdInfoNode(std::shared_ptr<MountView> mountView, smarter::shared_ptr<File, FileHandle> file)
+	: mountView_{std::move(mountView)}, file_{std::move(file)} {}
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+private:
+	std::shared_ptr<MountView> mountView_;
+	smarter::shared_ptr<File, FileHandle> file_;
+};
+
 } // namespace procfs
 
 std::shared_ptr<FsLink> getProcfs();

@@ -328,6 +328,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
 	proc_dir->directMknodeDir("fd", std::make_shared<FdDirectoryNode>(process));
+	proc_dir->directMknodeDir("fdinfo", std::make_shared<FdInfoDirectoryNode>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
@@ -964,6 +965,97 @@ async::result<std::string> MountInfoNode::show(Process *proc) {
 async::result<void> MountInfoNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/mountinfo file" << std::endl;
+	co_return;
+}
+
+FdInfoDirectoryNode::FdInfoDirectoryNode(Process *process)
+: FsNode(&procfsSuperblock), _process{process} {}
+
+VfsType FdInfoDirectoryNode::getType() {
+	return VfsType::directory;
+}
+
+async::result<frg::expected<Error, FileStats>> FdInfoDirectoryNode::getStats() {
+	std::cout << "\e[31mposix: Fix procfs FdInfoDirectoryNode::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+std::shared_ptr<FsLink> FdInfoDirectoryNode::treeLink() {
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
+}
+
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+FdInfoDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
+
+	auto file = smarter::make_shared<FdInfoDirectoryFile>(std::move(mount), std::move(link), _process);
+	file->setupWeakFile(file);
+	FdInfoDirectoryFile::serve(file);
+	co_return File::constructHandle(std::move(file));
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(std::string name) {
+	if(!std::all_of(name.begin(), name.end(), isdigit))
+		co_return Error::noSuchFile;
+
+	auto nameNum = std::stoi(name);
+	if(_process->fileContext()->fileTable().contains(nameNum)) {
+		auto file = _process->fileContext()->fileTable().at(nameNum).file;
+		auto pointee = std::make_shared<FdInfoNode>(file->associatedMount(), file);
+		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
+	}
+
+	co_return Error::noSuchFile;
+}
+
+void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
+	helix::UniqueLane lane;
+	std::tie(lane, file->_passthrough) = helix::createStream();
+	async::detach(protocols::fs::servePassthrough(std::move(lane),
+			file, &File::fileOperations, file->_cancelServe));
+}
+
+FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
+: File{StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
+		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+
+void FdInfoDirectoryFile::handleClose() {
+	_cancelServe.cancel();
+}
+
+FutureMaybe<ReadEntriesResult> FdInfoDirectoryFile::readEntries() {
+	if(_iter != _fileTable.end()) {
+		co_return std::to_string((_iter++)->first);
+	}else{
+		co_return std::nullopt;
+	}
+}
+
+helix::BorrowedDescriptor FdInfoDirectoryFile::getPassthroughLane() {
+	return _passthrough;
+}
+
+async::result<std::string> FdInfoNode::show(Process *) {
+	auto seekResult = co_await file_->seek(0, VfsSeek::relative);
+	auto pos = seekResult ? seekResult.value() : 0;
+	auto mountId = mountView_ ? mountView_->mountId() : 0;
+
+	co_return std::format("pos:\t{}\nmnt_id:\t{}\n", pos, mountId);
+}
+
+async::result<void> FdInfoNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/[pid]/fdinfo/N file" << std::endl;
 	co_return;
 }
 
