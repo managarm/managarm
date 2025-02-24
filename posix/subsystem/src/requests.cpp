@@ -854,7 +854,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if(!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -910,7 +910,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -989,7 +989,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1060,7 +1060,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if(!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1090,7 +1090,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->newfd());
 
 				if(!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1156,7 +1156,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				file = self->fileContext()->getFile(req->fd());
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1232,7 +1232,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1265,7 +1265,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->newfd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1345,7 +1345,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1472,7 +1472,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1554,7 +1554,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1640,7 +1640,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				} else {
 					file = self->fileContext()->getFile(req->fd());
 					if (!file) {
-						co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+						co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 						continue;
 					}
 
@@ -1696,7 +1696,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1821,7 +1821,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -2043,7 +2043,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				helix::SendBuffer send_resp;
 
 				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::BAD_FD);
+				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
 
 				auto ser = resp.SerializeAsString();
 				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -2095,7 +2095,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::Dup2Response resp;
 
 			if (!file || req->newfd() < 0) {
-				resp.set_error(managarm::posix::Errors::BAD_FD);
+				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -2247,7 +2247,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -2740,7 +2740,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto sockfile = self->fileContext()->getFile(req->fd());
 			if(!sockfile) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 
@@ -2891,7 +2891,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
 			if(!file || !epfile) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 
@@ -2948,7 +2948,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto file = self->fileContext()->getFile(req.newfd());
 			if(!epfile || !file) {
 				std::cout << "posix: Illegal FD for EPOLL_DELETE" << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 
@@ -2976,7 +2976,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			if(!epfile) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 			if(req.sigmask_needed()) {
@@ -3139,7 +3139,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto ifile = self->fileContext()->getFile(req->fd());
 			if(!ifile) {
-				co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
 			}
 
@@ -3240,7 +3240,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->dirfd());
 
 				if(!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::BAD_FD);
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 

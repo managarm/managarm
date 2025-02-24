@@ -14,7 +14,9 @@ int child_end = -1;
 void handle_signal(int sig) {
 	if(sig == SIGUSR1) {
 		printf("Received signal %d. Success!\n", sig);
+#if !defined(__linux__)
 		assert(getppid() == 1);
+#endif
 		int data = 42;
 		write(child_end, &data, sizeof(data));
 		exit(0);

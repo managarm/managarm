@@ -10,6 +10,8 @@ namespace {
 	stack_t ss, old_ss;
 } // namespace anonymous
 
+#if !defined(__linux__)
+
 DEFINE_TEST(sigaltstack, ([] {
 	if (setjmp(env)) {
 		int ret = sigaltstack(&old_ss, nullptr);
@@ -48,3 +50,5 @@ DEFINE_TEST(sigaltstack, ([] {
 #	error Unknown architecture
 #endif
 }))
+
+#endif

@@ -43,7 +43,7 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	assert(evtHeader.wd == wd);
 	assert(evtHeader.mask & IN_DELETE);
 
-	std::string evtName{buffer + sizeof(inotify_event), evtHeader.len};
+	std::string evtName{buffer + sizeof(inotify_event), strnlen(buffer + sizeof(inotify_event), evtHeader.len)};
 	assert(evtName == "foobar");
 
 	close(ifd);
