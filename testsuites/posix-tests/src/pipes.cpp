@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstring>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <poll.h>
 
@@ -36,4 +38,18 @@ DEFINE_TEST(pipe_close_reader, ([] {
 	assert(!(pfd.revents & POLLOUT));
 	assert(pfd.revents & POLLERR);
 	assert(!(pfd.revents & POLLHUP));
+}))
+
+DEFINE_TEST(fifo_rw, ([] {
+	assert(mkfifo("/tmp/posix-testsuite-fifo", S_IRUSR | S_IWUSR) == 0);
+
+	int fd = open("/tmp/posix-testsuite-fifo", O_RDWR | O_NONBLOCK);
+	assert(fd >= 0);
+
+	char buf[1] = {42};
+	assert(write(fd, buf, 1) > 0);
+	assert(read(fd, buf, 1) > 0);
+
+	assert(close(fd) == 0);
+	assert(unlink("/tmp/posix-testsuite-fifo") == 0);
 }))
