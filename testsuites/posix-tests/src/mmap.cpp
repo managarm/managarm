@@ -1,5 +1,7 @@
 #include <cassert>
 
+#include <stddef.h>
+#include <stdint.h>
 #include <signal.h>
 #include <setjmp.h>
 #include <unistd.h>
