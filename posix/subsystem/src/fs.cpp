@@ -28,6 +28,10 @@ struct AnonymousSuperblock : FsSuperblock {
 		};
 		co_return stats;
 	}
+
+	std::string getFsType() override {
+		return {};
+	}
 };
 
 } // namespace

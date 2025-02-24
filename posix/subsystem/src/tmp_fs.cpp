@@ -515,6 +515,8 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
+	Superblock(std::string name = "tmpfs") : fsType_{name} { }
+
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
 		auto node = std::make_shared<MemoryNode>(this);
 		co_return std::move(node);
@@ -557,12 +559,18 @@ struct Superblock final : FsSuperblock {
 		co_return stats;
 	}
 
+	std::string getFsType() override {
+		return fsType_;
+	}
+
 	int64_t allocateInode() {
 		return _inodeCounter++;
 	}
 
 private:
 	int64_t _inodeCounter = 1;
+
+	std::string fsType_;
 };
 
 // ----------------------------------------------------------------------------
@@ -815,6 +823,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkso
 
 // TODO: File system should not have global superblocks.
 static Superblock globalSuperblock;
+static Superblock globalDevTmpFsSuperblock("devtmpfs");
 
 } // anonymous namespace
 
@@ -825,6 +834,10 @@ std::shared_ptr<FsNode> createMemoryNode(std::string path) {
 
 std::shared_ptr<FsLink> createRoot() {
 	return DirectoryNode::createRootDirectory(&globalSuperblock);
+}
+
+std::shared_ptr<FsLink> createDevTmpFsRoot() {
+	return DirectoryNode::createRootDirectory(&globalDevTmpFsSuperblock);
 }
 
 } // namespace tmp_fs
