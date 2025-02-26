@@ -90,6 +90,7 @@ public:
 	}
 
 	void handleClose() override {
+		std::cout << "posix: Closing socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 		if (!_isInherited && _nameType == NameType::abstract) {
 			assert(abstractSocketsBindMap.find(_sockpath) != abstractSocketsBindMap.end());
 			abstractSocketsBindMap.erase(_sockpath);
@@ -97,9 +98,12 @@ public:
 
 		if(_currentState == State::connected) {
 			auto rf = _remote;
+			std::cout << "posix: Remote \e[1;34m" << rf->structName() << "\e[0m" << std::endl;
 			rf->_currentState = State::remoteShutDown;
-			rf->_hupSeq = ++rf->_currentSeq;
-			rf->_statusBell.raise();
+			if(socktype_ == SOCK_STREAM) {
+				rf->_hupSeq = ++rf->_currentSeq;
+				rf->_statusBell.raise();
+			}
 			rf->_remote = nullptr;
 			_remote = nullptr;
 		}
@@ -111,8 +115,10 @@ public:
 public:
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected) {
+			std::cout << "FUCKING HOER 2" << std::endl;
 			co_return Error::notConnected;
+		}
 
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -174,8 +180,12 @@ public:
 			std::cout << "posix: Unimplemented flag in un-socket " << std::hex << flags << std::dec << " for pid: " << process->pid() << std::endl;
 		}
 
-		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
+		// std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
+
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown) {
+			std::cout << "FUCKING HOER 1" << std::endl;
 			co_return protocols::fs::Error::notConnected;
+		}
 
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -256,15 +266,86 @@ public:
 
 	async::result<frg::expected<protocols::fs::Error, size_t>>
 	sendMsg(Process *process, uint32_t flags, const void *data, size_t max_length,
-			const void *, size_t,
+			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
+		OpenFile *remote = nullptr;
 		assert(!(flags & ~(MSG_DONTWAIT)));
 
-		if(_currentState == State::remoteShutDown)
-			co_return protocols::fs::Error::brokenPipe;
+		if(socktype_ == SOCK_STREAM) {
+			if((addr_ptr != nullptr || addr_length != 0) && _currentState == State::connected) {
+				// Return EISCONN
+			}
 
-		if(_currentState != State::connected)
-			co_return protocols::fs::Error::notConnected;
+			if(_currentState == State::remoteShutDown)
+				co_return protocols::fs::Error::brokenPipe;
+
+			if(_currentState != State::connected)
+				co_return protocols::fs::Error::notConnected;
+
+			remote = _remote;
+		} else if(socktype_ == SOCK_DGRAM) {
+			if(addr_length == 0) {
+				remote = _remote;
+			} else {
+				struct sockaddr_un sa;
+				assert(addr_length <= sizeof(struct sockaddr_un));
+				memcpy(&sa, addr_ptr, addr_length);
+
+				std::string path;
+
+				if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
+					co_return protocols::fs::Error::illegalArguments;
+				} else if(sa.sun_path[0] == '\0') {
+					path.resize(addr_length - sizeof(sa.sun_family) - 1);
+					memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
+				} else {
+					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+				}
+
+				PathResolver resolver;
+				resolver.setup(process->fsContext()->getRoot(),
+						process->fsContext()->getWorkingDirectory(), std::move(path), process);
+				auto resolveResult = co_await resolver.resolve();
+				if(!resolveResult) {
+					co_return resolveResult.error();
+				}
+				assert(resolveResult);
+				if(!resolver.currentLink())
+					co_return protocols::fs::Error::fileNotFound;
+
+				// assert(!_ownerPid);
+				// _ownerPid = process->pid();
+				// std::cout << "un-socket: connect 5" << std::endl;
+
+				// Lookup the socket associated with the node.
+				auto node = resolver.currentLink()->getTarget();
+				remote = globalBindMap.at(node);
+				// if(socktype_ == SOCK_STREAM) {
+				// 	server->_acceptQueue.push_back(this);
+				// 	server->_inSeq = ++server->_currentSeq;
+				// 	server->_statusBell.raise();
+
+				// 	std::cout << "un-socket: connect: server: " << (void *)server << std::endl;
+				// 	std::cout << "un-socket: connect 6 socktype: " << socktype_ << std::endl;
+
+				// 	while(_currentState == State::null)
+				// 		co_await _statusBell.async_wait();
+				// } else if(socktype_ == SOCK_DGRAM) {
+				// 	_remote = server;
+				// 	_currentState = State::connected;
+				// 	_remote->_currentState = State::connected;
+				// 	_remote->_remote = this;
+				// 	_remote->_statusBell.raise();
+				// }
+
+				// assert(_currentState == State::connected);
+				// assert(_remote != nullptr);
+				// std::cout << "un-socket: connect 7" << std::endl;
+				// co_return protocols::fs::Error::none;
+			}
+		}
+
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -282,9 +363,9 @@ public:
 		packet.files = std::move(files);
 		packet.offset = 0;
 
-		_remote->_recvQueue.push_back(std::move(packet));
-		_remote->_inSeq = ++_remote->_currentSeq;
-		_remote->_statusBell.raise();
+		remote->_recvQueue.push_back(std::move(packet));
+		remote->_inSeq = ++remote->_currentSeq;
+		remote->_statusBell.raise();
 
 		co_return max_length;
 	}
@@ -333,9 +414,13 @@ public:
 			co_return Error::fileClosed;
 
 		// For now making sockets always writable is sufficient.
-		int edges = EPOLLOUT;
-		if(_hupSeq > past_seq)
-			edges |= EPOLLHUP;
+		int edges = 0;
+		if(_hupSeq <= past_seq || socktype_ == SOCK_DGRAM)
+			edges |= EPOLLOUT;
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
+			if(_hupSeq > past_seq)
+				edges |= EPOLLHUP;
+		}
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -348,9 +433,13 @@ public:
 
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *) override {
-		int events = EPOLLOUT;
-		if(_currentState == State::remoteShutDown)
-			events |= EPOLLHUP;
+		int events = 0;
+		if(_currentState != State::remoteShutDown || socktype_ == SOCK_DGRAM)
+			events |= EPOLLOUT;
+		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
+			if(_currentState == State::remoteShutDown)
+				events |= EPOLLHUP;
+		}
 		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
 
@@ -468,13 +557,24 @@ public:
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
 			auto server = globalBindMap.at(node);
-			server->_acceptQueue.push_back(this);
-			server->_inSeq = ++server->_currentSeq;
-			server->_statusBell.raise();
+			if(socktype_ == SOCK_STREAM) {
+				server->_acceptQueue.push_back(this);
+				server->_inSeq = ++server->_currentSeq;
+				server->_statusBell.raise();
 
-			while(_currentState == State::null)
-				co_await _statusBell.async_wait();
-			assert(_currentState == State::connected);
+				while(_currentState == State::null)
+					co_await _statusBell.async_wait();
+
+				assert(_currentState == State::connected);
+				assert(_remote != nullptr);
+			} else if(socktype_ == SOCK_DGRAM) {
+				_remote = server;
+				_currentState = State::connected;
+				_remote->_currentState = State::connected;
+				_remote->_remote = this;
+				_remote->_statusBell.raise();
+			}
+
 			co_return protocols::fs::Error::none;
 		}
 	}
