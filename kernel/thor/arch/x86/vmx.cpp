@@ -257,7 +257,7 @@ namespace thor::vmx {
 		uint32_t cr4FixedHi = (uint32_t)(cr4FixedGuest >> 32);
 		vmwrite(GUEST_CR4, cr4FixedLo | ((uint64_t)cr4FixedHi) << 32);
 
-		vmwrite(CTLS_EPTP, ept->spaceRoot | 6 | (4 - 1) << 3 | (1 << 6));
+		vmwrite(CTLS_EPTP, ept->rootTable() | 6 | (4 - 1) << 3 | (1 << 6));
 		state = {};
 
 

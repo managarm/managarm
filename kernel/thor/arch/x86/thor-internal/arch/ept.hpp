@@ -59,26 +59,28 @@ struct EptSpace final : VirtualizedPageSpace {
 	friend struct Vmcs;
 	friend struct ShootNode;
 
-	EptSpace(PhysicalAddr root) : spaceRoot(root){}
-	~EptSpace();
-	EptSpace(const EptSpace &ept2) = delete;
-	EptSpace& operator=(const EptSpace &ept2) = delete;
-	bool submitShootdown(ShootNode *node);
-	void retire(RetireNode *node);
+	EptSpace(PhysicalAddr root);
 
-	static smarter::shared_ptr<EptSpace> create(size_t root) {
+	EptSpace(const EptSpace &) = delete;
+
+	~EptSpace();
+
+	EptSpace& operator=(const EptSpace &) = delete;
+
+	static smarter::shared_ptr<EptSpace> create(PhysicalAddr root) {
 		auto ptr = smarter::allocate_shared<EptSpace>(Allocator{}, root);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0, 0x7ffffff00000);
 		return ptr;
 	}
 
-	Error map(uint64_t guestAddress, uint64_t hostAddress, int flags);
-	PageStatus unmap(uint64_t guestAddress);
-	bool isMapped(VirtualAddr pointer);
+	PhysicalAddr rootTable() {
+		return pageSpace_.rootTable();
+	}
 
 private:
-	PhysicalAddr spaceRoot;
+	EptOperations eptOps_;
+	EptPageSpace pageSpace_;
 	frg::ticket_spinlock _mutex;
 };
 
