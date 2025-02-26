@@ -4,7 +4,9 @@
 #include "fs.bragi.hpp"
 #include <helix/ipc.hpp>
 #include "posix.bragi.hpp"
+#include <protocols/ostrace/ostrace.hpp>
 
+#include <core/clock.hpp>
 #include "core/drm/core.hpp"
 #include "core/drm/debug.hpp"
 #include "core/drm/property.hpp"
@@ -20,10 +22,95 @@ static constexpr auto primeFileOperations = protocols::fs::FileOperations{
 
 }
 
+namespace {
+
+constinit protocols::ostrace::Event ostEvtRequest{"fs.request"};
+constinit protocols::ostrace::UintAttribute ostAttrRequest{"request"};
+constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
+constinit protocols::ostrace::BragiAttribute ostBragi{managarm::fs::protocol_hash};
+
+protocols::ostrace::Vocabulary ostVocabulary{
+	ostEvtRequest,
+	ostAttrRequest,
+	ostAttrTime,
+	ostBragi,
+};
+
+protocols::ostrace::Context ostContext{ostVocabulary};
+
+bool ostraceInitialized = false;
+
+async::result<void> initOstrace() {
+	co_await ostContext.create();
+}
+
+}
+
 async::result<void>
 drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
+	if(!ostraceInitialized) {
+		co_await initOstrace();
+		ostraceInitialized = true;
+	}
+
 	auto self = static_cast<drm_core::File *>(object);
+
+	timespec requestTimestamp = {};
+	auto logBragiRequest = [&requestTimestamp]<typename T>(T &req, std::span<uint8_t> tail) {
+		if(!ostContext.isActive())
+			return;
+
+		requestTimestamp = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(req.data()), req.size()}, tail)
+		);
+	};
+
+	auto logBragiReply = [&requestTimestamp, &id](auto &resp) {
+		if(!ostContext.isActive())
+			return;
+
+		auto ts = clk::getTimeSinceBoot();
+		std::string replyHead;
+		std::string replyTail;
+		replyHead.resize(resp.size_of_head());
+		replyTail.resize(resp.size_of_tail());
+		bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+		bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+		auto headOk = resp.encode_head(headWriter);
+		auto tailOk = resp.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(id),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+		);
+	};
+
+	auto logBragiSerializedReply = [&requestTimestamp, &id](std::string &ser) {
+		if(!ostContext.isActive())
+			return;
+
+		auto ts = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(id),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+		);
+	};
+
+	auto preamble = bragi::read_preamble(msg);
+	if(!preamble.tail_size())
+		logBragiRequest(msg, {});
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
@@ -51,6 +138,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_GET_CAP) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -89,6 +177,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETRESOURCES) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -144,6 +233,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETCONNECTOR) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_list;
@@ -210,6 +300,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_list.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETENCODER) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -244,6 +335,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETPLANE) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -291,6 +383,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATE_DUMB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -311,6 +404,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETFB2) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -335,6 +429,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_ADDFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -361,6 +456,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_ADDFB2) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -386,6 +482,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_RMFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -405,6 +502,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_MAP_DUMB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -424,6 +522,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETCRTC) {
 			helix::SendBuffer send_resp;
 			helix::SendBuffer send_mode;
@@ -460,6 +559,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_mode.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_SETCRTC) {
 			std::vector<char> mode_buffer;
 			mode_buffer.resize(sizeof(drm_mode_modeinfo));
@@ -510,6 +610,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_PAGE_FLIP) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -544,6 +645,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_DIRTYFB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -567,6 +669,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_CURSOR) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -632,6 +735,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_CURSOR2) {
 			managarm::fs::GenericIoctlReply resp;
 
@@ -689,6 +793,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else if(req->command() == DRM_IOCTL_MODE_DESTROY_DUMB){
 			if(logDrmRequests)
 				std::cout << "core/drm: DESTROY_DUMB(" << req->drm_handle() << ")" << std::endl;
@@ -706,6 +811,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_SET_CLIENT_CAP) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -733,6 +839,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_OBJ_GETPROPERTIES) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -789,6 +896,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETPROPERTY) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -842,6 +950,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_SETPROPERTY) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -888,6 +997,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETPLANERESOURCES) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -911,6 +1021,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_GETPROPBLOB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -936,6 +1047,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATEPROPBLOB) {
 			std::vector<char> blob_data;
 			blob_data.resize(req->drm_blob_size());
@@ -966,6 +1078,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_DESTROYPROPBLOB) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -984,6 +1097,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_MODE_ATOMIC) {
 			helix::SendBuffer send_resp;
 			managarm::fs::GenericIoctlReply resp;
@@ -1093,6 +1207,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix::action(&send_resp, ser.data(), ser.size()));
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_PRIME_HANDLE_TO_FD) {
 			managarm::fs::GenericIoctlReply resp;
 
@@ -1159,6 +1274,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else if(req->command() == DRM_IOCTL_PRIME_FD_TO_HANDLE) {
 			managarm::fs::GenericIoctlReply resp;
 
@@ -1188,6 +1304,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			std::cout << "\e[31m" "core/drm: Unknown ioctl() with ID "
 					<< req->command() << "\e[39m" << std::endl;
@@ -1211,6 +1328,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
+		logBragiReply(resp);
 	}else{
 		std::cout << "\e[31m" "core/drm: Unknown ioctl() message with ID "
 				<< id << "\e[39m" << std::endl;
