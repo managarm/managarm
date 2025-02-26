@@ -34,52 +34,9 @@ namespace thor {
 	};
 
 	struct VirtualizedPageSpace : VirtualSpace {
-		virtual Error store(uintptr_t guestAddress, size_t len, const void* buffer) = 0;
-		virtual Error load(uintptr_t guestAddress, size_t len, void* buffer) = 0;
-		virtual bool isMapped(VirtualAddr pointer) = 0;
-		virtual bool submitShootdown(ShootNode *node) = 0;
-		virtual void retire(RetireNode *node) = 0;
+		VirtualizedPageSpace(VirtualOperations *ops) : VirtualSpace{ops} {}
 
-		virtual Error map(uint64_t guestAddress, uint64_t hostAddress, int flags) = 0;
-		virtual PageStatus unmap(uint64_t guestAddress) = 0;
-		VirtualizedPageSpace() : VirtualSpace{&ops_}, ops_{this} {}
-
-		struct Operations final : VirtualOperations {
-			Operations(VirtualizedPageSpace *space)
-			: space_{space} { }
-
-			void retire(RetireNode *node) override {
-				return space_->retire(node);
-			}
-
-			bool submitShootdown(ShootNode *node) override {
-				return space_->submitShootdown(node);
-			}
-
-			void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-					uint32_t flags, CachingMode) override {
-				space_->map(pointer, physical, flags);
-			}
-
-			PageStatus unmapSingle4k(VirtualAddr pointer) override {
-				return space_->unmap(pointer);
-			}
-
-			PageStatus cleanSingle4k(VirtualAddr) override {
-				urgentLogger() << "thor: VirtualizedPageSpace::cleanSingle4k()"
-						" is not properly supported" << frg::endlog;
-				return 0;
-			}
-
-			bool isMapped(VirtualAddr pointer) override {
-				return space_->isMapped(pointer);
-			}
-			private:
-				VirtualizedPageSpace *space_;
-		};
 	protected:
 		~VirtualizedPageSpace() = default;
-	private:
-		Operations ops_;
 	};
 }

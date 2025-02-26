@@ -1150,8 +1150,8 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto readAddressSpace = [] (smarter::shared_ptr<Thread> submitThread,
-			smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	auto readVirtualSpace = []<typename Space, typename Token> (smarter::shared_ptr<Thread> submitThread,
+			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
@@ -1195,40 +1195,22 @@ HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto readVirtualizedSpace = [] (smarter::shared_ptr<Thread> submitThread,
-			smarter::shared_ptr<VirtualizedPageSpace> space,
-			uintptr_t address, size_t length, void *buffer,
-			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
-		// Enter the submitter's work-queue so that we can access memory directly.
-		co_await submitThread->mainWorkQueue()->schedule();
-
-		enableUserAccess();
-		auto error = space->load(address, length, buffer);
-		disableUserAccess();
-		assert(error == Error::success || error == Error::fault);
-
-		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
-		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
-		co_await queue->submit(&ipcSource, context);
-	};
-
 	if(descriptor.is<MemoryViewDescriptor>()) {
 		auto view = descriptor.get<MemoryViewDescriptor>().memory;
 		readMemoryView(thisThread.lock(),
 				std::move(view), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
-		readAddressSpace(thisThread.lock(),
+		readVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
-		readAddressSpace(thisThread.lock(),
+		readVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		readVirtualizedSpace(thisThread.lock(),
+		readVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else{
 		return kHelErrBadDescriptor;
@@ -1308,8 +1290,8 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto writeAddressSpace = [] (smarter::shared_ptr<Thread> submitThread,
-			smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	auto writeVirtualSpace = []<typename Space, typename Token> (smarter::shared_ptr<Thread> submitThread,
+			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, const void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
@@ -1353,40 +1335,22 @@ HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto writeVirtualizedSpace = [] (smarter::shared_ptr<Thread> submitThread,
-			smarter::shared_ptr<VirtualizedPageSpace> space,
-			uintptr_t address, size_t length, const void *buffer,
-			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
-		// Enter the submitter's work-queue so that we can access memory directly.
-		co_await submitThread->mainWorkQueue()->schedule();
-
-		enableUserAccess();
-		auto error = space->store(address, length, buffer);
-		disableUserAccess();
-		assert(error == Error::success || error == Error::fault);
-
-		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
-		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
-		co_await queue->submit(&ipcSource, context);
-	};
-
 	if(descriptor.is<MemoryViewDescriptor>()) {
 		auto view = descriptor.get<MemoryViewDescriptor>().memory;
 		writeMemoryView(thisThread.lock(),
 				std::move(view), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
-		writeAddressSpace(thisThread.lock(),
+		writeVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
-		writeAddressSpace(thisThread.lock(),
+		writeVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		writeVirtualizedSpace(thisThread.lock(),
+		writeVirtualSpace(thisThread.lock(),
 				std::move(space), address, length, buffer, std::move(queue), context);
 	}else{
 		return kHelErrBadDescriptor;
