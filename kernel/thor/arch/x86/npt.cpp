@@ -237,43 +237,6 @@ bool thor::svm::NptSpace::isMapped(VirtualAddr guestAddress) {
 	return ((pte[pteIdx] & kPagePresent));
 }
 
-uintptr_t thor::svm::NptSpace::translate(uintptr_t guestAddress) {
-	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
-	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
-	size_t offset = (size_t)guestAddress & 0xFFF;
-
-	PageAccessor spaceAccessor{spaceRoot};
-	size_t *pml4e = reinterpret_cast<size_t *>(spaceAccessor.get());
-
-	size_t *pdpte;
-	if(!(pml4e[pml4eIdx] & kPagePresent)) {
-		return -1;
-	} else {
-		PageAccessor pdpteAccessor{pml4e[pml4eIdx] & kPageAddress};
-		pdpte = reinterpret_cast<size_t *>(pdpteAccessor.get());
-	}
-
-	size_t *pde;
-	if(!(pdpte[pdpteIdx] & kPagePresent)) {
-		return -1;
-	} else {
-		PageAccessor pdeAccessor{pdpte[pdpteIdx] & kPageAddress};
-		pde = reinterpret_cast<size_t *>(pdeAccessor.get());
-	}
-
-	size_t *pte;
-	if(!(pde[pdeIdx] & kPagePresent)) {
-		return -1;
-	} else {
-		PageAccessor pteAccessor{pde[pdeIdx] & kPageAddress};
-		pte = reinterpret_cast<size_t *>(pteAccessor.get());
-	}
-
-	return (pte[pteIdx] & kPageAddress) + offset;
-}
-
 PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
@@ -313,48 +276,6 @@ PageStatus thor::svm::NptSpace::unmap(uint64_t guestAddress) {
 
 	pte[pteIdx] = 0;
 	return status;
-}
-
-Error thor::svm::NptSpace::store(uintptr_t guestAddress, size_t size, const void *buffer) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = guestAddress + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
-			return Error::fault;
-		}
-
-		PageAccessor accessor{page};
-		memcpy((char *)accessor.get() + misalign, (char *)buffer + progress, chunk);
-		progress += chunk;
-	}
-	return Error::success;
-}
-
-Error thor::svm::NptSpace::load(uintptr_t guestAddress, size_t size, void *buffer) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = guestAddress + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
-			return Error::fault;
-		}
-
-		PageAccessor accessor{page};
-		memcpy((char *)buffer + progress, (char *)accessor.get() + misalign, chunk);
-		progress += chunk;
-	}
-	return Error::success;
 }
 
 bool thor::svm::NptSpace::submitShootdown(ShootNode *node) {

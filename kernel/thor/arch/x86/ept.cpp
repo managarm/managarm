@@ -252,43 +252,6 @@ bool EptSpace::isMapped(VirtualAddr guestAddress) {
 	return ((pte[pteIdx] & EPT_READ));
 }
 
-uintptr_t EptSpace::translate(uintptr_t guestAddress) {
-	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
-	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
-	int pdeIdx   = (((guestAddress) >> 21) & 0x1ff);
-	int pteIdx   = (((guestAddress) >> 12) & 0x1ff);
-	int offset = (size_t)guestAddress & (0x1000 - 1);
-
-	PageAccessor spaceAccessor{spaceRoot};
-	size_t* pml4e = reinterpret_cast<size_t*>(spaceAccessor.get());
-
-	size_t* pdpte;
-	if(!(pml4e[pml4eIdx] & (1 << EPT_READ))) {
-		return -1;
-	} else {
-		PageAccessor pdpteAccessor{(pml4e[pml4eIdx] >> EPT_PHYSADDR) << 12};
-		pdpte = reinterpret_cast<size_t*>(pdpteAccessor.get());
-	}
-
-	size_t* pde;
-	if(!(pdpte[pdpteIdx] & (1 << EPT_READ))) {
-		return -1;
-	} else {
-		PageAccessor pdpteAccessor{(pdpte[pdpteIdx] >> EPT_PHYSADDR) << 12};
-		pde = reinterpret_cast<size_t*>(pdpteAccessor.get());
-	}
-
-	size_t* pte;
-	if(!(pde[pdeIdx] & (1 << EPT_READ))) {
-		return -1;
-	} else {
-		PageAccessor pdpteAccessor{(pde[pdeIdx] >> EPT_PHYSADDR) << 12};
-		pte = reinterpret_cast<size_t*>(pdpteAccessor.get());
-	}
-
-	return ((pte[pteIdx] >> EPT_PHYSADDR) << 12) + offset;
-}
-
 PageStatus EptSpace::unmap(uint64_t guestAddress) {
 	int pml4eIdx = (((guestAddress) >> 39) & 0x1ff);
 	int pdpteIdx = (((guestAddress) >> 30) & 0x1ff);
@@ -328,48 +291,6 @@ PageStatus EptSpace::unmap(uint64_t guestAddress) {
 	}
 	pte[pteIdx] = 0;
 	return status;
-}
-
-Error EptSpace::store(uintptr_t guestAddress, size_t size, const void* buffer) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = guestAddress + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
-			return Error::fault;
-		}
-
-		PageAccessor accessor{page};
-		memcpy((char *)accessor.get() + misalign, (char *)buffer + progress, chunk);
-		progress += chunk;
-	}
-	return Error::success;
-}
-
-Error EptSpace::load(uintptr_t guestAddress, size_t size, void* buffer) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-	size_t progress = 0;
-	while(progress < size) {
-		VirtualAddr write = guestAddress + progress;
-		size_t misalign = (VirtualAddr)write % kPageSize;
-		size_t chunk = frg::min(kPageSize - misalign, size - progress);
-
-		PhysicalAddr page = translate(write - misalign);
-		if(page == PhysicalAddr(-1)) {
-			return Error::fault;
-		}
-
-		PageAccessor accessor{page};
-		memcpy((char *)buffer + progress, (char *)accessor.get() + misalign, chunk);
-		progress += chunk;
-	}
-	return Error::success;
 }
 
 bool EptSpace::submitShootdown(ShootNode *node) {

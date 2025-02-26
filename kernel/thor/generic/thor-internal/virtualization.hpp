@@ -34,8 +34,6 @@ namespace thor {
 	};
 
 	struct VirtualizedPageSpace : VirtualSpace {
-		virtual Error store(uintptr_t guestAddress, size_t len, const void* buffer) = 0;
-		virtual Error load(uintptr_t guestAddress, size_t len, void* buffer) = 0;
 		virtual bool isMapped(VirtualAddr pointer) = 0;
 		virtual bool submitShootdown(ShootNode *node) = 0;
 		virtual void retire(RetireNode *node) = 0;
