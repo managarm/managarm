@@ -5,6 +5,46 @@
 #include <thor-internal/virtualization.hpp>
 
 namespace thor::svm {
+
+struct NptPageSpace : PageSpace {
+	NptPageSpace(PhysicalAddr root);
+
+	NptPageSpace(const NptPageSpace &) = delete;
+
+	~NptPageSpace();
+
+	NptPageSpace &operator= (const NptPageSpace &) = delete;
+};
+
+struct NptOperations final : VirtualOperations {
+	NptOperations(NptPageSpace *pageSpace);
+
+	void retire(RetireNode *node) override;
+
+	bool submitShootdown(ShootNode *node) override;
+
+	frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags) override;
+
+	frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags) override;
+
+	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, PageFlags flags) override;
+
+	frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size) override;
+
+	frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size) override;
+
+private:
+	NptPageSpace *pageSpace_;
+};
+
+} // namespace thor::svm
+
+namespace thor::svm {
 	struct NptSpace final : VirtualizedPageSpace {
 		friend struct ShootNode;
 		friend struct Vcpu;

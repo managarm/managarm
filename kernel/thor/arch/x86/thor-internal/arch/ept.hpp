@@ -19,6 +19,42 @@ struct EptPtr {
 	uint64_t gpa;
 };
 
+struct EptPageSpace : PageSpace {
+	EptPageSpace(PhysicalAddr root);
+
+	EptPageSpace(const EptPageSpace &) = delete;
+
+	~EptPageSpace();
+
+	EptPageSpace &operator= (const EptPageSpace &) = delete;
+};
+
+struct EptOperations final : VirtualOperations {
+	EptOperations(EptPageSpace *pageSpace);
+
+	void retire(RetireNode *node) override;
+
+	bool submitShootdown(ShootNode *node) override;
+
+	frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags) override;
+
+	frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags) override;
+
+	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, PageFlags flags) override;
+
+	frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size) override;
+
+	frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size) override;
+
+private:
+	EptPageSpace *pageSpace_;
+};
+
 struct EptSpace final : VirtualizedPageSpace {
 	friend struct Vmcs;
 	friend struct ShootNode;
