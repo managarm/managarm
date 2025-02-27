@@ -1082,6 +1082,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 	}
 
 	co_await device.enableBusmaster();
+	co_await device.enableDma();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 

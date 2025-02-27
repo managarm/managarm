@@ -699,6 +699,37 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
+	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableDmaRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::EnableDmaRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req || type() != PciEntityType::Device) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_error(managarm::hw::Errors::SUCCESS);
+
+		PciDevice *dev = static_cast<PciDevice *>(this);
+
+		if(dev->associatedIommu) {
+			dev->associatedIommu->enableDevice(dev);
+		} else {
+			auto bridge = dev->parentBus->associatedBridge;
+
+			while(bridge && bridge->parentBus && !bridge->associatedIommu) {
+				bridge = bridge->parentBus->associatedBridge;
+			}
+
+			if(bridge && bridge->associatedIommu) {
+				bridge->associatedIommu->enableDevice(bridge);
+				bridge->associatedIommu->enableDevice(dev);
+			} else {
+				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+			}
+		}
+
+		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 	}else{
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await DismissSender{conversation};

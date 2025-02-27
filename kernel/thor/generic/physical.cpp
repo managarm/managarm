@@ -110,4 +110,28 @@ void PhysicalChunkAllocator::free(PhysicalAddr address, size_t size) {
 	assert(!"Physical page is not part of any region");
 }
 
+PhysicalWindow::PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching)
+: size_{size} {
+	uintptr_t lowAddr = physical & ~(kPageSize - 1);
+	uintptr_t highAddr = ((physical + size) + (kPageSize - 1)) & ~(kPageSize - 1);
+	size_t diff = highAddr - lowAddr;
+	pages_ = diff / kPageSize;
+
+	auto windowBase = KernelVirtualMemory::global().allocate(pages_ * kPageSize);
+	for(size_t i = 0; i < pages_; i++) {
+		KernelPageSpace::global().mapSingle4k(VirtualAddr(windowBase) + i * kPageSize,
+				lowAddr + i * kPageSize, page_access::write, caching);
+	}
+
+	window_ = reinterpret_cast<void *>(uintptr_t(windowBase) + (physical - lowAddr));
+}
+
+PhysicalWindow::~PhysicalWindow() {
+	auto windowBase = reinterpret_cast<uintptr_t>(window_) & ~(kPageSize - 1);
+
+	for(size_t i = 0; i < pages_; i++) {
+		KernelPageSpace::global().unmapSingle4k(VirtualAddr(windowBase) + i * kPageSize);
+	}
+}
+
 } // namespace thor

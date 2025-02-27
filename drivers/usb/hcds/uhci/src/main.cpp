@@ -161,6 +161,8 @@ void Controller::initialize() {
 	_ioSpace.store(op_regs::command, command::hostReset(true));
 	while((_ioSpace.load(op_regs::command) & command::hostReset) != 0) { }
 
+	async::run(_hwDevice.enableDma(), helix::currentDispatcher);
+
 	// TODO: What is the rationale of this check?
 	auto initial_status = _ioSpace.load(op_regs::status);
 	assert(!(initial_status & status::transactionIrq));
