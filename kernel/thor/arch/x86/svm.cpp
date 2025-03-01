@@ -62,7 +62,7 @@ namespace thor::svm {
 		vmcb->vIntMasking = 1;
 
 		vmcb->nptEnable = 1;
-		vmcb->nptCr3 = npt->spaceRoot;
+		vmcb->nptCr3 = npt->rootTable();
 		vmcb->pat = 0x0007040600070406; // State at reset
 
 		// TODO: Don't use a single ASID to no longer flush entire TLB on vmentry
