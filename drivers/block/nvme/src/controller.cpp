@@ -114,10 +114,7 @@ async::detached PciExpressController::handleMsis(helix::UniqueDescriptor irq, si
 		HEL_CHECK(awaitResult.error());
 		irqSequence_ = awaitResult.sequence();
 
-		int found = static_cast<PciExpressQueue *>(q->get())->handleIrq();
-
-		if(!found)
-			std::cout << std::format("nvme: Queue ID {} has no completions despite raised MSI", queueId) << std::endl;
+		static_cast<PciExpressQueue *>(q->get())->handleIrq();
 
 		if(!isMsiX)
 			regs_.store(regs::intmc, 1 << queueId);
