@@ -18,6 +18,11 @@ option('build_tools',
     value : false
 )
 
+option('build_testsuite',
+    type : 'boolean',
+    value : false
+)
+
 option('provide_deps',
     type : 'boolean',
     value : false

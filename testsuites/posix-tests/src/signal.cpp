@@ -14,6 +14,7 @@ namespace {
 
 constexpr uint64_t magic_expected = 0xDEADBEEFCAFEBABE;
 
+#if !defined(__linux__)
 DEFINE_TEST(signal_save_simd, ([] {
 	int ret;
 
@@ -70,3 +71,5 @@ DEFINE_TEST(signal_save_simd, ([] {
 
 	assert(magic == magic_expected);
 }))
+
+#endif

@@ -38,6 +38,7 @@ build_kernel = get_option('build_kernel')
 build_uefi = get_option('build_uefi')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
+build_testsuite = get_option('build_testsuite')
 provide_deps = get_option('provide_deps')
 any_userspace = build_drivers or build_tools
 
@@ -49,7 +50,7 @@ if build_kernel or build_drivers
 	add_languages('c', 'cpp', native: false)
 endif
 
-if build_tools
+if build_tools or build_testsuite
 	add_languages('c', 'cpp')
 endif
 
@@ -205,7 +206,6 @@ if build_drivers or provide_deps
 		'kernletcc'
 	]
 	utils = [ 'runsvr', 'lsmbus' ]
-	testsuites = [ 'kernel-bench', 'kernel-tests', 'posix-torture', 'posix-tests', 'virt-test' ]
 
 	# delay these dirs until last as they require other libs
 	# to already be built
@@ -233,10 +233,6 @@ if build_drivers
 		subdir('utils'/dir)
 	endforeach
 
-	foreach dir : testsuites
-		subdir('testsuites'/dir)
-	endforeach
-
 	foreach dir : delay
 		subdir(dir)
 	endforeach
@@ -249,6 +245,18 @@ if build_drivers
 	]
 
 	install_data(rules, install_dir : 'lib/udev/rules.d')
+endif
+
+if build_testsuite
+	testsuites = ['posix-tests']
+
+	if host_machine.system() == 'managarm'
+		testsuites += ['kernel-bench', 'kernel-tests', 'posix-torture', 'virt-test']
+	endif
+
+	foreach dir : testsuites
+		subdir('testsuites'/dir)
+	endforeach
 endif
 
 # when building these tools make sure they stay below everything else

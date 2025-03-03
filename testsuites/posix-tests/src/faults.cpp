@@ -64,6 +64,7 @@ namespace {
 	}
 }
 
+#if !defined(__linux__)
 DEFINE_TEST(div_by_zero_fpe_fault, ([] {
 	runChecks([&]{
 		assert(testDivFault(1, 0));
@@ -73,3 +74,4 @@ DEFINE_TEST(div_by_zero_fpe_fault, ([] {
 		assert(testDivFault(INT_MAX, 0));
 	});
 }))
+#endif
