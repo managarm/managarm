@@ -1291,12 +1291,24 @@ void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 		checkPciDevice(bus, slot, enumerateDownstream);
 }
 
+namespace {
+
+void runChildBridges(PciBridge *bridge) {
+	bridge->runBridge();
+
+	for(auto c : bridge->associatedBus->childBridges) {
+		runChildBridges(c);
+	}
+}
+
+}
+
 void runAllBridges() {
 	for(auto root_bus : *allRootBuses) {
 		root_bus->runRootBus();
 
 		for(auto bridge : root_bus->childBridges) {
-			bridge->runBridge();
+			runChildBridges(bridge);
 		}
 	}
 }
