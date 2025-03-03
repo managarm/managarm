@@ -309,8 +309,6 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	if(number == 14)
 		asm volatile ("mov %%cr2, %0" : "=r" (pfAddress));
 
-	enableInts();
-
 	uint16_t cs = *image.cs();
 	if(logEveryFault)
 		infoLogger() << "Fault #" << number << ", from cs: 0x" << frg::hex_fmt(cs)
@@ -320,8 +318,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		panicLogger() << "Fault #" << number
 				<< " in stub section, cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
-	if(cs != kSelSystemIrqCode && cs != kSelClientUserCode
-			&& cs != kSelExecutorFaultCode && cs != kSelExecutorSyscallCode)
+	if(cs != kSelClientUserCode && cs != kSelExecutorSyscallCode)
 		panicLogger() << "Fault #" << number
 				<< ", from unexpected cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << "\n"
@@ -337,6 +334,9 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 				<< ", RSP: " << (void *)*image.sp() << frg::endlog;
 
 	disableUserAccess();
+	assert(getCurrentThread());
+
+	enableInts();
 
 	switch(number) {
 	case 0: {
@@ -367,6 +367,10 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	}
 
 	disableInts();
+
+	// This fault may have woken up threads on this CPU.
+	// See Scheduler::resume() for details.
+	checkThreadPreemption(image);
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
@@ -446,6 +450,10 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	handleSyscall(image);
 
 	disableInts();
+
+	// This syscall may have woken up threads on this CPU.
+	// See Scheduler::resume() for details.
+	checkThreadPreemption(image);
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {
