@@ -199,10 +199,9 @@ void Scheduler::update() {
 }
 
 void Scheduler::updateState() {
-	// Returns the reciprocal in 0.8 fixed point format.
-	auto fixedInverse = [] (uint32_t x) -> uint32_t {
-		assert(x < (1 << 6));
-		return (1 << 8) / x;
+	// Returns the reciprocal in fixed point format.
+	auto fixedInverse = [] (int64_t x) -> int64_t {
+		return (INT64_C(1) << progressShift) / x;
 	};
 
 	assert(_current);
@@ -217,7 +216,7 @@ void Scheduler::updateState() {
 	auto deltaTime = now - _refClock;
 	_refClock = now;
 	if(n)
-		_systemProgress += deltaTime * fixedInverse(n);
+		_systemProgress += deltaTime * static_cast<Progress>(fixedInverse(n));
 
 	_updateCurrentEntity();
 }
@@ -275,7 +274,8 @@ bool Scheduler::maybeReschedule() {
 		}
 
 		// Switch based on unfairness.
-		auto diff = _liveUnfairness(_current) + sliceGranularity * 256
+		auto diff = _liveUnfairness(_current)
+				+ (static_cast<Progress>(sliceGranularity) << progressShift)
 				- _liveUnfairness(_waitQueue.top());
 		return diff < 0;
 	};
@@ -359,16 +359,16 @@ void Scheduler::_schedule() {
 	_updateEntityStats(entity);
 
 	if(logScheduling) {
-//		infoLogger() << "System progress: " << (_systemProgress / 256) / (1000 * 1000)
+//		infoLogger() << "System progress: " << progressToNanos(_systemProgress) / (1000 * 1000)
 //				<< " ms" << frg::endlog;
 		infoLogger() << "Running entity with priority: " << entity->priority
-				<< ", unfairness: " << (_liveUnfairness(entity) / 256) / (1000 * 1000)
+				<< ", unfairness: " << progressToNanos(_liveUnfairness(entity)) / (1000 * 1000)
 				<< " ms, runtime: " << _liveRuntime(entity) / (1000 * 1000)
 				<< " ms (" << (_numWaiting + 1) << " active threads)" << frg::endlog;
 	}
 	if(logNextBest && !_waitQueue.empty())
 		infoLogger() << "    Next entity has priority: " << _waitQueue.top()->priority
-				<< ", unfairness: " << (_liveUnfairness(_waitQueue.top()) / 256) / (1000 * 1000)
+				<< ", unfairness: " << progressToNanos(_liveUnfairness(_waitQueue.top())) / (1000 * 1000)
 				<< " ms, runtime: " << _liveRuntime(_waitQueue.top()) / (1000 * 1000)
 				<< " ms" << frg::endlog;
 
@@ -410,7 +410,7 @@ void Scheduler::_updateCurrentEntity() {
 	auto delta_progress = _systemProgress - _current->refProgress;
 	if(logUpdates)
 		infoLogger() << "Running thread unfairness decreases by: "
-				<< ((_numWaiting * delta_progress) / 256) / 1000
+				<< progressToNanos(_numWaiting * delta_progress) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
 	_current->baseUnfairness -= _numWaiting * delta_progress;
 	_current->refProgress = _systemProgress;
@@ -423,7 +423,7 @@ void Scheduler::_updateWaitingEntity(ScheduleEntity *entity) {
 
 	if(logUpdates)
 		infoLogger() << "Waiting thread unfairness increases by: "
-				<< ((_systemProgress - entity->refProgress) / 256) / 1000
+				<< progressToNanos(_systemProgress - entity->refProgress) / 1000
 				<< " us (" << _numWaiting << " waiting threads)" << frg::endlog;
 	entity->baseUnfairness += _systemProgress - entity->refProgress;
 	entity->refProgress = _systemProgress;

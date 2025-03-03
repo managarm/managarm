@@ -27,9 +27,18 @@ enum class ScheduleState {
 	active
 };
 
-// This needs to store a large timeframe.
-// For now, store it as 55.8 0 signed integer nanoseconds.
-using Progress = int64_t;
+// Type for system progress and unfairness.
+// In units of fractional nanoseconds. We store this as a fixed point number.
+using Progress = __int128;
+
+// Number of fractional bits in Progress.
+// Note that this must be <= 62 such that (1 << progressShift) is int64_t range.
+constexpr int progressShift = 62;
+
+// Convert Progress to whole nanoseconds.
+inline int64_t progressToNanos(Progress p) {
+	return static_cast<int64_t>(p >> progressShift);
+}
 
 struct ScheduleEntity {
 	friend struct Scheduler;
