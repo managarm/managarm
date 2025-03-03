@@ -1871,7 +1871,7 @@ void configureDevice(PciDevice *device) {
 		auto offset = device->caps[device->msixIndex].offset;
 
 		auto msgControl = io->readConfigHalf(bus, device->slot, device->function, offset + 2);
-		device->numMsis = (msgControl & 0x7F) + 1;
+		device->numMsis = (msgControl & 0x7FF) + 1;
 		infoLogger() << device->numMsis << " MSI-X vectors available for PCI device "
 				<< frg::hex_fmt{device->seg} << ":"
 				<< frg::hex_fmt{device->bus} << ":"
