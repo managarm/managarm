@@ -1291,12 +1291,24 @@ void checkPciBus(PciBus *bus, EnumFunc &&enumerateDownstream) {
 		checkPciDevice(bus, slot, enumerateDownstream);
 }
 
+namespace {
+
+void runChildBridges(PciBridge *bridge) {
+	bridge->runBridge();
+
+	for(auto c : bridge->associatedBus->childBridges) {
+		runChildBridges(c);
+	}
+}
+
+}
+
 void runAllBridges() {
 	for(auto root_bus : *allRootBuses) {
 		root_bus->runRootBus();
 
 		for(auto bridge : root_bus->childBridges) {
-			bridge->runBridge();
+			runChildBridges(bridge);
 		}
 	}
 }
@@ -1859,7 +1871,7 @@ void configureDevice(PciDevice *device) {
 		auto offset = device->caps[device->msixIndex].offset;
 
 		auto msgControl = io->readConfigHalf(bus, device->slot, device->function, offset + 2);
-		device->numMsis = (msgControl & 0x7F) + 1;
+		device->numMsis = (msgControl & 0x7FF) + 1;
 		infoLogger() << device->numMsis << " MSI-X vectors available for PCI device "
 				<< frg::hex_fmt{device->seg} << ":"
 				<< frg::hex_fmt{device->bus} << ":"

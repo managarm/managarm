@@ -123,7 +123,7 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 : _name{std::move(name)}, _strategy{IrqStrategy::null},
 		_inService{false}, _dueSinks{0},
 		_maskState{0} {
-	_hash = frg::hash<frg::string<KernelAlloc>>{}(name);
+	_hash = frg::hash<frg::string<KernelAlloc>>{}(_name);
 
 	[] (IrqPin *self, enable_detached_coroutine = {}) -> void {
 		while(true) {

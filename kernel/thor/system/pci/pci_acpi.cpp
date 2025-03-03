@@ -185,14 +185,6 @@ static void addLegacyConfigIo() {
 	}
 }
 
-struct [[gnu::packed]] McfgEntry {
-	uint64_t mmioBase;
-	uint16_t segment;
-	uint8_t busStart;
-	uint8_t busEnd;
-	uint32_t reserved;
-};
-
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-acpi-config-io",
 	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
@@ -206,7 +198,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 			return;
 		}
 
-		if(mcfgTbl.hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(McfgEntry)) {
+		if(mcfgTbl.hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(acpi_mcfg_allocation)) {
 			urgentLogger() << "thor: MCFG table has no entries, assuming legacy PCI!"
 					<< frg::endlog;
 			addLegacyConfigIo();
@@ -214,18 +206,18 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 		}
 
 		size_t nEntries = (mcfgTbl.hdr->length - 44) / 16;
-		auto mcfgEntries = (McfgEntry *)((uintptr_t)mcfgTbl.virt_addr + sizeof(acpi_sdt_hdr) + 8);
+		auto mcfgEntries = (acpi_mcfg_allocation *)((uintptr_t)mcfgTbl.virt_addr + sizeof(acpi_sdt_hdr) + 8);
 		for (size_t i = 0; i < nEntries; i++) {
 			auto &entry = mcfgEntries[i];
 			infoLogger() << "Found config space for segment " << entry.segment
-				<< ", buses " << entry.busStart << "-" << entry.busEnd
-				<< ", ECAM MMIO base at " << (void *)entry.mmioBase << frg::endlog;
+				<< ", buses " << entry.start_bus << "-" << entry.end_bus
+				<< ", ECAM MMIO base at " << (void *)entry.address << frg::endlog;
 
 			auto io = frg::construct<EcamPcieConfigIo>(*kernelAlloc,
-					entry.mmioBase, entry.segment,
-					entry.busStart, entry.busEnd);
+					entry.address, entry.segment,
+					entry.start_bus, entry.end_bus);
 
-			for (int j = entry.busStart; j <= entry.busEnd; j++) {
+			for (int j = entry.start_bus; j <= entry.end_bus; j++) {
 				addConfigSpaceIo(entry.segment, j, io);
 			}
 		}
