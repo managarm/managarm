@@ -274,9 +274,15 @@ public:
 
 	[[ noreturn ]] void invoke() override;
 
-	void handlePreemption(IrqImageAccessor accessor) override;
+	void handlePreemption(IrqImageAccessor image) override;
+	// Non-virtual since syscalls/faults know that they are called from a thread.
+	void handlePreemption(FaultImageAccessor image);
+	void handlePreemption(SyscallImageAccessor image);
 
 private:
+	template<typename ImageAccessor>
+	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
+
 	void _updateRunTime();
 	void _uninvoke();
 	void _kill();

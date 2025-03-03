@@ -247,6 +247,10 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 			              << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
 			              << frg::endlog;
 	}
+
+	// This syscall/fault may have woken up threads on this CPU.
+	// See Scheduler::resume() for details.
+	checkThreadPreemption(FaultImageAccessor{frame});
 }
 
 void writeSretCsrs(Frame *frame) {

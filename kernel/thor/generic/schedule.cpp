@@ -6,6 +6,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/ostrace.hpp>
 #include <thor-internal/schedule.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 
 namespace thor {
@@ -191,6 +192,11 @@ int64_t Scheduler::_liveRuntime(const ScheduleEntity *entity) {
 	}else{
 		return entity->_runTime;
 	}
+}
+
+void Scheduler::suppressRenewalUntilInterrupt() {
+	if (getPreemptionDeadline())
+		_mustCallPreemption = false;
 }
 
 void Scheduler::update() {
@@ -439,6 +445,33 @@ void Scheduler::_updateEntityStats(ScheduleEntity *entity) {
 	if(entity == _current)
 		entity->_runTime += _refClock - entity->_refClock;
 	entity->_refClock = _refClock;
+}
+
+namespace {
+
+template<typename ImageAccessor>
+void doCheckThreadPreemption(ImageAccessor image) {
+	assert(!intsAreEnabled());
+	auto thisThread = getCurrentThread();
+	auto *scheduler = &localScheduler.get();
+
+	// For IRQs, we call simply call
+	//     currentRunnable()->handlePreemption(image)
+	// However, since we know that only threads can performs syscalls,
+	// we can avoid a virtual call here and directly call into Thread::handlePreemption().
+
+	scheduler->suppressRenewalUntilInterrupt();
+	if (scheduler->mustCallPreemption())
+		thisThread->handlePreemption(image);
+}
+
+} // namespace
+
+void checkThreadPreemption(FaultImageAccessor image) {
+	doCheckThreadPreemption(image);
+}
+void checkThreadPreemption(SyscallImageAccessor image) {
+	doCheckThreadPreemption(image);
 }
 
 THOR_DEFINE_PERCPU(localScheduler);

@@ -856,16 +856,9 @@ void handleSyscall(SyscallImageAccessor image) {
 	// Run more worklets that were posted by the syscall.
 	this_thread->mainWorkQueue()->run();
 
-	Thread::raiseSignals(image);
-
 	// Note: Thread::raiseSignals() only returns if nothing needs to be raised.
 	//       Otherwise, it saves the syscall image and suspends this thread.
-
-	// This syscall may have woken up threads on this CPU.
-	// TODO: Call handlePreemption() to check for preemption (e.g., due to a change in priority)
-	// and to renew the schedule (e.g., if the length of the time slice has changed).
-	// See Scheduler::resume() for details.
-	// TODO: This needs an overload of handlePreemption() that takes a SyscallImageAccessor.
+	Thread::raiseSignals(image);
 }
 
 } // namespace thor
