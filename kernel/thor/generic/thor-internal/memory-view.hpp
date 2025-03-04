@@ -1087,7 +1087,7 @@ private:
 	uintptr_t _viewOffset;
 	size_t _length;
 	smarter::shared_ptr<CowChain> _copyChain;
-	frg::rcu_radixtree<CowPage, KernelAlloc> _ownedPages;
+	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc> _ownedPages;
 	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;
 };
