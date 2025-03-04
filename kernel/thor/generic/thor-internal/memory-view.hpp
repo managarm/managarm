@@ -1039,14 +1039,13 @@ struct CowPage {
 };
 
 struct CowChain {
-	CowChain(smarter::shared_ptr<CowChain> chain);
+	CowChain();
 
 	~CowChain();
 
 // TODO: Either this private again or make this class POD-like.
 	frg::ticket_spinlock _mutex;
 
-	smarter::shared_ptr<CowChain> _superChain;
 	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc> _pages;
 };
 

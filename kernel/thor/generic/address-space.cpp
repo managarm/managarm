@@ -320,19 +320,13 @@ coroutine<void> Mapping::runEvictionLoop() {
 // CowMapping
 // --------------------------------------------------------
 
-CowChain::CowChain(smarter::shared_ptr<CowChain> chain)
-: _superChain{std::move(chain)}, _pages{*kernelAlloc} {
+CowChain::CowChain()
+: _pages{*kernelAlloc} {
 }
 
 CowChain::~CowChain() {
 	if(logCleanup)
 		infoLogger() << "thor: Releasing CowChain" << frg::endlog;
-
-	// Iteratively release the whole chain of super pointers to avoid
-	// a potentially very deep call stack (in the worst case leading
-	// to a stack overflow and a kernel panic).
-	while(_superChain)
-		_superChain = _superChain->_superChain;
 }
 
 // --------------------------------------------------------
