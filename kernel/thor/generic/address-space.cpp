@@ -328,12 +328,6 @@ CowChain::~CowChain() {
 	if(logCleanup)
 		infoLogger() << "thor: Releasing CowChain" << frg::endlog;
 
-	for(auto it = _pages.begin(); it != _pages.end(); ++it) {
-		auto physical = it->load(std::memory_order_relaxed);
-		assert(physical != PhysicalAddr(-1));
-		physicalAllocator->free(physical, kPageSize);
-	}
-
 	// Iteratively release the whole chain of super pointers to avoid
 	// a potentially very deep call stack (in the worst case leading
 	// to a stack overflow and a kernel panic).

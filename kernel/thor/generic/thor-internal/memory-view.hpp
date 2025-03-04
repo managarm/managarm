@@ -1024,6 +1024,20 @@ private:
 	frg::vector<smarter::shared_ptr<IndirectionSlot>, KernelAlloc> indirections_;
 };
 
+enum class CowState {
+	null,
+	inProgress,
+	hasCopy
+};
+
+struct CowPage {
+	~CowPage();
+
+	PhysicalAddr physical = -1;
+	CowState state = CowState::null;
+	unsigned int lockCount = 0;
+};
+
 struct CowChain {
 	CowChain(smarter::shared_ptr<CowChain> chain);
 
@@ -1033,7 +1047,7 @@ struct CowChain {
 	frg::ticket_spinlock _mutex;
 
 	smarter::shared_ptr<CowChain> _superChain;
-	frg::rcu_radixtree<std::atomic<PhysicalAddr>, KernelAlloc> _pages;
+	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc> _pages;
 };
 
 struct CopyOnWriteMemory final : MemoryView, GlobalFutexSpace /*, MemoryObserver */ {
@@ -1069,18 +1083,6 @@ public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<CopyOnWriteMemory> selfPtr;
 private:
-	enum class CowState {
-		null,
-		inProgress,
-		hasCopy
-	};
-
-	struct CowPage {
-		PhysicalAddr physical = -1;
-		CowState state = CowState::null;
-		unsigned int lockCount = 0;
-	};
-
 	frg::ticket_spinlock _mutex;
 
 	smarter::shared_ptr<MemoryView> _view;

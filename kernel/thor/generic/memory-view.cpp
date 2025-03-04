@@ -1449,6 +1449,12 @@ Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView
 // CopyOnWriteMemory
 // --------------------------------------------------------
 
+CowPage::~CowPage() {
+	assert(state == CowState::hasCopy);
+	assert(physical != PhysicalAddr(-1));
+	physicalAllocator->free(physical, kPageSize);
+}
+
 CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		smarter::shared_ptr<CowChain> chain)
@@ -1461,12 +1467,6 @@ CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
 }
 
 CopyOnWriteMemory::~CopyOnWriteMemory() {
-	for(auto it = _ownedPages.begin(); it != _ownedPages.end(); ++it) {
-		auto page = *it;
-		assert(page->state == CowState::hasCopy);
-		assert(page->physical != PhysicalAddr(-1));
-		physicalAllocator->free(page->physical, kPageSize);
-	}
 }
 
 size_t CopyOnWriteMemory::getLength() {
@@ -1515,10 +1515,9 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shar
 
 				// Update the chains.
 				auto pageOffset = self->_viewOffset + pg;
-				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift,
-						PhysicalAddr(-1));
+				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
+				*newIt = page.lock();
 				self->_ownedPages.erase(pg >> kPageShift);
-				newIt->store(physical, std::memory_order_relaxed);
 			}
 		};
 
@@ -1683,8 +1682,10 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 				auto lock = frg::guard(&chain->_mutex);
 
 				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+					auto page = *it;
 					// We can just copy synchronously here -- the descendant is not evicted.
-					auto srcPhysical = it->load(std::memory_order_relaxed);
+					assert(page->state == CowState::hasCopy);
+					auto srcPhysical = page->physical;
 					assert(srcPhysical != PhysicalAddr(-1));
 					auto srcAccessor = PageAccessor{srcPhysical};
 					memcpy(accessor.get(), srcAccessor.get(), kPageSize);
@@ -1818,8 +1819,10 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<
 		auto lock = frg::guard(&chain->_mutex);
 
 		if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+			auto page = *it;
 			// We can just copy synchronously here -- the descendant is not evicted.
-			auto srcPhysical = it->load(std::memory_order_relaxed);
+			assert(page->state == CowState::hasCopy);
+			auto srcPhysical = page->physical;
 			assert(srcPhysical != PhysicalAddr(-1));
 			auto srcAccessor = PageAccessor{srcPhysical};
 			memcpy(accessor.get(), srcAccessor.get(), kPageSize);
