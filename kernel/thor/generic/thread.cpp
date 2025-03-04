@@ -543,6 +543,17 @@ void Thread::invoke() {
 }
 
 void Thread::handlePreemption(IrqImageAccessor image) {
+	doHandlePreemption(image.inManipulableDomain(), image);
+}
+void Thread::handlePreemption(FaultImageAccessor image) {
+	doHandlePreemption(!image.inKernelDomain(), image);
+}
+void Thread::handlePreemption(SyscallImageAccessor image) {
+	doHandlePreemption(true, image);
+}
+
+template<typename ImageAccessor>
+void Thread::doHandlePreemption(bool inManipulableDomain, ImageAccessor image) {
 	assert(!intsAreEnabled());
 	assert(getCurrentThread().get() == this);
 
@@ -557,7 +568,7 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 
 		assert(_runState == kRunActive);
 		_updateRunTime();
-		if(image.inManipulableDomain()) {
+		if(inManipulableDomain) {
 			_runState = kRunSuspended;
 		}else{
 			_runState = kRunDeferred;
@@ -565,7 +576,7 @@ void Thread::handlePreemption(IrqImageAccessor image) {
 		saveExecutor(&_executor, image);
 		_uninvoke();
 
-		runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<Mutex> lock) {
+		runOnStack([] (Continuation cont, ImageAccessor image, frg::unique_lock<Mutex> lock) {
 			scrubStack(image, cont);
 			lock.unlock();
 			localScheduler.get().commitReschedule();

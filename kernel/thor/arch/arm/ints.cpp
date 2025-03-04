@@ -142,6 +142,10 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	}
 
 	disableInts();
+
+	// This syscall/fault may have woken up threads on this CPU.
+	// See Scheduler::resume() for details.
+	checkThreadPreemption(image);
 }
 
 extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {

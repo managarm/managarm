@@ -142,6 +142,10 @@ public:
 		_mustCallPreemption = true;
 	}
 
+	// Suppress mustCallPreemption() if a scheduling interrupt is pending.
+	// This avoids unnecessary calls into checkPreemption().
+	void suppressRenewalUntilInterrupt();
+
 	void checkPreemption(IrqImageAccessor image) {
 		assert(image.inPreemptibleDomain());
 		if (mustCallPreemption())
@@ -219,6 +223,10 @@ private:
 		>
 	> _pendingList;
 };
+
+// Similar to Scheduler::checkPreemption() but specialized for threads.
+void checkThreadPreemption(FaultImageAccessor image);
+void checkThreadPreemption(SyscallImageAccessor image);
 
 extern PerCpu<Scheduler> localScheduler;
 
