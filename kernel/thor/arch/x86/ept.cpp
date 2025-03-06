@@ -12,7 +12,7 @@ constexpr uint64_t eptIgnorePat = UINT64_C(1) << 6;
 constexpr uint64_t eptDirty = UINT64_C(1) << 9;
 // TODO: Support user-executable permissions (needs VM-x bit).
 // constexpr uint64_t eptUserExecute = UINT64_C(1) << 10;
-constexpr uint64_t eptAddress = 0x000FFFFFFFFFF00;
+constexpr uint64_t eptAddress = 0x000F'FFFF'FFFF'F000;
 
 struct EptCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;
