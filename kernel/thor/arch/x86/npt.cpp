@@ -9,7 +9,7 @@ constexpr uint64_t nptWrite = UINT64_C(1) << 1;
 constexpr uint64_t nptUser = UINT64_C(1) << 2;
 constexpr uint64_t nptDirty = UINT64_C(1) << 6;
 constexpr uint64_t nptXd = UINT64_C(1) << 6;
-constexpr uint64_t nptAddress = 0x000FFFFFFFFFF00;
+constexpr uint64_t nptAddress = 0x000F'FFFF'FFFF'F000;
 
 struct NptCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;

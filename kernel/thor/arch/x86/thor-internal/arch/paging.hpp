@@ -22,7 +22,7 @@ constexpr uint64_t pteDirty = 0x40;
 constexpr uint64_t ptePat = 0x80;
 constexpr uint64_t pteGlobal = 0x100;
 constexpr uint64_t pteXd = 0x8000000000000000;
-constexpr uint64_t pteAddress = 0x000FFFFFFFFFF00;
+constexpr uint64_t pteAddress = 0x000F'FFFF'FFFF'F000;
 
 inline int getLowerHalfBits() {
 	return 47;
