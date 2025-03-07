@@ -2645,7 +2645,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						req->flags() & SOCK_NONBLOCK
 					);
 				else if(netlink::nl_socket::protocol_supported(req->protocol()))
-					file = netlink::nl_socket::createSocketFile(req->protocol(), req->flags() & SOCK_NONBLOCK);
+					file = netlink::nl_socket::createSocketFile(req->protocol(), req->socktype(), req->flags() & SOCK_NONBLOCK);
 				else {
 					std::cout << std::format("posix: unhandled netlink protocol 0x{:X}",
 						req->protocol()) << std::endl;

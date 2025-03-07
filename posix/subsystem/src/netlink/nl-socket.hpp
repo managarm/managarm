@@ -35,7 +35,7 @@ public:
 				file, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(int protocol, bool nonBlock = false);
+	OpenFile(int protocol, int type, bool nonBlock = false);
 
 	void deliver(core::netlink::Packet packet) override;
 
@@ -119,6 +119,8 @@ private:
 	// Group subscriptions
 	// TODO(no92): handle group IDs >= MAX_BITMAP_GROUP_ID
 	uint32_t joinedGroups_ = 0;
+
+	int type_ = 0;
 };
 
 // Configures the given netlink protocol.
@@ -130,7 +132,7 @@ void broadcast(int proto_idx, uint32_t grp_idx, std::string buffer);
 
 bool protocol_supported(int protocol);
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(int proto_idx, bool nonBlock);
+smarter::shared_ptr<File, FileHandle> createSocketFile(int proto_idx, int type, bool nonBlock);
 
 } // namespace netlink::nl_socket
 

@@ -37,11 +37,11 @@ std::map<uint32_t, OpenFile *> globalPortMap;
 // OpenFile implementation.
 // ----------------------------------------------------------------------------
 
-OpenFile::OpenFile(int protocol, bool nonBlock)
+OpenFile::OpenFile(int protocol, int type, bool nonBlock)
 		: File{StructName::get("nl-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek},
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
-		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock} { }
+		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock}, type_{type} { }
 
 void OpenFile::handleClose() {
 	_isClosed = true;
@@ -366,6 +366,8 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int
 		std::vector<char> &optbuf) {
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 		memcpy(optbuf.data(), &_protocol, std::min(optbuf.size(), sizeof(_protocol)));
+	} else if(layer == SOL_SOCKET && number == SO_TYPE) {
+		memcpy(optbuf.data(), &type_, std::min(optbuf.size(), sizeof(type_)));
 	} else {
 		printf("posix nl-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
@@ -440,8 +442,8 @@ bool protocol_supported(int protocol) {
 	return globalProtocolOpsMap.contains(protocol);
 }
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, bool nonBlock) {
-	auto file = smarter::make_shared<OpenFile>(protocol, nonBlock);
+smarter::shared_ptr<File, FileHandle> createSocketFile(int protocol, int type, bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(protocol, type, nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));

@@ -268,7 +268,7 @@ public:
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		protocols::fs::utils::handleSoPasscred(_passCreds, ucreds, process->pid(), process->uid(), process->gid());
+		protocols::fs::utils::handleSoPasscred(_remote->_passCreds, ucreds, process->pid(), process->uid(), process->gid());
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
