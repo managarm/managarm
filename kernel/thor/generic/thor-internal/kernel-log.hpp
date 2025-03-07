@@ -9,6 +9,8 @@ namespace thor {
 struct GlobalLogRing {
 	void enable();
 
+	void enableWakeups();
+
 	auto wait(uint64_t deqPtr) {
 		return event_.async_wait_if([=, this] () -> bool {
 			return ring_.peekHeadPtr() == deqPtr;
@@ -43,9 +45,10 @@ private:
 	SingleContextRecordRing ring_;
 	SelfIntCall<Wakeup> wakeup_{this};
 	Handler handler_{this};
+	std::atomic<bool> callWakeup_{false};
 };
 
-void initializeLog();
+void initializeGlobalLog();
 
 GlobalLogRing *getGlobalLogRing();
 

@@ -22,6 +22,10 @@ void GlobalLogRing::enable() {
 	enableLogHandler(&handler_);
 }
 
+void GlobalLogRing::enableWakeups() {
+	callWakeup_.store(true, std::memory_order_relaxed);
+}
+
 // GlobalLogRing::Wakeup implementation.
 
 GlobalLogRing::Wakeup::Wakeup(GlobalLogRing *ptr)
@@ -38,7 +42,10 @@ GlobalLogRing::Handler::Handler(GlobalLogRing *ptr)
 
 void GlobalLogRing::Handler::emit(frg::string_view record) {
 	ptr_->ring_.enqueue(record.data(), record.size());
-	ptr_->wakeup_.schedule();
+	// Note: wakeups use self IPIs. These are not available during early initialization.
+	//       Hence, we guard the use of wakeup_ by an atomic flag.
+	if (ptr_->callWakeup_.load(std::memory_order_relaxed))
+		ptr_->wakeup_.schedule();
 }
 
 //-----------------------------------------------------------------------------
@@ -120,12 +127,37 @@ namespace {
 		printChar(ctx, '\n');
 	}
 
-	initgraph::Task initLogSinks{&globalInitEngine, "generic.init-kernel-log",
+	coroutine<void> dumpLogToKmsg() {
+		auto glr = getGlobalLogRing();
+		char buffer[logLineLength];
+		uint64_t deqPtr = 0;
+		KmsgLogHandlerContext ctx;
+		while (true) {
+			auto [success, recordPtr, nextPtr, actualSize] = glr->dequeueAt(
+					deqPtr, buffer, logLineLength);
+			if (!success) {
+				co_await glr->wait(deqPtr);
+				continue;
+			}
+
+			frg::string_view record{buffer, actualSize};
+			translateRecord(&ctx, record);
+
+			deqPtr = nextPtr;
+		}
+	}
+
+	initgraph::Task initKmsg{&globalInitEngine, "generic.init-kmsg",
 		initgraph::Requires{getFibersAvailableStage(),
 			getIoChannelsDiscoveredStage(), getTaskingAvailableStage()},
 		[] {
-			initializeLog();
+			// Initialize globalKmsgRing and related functionality.
+			void *kmsgMemory = kernelAlloc->allocate(1 << 20);
+			globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(kmsgMemory), 1 << 20);
 
+			async::detach_with_allocator(*kernelAlloc, dumpLogToKmsg());
+
+			// Expose globalKmsgRing as I/O channel.
 			auto channel = solicitIoChannel("kernel-log");
 			if(channel) {
 				infoLogger() << "thor: Connecting logging to I/O channel" << frg::endlog;
@@ -137,40 +169,10 @@ namespace {
 } // namespace
 
 
-namespace {
-
-coroutine<void> dumpLogToKmsg() {
-	auto glr = getGlobalLogRing();
-	char buffer[logLineLength];
-	uint64_t deqPtr = 0;
-	KmsgLogHandlerContext ctx;
-	while (true) {
-		auto [success, recordPtr, nextPtr, actualSize] = glr->dequeueAt(
-				deqPtr, buffer, logLineLength);
-		if (!success) {
-			co_await glr->wait(deqPtr);
-			continue;
-		}
-
-		frg::string_view record{buffer, actualSize};
-		translateRecord(&ctx, record);
-
-		deqPtr = nextPtr;
-	}
-}
-
-} // namespace
-
-void initializeLog() {
-	// Initialize globalLogRing.
+// Initialize globalLogRing.
+void initializeGlobalLog() {
 	globalLogRing = frg::construct<GlobalLogRing>(*kernelAlloc);
 	globalLogRing->enable();
-
-	// Initialize globalKmsgRing and related functionality.
-	void *logMemory = kernelAlloc->allocate(1 << 20);
-	globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(logMemory), 1 << 20);
-
-	async::detach_with_allocator(*kernelAlloc, dumpLogToKmsg());
 }
 
 GlobalLogRing *getGlobalLogRing() {
