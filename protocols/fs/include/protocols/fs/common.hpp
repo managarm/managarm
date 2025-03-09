@@ -42,6 +42,7 @@ enum class Error {
 	directoryNotEmpty = 26,
 	connectionRefused = 27,
 	internalError = 28,
+	alreadyConnected = 29,
 };
 
 struct ToFsError {
@@ -80,6 +81,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::directoryNotEmpty: return managarm::fs::Errors::DIRECTORY_NOT_EMPTY;
 		case Error::connectionRefused: return managarm::fs::Errors::CONNECTION_REFUSED;
 		case Error::internalError: return managarm::fs::Errors::INTERNAL_ERROR;
+		case Error::alreadyConnected: return managarm::fs::Errors::ALREADY_CONNECTED;
 	}
 }
 
@@ -119,6 +121,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::DIRECTORY_NOT_EMPTY: return Error::directoryNotEmpty;
 		case managarm::fs::Errors::CONNECTION_REFUSED: return Error::connectionRefused;
 		case managarm::fs::Errors::INTERNAL_ERROR: return Error::internalError;
+		case managarm::fs::Errors::ALREADY_CONNECTED: return Error::alreadyConnected;
 	}
 }
 
