@@ -384,7 +384,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			} else if(pid == -1) {
 				std::cout << "posix: SIG_KILL(-1) is ignored!" << std::endl;
 				HEL_CHECK(helResume(thread.getHandle()));
-				break;
+				continue;
 			} else if(pid > 0) {
 				if(logSignals)
 					std::cout << "posix: SIG_KILL on PID " << pid << std::endl;
@@ -402,7 +402,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				gprs[kHelRegOut0] = ESRCH;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 				HEL_CHECK(helResume(thread.getHandle()));
-				break;
+				continue;
 			}
 
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));

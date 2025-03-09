@@ -1036,6 +1036,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 
@@ -1062,6 +1063,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 

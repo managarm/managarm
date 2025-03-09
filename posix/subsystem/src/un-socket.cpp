@@ -183,6 +183,9 @@ public:
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown)
 			co_return protocols::fs::Error::notConnected;
 
+		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && _currentState == State::remoteShutDown)
+			co_return protocols::fs::RecvData{{}, 0, 0, 0};
+
 		if(logSockets)
 			std::cout << "posix: Recv from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -321,7 +324,7 @@ public:
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		protocols::fs::utils::handleSoPasscred(_remote->_passCreds, ucreds, process->pid(), process->uid(), process->gid());
+		protocols::fs::utils::handleSoPasscred(remote->_passCreds, ucreds, process->pid(), process->uid(), process->gid());
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
@@ -389,7 +392,7 @@ public:
 		int edges = EPOLLOUT;
 		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			if(_hupSeq > past_seq)
-				edges |= EPOLLHUP;
+				edges |= EPOLLHUP | EPOLLIN;
 		}
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
@@ -406,7 +409,7 @@ public:
 		int events = EPOLLOUT;
 		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			if(_currentState == State::remoteShutDown)
-				events |= EPOLLHUP;
+				events |= EPOLLHUP | EPOLLIN;
 		}
 		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
