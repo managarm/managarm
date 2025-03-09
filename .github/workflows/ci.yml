@@ -191,7 +191,7 @@ jobs:
     test-image:
         strategy:
             matrix:
-                arch: [x86_64]
+                arch: [x86_64, aarch64]
         name: Test ${{ matrix.arch }} image
         needs:
           - cache-generic
@@ -203,7 +203,7 @@ jobs:
             run: |
                 set -x
                 sudo apt-get update
-                sudo apt-get install qemu-system-x86
+                sudo apt-get install qemu-system-x86 qemu-system-arm
                 pip3 install xbstrap y4
                 xbstrap prereqs xbps
           - name: Restore xbps cache
@@ -247,7 +247,11 @@ jobs:
           - name: Generate image
             run: |
                 set -x
-                curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
+                if [ "$XBPS_ARCH" = "x86_64" ]; then
+                    curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
+                else
+                    curl -o image.xz https://builds.managarm.org/repos/files/managarm_$XBPS_ARCH/latest/image.xz
+                fi
                 unxz image.xz
                 ~/.xbstrap/bin/xbps-rindex -fa xbps-repo/*.xbps
                 ../src/scripts/update-image.py -m loopback mount
