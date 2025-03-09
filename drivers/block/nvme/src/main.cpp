@@ -78,6 +78,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_return protocols::svrctl::Error::deviceNotSupported;
 
 		protocols::hw::Device device((co_await entity.getRemoteLane()).unwrap());
+		co_await device.enableDma();
 		auto info = co_await device.getPciInfo();
 
 		auto &barInfo = info.barInfo[0];

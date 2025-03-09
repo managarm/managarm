@@ -462,6 +462,7 @@ async::result<void> RealtekNic::init() {
 
 	_irq = co_await _device.accessIrq();
 	co_await _device.enableBusmaster();
+	co_await _device.enableDma();
 
 	co_await getMmio();
 

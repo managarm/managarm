@@ -50,6 +50,7 @@ async::result<void> E1000Nic::init() {
 	auto info = co_await _device.getPciInfo();
 	_irq = co_await _device.accessIrq();
 	co_await _device.enableBusmaster();
+	co_await _device.enableDma();
 
 	co_await identifyHardware();
 
