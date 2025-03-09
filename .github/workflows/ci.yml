@@ -239,6 +239,11 @@ jobs:
                 repository: managarm/bootstrap-managarm
                 ref: ${{env.bootstrap_ref}}
                 path: src/
+          - name: Checkout Managarm
+            uses: actions/checkout@v2
+            with:
+                path: src/managarm/
+                fetch-depth: 0
           - name: Generate image
             run: |
                 set -x
@@ -253,7 +258,12 @@ jobs:
             env:
                 XBPS_ARCH: ${{ matrix.arch }}
             working-directory: build/
-          - name: Test ${{ matrix.pkg }} package
+          - name: Set up xbstrap and test image
             run: |
-                ../src/scripts/test-image.py
+                set -x
+                xbstrap init ../src
+                cp ../src/managarm/ci/bootstrap-site-$CI_ARCH.yml bootstrap-site.yml
+                xbstrap run test-image
+            env:
+                CI_ARCH: ${{ matrix.arch }}
             working-directory: build/
