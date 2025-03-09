@@ -233,6 +233,7 @@ int main() {
 
 	frg::array args = {
 		frg::option{"netserver.device", frg::as_string_view(uefiNetDevpath)},
+		frg::option{"systemd", frg::store_true(systemd)},
 	};
 	frg::parse_arguments(cmdline.c_str(), args);
 
