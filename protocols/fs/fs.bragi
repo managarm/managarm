@@ -493,7 +493,7 @@ message GenericIoctlRequest 10 {
 head(128):
 	tags {
 		tag(1) int32 size;
-		tag(2) int64 command;
+		tag(2) @format(hex) uint64 command;
 
 		// PTS and TTY ioctls.
 		tag(3) int32 pts_width;
@@ -706,19 +706,19 @@ head(128):
 message IfreqRequest 18 {
 head(128):
 	int32 command;
-	string name;
 	int32 index;
+tail:
+	string name;
 }
 
 struct Ifconf {
 	string name;
-	int32 ip4;
+	@format(ipv4) int32 ip4;
 }
 
 message IfreqReply 19 {
 head(128):
 	Errors error;
-	string name;
 	int32 mtu;
 	int32 ip4_addr;
 	int32 ip4_netmask;
@@ -726,6 +726,8 @@ head(128):
 	int32 index;
 	int32 flags;
 	uint8[6] mac;
+tail:
+	string name;
 }
 
 message IfconfReply 20 {

@@ -89,7 +89,7 @@ consts CntReqType uint32 {
 	FD_SERVE = 77
 }
 
-consts OpenMode uint32 {
+@format(bitfield) consts OpenMode uint32 {
 	REGULAR = 1,
 	HELFD = 2
 }
@@ -105,7 +105,7 @@ consts FileType uint32 {
 	FT_BLOCK_DEVICE = 7
 }
 
-consts OpenFlags uint32 {
+@format(bitfield) consts OpenFlags uint32 {
 	OF_CREATE = 1,
 	OF_EXCLUSIVE = 2,
 	OF_NONBLOCK = 4,
@@ -121,7 +121,7 @@ consts OpenFlags uint32 {
 	OF_DIRECTORY = 4096
 }
 
-consts EventFdFlags uint32 {
+@format(bitfield) consts EventFdFlags uint32 {
 	CLOEXEC = 1,
 	NONBLOCK = 2,
 	SEMAPHORE = 4
@@ -158,14 +158,14 @@ head(128):
 		tag(8) uint64 child_sp;
 		tag(9) uint64 child_ip;
 
-		tag(24) uint64 address;
+		tag(24) @format(hex) uint64 address;
 		tag(23) uint32 new_size;
 
 		// Signal-specific stuff.
 		tag(29) uint64 sig_number;
 		tag(30) uint64 sig_mask;
-		tag(31) uint64 sig_handler;
-		tag(32) uint64 sig_restorer;
+		tag(31) @format(hex) uint64 sig_handler;
+		tag(32) @format(hex) uint64 sig_restorer;
 
 		tag(26) uint64 addr_size;
 		tag(27) uint64 ctrl_size;
@@ -199,7 +199,7 @@ head(128):
 
 		tag(21) int64 size;
 
-		tag(24) int64 flags;
+		tag(24) @format(hex) uint64 flags;
 
 		// returned by GET_PID
 		tag(18) int64 pid;
@@ -238,7 +238,7 @@ head(128):
 		tag(1) int32 fd;
 
 		// returned by SEEK_ABS, SEEK_REL
-		tag(6) uint64 offset;
+		tag(6) @format(hex) uint64 offset;
 
 		// Returned by SETSID.
 		tag(31) int64 sid;
@@ -267,7 +267,7 @@ head(128):
 	int32 fd;
 	uint32 mode;
 	uint32 flags;
-	int64 address_hint;
+	@format(hex) uint64 address_hint;
 	int64 rel_offset;
 	uint64 size;
 }

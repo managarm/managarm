@@ -132,14 +132,10 @@ private:
 		if(preamble.error())
 			co_return Error::protocolViolation;
 
-		// All records have a head size of 128.
-		auto headSpan = reqSpan.subspan(0, 128);
-		auto tailSpan = reqSpan.subspan(128, preamble.tail_size());
-
 		switch (preamble.id()) {
 		case bragi::message_id<managarm::ostrace::NegotiateReq>: {
-			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::NegotiateReq>(
-					headSpan, tailSpan, *kernelAlloc);
+			auto maybeReq = bragi::parse_head_only<managarm::ostrace::NegotiateReq>(
+					reqSpan, *kernelAlloc);
 			if(!maybeReq)
 				co_return Error::protocolViolation;
 
@@ -161,8 +157,8 @@ private:
 			}
 		} break;
 		case bragi::message_id<managarm::ostrace::EmitReq>: {
-			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::EmitReq>(
-					headSpan, tailSpan, *kernelAlloc);
+			auto maybeReq = bragi::parse_head_only<managarm::ostrace::EmitReq>(
+					reqSpan, *kernelAlloc);
 			if(!maybeReq)
 				co_return Error::protocolViolation;
 			//auto &req = maybeReq.value();
@@ -189,8 +185,8 @@ private:
 			}
 		} break;
 		case bragi::message_id<managarm::ostrace::AnnounceItemReq>: {
-			auto maybeReq = bragi::parse_head_tail<managarm::ostrace::AnnounceItemReq>(
-					headSpan, tailSpan, *kernelAlloc);
+			auto maybeReq = bragi::parse_head_only<managarm::ostrace::AnnounceItemReq>(
+					reqSpan, *kernelAlloc);
 			if(!maybeReq)
 				co_return Error::protocolViolation;
 			auto &req = maybeReq.value();
@@ -253,7 +249,7 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 				if(channel) {
 					infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
 					async::detach_with_allocator(*kernelAlloc,
-							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 256));
+							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 2048));
 				}
 			}
 		});

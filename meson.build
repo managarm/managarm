@@ -120,12 +120,12 @@ frigg = dependency('frigg',
 
 cxxbragi = generator(bragi,
 	output : '@BASENAME@.bragi.hpp',
-	arguments : [ '-l', 'stdc++', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+	arguments : [ '-o', '@OUTPUT@', '@INPUT@', 'cpp', '-l', 'stdc++', '--protobuf' ]
 )
 
 frgbragi = generator(bragi,
 	output : '@BASENAME@.frigg_bragi.hpp',
-	arguments : [ '-l', 'frigg', '--protobuf', '@INPUT@', '@OUTPUT@' ]
+	arguments : [ '-o', '@OUTPUT@', '@INPUT@', 'cpp', '-l', 'frigg', '--protobuf' ]
 )
 
 freestnd_c_hdrs_dep = dependency(
@@ -185,8 +185,16 @@ if build_drivers or provide_deps
 	# all other protocols depend on
 	subdir('hel')
 
-	protocols = [ 'clock', 'fs', 'hw', 'mbus', 'usb', 'svrctl', 'kerncfg', 'kernlet', 'ostrace' ]
-	core = [ 'core', 'core/drm', 'core/virtio', 'mbus' ]
+	subdir('protocols/mbus')
+	subdir('protocols/kerncfg')
+	subdir('protocols/clock')
+
+	if build_drivers
+		subdir('core')
+	endif
+
+	protocols = [ 'ostrace', 'fs', 'hw', 'usb', 'svrctl', 'kernlet' ]
+	core = [ 'core/drm', 'core/virtio', 'mbus' ]
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries
