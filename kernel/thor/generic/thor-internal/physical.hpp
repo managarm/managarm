@@ -6,6 +6,7 @@
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
+#include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/types.hpp>
 
@@ -68,6 +69,43 @@ private:
 	void *_pointer;
 };
 
+struct PhysicalWindow {
+	PhysicalWindow() = default;
+	PhysicalWindow(PhysicalAddr physical, size_t size, CachingMode caching = CachingMode::null);
+	~PhysicalWindow();
+
+	PhysicalWindow(const PhysicalWindow &) = delete;
+
+	PhysicalWindow(PhysicalWindow &&other)
+	: PhysicalWindow() {
+		swap(*this, other);
+	}
+
+	friend void swap(PhysicalWindow &x, PhysicalWindow &y) {
+		using std::swap;
+		swap(x.window_, y.window_);
+		swap(x.pages_, y.pages_);
+		swap(x.size_, y.size_);
+	}
+
+	PhysicalWindow &operator= (PhysicalWindow other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	explicit operator bool () {
+		return window_;
+	}
+
+	void *get() {
+		return window_;
+	}
+
+private:
+	void *window_ = nullptr;
+	size_t pages_ = 0;
+	size_t size_ = 0;
+};
 
 // Functions for debugging kernel page access:
 // Deny all access to the physical mapping.
