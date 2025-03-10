@@ -28,6 +28,11 @@ struct AnonymousSuperblock : FsSuperblock {
 		};
 		co_return stats;
 	}
+
+	std::string getFsType() override {
+		assert(!"posix: getFsType on AnonymousSuperblock unsupported");
+		return "";
+	}
 };
 
 } // namespace

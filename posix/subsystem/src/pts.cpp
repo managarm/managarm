@@ -304,6 +304,10 @@ public:
 		stats.f_type = DEVPTS_SUPER_MAGIC;
 		co_return stats;
 	}
+
+	std::string getFsType() override {
+		return "devpts";
+	}
 };
 
 PtsSuperblock ptsSuperblock{};
