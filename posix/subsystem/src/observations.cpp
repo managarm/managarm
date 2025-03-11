@@ -395,9 +395,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				targetGroup = ProcessGroup::findProcessGroup(-pid);
 			}
 
-			// Clear the error code.
-			// TODO: This should only happen is raising succeeds. Move it somewhere else?
 			gprs[kHelRegError] = 0;
+			gprs[kHelRegOut0] = 0;
 			if(!target && !targetGroup) {
 				gprs[kHelRegOut0] = ESRCH;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
