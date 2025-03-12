@@ -1,0 +1,13 @@
+[Unit]
+Description=Unit to start usbhid as it's not integrated into udev rules yet
+Documentation=https://managarm.org/
+
+# Since we are part of the sysinit target, make sure we are started before
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/runsvr run /usr/lib/managarm/server/input-usbhid.bin
+
+[Install]
+WantedBy=sysinit.target
