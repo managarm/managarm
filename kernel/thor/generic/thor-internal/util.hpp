@@ -16,9 +16,16 @@ struct FreqFraction {
 		return f;
 	}
 
+	// Saturating multiplication.
+	// If the fraction is > 1, the result may be clamped to UINT64_MAX for large RHS.
+	// When implementing timers using this function, callers should always check whether the
+	// timer as truly expired or not (and re-arm the timer as necessary).
+	// Clamping is usually not an issue when converting ticks (since boot) to nanoseconds
+	// as the system will not be up for 2^64 nanoseconds.
 	uint64_t operator*(uint64_t rhs) {
 		auto product = (static_cast<__uint128_t>(f) * static_cast<__uint128_t>(rhs)) >> s;
-		assert(!(product >> 64));
+		if (product >> 64)
+			return UINT64_MAX;
 		return static_cast<uint64_t>(product);
 	}
 
