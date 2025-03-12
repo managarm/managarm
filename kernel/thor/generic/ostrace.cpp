@@ -169,10 +169,13 @@ private:
 				co_return Error::protocolViolation;
 			}
 
-			doEmit({reinterpret_cast<char *>(dataBuffer.data()), dataBuffer.size()});
-
 			managarm::ostrace::Response<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::ostrace::Error::SUCCESS);
+			if (wantOsTrace) {
+				doEmit({reinterpret_cast<char *>(dataBuffer.data()), dataBuffer.size()});
+				resp.set_error(managarm::ostrace::Error::SUCCESS);
+			}else{
+				resp.set_error(managarm::ostrace::Error::OSTRACE_GLOBALLY_DISABLED);
+			}
 
 			frg::string<KernelAlloc> ser(*kernelAlloc);
 			resp.SerializeToString(&ser);

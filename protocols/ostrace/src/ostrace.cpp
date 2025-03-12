@@ -28,7 +28,7 @@ async::result<void> Context::create() {
 
 	// Perform the negotiation request.
 
-	managarm::ostrace::AnnounceItemReq req;
+	managarm::ostrace::NegotiateReq req;
 
 	auto [offer, sendReq, recvResp] =
 		co_await helix_ng::exchangeMsgs(

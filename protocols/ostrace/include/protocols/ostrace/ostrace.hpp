@@ -26,7 +26,7 @@ struct Term {
 	}
 
 	ItemId id() const {
-		assert(ctx_);
+		// TODO: We cannot assert(ctx_), otherwise this breaks when !available.
 		return id_;
 	}
 
