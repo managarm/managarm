@@ -13,6 +13,13 @@ namespace {
 
 bool logTimerfd = false;
 
+uint64_t add_sat(uint64_t x, uint64_t y) {
+	uint64_t r;
+	if (__builtin_add_overflow(x, y, &r))
+		return UINT64_MAX;
+	return r;
+}
+
 struct OpenFile : File {
 private:
 	struct Timer {
@@ -21,6 +28,7 @@ private:
 		uint64_t interval;
 	};
 	
+	// TODO: Unify this implementation with the itimer implementation in process.hpp.
 	async::detached arm(Timer *timer) {
 		assert(timer->initial || timer->interval);
 //		std::cout << "posix: Timer armed" << std::endl;
@@ -30,13 +38,13 @@ private:
 
 		if(timer->initial) {
 			helix::AwaitClock await_initial;
-			auto &&submit = helix::submitAwaitClock(&await_initial, tick + timer->initial,
+			auto &&submit = helix::submitAwaitClock(&await_initial, add_sat(tick, timer->initial),
 					helix::Dispatcher::global());
 			timer->asyncId = await_initial.asyncId();
 			co_await submit.async_wait();
 			timer->asyncId = 0;
 			assert(!await_initial.error() || await_initial.error() == kHelErrCancelled);
-			tick += timer->initial;
+			tick = add_sat(tick, timer->initial);
 
 			if(_activeTimer == timer) {
 				_expirations++;
@@ -57,13 +65,13 @@ private:
 
 		while(true) {
 			helix::AwaitClock await_interval;
-			auto &&submit = helix::submitAwaitClock(&await_interval, tick + timer->interval,
+			auto &&submit = helix::submitAwaitClock(&await_interval, add_sat(tick, timer->interval),
 					helix::Dispatcher::global());
 			timer->asyncId = await_interval.asyncId();
 			co_await submit.async_wait();
 			timer->asyncId = 0;
 			assert(!await_interval.error() || await_interval.error() == kHelErrCancelled);
-			tick += timer->interval;
+			tick = add_sat(tick, timer->interval);
 
 			if(_activeTimer == timer) {
 				_expirations++;
