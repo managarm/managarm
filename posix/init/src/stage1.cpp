@@ -366,6 +366,15 @@ int main() {
 
 	std::cout << "init: On /realfs" << std::endl;
 
+	if(systemd && access("/etc/machine-id", F_OK)) {
+		auto machineIdPid = fork();
+		if(!machineIdPid) {
+			execl("/usr/bin/systemd-machine-id-setup", "systemd-machine-id-setup", nullptr);
+		}else assert(machineIdPid != -1);
+
+		waitpid(machineIdPid, nullptr, 0);
+	}
+
 	if(!systemd) {
 		// /run needs to be 0700 or programs start complaining.
 		if(chmod("/run", 0700))
