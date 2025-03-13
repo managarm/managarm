@@ -9,6 +9,7 @@
 #include <iostream>
 
 #include <async/recurring-event.hpp>
+#include <core/clock.hpp>
 #include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
@@ -34,6 +35,8 @@ struct Packet {
 	int senderPid;
 	unsigned int senderUid;
 	unsigned int senderGid;
+
+	struct timeval recvTimestamp;
 
 	// The actual octet data that the packet consists of.
 	std::vector<char> buffer;
@@ -166,6 +169,8 @@ public:
 		packet.buffer.resize(length);
 		memcpy(packet.buffer.data(), data, length);
 		packet.offset = 0;
+		auto now = clk::getRealtime();
+		TIMESPEC_TO_TIMEVAL(&packet.recvTimestamp, &now);
 
 		_remote->_recvQueue.push_back(std::move(packet));
 		_remote->_inSeq = ++_remote->_currentSeq;
@@ -216,6 +221,12 @@ public:
 				reply_flags |= MSG_CTRUNC;
 			else
 				ctrl.write(creds);
+		}
+
+		if(timestamp_) {
+			auto truncated = ctrl.message(SOL_SOCKET, SCM_TIMESTAMP, sizeof(struct timeval));
+			if(!truncated)
+				ctrl.write(packet->recvTimestamp);
 		}
 
 		if(!packet->files.empty()) {
@@ -337,6 +348,8 @@ public:
 		memcpy(packet.buffer.data(), data, max_length);
 		packet.files = std::move(files);
 		packet.offset = 0;
+		auto now = clk::getRealtime();
+		TIMESPEC_TO_TIMEVAL(&packet.recvTimestamp, &now);
 
 		remote->_recvQueue.push_back(std::move(packet));
 		remote->_inSeq = ++remote->_currentSeq;
@@ -615,6 +628,13 @@ public:
 		if(layer == SOL_SOCKET && number == SO_PASSCRED) {
 			if(optbuf.size() >= sizeof(int))
 				_passCreds = *reinterpret_cast<int *>(optbuf.data());
+		} else if(layer == SOL_SOCKET && number == SO_TIMESTAMP) {
+			if(optbuf.size() != sizeof(int))
+				co_return protocols::fs::Error::illegalArguments;
+
+			int val = *reinterpret_cast<int *>(optbuf.data());
+
+			timestamp_ = (val != 0);
 		} else {
 			std::cout << std::format("un-socket: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
@@ -737,6 +757,7 @@ private:
 
 	// Socket options.
 	bool _passCreds;
+	bool timestamp_ = false;
 	bool nonBlock_;
 
 	std::string _sockpath;
