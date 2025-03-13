@@ -375,6 +375,7 @@ int main() {
 		waitpid(machineIdPid, nullptr, 0);
 	}
 
+	// Systemd-tmpfilesd will make this for us
 	if(!systemd) {
 		// /run needs to be 0700 or programs start complaining.
 		if(chmod("/run", 0700))
@@ -387,10 +388,13 @@ int main() {
 		close(utmp);
 	}
 
-	// Symlink /var/run to /run, just like LFS does
-	int varrun = symlink("/run", "/var/run");
-	if(varrun == -1)
-		throw std::runtime_error("Symlinking /var/run failed");
+	// Systemd-tmpfilesd will make this for us
+	if(!systemd) {
+		// Symlink /var/run to /run, just like LFS does
+		int varrun = symlink("/run", "/var/run");
+		if(varrun == -1)
+			throw std::runtime_error("Symlinking /var/run failed");
+	}
 
 	if(!systemd)
 		execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
