@@ -213,7 +213,7 @@ if build_drivers or provide_deps
 		# misc
 		'kernletcc'
 	]
-	utils = [ 'runsvr', 'lsmbus' ]
+	utils = [ 'runsvr', 'lsmbus', 'wait-for-devices' ]
 
 	# delay these dirs until last as they require other libs
 	# to already be built
