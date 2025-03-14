@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <thor-internal/iommu.hpp>
 #include <thor-internal/mbus.hpp>
 
 #include <frg/vector.hpp>
@@ -17,6 +18,7 @@ namespace thor {
 
 struct MemoryView;
 struct IoSpace;
+struct Iommu;
 
 struct BootScreen;
 
@@ -343,6 +345,7 @@ struct PciBridge final : PciEntity {
 	}
 
 	PciBus *associatedBus;
+	Iommu *associatedIommu = nullptr;
 	uint32_t downstreamId;
 	uint32_t subordinateId;
 
@@ -376,6 +379,7 @@ struct PciDevice final : PciEntity {
 	uint16_t subsystemDevice;
 
 	IrqPin *interrupt;
+	Iommu *associatedIommu = nullptr;
 
 	// device configuration
 	PciBar bars[6];

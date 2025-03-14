@@ -22,7 +22,8 @@ src += files(
 	'rtc.cpp',
 	'svm.cpp',
 	'system.cpp',
-	'vmx.cpp'
+	'vmx.cpp',
+	'vt_d.cpp'
 )
 
 trampoline = custom_target('trampoline',
