@@ -399,7 +399,7 @@ int main() {
 	if(!systemd)
 		execl("/usr/bin/init-stage2", "/usr/bin/init-stage2", nullptr);
 	else
-		execl("/usr/sbin/init", "init", nullptr);
+		execl("/usr/lib/systemd/systemd", "systemd", nullptr);
 	std::cout << "init: Failed to execve() second stage" << std::endl;
 	abort();
 }
