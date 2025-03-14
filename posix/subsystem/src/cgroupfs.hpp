@@ -117,6 +117,10 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+
+	std::string getFsType() override {
+		return "cgroup2";
+	}
 };
 
 struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {

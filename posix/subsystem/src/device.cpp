@@ -74,7 +74,7 @@ openDevice(VfsType type, DeviceId id, std::shared_ptr<MountView> mount,
 // --------------------------------------------------------
 
 std::shared_ptr<FsLink> getDevtmpfs() {
-	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createRoot();
+	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createDevTmpFsRoot();
 	return devtmpfs;
 }
 
