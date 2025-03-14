@@ -13,6 +13,7 @@ void handleRiscvWorkOnExecutor(Executor *executor, Frame *frame);
 enum ExternalIrqType {
 	none,
 	plic,
+	imsic,
 	aplic,
 };
 
@@ -27,6 +28,7 @@ struct ExternalIrq {
 extern PerCpu<ExternalIrq> riscvExternalIrq;
 
 IrqPin *claimPlicIrq();
+IrqPin *claimImsicIrq();
 IrqPin *claimAplicIrq();
 
 } // namespace thor

@@ -18,6 +18,11 @@ enum class Csr : uint16_t {
 	stval = 0x143,    // Trap value.
 	sip = 0x144,      // Interrupt pending.
 	stimecmp = 0x14d, // Timer comparison register.
+	// Indirect access CSRs.
+	siselect = 0x150,
+	sireg = 0x151,
+	// Supervisor level interrupts.
+	stopei = 0x15c,
 	// Supervisor protection and translation.
 	satp = 0x180, // Address translation.
 };
@@ -67,14 +72,21 @@ constexpr uint64_t sei = 9; // Supervisor external interrupt.
 
 template <Csr csr>
 uint64_t readCsr() {
-	uint64_t v;
-	asm volatile("csrr %0, %1" : "=r"(v) : "i"(static_cast<uint16_t>(csr)) : "memory");
-	return v;
+	uint64_t u;
+	asm volatile("csrr %0, %1" : "=r"(u) : "i"(static_cast<uint16_t>(csr)) : "memory");
+	return u;
 }
 
 template <Csr csr>
 void writeCsr(uint64_t v) {
 	asm volatile("csrw %1, %0" : : "r"(v), "i"(static_cast<uint16_t>(csr)) : "memory");
+}
+
+template <Csr csr>
+uint64_t readWriteCsr(uint64_t v) {
+	uint64_t u;
+	asm volatile("csrrw %0, %1, %2" : "=r"(u) : "i"(static_cast<uint16_t>(csr)), "r"(v) : "memory");
+	return u;
 }
 
 template <Csr csr>

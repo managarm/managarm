@@ -175,6 +175,8 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 		IrqPin *irq = nullptr;
 		if (ourExternalIrq->type == ExternalIrqType::plic) {
 			irq = claimPlicIrq();
+		} else if (ourExternalIrq->type == ExternalIrqType::imsic) {
+			irq = claimImsicIrq();
 		} else if (ourExternalIrq->type == ExternalIrqType::aplic) {
 			irq = claimAplicIrq();
 		} else {

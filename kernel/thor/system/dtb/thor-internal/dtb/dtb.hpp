@@ -103,6 +103,10 @@ struct DeviceTreeNode {
 		return path_;
 	}
 
+	uint32_t phandle() {
+		return phandle_;
+	}
+
 	uint64_t translateAddress(uint64_t addr) const;
 
 	auto addressCells() const {
