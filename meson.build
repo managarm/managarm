@@ -2,7 +2,7 @@ project('managarm',
 	license : 'MIT',
 	meson_version : '>=1.4.0',
 	default_options : [
-		'cpp_std=gnu++20',
+		'cpp_std=gnu++23',
 		'c_std=gnu11',
 		'warning_level=2'
 	]
@@ -213,7 +213,7 @@ if build_drivers or provide_deps
 		# misc
 		'kernletcc'
 	]
-	utils = [ 'runsvr', 'lsmbus' ]
+	utils = [ 'runsvr', 'lsmbus', 'wait-for-devices' ]
 
 	# delay these dirs until last as they require other libs
 	# to already be built
