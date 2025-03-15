@@ -467,7 +467,7 @@ public:
 	}
 
 	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
-	: File{StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops} { }
+	: File{StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops | defaultPipeLikeSeek} { }
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
