@@ -147,7 +147,7 @@ struct Node : FsNode {
 
 
 public:
-	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb = nullptr)
+	Node(uint64_t inode, helix::UniqueLane lane, Superblock *sb)
 	: FsNode{sb}, _inode{inode}, _lane{std::move(lane)} { }
 
 protected:
@@ -361,8 +361,8 @@ private:
 	}
 
 public:
-	SymlinkNode(uint64_t inode, helix::UniqueLane lane)
-	: Node{inode, std::move(lane)} { }
+	SymlinkNode(Superblock *sb, uint64_t inode, helix::UniqueLane lane)
+	: Node{inode, std::move(lane), sb} { }
 };
 
 struct Link : FsLink {
@@ -950,7 +950,7 @@ std::shared_ptr<Node> Superblock::internalizePeripheralNode(int64_t type,
 		node = std::make_shared<RegularNode>(this, id, std::move(lane));
 		break;
 	case managarm::fs::FileType::SYMLINK:
-		node = std::make_shared<SymlinkNode>(id, std::move(lane));
+		node = std::make_shared<SymlinkNode>(this, id, std::move(lane));
 		break;
 	default:
 		throw std::runtime_error("extern_fs: Unexpected file type");
