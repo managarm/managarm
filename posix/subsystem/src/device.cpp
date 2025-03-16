@@ -74,7 +74,7 @@ openDevice(VfsType type, DeviceId id, std::shared_ptr<MountView> mount,
 // --------------------------------------------------------
 
 std::shared_ptr<FsLink> getDevtmpfs() {
-	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createRoot();
+	static std::shared_ptr<FsLink> devtmpfs = tmp_fs::createDevTmpFsRoot();
 	return devtmpfs;
 }
 
@@ -352,7 +352,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 	}
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane) {
+FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
 
@@ -372,6 +372,6 @@ FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lan
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor());
+	co_return extern_fs::createRoot(lane.dup(), pull_node.descriptor(), device);
 }
 

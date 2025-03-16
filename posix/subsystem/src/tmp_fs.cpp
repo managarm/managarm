@@ -471,7 +471,6 @@ struct MemoryNode final : Node {
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
-		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = inodeNumber();
 		stats.fileSize = _fileSize;
@@ -515,6 +514,10 @@ private:
 };
 
 struct Superblock final : FsSuperblock {
+	Superblock(std::string name = "tmpfs") : fsType_{name} {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
+
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
 		auto node = std::make_shared<MemoryNode>(this);
 		co_return std::move(node);
@@ -557,12 +560,23 @@ struct Superblock final : FsSuperblock {
 		co_return stats;
 	}
 
+	std::string getFsType() override {
+		return fsType_;
+	}
+
 	int64_t allocateInode() {
 		return _inodeCounter++;
 	}
 
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
 private:
 	int64_t _inodeCounter = 1;
+
+	std::string fsType_;
+	unsigned int deviceMinor_;
 };
 
 // ----------------------------------------------------------------------------
@@ -812,19 +826,19 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkso
 	co_return link;
 }
 
-
-// TODO: File system should not have global superblocks.
-static Superblock globalSuperblock;
-
 } // anonymous namespace
 
 // Ironically, this function does not create a MemoryNode.
 std::shared_ptr<FsNode> createMemoryNode(std::string path) {
-	return std::make_shared<InheritedNode>(&globalSuperblock, std::move(path));
+	return std::make_shared<InheritedNode>(new Superblock{}, std::move(path));
 }
 
 std::shared_ptr<FsLink> createRoot() {
-	return DirectoryNode::createRootDirectory(&globalSuperblock);
+	return DirectoryNode::createRootDirectory(new Superblock{});
+}
+
+std::shared_ptr<FsLink> createDevTmpFsRoot() {
+	return DirectoryNode::createRootDirectory(new Superblock{"devtmpfs"});
 }
 
 } // namespace tmp_fs

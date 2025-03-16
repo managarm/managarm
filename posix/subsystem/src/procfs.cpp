@@ -1,3 +1,4 @@
+#include <functional>
 #include <linux/magic.h>
 #include <string.h>
 #include <sstream>
@@ -9,6 +10,7 @@
 #include "process.hpp"
 
 #include <bitset>
+#include <sys/epoll.h>
 
 namespace procfs {
 
@@ -63,13 +65,13 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 }
 
 async::result<frg::expected<Error, size_t>>
-RegularFile::readSome(Process *, void *data, size_t max_length) {
+RegularFile::readSome(Process *process, void *data, size_t max_length) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
-		_buffer = co_await node->show();
+		_buffer = co_await node->show(process);
 		_cached = true;
 	}
 
@@ -87,6 +89,24 @@ RegularFile::writeAll(Process *, const void *data, size_t length) {
 	auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
 	co_await node->store(std::string{reinterpret_cast<const char *>(data), length});
 	co_return length;
+}
+
+async::result<frg::expected<Error, PollStatusResult>>
+RegularFile::pollStatus(Process *) {
+	co_return PollStatusResult{1, EPOLLIN};
+}
+
+async::result<frg::expected<Error, PollWaitResult>>
+RegularFile::pollWait(Process *, uint64_t sequence, int mask,
+		async::cancellation_token cancellation) {
+	(void)mask;
+
+	if(sequence > 1)
+		co_return Error::illegalArguments;
+
+	if(sequence)
+		co_await async::suspend_indefinitely(cancellation);
+	co_return PollWaitResult{1, EPOLLIN};
 }
 
 helix::BorrowedDescriptor RegularFile::getPassthroughLane() {
@@ -242,6 +262,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+	the_node->directMknode("mounts", std::make_shared<MountsLink>());
 
 	auto sysLink = the_node->directMkdir("sys");
 	auto sys = std::static_pointer_cast<DirectoryNode>(sysLink->getTarget());
@@ -307,12 +328,15 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMknode("root", std::make_shared<RootLink>(process));
 	proc_dir->directMknode("cwd", std::make_shared<CwdLink>(process));
 	proc_dir->directMknodeDir("fd", std::make_shared<FdDirectoryNode>(process));
+	proc_dir->directMknodeDir("fdinfo", std::make_shared<FdInfoDirectoryNode>(process));
 	proc_dir->directMkregular("maps", std::make_shared<MapNode>(process));
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
+	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>());
+	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>());
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -381,7 +405,7 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 LinkNode::LinkNode()
 : FsNode{&procfsSuperblock} { }
 
-async::result<std::string> UptimeNode::show() {
+async::result<std::string> UptimeNode::show(Process *) {
 	auto uptime = clk::getTimeSinceBoot();
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -397,7 +421,7 @@ async::result<void> UptimeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OstypeNode::show() {
+async::result<std::string> OstypeNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -411,7 +435,7 @@ async::result<void> OstypeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OsreleaseNode::show() {
+async::result<std::string> OsreleaseNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	// TODO: The version is a placeholder!
@@ -426,7 +450,7 @@ async::result<void> OsreleaseNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> ArchNode::show() {
+async::result<std::string> ArchNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -471,7 +495,7 @@ BootIdNode::BootIdNode() {
 		a, b, c, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
 }
 
-async::result<std::string> BootIdNode::show() {
+async::result<std::string> BootIdNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	co_return bootId_ + "\n";
@@ -495,7 +519,7 @@ expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
 }
 
-async::result<std::string> MapNode::show() {
+async::result<std::string> MapNode::show(Process *) {
 	auto vmContext = _process->vmContext();
 	std::stringstream stream;
 	for (auto area : *vmContext) {
@@ -540,7 +564,7 @@ async::result<void> MapNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> CommNode::show() {
+async::result<std::string> CommNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -558,7 +582,7 @@ expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
 }
 
-async::result<std::string> StatNode::show() {
+async::result<std::string> StatNode::show(Process *) {
 	// Everything that has a value of 0 is likely not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -628,7 +652,7 @@ async::result<void> StatNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/stat file!");
 }
 
-async::result<std::string> StatmNode::show() {
+async::result<std::string> StatmNode::show(Process *) {
 	(void)_process;
 	// All hardcoded to 0.
 	// See man 5 proc for more details.
@@ -649,7 +673,7 @@ async::result<void> StatmNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/statm file!");
 }
 
-async::result<std::string> StatusNode::show() {
+async::result<std::string> StatusNode::show(Process *) {
 	// Everything that has a value of N/A is not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -739,8 +763,12 @@ expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
 }
 
+expected<std::string> MountsLink::readSymlink(FsLink *, Process *) {
+	co_return "self/mounts";
+}
+
 // MASSIVE STUBS
-async::result<std::string> CgroupNode::show() {
+async::result<std::string> CgroupNode::show(Process *) {
 	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -843,6 +871,192 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
 	auto path = viewPath.getPath(process->fsContext()->getRoot());
 
 	co_return path;
+}
+
+async::result<std::string> MountsNode::show(Process *proc) {
+	auto root = proc->fsContext()->getRoot();
+
+	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
+		auto dev = mount->getDevice();
+		auto fsType = mount->getOrigin()->getTarget()->superblock()->getFsType();
+
+		std::string devName = [&]() {
+			if(dev.second) {
+				return dev.getPath(proc->fsContext()->getRoot());
+			} else {
+				return fsType;
+			}
+		}();
+
+		auto mountPath = root ? "/" :
+			ViewPath{mount->getParent(), mount->getAnchor()}.getPath(proc->fsContext()->getRoot());
+
+		return std::format("{} {} {} rw 0 0\n",
+			devName, mountPath, fsType);
+	};
+
+	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare>&)> processChildren =
+		[&](auto &mounts) -> std::string {
+		std::string ret;
+
+		for(auto mount : mounts) {
+			ret.append(processMount(mount));
+			ret.append(processChildren(mount->mounts()));
+		}
+
+		return ret;
+	};
+
+	std::string ret = processMount(root.first, true);
+	ret.append(processChildren(root.first->mounts()));
+
+	co_return ret;
+}
+
+async::result<void> MountsNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/mounts file" << std::endl;
+	co_return;
+}
+
+async::result<std::string> MountInfoNode::show(Process *proc) {
+	auto root = proc->fsContext()->getRoot();
+
+	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
+		auto mountId = mount->mountId();
+		auto devno = mount->getOrigin()->getTarget()->superblock()->deviceNumber();
+		auto parentId = mount->getParent() ? mount->getParent()->mountId() : mountId;
+		auto dev = mount->getDevice();
+		auto fsType = mount->getOrigin()->getTarget()->superblock()->getFsType();
+
+		auto devName = [&]() -> std::string {
+			if(dev.second) {
+				return dev.getPath(proc->fsContext()->getRoot());
+			} else {
+				return "none";
+			}
+		}();
+
+		auto mountPath = root ? "/" :
+			ViewPath{mount->getParent(), mount->getAnchor()}.getPath(proc->fsContext()->getRoot());
+
+		return std::format("{} {} {}:{} {} {} rw - {} {} rw\n",
+			mountId, parentId, major(devno), minor(devno), "/", mountPath, fsType, devName);
+	};
+
+	std::function<std::string(const std::set<std::shared_ptr<MountView>, MountView::Compare> &)> processChildren =
+		[&](auto &mounts) -> std::string {
+		std::string ret;
+
+		for(auto mount : mounts) {
+			ret.append(processMount(mount));
+			ret.append(processChildren(mount->mounts()));
+		}
+
+		return ret;
+	};
+
+	std::string ret = processMount(root.first, true);
+	ret.append(processChildren(root.first->mounts()));
+
+	co_return ret;
+}
+
+async::result<void> MountInfoNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/mountinfo file" << std::endl;
+	co_return;
+}
+
+FdInfoDirectoryNode::FdInfoDirectoryNode(Process *process)
+: FsNode(&procfsSuperblock), _process{process} {}
+
+VfsType FdInfoDirectoryNode::getType() {
+	return VfsType::directory;
+}
+
+async::result<frg::expected<Error, FileStats>> FdInfoDirectoryNode::getStats() {
+	std::cout << "\e[31mposix: Fix procfs FdInfoDirectoryNode::getStats()\e[39m" << std::endl;
+	co_return FileStats{};
+}
+
+std::shared_ptr<FsLink> FdInfoDirectoryNode::treeLink() {
+	assert(_treeLink);
+	auto s = _treeLink->shared_from_this();
+	assert(s);
+	return s;
+}
+
+async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+FdInfoDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+		SemanticFlags semantic_flags) {
+	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		std::cout << "\e[31mposix: open() received illegal arguments:"
+			<< std::bitset<32>(semantic_flags)
+			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+			<< std::endl;
+		co_return Error::illegalArguments;
+	}
+
+	auto file = smarter::make_shared<FdInfoDirectoryFile>(std::move(mount), std::move(link), _process);
+	file->setupWeakFile(file);
+	FdInfoDirectoryFile::serve(file);
+	co_return File::constructHandle(std::move(file));
+}
+
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdInfoDirectoryNode::getLink(std::string name) {
+	if(!std::all_of(name.begin(), name.end(), isdigit))
+		co_return Error::noSuchFile;
+
+	auto nameNum = std::stoi(name);
+	if(_process->fileContext()->fileTable().contains(nameNum)) {
+		auto file = _process->fileContext()->fileTable().at(nameNum).file;
+		auto pointee = std::make_shared<FdInfoNode>(file->associatedMount(), file);
+		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
+	}
+
+	co_return Error::noSuchFile;
+}
+
+void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
+	helix::UniqueLane lane;
+	std::tie(lane, file->_passthrough) = helix::createStream();
+	async::detach(protocols::fs::servePassthrough(std::move(lane),
+			file, &File::fileOperations, file->_cancelServe));
+}
+
+FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
+: File{StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
+		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+
+void FdInfoDirectoryFile::handleClose() {
+	_cancelServe.cancel();
+}
+
+FutureMaybe<ReadEntriesResult> FdInfoDirectoryFile::readEntries() {
+	if(_iter != _fileTable.end()) {
+		co_return std::to_string((_iter++)->first);
+	}else{
+		co_return std::nullopt;
+	}
+}
+
+helix::BorrowedDescriptor FdInfoDirectoryFile::getPassthroughLane() {
+	return _passthrough;
+}
+
+async::result<std::string> FdInfoNode::show(Process *) {
+	auto seekResult = co_await file_->seek(0, VfsSeek::relative);
+	auto pos = seekResult ? seekResult.value() : 0;
+	auto mountId = mountView_ ? mountView_->mountId() : 0;
+
+	co_return std::format("pos:\t{}\nmnt_id:\t{}\n", pos, mountId);
+}
+
+async::result<void> FdInfoNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/[pid]/fdinfo/N file" << std::endl;
+	co_return;
 }
 
 } // namespace procfs

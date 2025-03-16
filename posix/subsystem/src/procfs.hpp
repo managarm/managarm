@@ -42,6 +42,12 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;
 
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override;
+
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
+		uint64_t sequence, int mask,
+		async::cancellation_token cancellation = {}) override;
+
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -103,13 +109,15 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 			SemanticFlags semantic_flags) override;
 
 protected:
-	virtual async::result<std::string> show() = 0;
+	virtual async::result<std::string> show(Process *) = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
 };
 
 struct SuperBlock final : FsSuperblock {
 public:
-	SuperBlock() = default;
+	SuperBlock() {
+		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
+	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
@@ -117,6 +125,17 @@ public:
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
 	async::result<frg::expected<Error, FsFileStats>> getFsstats() override;
+
+	std::string getFsType() override {
+		return "proc";
+	}
+
+	dev_t deviceNumber() override {
+		return makedev(0, deviceMinor_);
+	}
+
+private:
+	unsigned int deviceMinor_;
 };
 
 struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode> {
@@ -212,12 +231,16 @@ private:
 	Process *_process;
 };
 
+struct MountsLink final : LinkNode, std::enable_shared_from_this<MountsLink> {
+	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+};
+
 struct MapNode final : RegularNode {
 	MapNode(Process *process)
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -226,35 +249,35 @@ private:
 struct UptimeNode final : RegularNode {
 	UptimeNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct OstypeNode final : RegularNode {
 	OstypeNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct OsreleaseNode final : RegularNode {
 	OsreleaseNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct ArchNode final : RegularNode {
 	ArchNode() {}
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 };
 
 struct BootIdNode final : RegularNode {
 	BootIdNode();
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	std::string bootId_;
@@ -265,7 +288,7 @@ struct CommNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -276,7 +299,7 @@ struct StatNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -287,7 +310,7 @@ struct StatmNode final : RegularNode {
         : _process(process)
         { }
 
-        async::result<std::string> show() override;
+        async::result<std::string> show(Process *) override;
         async::result<void> store(std::string) override;
 private:
         Process *_process;
@@ -298,7 +321,7 @@ struct StatusNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -330,7 +353,7 @@ struct CgroupNode final : RegularNode {
 	: _process(process)
 	{ }
 
-	async::result<std::string> show() override;
+	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
 private:
 	Process *_process;
@@ -362,6 +385,70 @@ struct SymlinkNode final : LinkNode, std::enable_shared_from_this<SymlinkNode> {
 private:
 	std::shared_ptr<MountView> _mount;
 	std::weak_ptr<FsLink> _link;
+};
+
+struct MountsNode final : RegularNode {
+	MountsNode() = default;
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+};
+
+struct MountInfoNode final : RegularNode {
+	MountInfoNode() = default;
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+};
+
+struct FdInfoDirectoryNode final : FsNode, std::enable_shared_from_this<FdInfoDirectoryNode> {
+public:
+	friend DirectoryNode;
+
+	explicit FdInfoDirectoryNode(Process *process);
+
+	VfsType getType() override;
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override;
+	std::shared_ptr<FsLink> treeLink() override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
+private:
+	Process *_process;
+	Link *_treeLink;
+};
+
+struct FdInfoDirectoryFile final : File {
+public:
+	static void serve(smarter::shared_ptr<FdInfoDirectoryFile> file);
+
+	explicit FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process);
+
+	void handleClose() override;
+
+	FutureMaybe<ReadEntriesResult> readEntries() override;
+	helix::BorrowedDescriptor getPassthroughLane() override;
+
+private:
+	Process *_process;
+
+	helix::UniqueLane _passthrough;
+	async::cancellation_event _cancelServe;
+
+	std::unordered_map<int, FileDescriptor> _fileTable;
+	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
+};
+
+struct FdInfoNode final : RegularNode {
+	FdInfoNode(std::shared_ptr<MountView> mountView, smarter::shared_ptr<File, FileHandle> file)
+	: mountView_{std::move(mountView)}, file_{std::move(file)} {}
+
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+private:
+	std::shared_ptr<MountView> mountView_;
+	smarter::shared_ptr<File, FileHandle> file_;
 };
 
 } // namespace procfs

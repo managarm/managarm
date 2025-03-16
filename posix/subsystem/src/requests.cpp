@@ -772,7 +772,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 				auto device = blockRegistry.get(source.second->getTarget()->readDevice());
 				auto link = co_await device->mount();
-				co_await target.first->mount(target.second, std::move(link));
+				co_await target.first->mount(target.second, std::move(link), source);
 			}
 
 			logRequest(logRequests, "MOUNT", "succeeded");
@@ -1410,6 +1410,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsLink> target_link;
+			std::shared_ptr<MountView> target_mount;
 
 			if (req->fd() == AT_FDCWD) {
 				relative_to = self->fsContext()->getWorkingDirectory();
@@ -1449,6 +1450,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					}
 				}
 
+				target_mount = resolver.currentView();
 				target_link = resolver.currentLink();
 			}
 
@@ -1513,6 +1515,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_mtime_nanos(stats.mtimeNanos);
 			resp.set_ctime_secs(stats.ctimeSecs);
 			resp.set_ctime_nanos(stats.ctimeNanos);
+			resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
+			resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
