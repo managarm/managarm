@@ -471,7 +471,6 @@ struct MemoryNode final : Node {
 	}
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
-		std::cout << "\e[31mposix: Fix tmpfs getStats() in MemoryNode\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = inodeNumber();
 		stats.fileSize = _fileSize;

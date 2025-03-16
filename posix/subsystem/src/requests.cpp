@@ -1516,6 +1516,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_ctime_secs(stats.ctimeSecs);
 			resp.set_ctime_nanos(stats.ctimeNanos);
 			resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
+			resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
