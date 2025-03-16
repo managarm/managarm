@@ -403,20 +403,66 @@ namespace posix {
 					co_return;
 				}
 
-				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION)
-					infoLogger() << "thor: Unexpected legacy POSIX request "
+				switch(req->request_type()) {
+					case managarm::posix::CntReqType::VM_PROTECT: {
+						if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+							managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+							resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+							frg::string<KernelAlloc> ser(*kernelAlloc);
+							resp.SerializeToString(&ser);
+							frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+							memcpy(respBuffer.data(), ser.data(), ser.size());
+							auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+							// TODO: improve error handling here.
+							assert(respError == Error::success);
+							break;
+						}
+
+						uint32_t native_flags = 0;
+						if(req->mode() & PROT_READ)
+							native_flags |= VirtualizedPageSpace::kMapProtRead;
+						if(req->mode() & PROT_WRITE)
+							native_flags |= VirtualizedPageSpace::kMapProtWrite;
+						if(req->mode() & PROT_EXEC)
+							native_flags |= VirtualizedPageSpace::kMapProtExecute;
+
+						auto space = _thread->getAddressSpace();
+						auto result = co_await space->protect(
+							req->address(), req->size(), native_flags);
+						// TODO: improve error handling here.
+						assert(result);
+
+						managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::SUCCESS);
+
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(respError == Error::success);
+						break;
+					}
+					case managarm::posix::CntReqType::SIG_ACTION:
+						infoLogger() << "thor: Unexpected legacy POSIX request "
 							<< req->request_type() << frg::endlog;
+						[[fallthrough]];
+					default: {
+						managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+						resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
+						frg::string<KernelAlloc> ser(*kernelAlloc);
+						resp.SerializeToString(&ser);
+						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+						memcpy(respBuffer.data(), ser.data(), ser.size());
+						auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+						// TODO: improve error handling here.
+						assert(respError == Error::success);
+						break;
+					}
+				}
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
 				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
 				if(tailError != Error::success) {
