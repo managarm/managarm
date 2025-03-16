@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <iostream>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <boost/intrusive/list.hpp>
@@ -11,6 +12,10 @@
 #include "fs.hpp"
 
 namespace {
+
+constexpr int epollEvents = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLPRI | EPOLLERR | EPOLLHUP;
+[[maybe_unused]]
+constexpr int epollFlags = EPOLLET | EPOLLONESHOT | EPOLLWAKEUP | EPOLLEXCLUSIVE;
 
 bool logEpoll = false;
 
@@ -24,9 +29,10 @@ private:
 	// Items must only be accessed while a precondition guarantees that
 	// at least one state bit is non-zero.
 	using State = uint32_t;
-	static constexpr State stateActive = 1;
+	static constexpr State stateAlive = 1;
 	static constexpr State statePolling = 2;
 	static constexpr State statePending = 4;
+	static constexpr State stateActive = 8;
 
 	struct Item;
 
@@ -46,7 +52,7 @@ private:
 	struct Item : boost::intrusive::list_base_hook<> {
 		Item(smarter::shared_ptr<OpenFile> epoll, Process *process,
 				smarter::shared_ptr<File> file, int mask, uint64_t cookie)
-		: epoll{epoll}, state{stateActive}, process{process},
+		: epoll{epoll}, state{stateAlive}, process{process},
 				file{std::move(file)}, eventMask{mask}, cookie{cookie} { }
 
 		smarter::shared_ptr<OpenFile> epoll;
@@ -81,10 +87,8 @@ private:
 		auto self = item->epoll.get();
 
 		// Discard non-active and closed items.
-		if(!(item->state & stateActive)) {
+		if(!(item->state & stateAlive)) {
 			item->state &= ~statePolling;
-			// TODO: We might have polling + pending items in the future.
-			assert(!item->state);
 			return;
 		}
 
@@ -160,7 +164,7 @@ public:
 				process, std::move(file), mask, cookie);
 		item->self = item;
 
-		item->state |= statePending;
+		item->state |= statePending | stateActive;
 
 		_fileMap.insert({{item->file.get(), fd}, item});
 
@@ -180,7 +184,9 @@ public:
 			return Error::noSuchFile;
 		}
 		auto item = it->second;
-		assert(item->state & stateActive);
+
+		if((item->eventMask & EPOLLEXCLUSIVE) || (mask & EPOLLEXCLUSIVE))
+			return Error::illegalArguments;
 
 		item->eventMask = mask;
 		item->cookie = cookie;
@@ -188,7 +194,7 @@ public:
 
 		// Mark the item as pending.
 		if(!(item->state & statePending)) {
-			item->state |= statePending;
+			item->state |= statePending | stateActive;
 
 			item.ctr()->increment();
 			_pendingQueue.push_back(*item);
@@ -207,12 +213,11 @@ public:
 			return Error::noSuchFile;
 		}
 		auto item = it->second;
-		assert(item->state & stateActive);
 
 		item->cancelPoll.cancel();
 
 		_fileMap.erase(it);
-		item->state &= ~stateActive;
+		item->state &= ~stateAlive;
 		return Error::success;
 	}
 
@@ -239,11 +244,13 @@ public:
 				item.ctr()->decrement();
 				assert(item->state & statePending);
 
-				// Discard non-alive items without returning them.
-				if(!(item->state & stateActive)) {
+				auto itemEvents = item->eventMask & epollEvents;
+
+				// Discard dead or inactive items without returning them.
+				if(!(item->state & stateAlive) || !(item->state & stateActive)) {
 					if(logEpoll)
 						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
-								" inactive item \e[1;34m" << item->file->structName() << "\e[0m"
+								" dead or inactive item \e[1;34m" << item->file->structName() << "\e[0m"
 								<< std::endl;
 					item->state &= ~statePending;
 					continue;
@@ -272,9 +279,23 @@ public:
 							" mask is " << item->eventMask << ", while " << std::get<1>(result)
 							<< " is active" << std::endl;
 
-				// Abort early (i.e before requeuing) if the item is not pending.
-				auto status = std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
-				if(!status) {
+				// Return pending items to the caller.
+				auto status = std::get<1>(result) & (itemEvents | EPOLLERR | EPOLLHUP);
+				if(status) {
+					if(item->eventMask & (EPOLLWAKEUP | EPOLLEXCLUSIVE))
+						std::println("posix.epoll \e[1;34m{}\e[0m: unhandled epoll flag {:#x}", structName(), item->eventMask & (EPOLLWAKEUP | EPOLLEXCLUSIVE));
+
+					assert(k < max_events);
+					memset(events + k, 0, sizeof(struct epoll_event));
+					events[k].events = status;
+					events[k].data.u64 = item->cookie;
+					k++;
+
+					if(item->eventMask & EPOLLONESHOT)
+						item->state &= ~stateActive;
+				}
+
+				if(!status || (item->eventMask & EPOLLET)) {
 					item->state &= ~statePending;
 					if(!(item->state & statePolling)) {
 						item->state |= statePolling;
@@ -284,28 +305,18 @@ public:
 						item->pollOperation.construct_with([&] {
 							return async::execution::connect(
 								item->file->pollWait(item->process, std::get<0>(result),
-										item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll),
+										itemEvents | EPOLLERR | EPOLLHUP, item->cancelPoll),
 								Receiver{item}
 							);
 						});
 						if(async::execution::start_inline(*item->pollOperation))
 							_awaitPoll(item.get());
 					}
-					continue;
+				} else {
+					item.ctr()->increment();
+					repoll_queue.push_back(*item);
 				}
 
-				// We have to increment the sequence again as concurrent waiters
-				// might have seen an empty _pendingQueue.
-				// TODO: Edge-triggered watches should not be requeued here.
-				item.ctr()->increment();
-				repoll_queue.push_back(*item);
-
-				assert(k < max_events);
-				memset(events + k, 0, sizeof(struct epoll_event));
-				events[k].events = status;
-				events[k].data.u64 = item->cookie;
-
-				k++;
 				if(k == max_events)
 					break;
 			}
@@ -322,6 +333,8 @@ public:
 		// Before returning, we have to reinsert the level-triggered events that we report.
 		if(!repoll_queue.empty()) {
 			_pendingQueue.splice(_pendingQueue.end(), repoll_queue);
+			// We have to increment the sequence again as concurrent waiters
+			// might have seen an empty _pendingQueue.
 			_currentSeq++;
 			_statusBell.raise();
 		}
@@ -341,19 +354,21 @@ public:
 		auto it = _fileMap.begin();
 		while(it != _fileMap.end()) {
 			auto item = it->second;
-			assert(item->state & stateActive);
+			assert(item->state & stateAlive);
 
 			it = _fileMap.erase(it);
-			item->state &= ~stateActive;
-
-			if(item->state & statePending) {
-				auto qit = _pendingQueue.iterator_to(*item);
-				_pendingQueue.erase(qit);
-				item->state &= ~statePending;
-			}
+			item->state &= ~stateAlive;
 
 			if(item->state & statePolling)
 				item->cancelPoll.cancel();
+		}
+
+		while(!_pendingQueue.empty()) {
+			auto item = _pendingQueue.front().self.lock();
+			_pendingQueue.pop_front();
+			item.ctr()->decrement();
+			assert(item->state & statePending);
+			item->state &= ~statePending;
 		}
 
 		_statusBell.raise();
