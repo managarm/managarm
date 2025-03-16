@@ -12,6 +12,10 @@
 
 namespace {
 
+constexpr int epollEvents = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLPRI | EPOLLERR | EPOLLHUP;
+[[maybe_unused]]
+constexpr int epollFlags = EPOLLET | EPOLLONESHOT | EPOLLWAKEUP | EPOLLEXCLUSIVE;
+
 bool logEpoll = false;
 
 struct OpenFile : File {
@@ -239,6 +243,8 @@ public:
 				item.ctr()->decrement();
 				assert(item->state & statePending);
 
+				auto itemEvents = item->eventMask & epollEvents;
+
 				// Discard non-alive items without returning them.
 				if(!(item->state & stateActive)) {
 					if(logEpoll)
@@ -273,7 +279,7 @@ public:
 							<< " is active" << std::endl;
 
 				// Abort early (i.e before requeuing) if the item is not pending.
-				auto status = std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP);
+				auto status = std::get<1>(result) & (itemEvents | EPOLLERR | EPOLLHUP);
 				if(!status) {
 					item->state &= ~statePending;
 					if(!(item->state & statePolling)) {
@@ -284,7 +290,7 @@ public:
 						item->pollOperation.construct_with([&] {
 							return async::execution::connect(
 								item->file->pollWait(item->process, std::get<0>(result),
-										item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll),
+										itemEvents | EPOLLERR | EPOLLHUP, item->cancelPoll),
 								Receiver{item}
 							);
 						});
