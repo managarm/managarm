@@ -2570,8 +2570,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					handler.flags |= signalReentrant;
 				if(req.flags() & SA_ONSTACK)
 					handler.flags |= signalOnStack;
-				if(req.flags() & SA_RESTART)
-					std::cout << "\e[31mposix: Ignoring SA_RESTART\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDSTOP)
 					std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDWAIT)
