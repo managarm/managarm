@@ -253,6 +253,13 @@ if build_drivers
 	]
 
 	install_data(rules, install_dir : 'lib/udev/rules.d')
+
+	units = [
+		'drivers/kbd/runsvr-atkbd.service',
+		'drivers/usb/runsvr-usbhid.service',
+	]
+
+	install_data(units, install_dir : 'lib/systemd/system')
 endif
 
 if build_testsuite
