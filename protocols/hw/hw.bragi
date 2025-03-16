@@ -191,3 +191,7 @@ message InstallDtIrqRequest 23 {
 head(128):
 	uint32 index;
 }
+
+message EnableDmaRequest 24 {
+head(128):
+}
