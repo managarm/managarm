@@ -1,5 +1,6 @@
 #include <format>
 #include <linux/netlink.h>
+#include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
 #include <sys/resource.h>
@@ -3277,10 +3278,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			ResolveFlags flags = 0;
+
+			if(req->flags() & IN_DONT_FOLLOW)
+				flags |= resolveDontFollow;
+
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req->path(), self.get());
-			auto resolveResult = co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve(flags);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
