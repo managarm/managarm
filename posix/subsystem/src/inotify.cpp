@@ -143,12 +143,17 @@ public:
 	}
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
-		// TODO: Coalesce watch descriptors for the same inode.
 		if(mask & ~(IN_DELETE | IN_CREATE | IN_ISDIR))
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
-		auto descriptor = _nextDescriptor++;
+
+		for(const auto &[desc, watch] : watches_)
+			if(watch->file == this)
+				return desc;
+
+		auto descriptor = descriptorAllocator_.allocate();
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);
 		node->addObserver(watch);
+		watches_.insert({descriptor, watch});
 		return descriptor;
 	}
 
@@ -194,8 +199,8 @@ private:
 	helix::UniqueLane _passthrough;
 	std::deque<Packet> _queue;
 
-	// TODO: Use a proper ID allocator to allocate watch descriptor IDs.
-	int _nextDescriptor = 1;
+	id_allocator<int> descriptorAllocator_{1};
+	std::unordered_map<int, std::shared_ptr<Watch>> watches_;
 
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq = 1;
