@@ -97,7 +97,7 @@ public:
 	static constexpr uint32_t createEvent = 2;
 
 	virtual void observeNotification(uint32_t events,
-			const std::string &name, uint32_t cookie) = 0;
+			const std::string &name, uint32_t cookie, bool isDir) = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -193,7 +193,7 @@ public:
 	virtual async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> traverseLinks(std::deque<std::string> path);
 
 protected:
-	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie);
+	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie, bool isDir = false);
 
 private:
 	FsSuperblock *_superblock;

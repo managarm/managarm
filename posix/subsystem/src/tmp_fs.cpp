@@ -354,7 +354,7 @@ private:
 
 		_entries.erase(it);
 
-		notifyObservers(FsObserver::deleteEvent, name, 0);
+		notifyObservers(FsObserver::deleteEvent, name, 0, true);
 		co_return {};
 	}
 
@@ -778,7 +778,7 @@ DirectoryNode::mkdir(std::string name) {
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
-	notifyObservers(FsObserver::createEvent, name, 0);
+	notifyObservers(FsObserver::createEvent, name, 0, true);
 	co_return link;
 }
 

@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 #include <sys/inotify.h>
 #include <iostream>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -29,12 +30,14 @@ public:
 		: file{file_}, descriptor{descriptor}, mask{mask} { }
 
 		void observeNotification(uint32_t events,
-				const std::string &name, uint32_t cookie) override {
+				const std::string &name, uint32_t cookie, bool isDir) override {
 			uint32_t inotifyEvents = 0;
 			if(events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
 			if(events & FsObserver::createEvent)
 				inotifyEvents |= IN_CREATE;
+			if(isDir)
+				inotifyEvents |= IN_ISDIR;
 			if(!(inotifyEvents & mask))
 				return;
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
@@ -124,8 +127,8 @@ public:
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
 		// TODO: Coalesce watch descriptors for the same inode.
-		if(mask & ~(IN_DELETE | IN_CREATE))
-			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
+		if(mask & ~(IN_DELETE | IN_CREATE | IN_ISDIR))
+			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 		auto descriptor = _nextDescriptor++;
 		auto watch = std::make_shared<Watch>(this, descriptor, mask);
 		node->addObserver(watch);
