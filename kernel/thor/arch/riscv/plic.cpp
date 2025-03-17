@@ -51,7 +51,7 @@ struct Plic : dt::IrqController {
 
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override {
 			unmask();
-			return IrqStrategy::justEoi;
+			return irq_strategy::maskable | irq_strategy::endOfInterrupt;
 		}
 
 		void mask() override { plic_->mask(plic_->bspCtx_, idx_); }
