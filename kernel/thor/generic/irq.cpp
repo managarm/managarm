@@ -224,7 +224,7 @@ void IrqPin::raise() {
 		}
 
 		if (_strategy & irq_strategy::endOfInterrupt)
-			sendEoi();
+			endOfInterrupt();
 		if(complain)
 			dumpHardwareState();
 		return;
@@ -240,7 +240,7 @@ void IrqPin::raise() {
 
 		_updateMask();
 		if (_strategy & irq_strategy::endOfInterrupt)
-			sendEoi();
+			endOfInterrupt();
 		return;
 	}
 
@@ -248,7 +248,7 @@ void IrqPin::raise() {
 
 	_updateMask();
 	if (_strategy & irq_strategy::endOfInterrupt)
-		sendEoi();
+		endOfInterrupt();
 }
 
 void IrqPin::_acknowledge() {
@@ -308,6 +308,9 @@ void IrqPin::_dispatch() {
 		_inService = false;
 		_maskState &= ~maskedForService;
 
+		if (_strategy & irq_strategy::endOfService)
+			endOfService();
+
 		// Avoid losing IRQs that were ignored in raise() as 'already active'.
 		if(_raiseBuffered) {
 			_raiseBuffered = false;
@@ -363,6 +366,14 @@ void IrqPin::dumpHardwareState() {
 	infoLogger() << "thor: No dump available for IRQ pin " << name() << frg::endlog;
 }
 
+void IrqPin::endOfInterrupt() {
+	// Default implementation is a no-op: not all IRQ controllers need endOfInterrupt().
+}
+
+void IrqPin::endOfService() {
+	// Default implementation is a no-op: not all IRQ controllers need endOfService().
+}
+
 void IrqPin::_doService() {
 	assert(!_inService);
 	assert(!_raiseBuffered);
@@ -414,6 +425,9 @@ void IrqPin::_doService() {
 
 			_inService = false;
 			_maskState &= ~maskedForService;
+
+			if (_strategy & irq_strategy::endOfService)
+				endOfService();
 		}else{
 			urgentLogger() << "thor: IRQ " << _name << " was nacked (synchronously)!" << frg::endlog;
 			for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {

@@ -179,7 +179,7 @@ void GicDistributorV2::Pin::unmask() {
 	arch::scalar_store_relaxed<uint32_t>(parent_->space_, dist_reg::irqSetEnableBase + regOff, (1 << bitOff));
 }
 
-void GicDistributorV2::Pin::sendEoi() {
+void GicDistributorV2::Pin::endOfInterrupt() {
 	getCpuData()->gicCpuInterfaceV2->eoi(0, irq_);
 }
 

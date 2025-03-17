@@ -33,7 +33,7 @@ struct Gic : dt::IrqController {
 		virtual void mask() override = 0;
 		virtual void unmask() override = 0;
 
-		virtual void sendEoi() override = 0;
+		virtual void endOfInterrupt() override = 0;
 	};
 
 	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;

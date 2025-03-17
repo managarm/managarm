@@ -262,7 +262,7 @@ struct Aplic : dt::IrqController {
 			aplic_->space_.store(aplicSetieRegister(idx_ >> 5), bits);
 		}
 
-		void sendEoi() override {
+		void endOfInterrupt() override {
 			// The APLIC does not require EOIs.
 		}
 

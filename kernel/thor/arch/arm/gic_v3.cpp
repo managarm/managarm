@@ -213,7 +213,7 @@ void GicPinV3::unmask() {
 	arch::scalar_store_relaxed(space, dist_reg::irqSetEnableBase + offset, 1U << bit);
 }
 
-void GicPinV3::sendEoi() {
+void GicPinV3::endOfInterrupt() {
 	gicV3->eoi(0, irq_);
 }
 
