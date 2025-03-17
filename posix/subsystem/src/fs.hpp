@@ -94,7 +94,12 @@ protected:
 
 public:
 	static constexpr uint32_t deleteEvent = 1;
-	static constexpr uint32_t createEvent = 2;
+	static constexpr uint32_t deleteSelfEvent = 2;
+	static constexpr uint32_t createEvent = 4;
+	static constexpr uint32_t modifyEvent = 8;
+	static constexpr uint32_t accessEvent = 16;
+	static constexpr uint32_t closeWriteEvent = 32;
+	static constexpr uint32_t closeNoWriteEvent = 64;
 
 	virtual void observeNotification(uint32_t events,
 			const std::string &name, uint32_t cookie, bool isDir) = 0;

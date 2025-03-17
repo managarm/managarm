@@ -16,6 +16,8 @@ namespace inotify {
 
 namespace {
 
+constexpr int supportedFlags = IN_DELETE | IN_CREATE | IN_ISDIR | IN_DELETE_SELF | IN_MODIFY | IN_ACCESS | IN_CLOSE;
+
 struct OpenFile : File {
 public:
 	struct Packet {
@@ -34,12 +36,31 @@ public:
 			uint32_t inotifyEvents = 0;
 			if(events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
+			if(events & FsObserver::deleteSelfEvent)
+				inotifyEvents |= IN_DELETE_SELF;
 			if(events & FsObserver::createEvent)
 				inotifyEvents |= IN_CREATE;
+			if(events & FsObserver::modifyEvent)
+				inotifyEvents |= IN_MODIFY;
+			if(events & FsObserver::accessEvent)
+				inotifyEvents |= IN_ACCESS;
+			if(events & FsObserver::closeWriteEvent)
+				inotifyEvents |= IN_CLOSE_WRITE;
+			if(events & FsObserver::closeNoWriteEvent)
+				inotifyEvents |= IN_CLOSE_NOWRITE;
+
+			auto preexists = std::ranges::find_if(file->_queue, [&name, inotifyEvents](auto a) {
+				return a.name == name && (a.events & inotifyEvents) == inotifyEvents;
+			}) != file->_queue.end();
+			if(preexists)
+				return;
+
 			if(isDir)
 				inotifyEvents |= IN_ISDIR;
+
 			if(!(inotifyEvents & mask))
 				return;
+
 			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
 			file->_inSeq = ++file->_currentSeq;
 			file->_statusBell.raise();
@@ -143,7 +164,7 @@ public:
 	}
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
-		if(mask & ~(IN_DELETE | IN_CREATE | IN_ISDIR))
+		if(mask & ~supportedFlags)
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 
 		for(const auto &[desc, watch] : watches_)

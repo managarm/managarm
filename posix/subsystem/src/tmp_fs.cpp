@@ -409,8 +409,9 @@ public:
 				file, &fileOperations, file->_cancelServe));
 	}
 
-	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("tmpfs.regular"), std::move(mount), std::move(link)}, _offset{0} { }
+	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags flags)
+	: File{StructName::get("tmpfs.regular"), std::move(mount), std::move(link)},
+	flags_{flags}, _offset{0} { }
 
 	void handleClose() override;
 
@@ -441,6 +442,7 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
+	SemanticFlags flags_;
 
 	uint64_t _offset;
 };
@@ -449,6 +451,7 @@ struct MemoryNode final : Node {
 	friend struct MemoryFile;
 
 	MemoryNode(Superblock *superblock);
+	~MemoryNode();
 
 	VfsType getType() override {
 		return VfsType::regular;
@@ -464,7 +467,7 @@ struct MemoryNode final : Node {
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
-		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link));
+		auto file = smarter::make_shared<MemoryFile>(std::move(mount), std::move(link), semantic_flags);
 		file->setupWeakFile(file);
 		MemoryFile::serve(file);
 		co_return File::constructHandle(std::move(file));
@@ -584,9 +587,18 @@ private:
 // ----------------------------------------------------------------------------
 
 MemoryNode::MemoryNode(Superblock *superblock)
-: Node{superblock}, _areaSize{0}, _fileSize{0} { }
+: Node{superblock, FsNode::defaultSupportsObservers}, _areaSize{0}, _fileSize{0} { }
+
+MemoryNode::~MemoryNode() {
+	notifyObservers(FsObserver::deleteSelfEvent, {}, 0);
+}
 
 void MemoryFile::handleClose() {
+	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+	if(flags_ & semanticWrite)
+		node->notifyObservers(FsObserver::closeWriteEvent, {}, 0);
+	else
+		node->notifyObservers(FsObserver::closeNoWriteEvent, {}, 0);
 	_cancelServe.cancel();
 }
 
@@ -614,7 +626,7 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
 
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
 	_offset += chunk;
-
+	node->notifyObservers(FsObserver::accessEvent, associatedLink()->getName(), 0);
 	co_return chunk;
 }
 
@@ -627,6 +639,7 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
+	node->notifyObservers(FsObserver::modifyEvent, associatedLink()->getName(), 0);
 	co_return length;
 }
 
