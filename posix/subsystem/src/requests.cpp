@@ -3236,11 +3236,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)));
 
-			// TODO: Implement blocking reads
-			if(!(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK))
-				std::cout << "posix: INOTIFY_CREATE doesn't do blocking reads" << std::endl;
-
-			auto file = inotify::createFile();
+			auto file = inotify::createFile(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 

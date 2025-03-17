@@ -54,8 +54,8 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	OpenFile()
-	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)} { }
+	OpenFile(bool nonBlock = false)
+	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
 
 	~OpenFile() override {
 		// TODO: Properly keep track of watches.
@@ -64,6 +64,13 @@ public:
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override {
+		if(_queue.empty() && nonBlock_) {
+			co_return Error::wouldBlock;
+		}
+
+		while(_queue.empty())
+			co_await _statusBell.async_wait();
+
 		// TODO: As an optimization, we could return multiple events at the same time.
 		Packet packet = std::move(_queue.front());
 		_queue.pop_front();
@@ -173,12 +180,14 @@ private:
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq = 1;
 	uint64_t _inSeq = 0;
+
+	bool nonBlock_;
 };
 
 } // anonymous namespace
 
-smarter::shared_ptr<File, FileHandle> createFile() {
-	auto file = smarter::make_shared<OpenFile>();
+smarter::shared_ptr<File, FileHandle> createFile(bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
