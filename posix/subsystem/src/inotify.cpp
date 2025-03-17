@@ -74,24 +74,41 @@ public:
 		while(_queue.empty())
 			co_await _statusBell.async_wait();
 
-		// TODO: As an optimization, we could return multiple events at the same time.
-		Packet packet = std::move(_queue.front());
-		_queue.pop_front();
+		size_t written = 0;
 
-		if(maxLength < sizeof(inotify_event) + packet.name.size() + 1)
+		while(written < maxLength) {
+			size_t packetSize = sizeof(inotify_event) +
+				(_queue.front().name.empty() ? 0 : _queue.front().name.size() + 1);
+
+			if(written + packetSize > maxLength)
+				break;
+
+			Packet packet = std::move(_queue.front());
+			_queue.pop_front();
+
+			inotify_event e;
+			memset(&e, 0, sizeof(inotify_event));
+			e.wd = packet.descriptor;
+			e.mask = packet.events;
+			e.cookie = packet.cookie;
+			if(!packet.name.empty()) {
+				e.len = packet.name.size() + 1;
+				memcpy(reinterpret_cast<char *>(data) + written + sizeof(inotify_event),
+					packet.name.c_str(), packet.name.size() + 1);
+			}
+
+			memcpy(reinterpret_cast<char *>(data) + written, &e, sizeof(inotify_event));
+
+			written += packetSize;
+
+			if(_queue.empty())
+				break;
+		}
+
+		if(written)
+			co_return written;
+		else
 			co_return Error::illegalArguments;
-
-		inotify_event e;
-		memset(&e, 0, sizeof(inotify_event));
-		e.wd = packet.descriptor;
-		e.mask = packet.events;
-		e.cookie = packet.cookie;
-		e.len = packet.name.size();
-
-		memcpy(data, &e, sizeof(inotify_event));
-		memcpy(reinterpret_cast<char *>(data) + sizeof(inotify_event),
-				packet.name.c_str(), packet.name.size() + 1);
-		co_return sizeof(inotify_event) + packet.name.size() + 1;
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>
