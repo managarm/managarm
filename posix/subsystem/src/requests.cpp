@@ -1574,7 +1574,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_fstype(fsstats.f_type);
 			} else {
-				std::cout << "posix: STATFS request on path: " << req->path() << std::endl;
 				PathResolver resolver;
 				resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
 						req->path(), self.get());
