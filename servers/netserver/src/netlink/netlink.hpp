@@ -97,6 +97,56 @@ private:
 	bool _nonBlock = false;
 	bool pktinfo_ = false;
 
+	struct GroupBitmap {
+		void set(size_t i, bool set = true) {
+			size_t chunk = i / CHAR_BIT;
+			size_t offset = i % CHAR_BIT;
+
+			// fill missing chunks with zero
+			if(data_.size() <= chunk) {
+				for(size_t c = data_.size(); c <= chunk; c++) {
+					data_.push_back(0);
+				}
+			}
+
+			if(set)
+				data_.at(chunk) |= (1 << offset);
+			else
+				data_.at(chunk) &= ~(1 << offset);
+		}
+
+		bool get(size_t i) const {
+			size_t chunk = i / CHAR_BIT;
+			size_t offset = i % CHAR_BIT;
+
+			if(chunk < data_.size()) {
+				return data_.at(chunk) & (1 << offset);
+			}
+
+			return false;
+		}
+
+		size_t writeList(std::span<uint32_t> span) const {
+			size_t written = 0;
+
+			for(size_t i = 0; i < data_.size(); i++) {
+				for(size_t bit = 0; bit < CHAR_BIT; bit++) {
+					if(data_.at(i) & (1 << bit)) {
+						span[written++] = ((i * CHAR_BIT) + bit);
+						if(written >= span.size())
+							return written;
+					}
+				}
+			}
+
+			return written;
+		}
+	private:
+		std::vector<uint8_t> data_;
+	};
+
+	GroupBitmap groupMemberships_;
+
 	std::deque<core::netlink::Packet> _recvQueue;
 };
 

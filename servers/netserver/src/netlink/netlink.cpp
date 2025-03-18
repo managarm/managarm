@@ -195,6 +195,7 @@ async::result<protocols::fs::Error> NetlinkSocket::bind(void *obj, helix_ng::Cre
 			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
 			group->subscriptions.push_back(self);
+			self->groupMemberships_.set(i + 1);
 		}
 	}
 
@@ -280,6 +281,7 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 			assert(it != globalGroupMap.end());
 			auto group = it->second.get();
 			group->subscriptions.push_back(self);
+			self->groupMemberships_.set(val);
 
 			if(logGroups)
 				std::cout << std::format("netserver: joining netlink group 0x{:x}\n", val);
@@ -304,6 +306,11 @@ int layer, int number, std::vector<char> &optbuf) {
 
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 		memcpy(optbuf.data(), &self->protocol, std::min(optbuf.size(), sizeof(self->protocol)));
+	} else if(layer == SOL_NETLINK && number == NETLINK_LIST_MEMBERSHIPS) {
+		auto written = self->groupMemberships_.writeList(std::span<uint32_t>{
+			reinterpret_cast<uint32_t *>(optbuf.data()), optbuf.size() / sizeof(uint32_t)
+		});
+		optbuf.resize(written * sizeof(uint32_t));
 	} else {
 		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
