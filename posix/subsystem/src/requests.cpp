@@ -3313,6 +3313,35 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::InotifyRmRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::InotifyRmRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests || logPaths, "INOTIFY_RM");
+			managarm::posix::InotifyRmReply resp;
+
+			auto ifile = self->fileContext()->getFile(req->ifd());
+			if(!ifile) {
+				resp.set_error(managarm::posix::Errors::BAD_FD);
+				continue;
+			} else {
+				if(inotify::removeWatch(ifile.get(), req->wd()))
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+				else
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::EventfdCreateRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::EventfdCreateRequest>(recv_head);
 

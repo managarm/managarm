@@ -55,8 +55,12 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	int fd = mkstemp(testfile);
 	assert(fd >= 0);
 
+	int ifd2 = inotify_init1(IN_NONBLOCK);
+	assert(ifd2 > 0);
+
 	wd = inotify_add_watch(ifd, testfile, IN_MODIFY | IN_ACCESS | IN_DELETE_SELF | IN_CLOSE_WRITE);
 	assert(wd >= 0);
+
 	write(fd, &fd, sizeof(fd));
 	lseek(fd, 0, SEEK_SET);
 	int discard;
@@ -79,6 +83,18 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	memset(buffer, 0, sizeof(buffer));
 	chunk = read(ifd, buffer, sizeof(inotify_event) + NAME_MAX + 1);
 	assert(chunk == -1);
+
+	int wd2 = inotify_add_watch(ifd2, testfile, IN_MODIFY | IN_ACCESS | IN_DELETE_SELF | IN_CLOSE_WRITE);
+	assert(wd2 >= 0);
+	inotify_rm_watch(ifd2, wd2);
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd2, buffer, sizeof(inotify_event) + NAME_MAX + 1);
+	assert(chunk > 0);
+
+	memcpy(&evtHeader, buffer, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_IGNORED) == IN_IGNORED);
 
 	close(fd);
 

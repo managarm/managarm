@@ -17,6 +17,7 @@ namespace inotify {
 namespace {
 
 constexpr int supportedFlags = IN_DELETE | IN_CREATE | IN_ISDIR | IN_DELETE_SELF | IN_MODIFY | IN_ACCESS | IN_CLOSE;
+constexpr int alwaysReturnedFlags = IN_IGNORED | IN_ISDIR | IN_Q_OVERFLOW | IN_UNMOUNT;
 
 struct OpenFile : File {
 public:
@@ -28,8 +29,8 @@ public:
 	};
 
 	struct Watch final : FsObserver {
-		Watch(OpenFile *file_, int descriptor, uint32_t mask)
-		: file{file_}, descriptor{descriptor}, mask{mask} { }
+		Watch(OpenFile *file_, int descriptor, uint32_t mask, std::weak_ptr<FsNode> node)
+		: file{file_}, descriptor{descriptor}, mask{mask}, node{node} { }
 
 		void observeNotification(uint32_t events,
 				const std::string &name, uint32_t cookie, bool isDir) override {
@@ -48,6 +49,8 @@ public:
 				inotifyEvents |= IN_CLOSE_WRITE;
 			if(events & FsObserver::closeNoWriteEvent)
 				inotifyEvents |= IN_CLOSE_NOWRITE;
+			if(events & FsObserver::ignoredEvent)
+				inotifyEvents |= IN_IGNORED;
 
 			auto preexists = std::ranges::find_if(file->_queue, [&name, inotifyEvents](auto a) {
 				return a.name == name && (a.events & inotifyEvents) == inotifyEvents;
@@ -58,10 +61,10 @@ public:
 			if(isDir)
 				inotifyEvents |= IN_ISDIR;
 
-			if(!(inotifyEvents & mask))
+			if(!(inotifyEvents & (mask | alwaysReturnedFlags)))
 				return;
 
-			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
+			file->_queue.push_back(Packet{descriptor, inotifyEvents & (mask | alwaysReturnedFlags), name, cookie});
 			file->_inSeq = ++file->_currentSeq;
 			file->_statusBell.raise();
 		}
@@ -69,6 +72,7 @@ public:
 		OpenFile *file;
 		int descriptor;
 		uint32_t mask;
+		std::weak_ptr<FsNode> node;
 	};
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -172,10 +176,28 @@ public:
 				return desc;
 
 		auto descriptor = descriptorAllocator_.allocate();
-		auto watch = std::make_shared<Watch>(this, descriptor, mask);
+		auto watch = std::make_shared<Watch>(this, descriptor, mask, node);
 		node->addObserver(watch);
 		watches_.insert({descriptor, watch});
 		return descriptor;
+	}
+
+	bool removeWatch(int wd) {
+		if(!watches_.contains(wd))
+			return false;
+
+		auto watch = watches_.at(wd);
+		auto node = watch->node.lock();
+
+		if(node) {
+			node->removeObserver(watch.get());
+			watch->observeNotification(FsObserver::ignoredEvent, {}, 0, false);
+		}
+
+		watches_.erase(wd);
+		descriptorAllocator_.free(wd);
+
+		return true;
 	}
 
 	async::result<void>
@@ -242,6 +264,11 @@ smarter::shared_ptr<File, FileHandle> createFile(bool nonBlock) {
 int addWatch(File *base, std::shared_ptr<FsNode> node, uint32_t mask) {
 	auto file = static_cast<OpenFile *>(base);
 	return file->addWatch(std::move(node), mask);
+}
+
+bool removeWatch(File *base, int wd) {
+	auto file = static_cast<OpenFile *>(base);
+	return file->removeWatch(wd);
 }
 
 } // namespace inotify

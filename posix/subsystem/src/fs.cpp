@@ -193,7 +193,6 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(st
 }
 
 void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie, bool isDir) {
-	assert(_defaultOps & defaultSupportsObservers);
 	for(const auto &[borrowed, observer] : _observers) {
 		borrowed->observeNotification(events, name, cookie, isDir);
 		(void)observer;
