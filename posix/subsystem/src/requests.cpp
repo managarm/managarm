@@ -3235,7 +3235,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "INOTIFY_CREATE");
 
-			assert(!(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)));
+			if(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			auto file = inotify::createFile(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(file,
