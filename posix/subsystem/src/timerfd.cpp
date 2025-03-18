@@ -1,10 +1,11 @@
-
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/timerfd.h>
 #include <iostream>
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
+#include <core/clock.hpp>
 #include <helix/ipc.hpp>
 #include "fs.hpp"
 #include "timerfd.hpp"
@@ -31,20 +32,17 @@ private:
 	// TODO: Unify this implementation with the itimer implementation in process.hpp.
 	async::detached arm(Timer *timer) {
 		assert(timer->initial || timer->interval);
-//		std::cout << "posix: Timer armed" << std::endl;
 
-		uint64_t tick;
-		HEL_CHECK(helGetClock(&tick));
+		uint64_t tick = timer->initial;
 
 		if(timer->initial) {
 			helix::AwaitClock await_initial;
-			auto &&submit = helix::submitAwaitClock(&await_initial, add_sat(tick, timer->initial),
+			auto &&submit = helix::submitAwaitClock(&await_initial, tick,
 					helix::Dispatcher::global());
 			timer->asyncId = await_initial.asyncId();
 			co_await submit.async_wait();
 			timer->asyncId = 0;
 			assert(!await_initial.error() || await_initial.error() == kHelErrCancelled);
-			tick = add_sat(tick, timer->initial);
 
 			if(_activeTimer == timer) {
 				_expirations++;
@@ -94,9 +92,11 @@ public:
 				file, &File::fileOperations, file->_cancelServe));
 	}
 
-	OpenFile(bool non_block)
-	: File{StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, _nonBlock{non_block},
+	OpenFile(int clock, bool non_block)
+	: File{StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
+			_clock{clock}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
+		assert(_clock == CLOCK_MONOTONIC || _clock == CLOCK_REALTIME);
 		(void)_nonBlock;
 	}
 
@@ -145,7 +145,29 @@ public:
 		return _passthrough;
 	}
 
-	void setTime(uint64_t initial, uint64_t interval) {
+	void setTime(bool relative, uint64_t initial, uint64_t interval) {
+		// TODO: Add a better abstraction for different clocks.
+		uint64_t now;
+		HEL_CHECK(helGetClock(&now));
+		if (initial) {
+			if (relative) {
+				// Transform relative time to absolute time since boot.
+				initial = add_sat(now, initial);
+			} else {
+				if (_clock == CLOCK_REALTIME) {
+					// Transform real time to time since boot.
+					int64_t bootTime = clk::getRealtimeNanos() - now;
+					assert(bootTime >= 0);
+					if (initial < bootTime) {
+						// TODO: This is not entirely correct but arm() does not handle negative times.
+						initial = 1;
+					} else {
+						initial -= bootTime;
+					}
+				}
+			}
+		}
+
 		auto current = std::exchange(_activeTimer, nullptr);
 		if(current) {
 			assert(current->asyncId);
@@ -165,6 +187,7 @@ public:
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
+	int _clock;
 	bool _nonBlock;
 
 	// Currently active timer.
@@ -181,14 +204,14 @@ private:
 
 namespace timerfd {
 
-smarter::shared_ptr<File, FileHandle> createFile(bool non_block) {
-	auto file = smarter::make_shared<OpenFile>(non_block);
+smarter::shared_ptr<File, FileHandle> createFile(int clock, bool non_block) {
+	auto file = smarter::make_shared<OpenFile>(clock, non_block);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
 }
 
-void setTime(File *file, struct timespec initial, struct timespec interval) {
+void setTime(File *file, int flags, struct timespec initial, struct timespec interval) {
 	assert(initial.tv_sec >= 0 && initial.tv_nsec >= 0);
 	assert(interval.tv_sec >= 0 && interval.tv_nsec >= 0);
 
@@ -211,7 +234,7 @@ void setTime(File *file, struct timespec initial, struct timespec interval) {
 		interval_nanos = UINT64_MAX;
 
 	auto timerfd = static_cast<OpenFile *>(file);
-	timerfd->setTime(initial_nanos, interval_nanos);
+	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial_nanos, interval_nanos);
 }
 
 } // namespace timerfd

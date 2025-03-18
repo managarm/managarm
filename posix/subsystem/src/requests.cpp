@@ -1,4 +1,5 @@
 #include <format>
+#include <print>
 #include <linux/netlink.h>
 #include <sys/inotify.h>
 #include <sys/mman.h>
@@ -3148,45 +3149,69 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			co_await transmit.async_wait();
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
-		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_CREATE) {
-			logRequest(logRequests, "TIMERFD_CREATE");
+		}else if(preamble.id() == bragi::message_id<managarm::posix::TimerFdCreateRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerFdCreateRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 
-			helix::SendBuffer send_resp;
+			logRequest(logRequests, "TIMER_FD_CREATE");
 
-			assert(!(req.flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)));
+			if(req->flags() & ~(TFD_CLOEXEC | TFD_NONBLOCK)) {
+				std::println("posix: Unsupported flags {} for timerfd_create()", req->flags());
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdCreateResponse>(
+					managarm::posix::Errors::ILLEGAL_ARGUMENTS
+				);
+				continue;
+			}
 
-			auto file = timerfd::createFile(req.flags() & TFD_NONBLOCK);
-			auto fd = self->fileContext()->attachFile(file, req.flags() & TFD_CLOEXEC);
+			if (req->clock() != CLOCK_MONOTONIC && req->clock() != CLOCK_REALTIME) {
+				std::println("posix: timerfd is not supported for clock {}", req->clock());
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdCreateResponse>(
+					managarm::posix::Errors::ILLEGAL_ARGUMENTS
+				);
+				continue;
+			}
 
-			managarm::posix::SvrResponse resp;
+			auto file = timerfd::createFile(req->clock(), req->flags() & TFD_NONBLOCK);
+			auto fd = self->fileContext()->attachFile(file, req->flags() & TFD_CLOEXEC);
+
+			managarm::posix::TimerFdCreateResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
 			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));
+			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
-		}else if(req.request_type() == managarm::posix::CntReqType::TIMERFD_SETTIME) {
-			logRequest(logRequests, "TIMERFD_SETTIME");
+		}else if(preamble.id() == bragi::message_id<managarm::posix::TimerFdSetRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerFdSetRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
 
-			helix::SendBuffer send_resp;
+			logRequest(logRequests, "TIMER_FD_SET");
 
-			auto file = self->fileContext()->getFile(req.fd());
-			assert(file && "Illegal FD for TIMERFD_SETTIME");
-			timerfd::setTime(file.get(),
-					{static_cast<time_t>(req.time_secs()), static_cast<long>(req.time_nanos())},
-					{static_cast<time_t>(req.interval_secs()), static_cast<long>(req.interval_nanos())});
+			auto file = self->fileContext()->getFile(req->fd());
+			if (!file) {
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdSetResponse>(
+					managarm::posix::Errors::NO_SUCH_FD
+				);
+				continue;
+			}
+			timerfd::setTime(file.get(), req->flags(),
+					{static_cast<time_t>(req->value_sec()), static_cast<long>(req->value_nsec())},
+					{static_cast<time_t>(req->interval_sec()), static_cast<long>(req->interval_nsec())});
 
-			managarm::posix::SvrResponse resp;
+			managarm::posix::TimerFdSetResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
-			HEL_CHECK(send_resp.error());
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));
+			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 			logRequest(logRequests, "SIGNALFD_CREATE");
