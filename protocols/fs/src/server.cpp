@@ -1270,14 +1270,16 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		if(!ret) {
 			assert(ret.error() != protocols::fs::Error::none);
 			resp.set_error(ret.error() | toFsError);
+			resp.set_size(0);
 		} else {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_size(optbuf.size());
 		}
 
 		auto [send_resp, send_buf] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::sendBuffer(optbuf.data(), req->optlen())
+			helix_ng::sendBuffer(optbuf.data(), resp.size())
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_buf.error());
