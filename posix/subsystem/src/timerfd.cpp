@@ -157,6 +157,7 @@ public:
 			_activeTimer->asyncId = 0;
 			_activeTimer->initial = initial;
 			_activeTimer->interval = interval;
+			_expirations = 0;
 			arm(_activeTimer);
 		}
 	}
