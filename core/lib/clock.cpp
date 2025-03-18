@@ -62,7 +62,7 @@ async::result<void> enumerateTracker() {
 	co_await fetchTrackerPage();
 }
 
-struct timespec getRealtime() {
+int64_t getRealtimeNanos() {
 	auto page = reinterpret_cast<TrackerPage *>(trackerPageMapping.get());
 
 	// Start the seqlock read.
@@ -81,8 +81,11 @@ struct timespec getRealtime() {
 	uint64_t now;
 	HEL_CHECK(helGetClock(&now));
 
-	int64_t realtime = base + (now - ref);
+	return base + (now - ref);
+}
 
+struct timespec getRealtime() {
+	auto realtime = getRealtimeNanos();
 	struct timespec result;
 	result.tv_sec = realtime / 1'000'000'000;
 	result.tv_nsec = realtime % 1'000'000'000;
