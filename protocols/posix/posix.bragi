@@ -80,9 +80,6 @@ consts CntReqType uint32 {
 	// signalfd()-specific calls
 	SIGNALFD_CREATE = 32,
 
-	TIMERFD_CREATE = 33,
-	TIMERFD_SETTIME = 36,
-
 	HELFD_ATTACH = 10,
 	HELFD_CLONE = 11,
 
@@ -648,4 +645,35 @@ head(128):
 message InotifyRmReply 104 {
 head(128):
 	Errors error;
+}
+
+message TimerFdCreateRequest 105 {
+head(128):
+	int32 clock;
+	int32 flags;
+}
+
+message TimerFdCreateResponse 106 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
+message TimerFdSetRequest 107 {
+head(128):
+	int32 fd;
+	int32 flags;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
+
+message TimerFdSetResponse 108 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_usec;
+	uint64 interval_sec;
+	uint64 interval_usec;
 }

@@ -9,6 +9,8 @@ helix::BorrowedDescriptor trackerPageMemory();
 
 async::result<void> enumerateTracker();
 
+int64_t getRealtimeNanos();
+
 struct timespec getRealtime();
 struct timespec getTimeSinceBoot();
 
