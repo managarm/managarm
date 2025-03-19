@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <print>
 
 #include <helix/timer.hpp>
 
@@ -2774,13 +2775,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+			if(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) {
+				std::println("posix: unexpected flags {:#x} for socket", req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC));
+				continue;
+			}
 
 			smarter::shared_ptr<File, FileHandle> file;
 			if(req->domain() == AF_UNIX) {
-				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
-						|| req->socktype() == SOCK_SEQPACKET);
-				assert(!req->protocol());
+				if(req->socktype() != SOCK_DGRAM && req->socktype() != SOCK_STREAM
+				&& req->socktype() != SOCK_SEQPACKET) {
+					std::println("posix: unexpected socket type {:#x}", req->socktype());
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
+				if(req->protocol()) {
+					std::println("posix: unexpected protocol {:#x} for socket", req->protocol());
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
 
 				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
 			}else if(req->domain() == AF_NETLINK) {
