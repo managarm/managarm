@@ -1291,6 +1291,39 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_buf.error());
 		logBragiReply(resp);
+	} else if(preamble.id() == managarm::fs::ShutdownSocket::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::ShutdownSocket>(recv_req);
+		auto how = req->how();
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		managarm::fs::SvrResponse resp;
+
+		if(!file_ops->shutdown) {
+			std::cout << "protocols/fs: shutdown not supported on this file" << std::endl;
+			resp.set_error(managarm::fs::Errors::NOT_A_SOCKET);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto ret = co_await file_ops->shutdown(file.get(), how);
+		resp.set_error(ret | toFsError);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+		logBragiReply(resp);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");
