@@ -185,6 +185,7 @@ struct FileOperations {
 	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals) = nullptr;
 	async::result<frg::expected<Error>> (*setSocketOption)(void *object, int layer, int number, std::vector<char> optbuf) = nullptr;
 	async::result<frg::expected<Error>> (*getSocketOption)(void *object, int layer, int number, std::vector<char> &optbuf) = nullptr;
+	async::result<Error> (*shutdown)(void *object, int how);
 
 	bool logRequests = false;
 };
