@@ -2,7 +2,6 @@
 #include <climits>
 #include <cstdlib>
 #include <cstring>
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/inotify.h>
@@ -34,7 +33,7 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	e = unlink(filePath);
 	assert(!e);
 
-	char buffer[sizeof(inotify_event) + NAME_MAX + 1];
+	char buffer[(sizeof(inotify_event) + NAME_MAX + 1) * 2];
 	auto chunk = read(ifd, buffer, sizeof(inotify_event) + NAME_MAX + 1);
 	assert(chunk > 0);
 
@@ -49,4 +48,72 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	close(ifd);
 	//e = rmdir(dirPath);
 	//assert(!e);
+
+	ifd = inotify_init1(IN_NONBLOCK);
+	assert(ifd > 0);
+	char testfile[27] = "/tmp/posix-test-fileXXXXXX";
+	int fd = mkstemp(testfile);
+	assert(fd >= 0);
+
+	int ifd2 = inotify_init1(IN_NONBLOCK);
+	assert(ifd2 > 0);
+
+	wd = inotify_add_watch(ifd, testfile, IN_MODIFY | IN_ACCESS | IN_DELETE_SELF | IN_CLOSE_WRITE);
+	assert(wd >= 0);
+
+	write(fd, &fd, sizeof(fd));
+	lseek(fd, 0, SEEK_SET);
+	int discard;
+	read(fd, &discard, sizeof(discard));
+	write(fd, &fd, sizeof(fd));
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd, buffer, sizeof(buffer));
+	assert(chunk > 0 && chunk >= sizeof(inotify_event));
+
+	memcpy(&evtHeader, buffer, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_MODIFY) == IN_MODIFY);
+	assert(chunk > sizeof(inotify_event) + evtHeader.len);
+
+	memcpy(&evtHeader, buffer + sizeof(inotify_event) + evtHeader.len, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_ACCESS) == IN_ACCESS);
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd, buffer, sizeof(inotify_event) + NAME_MAX + 1);
+	assert(chunk == -1);
+
+	int wd2 = inotify_add_watch(ifd2, testfile, IN_MODIFY | IN_ACCESS | IN_DELETE_SELF | IN_CLOSE_WRITE);
+	assert(wd2 >= 0);
+	inotify_rm_watch(ifd2, wd2);
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd2, buffer, sizeof(inotify_event) + NAME_MAX + 1);
+	assert(chunk > 0);
+
+	memcpy(&evtHeader, buffer, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_IGNORED) == IN_IGNORED);
+
+	close(fd);
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd, buffer, sizeof(inotify_event) + NAME_MAX + 1);
+	assert(chunk > 0);
+
+	memcpy(&evtHeader, buffer, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_CLOSE_WRITE) == IN_CLOSE_WRITE);
+
+	e = unlink(testfile);
+	assert(!e);
+
+	memset(buffer, 0, sizeof(buffer));
+	chunk = read(ifd, buffer, sizeof(inotify_event) + NAME_MAX + 1);
+	assert(chunk > 0);
+
+	memcpy(&evtHeader, buffer, sizeof(inotify_event));
+	assert(evtHeader.wd == wd);
+	assert((evtHeader.mask & IN_DELETE_SELF) == IN_DELETE_SELF);
 }))

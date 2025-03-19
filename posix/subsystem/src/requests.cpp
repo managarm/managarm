@@ -1,5 +1,6 @@
 #include <format>
 #include <linux/netlink.h>
+#include <sys/inotify.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
 #include <sys/resource.h>
@@ -3234,13 +3235,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "INOTIFY_CREATE");
 
-			assert(!(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)));
+			if(req->flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
-			// TODO: Implement blocking reads
-			if(!(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK))
-				std::cout << "posix: INOTIFY_CREATE doesn't do blocking reads" << std::endl;
-
-			auto file = inotify::createFile();
+			auto file = inotify::createFile(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
@@ -3281,10 +3281,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			ResolveFlags flags = 0;
+
+			if(req->flags() & IN_DONT_FOLLOW)
+				flags |= resolveDontFollow;
+
 			PathResolver resolver;
 			resolver.setup(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req->path(), self.get());
-			auto resolveResult = co_await resolver.resolve();
+			auto resolveResult = co_await resolver.resolve(flags);
 			if(!resolveResult) {
 				if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
 					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
@@ -3308,6 +3313,35 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 				);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::InotifyRmRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::InotifyRmRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests || logPaths, "INOTIFY_RM");
+			managarm::posix::InotifyRmReply resp;
+
+			auto ifile = self->fileContext()->getFile(req->ifd());
+			if(!ifile) {
+				resp.set_error(managarm::posix::Errors::BAD_FD);
+				continue;
+			} else {
+				if(inotify::removeWatch(ifile.get(), req->wd()))
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+				else
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);

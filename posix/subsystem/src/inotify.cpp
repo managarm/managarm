@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 #include <sys/inotify.h>
 #include <iostream>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -15,6 +16,9 @@ namespace inotify {
 
 namespace {
 
+constexpr int supportedFlags = IN_DELETE | IN_CREATE | IN_ISDIR | IN_DELETE_SELF | IN_MODIFY | IN_ACCESS | IN_CLOSE;
+constexpr int alwaysReturnedFlags = IN_IGNORED | IN_ISDIR | IN_Q_OVERFLOW | IN_UNMOUNT;
+
 struct OpenFile : File {
 public:
 	struct Packet {
@@ -25,19 +29,42 @@ public:
 	};
 
 	struct Watch final : FsObserver {
-		Watch(OpenFile *file_, int descriptor, uint32_t mask)
-		: file{file_}, descriptor{descriptor}, mask{mask} { }
+		Watch(OpenFile *file_, int descriptor, uint32_t mask, std::weak_ptr<FsNode> node)
+		: file{file_}, descriptor{descriptor}, mask{mask}, node{node} { }
 
 		void observeNotification(uint32_t events,
-				const std::string &name, uint32_t cookie) override {
+				const std::string &name, uint32_t cookie, bool isDir) override {
 			uint32_t inotifyEvents = 0;
 			if(events & FsObserver::deleteEvent)
 				inotifyEvents |= IN_DELETE;
+			if(events & FsObserver::deleteSelfEvent)
+				inotifyEvents |= IN_DELETE_SELF;
 			if(events & FsObserver::createEvent)
 				inotifyEvents |= IN_CREATE;
-			if(!(inotifyEvents & mask))
+			if(events & FsObserver::modifyEvent)
+				inotifyEvents |= IN_MODIFY;
+			if(events & FsObserver::accessEvent)
+				inotifyEvents |= IN_ACCESS;
+			if(events & FsObserver::closeWriteEvent)
+				inotifyEvents |= IN_CLOSE_WRITE;
+			if(events & FsObserver::closeNoWriteEvent)
+				inotifyEvents |= IN_CLOSE_NOWRITE;
+			if(events & FsObserver::ignoredEvent)
+				inotifyEvents |= IN_IGNORED;
+
+			auto preexists = std::ranges::find_if(file->_queue, [&name, inotifyEvents](auto a) {
+				return a.name == name && (a.events & inotifyEvents) == inotifyEvents;
+			}) != file->_queue.end();
+			if(preexists)
 				return;
-			file->_queue.push_back(Packet{descriptor, inotifyEvents & mask, name, cookie});
+
+			if(isDir)
+				inotifyEvents |= IN_ISDIR;
+
+			if(!(inotifyEvents & (mask | alwaysReturnedFlags)))
+				return;
+
+			file->_queue.push_back(Packet{descriptor, inotifyEvents & (mask | alwaysReturnedFlags), name, cookie});
 			file->_inSeq = ++file->_currentSeq;
 			file->_statusBell.raise();
 		}
@@ -45,6 +72,7 @@ public:
 		OpenFile *file;
 		int descriptor;
 		uint32_t mask;
+		std::weak_ptr<FsNode> node;
 	};
 
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -54,8 +82,8 @@ public:
 				smarter::shared_ptr<File>{file}, &File::fileOperations));
 	}
 
-	OpenFile()
-	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)} { }
+	OpenFile(bool nonBlock = false)
+	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
 
 	~OpenFile() override {
 		// TODO: Properly keep track of watches.
@@ -64,24 +92,48 @@ public:
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override {
-		// TODO: As an optimization, we could return multiple events at the same time.
-		Packet packet = std::move(_queue.front());
-		_queue.pop_front();
+		if(_queue.empty() && nonBlock_) {
+			co_return Error::wouldBlock;
+		}
 
-		if(maxLength < sizeof(inotify_event) + packet.name.size() + 1)
+		while(_queue.empty())
+			co_await _statusBell.async_wait();
+
+		size_t written = 0;
+
+		while(written < maxLength) {
+			size_t packetSize = sizeof(inotify_event) +
+				(_queue.front().name.empty() ? 0 : _queue.front().name.size() + 1);
+
+			if(written + packetSize > maxLength)
+				break;
+
+			Packet packet = std::move(_queue.front());
+			_queue.pop_front();
+
+			inotify_event e;
+			memset(&e, 0, sizeof(inotify_event));
+			e.wd = packet.descriptor;
+			e.mask = packet.events;
+			e.cookie = packet.cookie;
+			if(!packet.name.empty()) {
+				e.len = packet.name.size() + 1;
+				memcpy(reinterpret_cast<char *>(data) + written + sizeof(inotify_event),
+					packet.name.c_str(), packet.name.size() + 1);
+			}
+
+			memcpy(reinterpret_cast<char *>(data) + written, &e, sizeof(inotify_event));
+
+			written += packetSize;
+
+			if(_queue.empty())
+				break;
+		}
+
+		if(written)
+			co_return written;
+		else
 			co_return Error::illegalArguments;
-
-		inotify_event e;
-		memset(&e, 0, sizeof(inotify_event));
-		e.wd = packet.descriptor;
-		e.mask = packet.events;
-		e.cookie = packet.cookie;
-		e.len = packet.name.size();
-
-		memcpy(data, &e, sizeof(inotify_event));
-		memcpy(reinterpret_cast<char *>(data) + sizeof(inotify_event),
-				packet.name.c_str(), packet.name.size() + 1);
-		co_return sizeof(inotify_event) + packet.name.size() + 1;
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>
@@ -116,13 +168,36 @@ public:
 	}
 
 	int addWatch(std::shared_ptr<FsNode> node, uint32_t mask) {
-		// TODO: Coalesce watch descriptors for the same inode.
-		if(mask & ~(IN_DELETE | IN_CREATE))
-			std::cout << "posix: inotify mask " << mask << " is partially ignored" << std::endl;
-		auto descriptor = _nextDescriptor++;
-		auto watch = std::make_shared<Watch>(this, descriptor, mask);
+		if(mask & ~supportedFlags)
+			std::println("posix: inotify mask {:#x} is partially ignored", mask);
+
+		for(const auto &[desc, watch] : watches_)
+			if(watch->file == this)
+				return desc;
+
+		auto descriptor = descriptorAllocator_.allocate();
+		auto watch = std::make_shared<Watch>(this, descriptor, mask, node);
 		node->addObserver(watch);
+		watches_.insert({descriptor, watch});
 		return descriptor;
+	}
+
+	bool removeWatch(int wd) {
+		if(!watches_.contains(wd))
+			return false;
+
+		auto watch = watches_.at(wd);
+		auto node = watch->node.lock();
+
+		if(node) {
+			node->removeObserver(watch.get());
+			watch->observeNotification(FsObserver::ignoredEvent, {}, 0, false);
+		}
+
+		watches_.erase(wd);
+		descriptorAllocator_.free(wd);
+
+		return true;
 	}
 
 	async::result<void>
@@ -167,18 +242,20 @@ private:
 	helix::UniqueLane _passthrough;
 	std::deque<Packet> _queue;
 
-	// TODO: Use a proper ID allocator to allocate watch descriptor IDs.
-	int _nextDescriptor = 1;
+	id_allocator<int> descriptorAllocator_{1};
+	std::unordered_map<int, std::shared_ptr<Watch>> watches_;
 
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq = 1;
 	uint64_t _inSeq = 0;
+
+	bool nonBlock_;
 };
 
 } // anonymous namespace
 
-smarter::shared_ptr<File, FileHandle> createFile() {
-	auto file = smarter::make_shared<OpenFile>();
+smarter::shared_ptr<File, FileHandle> createFile(bool nonBlock) {
+	auto file = smarter::make_shared<OpenFile>(nonBlock);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
 	return File::constructHandle(std::move(file));
@@ -187,6 +264,11 @@ smarter::shared_ptr<File, FileHandle> createFile() {
 int addWatch(File *base, std::shared_ptr<FsNode> node, uint32_t mask) {
 	auto file = static_cast<OpenFile *>(base);
 	return file->addWatch(std::move(node), mask);
+}
+
+bool removeWatch(File *base, int wd) {
+	auto file = static_cast<OpenFile *>(base);
+	return file->removeWatch(wd);
 }
 
 } // namespace inotify

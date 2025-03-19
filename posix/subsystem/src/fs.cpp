@@ -192,10 +192,9 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(st
 	co_return Error::illegalOperationTarget;
 }
 
-void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie) {
-	assert(_defaultOps & defaultSupportsObservers);
+void FsNode::notifyObservers(uint32_t events, const std::string &name, uint32_t cookie, bool isDir) {
 	for(const auto &[borrowed, observer] : _observers) {
-		borrowed->observeNotification(events, name, cookie);
+		borrowed->observeNotification(events, name, cookie, isDir);
 		(void)observer;
 	}
 }
