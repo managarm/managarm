@@ -17,7 +17,7 @@ void OpenFile::serve(smarter::shared_ptr<OpenFile> file) {
 	helix::UniqueLane lane;
 	std::tie(lane, file->_passthrough) = helix::createStream();
 	async::detach(protocols::fs::servePassthrough(std::move(lane),
-			smarter::shared_ptr<File>{file}, &File::fileOperations));
+			smarter::shared_ptr<File>{file}, &File::fileOperations, file->cancelServe_));
 }
 
 OpenFile::OpenFile(uint64_t mask, bool nonBlock)

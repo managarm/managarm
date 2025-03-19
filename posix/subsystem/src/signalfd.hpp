@@ -20,6 +20,11 @@ public:
 	async::result<frg::expected<Error, PollStatusResult>>
 	pollStatus(Process *process) override;
 
+	void handleClose() override {
+		cancelServe_.cancel();
+		_passthrough = {};
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -30,6 +35,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event cancelServe_;
 	uint64_t _mask;
 	bool _nonBlock;
 };
