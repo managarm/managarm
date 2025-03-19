@@ -111,6 +111,8 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 protected:
 	virtual async::result<std::string> show(Process *) = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
+
+	async::result<frg::expected<Error, FileStats>> getStatsInternal(Process *);
 };
 
 struct SuperBlock final : FsSuperblock {
@@ -187,6 +189,9 @@ struct LinkNode : FsNode, std::enable_shared_from_this<LinkNode> {
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
+
+protected:
+	async::result<frg::expected<Error, FileStats>> getStatsInternal(Process *);
 };
 
 struct SelfLink final : LinkNode, std::enable_shared_from_this<SelfLink> {
@@ -207,6 +212,8 @@ struct ExeLink final : LinkNode, std::enable_shared_from_this<ExeLink> {
 	{ }
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -217,6 +224,8 @@ struct RootLink final : LinkNode, std::enable_shared_from_this<RootLink> {
 	{ }
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -227,11 +236,15 @@ struct CwdLink final : LinkNode, std::enable_shared_from_this<CwdLink> {
 	{ }
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
 
 struct MountsLink final : LinkNode, std::enable_shared_from_this<MountsLink> {
+	MountsLink() = default;
+
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 };
 
@@ -242,6 +255,8 @@ struct MapNode final : RegularNode {
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -290,6 +305,8 @@ struct CommNode final : RegularNode {
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -301,19 +318,23 @@ struct StatNode final : RegularNode {
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
 
 struct StatmNode final : RegularNode {
 	StatmNode(Process *process)
-        : _process(process)
-        { }
+	: _process(process)
+	{ }
 
-        async::result<std::string> show(Process *) override;
-        async::result<void> store(std::string) override;
+	async::result<std::string> show(Process *) override;
+	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-        Process *_process;
+	Process *_process;
 };
 
 struct StatusNode final : RegularNode {
@@ -323,6 +344,8 @@ struct StatusNode final : RegularNode {
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -355,6 +378,8 @@ struct CgroupNode final : RegularNode {
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	Process *_process;
 };
@@ -388,17 +413,31 @@ private:
 };
 
 struct MountsNode final : RegularNode {
-	MountsNode() = default;
+	MountsNode(Process *process)
+	: _process(process)
+	{ }
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+
+private:
+	Process *_process;
 };
 
 struct MountInfoNode final : RegularNode {
-	MountInfoNode() = default;
+	MountInfoNode(Process *process)
+	: _process(process)
+	{ }
 
 	async::result<std::string> show(Process *) override;
 	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+
+private:
+	Process *_process;
 };
 
 struct FdInfoDirectoryNode final : FsNode, std::enable_shared_from_this<FdInfoDirectoryNode> {

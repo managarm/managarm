@@ -38,7 +38,6 @@ protected:
 
 public:
 	async::result<frg::expected<Error, FileStats>> getStats() override {
-		std::cout << "\e[31mposix: Fix tmpfs getStats()\e[39m" << std::endl;
 		FileStats stats{};
 		stats.inodeNumber = _inodeNumber;
 		stats.fileSize = 0;
@@ -130,6 +129,23 @@ private:
 
 public:
 	SymlinkNode(Superblock *superblock, std::string link);
+
+	async::result<frg::expected<Error, FileStats>> getStats() override {
+		FileStats stats{};
+		stats.inodeNumber = inodeNumber();
+		stats.fileSize = _link.size();
+		stats.numLinks = numLinks();
+		stats.mode = mode();
+		stats.uid = uid();
+		stats.gid = gid();
+		stats.atimeSecs = atime().tv_sec;
+		stats.atimeNanos = atime().tv_nsec;
+		stats.mtimeSecs = mtime().tv_sec;
+		stats.mtimeNanos = mtime().tv_nsec;
+		stats.ctimeSecs = ctime().tv_sec;
+		stats.ctimeNanos = ctime().tv_nsec;
+		co_return stats;
+	}
 
 private:
 	std::string _link;

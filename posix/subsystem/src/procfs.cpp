@@ -207,6 +207,26 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	co_return stats;
 }
 
+async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Process *proc) {
+	// TODO: Store a file creation time.
+	auto now = clk::getRealtime();
+
+	FileStats stats;
+	stats.inodeNumber = 0; // FIXME
+	stats.numLinks = 1;
+	stats.fileSize = 4096; // Same as in Linux.
+	stats.mode = 0666; // TODO: Some files can be written.
+	stats.uid = proc->uid();
+	stats.gid = proc->gid();
+	stats.atimeSecs = now.tv_sec;
+	stats.atimeNanos = now.tv_nsec;
+	stats.mtimeSecs = now.tv_sec;
+	stats.mtimeNanos = now.tv_nsec;
+	stats.ctimeSecs = now.tv_sec;
+	stats.ctimeNanos = now.tv_nsec;
+	co_return stats;
+}
+
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
@@ -335,8 +355,8 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
 	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
-	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>());
-	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>());
+	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>(process));
+	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
 	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
@@ -404,6 +424,26 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 
 LinkNode::LinkNode()
 : FsNode{&procfsSuperblock} { }
+
+async::result<frg::expected<Error, FileStats>> LinkNode::getStatsInternal(Process *proc) {
+	// TODO: Store a file creation time.
+	auto now = clk::getRealtime();
+
+	FileStats stats;
+	stats.inodeNumber = 0; // FIXME
+	stats.numLinks = 1;
+	stats.fileSize = 4096; // Same as in Linux.
+	stats.mode = 0666; // TODO: Some files can be written.
+	stats.uid = proc->uid();
+	stats.gid = proc->gid();
+	stats.atimeSecs = now.tv_sec;
+	stats.atimeNanos = now.tv_nsec;
+	stats.mtimeSecs = now.tv_sec;
+	stats.mtimeNanos = now.tv_nsec;
+	stats.ctimeSecs = now.tv_sec;
+	stats.ctimeNanos = now.tv_nsec;
+	co_return stats;
+}
 
 async::result<std::string> UptimeNode::show(Process *) {
 	auto uptime = clk::getTimeSinceBoot();
@@ -519,6 +559,10 @@ expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
 	co_return _process->path();
 }
 
+async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 async::result<std::string> MapNode::show(Process *) {
 	auto vmContext = _process->vmContext();
 	std::stringstream stream;
@@ -564,6 +608,10 @@ async::result<void> MapNode::store(std::string) {
 	co_return;
 }
 
+async::result<frg::expected<Error, FileStats>> MapNode::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 async::result<std::string> CommNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -578,8 +626,16 @@ async::result<void> CommNode::store(std::string name) {
 	co_return;
 }
 
+async::result<frg::expected<Error, FileStats>> CommNode::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
+}
+
+async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
+	co_return co_await getStatsInternal(_process);
 }
 
 async::result<std::string> StatNode::show(Process *) {
@@ -652,6 +708,10 @@ async::result<void> StatNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/stat file!");
 }
 
+async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 async::result<std::string> StatmNode::show(Process *) {
 	(void)_process;
 	// All hardcoded to 0.
@@ -671,6 +731,10 @@ async::result<std::string> StatmNode::show(Process *) {
 async::result<void> StatmNode::store(std::string) {
 	// TODO: proper error reporting.
 	throw std::runtime_error("Can't store to a /proc/statm file!");
+}
+
+async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
+	co_return co_await getStatsInternal(_process);
 }
 
 async::result<std::string> StatusNode::show(Process *) {
@@ -759,8 +823,16 @@ async::result<void> StatusNode::store(std::string) {
 	throw std::runtime_error("Can't store to a /proc/status file!");
 }
 
+async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
 	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
+}
+
+async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
+	co_return co_await getStatsInternal(_process);
 }
 
 expected<std::string> MountsLink::readSymlink(FsLink *, Process *) {
@@ -780,6 +852,10 @@ async::result<void> CgroupNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/cgroup file" << std::endl;
 	co_return;
+}
+
+async::result<frg::expected<Error, FileStats>> CgroupNode::getStats() {
+	co_return co_await getStatsInternal(_process);
 }
 
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
@@ -919,6 +995,10 @@ async::result<void> MountsNode::store(std::string) {
 	co_return;
 }
 
+async::result<frg::expected<Error, FileStats>> MountsNode::getStats() {
+	co_return co_await getStatsInternal(_process);
+}
+
 async::result<std::string> MountInfoNode::show(Process *proc) {
 	auto root = proc->fsContext()->getRoot();
 
@@ -966,6 +1046,10 @@ async::result<void> MountInfoNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/mountinfo file" << std::endl;
 	co_return;
+}
+
+async::result<frg::expected<Error, FileStats>> MountInfoNode::getStats() {
+	co_return co_await getStatsInternal(_process);
 }
 
 FdInfoDirectoryNode::FdInfoDirectoryNode(Process *process)
