@@ -569,7 +569,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				async::cancellation_token{});
 		if(!resultOrError) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+			resp.set_error(resultOrError.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -613,7 +613,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto resultOrError = co_await file_ops->pollStatus(file.get());
 		if(!resultOrError) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+			resp.set_error(resultOrError.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -668,7 +668,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
+		resp.set_error(error | toFsError);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -706,7 +706,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
+		resp.set_error(error | toFsError);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -718,7 +718,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_error(managarm::fs::Errors::NOT_A_SOCKET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -763,7 +763,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		if (!result) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(result.error()));
+			resp.set_error(result.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
