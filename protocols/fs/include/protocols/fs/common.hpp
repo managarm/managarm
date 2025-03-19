@@ -43,6 +43,7 @@ enum class Error {
 	connectionRefused = 27,
 	internalError = 28,
 	alreadyConnected = 29,
+	notSocket = 30,
 };
 
 struct ToFsError {
@@ -82,6 +83,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::connectionRefused: return managarm::fs::Errors::CONNECTION_REFUSED;
 		case Error::internalError: return managarm::fs::Errors::INTERNAL_ERROR;
 		case Error::alreadyConnected: return managarm::fs::Errors::ALREADY_CONNECTED;
+		case Error::notSocket: return managarm::fs::Errors::NOT_A_SOCKET;
 	}
 }
 
@@ -122,6 +124,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::CONNECTION_REFUSED: return Error::connectionRefused;
 		case managarm::fs::Errors::INTERNAL_ERROR: return Error::internalError;
 		case managarm::fs::Errors::ALREADY_CONNECTED: return Error::alreadyConnected;
+		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
 	}
 }
 
