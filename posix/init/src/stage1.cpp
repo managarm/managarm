@@ -28,7 +28,7 @@
 #include <fstream>
 
 bool logDiscovery = false;
-bool systemd = false;
+bool systemd = true;
 
 using Uevent = std::unordered_map<std::string, std::string>;
 
@@ -233,7 +233,7 @@ int main() {
 
 	frg::array args = {
 		frg::option{"netserver.device", frg::as_string_view(uefiNetDevpath)},
-		frg::option{"systemd", frg::store_true(systemd)},
+		frg::option{"nosystemd", frg::store_false(systemd)},
 	};
 	frg::parse_arguments(cmdline.c_str(), args);
 
