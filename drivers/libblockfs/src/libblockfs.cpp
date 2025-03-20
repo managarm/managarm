@@ -7,6 +7,7 @@
 #include <linux/cdrom.h>
 #include <linux/fs.h>
 
+#include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -23,6 +24,7 @@
 namespace blockfs {
 
 bool tracingInitialized = false;
+bool clkInitialized = false;
 
 constinit protocols::ostrace::Event ostEvtGetLink{"libblockfs.getLink"};
 constinit protocols::ostrace::Event ostEvtTraverseLinks{"libblockfs.traverseLinks"};
@@ -392,9 +394,7 @@ open(std::shared_ptr<void> object, bool append) {
 	helix::UniqueLane local_pt, remote_pt;
 	std::tie(local_ctrl, remote_ctrl) = helix::createStream();
 	std::tie(local_pt, remote_pt) = helix::createStream();
-	struct timespec time;
-	// Use CLOCK_REALTIME when available
-	clock_gettime(CLOCK_MONOTONIC, &time);
+	struct timespec time = clk::getRealtime();
 	self->diskInode()->atime = time.tv_sec;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
@@ -998,6 +998,9 @@ async::detached runDevice(BlockDevice *device) {
 		co_await ostContext.create();
 		tracingInitialized = true;
 	}
+
+	if(!clkInitialized)
+		co_await clk::enumerateTracker();
 
 	// TODO(qookie): Don't leak the table.
 	// Currently it should be fine to leak it since neither it nor

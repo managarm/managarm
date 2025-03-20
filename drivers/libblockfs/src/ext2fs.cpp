@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 
 #include <async/result.hpp>
+#include <core/clock.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
@@ -152,6 +153,14 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 			0, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
+
+	auto time = clk::getRealtime();
+	diskInode()->mtime = time.tv_sec;
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
 
 	// Space required for the new directory entry.
 	// We use name.size() + 1 for the entry name length to account for the null terminator
@@ -413,21 +422,20 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 }
 
 async::result<protocols::fs::Error> Inode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
-	std::cout << "\e[31m" "ext2fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
-	
 	co_await readyJump.wait();
 
-	if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
-		// TODO: Properly implement setting the time to arbitrary values
-		std::cout << "\e[31m" "ext2fs: utimensat() unsupported mode called (not UTIME_NOW for all fields)" "\e[39m" << std::endl;
-		co_return protocols::fs::Error::none;
+	auto time = clk::getRealtime();
+	if(atime_sec == UTIME_NOW || atime_nsec == UTIME_NOW) {
+		diskInode()->atime = time.tv_sec;
+	} else if(atime_sec != UTIME_OMIT && atime_nsec != UTIME_OMIT) {
+		diskInode()->atime = atime_sec;
 	}
 
-	struct timespec time;
-	// TODO: Move to CLOCK_REALTIME when supported
-	clock_gettime(CLOCK_MONOTONIC, &time);
-	diskInode()->atime = time.tv_sec;
-	diskInode()->mtime = time.tv_sec;
+	if(mtime_sec == UTIME_NOW || mtime_nsec == UTIME_NOW) {
+		diskInode()->mtime = time.tv_sec;
+	} else if(mtime_sec != UTIME_OMIT && mtime_nsec != UTIME_OMIT) {
+		diskInode()->mtime = mtime_sec;
+	}
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -672,9 +680,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
 	disk_inode->generation = generation + 1;
-	struct timespec time;
-	// TODO: Move to CLOCK_REALTIME when supported
-	clock_gettime(CLOCK_MONOTONIC, &time);
+	struct timespec time = clk::getRealtime();
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
@@ -708,9 +714,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFDIR;
 	disk_inode->generation = generation + 1;
-	struct timespec time;
-	// TODO: Move to CLOCK_REALTIME when supported
-	clock_gettime(CLOCK_MONOTONIC, &time);
+	struct timespec time = clk::getRealtime();
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
@@ -747,9 +751,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFLNK;
 	disk_inode->generation = generation + 1;
-	struct timespec time;
-	// TODO: Move to CLOCK_REALTIME when supported
-	clock_gettime(CLOCK_MONOTONIC, &time);
+	struct timespec time = clk::getRealtime();
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
