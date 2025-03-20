@@ -74,8 +74,6 @@ public:
 	}
 
 	void handleClose() override {
-		std::cout << "\e[35mposix: Cancel passthrough on fifo OpenFile::handleClose()\e[39m"
-				<< std::endl;
 		if (isReader_) {
 			if (_channel->readerCount-- == 1) {
 				_channel->noReaderSeq = ++_channel->currentSeq;

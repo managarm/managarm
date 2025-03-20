@@ -27,6 +27,11 @@ private:
 		return _passthrough;
 	}
 
+	void handleClose() override {
+		_cancelServe.cancel();
+		_passthrough = {};
+	}
+
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
