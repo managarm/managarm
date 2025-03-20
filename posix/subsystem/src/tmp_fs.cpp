@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <set>
 
+#include <core/clock.hpp>
 #include <helix/memory.hpp>
 #include <helix/passthrough-fd.hpp>
 #include <protocols/fs/client.hpp>
@@ -96,9 +97,7 @@ public:
 			std::cout << "\e[31m" "tmp_fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
 			co_return Error::success;
 		}
-		struct timespec time;
-		// TODO: Move to CLOCK_REALTIME when supported
-		clock_gettime(CLOCK_MONOTONIC, &time);
+		struct timespec time = clk::getRealtime();
 		_atime.tv_sec = time.tv_sec;
 		_atime.tv_nsec = time.tv_nsec;
 		_mtime.tv_sec = time.tv_sec;
