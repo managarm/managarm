@@ -1130,7 +1130,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		}
 
 		std::vector<uint32_t> files;
-		struct ucred ucreds;
+		struct ucred ucreds = {};
 
 		if(req->has_cmsg_rights())
 			files.assign(req->fds().cbegin(), req->fds().cend());
