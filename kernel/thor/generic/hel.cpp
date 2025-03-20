@@ -724,7 +724,6 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 		return kHelErrNoHardwareSupport;
 	}
 	auto this_thread = getCurrentThread();
-	auto irq_lock = frg::guard(&irqMutex());
 	auto this_universe = this_thread->getUniverse();
 
 	PhysicalAddr pml4e = physicalAllocator->allocate(kPageSize);
@@ -744,10 +743,13 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 		return kHelErrNoHardwareSupport;
 	}
 
-	Universe::Guard universe_guard(this_universe->lock);
-	*handle = this_universe->attachDescriptor(universe_guard,
-			VirtualizedSpaceDescriptor(std::move(vspace)));
-	return kHelErrNone;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+		*handle = this_universe->attachDescriptor(universe_guard,
+				VirtualizedSpaceDescriptor(std::move(vspace)));
+		return kHelErrNone;
+	}
 #else
 	return kHelErrNoHardwareSupport;
 #endif
@@ -758,29 +760,38 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	if(!getCpuData()->haveVirtualization) {
 		return kHelErrNoHardwareSupport;
 	}
-	auto irq_lock = frg::guard(&irqMutex());
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	Universe::Guard universe_guard(this_universe->lock);
 
-	auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-	if(!wrapper)
-		return kHelErrNoDescriptor;
-	if(!wrapper->is<VirtualizedSpaceDescriptor>())
-		return kHelErrBadDescriptor;
-	auto space = wrapper->get<VirtualizedSpaceDescriptor>();
+	smarter::shared_ptr<VirtualizedPageSpace> vspace;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<VirtualizedSpaceDescriptor>())
+			return kHelErrBadDescriptor;
+
+		vspace = wrapper->get<VirtualizedSpaceDescriptor>().space;
+	}
 
 	smarter::shared_ptr<VirtualizedCpu> vcpu;
 	if(getGlobalCpuFeatures()->haveVmx)
-		vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(space.space)));
+		vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(vspace)));
 	else if(getGlobalCpuFeatures()->haveSvm)
-		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(space.space)));
+		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(vspace)));
 	else
 		return kHelErrNoHardwareSupport;
 
-	*out = this_universe->attachDescriptor(universe_guard,
-			VirtualizedCpuDescriptor(std::move(vcpu)));
-	return kHelErrNone;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+		*out = this_universe->attachDescriptor(universe_guard,
+				VirtualizedCpuDescriptor(std::move(vcpu)));
+		return kHelErrNone;
+	}
 #else
 	return kHelErrNoHardwareSupport;
 #endif
@@ -792,15 +803,22 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	}
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
-	Universe::Guard universe_guard(this_universe->lock);
 
-	auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-	if(!wrapper)
-		return kHelErrNoDescriptor;
-	if(!wrapper->is<VirtualizedCpuDescriptor>())
-		return kHelErrBadDescriptor;
-	auto cpu = wrapper->get<VirtualizedCpuDescriptor>();
-	auto info = cpu.vcpu->run();
+	smarter::shared_ptr<VirtualizedCpu> vcpu;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<VirtualizedCpuDescriptor>())
+			return kHelErrBadDescriptor;
+
+		vcpu = wrapper->get<VirtualizedCpuDescriptor>().vcpu;
+	}
+
+	auto info = vcpu->run();
 	if(!writeUserObject(exitInfo, info))
 		return kHelErrFault;
 
