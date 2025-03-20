@@ -1088,7 +1088,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 			auto irqLock = frg::guard(&irqMutex());
 			auto spaceGuard = frg::guard(&_snapshotMutex);
 
-			mapping = _findMapping(address);
+			mapping = _findMapping(address + progress);
 		}
 		if(!mapping)
 			co_return progress;
@@ -1162,7 +1162,7 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 			auto irqLock = frg::guard(&irqMutex());
 			auto spaceGuard = frg::guard(&_snapshotMutex);
 
-			mapping = _findMapping(address);
+			mapping = _findMapping(address + progress);
 		}
 		if(!mapping)
 			co_return progress;
