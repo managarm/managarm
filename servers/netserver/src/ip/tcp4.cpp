@@ -520,6 +520,24 @@ struct Tcp4Socket {
 		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
+	static async::result<frg::expected<protocols::fs::Error>> getSocketOption(void *object,
+		int layer, int number, std::vector<char> &optbuf) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		(void)self;
+
+		if(layer == SOL_SOCKET && number == SO_TYPE) {
+			int out = SOCK_STREAM;
+			optbuf.resize(std::min(optbuf.size(), sizeof(out)));
+			memcpy(optbuf.data(), &out, optbuf.size());
+		} else {
+			std::cout << std::format("netserver: unhandled TCP socket getsockopt layer {} number {}\n",
+				layer, number);
+			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+	
+		co_return {};
+	}
+
 	constexpr static protocols::fs::FileOperations ops {
 		.read = &read,
 		.write = &write,
@@ -535,6 +553,7 @@ struct Tcp4Socket {
 		.sendMsg = &sendMsg,
 		.peername = &peername,
 		.setSocketOption = &setSocketOption,
+		.getSocketOption = &getSocketOption,
 	};
 
 	bool bindAvailable(uint32_t ipAddress = INADDR_ANY) {
