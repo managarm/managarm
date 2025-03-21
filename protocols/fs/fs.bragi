@@ -29,7 +29,8 @@ enum Errors {
 	DIRECTORY_NOT_EMPTY = 26,
 	CONNECTION_REFUSED = 27,
 	INTERNAL_ERROR = 28,
-	ALREADY_CONNECTED = 29
+	ALREADY_CONNECTED = 29,
+	NOT_A_SOCKET = 30
 }
 
 consts FileType int64 {
@@ -778,4 +779,9 @@ head(128):
 	int32 layer;
 	int32 number;
 	uint64 optlen;
+}
+
+message ShutdownSocket 28 {
+head(128):
+	int32 how;
 }
