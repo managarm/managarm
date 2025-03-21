@@ -48,7 +48,7 @@ struct GicPinV3 : public Gic::Pin {
 	void mask() override;
 	void unmask() override;
 
-	void sendEoi() override;
+	void endOfInterrupt() override;
 
 private:
 	friend struct GicV3;

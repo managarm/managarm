@@ -140,11 +140,19 @@ private:
 	IrqStatus _status = IrqStatus::standBy;
 };
 
-enum class IrqStrategy {
-	null,
-	justEoi,
-	maskThenEoi
-};
+using IrqStrategy = uint32_t;
+
+namespace irq_strategy {
+
+constexpr IrqStrategy maskable = IrqStrategy{1} << 0;
+// Mask the interrupt while its being serviced.
+constexpr IrqStrategy maskInService = IrqStrategy{1} << 1;
+// Whether endOfInterrupt() should be called.
+constexpr IrqStrategy endOfInterrupt = IrqStrategy{1} << 8;
+// Whether endOfService() should be called.
+constexpr IrqStrategy endOfService = IrqStrategy{1} << 9;
+
+} // namespace irq_strategy
 
 // Represents a (not necessarily physical) "pin" of an interrupt controller.
 // This class handles the IRQ configuration and acknowledgement.
@@ -197,7 +205,9 @@ protected:
 	virtual void unmask() = 0;
 
 	// Sends an end-of-interrupt signal to the interrupt controller.
-	virtual void sendEoi() = 0;
+	virtual void endOfInterrupt();
+	// Called when an interrupt exits service (i.e., when it is acked).
+	virtual void endOfService();
 
 	~IrqPin() = default;
 

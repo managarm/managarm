@@ -120,7 +120,7 @@ Error IrqPin::kickSink(IrqSink *sink, bool wantClear) {
 // --------------------------------------------------------
 
 IrqPin::IrqPin(frg::string<KernelAlloc> name)
-: _name{std::move(name)}, _strategy{IrqStrategy::null},
+: _name{std::move(name)}, _strategy{0},
 		_inService{false}, _dueSinks{0},
 		_maskState{0} {
 	_hash = frg::hash<frg::string<KernelAlloc>>{}(_name);
@@ -191,12 +191,9 @@ void IrqPin::raise() {
 	assert(!intsAreEnabled());
 	auto lock = frg::guard(&_mutex);
 
-	if(_strategy == IrqStrategy::null) {
+	if(!_strategy) {
 		debugLogger() << "thor: Unconfigured IRQ was raised" << frg::endlog;
 		dumpHardwareState();
-	}else{
-		assert(_strategy == IrqStrategy::justEoi
-				|| _strategy == IrqStrategy::maskThenEoi);
 	}
 
 	// If the IRQ is already masked, we're encountering a hardware race.
@@ -205,7 +202,7 @@ void IrqPin::raise() {
 		// At least on x86, the IRQ controller may buffer up to one edge-triggered IRQ.
 		// If an IRQ is already buffered while we mask it, it will inevitably be raised again.
 		// Thus, we do not immediately complain about edge-triggered IRQs here.
-		auto complain = _strategy != IrqStrategy::justEoi || _maskedRaiseCtr > 1;
+		auto complain = (_strategy & irq_strategy::maskInService) || _maskedRaiseCtr > 1;
 
 		if(complain) {
 			debugLogger() << "thor: IRQ controller raised "
@@ -226,28 +223,32 @@ void IrqPin::raise() {
 			infoLogger() << "thor: Sending end-of-interrupt" << frg::endlog;
 		}
 
-		sendEoi();
+		if (_strategy & irq_strategy::endOfInterrupt)
+			endOfInterrupt();
 		if(complain)
 			dumpHardwareState();
 		return;
 	}
 
-	// This can only happen for justEoi IRQs.
+	// This can only happen if irq_strategy::maskInService is clear.
 	// Otherwise, the IRQ is masked and the previous if would have triggered.
 	if(_inService) {
-		assert(_strategy == IrqStrategy::justEoi);
+		assert(!(_strategy & irq_strategy::maskInService));
 		_raiseBuffered = true;
-		_maskState |= maskedWhileBuffered;
+		if (_strategy & irq_strategy::maskable)
+			_maskState |= maskedWhileBuffered;
 
 		_updateMask();
-		sendEoi();
+		if (_strategy & irq_strategy::endOfInterrupt)
+			endOfInterrupt();
 		return;
 	}
 
 	_doService();
 
 	_updateMask();
-	sendEoi();
+	if (_strategy & irq_strategy::endOfInterrupt)
+		endOfInterrupt();
 }
 
 void IrqPin::_acknowledge() {
@@ -289,7 +290,7 @@ void IrqPin::_kick(bool doClear) {
 }
 
 // This function is called at the end of IRQ handling.
-// It unmasks IRQs that use maskThenEoi and checks for asynchronous NACK.
+// It unmasks IRQs that use maskInService and checks for asynchronous NACK.
 void IrqPin::_dispatch() {
 	if(_dispatchAcks) {
 		if(_unstallExponent > 0)
@@ -306,6 +307,9 @@ void IrqPin::_dispatch() {
 
 		_inService = false;
 		_maskState &= ~maskedForService;
+
+		if (_strategy & irq_strategy::endOfService)
+			endOfService();
 
 		// Avoid losing IRQs that were ignored in raise() as 'already active'.
 		if(_raiseBuffered) {
@@ -328,10 +332,12 @@ void IrqPin::_dispatch() {
 				(*it)->dumpHardwareState();
 			}
 		}
-		_maskState |= maskedForNack;
-		if(_unstallExponent < 8)
-			++_unstallExponent;
-		_unstallEvent.raise();
+		if (_strategy & irq_strategy::maskable) {
+			_maskState |= maskedForNack;
+			if(_unstallExponent < 8)
+				++_unstallExponent;
+			_unstallEvent.raise();
+		}
 	}
 
 	_updateMask();
@@ -360,6 +366,14 @@ void IrqPin::dumpHardwareState() {
 	infoLogger() << "thor: No dump available for IRQ pin " << name() << frg::endlog;
 }
 
+void IrqPin::endOfInterrupt() {
+	// Default implementation is a no-op: not all IRQ controllers need endOfInterrupt().
+}
+
+void IrqPin::endOfService() {
+	// Default implementation is a no-op: not all IRQ controllers need endOfService().
+}
+
 void IrqPin::_doService() {
 	assert(!_inService);
 	assert(!_raiseBuffered);
@@ -369,8 +383,8 @@ void IrqPin::_doService() {
 				<< _name << " enters service" << frg::endlog;
 
 	_inService = true;
-	// maskThenEoi IRQs are masked while then are in service.
-	if(_strategy == IrqStrategy::maskThenEoi)
+	// maskInService IRQs are masked while then are in service.
+	if(_strategy & irq_strategy::maskInService)
 		_maskState |= maskedForService;
 
 	_dueSinks = 0;
@@ -411,6 +425,9 @@ void IrqPin::_doService() {
 
 			_inService = false;
 			_maskState &= ~maskedForService;
+
+			if (_strategy & irq_strategy::endOfService)
+				endOfService();
 		}else{
 			urgentLogger() << "thor: IRQ " << _name << " was nacked (synchronously)!" << frg::endlog;
 			for(auto it = _sinkList.begin(); it != _sinkList.end(); ++it) {
@@ -419,10 +436,12 @@ void IrqPin::_doService() {
 				(*it)->dumpHardwareState();
 			}
 
-			_maskState |= maskedForNack;
-			if(_unstallExponent < 8)
-				++_unstallExponent;
-			_unstallEvent.raise();
+			if (_strategy & irq_strategy::maskable) {
+				_maskState |= maskedForNack;
+				if(_unstallExponent < 8)
+					++_unstallExponent;
+				_unstallEvent.raise();
+			}
 		}
 		return;
 	}
@@ -440,6 +459,7 @@ void IrqPin::_updateMask() {
 		_maskedRaiseCtr = 0;
 		unmask();
 	}else{
+		assert(_strategy & irq_strategy::maskable);
 		mask();
 	}
 }

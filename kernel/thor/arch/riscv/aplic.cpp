@@ -197,7 +197,7 @@ struct Aplic : dt::IrqController {
 					assert(polarity == Polarity::low);
 					mode = 5;
 				}
-				strategy = IrqStrategy::justEoi;
+				strategy = irq_strategy::maskable;
 			} else {
 				assert(trigger == TriggerMode::level);
 				if (polarity == Polarity::high) {
@@ -206,7 +206,7 @@ struct Aplic : dt::IrqController {
 					assert(polarity == Polarity::low);
 					mode = 7;
 				}
-				strategy = IrqStrategy::maskThenEoi;
+				strategy = irq_strategy::maskable | irq_strategy::maskInService;
 			}
 
 			// Set the source mode, ensure that this source mode is supported.
@@ -262,7 +262,7 @@ struct Aplic : dt::IrqController {
 			aplic_->space_.store(aplicSetieRegister(idx_ >> 5), bits);
 		}
 
-		void sendEoi() override {
+		void endOfInterrupt() override {
 			// The APLIC does not require EOIs.
 		}
 

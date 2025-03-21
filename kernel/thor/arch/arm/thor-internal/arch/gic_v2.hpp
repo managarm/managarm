@@ -32,7 +32,7 @@ struct GicDistributorV2 {
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override;
 		void mask() override;
 		void unmask() override;
-		void sendEoi() override;
+		void endOfInterrupt() override;
 
 		void activate();
 		void deactivate();

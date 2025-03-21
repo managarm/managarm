@@ -459,7 +459,7 @@ namespace {
 
 		IrqStrategy program(TriggerMode mode, Polarity) override {
 			assert(mode == TriggerMode::edge);
-			return IrqStrategy::justEoi;
+			return irq_strategy::endOfInterrupt;
 		}
 
 		void mask() override {
@@ -470,7 +470,7 @@ namespace {
 			// TODO: This may be worth implementing (but it is not needed for correctness).
 		}
 
-		void sendEoi() override {
+		void endOfInterrupt() override {
 			acknowledgeIrq(0);
 		}
 
@@ -553,7 +553,7 @@ namespace {
 			IrqStrategy program(TriggerMode mode, Polarity polarity) override;
 			void mask() override;
 			void unmask() override;
-			void sendEoi() override;
+			void endOfInterrupt() override;
 
 		private:
 			IoApic *_chip;
@@ -629,11 +629,11 @@ namespace {
 		IrqStrategy strategy;
 		if(mode == TriggerMode::edge) {
 			_levelTriggered = false;
-			strategy = IrqStrategy::justEoi;
+			strategy = irq_strategy::maskable | irq_strategy::endOfInterrupt;
 		}else{
 			assert(mode == TriggerMode::level);
 			_levelTriggered = true;
-			strategy = IrqStrategy::maskThenEoi;
+			strategy = irq_strategy::maskable | irq_strategy::maskInService | irq_strategy::endOfInterrupt;
 		}
 
 		if(polarity == Polarity::high) {
@@ -693,7 +693,7 @@ namespace {
 				| pin_word1::activeLow(_activeLow)));
 	}
 
-	void IoApic::Pin::sendEoi() {
+	void IoApic::Pin::endOfInterrupt() {
 		acknowledgeIrq(0);
 	}
 

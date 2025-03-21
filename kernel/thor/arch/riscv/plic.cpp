@@ -51,13 +51,16 @@ struct Plic : dt::IrqController {
 
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override {
 			unmask();
-			return IrqStrategy::justEoi;
+			return irq_strategy::maskable | irq_strategy::endOfService;
 		}
 
 		void mask() override { plic_->mask(plic_->bspCtx_, idx_); }
 		void unmask() override { plic_->unmask(plic_->bspCtx_, idx_); }
 
-		void sendEoi() override { plic_->complete(plic_->bspCtx_, idx_); }
+		// The PLIC does not know whether interrupts are edge- or level-triggered.
+		// We can handle both cases transparently by sending completion only when
+		// an interrupt is serviced successfully.
+		void endOfService() override { plic_->complete(plic_->bspCtx_, idx_); }
 
 	private:
 		Plic *plic_;

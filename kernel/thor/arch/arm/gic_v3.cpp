@@ -190,10 +190,10 @@ IrqStrategy GicPinV3::program(TriggerMode mode, Polarity polarity) {
 	unmask();
 
 	if(mode == TriggerMode::edge) {
-		return IrqStrategy::justEoi;
+		return irq_strategy::maskable | irq_strategy::endOfInterrupt;
 	} else {
 		assert(mode == TriggerMode::level);
-		return IrqStrategy::maskThenEoi;
+		return irq_strategy::maskable | irq_strategy::maskInService | irq_strategy::endOfInterrupt;
 	}
 }
 
@@ -213,7 +213,7 @@ void GicPinV3::unmask() {
 	arch::scalar_store_relaxed(space, dist_reg::irqSetEnableBase + offset, 1U << bit);
 }
 
-void GicPinV3::sendEoi() {
+void GicPinV3::endOfInterrupt() {
 	gicV3->eoi(0, irq_);
 }
 
