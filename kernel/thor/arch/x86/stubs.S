@@ -1,6 +1,4 @@
-
-# kernel gs segment fields
-.set .L_gsSyscallStack, 0x08
+#include <thor-internal/arch/asm.h>
 
 # executor struct fields
 .set .L_executorImagePtr, 0x00
@@ -458,7 +456,7 @@ syscallStub:
 	# temporarily save it and switch to kernel-stack
 	swapgs
 	mov %rsp, %rbx
-	mov %gs:.L_gsSyscallStack, %rsp
+	mov %gs:THOR_GS_SYSCALL_STACK, %rsp
 
 	# syscall stores rip to rcx and rflags to r11
 	push %r11 

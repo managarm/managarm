@@ -1,5 +1,6 @@
 #pragma once
 
+#include <thor-internal/arch/asm.h>
 #include <thor-internal/kernel-stack.hpp>
 
 namespace thor {
@@ -19,6 +20,13 @@ struct AssemblyCpuData {
 	// 		 We need to make use of this once we use NMIs on ARM.
 	IseqContext *iseqPtr{nullptr};
 };
+
+static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
+static_assert(offsetof(AssemblyCpuData, currentDomain) == THOR_TP_DOMAIN);
+static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
+static_assert(offsetof(AssemblyCpuData, irqStackPtr) == THOR_TP_IRQ_STACK);
+static_assert(offsetof(AssemblyCpuData, currentUar) == THOR_TP_CURRENT_UAR);
+static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);
 
 struct GicCpuInterfaceV2;
 struct Thread;

@@ -1,4 +1,4 @@
-.set .L_tpCurrentUar, 0x28
+#include <thor-internal/arch/asm.h>
 
 .set .L_uarRead, 1
 .set .L_uarWrite, 2
@@ -24,7 +24,7 @@
 .p2align 2
 doCopyFromUser:
 	la t0, 1b
-	sd t0, .L_tpCurrentUar(tp) # Setup the UAR.
+	sd t0, THOR_TP_CURRENT_UAR(tp) # Setup the UAR.
 
 2:
 	# TODO: It would be easy to improve this to not do a byte-wise copy.
@@ -37,12 +37,12 @@ doCopyFromUser:
 	j 2b
 
 3:
-	sd zero, .L_tpCurrentUar(tp) # Clean up the UAR.
+	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
 	li a0, 0
 	ret
 
 4:
-	sd zero, .L_tpCurrentUar(tp) # Clean up the UAR.
+	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
 	li a0, 1
 	ret
 
@@ -65,7 +65,7 @@ doCopyFromUser:
 .p2align 2
 doCopyToUser:
 	la t0, 1b
-	sd t0, .L_tpCurrentUar(tp) # Setup the UAR.
+	sd t0, THOR_TP_CURRENT_UAR(tp) # Setup the UAR.
 
 2:
 	# TODO: It would be easy to improve this to not do a byte-wise copy.
@@ -78,12 +78,12 @@ doCopyToUser:
 	j 2b
 
 3:
-	sd zero, .L_tpCurrentUar(tp) # Clean up the UAR.
+	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
 	li a0, 0
 	ret
 
 4:
-	sd zero, .L_tpCurrentUar(tp) # Clean up the UAR.
+	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
 	li a0, 1
 	ret
 
