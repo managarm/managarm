@@ -1704,10 +1704,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsNode> target = nullptr;
 
-			if(!req->path().size()) {
+			if(!req->path().size() && (req->flags() & AT_EMPTY_PATH)) {
 				target = self->fileContext()->getFile(req->fd())->associatedLink()->getTarget();
 			} else {
-				if(req->flags() & ~AT_SYMLINK_NOFOLLOW) {
+				if(req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
@@ -1749,7 +1749,31 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				target = resolver.currentLink()->getTarget();
 			}
 
-			co_await target->utimensat(req->atimeSec(), req->atimeNsec(), req->mtimeSec(), req->mtimeNsec());
+			std::optional<timespec> atime = std::nullopt;
+			std::optional<timespec> mtime = std::nullopt;
+
+			auto time = clk::getRealtime();
+			if(req->atimeNsec() == UTIME_NOW) {
+				atime = {time.tv_sec, time.tv_nsec};
+			} else if(req->atimeNsec() != UTIME_OMIT) {
+				if(req->atimeNsec() > 999'999'999) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+				atime = {static_cast<time_t>(req->atimeSec()), static_cast<long>(req->atimeNsec())};
+			}
+
+			if(req->mtimeNsec() == UTIME_NOW) {
+				mtime = {time.tv_sec, time.tv_nsec};
+			} else if(req->mtimeNsec() != UTIME_OMIT) {
+				if(req->mtimeNsec() > 999'999'999) {
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+				mtime = {static_cast<time_t>(req->mtimeSec()), static_cast<long>(req->mtimeNsec())};
+			}
+
+			co_await target->utimensat(atime, mtime, time);
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == bragi::message_id<managarm::posix::ReadlinkAtRequest>) {

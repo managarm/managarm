@@ -117,13 +117,23 @@ struct Node : FsNode {
 		co_return Error::success;
 	}
 
-	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_UTIMENSAT);
-		req.set_atime_sec(atime_sec);
-		req.set_atime_nsec(atime_nsec);
-		req.set_mtime_sec(mtime_sec);
-		req.set_mtime_nsec(mtime_nsec);
+	async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime,
+			timespec ctime) override {
+		managarm::fs::UtimensatRequest req;
+		if(atime) {
+			req.set_atime_sec(atime->tv_sec);
+			req.set_atime_nsec(atime->tv_nsec);
+			req.set_atime_update(true);
+		}
+
+		if(mtime) {
+			req.set_mtime_sec(mtime->tv_sec);
+			req.set_mtime_nsec(mtime->tv_nsec);
+			req.set_mtime_update(true);
+		}
+
+		req.set_ctime_sec(ctime.tv_sec);
+		req.set_ctime_nsec(ctime.tv_nsec);
 
 		auto ser = req.SerializeAsString();
 		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
