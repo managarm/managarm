@@ -75,6 +75,8 @@ enum class Error {
 	noChildProcesses,
 
 	alreadyConnected,
+
+	notSocket,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -103,6 +105,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::ioError: return protocols::fs::Error::internalError;
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
+		case Error::notSocket: return protocols::fs::Error::notSocket;
 	}
 }
 
@@ -138,6 +141,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::seekOnPipe:
 		case Error::notConnected:
 		case Error::noSpaceLeft:
+		case Error::notSocket:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return managarm::posix::Errors::INTERNAL_ERROR;
 	}
@@ -261,6 +265,8 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>> ptGetSocketOption(void *obj,
 			int layer, int number, std::vector<char> &optbuf);
 
+	static async::result<protocols::fs::Error> ptShutdown(void *obj, int how);
+
 	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
 
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
@@ -289,6 +295,7 @@ public:
 		.addSeals = &ptAddSeals,
 		.setSocketOption = &ptSetSocketOption,
 		.getSocketOption = &ptGetSocketOption,
+		.shutdown = &ptShutdown,
 	};
 
 	// ------------------------------------------------------------------------
@@ -445,6 +452,7 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer,
 			int number, std::vector<char> &optbuf);
+	virtual async::result<protocols::fs::Error> shutdown(int how);
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
