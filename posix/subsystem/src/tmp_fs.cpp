@@ -92,16 +92,19 @@ public:
 		co_return Error::success;
 	}
 
-	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
-		if(atime_sec != UTIME_NOW || atime_nsec != UTIME_NOW || mtime_sec != UTIME_NOW || mtime_nsec != UTIME_NOW) {
-			std::cout << "\e[31m" "tmp_fs: utimensat() only supports setting atime and mtime to current time" "\e[39m" << std::endl;
-			co_return Error::success;
-		}
-		struct timespec time = clk::getRealtime();
-		_atime.tv_sec = time.tv_sec;
-		_atime.tv_nsec = time.tv_nsec;
-		_mtime.tv_sec = time.tv_sec;
-		_mtime.tv_nsec = time.tv_nsec;
+	async::result<Error> utimensat(std::optional<uint64_t> atime_sec, std::optional<uint64_t> atime_nsec,
+			std::optional<uint64_t> mtime_sec, std::optional<uint64_t> mtime_nsec,
+			uint64_t ctime_sec, uint64_t ctime_nsec) override {
+		if(atime_sec)
+			_atime.tv_sec = atime_sec.value();
+		if(atime_nsec)
+			_atime.tv_nsec = atime_nsec.value();
+		if(mtime_sec)
+			_mtime.tv_sec = mtime_sec.value();
+		if(mtime_nsec)
+			_mtime.tv_nsec = mtime_nsec.value();
+		_ctime.tv_sec = ctime_sec;
+		_ctime.tv_nsec = ctime_nsec;
 		co_return Error::success;
 	}
 
@@ -757,6 +760,10 @@ helix::BorrowedDescriptor DirectoryFile::getPassthroughLane() {
 Node::Node(Superblock *superblock, FsNode::DefaultOps default_ops)
 : FsNode{superblock, default_ops} {
 	_inodeNumber = superblock->allocateInode();
+	auto time = clk::getRealtime();
+	_atime = time;
+	_mtime = time;
+	_ctime = time;
 }
 
 // ----------------------------------------------------------------------------

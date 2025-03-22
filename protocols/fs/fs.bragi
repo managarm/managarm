@@ -122,7 +122,6 @@ enum CntReqType {
 	NODE_CHMOD = 38,
 
 	NODE_RMDIR = 40,
-	NODE_UTIMENSAT = 41,
 
 	OPEN_FD_LANE = 47,
 	PT_GET_SEALS = 48,
@@ -248,12 +247,6 @@ head(128):
 		tag(58) int64 offset;
 
 		tag(60) int32 mode;
-
-		// used by utimensat
-		tag(63) uint64 atime_sec;
-		tag(64) uint64 atime_nsec;
-		tag(65) uint64 mtime_sec;
-		tag(66) uint64 mtime_nsec;
 
 		// used by NODE_OBSTRUCT_LINK
 		tag(67) string link_name;
@@ -778,4 +771,16 @@ head(128):
 	int32 layer;
 	int32 number;
 	uint64 optlen;
+}
+
+message UtimensatRequest 28 {
+head(128):
+	byte atime_update;
+	uint64 atime_sec;
+	uint64 atime_nsec;
+	byte mtime_update;
+	uint64 mtime_sec;
+	uint64 mtime_nsec;
+	uint64 ctime_sec;
+	uint64 ctime_nsec;
 }

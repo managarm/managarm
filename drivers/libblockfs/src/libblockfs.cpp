@@ -455,9 +455,12 @@ async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode
 	co_return result;
 }
 
-async::result<protocols::fs::Error> utimensat(std::shared_ptr<void> object, uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
+async::result<protocols::fs::Error> utimensat(std::shared_ptr<void> object,
+		std::optional<uint64_t> atime_sec, std::optional<uint64_t> atime_nsec,
+		std::optional<uint64_t> mtime_sec, std::optional<uint64_t> mtime_nsec,
+		uint64_t ctime_sec, uint64_t ctime_nsec) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto result = co_await self->utimensat(atime_sec, atime_nsec, mtime_sec, mtime_nsec);
+	auto result = co_await self->utimensat(atime_sec, atime_nsec, mtime_sec, mtime_nsec, ctime_sec, ctime_nsec);
 
 	co_return result;
 }
