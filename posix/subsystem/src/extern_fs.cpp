@@ -117,13 +117,24 @@ struct Node : FsNode {
 		co_return Error::success;
 	}
 
-	async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_UTIMENSAT);
-		req.set_atime_sec(atime_sec);
-		req.set_atime_nsec(atime_nsec);
-		req.set_mtime_sec(mtime_sec);
-		req.set_mtime_nsec(mtime_nsec);
+	async::result<Error> utimensat(std::optional<uint64_t> atime_sec, std::optional<uint64_t> atime_nsec,
+			std::optional<uint64_t> mtime_sec, std::optional<uint64_t> mtime_nsec,
+			uint64_t ctime_sec, uint64_t ctime_nsec) override {
+		managarm::fs::UtimensatRequest req;
+		if(atime_sec && atime_nsec) {
+			req.set_atime_sec(atime_sec.value());
+			req.set_atime_nsec(atime_nsec.value());
+			req.set_atime_update(true);
+		}
+
+		if(mtime_sec && mtime_nsec) {
+			req.set_mtime_sec(mtime_sec.value());
+			req.set_mtime_nsec(mtime_nsec.value());
+			req.set_mtime_update(true);
+		}
+
+		req.set_ctime_sec(ctime_sec);
+		req.set_ctime_nsec(ctime_nsec);
 
 		auto ser = req.SerializeAsString();
 		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(

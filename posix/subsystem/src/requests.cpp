@@ -1749,7 +1749,29 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				target = resolver.currentLink()->getTarget();
 			}
 
-			co_await target->utimensat(req->atimeSec(), req->atimeNsec(), req->mtimeSec(), req->mtimeNsec());
+			std::optional<uint64_t> atimeSec = std::nullopt;
+			std::optional<uint64_t> atimeNsec = std::nullopt;
+			std::optional<uint64_t> mtimeSec = std::nullopt;
+			std::optional<uint64_t> mtimeNsec = std::nullopt;
+
+			auto time = clk::getRealtime();
+			if(req->atimeSec() == UTIME_NOW || req->atimeNsec() == UTIME_NOW) {
+				atimeSec = time.tv_sec;
+				atimeNsec = time.tv_nsec;
+			} else if(req->atimeSec() != UTIME_OMIT && req->atimeNsec() != UTIME_OMIT) {
+				atimeSec = req->atimeSec();
+				atimeNsec = req->atimeNsec();
+			}
+
+			if(req->mtimeSec() == UTIME_NOW || req->mtimeNsec() == UTIME_NOW) {
+				mtimeSec = time.tv_sec;
+				mtimeNsec = time.tv_nsec;
+			} else if(req->mtimeSec() != UTIME_OMIT && req->mtimeNsec() != UTIME_OMIT) {
+				mtimeSec = req->mtimeSec();
+				mtimeNsec = req->mtimeNsec();
+			}
+
+			co_await target->utimensat(atimeSec, atimeNsec, mtimeSec, mtimeNsec, time.tv_sec, time.tv_nsec);
 
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == bragi::message_id<managarm::posix::ReadlinkAtRequest>) {

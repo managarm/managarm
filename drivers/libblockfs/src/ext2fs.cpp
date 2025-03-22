@@ -421,21 +421,20 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<protocols::fs::Error> Inode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
+async::result<protocols::fs::Error> Inode::utimensat(std::optional<uint64_t> atime_sec, std::optional<uint64_t> atime_nsec,
+		std::optional<uint64_t> mtime_sec, std::optional<uint64_t> mtime_nsec,
+		uint64_t ctime_sec, uint64_t ctime_nsec) {
+	(void) atime_nsec;
+	(void) mtime_nsec;
+	(void) ctime_nsec;
+
 	co_await readyJump.wait();
 
-	auto time = clk::getRealtime();
-	if(atime_sec == UTIME_NOW || atime_nsec == UTIME_NOW) {
-		diskInode()->atime = time.tv_sec;
-	} else if(atime_sec != UTIME_OMIT && atime_nsec != UTIME_OMIT) {
-		diskInode()->atime = atime_sec;
-	}
-
-	if(mtime_sec == UTIME_NOW || mtime_nsec == UTIME_NOW) {
-		diskInode()->mtime = time.tv_sec;
-	} else if(mtime_sec != UTIME_OMIT && mtime_nsec != UTIME_OMIT) {
-		diskInode()->mtime = mtime_sec;
-	}
+	if(atime_sec)
+		diskInode()->atime = atime_sec.value();
+	if(mtime_sec)
+		diskInode()->mtime = mtime_sec.value();
+	diskInode()->ctime = ctime_sec;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},

@@ -189,7 +189,7 @@ public:
 	virtual async::result<Error> chmod(int mode);
 
 	// Changes timestamps on a node
-	virtual async::result<Error> utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec);
+	virtual async::result<Error> utimensat(std::optional<uint64_t> atime_sec, std::optional<uint64_t> atime_nsec, std::optional<uint64_t> mtime_sec, std::optional<uint64_t> mtime_nsec, uint64_t ctime_sec, uint64_t ctime_nsec);
 
 	// Creates an socket
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name);
