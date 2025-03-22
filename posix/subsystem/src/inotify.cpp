@@ -29,7 +29,7 @@ public:
 	};
 
 	struct Watch final : FsObserver {
-		Watch(OpenFile *file_, int descriptor, uint32_t mask, std::weak_ptr<FsNode> node)
+		Watch(smarter::weak_ptr<File> file_, int descriptor, uint32_t mask, std::weak_ptr<FsNode> node)
 		: file{file_}, descriptor{descriptor}, mask{mask}, node{node} { }
 
 		void observeNotification(uint32_t events,
@@ -52,9 +52,13 @@ public:
 			if(events & FsObserver::ignoredEvent)
 				inotifyEvents |= IN_IGNORED;
 
-			auto preexists = std::ranges::find_if(file->_queue, [&name, inotifyEvents](auto a) {
+			auto f = smarter::static_pointer_cast<OpenFile>(file.lock());
+			if(!f)
+				return;
+
+			auto preexists = std::ranges::find_if(f->_queue, [&name, inotifyEvents](auto a) {
 				return a.name == name && (a.events & inotifyEvents) == inotifyEvents;
-			}) != file->_queue.end();
+			}) != f->_queue.end();
 			if(preexists)
 				return;
 
@@ -64,12 +68,12 @@ public:
 			if(!(inotifyEvents & (mask | alwaysReturnedFlags)))
 				return;
 
-			file->_queue.push_back(Packet{descriptor, inotifyEvents & (mask | alwaysReturnedFlags), name, cookie});
-			file->_inSeq = ++file->_currentSeq;
-			file->_statusBell.raise();
+			f->_queue.push_back(Packet{descriptor, inotifyEvents & (mask | alwaysReturnedFlags), name, cookie});
+			f->_inSeq = ++f->_currentSeq;
+			f->_statusBell.raise();
 		}
 
-		OpenFile *file;
+		smarter::weak_ptr<File> file;
 		int descriptor;
 		uint32_t mask;
 		std::weak_ptr<FsNode> node;
@@ -79,16 +83,25 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+			smarter::shared_ptr<File>{file}, &File::fileOperations, file->cancelServe_));
+	}
+
+	void handleClose() override {
+		cancelServe_.cancel();
+		_passthrough = {};
+
+		for(auto [_, watch] : watches_) {
+			auto node = watch->node.lock();
+
+			if(node)
+				node->removeObserver(watch.get());
+		}
 	}
 
 	OpenFile(bool nonBlock = false)
 	: File{StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
 
-	~OpenFile() override {
-		// TODO: Properly keep track of watches.
-		std::cout << "\e[31m" "posix: Destruction of inotify leaks watches" "\e[39m" << std::endl;
-	}
+	~OpenFile() override { }
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override {
@@ -172,13 +185,13 @@ public:
 			std::println("posix: inotify mask {:#x} is partially ignored", mask);
 
 		for(const auto &[desc, watch] : watches_)
-			if(watch->file == this)
+			if(watch->file.lock().get() == this)
 				return desc;
 
 		auto descriptor = descriptorAllocator_.allocate();
-		auto watch = std::make_shared<Watch>(this, descriptor, mask, node);
+		auto watch = std::make_shared<Watch>(weakFile(), descriptor, mask, node);
 		node->addObserver(watch);
-		watches_.insert({descriptor, watch});
+		watches_.insert({descriptor, std::move(watch)});
 		return descriptor;
 	}
 
@@ -240,6 +253,7 @@ public:
 
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event cancelServe_;
 	std::deque<Packet> _queue;
 
 	id_allocator<int> descriptorAllocator_{1};
