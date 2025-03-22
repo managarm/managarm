@@ -36,7 +36,7 @@ struct BlockDevice {
 	int64_t parentId = -1;
 
 	std::string diskNamePrefix = "sd";
-	std::string diskNameSuffix = "sd";
+	std::string diskNameSuffix = "";
 	std::string partNameSuffix = "";
 protected:
 };
