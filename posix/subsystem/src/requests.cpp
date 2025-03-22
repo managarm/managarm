@@ -1704,10 +1704,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			smarter::shared_ptr<File, FileHandle> file;
 			std::shared_ptr<FsNode> target = nullptr;
 
-			if(!req->path().size()) {
+			if(!req->path().size() && (req->flags() & AT_EMPTY_PATH)) {
 				target = self->fileContext()->getFile(req->fd())->associatedLink()->getTarget();
 			} else {
-				if(req->flags() & ~AT_SYMLINK_NOFOLLOW) {
+				if(req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
