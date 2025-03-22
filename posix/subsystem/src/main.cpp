@@ -176,7 +176,6 @@ async::detached runInit() {
 	co_await posix::initOstrace();
 	co_await enumerateKerncfg();
 	async::detach(enumeratePm());
-	co_await clk::enumerateTracker();
 	async::detach(net::enumerateNetserver());
 	co_await populateRootView();
 	co_await Process::init("usr/bin/posix-init");
@@ -184,6 +183,8 @@ async::detached runInit() {
 
 int main() {
 	std::cout << "Starting posix-subsystem" << std::endl;
+
+	async::run(clk::enumerateTracker(), helix::currentDispatcher);
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 

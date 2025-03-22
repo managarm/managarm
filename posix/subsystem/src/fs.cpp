@@ -175,11 +175,10 @@ async::result<Error> FsNode::chmod(int mode) {
 	co_return Error::accessDenied;
 }
 
-async::result<Error> FsNode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
-	(void) atime_sec;
-	(void) atime_nsec;
-	(void) mtime_sec;
-	(void) mtime_nsec;
+async::result<Error> FsNode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
+	(void) atime;
+	(void) mtime;
+	(void) ctime;
 
 	std::cout << "\e[31m" "posix: utimensat() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::accessDenied;

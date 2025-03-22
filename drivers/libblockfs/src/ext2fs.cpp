@@ -421,21 +421,14 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<protocols::fs::Error> Inode::utimensat(uint64_t atime_sec, uint64_t atime_nsec, uint64_t mtime_sec, uint64_t mtime_nsec) {
+async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
 	co_await readyJump.wait();
 
-	auto time = clk::getRealtime();
-	if(atime_sec == UTIME_NOW || atime_nsec == UTIME_NOW) {
-		diskInode()->atime = time.tv_sec;
-	} else if(atime_sec != UTIME_OMIT && atime_nsec != UTIME_OMIT) {
-		diskInode()->atime = atime_sec;
-	}
-
-	if(mtime_sec == UTIME_NOW || mtime_nsec == UTIME_NOW) {
-		diskInode()->mtime = time.tv_sec;
-	} else if(mtime_sec != UTIME_OMIT && mtime_nsec != UTIME_OMIT) {
-		diskInode()->mtime = mtime_sec;
-	}
+	if(atime)
+		diskInode()->atime = atime->tv_sec;
+	if(mtime)
+		diskInode()->mtime = mtime->tv_sec;
+	diskInode()->ctime = ctime.tv_sec;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},

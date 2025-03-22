@@ -1449,6 +1449,30 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 		};
 
+		auto logBragiReply = [&preamble, &requestTimestamp](auto &resp) {
+			if(!ostContext.isActive())
+				return;
+
+			auto ts = clk::getTimeSinceBoot();
+			std::string replyHead;
+			std::string replyTail;
+			replyHead.resize(resp.size_of_head());
+			replyTail.resize(resp.size_of_tail());
+			bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+			bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+			auto headOk = resp.encode_head(headWriter);
+			auto tailOk = resp.encode_tail(tailWriter);
+			assert(headOk);
+			assert(tailOk);
+			ostContext.emitWithTimestamp(
+				ostEvtRequest,
+				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+				ostAttrRequest(preamble.id()),
+				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+				ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+			);
+		};
+
 		if(!preamble.tail_size())
 			logBragiRequest({});
 
@@ -1464,7 +1488,37 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			req = *o;
 		}
 
-		if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
+		if(preamble.id() == managarm::fs::UtimensatRequest::message_id) {
+			auto msg = bragi::parse_head_only<managarm::fs::UtimensatRequest>(recv_req);
+			recv_req.reset();
+			if(!msg) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			std::optional<timespec> atime = std::nullopt;
+			std::optional<timespec> mtime = std::nullopt;
+
+			if(msg->atime_update())
+				atime = {static_cast<time_t>(msg->atime_sec()), static_cast<long>(msg->atime_nsec())};
+
+			if(msg->mtime_update())
+				mtime = {static_cast<time_t>(msg->mtime_sec()), static_cast<long>(msg->mtime_nsec())};
+
+			timespec ctime = {static_cast<time_t>(msg->ctime_sec()), static_cast<long>(msg->ctime_nsec())};
+
+			co_await node_ops->utimensat(node, atime, mtime, ctime);
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		} else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_STATS) {
 			assert(node_ops->getStats);
 			auto result = co_await node_ops->getStats(node);
 
@@ -1843,19 +1897,6 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_CHMOD) {
 			co_await node_ops->chmod(node, req.mode());
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UTIMENSAT) {
-			co_await node_ops->utimensat(node, req.atime_sec(), req.atime_nsec(), req.mtime_sec(), req.mtime_nsec());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
