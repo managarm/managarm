@@ -15,6 +15,7 @@ src = [
 	'src/mmap.cpp',
 	'src/memfd.cpp',
 	'src/pidfd.cpp',
+	'src/socket.cpp',
 ]
 
 executable('posix-tests', src, install : true)
