@@ -14,6 +14,7 @@
 #include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include "fs.bragi.hpp"
 #include "un-socket.hpp"
 #include "pidfd.hpp"
@@ -61,6 +62,24 @@ struct OpenFile : File {
 		unnamed,
 		path,
 		abstract
+	};
+
+	async::result<void> raceReceiveTimeout(async::cancellation_token c) {
+		if(receiveTimeout_) {
+			uint64_t ns = (receiveTimeout_->tv_usec * 1'000) + (receiveTimeout_->tv_sec * 1'000'000'000);
+			co_await helix::sleepFor(ns, c);
+		} else {
+			co_await async::suspend_indefinitely(c);
+		}
+	};
+
+	async::result<void> raceSendTimeout(async::cancellation_token c) {
+		if(sendTimeout_) {
+			uint64_t ns = (sendTimeout_->tv_usec * 1'000) + (sendTimeout_->tv_sec * 1'000'000'000);
+			co_await helix::sleepFor(ns, c);
+		} else {
+			co_await async::suspend_indefinitely(c);
+		}
 	};
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
@@ -134,8 +153,16 @@ public:
 			co_return Error::wouldBlock;
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_recvQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_recvQueue.empty())
+			co_return Error::wouldBlock;
 
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {
@@ -202,8 +229,16 @@ public:
 			co_return protocols::fs::Error::wouldBlock;
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_recvQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_recvQueue.empty())
+			co_return protocols::fs::Error::wouldBlock;
 
 		auto packet = &_recvQueue.front();
 		uint32_t reply_flags = 0;
@@ -372,8 +407,16 @@ public:
 			co_return Error::wouldBlock;
 		}
 
-		while (!_acceptQueue.size())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_acceptQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_acceptQueue.empty())
+			co_return Error::wouldBlock;
 
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
@@ -521,9 +564,17 @@ public:
 			server->_inSeq = ++server->_currentSeq;
 			server->_statusBell.raise();
 
-			while(_currentState == State::null)
-				co_await _statusBell.async_wait();
-			assert(_currentState == State::connected);
+			co_await async::race_and_cancel(
+				[&](async::cancellation_token c) { return raceSendTimeout(c); },
+				[&](async::cancellation_token c) -> async::result<void> {
+					while (_currentState == State::null && !c.is_cancellation_requested())
+						co_await _statusBell.async_wait(c);
+				}
+			);
+
+			if(_currentState != State::connected)
+				co_return protocols::fs::Error::wouldBlock;
+
 			co_return protocols::fs::Error::none;
 		} else {
 			PathResolver resolver;
@@ -548,8 +599,16 @@ public:
 				server->_inSeq = ++server->_currentSeq;
 				server->_statusBell.raise();
 
-				while(_currentState == State::null)
-					co_await _statusBell.async_wait();
+				co_await async::race_and_cancel(
+					[&](async::cancellation_token c) { return raceSendTimeout(c); },
+					[&](async::cancellation_token c) -> async::result<void> {
+						while (_currentState == State::null && !c.is_cancellation_requested())
+							co_await _statusBell.async_wait(c);
+					}
+				);
+
+				if(_currentState != State::connected)
+					co_return protocols::fs::Error::wouldBlock;
 
 				assert(_currentState == State::connected);
 				assert(_remote != nullptr);
@@ -658,6 +717,22 @@ public:
 			int val = *reinterpret_cast<int *>(optbuf.data());
 
 			timestamp_ = (val != 0);
+		} else if(layer == SOL_SOCKET && number == SO_RCVTIMEO) {
+			if(optbuf.size() < sizeof(timeval))
+				co_return protocols::fs::Error::illegalArguments;
+
+			receiveTimeout_ = *reinterpret_cast<timeval *>(optbuf.data());
+
+			if(!receiveTimeout_->tv_sec && !receiveTimeout_->tv_usec)
+				receiveTimeout_ = std::nullopt;
+		} else if(layer == SOL_SOCKET && number == SO_SNDTIMEO) {
+			if(optbuf.size() < sizeof(timeval))
+				co_return protocols::fs::Error::illegalArguments;
+
+			sendTimeout_ = *reinterpret_cast<timeval *>(optbuf.data());
+
+			if(!sendTimeout_->tv_sec && !sendTimeout_->tv_usec)
+				sendTimeout_ = std::nullopt;
 		} else {
 			std::cout << std::format("un-socket: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
@@ -793,6 +868,9 @@ private:
 	bool socketpair_;
 
 	bool listen_;
+
+	std::optional<timeval> receiveTimeout_;
+	std::optional<timeval> sendTimeout_;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
