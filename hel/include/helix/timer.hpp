@@ -77,15 +77,22 @@ private:
 	TimeoutCallback<Functor> _tb;
 };
 
-inline async::result<void> sleepFor(uint64_t duration) {
+inline async::result<void> sleepFor(uint64_t duration, async::cancellation_token cancel = {}) {
 	uint64_t tick;
 	HEL_CHECK(helGetClock(&tick));
 
 	helix::AwaitClock await;
 	auto &&submit = helix::submitAwaitClock(&await, tick + duration,
 			helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(await.error());
+	auto async_id = await.asyncId();
+
+	{
+		async::cancellation_callback cb{cancel, [&] {
+			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
+					async_id));
+		}};
+		co_await submit.async_wait();
+	}
 }
 
 // Returns true if the operation succeeded, or false if it timed out
