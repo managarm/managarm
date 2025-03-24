@@ -2918,8 +2918,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto newfileResult = co_await sockfile->accept(self.get());
 			if(!newfileResult) {
-				assert(newfileResult.error() == Error::wouldBlock);
-				co_await sendErrorResponse(managarm::posix::Errors::WOULD_BLOCK);
+				co_await sendErrorResponse(newfileResult.error() | toPosixProtoError);
 				continue;
 			}
 			auto newfile = newfileResult.value();
