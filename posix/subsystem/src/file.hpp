@@ -445,6 +445,8 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer,
 			int number, std::vector<char> &optbuf);
+
+	virtual async::result<std::string> getFdInfo();
 private:
 	smarter::weak_ptr<File> _weakPtr;
 	StructName _structName;
