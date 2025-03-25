@@ -385,8 +385,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				wait_pid = req->id();
 			} else if(req->idtype() == P_ALL) {
 				wait_pid = -1;
+			} else if(req->idtype() == P_PIDFD) {
+				auto fd = self->fileContext()->getFile(req->id());
+				if(!fd || fd->kind() != FileKind::pidfd) {
+					co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+						(managarm::posix::Errors::NO_SUCH_FD);
+					continue;
+				}
+				auto pidfd = smarter::static_pointer_cast<pidfd::OpenFile>(fd);
+				wait_pid = pidfd->pid();
+				if(pidfd->nonBlock())
+					flags |= waitNonBlocking;
 			} else {
-				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
+				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID, P_PIDFD and P_ALL are not implemented\e[39m" << std::endl;
 				co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
 					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
