@@ -689,3 +689,15 @@ head(128):
 	Errors error;
 	int32 fd;
 }
+
+message PidfdSendSignalRequest 111 {
+head(128):
+	int32 pidfd;
+	int32 signal;
+	uint32 flags;
+}
+
+message PidfdSendSignalResponse 112 {
+head(128):
+	Errors error;
+}
