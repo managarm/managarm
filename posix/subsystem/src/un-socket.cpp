@@ -8,6 +8,7 @@
 #include <sys/un.h>
 #include <iostream>
 
+#include <asm-generic/socket.h>
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
 #include <bragi/helpers-std.hpp>
@@ -15,6 +16,7 @@
 #include <helix/ipc.hpp>
 #include "fs.bragi.hpp"
 #include "un-socket.hpp"
+#include "pidfd.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
 
@@ -615,6 +617,24 @@ public:
 		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
+		} else if(layer == SOL_SOCKET && number == SO_PEERPIDFD) {
+			pid_t pid = _remote->_ownerPid;
+			int result = 0;
+
+			if(!pid) {
+				result = -ENODATA;
+			} else {
+				auto remoteProc = Process::findProcess(pid);
+
+				if(remoteProc) {
+					auto pidfd = createPidfdFile(remoteProc, false);
+					result = process->fileContext()->attachFile(pidfd);
+				} else {
+					result = -ENODATA;
+				}
+			}
+
+			memcpy(optbuf.data(), &result, std::min(optbuf.size(), sizeof(result)));
 		} else {
 			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
