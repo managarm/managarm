@@ -4051,6 +4051,50 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::PidfdSendSignalRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::PidfdSendSignalRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto fd = self->fileContext()->getFile(req->pidfd());
+			if(!fd || fd->kind() != FileKind::pidfd) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			auto pid = smarter::static_pointer_cast<pidfd::OpenFile>(fd)->pid();
+			if(pid <= 0) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::NO_SUCH_RESOURCE);
+				continue;
+			}
+
+			auto target = Process::findProcess(pid);
+			if(!target) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::NO_SUCH_RESOURCE);
+				continue;
+			}
+
+			UserSignal info;
+			info.pid = self->pid();
+			info.uid = 0;
+			target->signalContext()->issueSignal(req->signal(), info);
+
+			managarm::posix::PidfdSendSignalResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
