@@ -594,6 +594,9 @@ public:
 		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 			int protocol = 0;
 			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else if(layer == SOL_SOCKET && number == SO_DOMAIN) {
+			int domain = AF_UNIX;
+			memcpy(optbuf.data(), &domain, std::min(optbuf.size(), sizeof(domain)));
 		} else if(layer == SOL_SOCKET && number == SO_PEERCRED) {
 			struct ucred creds;
 
