@@ -10,6 +10,7 @@
 #include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/pidfd.h>
 #include <unistd.h>
 
 #include <helix/timer.hpp>
@@ -32,6 +33,7 @@
 #include "signalfd.hpp"
 #include "tmp_fs.hpp"
 #include "cgroupfs.hpp"
+#include "pidfd.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
@@ -4001,6 +4003,35 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				std::cout << "posix: ITIMER_VIRTUAL and ITIMER_PROF are unsupported" << std::endl;
 			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::PidfdOpenRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::PidfdOpenRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto proc = Process::findProcess(req->pid());
+			if(!proc) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdOpenResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			auto pidfd = createPidfdFile(proc, req->flags() & PIDFD_NONBLOCK);
+			auto fd = self->fileContext()->attachFile(pidfd, req->flags() & PIDFD_NONBLOCK);
+
+			managarm::posix::PidfdOpenResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,

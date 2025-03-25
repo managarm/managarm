@@ -677,3 +677,15 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_nsec;
 }
+
+message PidfdOpenRequest 109 {
+head(128):
+	int64 pid;
+	uint32 flags;
+}
+
+message PidfdOpenResponse 110 {
+head(128):
+	Errors error;
+	int32 fd;
+}
