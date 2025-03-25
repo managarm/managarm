@@ -1133,8 +1133,9 @@ async::result<std::string> FdInfoNode::show(Process *) {
 	auto seekResult = co_await file_->seek(0, VfsSeek::relative);
 	auto pos = seekResult ? seekResult.value() : 0;
 	auto mountId = mountView_ ? mountView_->mountId() : 0;
+	auto extraInfo = co_await file_->getFdInfo();
 
-	co_return std::format("pos:\t{}\nmnt_id:\t{}\n", pos, mountId);
+	co_return std::format("pos:\t{}\nmnt_id:\t{}\n{}", pos, mountId, extraInfo);
 }
 
 async::result<void> FdInfoNode::store(std::string) {

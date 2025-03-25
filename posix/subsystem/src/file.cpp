@@ -535,3 +535,7 @@ async::result<frg::expected<protocols::fs::Error>> File::getSocketOption(int lay
 
 	co_return protocols::fs::Error::illegalOperationTarget;
 }
+
+async::result<std::string> File::getFdInfo() {
+	co_return {};
+}
