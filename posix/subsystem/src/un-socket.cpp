@@ -13,6 +13,7 @@
 #include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include "fs.bragi.hpp"
 #include "un-socket.hpp"
 #include "process.hpp"
@@ -59,6 +60,26 @@ struct OpenFile : File {
 		unnamed,
 		path,
 		abstract
+	};
+
+	std::function<async::result<void>(async::cancellation_token)> raceReceiveTimeout =
+			[&](async::cancellation_token c) -> async::result<void> {
+		if(receiveTimeout_) {
+			uint64_t ns = (receiveTimeout_->tv_usec * 1'000) + (receiveTimeout_->tv_sec * 1'000'000'000);
+			co_await helix::sleepFor(ns, c);
+		} else {
+			co_await async::suspend_indefinitely(c);
+		}
+	};
+
+	std::function<async::result<void>(async::cancellation_token)> raceSendTimeout =
+			[&](async::cancellation_token c) -> async::result<void> {
+		if(sendTimeout_) {
+			uint64_t ns = (sendTimeout_->tv_usec * 1'000) + (sendTimeout_->tv_sec * 1'000'000'000);
+			co_await helix::sleepFor(ns, c);
+		} else {
+			co_await async::suspend_indefinitely(c);
+		}
 	};
 public:
 	static void connectPair(OpenFile *a, OpenFile *b) {
@@ -132,8 +153,16 @@ public:
 			co_return Error::wouldBlock;
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			raceReceiveTimeout,
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_recvQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_recvQueue.empty())
+			co_return Error::wouldBlock;
 
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {
@@ -200,8 +229,16 @@ public:
 			co_return protocols::fs::Error::wouldBlock;
 		}
 
-		while(_recvQueue.empty())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			raceReceiveTimeout,
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_recvQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_recvQueue.empty())
+			co_return protocols::fs::Error::wouldBlock;
 
 		auto packet = &_recvQueue.front();
 		uint32_t reply_flags = 0;
@@ -251,9 +288,14 @@ public:
 
 		// datagram packets are always read from their beginning, so offsets are illegal
 		assert(!packet->offset || socktype_ == SOCK_STREAM);
-		auto data_length = packet->buffer.size() - packet->offset;
-		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
-		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+
+		size_t packet_offset = packet->offset;
+		if((flags & MSG_PEEK) && peekOffset_)
+			packet_offset += peekOffset_.value();
+
+		auto data_length = packet->buffer.size() - packet_offset;
+		auto chunk = std::min(packet->buffer.size() - packet_offset, max_length);
+		memcpy(data, packet->buffer.data() + packet_offset, chunk);
 
 		if(socktype_ == SOCK_STREAM) {
 			returned_length = chunk;
@@ -267,6 +309,11 @@ public:
 			if(!(flags & MSG_PEEK))
 				_recvQueue.pop_front();
 		}
+
+		if((flags & MSG_PEEK) && peekOffset_)
+			*peekOffset_ += returned_length;
+		else if(peekOffset_)
+			*peekOffset_ -= std::min(*peekOffset_, returned_length);
 
 		if(data_length != returned_length)
 			reply_flags |= MSG_TRUNC;
@@ -370,8 +417,16 @@ public:
 			co_return Error::wouldBlock;
 		}
 
-		while (!_acceptQueue.size())
-			co_await _statusBell.async_wait();
+		co_await async::race_and_cancel(
+			raceReceiveTimeout,
+			[&](async::cancellation_token c) -> async::result<void> {
+				while (_acceptQueue.empty() && !c.is_cancellation_requested())
+					co_await _statusBell.async_wait(c);
+			}
+		);
+
+		if(_acceptQueue.empty())
+			co_return Error::wouldBlock;
 
 		auto remote = std::move(_acceptQueue.front());
 		_acceptQueue.pop_front();
@@ -519,9 +574,17 @@ public:
 			server->_inSeq = ++server->_currentSeq;
 			server->_statusBell.raise();
 
-			while(_currentState == State::null)
-				co_await _statusBell.async_wait();
-			assert(_currentState == State::connected);
+			co_await async::race_and_cancel(
+				raceSendTimeout,
+				[&](async::cancellation_token c) -> async::result<void> {
+					while (_currentState == State::null && !c.is_cancellation_requested())
+						co_await _statusBell.async_wait(c);
+				}
+			);
+
+			if(_currentState != State::connected)
+				co_return protocols::fs::Error::wouldBlock;
+
 			co_return protocols::fs::Error::none;
 		} else {
 			PathResolver resolver;
@@ -546,8 +609,16 @@ public:
 				server->_inSeq = ++server->_currentSeq;
 				server->_statusBell.raise();
 
-				while(_currentState == State::null)
-					co_await _statusBell.async_wait();
+				co_await async::race_and_cancel(
+					raceSendTimeout,
+					[&](async::cancellation_token c) -> async::result<void> {
+						while (_currentState == State::null && !c.is_cancellation_requested())
+							co_await _statusBell.async_wait(c);
+					}
+				);
+
+				if(_currentState != State::connected)
+					co_return protocols::fs::Error::wouldBlock;
 
 				assert(_currentState == State::connected);
 				assert(_remote != nullptr);
@@ -615,6 +686,13 @@ public:
 		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
+		} else if(layer == SOL_SOCKET && number == SO_PEEK_OFF) {
+			int val = -1;
+			if(peekOffset_) {
+				assert(peekOffset_.value() <= INT_MAX);
+				val = peekOffset_.value();
+			}
+			memcpy(optbuf.data(), &val, std::min(optbuf.size(), sizeof(val)));
 		} else {
 			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
@@ -635,6 +713,34 @@ public:
 			int val = *reinterpret_cast<int *>(optbuf.data());
 
 			timestamp_ = (val != 0);
+		} else if(layer == SOL_SOCKET && number == SO_RCVTIMEO) {
+			if(optbuf.size() < sizeof(timeval))
+				co_return protocols::fs::Error::illegalArguments;
+
+			receiveTimeout_ = *reinterpret_cast<timeval *>(optbuf.data());
+
+			if(!receiveTimeout_->tv_sec && !receiveTimeout_->tv_usec)
+				receiveTimeout_ = std::nullopt;
+		} else if(layer == SOL_SOCKET && number == SO_SNDTIMEO) {
+			if(optbuf.size() < sizeof(timeval))
+				co_return protocols::fs::Error::illegalArguments;
+
+			sendTimeout_ = *reinterpret_cast<timeval *>(optbuf.data());
+
+			if(!sendTimeout_->tv_sec && !sendTimeout_->tv_usec)
+				sendTimeout_ = std::nullopt;
+		} else if(layer == SOL_SOCKET && number == SO_PEEK_OFF) {
+			if(optbuf.size() != sizeof(int))
+				co_return protocols::fs::Error::illegalArguments;
+
+			int val = *reinterpret_cast<int *>(optbuf.data());
+
+			if(val >= 0)
+				peekOffset_ = val;
+			else if(val == -1)
+				peekOffset_ = std::nullopt;
+			else
+				co_return protocols::fs::Error::illegalArguments;
 		} else {
 			std::cout << std::format("un-socket: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
@@ -758,6 +864,7 @@ private:
 	bool _passCreds;
 	bool timestamp_ = false;
 	bool nonBlock_;
+	std::optional<size_t> peekOffset_ = std::nullopt;
 
 	std::string _sockpath;
 
@@ -770,6 +877,9 @@ private:
 	bool socketpair_;
 
 	bool listen_;
+
+	std::optional<timeval> receiveTimeout_;
+	std::optional<timeval> sendTimeout_;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
