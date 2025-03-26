@@ -49,3 +49,52 @@ DEFINE_TEST(socket_accept_timeout, ([] {
 
 	unlink("/tmp/testsocket");
 }));
+
+DEFINE_TEST(socket_so_peek_off, [] {
+	int fd[2];
+	int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fd);
+	assert(!ret);
+
+	const char *test = "aabbccddeeff";
+	ssize_t written = write(fd[1], test, strlen(test));
+	assert(written > 0 && static_cast<size_t>(written) == strlen(test));
+
+	int off = 4;
+	ret = setsockopt(fd[0], SOL_SOCKET, SO_PEEK_OFF, &off, sizeof(off));
+
+	char buf[2];
+	memset(buf, 0, sizeof(buf));
+
+	ret = recv(fd[0], buf, 2, MSG_PEEK | MSG_DONTWAIT);
+	assert(ret == 2);
+	assert(buf[0] == 'c' && buf[1] == 'c');
+	socklen_t off_len = sizeof(off);
+	ret = getsockopt(fd[0], SOL_SOCKET, SO_PEEK_OFF, &off, &off_len);
+	assert(ret == 0);
+	assert(off_len == sizeof(off));
+	assert(off == 6);
+
+	ret = recv(fd[0], buf, 2, MSG_PEEK | MSG_DONTWAIT);
+	assert(ret == 2);
+	assert(buf[0] == 'd' && buf[1] == 'd');
+	ret = getsockopt(fd[0], SOL_SOCKET, SO_PEEK_OFF, &off, &off_len);
+	assert(ret == 0);
+	assert(off_len == sizeof(off));
+	assert(off == 8);
+
+	ret = recv(fd[0], buf, 2, MSG_DONTWAIT);
+	assert(ret == 2);
+	assert(buf[0] == 'a' && buf[1] == 'a');
+	ret = getsockopt(fd[0], SOL_SOCKET, SO_PEEK_OFF, &off, &off_len);
+	assert(ret == 0);
+	assert(off_len == sizeof(off));
+	assert(off == 6);
+
+	ret = recv(fd[0], buf, 2, MSG_PEEK | MSG_DONTWAIT);
+	assert(ret == 2);
+	assert(buf[0] == 'e' && buf[1] == 'e');
+	ret = getsockopt(fd[0], SOL_SOCKET, SO_PEEK_OFF, &off, &off_len);
+	assert(ret == 0);
+	assert(off_len == sizeof(off));
+	assert(off == 8);
+});

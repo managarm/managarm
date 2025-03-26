@@ -288,9 +288,14 @@ public:
 
 		// datagram packets are always read from their beginning, so offsets are illegal
 		assert(!packet->offset || socktype_ == SOCK_STREAM);
-		auto data_length = packet->buffer.size() - packet->offset;
-		auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
-		memcpy(data, packet->buffer.data() + packet->offset, chunk);
+
+		size_t packet_offset = packet->offset;
+		if((flags & MSG_PEEK) && peekOffset_)
+			packet_offset += peekOffset_.value();
+
+		auto data_length = packet->buffer.size() - packet_offset;
+		auto chunk = std::min(packet->buffer.size() - packet_offset, max_length);
+		memcpy(data, packet->buffer.data() + packet_offset, chunk);
 
 		if(socktype_ == SOCK_STREAM) {
 			returned_length = chunk;
@@ -304,6 +309,11 @@ public:
 			if(!(flags & MSG_PEEK))
 				_recvQueue.pop_front();
 		}
+
+		if((flags & MSG_PEEK) && peekOffset_)
+			*peekOffset_ += returned_length;
+		else if(peekOffset_)
+			*peekOffset_ -= std::min(*peekOffset_, returned_length);
 
 		if(data_length != returned_length)
 			reply_flags |= MSG_TRUNC;
@@ -676,6 +686,13 @@ public:
 		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
+		} else if(layer == SOL_SOCKET && number == SO_PEEK_OFF) {
+			int val = -1;
+			if(peekOffset_) {
+				assert(peekOffset_.value() <= INT_MAX);
+				val = peekOffset_.value();
+			}
+			memcpy(optbuf.data(), &val, std::min(optbuf.size(), sizeof(val)));
 		} else {
 			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
@@ -712,6 +729,18 @@ public:
 
 			if(!sendTimeout_->tv_sec && !sendTimeout_->tv_usec)
 				sendTimeout_ = std::nullopt;
+		} else if(layer == SOL_SOCKET && number == SO_PEEK_OFF) {
+			if(optbuf.size() != sizeof(int))
+				co_return protocols::fs::Error::illegalArguments;
+
+			int val = *reinterpret_cast<int *>(optbuf.data());
+
+			if(val >= 0)
+				peekOffset_ = val;
+			else if(val == -1)
+				peekOffset_ = std::nullopt;
+			else
+				co_return protocols::fs::Error::illegalArguments;
 		} else {
 			std::cout << std::format("un-socket: unknown setsockopt 0x{:x}\n", number);
 			co_return protocols::fs::Error::illegalArguments;
@@ -835,6 +864,7 @@ private:
 	bool _passCreds;
 	bool timestamp_ = false;
 	bool nonBlock_;
+	std::optional<size_t> peekOffset_ = std::nullopt;
 
 	std::string _sockpath;
 
