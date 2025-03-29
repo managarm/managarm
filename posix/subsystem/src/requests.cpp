@@ -3225,12 +3225,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				);
 				continue;
 			}
+			timespec initial = {};
+			timespec interval = {};
+			timerfd::getTime(file.get(), initial, interval);
 			timerfd::setTime(file.get(), req->flags(),
 					{static_cast<time_t>(req->value_sec()), static_cast<long>(req->value_nsec())},
 					{static_cast<time_t>(req->interval_sec()), static_cast<long>(req->interval_nsec())});
 
 			managarm::posix::TimerFdSetResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_value_sec(initial.tv_sec);
+			resp.set_value_nsec(initial.tv_nsec);
+			resp.set_interval_sec(interval.tv_sec);
+			resp.set_interval_nsec(interval.tv_nsec);
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));

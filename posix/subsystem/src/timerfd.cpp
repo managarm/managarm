@@ -184,6 +184,27 @@ public:
 		}
 	}
 
+	void getTime(timespec &initial, timespec &interval) {
+		if(_activeTimer) {
+			uint64_t now;
+			HEL_CHECK(helGetClock(&now));
+
+			uint64_t left = 0;
+			if(_activeTimer->initial > now)
+				left = _activeTimer->initial - now;
+
+			initial.tv_sec = left / 1000000000;
+			initial.tv_nsec = left % 1000000000;
+			interval.tv_sec = _activeTimer->interval / 1000000000;
+			interval.tv_nsec = _activeTimer->interval % 1000000000;
+		} else {
+			initial.tv_sec = 0;
+			initial.tv_nsec = 0;
+			interval.tv_sec = 0;
+			interval.tv_nsec = 0;
+		}
+	}
+
 private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
@@ -235,6 +256,11 @@ void setTime(File *file, int flags, struct timespec initial, struct timespec int
 
 	auto timerfd = static_cast<OpenFile *>(file);
 	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial_nanos, interval_nanos);
+}
+
+void getTime(File *file, timespec &initial, timespec &interval) {
+	auto timerfd = static_cast<OpenFile *>(file);
+	timerfd->getTime(initial, interval);
 }
 
 } // namespace timerfd
