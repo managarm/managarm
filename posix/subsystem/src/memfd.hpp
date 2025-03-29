@@ -14,7 +14,7 @@ public:
 	}
 
 	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool allowSealing)
-	: File{StructName::get("memfd-file"), mount, link}, _offset{0} {
+	: File{FileKind::unknown,  StructName::get("memfd-file"), mount, link}, _offset{0} {
 		if(!allowSealing) {
 			_seals = F_SEAL_SEAL;
 		}

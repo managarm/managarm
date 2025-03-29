@@ -3,16 +3,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-#include <unordered_map>
 
 #include <async/result.hpp>
 #include <async/cancellation.hpp>
-#include <boost/variant.hpp>
 #include <frg/expected.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/common.hpp>
-
-// EVENTUALLY: use std::variant instead of boost::variant!
 
 namespace protocols {
 namespace fs {

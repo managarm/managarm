@@ -141,7 +141,7 @@ public:
 	}
 
 	KmsgFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, helix::UniqueLane lane, bool nonblock)
-	: File{StructName::get("kmsg-file"), std::move(mount), std::move(link)},
+	: File{FileKind::unknown,  StructName::get("kmsg-file"), std::move(mount), std::move(link)},
 		lane_{std::move(lane)}, nonBlock_{nonblock} {}
 };
 

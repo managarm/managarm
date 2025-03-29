@@ -93,7 +93,7 @@ public:
 	}
 
 	OpenFile(int clock, bool non_block)
-	: File{StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
+	: File{FileKind::unknown,  StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
 			_clock{clock}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
 		assert(_clock == CLOCK_MONOTONIC || _clock == CLOCK_REALTIME);

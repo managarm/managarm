@@ -46,7 +46,7 @@ void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
 }
 
 RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.attr"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("procfs.attr"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
 void RegularFile::handleClose() {
@@ -127,7 +127,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("procfs.dir"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("procfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
@@ -866,7 +866,7 @@ void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 }
 
 FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
-: File{StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
 		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
 void FdDirectoryFile::handleClose() {
@@ -1110,7 +1110,7 @@ void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
 }
 
 FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
-: File{StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
 		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
 void FdInfoDirectoryFile::handleClose() {

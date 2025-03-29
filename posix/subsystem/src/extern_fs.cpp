@@ -231,7 +231,7 @@ private:
 public:
 	OpenFile(helix::UniqueLane control, helix::UniqueLane lane,
 			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool append)
-	: File{StructName::get("externfs.file"), std::move(mount), std::move(link)},
+	: File{FileKind::unknown,  StructName::get("externfs.file"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)}, _append(append) { }
 
 	~OpenFile() override {

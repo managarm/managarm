@@ -40,7 +40,7 @@ public:
 	}
 
 	FullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("full-file"), std::move(mount), std::move(link)} { }
+	: File{FileKind::unknown,  StructName::get("full-file"), std::move(mount), std::move(link)} { }
 };
 
 struct FullDevice final : UnixDevice {

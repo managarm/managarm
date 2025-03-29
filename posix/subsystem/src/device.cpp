@@ -201,7 +201,7 @@ public:
 	DeviceFile(helix::UniqueLane control, helix::UniqueLane lane,
 			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			helix::Mapping status_mapping)
-	: File{StructName::get("devicefile"), std::move(mount), std::move(link)},
+	: File{FileKind::unknown,  StructName::get("devicefile"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)},
 			_statusMapping{std::move(status_mapping)} { }
 
