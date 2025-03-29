@@ -1,6 +1,6 @@
 # The managarm Operating System
 
-![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)
+![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg) ![x86_64](https://builds.managarm.org/badge/managarm) ![aarch64](https://builds.managarm.org/badge/managarm_aarch64) ![riscv](https://builds.managarm.org/badge/managarm_riscv)
 
 ![Screenshot](../assets/screenshots/managarm-glxgears-xclock.png?raw=true)
 
