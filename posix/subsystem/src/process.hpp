@@ -598,6 +598,12 @@ public:
 		parentDeathSignal_ = sig;
 	}
 
+	NotifyType notifyType() const {
+		return notifyType_;
+	}
+
+	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
+
 	struct IntervalTimer {
 		std::weak_ptr<Process> process;
 		itimerval timer = {};
@@ -702,7 +708,8 @@ private:
 	std::vector<std::shared_ptr<Process>> _children;
 
 	// The following intrusive queue stores notifications for wait().
-	NotifyType _notifyType;
+	NotifyType notifyType_;
+	async::recurring_event notifyTypeChange_;
 	TerminationState _state;
 
 	boost::intrusive::list_member_hook<> _notifyHook;

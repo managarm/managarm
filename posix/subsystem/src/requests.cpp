@@ -10,6 +10,7 @@
 #include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/pidfd.h>
 #include <unistd.h>
 
 #include <helix/timer.hpp>
@@ -32,6 +33,7 @@
 #include "signalfd.hpp"
 #include "tmp_fs.hpp"
 #include "cgroupfs.hpp"
+#include "pidfd.hpp"
 
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
@@ -356,7 +358,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if((req->flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) ||
 				!(req->flags() & (WEXITED /*| WSTOPPED | WCONTINUED*/))) {
 				std::cout << "posix: WAIT_ID invalid flags: " << req->flags() << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
@@ -382,9 +385,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				wait_pid = req->id();
 			} else if(req->idtype() == P_ALL) {
 				wait_pid = -1;
+			} else if(req->idtype() == P_PIDFD) {
+				auto fd = self->fileContext()->getFile(req->id());
+				if(!fd || fd->kind() != FileKind::pidfd) {
+					co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+						(managarm::posix::Errors::NO_SUCH_FD);
+					continue;
+				}
+				auto pidfd = smarter::static_pointer_cast<pidfd::OpenFile>(fd);
+				wait_pid = pidfd->pid();
+				if(pidfd->nonBlock())
+					flags |= waitNonBlocking;
 			} else {
-				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID, P_PIDFD and P_ALL are not implemented\e[39m" << std::endl;
+				co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
@@ -3986,6 +4001,79 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				std::cout << "posix: ITIMER_VIRTUAL and ITIMER_PROF are unsupported" << std::endl;
 			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::PidfdOpenRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::PidfdOpenRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto proc = Process::findProcess(req->pid());
+			if(!proc) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdOpenResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			auto pidfd = createPidfdFile(proc, req->flags() & PIDFD_NONBLOCK);
+			auto fd = self->fileContext()->attachFile(pidfd, req->flags() & PIDFD_NONBLOCK);
+
+			managarm::posix::PidfdOpenResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_fd(fd);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::PidfdSendSignalRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::PidfdSendSignalRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto fd = self->fileContext()->getFile(req->pidfd());
+			if(!fd || fd->structName().type() != "pidfd") {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			auto pid = smarter::static_pointer_cast<pidfd::OpenFile>(fd)->pid();
+			if(pid <= 0) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::NO_SUCH_RESOURCE);
+				continue;
+			}
+
+			auto target = Process::findProcess(pid);
+			if(!target) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdSendSignalResponse>
+					(managarm::posix::Errors::NO_SUCH_RESOURCE);
+				continue;
+			}
+
+			UserSignal info;
+			info.pid = self->pid();
+			info.uid = 0;
+			target->signalContext()->issueSignal(req->signal(), info);
+
+			managarm::posix::PidfdSendSignalResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,

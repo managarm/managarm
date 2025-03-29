@@ -43,7 +43,7 @@ void RegularFile::serve(smarter::shared_ptr<RegularFile> file) {
 }
 
 RegularFile::RegularFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("cgroupfs.file"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("cgroupfs.file"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
 void RegularFile::handleClose() {
@@ -106,7 +106,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{StructName::get("cgroupfs.dir"), std::move(mount), std::move(link)},
+: File{FileKind::unknown,  StructName::get("cgroupfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 

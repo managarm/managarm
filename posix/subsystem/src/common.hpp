@@ -3,7 +3,6 @@
 #include <iostream>
 #include <format>
 #include <iterator>
-#include <unordered_map>
 
 #include <helix/ipc.hpp>
 
@@ -13,6 +12,10 @@ struct StructName {
 	static StructName get(const char *type) {
 		static uint64_t idCounter = 1;
 		return StructName{type, idCounter++};
+	}
+
+	std::string type() const {
+		return {_type};
 	}
 
 	friend std::ostream &operator<< (std::ostream &os, const StructName &sn) {

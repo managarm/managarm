@@ -61,7 +61,7 @@ public:
 
 	OpenFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		bool isReader, bool isWriter, bool nonBlock = false)
-	: File{StructName::get("fifo"), mount, link, File::defaultPipeLikeSeek},
+	: File{FileKind::unknown,  StructName::get("fifo"), mount, link, File::defaultPipeLikeSeek},
 		isReader_{isReader}, isWriter_{isWriter}, nonBlock_{nonBlock} { }
 
 	void connectChannel(std::shared_ptr<Channel> channel) {

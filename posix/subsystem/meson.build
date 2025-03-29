@@ -29,6 +29,7 @@ src = [
 	'src/netlink/uevent.cpp',
 	'src/observations.cpp',
 	'src/ostrace.cpp',
+	'src/pidfd.cpp',
 	'src/process.cpp',
 	'src/procfs.cpp',
 	'src/pts.cpp',

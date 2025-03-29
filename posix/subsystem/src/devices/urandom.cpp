@@ -53,7 +53,7 @@ public:
 	}
 
 	UrandomFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("urandom-file"), std::move(mount), std::move(link)} { }
+	: File{FileKind::unknown,  StructName::get("urandom-file"), std::move(mount), std::move(link)} { }
 };
 
 struct UrandomDevice final : UnixDevice {

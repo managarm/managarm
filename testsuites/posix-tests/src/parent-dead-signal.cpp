@@ -80,8 +80,8 @@ DEFINE_TEST(parent_death_signal, ([] {
 				pause(); // Wait for signals
 			}
 		} else { // Parent process
-			printf("Parent process (PID: %d) sleeping for 5 seconds.\n", parent_pid);
-			sleep(5);
+			printf("Parent process (PID: %d) sleeping for 2 seconds.\n", parent_pid);
+			sleep(2);
 
 			printf("Parent process exiting.\n");
 			exit(0);

@@ -44,7 +44,7 @@ private:
 
 public:
 	HeloutFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("helout"), std::move(mount), std::move(link),
+	: File{FileKind::unknown,  StructName::get("helout"), std::move(mount), std::move(link),
 			File::defaultIsTerminal} { }
 };
 
