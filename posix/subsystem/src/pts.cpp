@@ -745,7 +745,7 @@ MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> lin
 
 MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		bool nonBlocking)
-: File{StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
+: File{FileKind::unknown,  StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
 		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _nonBlocking{nonBlocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
@@ -938,7 +938,7 @@ SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 
 SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		std::shared_ptr<Channel> channel, bool nonBlock)
-: File{StructName::get("pts.slave"), std::move(mount), std::move(link),
+: File{FileKind::unknown,  StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
 

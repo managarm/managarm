@@ -170,6 +170,11 @@ using AcceptResult = smarter::shared_ptr<File, FileHandle>;
 
 struct DisposeFileHandle { };
 
+enum class FileKind {
+	unknown,
+	pidfd,
+};
+
 struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
 	friend struct smarter::crtp_counter<File, DisposeFileHandle>;
 
@@ -301,12 +306,12 @@ public:
 		return smarter::shared_ptr<File, FileHandle>{smarter::adopt_rc, file, file};
 	}
 
-	File(StructName struct_name, DefaultOps default_ops = 0, bool append = false)
-	: _structName{struct_name}, _defaultOps{default_ops}, _isOpen{true}, _append{append} { }
+	File(FileKind kind, StructName struct_name, DefaultOps default_ops = 0, bool append = false)
+	: kind_{kind}, _structName{struct_name}, _defaultOps{default_ops}, _isOpen{true}, _append{append} { }
 
-	File(StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	File(FileKind kind, StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			DefaultOps default_ops = 0, bool append = false)
-	: _structName{struct_name}, _mount{std::move(mount)}, _link{std::move(link)},
+	: kind_{kind}, _structName{struct_name}, _mount{std::move(mount)}, _link{std::move(link)},
 			_defaultOps{default_ops}, _isOpen{true}, _append{append} { }
 
 	virtual ~File();
@@ -319,6 +324,10 @@ public:
 public:
 	const smarter::weak_ptr<File> &weakFile() {
 		return _weakPtr;
+	}
+
+	FileKind kind() const {
+		return kind_;
 	}
 
 	StructName structName() {
@@ -449,6 +458,7 @@ public:
 	virtual async::result<std::string> getFdInfo();
 private:
 	smarter::weak_ptr<File> _weakPtr;
+	FileKind kind_;
 	StructName _structName;
 	const std::shared_ptr<MountView> _mount;
 	const std::shared_ptr<FsLink> _link;
@@ -469,7 +479,7 @@ public:
 	}
 
 	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
-	: File{StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops | defaultPipeLikeSeek} { }
+	: File{FileKind::unknown, StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops | defaultPipeLikeSeek} { }
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
@@ -486,7 +496,7 @@ private:
 
 struct PassthroughFile : File {
 	PassthroughFile(helix::UniqueLane lane)
-	: File{StructName::get("passthrough")}, _file{std::move(lane)} { }
+	: File{FileKind::unknown, StructName::get("passthrough")}, _file{std::move(lane)} { }
 
 
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override {

@@ -13,7 +13,7 @@ namespace {
 
 struct OpenFile : File {
 	OpenFile(unsigned int initval, bool nonBlock, bool semaphore)
-	: File{StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
+	: File{FileKind::unknown,  StructName::get("eventfd")}, _currentSeq{1}, _readableSeq{0},
 		_writeableSeq{0}, _counter{initval}, _nonBlock{nonBlock}, _semaphore{semaphore} { }
 
 	~OpenFile() override {

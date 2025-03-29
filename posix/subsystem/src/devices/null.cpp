@@ -44,7 +44,7 @@ public:
 	}
 
 	NullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("null-file"), std::move(mount), std::move(link)} { }
+	: File{FileKind::unknown,  StructName::get("null-file"), std::move(mount), std::move(link)} { }
 };
 
 struct NullDevice final : UnixDevice {

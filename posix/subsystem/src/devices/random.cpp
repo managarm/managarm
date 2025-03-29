@@ -48,7 +48,7 @@ public:
 	}
 
 	RandomFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("random-file"), std::move(mount), std::move(link)} { }
+	: File{FileKind::unknown,  StructName::get("random-file"), std::move(mount), std::move(link)} { }
 };
 
 struct RandomDevice final : UnixDevice {

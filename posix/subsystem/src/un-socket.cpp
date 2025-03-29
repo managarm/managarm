@@ -82,7 +82,7 @@ public:
 	}
 
 	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM, bool socketpair = false)
-	: File{StructName::get("un-socket"), nullptr,
+	: File{FileKind::unknown,  StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},

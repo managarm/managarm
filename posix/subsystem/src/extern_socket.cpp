@@ -6,7 +6,7 @@
 namespace {
 struct Socket : File {
 	Socket(helix::UniqueLane sockLane)
-	: File{StructName::get("extern-socket")},
+	: File{FileKind::unknown,  StructName::get("extern-socket")},
 		_file{std::move(sockLane)} { }
 
 	async::result<frg::expected<Error, PollWaitResult>>
