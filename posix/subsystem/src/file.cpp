@@ -242,14 +242,6 @@ File::ptSendMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 			<< std::dec << "\e[39m" << std::endl;
 		assert(!"Flags not implemented");
 	}
-	if(flags & MSG_NOSIGNAL) {
-		static bool warned = false;
-		if(!warned)
-			std::cout << "\e[35mposix: Ignoring MSG_NOSIGNAL\e[39m" << std::endl;
-		warned = true;
-		flags &= ~MSG_NOSIGNAL;
-	}
-
 
 	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 	for(auto fd : fds) {
@@ -280,6 +272,11 @@ async::result<frg::expected<protocols::fs::Error>> File::ptGetSocketOption(void 
 		int layer, int number, std::vector<char> &optbuf) {
 	auto self = static_cast<File *>(object);
 	co_return co_await self->getSocketOption(layer, number, optbuf);
+}
+
+async::result<protocols::fs::Error> File::ptShutdown(void *object, int how) {
+	auto self = static_cast<File *>(object);
+	co_return co_await self->shutdown(how);
 }
 
 File::~File() {
@@ -534,4 +531,11 @@ async::result<frg::expected<protocols::fs::Error>> File::getSocketOption(int lay
 			<< "\e[0m: Object does not implement getSocketOption()" << std::endl;
 
 	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+async::result<protocols::fs::Error> File::shutdown(int how) {
+	std::cout << "posix \e[1;34m" << structName()
+		<< "\e[0m: Object does not implement shutdown()" << std::endl;
+
+	co_return protocols::fs::Error::notSocket;
 }

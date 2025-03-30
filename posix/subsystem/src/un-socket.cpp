@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <iostream>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
@@ -17,6 +18,13 @@
 #include "un-socket.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
+
+namespace {
+
+constexpr int shutdownRead = 1;
+constexpr int shutdownWrite = 2;
+
+}
 
 namespace un_socket {
 
@@ -132,6 +140,9 @@ public:
 			co_return Error::wouldBlock;
 		}
 
+		if(_recvQueue.empty() && shutdownFlags_ & shutdownRead)
+			co_return 0;
+
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
 
@@ -159,8 +170,14 @@ public:
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length) override {
 		assert(process);
+
 		if(_currentState != State::connected)
 			co_return Error::notConnected;
+		if(shutdownFlags_ & shutdownWrite) {
+			process->signalContext()->issueSignal(SIGPIPE, {});
+			co_return Error::brokenPipe;
+		}
+
 		if(logSockets)
 			std::cout << "posix: Write to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
@@ -199,6 +216,9 @@ public:
 				std::cout << "posix: UNIX socket would block" << std::endl;
 			co_return protocols::fs::Error::wouldBlock;
 		}
+
+		if(_recvQueue.empty() && shutdownFlags_ & shutdownRead)
+			co_return protocols::fs::RecvData{{}, 0, 0, 0};
 
 		while(_recvQueue.empty())
 			co_await _statusBell.async_wait();
@@ -279,7 +299,13 @@ public:
 			const void *addr_ptr, size_t addr_length,
 			std::vector<smarter::shared_ptr<File, FileHandle>> files, struct ucred ucreds) override {
 		OpenFile *remote = nullptr;
-		assert(!(flags & ~(MSG_DONTWAIT)));
+		assert(!(flags & ~(MSG_DONTWAIT | MSG_NOSIGNAL)));
+
+		if(shutdownFlags_ & shutdownWrite) {
+			if(!(flags & MSG_NOSIGNAL))
+				process->signalContext()->issueSignal(SIGPIPE, {});
+			co_return protocols::fs::Error::brokenPipe;
+		}
 
 		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
 			if(addr_length != 0 && _currentState == State::connected) {
@@ -410,6 +436,9 @@ public:
 		if(_inSeq > past_seq)
 			edges |= EPOLLIN;
 
+		if(shutdownFlags_ & shutdownRead)
+			edges |= EPOLLRDHUP;
+
 //		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
 //				<< " returns (" << _currentSeq
 //				<< ", " << edges << ")" << std::endl;
@@ -426,6 +455,8 @@ public:
 		}
 		if(!_acceptQueue.empty() || !_recvQueue.empty())
 			events |= EPOLLIN;
+		if(shutdownFlags_ & shutdownRead)
+			events |= EPOLLRDHUP;
 
 		co_return PollStatusResult{_currentSeq, events};
 	}
@@ -561,6 +592,26 @@ public:
 
 			co_return protocols::fs::Error::none;
 		}
+	}
+
+	async::result<protocols::fs::Error> shutdown(int how) override {
+		if(_currentState != State::connected)
+			co_return protocols::fs::Error::notConnected;
+
+		if(how == SHUT_RD) {
+			shutdownFlags_ |= shutdownRead;
+		} else if(how == SHUT_WR) {
+			shutdownFlags_ |= shutdownWrite;
+		} else if(how == SHUT_RDWR) {
+			shutdownFlags_ |= shutdownRead | shutdownWrite;
+		} else {
+			std::println("posix: unexpected how={} for un-socket shutdown", how);
+			co_return protocols::fs::Error::illegalArguments;
+		}
+
+		_statusBell.raise();
+
+		co_return protocols::fs::Error::none;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -770,6 +821,8 @@ private:
 	bool socketpair_;
 
 	bool listen_;
+
+	int shutdownFlags_ = 0;
 };
 
 smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
