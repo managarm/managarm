@@ -356,7 +356,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if((req->flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) ||
 				!(req->flags() & (WEXITED /*| WSTOPPED | WCONTINUED*/))) {
 				std::cout << "posix: WAIT_ID invalid flags: " << req->flags() << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
@@ -384,7 +385,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				wait_pid = -1;
 			} else {
 				std::cout << "\e[31mposix: WAIT_ID idtype other than P_PID and P_ALL are not implemented\e[39m" << std::endl;
-				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_await sendErrorResponse.template operator()<managarm::posix::WaitIdResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			}
 
@@ -1552,7 +1554,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				file = self->fileContext()->getFile(req->fd());
 
 				if (!file) {
-					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
+					co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+						(managarm::posix::Errors::NO_SUCH_FD);
 					continue;
 				}
 
@@ -1562,13 +1565,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				// Instead of blowing up, return ENOENT.
 				// TODO: fstatfs can't return ENOENT, verify this is needed
 				if(target_link == nullptr) {
-					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+						(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				}
 
 				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
 				if(!fsstatsResult) {
-					co_await sendErrorResponse(fsstatsResult.error() | toPosixProtoError);
+					co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+						(fsstatsResult.error() | toPosixProtoError);
 					continue;
 				}
 				auto fsstats = fsstatsResult.value();
@@ -1582,10 +1587,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto resolveResult = co_await resolver.resolve();
 				if(!resolveResult) {
 					if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+						co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+							(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+						co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+							(managarm::posix::Errors::NOT_A_DIRECTORY);
 						continue;
 					} else {
 						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -1596,7 +1603,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				target_link = resolver.currentLink();
 				auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
 				if(!fsstatsResult) {
-					co_await sendErrorResponse(fsstatsResult.error() | toPosixProtoError);
+					co_await sendErrorResponse.template operator()<managarm::posix::FstatfsResponse>
+						(fsstatsResult.error() | toPosixProtoError);
 					continue;
 				}
 				auto fsstats = fsstatsResult.value();
