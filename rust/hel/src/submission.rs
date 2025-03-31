@@ -8,7 +8,7 @@ use std::{
 use crate::{Executor, Handle, QueueElement, Result, Time, hel_check};
 
 /// Common trait for completion result types.
-pub trait ResultType {
+pub trait Completion {
     /// Parses the result from the queue element.
     fn from_queue_element(element: QueueElement) -> Result<Self>
     where
@@ -24,7 +24,7 @@ pub trait Submission {
 /// A completion result that only consists of a status code.
 pub struct SimpleResult;
 
-impl ResultType for SimpleResult {
+impl Completion for SimpleResult {
     /// Parses a completion result from the queue element.
     fn from_queue_element(element: QueueElement) -> Result<Self> {
         let data = element.data();
@@ -37,16 +37,16 @@ impl ResultType for SimpleResult {
     }
 }
 
-/// Raw submission object. This is used to store the submission and completion
+/// Operation state object. This is used to store the submission and completion
 /// status alond with any other data that is needed to submit and complete work.
-pub(crate) struct RawSubmission<'a> {
+pub(crate) struct OperationState<'a> {
     is_submitted: Cell<bool>,
     element: Cell<Option<QueueElement<'a>>>,
     queue_handle: &'a Handle,
 }
 
-impl<'a> RawSubmission<'a> {
-    /// Creates a new raw submission object.
+impl<'a> OperationState<'a> {
+    /// Creates a new operation state object.
     fn new(queue_handle: &'a Handle) -> Self {
         Self {
             is_submitted: Cell::new(false),
@@ -72,35 +72,35 @@ impl<'a> RawSubmission<'a> {
     }
 }
 
-/// Concrete submission object. This is a wrapper around the raw submission
+/// Operation object. This is a wrapper around the operation state
 /// object which is used by the executor to complete submissions and
 /// the submission itself which is used to submit the work to the queue.
-pub struct ConcreteSubmission<'a, S: Submission, R: ResultType> {
+pub struct Operation<'a, S: Submission, R: Completion> {
     _marker: std::marker::PhantomData<R>,
-    raw: Rc<RawSubmission<'a>>,
+    state: Rc<OperationState<'a>>,
     submission: S,
 }
 
-impl<S: Submission, R: ResultType> Future for ConcreteSubmission<'_, S, R> {
+impl<S: Submission, R: Completion> Future for Operation<'_, S, R> {
     type Output = Result<R>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(element) = self.raw.queue_element() {
+        if let Some(element) = self.state.queue_element() {
             // Already completed, parse the result
             Poll::Ready(R::from_queue_element(element))
         } else {
-            if !self.raw.is_submitted() {
+            if !self.state.is_submitted() {
                 // Not submitted yet, submit it
 
-                // Bump the reference count of the raw submission object
+                // Bump the reference count of the operation state object
                 // and leak the created reference so that it doesn't get dropped
                 // in case the future goes out of scope - it will be dropped
                 // once the submission is completed.
 
-                let raw_cloned = self.raw.clone();
-                let context = Rc::into_raw(raw_cloned) as usize;
+                let state_cloned = self.state.clone();
+                let context = Rc::into_raw(state_cloned) as usize;
 
-                if let Err(err) = self.submission.submit(self.raw.queue_handle, context) {
+                if let Err(err) = self.submission.submit(self.state.queue_handle, context) {
                     return Poll::Ready(Err(err));
                 }
             }
@@ -111,9 +111,8 @@ impl<S: Submission, R: ResultType> Future for ConcreteSubmission<'_, S, R> {
     }
 }
 
-/// Submission for a clock event.
-/// This is used to wait for the clock to reach a certain value.
-/// The clock value is specified in nanoseconds since boot.
+/// Submission for a clock event. This is used to wait for the clock
+/// to reach a certain value.
 pub struct AwaitClockSubmission {
     time: Time,
 }
@@ -126,19 +125,17 @@ impl Submission for AwaitClockSubmission {
     }
 }
 
-/// Creates a new `AwaitClockSubmission` for the given clock value.
-/// This is a future that can be awaited on and will only be completed
-/// when the clock reaches the specified value.
+/// Creates a new `AwaitClockSubmission` for the time specified.
 pub fn await_clock(
     executor: &Executor,
     time: Time,
-) -> ConcreteSubmission<AwaitClockSubmission, SimpleResult> {
+) -> Operation<AwaitClockSubmission, SimpleResult> {
     let submission = AwaitClockSubmission { time };
-    let raw = Rc::new(RawSubmission::new(executor.queue_handle()));
+    let state = Rc::new(OperationState::new(executor.queue_handle()));
 
-    ConcreteSubmission {
+    Operation {
         _marker: std::marker::PhantomData,
-        raw,
+        state,
         submission,
     }
 }
