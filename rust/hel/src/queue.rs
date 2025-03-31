@@ -2,7 +2,13 @@ use std::ffi::{c_int, c_uint, c_void};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use crate::{Handle, Mapping, MappingFlags, Result, align_up, hel_check};
+use crate::{Handle, Mapping, MappingFlags, Result, hel_check};
+
+/// Aligns a value up to the nearest multiple of the specified alignment.
+/// The alignment must be a power of two.
+fn align_up(value: usize, alignment: usize) -> usize {
+    (value + alignment - 1) & !(alignment - 1)
+}
 
 /// Wrapper around a Hel queue chunk.
 struct Chunk<'a> {

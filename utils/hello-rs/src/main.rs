@@ -1,14 +1,16 @@
+use std::time::Duration;
+
 use hel::Executor;
 
 fn main() -> hel::Result<()> {
     let executor = Executor::new()?;
 
     executor.block_on(async {
-        let clock = hel::get_clock()?;
+        let now = hel::Time::now()?;
 
-        hel::submission::await_clock(&executor, clock + 1_000_000_000).await?;
-        hel::submission::await_clock(&executor, clock + 2_000_000_000).await?;
-        hel::submission::await_clock(&executor, clock + 3_000_000_000).await?;
+        hel::await_clock(&executor, now + Duration::from_secs(1)).await?;
+        hel::await_clock(&executor, now + Duration::from_secs(2)).await?;
+        hel::await_clock(&executor, now + Duration::from_secs(3)).await?;
 
         Ok(())
     })

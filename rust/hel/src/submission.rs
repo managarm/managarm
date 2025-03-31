@@ -5,7 +5,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::{Executor, Handle, QueueElement, Result, hel_check};
+use crate::{Executor, Handle, QueueElement, Result, Time, hel_check};
 
 /// Common trait for completion result types.
 pub trait ResultType {
@@ -115,13 +115,13 @@ impl<S: Submission, R: ResultType> Future for ConcreteSubmission<'_, S, R> {
 /// This is used to wait for the clock to reach a certain value.
 /// The clock value is specified in nanoseconds since boot.
 pub struct AwaitClockSubmission {
-    counter: u64,
+    time: Time,
 }
 
 impl Submission for AwaitClockSubmission {
     fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()> {
         hel_check(unsafe {
-            hel_sys::helSubmitAwaitClock(self.counter, queue_handle.handle(), context, &mut 0)
+            hel_sys::helSubmitAwaitClock(self.time.value(), queue_handle.handle(), context, &mut 0)
         })
     }
 }
@@ -131,9 +131,9 @@ impl Submission for AwaitClockSubmission {
 /// when the clock reaches the specified value.
 pub fn await_clock(
     executor: &Executor,
-    clock: u64,
+    time: Time,
 ) -> ConcreteSubmission<AwaitClockSubmission, SimpleResult> {
-    let submission = AwaitClockSubmission { counter: clock };
+    let submission = AwaitClockSubmission { time };
     let raw = Rc::new(RawSubmission::new(executor.queue_handle()));
 
     ConcreteSubmission {
