@@ -474,11 +474,23 @@ struct HelQueueParameters {
 //! Mask to extract the current queue head.
 static const int kHelHeadMask = 0xFFFFFF;
 
-//! Can be set by the kernel to request a FutexWake on update
-static const int kHelHeadWaiters = (1 << 24);
+//! Set in userNotify after kernel has written progress.
+static const int kHelUserNotifyCqProgress = (1 << 0);
+//! Set in kernelNotify after userspace has supplied new chunks.
+static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
+	//! Futex that is used to wake userspace.
+	//! Kernel sets bits using atomic OR.
+	//! Userspace clears bits using atomic AND.
+	int userNotify;
+
+	//! Futex that is used to wake the kernel.
+	//! Userspace sets bits using atomic OR.
+	//! Kernel clears bits using atomic AND.
+	int kernelNotify;
+
 	//! Futex for kernel/user-space head synchronization.
 	int headFutex;
 
@@ -491,9 +503,6 @@ struct HelQueue {
 
 //! Mask to extract the number of valid bytes in the chunk.
 static const int kHelProgressMask = 0xFFFFFF;
-
-//! Can be set by userspace to request a FutexWake on update.
-static const int kHelProgressWaiters = (1 << 24);
 
 //! Set by the kernel once it retires the chunk.
 static const int kHelProgressDone = (1 << 25);

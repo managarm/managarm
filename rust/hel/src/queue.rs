@@ -279,56 +279,56 @@ impl Queue {
         }
     }
 
-    /// Wakes up the head futex if needed.
+    /// Wakes up the kernel if needed.
     fn wake_head_futex(&mut self) -> Result<()> {
-        let new_futex = self.next_index as i32;
-        let old_futex = self.head_futex().swap(new_futex, Ordering::Release);
+        let next_index = self.next_index as i32;
+        self.head_futex().store(next_index, Ordering::Release);
 
-        if old_futex & hel_sys::kHelHeadWaiters != 0 {
-            hel_check(unsafe { hel_sys::helFutexWake(self.head_futex().as_ptr(), u32::MAX) })?;
+        let old_futex = self
+            .kernel_notify()
+            .fetch_or(hel_sys::kHelKernelNotifySupplyCqChunks, Ordering::Release);
 
-            self.had_waiters = true;
+        if old_futex & hel_sys::kHelKernelNotifySupplyCqChunks == 0 {
+            let ptr = self.kernel_notify().as_ptr();
+            hel_check(unsafe { hel_sys::helFutexWake(ptr, u32::MAX) })?;
         }
 
         Ok(())
     }
 
     fn wait_progress_futex(&mut self) -> Result<bool> {
-        loop {
-            let mut futex = self
-                .get_chunk(self.retrieve_index)
+        let check = |this: &mut Self| -> Option<bool> {
+            let progress = this
+                .get_chunk(this.retrieve_index)
                 .progress_futex()
                 .load(Ordering::Acquire);
 
-            loop {
-                if self.last_progress as i32 != (futex & hel_sys::kHelProgressMask) {
-                    return Ok(false);
-                } else if futex & hel_sys::kHelProgressDone != 0 {
-                    return Ok(true);
-                }
+            if this.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
+                Some(false)
+            } else if progress & hel_sys::kHelProgressDone != 0 {
+                Some(true)
+            } else {
+                None
+            }
+        };
 
-                if futex & hel_sys::kHelProgressWaiters != 0 {
-                    break; // Waiters bit is already set (in a previous iteration).
-                }
+        if let Some(done) = check(self) {
+            return Ok(done);
+        }
 
-                let new_futex = self.last_progress as i32 | hel_sys::kHelProgressWaiters;
+        loop {
+            let futex = self
+                .user_notify()
+                .fetch_and(!hel_sys::kHelUserNotifyCqProgress, Ordering::Acquire);
 
-                match self
-                    .get_chunk(self.retrieve_index)
-                    .progress_futex()
-                    .compare_exchange(futex, new_futex, Ordering::Acquire, Ordering::Acquire)
-                {
-                    Ok(_) => break,
-                    Err(old_futex) => futex = old_futex,
-                }
+            if let Some(done) = check(self) {
+                return Ok(done);
             }
 
             hel_check(unsafe {
                 hel_sys::helFutexWait(
-                    self.get_chunk(self.retrieve_index)
-                        .progress_futex()
-                        .as_ptr(),
-                    self.last_progress as i32 | hel_sys::kHelProgressWaiters,
+                    self.user_notify().as_ptr(),
+                    futex & !hel_sys::kHelUserNotifyCqProgress,
                     -1,
                 )
             })?;
@@ -345,6 +345,38 @@ impl Queue {
                     .as_ptr()
                     .unwrap()
                     .byte_add(offset_of!(hel_sys::HelQueue, headFutex))
+                    .as_ptr()
+                    .cast(),
+            )
+        }
+    }
+
+    /// Returns a reference to the userNotify futex of the queue.
+    fn user_notify(&mut self) -> &AtomicI32 {
+        // SAFETY: The userNotify futex is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.mapping
+                    .as_ptr()
+                    .unwrap()
+                    .byte_add(offset_of!(hel_sys::HelQueue, userNotify))
+                    .as_ptr()
+                    .cast(),
+            )
+        }
+    }
+
+    /// Returns a reference to the kernelNotify futex of the queue.
+    fn kernel_notify(&mut self) -> &AtomicI32 {
+        // SAFETY: The kernelNotify futex is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.mapping
+                    .as_ptr()
+                    .unwrap()
+                    .byte_add(offset_of!(hel_sys::HelQueue, kernelNotify))
                     .as_ptr()
                     .cast(),
             )

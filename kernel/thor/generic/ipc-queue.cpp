@@ -57,27 +57,24 @@ coroutine<void> IpcQueue::_runQueue() {
 			continue;
 
 		// Wait until the futex advances past _currentIndex.
-		while(true) {
-			bool pastCurrentChunk = false;
-			auto headFutexWord = __atomic_load_n(&head->headFutex, __ATOMIC_ACQUIRE);
-			// TODO: Contract violation errors should be reported to user-space.
-			assert(!(headFutexWord & ~(kHeadMask | kHeadWaiters)));
-			do {
-				if(_currentIndex != (headFutexWord & kHeadMask)) {
-					pastCurrentChunk = true;
+		// Check once without clearing the event first.
+		auto headFutexWord = __atomic_load_n(&head->headFutex, __ATOMIC_ACQUIRE);
+		// TODO: Contract violation errors should be reported to user-space.
+		assert(!(headFutexWord & ~kHeadMask));
+		if(_currentIndex == (headFutexWord & kHeadMask)) {
+			while(true) {
+				auto kernelNotify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
+
+				headFutexWord = __atomic_load_n(&head->headFutex, __ATOMIC_ACQUIRE);
+				// TODO: Contract violation errors should be reported to user-space.
+				assert(!(headFutexWord & ~kHeadMask));
+				if(_currentIndex != (headFutexWord & kHeadMask))
 					break;
-				}
 
-				if(headFutexWord & kHeadWaiters)
-					break; // Waiters bit is already set (in a previous iteration).
-			} while(!__atomic_compare_exchange_n(&head->headFutex, &headFutexWord,
-					_currentIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
-			if(pastCurrentChunk)
-				break;
-
-			auto hfOffset = offsetof(QueueStruct, headFutex);
-			co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(hfOffset),
-					_currentIndex | kHeadWaiters);
+				auto knOffset = offsetof(QueueStruct, kernelNotify);
+				co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(knOffset),
+						kernelNotify & ~kKernelNotifySupplyCqChunks);
+			}
 		}
 
 		// Lock the chunk.
@@ -152,13 +149,15 @@ coroutine<void> IpcQueue::_runQueue() {
 				newProgressWord = progress | kProgressDone;
 			}
 
-			auto progressFutexWord = __atomic_exchange_n(&chunkHead->progressFutex,
-					newProgressWord, __ATOMIC_RELEASE);
+			__atomic_store_n(&chunkHead->progressFutex, newProgressWord, __ATOMIC_RELEASE);
+
+			auto userNotify = __atomic_fetch_or(&head->userNotify,
+					kUserNotifyCqProgress, __ATOMIC_RELEASE);
 			// If user-space modifies any non-flags field, that's a contract violation.
 			// TODO: Shut down the queue in this case.
-			if(progressFutexWord & kProgressWaiters) {
-				auto pfOffset = chunkOffset + offsetof(ChunkStruct, progressFutex);
-				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(pfOffset), UINT32_MAX);
+			if(!(userNotify & kUserNotifyCqProgress)) {
+				auto unOffset = offsetof(QueueStruct, userNotify);
+				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(unOffset), UINT32_MAX);
 			}
 
 			// Update our internal state and retire the chunk.

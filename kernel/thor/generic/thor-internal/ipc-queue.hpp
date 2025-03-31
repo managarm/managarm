@@ -16,16 +16,19 @@ struct IpcQueue;
 // They must be kept in sync!
 
 static const int kHeadMask = 0xFFFFFF;
-static const int kHeadWaiters = (1 << 24);
+
+static const int kUserNotifyCqProgress = (1 << 0);
+static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
+	int userNotify;
+	int kernelNotify;
 	int headFutex;
 	char padding[4];
 	int indexQueue[];
 };
 
 static const int kProgressMask = 0xFFFFFF;
-static const int kProgressWaiters = (1 << 24);
 static const int kProgressDone = (1 << 25);
 
 struct ChunkStruct {
