@@ -2,10 +2,10 @@ use std::{
     cell::Cell,
     pin::Pin,
     rc::Rc,
-    task::{Context, Poll},
+    task::{Context, LocalWaker, Poll},
 };
 
-use crate::{Executor, Handle, QueueElement, Result, Time, hel_check};
+use crate::{Executor, ExecutorInner, Handle, QueueElement, Result, Time, hel_check};
 
 /// Common trait for completion result types.
 pub trait Completion {
@@ -41,17 +41,19 @@ impl Completion for SimpleResult {
 /// status alond with any other data that is needed to submit and complete work.
 pub(crate) struct OperationState<'a> {
     is_submitted: Cell<bool>,
+    waker: Cell<Option<LocalWaker>>,
     element: Cell<Option<QueueElement<'a>>>,
-    queue_handle: &'a Handle,
+    executor: Rc<ExecutorInner>,
 }
 
 impl<'a> OperationState<'a> {
     /// Creates a new operation state object.
-    fn new(queue_handle: &'a Handle) -> Self {
+    fn new(executor: Rc<ExecutorInner>) -> Self {
         Self {
             is_submitted: Cell::new(false),
+            waker: Cell::new(None),
             element: Cell::new(None),
-            queue_handle,
+            executor,
         }
     }
 
@@ -69,6 +71,7 @@ impl<'a> OperationState<'a> {
     /// Completes the submission and stores the queue element for later use.
     pub(crate) fn complete(&self, element: QueueElement<'a>) {
         self.element.set(Some(element));
+        self.waker.take().unwrap().wake();
     }
 }
 
@@ -84,7 +87,7 @@ pub struct Operation<'a, S: Submission, R: Completion> {
 impl<S: Submission, R: Completion> Future for Operation<'_, S, R> {
     type Output = Result<R>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if let Some(element) = self.state.queue_element() {
             // Already completed, parse the result
             Poll::Ready(R::from_queue_element(element))
@@ -100,10 +103,22 @@ impl<S: Submission, R: Completion> Future for Operation<'_, S, R> {
                 let state_cloned = self.state.clone();
                 let context = Rc::into_raw(state_cloned) as usize;
 
-                if let Err(err) = self.submission.submit(self.state.queue_handle, context) {
+                if let Err(err) = self
+                    .submission
+                    .submit(self.state.executor.queue_handle(), context)
+                {
+                    // Submission failed, return the error
+                    // We need to drop the reference count of the operation state
+                    // object here to avoid leaking it
+
+                    drop(unsafe { Rc::from_raw(context as *const OperationState) });
+
                     return Poll::Ready(Err(err));
                 }
             }
+
+            // Set the waker for this operation
+            self.state.waker.set(Some(cx.local_waker().clone()));
 
             // Now we can wait for it to finish
             Poll::Pending
@@ -126,12 +141,12 @@ impl Submission for AwaitClockSubmission {
 }
 
 /// Creates a new `AwaitClockSubmission` for the time specified.
-pub fn await_clock(
+pub fn await_clock<'a>(
     executor: &Executor,
     time: Time,
 ) -> Operation<AwaitClockSubmission, SimpleResult> {
     let submission = AwaitClockSubmission { time };
-    let state = Rc::new(OperationState::new(executor.queue_handle()));
+    let state = Rc::new(OperationState::new(executor.clone_inner()));
 
     Operation {
         _marker: std::marker::PhantomData,

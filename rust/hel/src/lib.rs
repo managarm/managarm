@@ -1,4 +1,5 @@
 //! A Rust wrapper for Hel.
+#![feature(local_waker)]
 
 pub mod executor;
 pub mod handle;
