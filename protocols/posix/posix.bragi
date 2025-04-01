@@ -701,3 +701,15 @@ message PidfdSendSignalResponse 112 {
 head(128):
 	Errors error;
 }
+
+message PidfdGetPidRequest 113 {
+head(128):
+	int32 pidfd;
+}
+
+
+message PidfdGetPidResponse 114 {
+head(128):
+	Errors error;
+	int64 pid;
+}

@@ -4095,6 +4095,39 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::PidfdGetPidRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::PidfdGetPidRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto fd = self->fileContext()->getFile(req->pidfd());
+			if(!fd || fd->kind() != FileKind::pidfd) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdGetPidResponse>
+					(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
+
+			auto pid = smarter::static_pointer_cast<pidfd::OpenFile>(fd)->pid();
+			if(pid <= 0) {
+				co_await sendErrorResponse.template operator()<managarm::posix::PidfdGetPidResponse>
+					(managarm::posix::Errors::NO_SUCH_RESOURCE);
+				continue;
+			}
+
+			managarm::posix::PidfdGetPidResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_pid(pid);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 			helix::SendBuffer send_resp;
