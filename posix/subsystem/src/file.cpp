@@ -277,9 +277,10 @@ async::result<frg::expected<protocols::fs::Error>> File::ptSetSocketOption(void 
 }
 
 async::result<frg::expected<protocols::fs::Error>> File::ptGetSocketOption(void *object,
-		int layer, int number, std::vector<char> &optbuf) {
+	helix_ng::CredentialsView creds, int layer, int number, std::vector<char> &optbuf) {
 	auto self = static_cast<File *>(object);
-	co_return co_await self->getSocketOption(layer, number, optbuf);
+	auto process = findProcessWithCredentials(creds);
+	co_return co_await self->getSocketOption(process.get(), layer, number, optbuf);
 }
 
 File::~File() {
@@ -524,8 +525,9 @@ async::result<frg::expected<protocols::fs::Error>> File::setSocketOption(int lay
 	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
-async::result<frg::expected<protocols::fs::Error>> File::getSocketOption(int layer,
+async::result<frg::expected<protocols::fs::Error>> File::getSocketOption(Process *process, int layer,
 		int number, std::vector<char> &optbuf) {
+	(void) process;
 	(void) layer;
 	(void) number;
 	(void) optbuf;

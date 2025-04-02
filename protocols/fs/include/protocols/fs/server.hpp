@@ -184,7 +184,8 @@ struct FileOperations {
 	async::result<frg::expected<Error, int>> (*getSeals)(void *object) = nullptr;
 	async::result<frg::expected<Error, int>> (*addSeals)(void *object, int seals) = nullptr;
 	async::result<frg::expected<Error>> (*setSocketOption)(void *object, int layer, int number, std::vector<char> optbuf) = nullptr;
-	async::result<frg::expected<Error>> (*getSocketOption)(void *object, int layer, int number, std::vector<char> &optbuf) = nullptr;
+	async::result<frg::expected<Error>> (*getSocketOption)(void *object, helix_ng::CredentialsView creds,
+			int layer, int number, std::vector<char> &optbuf) = nullptr;
 
 	bool logRequests = false;
 };

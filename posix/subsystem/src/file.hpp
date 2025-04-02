@@ -264,7 +264,7 @@ public:
 	static async::result<frg::expected<protocols::fs::Error>> ptSetSocketOption(void *obj,
 			int layer, int number, std::vector<char> optbuf);
 	static async::result<frg::expected<protocols::fs::Error>> ptGetSocketOption(void *obj,
-			int layer, int number, std::vector<char> &optbuf);
+			helix_ng::CredentialsView creds, int layer, int number, std::vector<char> &optbuf);
 
 	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
 
@@ -452,8 +452,8 @@ public:
 	virtual async::result<frg::expected<protocols::fs::Error>> setSocketOption(int layer,
 			int number, std::vector<char> optbuf);
 
-	virtual async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer,
-			int number, std::vector<char> &optbuf);
+	virtual async::result<frg::expected<protocols::fs::Error>> getSocketOption(Process *process,
+			int layer, int number, std::vector<char> &optbuf);
 
 	virtual async::result<std::string> getFdInfo();
 private:

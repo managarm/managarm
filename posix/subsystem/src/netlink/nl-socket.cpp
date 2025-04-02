@@ -362,8 +362,8 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 	co_return {};
 }
 
-async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int layer, int number,
-		std::vector<char> &optbuf) {
+async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(Process *,
+		int layer, int number, std::vector<char> &optbuf) {
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 		optbuf.resize(std::min(optbuf.size(), sizeof(_protocol)));
 		memcpy(optbuf.data(), &_protocol, optbuf.size());

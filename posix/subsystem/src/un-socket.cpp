@@ -587,8 +587,8 @@ public:
 		co_return flags;
 	}
 
-	async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer, int number,
-			std::vector<char> &optbuf) override {
+	async::result<frg::expected<protocols::fs::Error>> getSocketOption(Process *process,
+			int layer, int number, std::vector<char> &optbuf) override {
 		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 			int protocol = 0;
 			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
