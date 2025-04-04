@@ -646,13 +646,19 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 				killed = false;
 				co_return;
 
-			default:
-				std::cout << "posix: Thread killed as the result of signal "
-						<< item->signalNumber << std::endl;
+			case SIGABRT:
+			case SIGILL:
+			case SIGSEGV:
 				if(debugFaults) {
+					std::cout << "posix: Thread killed as the result of signal "
+						<< item->signalNumber << std::endl;
 					launchGdbServer(process);
 					co_await async::suspend_indefinitely({});
 				}
+				[[fallthrough]];
+			default:
+				std::cout << "posix: Thread killed as the result of signal "
+						<< item->signalNumber << std::endl;
 				killed = true;
 				co_await process->terminate(TerminationBySignal{item->signalNumber});
 				co_return;
