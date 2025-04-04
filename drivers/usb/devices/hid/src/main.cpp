@@ -124,6 +124,7 @@ void setupInputTranslation(std::shared_ptr<libevbackend::EventDevice> eventDev, 
 			case 0x36: setInput(EV_KEY, KEY_COMMA); break;
 			case 0x37: setInput(EV_KEY, KEY_DOT); break;
 			case 0x38: setInput(EV_KEY, KEY_SLASH); break;
+			case 0x39: setInput(EV_KEY, KEY_CAPSLOCK); break;
 			case 0x3A: setInput(EV_KEY, KEY_F1); break;
 			case 0x3B: setInput(EV_KEY, KEY_F2); break;
 			case 0x3C: setInput(EV_KEY, KEY_F3); break;
