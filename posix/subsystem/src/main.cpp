@@ -42,7 +42,6 @@ std::map<
 std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView credentials) {
 	std::array<char, 16> creds;
 	memcpy(creds.data(), credentials.data(), 16);
-	globalCredentialsMap.at(creds)->shared_from_this();
 	return globalCredentialsMap.at(creds)->shared_from_this();
 }
 
