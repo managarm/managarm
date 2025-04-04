@@ -1,0 +1,5 @@
+[workspace]
+resolver = "3"
+members = [
+    "utils/hello-rs"
+]
