@@ -73,7 +73,7 @@ public:
 	setSocketOption(int layer, int number, std::vector<char> optbuf) override;
 
 	async::result<frg::expected<protocols::fs::Error>>
-	getSocketOption(int layer, int number, std::vector<char> &optbuf) override;
+	getSocketOption(Process *process, int layer, int number, std::vector<char> &optbuf) override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

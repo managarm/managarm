@@ -38,7 +38,7 @@ std::map<uint32_t, OpenFile *> globalPortMap;
 // ----------------------------------------------------------------------------
 
 OpenFile::OpenFile(int protocol, int type, bool nonBlock)
-		: File{StructName::get("nl-socket"), nullptr,
+		: File{FileKind::unknown,  StructName::get("nl-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777), File::defaultPipeLikeSeek},
 		_protocol{protocol}, ops_(globalProtocolOpsMap.at(protocol)), _currentSeq{1},
 		_inSeq{0}, _socketPort{0}, _passCreds{false}, nonBlock_{nonBlock}, type_{type} { }
@@ -362,8 +362,8 @@ async::result<frg::expected<protocols::fs::Error>> OpenFile::setSocketOption(int
 	co_return {};
 }
 
-async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(int layer, int number,
-		std::vector<char> &optbuf) {
+async::result<frg::expected<protocols::fs::Error>> OpenFile::getSocketOption(Process *,
+		int layer, int number, std::vector<char> &optbuf) {
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 		optbuf.resize(std::min(optbuf.size(), sizeof(_protocol)));
 		memcpy(optbuf.data(), &_protocol, optbuf.size());

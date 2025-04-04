@@ -1249,6 +1249,12 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
+		auto [recv_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(recv_creds.error());
+
 		std::vector<char> optbuf;
 		optbuf.resize(req->optlen());
 
@@ -1266,7 +1272,8 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		auto ret = co_await file_ops->getSocketOption(file.get(), req->layer(), req->number(), optbuf);
+		auto ret = co_await file_ops->getSocketOption(file.get(), recv_creds.credentials(),
+			req->layer(), req->number(), optbuf);
 		if(!ret) {
 			assert(ret.error() != protocols::fs::Error::none);
 			resp.set_error(ret.error() | toFsError);

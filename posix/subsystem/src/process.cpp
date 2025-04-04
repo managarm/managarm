@@ -872,7 +872,7 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 Process::Process(std::shared_ptr<PidHull> hull, Process *parent)
 : _parent{parent}, _hull{std::move(hull)},
 		_clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
-		_notifyType{NotifyType::null} { }
+		notifyType_{NotifyType::null} { }
 
 Process::~Process() {
 	std::cout << std::format("\e[33mposix: Process {} is destructed\e[39m", pid()) << std::endl;
@@ -1236,9 +1236,10 @@ async::result<void> Process::terminate(TerminationState state) {
 	}
 
 	// Notify the parent of our status change.
-	assert(_notifyType == NotifyType::null);
-	_notifyType = NotifyType::terminated;
+	assert(notifyType_ == NotifyType::null);
+	notifyType_ = NotifyType::terminated;
 	_state = std::move(state);
+	notifyTypeChange_.raise();
 	parent->_notifyQueue.push_back(*this);
 	parent->_notifyBell.raise();
 
@@ -1294,6 +1295,10 @@ bool Process::hasChild(int pid) {
 	return std::ranges::find_if(_children, [pid](auto e) {
 		return e->pid() == pid;
 	}) != _children.end();
+}
+
+async::result<bool> Process::awaitNotifyTypeChange(async::cancellation_token token) {
+	co_return co_await notifyTypeChange_.async_wait(token);
 }
 
 // --------------------------------------------------------------------------------------

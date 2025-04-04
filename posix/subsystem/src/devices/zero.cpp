@@ -40,7 +40,7 @@ public:
 	}
 
 	ZeroFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{StructName::get("zero-file"), std::move(mount), std::move(link)} { }
+	: File{FileKind::unknown,  StructName::get("zero-file"), std::move(mount), std::move(link)} { }
 };
 
 struct ZeroDevice final : UnixDevice {

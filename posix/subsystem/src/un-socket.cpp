@@ -8,6 +8,7 @@
 #include <sys/un.h>
 #include <iostream>
 
+#include <asm-generic/socket.h>
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
 #include <bragi/helpers-std.hpp>
@@ -15,6 +16,7 @@
 #include <helix/ipc.hpp>
 #include "fs.bragi.hpp"
 #include "un-socket.hpp"
+#include "pidfd.hpp"
 #include "process.hpp"
 #include "vfs.hpp"
 
@@ -82,7 +84,7 @@ public:
 	}
 
 	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM, bool socketpair = false)
-	: File{StructName::get("un-socket"), nullptr,
+	: File{FileKind::unknown,  StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
@@ -587,11 +589,14 @@ public:
 		co_return flags;
 	}
 
-	async::result<frg::expected<protocols::fs::Error>> getSocketOption(int layer, int number,
-			std::vector<char> &optbuf) override {
+	async::result<frg::expected<protocols::fs::Error>> getSocketOption(Process *process,
+			int layer, int number, std::vector<char> &optbuf) override {
 		if(layer == SOL_SOCKET && number == SO_PROTOCOL) {
 			int protocol = 0;
 			memcpy(optbuf.data(), &protocol, std::min(optbuf.size(), sizeof(protocol)));
+		} else if(layer == SOL_SOCKET && number == SO_DOMAIN) {
+			int domain = AF_UNIX;
+			memcpy(optbuf.data(), &domain, std::min(optbuf.size(), sizeof(domain)));
 		} else if(layer == SOL_SOCKET && number == SO_PEERCRED) {
 			struct ucred creds;
 
@@ -615,6 +620,24 @@ public:
 		} else if(layer == SOL_SOCKET && number == SO_ACCEPTCONN) {
 			int listen = listen_;
 			memcpy(optbuf.data(), &listen, std::min(optbuf.size(), sizeof(listen)));
+		} else if(layer == SOL_SOCKET && number == SO_PEERPIDFD) {
+			pid_t pid = _remote->_ownerPid;
+			int result = 0;
+
+			if(!pid) {
+				result = -ENODATA;
+			} else {
+				auto remoteProc = Process::findProcess(pid);
+
+				if(remoteProc) {
+					auto pidfd = createPidfdFile(remoteProc, false);
+					result = process->fileContext()->attachFile(pidfd);
+				} else {
+					result = -ENODATA;
+				}
+			}
+
+			memcpy(optbuf.data(), &result, std::min(optbuf.size(), sizeof(result)));
 		} else {
 			printf("posix un-socket: unhandled getsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;

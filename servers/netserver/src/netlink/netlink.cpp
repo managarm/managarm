@@ -301,7 +301,7 @@ async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::setSocketOptio
 }
 
 async::result<frg::expected<protocols::fs::Error>> NetlinkSocket::getSocketOption(void *object,
-int layer, int number, std::vector<char> &optbuf) {
+helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
 	auto self = static_cast<NetlinkSocket *>(object);
 
 	if(layer == SOL_SOCKET && number == SO_PROTOCOL) {

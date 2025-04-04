@@ -46,7 +46,7 @@ public:
 	setSocketOption(void *object, int layer, int number, std::vector<char> optbuf);
 
 	static async::result<frg::expected<protocols::fs::Error>>
-	getSocketOption(void *object, int layer, int number, std::vector<char> &optbuf);
+	getSocketOption(void *object, helix_ng::CredentialsView creds, int layer, int number, std::vector<char> &optbuf);
 
 	static async::result<void> setFileFlags(void *object, int flags);
 	static async::result<int> getFileFlags(void *object);
