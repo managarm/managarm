@@ -138,7 +138,7 @@ struct AttributeNode final : FsNode, std::enable_shared_from_this<AttributeNode>
 		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
 	}
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -156,7 +156,7 @@ struct SymlinkNode final : FsNode, std::enable_shared_from_this<SymlinkNode> {
 		static_cast<SysfsSuperblock *>(superblock())->inodeAllocator().free(inode_);
 	}
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
@@ -179,7 +179,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMklink(std::string name, std::weak_ptr<Object> target);
 	std::shared_ptr<Link> directMkdir(std::string name);
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 

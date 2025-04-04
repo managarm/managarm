@@ -275,8 +275,8 @@ private:
 
 struct RegularNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -338,8 +338,8 @@ public:
 
 struct SymlinkNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::symlink;
+	async::result<VfsType> getType() override {
+		co_return VfsType::symlink;
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
@@ -408,6 +408,32 @@ public:
 		co_return frg::success_tag{};
 	}
 
+	async::result<frg::expected<Error>> deobstruct() override {
+		assert(_owner);
+		managarm::fs::CntRequest req;
+		req.set_req_type(managarm::fs::CntReqType::NODE_DEOBSTRUCT_LINK);
+		req.set_link_name(_name);
+
+		auto lane = static_cast<Node *>(_owner.get())->getLane();
+
+		auto ser = req.SerializeAsString();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_req.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
+		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		co_return frg::success_tag{};
+	}
 private:
 	std::string getName() override {
 		assert(_owner);
@@ -469,8 +495,8 @@ private:
 
 struct DirectoryNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::directory;
+	async::result<VfsType> getType() override {
+		co_return VfsType::directory;
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {

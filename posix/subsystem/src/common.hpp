@@ -24,6 +24,9 @@ struct StructName {
 	}
 
 	friend struct std::formatter<StructName>;
+	std::string type() {
+		return _type;
+	}
 
 private:
 	explicit StructName(const char *type, uint64_t id)

@@ -162,8 +162,8 @@ std::shared_ptr<FsNode> Link::getTarget() {
 
 RegularNode::RegularNode() : FsNode(&cgroupfsSuperblock, 0) {}
 
-VfsType RegularNode::getType() {
-	return VfsType::regular;
+async::result<VfsType> RegularNode::getType() {
+	co_return VfsType::regular;
 }
 
 async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
@@ -276,8 +276,8 @@ std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_
 	return link;
 }
 
-VfsType DirectoryNode::getType() {
-	return VfsType::directory;
+async::result<VfsType> DirectoryNode::getType() {
+	co_return VfsType::directory;
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::link(std::string,

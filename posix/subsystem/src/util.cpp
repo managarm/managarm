@@ -28,6 +28,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::ioError: err_string = "ioError"; break;
 		case Error::noChildProcesses: err_string = "noChildProcesses"; break;
 		case Error::alreadyConnected: err_string = "alreadyConnected"; break;
+		case Error::expireMount: err_string = "expireMount"; break;
 	}
 
 	return os << err_string;

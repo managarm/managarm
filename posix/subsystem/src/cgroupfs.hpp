@@ -96,7 +96,7 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 	RegularNode();
 	virtual ~RegularNode() = default;
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -147,7 +147,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	mkdir(std::string name) override;
 
-	VfsType getType() override;
+	async::result<VfsType> getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	std::shared_ptr<FsLink> treeLink() override;
 
@@ -195,8 +195,8 @@ struct LinkNode : FsNode, std::enable_shared_from_this<LinkNode> {
 	}
 
 
-	VfsType getType() override {
-		return VfsType::symlink;
+	async::result<VfsType> getType() override {
+		co_return VfsType::symlink;
 	}
 };
 

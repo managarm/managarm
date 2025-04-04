@@ -75,6 +75,9 @@ enum class Error {
 	noChildProcesses,
 
 	alreadyConnected,
+
+	// Returned by FsLink::prepareUnmount() if the expire flag is set
+	expireMount,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -103,6 +106,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::ioError: return protocols::fs::Error::internalError;
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
+		case Error::expireMount: return protocols::fs::Error::expireMount;
 	}
 }
 
@@ -133,6 +137,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::ioError: return managarm::posix::Errors::INTERNAL_ERROR;
 		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
+		case Error::expireMount: return managarm::posix::Errors::EXPIRE_MOUNT;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:

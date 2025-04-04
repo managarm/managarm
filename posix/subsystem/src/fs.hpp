@@ -62,6 +62,7 @@ public:
 	virtual std::shared_ptr<FsNode> getTarget() = 0;
 	virtual async::result<frg::expected<Error>> obstruct();
 	virtual std::optional<std::string> getProcFsDescription();
+	virtual async::result<frg::expected<Error>> deobstruct();
 };
 
 struct FsSuperblock {
@@ -134,7 +135,7 @@ protected:
 	~FsNode() = default;
 
 public:
-	virtual VfsType getType();
+	virtual async::result<VfsType> getType();
 
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();
@@ -177,6 +178,11 @@ public:
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags);
+
+	//! Creates and opens a regular file (directories only).
+	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	mkRegularAndOpen(std::shared_ptr<MountView> mount, std::string name,
+			SemanticFlags semantic_flags, Process *process);
 
 	// Reads the target of a symlink (symlinks only).
 	// Returns illegalOperationTarget() by default.
@@ -249,9 +255,9 @@ private:
 	struct EmbeddedNode final : FsNode {
 		EmbeddedNode() : FsNode(getAnonymousSuperblock()) {}
 
-		VfsType getType() override {
+		async::result<VfsType> getType() override {
 			auto node = frg::container_of(this, &SpecialLink::embeddedNode_);
-			return node->fileType_;
+			co_return node->fileType_;
 		}
 
 		async::result<frg::expected<Error, FileStats>> getStats() override {

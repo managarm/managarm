@@ -122,8 +122,8 @@ private:
 
 struct SymlinkNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::symlink;
+	async::result<VfsType> getType() override {
+		co_return VfsType::symlink;
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
@@ -156,8 +156,8 @@ private:
 
 struct DeviceNode final : Node {
 private:
-	VfsType getType() override {
-		return _type;
+	async::result<VfsType> getType() override {
+		co_return _type;
 	}
 
 	DeviceId readDevice() override {
@@ -180,15 +180,15 @@ private:
 struct SocketNode final : Node {
 	SocketNode(Superblock *superblock);
 
-	VfsType getType() override {
-		return VfsType::socket;
+	async::result<VfsType> getType() override {
+		co_return VfsType::socket;
 	}
 };
 
 struct FifoNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::fifo;
+	async::result<VfsType> getType() override {
+		co_return VfsType::fifo;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(std::shared_ptr<MountView> mount,
@@ -284,8 +284,8 @@ struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
 	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock);
 
 private:
-	VfsType getType() override {
-		return VfsType::directory;
+	async::result<VfsType> getType() override {
+		co_return VfsType::directory;
 	}
 
 	std::shared_ptr<FsLink> treeLink() override {
@@ -344,7 +344,7 @@ private:
 			co_return Error::noSuchFile;
 
 		auto target = it->get()->getTarget();
-		if(target->getType() == VfsType::directory)
+		if(co_await target->getType() == VfsType::directory)
 			co_return Error::directoryNotEmpty;
 
 		_entries.erase(it);
@@ -361,7 +361,7 @@ private:
 			co_return Error::noSuchFile;
 
 		auto target = it->get()->getTarget();
-		if(target->getType() == VfsType::directory) {
+		if(co_await target->getType() == VfsType::directory) {
 			auto dir_target = reinterpret_cast<DirectoryNode *>(target.get());
 			
 			if(dir_target->_entries.size()) {
@@ -389,8 +389,8 @@ private:
 // TODO: Remove this class in favor of MemoryNode.
 struct InheritedNode final : Node {
 private:
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -472,8 +472,8 @@ struct MemoryNode final : Node {
 	MemoryNode(Superblock *superblock);
 	~MemoryNode();
 
-	VfsType getType() override {
-		return VfsType::regular;
+	async::result<VfsType> getType() override {
+		co_return VfsType::regular;
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
@@ -554,7 +554,7 @@ struct Superblock final : FsSuperblock {
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
 
-		if(dest_fs_dir->getType() != VfsType::directory)
+		if(co_await dest_fs_dir->getType() != VfsType::directory)
 			co_return Error::notDirectory;
 		auto dest_dir = static_cast<DirectoryNode *>(dest_fs_dir);
 

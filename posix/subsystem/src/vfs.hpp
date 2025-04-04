@@ -55,6 +55,7 @@ struct MountView : std::enable_shared_from_this<MountView> {
 	}
 
 	async::result<void> mount(std::shared_ptr<FsLink> anchor, std::shared_ptr<FsLink> origin, ViewPath deviceLink = {});
+	async::result<void> unmount(std::shared_ptr<MountView> view);
 
 	std::shared_ptr<MountView> getMount(std::shared_ptr<FsLink> link) const;
 

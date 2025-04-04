@@ -1928,6 +1928,19 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
+		}else if(req.req_type() == managarm::fs::CntReqType::NODE_DEOBSTRUCT_LINK) {
+			co_await node_ops->deobstructLink(node, req.link_name());
+
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}
