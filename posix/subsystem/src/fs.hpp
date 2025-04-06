@@ -134,7 +134,7 @@ protected:
 	~FsNode() = default;
 
 public:
-	virtual VfsType getType();
+	virtual VfsType getType() = 0;
 
 	// TODO: This should be async.
 	virtual async::result<frg::expected<Error, FileStats>> getStats();

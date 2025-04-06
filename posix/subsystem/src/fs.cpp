@@ -77,12 +77,9 @@ std::optional<std::string> FsLink::getProcFsDescription() {
 // FsNode implementation.
 // --------------------------------------------------------
 
-VfsType FsNode::getType() {
-	throw std::runtime_error("getType() is not implemented for this FsNode");
-}
-
 async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
-	throw std::runtime_error("getStats() is not implemented for this FsNode");
+	std::cout << "posix: getStats() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 std::shared_ptr<FsLink> FsNode::treeLink() {
@@ -112,7 +109,8 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::string, std::shared_ptr<FsNode>) {
-	throw std::runtime_error("link() is not implemented for this FsNode");
+	std::cout << "posix: link() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
@@ -150,7 +148,8 @@ async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
-	throw std::runtime_error("open() is not implemented for this FsNode");
+	std::cout << "posix: open() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 expected<std::string> FsNode::readSymlink(FsLink *, Process *) {
@@ -166,7 +165,8 @@ bool FsNode::hasTraverseLinks() {
 }
 
 async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>> FsNode::traverseLinks(std::deque<std::string>) {
-	throw std::runtime_error("traverseLinks() is not implemented for this FsNode");
+	std::cout << "posix: traverseLinks() is not implemented for this FsNode" << std::endl;
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<Error> FsNode::chmod(int mode) {

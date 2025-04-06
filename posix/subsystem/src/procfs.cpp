@@ -1,5 +1,6 @@
 #include <functional>
 #include <linux/magic.h>
+#include <print>
 #include <string.h>
 #include <sstream>
 #include <iomanip>
@@ -705,7 +706,7 @@ async::result<std::string> StatNode::show(Process *) {
 
 async::result<void> StatNode::store(std::string) {
 	// TODO: proper error reporting.
-	throw std::runtime_error("Can't store to a /proc/stat file!");
+	std::println("Can't store to a /proc/stat file!");
 }
 
 async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
@@ -730,7 +731,7 @@ async::result<std::string> StatmNode::show(Process *) {
 
 async::result<void> StatmNode::store(std::string) {
 	// TODO: proper error reporting.
-	throw std::runtime_error("Can't store to a /proc/statm file!");
+	std::println("Can't store to a /proc/statm file!");
 }
 
 async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
@@ -820,7 +821,7 @@ async::result<std::string> StatusNode::show(Process *) {
 
 async::result<void> StatusNode::store(std::string) {
 	// TODO: proper error reporting.
-	throw std::runtime_error("Can't store to a /proc/status file!");
+	std::println("Can't store to a /proc/status file!");
 }
 
 async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
