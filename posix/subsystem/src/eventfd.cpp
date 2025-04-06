@@ -23,7 +23,12 @@ struct OpenFile : File {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+				smarter::shared_ptr<File>{file}, &File::fileOperations, file->cancelServe_));
+	}
+
+	void handleClose() override {
+		cancelServe_.cancel();
+		_passthrough = {};
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -113,6 +118,7 @@ struct OpenFile : File {
 private:
 	helix::UniqueLane _passthrough;
 	async::recurring_event _doorbell;
+	async::cancellation_event cancelServe_;
 
 	uint64_t _currentSeq;
 	uint64_t _readableSeq;
