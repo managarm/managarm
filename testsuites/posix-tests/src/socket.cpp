@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -48,4 +49,14 @@ DEFINE_TEST(socket_accept_timeout, ([] {
 	assert(diff.tv_sec >= 1);
 
 	unlink("/tmp/testsocket");
+}));
+
+DEFINE_TEST(socket_invalid_types, ([] {
+	int s = socket(AF_UNIX, 0, 0);
+	assert(s == -1);
+	assert(errno == ESOCKTNOSUPPORT);
+
+	s = socket(AF_UNIX, INT_MAX, 0);
+	assert(s == -1);
+	assert(errno == EINVAL);
 }));

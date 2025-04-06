@@ -75,6 +75,8 @@ enum class Error {
 	noChildProcesses,
 
 	alreadyConnected,
+
+	unsupportedSocketType,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -103,6 +105,9 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::ioError: return protocols::fs::Error::internalError;
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
+		default:
+			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			return protocols::fs::Error::internalError;
 	}
 }
 
@@ -133,6 +138,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::ioError: return managarm::posix::Errors::INTERNAL_ERROR;
 		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
+		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:

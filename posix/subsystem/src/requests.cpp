@@ -2795,15 +2795,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
+			if(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			}
 
 			smarter::shared_ptr<File, FileHandle> file;
 			if(req->domain() == AF_UNIX) {
-				assert(req->socktype() == SOCK_DGRAM || req->socktype() == SOCK_STREAM
-						|| req->socktype() == SOCK_SEQPACKET);
-				assert(!req->protocol());
+				auto un = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
 
-				file = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
+				if(!un) {
+					co_await sendErrorResponse(un.error() | toPosixProtoError);
+					continue;
+				}
+
+				file = std::move(un.value());
 			}else if(req->domain() == AF_NETLINK) {
 				assert(req->socktype() == SOCK_RAW || req->socktype() == SOCK_DGRAM);
 				// NL_ROUTE gets handled by the netserver.

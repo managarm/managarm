@@ -33,6 +33,12 @@ std::map<std::weak_ptr<FsNode>, OpenFile *,
 		std::owner_less<std::weak_ptr<FsNode>>> globalBindMap;
 std::unordered_map<std::string, OpenFile *> abstractSocketsBindMap;
 
+std::array<int, 3> supportedSocketTypes = {
+	SOCK_STREAM,
+	SOCK_DGRAM,
+	SOCK_SEQPACKET,
+};
+
 struct Packet {
 	// Sender process information.
 	int senderPid;
@@ -873,7 +879,11 @@ private:
 	std::optional<timeval> sendTimeout_;
 };
 
-smarter::shared_ptr<File, FileHandle> createSocketFile(bool nonBlock, int32_t socktype) {
+std::expected<smarter::shared_ptr<File, FileHandle>, Error>
+createSocketFile(bool nonBlock, int32_t socktype) {
+	if(std::ranges::find(supportedSocketTypes, socktype) == std::end(supportedSocketTypes)) [[unlikely]]
+		return std::unexpected{Error::unsupportedSocketType};
+
 	auto file = smarter::make_shared<OpenFile>(nullptr, nonBlock, socktype);
 	file->setupWeakFile(file);
 	OpenFile::serve(file);
