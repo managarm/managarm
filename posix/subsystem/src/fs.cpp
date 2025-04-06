@@ -77,10 +77,6 @@ std::optional<std::string> FsLink::getProcFsDescription() {
 // FsNode implementation.
 // --------------------------------------------------------
 
-VfsType FsNode::getType() {
-	throw std::runtime_error("getType() is not implemented for this FsNode");
-}
-
 async::result<frg::expected<Error, FileStats>> FsNode::getStats() {
 	std::cout << "posix: getStats() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
