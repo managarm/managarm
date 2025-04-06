@@ -328,7 +328,7 @@ void File::handleClose() {
 async::result<frg::expected<Error, size_t>> File::writeAll(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement writeAll()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::writeAll()");
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<Error, ControllingTerminalState *>> File::getControllingTerminal() {
@@ -354,7 +354,7 @@ File::recvMsg(Process *, uint32_t, void *, size_t,
 		void *, size_t, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement recvMsg()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::recvMsg()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>>
@@ -364,7 +364,7 @@ File::sendMsg(Process *, uint32_t,
 		std::vector<smarter::shared_ptr<File, FileHandle>>, struct ucred) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement sendMsg()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::sendMsg()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
@@ -376,7 +376,7 @@ async::result<frg::expected<protocols::fs::Error>> File::truncate(size_t) {
 async::result<frg::expected<protocols::fs::Error>> File::allocate(int64_t, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement allocate()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::allocate()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<Error, off_t>> File::seek(off_t, VfsSeek) {
@@ -385,14 +385,14 @@ async::result<frg::expected<Error, off_t>> File::seek(off_t, VfsSeek) {
 	}else{
 		std::cout << "posix \e[1;34m" << structName()
 				<< "\e[0m: Object does not implement seek()" << std::endl;
-		throw std::runtime_error("posix: Object has no File::seek()");
+		co_return Error::illegalOperationTarget;
 	}
 }
 
 expected<PollResult> File::poll(Process *, uint64_t, async::cancellation_token) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement poll()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::poll()");
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<frg::expected<Error, PollWaitResult>> File::pollWait(Process *process,
@@ -426,19 +426,19 @@ async::result<frg::expected<Error, PollStatusResult>> File::pollStatus(Process *
 async::result<frg::expected<Error, AcceptResult>> File::accept(Process *) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement accept()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::accept()");
+	co_return Error::illegalOperationTarget;
 }
 
 async::result<protocols::fs::Error> File::bind(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement bind()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::bind()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<protocols::fs::Error> File::connect(Process *, const void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement connect()" << std::endl;
-	throw std::runtime_error("posix: Object has no File::connect()");
+	co_return protocols::fs::Error::illegalOperationTarget;
 }
 
 async::result<protocols::fs::Error> File::listen() {
