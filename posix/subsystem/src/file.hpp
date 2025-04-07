@@ -184,6 +184,7 @@ enum class FileKind {
 	unknown,
 	pidfd,
 	timerfd,
+	inotify,
 };
 
 struct File : private smarter::crtp_counter<File, DisposeFileHandle> {
