@@ -100,6 +100,24 @@ inline async::result<bool> sleepFor(uint64_t duration, async::cancellation_token
 	co_return true;
 }
 
+inline async::result<bool> sleepUntil(uint64_t tick, async::cancellation_token cancelToken) {
+	helix::AwaitClock await;
+	auto &&submit = helix::submitAwaitClock(&await, tick,
+			helix::Dispatcher::global());
+	auto asyncId = await.asyncId();
+	{
+		async::cancellation_callback cb{cancelToken, [&] {
+			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), asyncId));
+		}};
+		co_await submit.async_wait();
+	}
+
+	if(await.error() == kHelErrCancelled)
+		co_return false;
+	HEL_CHECK(await.error());
+	co_return true;
+}
+
 // Returns true if the operation succeeded, or false if it timed out
 template<typename F> requires (std::is_invocable_r_v<bool, F>)
 async::result<bool> kindaBusyWait(uint64_t timeoutNs, F cond) {

@@ -7,6 +7,7 @@
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
 #include <helix/ipc.hpp>
+#include <helix/timer.hpp>
 #include "fs.hpp"
 #include "timerfd.hpp"
 
@@ -24,32 +25,27 @@ uint64_t add_sat(uint64_t x, uint64_t y) {
 struct OpenFile : File {
 private:
 	struct Timer {
-		uint64_t asyncId;
-		uint64_t initial;
-		uint64_t interval;
+		uint64_t initial = 0;
+		uint64_t interval = 0;
+		async::cancellation_event cancelEvt;
 	};
 
 	// TODO: Unify this implementation with the itimer implementation in process.hpp.
-	async::detached arm(Timer *timer) {
+	async::detached arm(std::shared_ptr<Timer> timer) {
 		assert(timer->initial || timer->interval);
 
-		uint64_t tick = timer->initial;
+		// Next expiration of the timer.
+		uint64_t deadline = timer->initial;
 
 		if(timer->initial) {
-			helix::AwaitClock await_initial;
-			auto &&submit = helix::submitAwaitClock(&await_initial, tick,
-					helix::Dispatcher::global());
-			timer->asyncId = await_initial.asyncId();
-			co_await submit.async_wait();
-			timer->asyncId = 0;
-			assert(!await_initial.error() || await_initial.error() == kHelErrCancelled);
+			if(!co_await helix::sleepUntil(deadline, timer->cancelEvt))
+				co_return;
 
 			if(_activeTimer == timer) {
 				_expirations++;
 				_theSeq++;
 				_seqBell.raise();
 			}else{
-				delete timer;
 				co_return;
 			}
 		}
@@ -57,26 +53,19 @@ private:
 		if(!timer->interval) {
 			if(_activeTimer == timer)
 				_activeTimer = nullptr;
-			delete timer;
 			co_return;
 		}
 
 		while(true) {
-			helix::AwaitClock await_interval;
-			auto &&submit = helix::submitAwaitClock(&await_interval, add_sat(tick, timer->interval),
-					helix::Dispatcher::global());
-			timer->asyncId = await_interval.asyncId();
-			co_await submit.async_wait();
-			timer->asyncId = 0;
-			assert(!await_interval.error() || await_interval.error() == kHelErrCancelled);
-			tick = add_sat(tick, timer->interval);
+			deadline = add_sat(deadline, timer->interval);
+			if(!co_await helix::sleepUntil(deadline, timer->cancelEvt))
+				co_return;
 
 			if(_activeTimer == timer) {
 				_expirations++;
 				_theSeq++;
 				_seqBell.raise();
 			}else{
-				delete timer;
 				co_return;
 			}
 		}
@@ -84,8 +73,6 @@ private:
 
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
-//TODO:		assert(!file->_passthrough);
-
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
@@ -104,6 +91,11 @@ public:
 	}
 
 	void handleClose() override {
+		if(_activeTimer) {
+			_activeTimer->cancelEvt.cancel();
+			_activeTimer = nullptr;
+		}
+
 		_seqBell.raise();
 		_cancelServe.cancel();
 	}
@@ -196,14 +188,11 @@ public:
 		}
 
 		auto current = std::exchange(_activeTimer, nullptr);
-		if(current) {
-			assert(current->asyncId);
-			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), current->asyncId));
-		}
+		if(current)
+			current->cancelEvt.cancel();
 
 		if(initial || interval) {
-			_activeTimer = new Timer;
-			_activeTimer->asyncId = 0;
+			_activeTimer = std::make_shared<Timer>();
 			_activeTimer->initial = initial;
 			_activeTimer->interval = interval;
 			_expirations = 0;
@@ -239,7 +228,7 @@ private:
 	bool nonBlock_;
 
 	// Currently active timer.
-	Timer *_activeTimer;
+	std::shared_ptr<Timer> _activeTimer;
 
 	// Number of expirations since last read().
 	uint64_t _expirations;
