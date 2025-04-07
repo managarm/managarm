@@ -1,11 +1,21 @@
+// needed to avoid redefinitions in linux/timerfd.h
+#ifdef _GNU_SOURCE
+#undef _GNU_SOURCE
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <sys/ioctl.h>
+#include <sys/time.h>
 #include <sys/timerfd.h>
 #include <time.h>
-#include <sys/time.h>
 #include <unistd.h>
+
+// avoid flock redefinition
+#define HAVE_ARCH_STRUCT_FLOCK
+#include <linux/timerfd.h>
 
 #include "testsuite.hpp"
 
@@ -62,4 +72,11 @@ DEFINE_TEST(timerfd, ([] {
 	ret = read(t, &ev, sizeof(ev));
 	assert(ret == -1);
 	assert(errno == EAGAIN);
+
+	uint64_t ticks = 0x1337'0069'0420'DEAD;
+	ret = ioctl(t, TFD_IOC_SET_TICKS, &ticks);
+	assert(ret == 0);
+	ret = read(t, &ev, sizeof(ev));
+	assert(ret == sizeof(ev));
+	assert(ev == 0x1337'0069'0420'DEAD);
 }));
