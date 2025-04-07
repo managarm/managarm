@@ -28,7 +28,7 @@ private:
 		uint64_t initial;
 		uint64_t interval;
 	};
-	
+
 	// TODO: Unify this implementation with the itimer implementation in process.hpp.
 	async::detached arm(Timer *timer) {
 		assert(timer->initial || timer->interval);
@@ -93,7 +93,7 @@ public:
 	}
 
 	OpenFile(int clock, bool non_block)
-	: File{FileKind::unknown,  StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
+	: File{FileKind::timerfd,  StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
 			_clock{clock}, _nonBlock{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
 		assert(_clock == CLOCK_MONOTONIC || _clock == CLOCK_REALTIME);
@@ -118,7 +118,7 @@ public:
 		_expirations = 0;
 		co_return sizeof(uint64_t);
 	}
-	
+
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t in_seq, int mask,
 			async::cancellation_token cancellation) override {

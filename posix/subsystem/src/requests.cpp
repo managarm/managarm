@@ -3250,6 +3250,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					managarm::posix::Errors::NO_SUCH_FD
 				);
 				continue;
+			} else if(file->kind() != FileKind::timerfd) {
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdSetResponse>(
+					managarm::posix::Errors::ILLEGAL_ARGUMENTS
+				);
+				continue;
 			}
 			timespec initial = {};
 			timespec interval = {};
