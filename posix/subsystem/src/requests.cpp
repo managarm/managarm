@@ -3274,6 +3274,42 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));
 			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == bragi::message_id<managarm::posix::TimerFdGetRequest>) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerFdGetRequest>(recv_head);
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests, "TIMER_FD_GET");
+
+			auto file = self->fileContext()->getFile(req->fd());
+			if (!file) {
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdGetResponse>(
+					managarm::posix::Errors::NO_SUCH_FD
+				);
+				continue;
+			} else if(file->kind() != FileKind::timerfd) {
+				co_await sendErrorResponse.operator()<managarm::posix::TimerFdGetResponse>(
+					managarm::posix::Errors::ILLEGAL_ARGUMENTS
+				);
+				continue;
+			}
+			timespec initial = {};
+			timespec interval = {};
+			timerfd::getTime(file.get(), initial, interval);
+
+			managarm::posix::TimerFdGetResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+			resp.set_value_sec(initial.tv_sec);
+			resp.set_value_nsec(initial.tv_nsec);
+			resp.set_interval_sec(interval.tv_sec);
+			resp.set_interval_nsec(interval.tv_nsec);
+
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));
+			HEL_CHECK(sendResp.error());
+			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 			logRequest(logRequests, "SIGNALFD_CREATE");
 

@@ -714,3 +714,17 @@ head(128):
 	Errors error;
 	int64 pid;
 }
+
+message TimerFdGetRequest 115 {
+head(128):
+	int32 fd;
+}
+
+message TimerFdGetResponse 116 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}

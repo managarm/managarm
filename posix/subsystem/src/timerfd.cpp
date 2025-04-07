@@ -1,7 +1,7 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
-#include <iostream>
+#include <print>
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
@@ -94,10 +94,9 @@ public:
 
 	OpenFile(int clock, bool non_block)
 	: File{FileKind::timerfd,  StructName::get("timerfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)},
-			_clock{clock}, _nonBlock{non_block},
+			_clock{clock}, nonBlock_{non_block},
 			_activeTimer{nullptr}, _expirations{0}, _theSeq{0} {
 		assert(_clock == CLOCK_MONOTONIC || _clock == CLOCK_REALTIME);
-		(void)_nonBlock;
 	}
 
 	~OpenFile() override {
@@ -111,8 +110,14 @@ public:
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t max_length) override {
-		assert(max_length == sizeof(uint64_t));
-		assert(_expirations);
+		if(max_length < sizeof(uint64_t))
+			co_return Error::illegalArguments;
+
+		if(!_expirations && nonBlock_)
+			co_return Error::wouldBlock;
+
+		while(!_expirations)
+			co_await _seqBell.async_wait();
 
 		memcpy(data, &_expirations, sizeof(uint64_t));
 		_expirations = 0;
@@ -141,6 +146,28 @@ public:
 		co_return PollStatusResult(_theSeq, _expirations ? EPOLLIN : 0);
 	}
 
+	async::result<int> getFileFlags() override {
+		int flags = 0;
+
+		if(nonBlock_)
+			flags |= O_NONBLOCK;
+		co_return flags;
+	}
+
+	async::result<void> setFileFlags(int flags) override {
+		if(flags & ~O_NONBLOCK) {
+			std::println("posix: setFileFlags on \e[1;34m{}\e[0m called with unknown flags {:#x}",
+				structName(), flags & ~O_NONBLOCK);
+			co_return;
+		}
+
+		if(flags & O_NONBLOCK)
+			nonBlock_ = true;
+		else
+			nonBlock_ = false;
+		co_return;
+	}
+
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;
 	}
@@ -158,7 +185,7 @@ public:
 					// Transform real time to time since boot.
 					int64_t bootTime = clk::getRealtimeNanos() - now;
 					assert(bootTime >= 0);
-					if (initial < bootTime) {
+					if (initial < static_cast<uint64_t>(bootTime)) {
 						// TODO: This is not entirely correct but arm() does not handle negative times.
 						initial = 1;
 					} else {
@@ -209,7 +236,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 	int _clock;
-	bool _nonBlock;
+	bool nonBlock_;
 
 	// Currently active timer.
 	Timer *_activeTimer;
