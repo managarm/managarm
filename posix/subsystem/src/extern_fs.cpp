@@ -229,8 +229,8 @@ private:
 public:
 	OpenFile(helix::UniqueLane control, helix::UniqueLane lane,
 			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool append)
-	: File{FileKind::unknown,  StructName::get("externfs.file"), std::move(mount), std::move(link)},
-			_control{std::move(control)}, _file{std::move(lane)}, _append(append) { }
+	: File{FileKind::unknown, StructName::get("externfs.file"), std::move(mount), std::move(link), 0, append},
+			_control{std::move(control)}, _file{std::move(lane)} { }
 
 	~OpenFile() override {
 		// It's not necessary to do any cleanup here.
@@ -268,7 +268,6 @@ public:
 private:
 	helix::UniqueLane _control;
 	protocols::fs::File _file;
-	bool _append;
 };
 
 struct RegularNode final : Node {
