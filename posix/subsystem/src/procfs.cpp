@@ -707,6 +707,7 @@ async::result<std::string> StatNode::show(Process *) {
 async::result<void> StatNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::println("Can't store to a /proc/stat file!");
+	co_return;
 }
 
 async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
@@ -732,6 +733,7 @@ async::result<std::string> StatmNode::show(Process *) {
 async::result<void> StatmNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::println("Can't store to a /proc/statm file!");
+	co_return;
 }
 
 async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
@@ -822,6 +824,7 @@ async::result<std::string> StatusNode::show(Process *) {
 async::result<void> StatusNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::println("Can't store to a /proc/status file!");
+	co_return;
 }
 
 async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
