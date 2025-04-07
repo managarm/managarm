@@ -3401,6 +3401,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(!ifile) {
 				co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_FD);
 				continue;
+			} else if(ifile->kind() != FileKind::inotify) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
 
 			ResolveFlags flags = 0;
@@ -3453,12 +3456,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(!ifile) {
 				resp.set_error(managarm::posix::Errors::BAD_FD);
 				continue;
-			} else {
-				if(inotify::removeWatch(ifile.get(), req->wd()))
-					resp.set_error(managarm::posix::Errors::SUCCESS);
-				else
-					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			} else if(ifile->kind() != FileKind::inotify) {
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
 			}
+
+			if(inotify::removeWatch(ifile.get(), req->wd()))
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			else
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
