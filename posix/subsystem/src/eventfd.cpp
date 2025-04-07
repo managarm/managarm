@@ -23,7 +23,12 @@ struct OpenFile : File {
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				smarter::shared_ptr<File>{file}, &File::fileOperations));
+				smarter::shared_ptr<File>{file}, &File::fileOperations, file->cancelServe_));
+	}
+
+	void handleClose() override {
+		cancelServe_.cancel();
+		_passthrough = {};
 	}
 
 	async::result<frg::expected<Error, size_t>>
@@ -55,16 +60,18 @@ struct OpenFile : File {
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override {
-		assert(length >= 8); // TODO: return Error::illegalArguments to user instead
+		if(length != 8)
+			co_return Error::illegalArguments;
 
 		uint64_t num;
 		memcpy(&num, data, 8);
 
-		assert(num != 0xFFFFFFFFFFFFFFFF); // TODO: return Error::wouldBlock to user instead
+		if(num == 0xFFFFFFFFFFFFFFFF)
+			co_return Error::illegalArguments;
 
 		if (num && num + _counter <= _counter) {
 			if (_nonBlock)
-				assert(!"return Error::wouldBlock from eventfd::OpenFile::writeAll");
+				co_return Error::wouldBlock;
 			else
 				co_await _doorbell.async_wait(); // wait for read
 		}
@@ -113,6 +120,7 @@ struct OpenFile : File {
 private:
 	helix::UniqueLane _passthrough;
 	async::recurring_event _doorbell;
+	async::cancellation_event cancelServe_;
 
 	uint64_t _currentSeq;
 	uint64_t _readableSeq;

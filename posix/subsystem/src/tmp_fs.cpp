@@ -245,13 +245,14 @@ struct LinkCompare {
 	bool operator() (const std::shared_ptr<Link> &link, const std::string &name) const {
 		return link->getName() < name;
 	}
-bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
-	return name < link->getName();
-}
 
-bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
-	return a->getName() < b->getName();
-}
+	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const {
+		return name < link->getName();
+	}
+
+	bool operator() (const std::shared_ptr<Link> &a, const std::shared_ptr<Link> &b) const {
+		return a->getName() < b->getName();
+	}
 };
 
 struct DirectoryNode;

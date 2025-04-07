@@ -16,6 +16,7 @@ src = [
 	'src/memfd.cpp',
 	'src/pidfd.cpp',
 	'src/socket.cpp',
+	'src/timerfd.cpp',
 ]
 
 executable('posix-tests', src, install : true)
