@@ -8,7 +8,9 @@
 #include <core/clock.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
+
 #include "fs.hpp"
+#include "interval-timer.hpp"
 #include "timerfd.hpp"
 
 namespace {
@@ -24,52 +26,36 @@ uint64_t add_sat(uint64_t x, uint64_t y) {
 
 struct OpenFile : File {
 private:
-	struct Timer {
-		uint64_t initial = 0;
-		uint64_t interval = 0;
-		async::cancellation_event cancelEvt;
+	struct Timer : posix::IntervalTimer {
+		Timer(smarter::weak_ptr<File> file, uint64_t initial, uint64_t interval)
+		: IntervalTimer{initial, interval}, file_{file} {
+			assert(file_.lock()->kind() == FileKind::timerfd);
+		}
+
+		void raise(bool success) override {
+			auto f = smarter::static_pointer_cast<OpenFile>(file_.lock());
+			if(!f || !f->_activeTimer || f->_activeTimer.get() != this)
+				return;
+
+			if(success) {
+				f->_expirations++;
+				f->_theSeq++;
+				f->_seqBell.raise();
+			}
+		}
+
+		void expired() override {
+			auto f = smarter::static_pointer_cast<OpenFile>(file_.lock());
+
+			if(!f || f->_activeTimer.get() != this)
+				return;
+
+			f->_activeTimer = nullptr;
+		}
+
+	private:
+		smarter::weak_ptr<File> file_;
 	};
-
-	// TODO: Unify this implementation with the itimer implementation in process.hpp.
-	async::detached arm(std::shared_ptr<Timer> timer) {
-		assert(timer->initial || timer->interval);
-
-		// Next expiration of the timer.
-		uint64_t deadline = timer->initial;
-
-		if(timer->initial) {
-			if(!co_await helix::sleepUntil(deadline, timer->cancelEvt))
-				co_return;
-
-			if(_activeTimer == timer) {
-				_expirations++;
-				_theSeq++;
-				_seqBell.raise();
-			}else{
-				co_return;
-			}
-		}
-
-		if(!timer->interval) {
-			if(_activeTimer == timer)
-				_activeTimer = nullptr;
-			co_return;
-		}
-
-		while(true) {
-			deadline = add_sat(deadline, timer->interval);
-			if(!co_await helix::sleepUntil(deadline, timer->cancelEvt))
-				co_return;
-
-			if(_activeTimer == timer) {
-				_expirations++;
-				_theSeq++;
-				_seqBell.raise();
-			}else{
-				co_return;
-			}
-		}
-	}
 
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
@@ -91,11 +77,6 @@ public:
 	}
 
 	void handleClose() override {
-		if(_activeTimer) {
-			_activeTimer->cancelEvt.cancel();
-			_activeTimer = nullptr;
-		}
-
 		_seqBell.raise();
 		_cancelServe.cancel();
 	}
@@ -187,32 +168,19 @@ public:
 			}
 		}
 
-		auto current = std::exchange(_activeTimer, nullptr);
-		if(current)
-			current->cancelEvt.cancel();
-
 		if(initial || interval) {
-			_activeTimer = std::make_shared<Timer>();
-			_activeTimer->initial = initial;
-			_activeTimer->interval = interval;
+			_activeTimer = std::make_shared<Timer>(weakFile(), initial, interval);
 			_expirations = 0;
-			arm(_activeTimer);
+			Timer::arm(_activeTimer);
+		} else {
+			// disarm timer
+			_activeTimer = nullptr;
 		}
 	}
 
 	void getTime(timespec &initial, timespec &interval) {
 		if(_activeTimer) {
-			uint64_t now;
-			HEL_CHECK(helGetClock(&now));
-
-			uint64_t left = 0;
-			if(_activeTimer->initial > now)
-				left = _activeTimer->initial - now;
-
-			initial.tv_sec = left / 1000000000;
-			initial.tv_nsec = left % 1000000000;
-			interval.tv_sec = _activeTimer->interval / 1000000000;
-			interval.tv_nsec = _activeTimer->interval % 1000000000;
+			_activeTimer->getTime(initial, interval);
 		} else {
 			initial.tv_sec = 0;
 			initial.tv_nsec = 0;

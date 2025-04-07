@@ -21,6 +21,7 @@ src = [
 	'src/fs.cpp',
 	'src/gdbserver.cpp',
 	'src/inotify.cpp',
+	'src/interval-timer.cpp',
 	'src/main.cpp',
 	'src/memfd.cpp',
 	'src/net.cpp',
