@@ -2970,7 +2970,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				// Translate POLL events to EPOLL events.
 				if(req.events(i) & ~(POLLIN | POLLPRI | POLLOUT | POLLRDHUP | POLLERR | POLLHUP
-						| POLLNVAL | POLLWRNORM)) {
+						| POLLNVAL | POLLWRNORM | POLLRDNORM)) {
 					std::cout << "\e[31mposix: Unexpected events for poll()\e[39m" << std::endl;
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					errorOut = true;
@@ -2979,6 +2979,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				unsigned int mask = 0;
 				if(req.events(i) & POLLIN) mask |= EPOLLIN;
+				if(req.events(i) & POLLRDNORM) mask |= EPOLLIN;
 				if(req.events(i) & POLLOUT) mask |= EPOLLOUT;
 				if(req.events(i) & POLLWRNORM) mask |= EPOLLOUT;
 				if(req.events(i) & POLLPRI) mask |= EPOLLPRI;
