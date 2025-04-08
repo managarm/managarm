@@ -899,6 +899,42 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
 				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID) {
 			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
+		}else if(req->command() == TCGETS) {
+			managarm::fs::GenericIoctlReply resp;
+			struct termios attrs;
+
+			memset(&attrs, 0, sizeof(struct termios));
+			ttyCopyTermios(_channel->activeSettings, attrs);
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp, send_attrs] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBuffer(&attrs, sizeof(struct termios))
+			);
+			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_attrs.error());
+		}else if(req->command() == TCSETS) {
+			struct termios attrs;
+			managarm::fs::GenericIoctlReply resp;
+
+			auto [recv_attrs] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(&attrs, sizeof(struct termios))
+			);
+			HEL_CHECK(recv_attrs.error());
+			ttyCopyTermios(attrs, _channel->activeSettings);
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		}else{
 			std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req->command()
 					<< "\e[39m" << std::endl;
