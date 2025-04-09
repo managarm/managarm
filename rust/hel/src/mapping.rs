@@ -1,5 +1,5 @@
-use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::{ffi::c_void, num::NonZeroUsize};
 
 use crate::{Handle, Result, hel_check};
 
@@ -33,17 +33,20 @@ bitflags::bitflags! {
 pub struct Mapping<T> {
     space_handle: hel_sys::HelHandle,
     mapping: Option<NonNull<T>>,
-    size: usize,
+    length: usize,
 }
 
 impl<T> Mapping<T> {
-    /// Creates a new memory mapping in the given memory space.
-    pub fn new_with_space(
+    /// Creates a new memory mapping for the object described by the
+    /// given handle accessible within the given address space. This
+    /// function is unsafe because it lets the user create a memory
+    /// mapping that may violate the memory safety guarantees of Rust.
+    pub unsafe fn new_with_space(
         handle: &Handle,
         space: &Handle,
-        pointer: usize,
+        pointer: Option<NonZeroUsize>,
         offset: usize,
-        size: usize,
+        length: usize,
         flags: MappingFlags,
     ) -> Result<Self> {
         let mut mapping = core::ptr::null_mut();
@@ -52,9 +55,9 @@ impl<T> Mapping<T> {
             hel_sys::helMapMemory(
                 handle.handle(),
                 space.handle(),
-                pointer as *mut c_void,
+                pointer.map_or(std::ptr::null_mut(), |p| p.get() as *mut c_void),
                 offset,
-                size,
+                length,
                 flags.bits(),
                 &mut mapping,
             )
@@ -65,42 +68,47 @@ impl<T> Mapping<T> {
         Ok(Self {
             space_handle: space.handle(),
             mapping: Some(NonNull::new(mapping.cast()).unwrap()),
-            size,
+            length,
         })
     }
 
-    /// Creates a new memory mapping in the current thread's memory space.
-    pub fn new(
+    /// Creates a new memory mapping for the object described by the
+    /// given handle accessible within the current thread's address space.
+    /// This function is unsafe because it lets the user create a memory
+    /// mapping that may violate the memory safety guarantees of Rust.
+    pub unsafe fn new(
         handle: &Handle,
-        pointer: usize,
+        pointer: Option<NonZeroUsize>,
         offset: usize,
-        size: usize,
+        length: usize,
         flags: MappingFlags,
     ) -> Result<Self> {
-        Self::new_with_space(handle, Handle::null(), pointer, offset, size, flags)
+        unsafe { Self::new_with_space(handle, Handle::null(), pointer, offset, length, flags) }
     }
 
     /// Returns a reference to the mapped memory.
-    /// This reference is valid until the mapping is unmaped.
+    /// This reference is valid until the mapping is dropped.
     pub fn as_ref(&self) -> Option<&T> {
         self.mapping.map(|mapping| unsafe { mapping.as_ref() })
     }
 
     /// Returns a mutable reference to the mapped memory.
-    /// This reference is valid until the mapping is unmaped.
+    /// This reference is valid until the mapping is dropped.
     pub fn as_mut(&mut self) -> Option<&mut T> {
         self.mapping.map(|mut mapping| unsafe { mapping.as_mut() })
     }
 
-    /// Returns a pointer to the mapped memory.
-    /// This pointer is valid until the mapping is unmaped.
-    pub fn as_ptr(&self) -> Option<NonNull<T>> {
+    /// Returns a raw ointer to the mapped memory.
+    /// This function is unsafe because the returned pointer
+    /// is not subject to Rust's memory safety guarantees.
+    /// The pointer is valid until the mapping is dropped.
+    pub unsafe fn as_ptr(&self) -> Option<NonNull<T>> {
         self.mapping
     }
 
-    /// Returns the size of the mapping.
-    pub fn size(&self) -> usize {
-        self.size
+    /// Returns the length of the mapping.
+    pub fn len(&self) -> usize {
+        self.length
     }
 
     /// Unmaps the memory mapping.
@@ -108,7 +116,7 @@ impl<T> Mapping<T> {
     pub fn unmap(&mut self) {
         if let Some(mapping) = self.mapping.take() {
             hel_check(unsafe {
-                hel_sys::helUnmapMemory(self.space_handle, mapping.as_ptr().cast(), self.size)
+                hel_sys::helUnmapMemory(self.space_handle, mapping.as_ptr().cast(), self.length)
             })
             .expect("Failed to unmap memory");
         }

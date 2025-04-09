@@ -4,12 +4,6 @@ use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::{Handle, Mapping, MappingFlags, Result, hel_check};
 
-/// Aligns a value up to the nearest multiple of the specified alignment.
-/// The alignment must be a power of two.
-fn align_up(value: usize, alignment: usize) -> usize {
-    (value + alignment - 1) & !(alignment - 1)
-}
-
 /// Wrapper around a Hel queue chunk.
 struct Chunk<'a> {
     _marker: core::marker::PhantomData<&'a ()>,
@@ -121,19 +115,19 @@ impl Queue {
 
         hel_check(unsafe { hel_sys::helCreateQueue(&mut queue_params, &mut raw_handle) })?;
 
-        let chunks_offset = align_up(
-            size_of::<hel_sys::HelQueue>() + (size_of::<c_int>() << ring_shift),
-            64,
-        );
-        let reserved_per_chunk = align_up(size_of::<hel_sys::HelChunk>() + chunk_size, 64);
+        let chunks_offset = (size_of::<hel_sys::HelQueue>() + (size_of::<c_int>() << ring_shift))
+            .next_multiple_of(64);
+        let reserved_per_chunk = (size_of::<hel_sys::HelChunk>() + chunk_size).next_multiple_of(64);
         let handle = Handle::new(raw_handle, hel_sys::kHelThisUniverse as hel_sys::HelHandle);
-        let mapping = Mapping::new(
-            &handle,
-            0,
-            0,
-            align_up(chunks_offset + reserved_per_chunk * num_chunks, 4096),
-            MappingFlags::READ | MappingFlags::WRITE,
-        )?;
+        let mapping = unsafe {
+            Mapping::new(
+                &handle,
+                None,
+                0,
+                (chunks_offset + reserved_per_chunk * num_chunks).next_multiple_of(4096),
+                MappingFlags::READ | MappingFlags::WRITE,
+            )?
+        };
 
         Ok(Self {
             ring_shift,
