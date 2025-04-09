@@ -118,11 +118,12 @@ impl Executor {
         let mut queue = self.inner.queue.borrow_mut();
         let element = queue.wait()?;
 
-        // This is safe to do because the operation state object is
-        // reference counter and we explicitly leak the reference to it
-        // when submitting the work. In case the future goes out of scope
-        // before the submission is completed, we will still have a
-        // valid reference we can use to complete the submission.
+        // SAFETY: This is safe to do because the operation state object
+        // is reference counted and we explicitly leak a reference to it
+        // when submitting the work - in case the future goes out of scope
+        // before the submission is completed we still have a pointer
+        // to it and we can reconstruct the Rc that we can use to complete
+        // the submission.
         let state = unsafe { Rc::from_raw(element.context() as *const OperationState) };
 
         // Complete the submission - this lets the future advance.
