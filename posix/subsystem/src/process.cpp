@@ -703,6 +703,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGABRT:
 			case SIGILL:
 			case SIGSEGV:
+				co_await process->coredump(TerminationBySignal{item->signalNumber});
 				if(debugFaults) {
 					std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
 					<< item->signalNumber << std::endl;
@@ -1390,7 +1391,7 @@ async::result<void> Process::terminate(TerminationState state) {
 		info.code = CLD_EXITED;
 	} else if(std::get_if<TerminationBySignal>(&_state)) {
 		info.status = std::get<TerminationBySignal>(_state).signo;
-		info.code = CLD_KILLED;
+		info.code = dumpable_ ? CLD_DUMPED : CLD_KILLED;
 	} else {
 		std::println("posix: unhandled SIGCHLD reason");
 	}

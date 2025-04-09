@@ -659,6 +659,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			bool killed;
 			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
+				co_await self->coredump({});
+
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});

@@ -423,7 +423,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					resp.set_sig_code(CLD_EXITED);
 				}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
 					resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
-					resp.set_sig_code(CLD_KILLED);
+					resp.set_sig_code(self->getDumpable() ? CLD_DUMPED : CLD_KILLED);
 				}else{
 					resp.set_sig_status(0);
 					resp.set_sig_code(0);
@@ -4062,6 +4062,30 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::ParentDeathSignalResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::ProcessDumpableRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::ProcessDumpableRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			managarm::posix::ProcessDumpableResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			if(req->set()) {
+				self->setDumpable(req->new_value());
+			}
+
+			resp.set_value(self->getDumpable());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,

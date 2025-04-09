@@ -648,11 +648,21 @@ public:
 		parentDeathSignal_ = sig;
 	}
 
+	void setDumpable(bool dumpable) {
+		dumpable_ = dumpable;
+	}
+
+	bool getDumpable() {
+		return dumpable_;
+	}
+
 	NotifyType notifyType() const {
 		return notifyType_;
 	}
 
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
+
+	async::result<void> coredump(TerminationState state);
 
 	struct IntervalTimer : posix::IntervalTimer {
 		IntervalTimer(std::weak_ptr<Process> process, uint64_t initial, uint64_t interval)
@@ -793,6 +803,8 @@ private:
 	uint64_t _enteredSignalSeq = 0;
 
 	std::optional<int> parentDeathSignal_ = std::nullopt;
+	// equivalent to PR_[SG]ET_DUMPABLE
+	bool dumpable_ = true;
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
