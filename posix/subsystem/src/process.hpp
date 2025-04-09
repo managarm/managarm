@@ -226,9 +226,19 @@ struct TimerSignal {
 	int timerId = 0;
 };
 
+struct ChildSignal {
+	int code = 0;
+	int pid = 0;
+	int uid = 0;
+	int status = 0;
+	clock_t utime = 0;
+	clock_t stime = 0;
+};
+
 using SignalInfo = std::variant<
 	UserSignal,
-	TimerSignal
+	TimerSignal,
+	ChildSignal
 >;
 
 using SignalFlags = uint32_t;
@@ -265,6 +275,7 @@ using CheckSignalResult = std::tuple<uint64_t, uint64_t>;
 struct CompileSignalInfo {
 	void operator() (const UserSignal &info) const;
 	void operator() (const TimerSignal &info) const;
+	void operator() (const ChildSignal &info) const;
 
 	siginfo_t *si;
 };
