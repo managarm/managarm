@@ -199,6 +199,12 @@ private:
 		co_return Error::illegalArguments;
 	}
 
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *, const void *data, size_t length) override {
+		size_t res = co_await _file.writeSome(data, length);
+		co_return res;
+	}
+
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
