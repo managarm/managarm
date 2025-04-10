@@ -437,7 +437,12 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 }
 
 std::string ViewPath::getPath(ViewPath root) const {
-	std::string path = "/";
+	// Strategy: from the current ViewPath, we build up the path by traversing upwards through
+	// its parents. This relies on the fact that we guarantee that directories provide a valid
+	// treeLink(), so that we can traverse further.
+
+	// Determine if we want a trailing slash
+	std::string path = this->second->getTarget()->getType() == VfsType::directory ? "/" : "";
 	auto dir = *this;
 	while(true) {
 		if(dir == root)
