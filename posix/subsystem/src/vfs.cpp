@@ -437,7 +437,7 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 }
 
 std::string ViewPath::getPath(ViewPath root) const {
-	std::string path = "/";
+	std::string path = this->second->getTarget()->getType() == VfsType::directory ? "/" : "";
 	auto dir = *this;
 	while(true) {
 		if(dir == root)
