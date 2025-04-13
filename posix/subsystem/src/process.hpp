@@ -11,6 +11,7 @@
 #include <frg/expected.hpp>
 #include <sys/time.h>
 
+#include "interval-timer.hpp"
 #include "vfs.hpp"
 #include "procfs.hpp"
 
@@ -604,71 +605,27 @@ public:
 
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
 
-	struct IntervalTimer {
-		std::weak_ptr<Process> process;
-		itimerval timer = {};
-		uint64_t next_expiration = 0;
+	struct IntervalTimer : posix::IntervalTimer {
+		IntervalTimer(std::weak_ptr<Process> process, uint64_t initial, uint64_t interval)
+			: posix::IntervalTimer(initial, interval), process_{process} {}
 
-		~IntervalTimer() {
-			cancel();
-		}
+		void raise(bool success) override {
+			if(!success)
+				return;
 
-		async::detached arm() {
-			if(!timer.it_value.tv_sec && !timer.it_value.tv_usec)
-				co_return;
-
-			HEL_CHECK(helGetClock(&next_expiration));
-
-			helix::AwaitClock await_initial;
-			next_expiration += (timer.it_value.tv_sec * 1'000'000'000) + (timer.it_value.tv_usec * 1'000);
-			auto &&submit = helix::submitAwaitClock(&await_initial, next_expiration, helix::Dispatcher::global());
-			asyncId_ = await_initial.asyncId();
-			co_await submit.async_wait();
-			asyncId_ = 0;
-			if(await_initial.error() == kHelErrCancelled)
-				co_return;
-			assert(!await_initial.error());
-			auto proc_lock = process.lock();
+			auto proc_lock = process_.lock();
 			if(proc_lock)
 				proc_lock->signalContext()->issueSignal(SIGALRM, {});
-			else
-				co_return;
-
-			if(!timer.it_interval.tv_sec && !timer.it_interval.tv_usec)
-				co_return;
-
-			timer.it_value = timer.it_interval;
-
-			while(true) {
-				helix::AwaitClock await_interval;
-				next_expiration += (timer.it_interval.tv_sec * 1'000'000'000) + (timer.it_interval.tv_usec * 1'000);
-				auto &&submit = helix::submitAwaitClock(&await_interval, next_expiration, helix::Dispatcher::global());
-				asyncId_ = await_interval.asyncId();
-				co_await submit.async_wait();
-				asyncId_ = 0;
-				if(await_interval.error() == kHelErrCancelled)
-					co_return;
-				assert(!await_interval.error());
-				auto proc_lock = process.lock();
-				if(proc_lock)
-					proc_lock->signalContext()->issueSignal(SIGALRM, {});
-				else
-					co_return;
-			}
 		}
 
-		void cancel() {
-			if(asyncId_)
-				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), asyncId_));
-			next_expiration = 0;
-			timer.it_value = {};
-			timer.it_interval = {};
+		void expired() override {
 		}
+
 	private:
-		uint64_t asyncId_ = 0;
+		std::weak_ptr<Process> process_;
 	};
 
-	IntervalTimer realTimer;
+	std::shared_ptr<IntervalTimer> realTimer;
 
 private:
 	Process *_parent;

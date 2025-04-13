@@ -4032,28 +4032,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SetIntervalTimerResponse resp;
 			if(req->which() == ITIMER_REAL) {
-				logRequest(logRequests, "SETITIMER", "value={}.{:06d}s", req->value_sec(), req->value_usec());
+				logRequest(logRequests, "SETITIMER", "value={}.{:06d}s interval={}.{:06d}s",
+					req->value_sec(), req->value_usec(), req->interval_sec(), req->interval_usec());
 
-				uint64_t ticks;
-				HEL_CHECK(helGetClock(&ticks));
+				uint64_t value = 0;
+				uint64_t interval = 0;
+				if(self->realTimer)
+					self->realTimer->getTime(value, interval);
 
-				uint64_t until_next_expiration = 0;
-				if(self->realTimer.next_expiration > ticks)
-					until_next_expiration = self->realTimer.next_expiration - ticks;
+				resp.set_value_sec(value / 1'000'000'000);
+				resp.set_value_usec((value % 1'000'000'000) / 1'000);
+				resp.set_interval_sec(interval / 1'000'000'000);
+				resp.set_interval_usec((interval % 1'000'000'000) / 1'000);
 
-				resp.set_value_sec(until_next_expiration / 1'000'000'000);
-				resp.set_value_usec((until_next_expiration % 1'000'000'000) / 1'000);
-				resp.set_interval_sec(self->realTimer.timer.it_interval.tv_sec);
-				resp.set_interval_usec(self->realTimer.timer.it_interval.tv_usec);
-
-				self->realTimer.cancel();
-
-				self->realTimer.timer.it_value.tv_sec = req->value_sec();
-				self->realTimer.timer.it_value.tv_usec = req->value_usec();
-				self->realTimer.timer.it_interval.tv_sec = req->interval_sec();
-				self->realTimer.timer.it_interval.tv_usec = req->interval_usec();
-
-				self->realTimer.arm();
+				if(self->realTimer)
+					self->realTimer->cancel();
+				self->realTimer = std::make_shared<Process::IntervalTimer>(self,
+						req->value_sec() * 1'000'000'000 + req->value_usec() * 1'000,
+						req->interval_sec() * 1'000'000'000 + req->interval_usec() * 1'000);
+				self->realTimer->arm(self->realTimer);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {
