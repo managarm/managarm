@@ -1,34 +1,16 @@
 use std::{
     cell::Cell,
-    pin::Pin,
     rc::Rc,
-    task::{Context, LocalWaker, Poll},
+    task::{LocalWaker, Poll},
+    time::Duration,
 };
 
-use crate::{Executor, ExecutorInner, Handle, QueueElement, Result, Time, hel_check};
+use crate::{Error, Executor, ExecutorInner, Handle, QueueElement, Result, Time, hel_check};
 
-/// Common trait for completion result types.
-pub trait Completion {
-    /// Parses the result from the queue element.
-    fn from_queue_element(element: QueueElement) -> Result<Self>
-    where
-        Self: Sized;
-}
+impl TryFrom<QueueElement<'_>> for () {
+    type Error = Error;
 
-/// Common trait for all submissions.
-pub unsafe trait Submission {
-    /// Submits a submission to the queue.
-    /// SAFETY: The implementation must ensure that no operation
-    /// is submitted if the return value is an error.
-    unsafe fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()>;
-}
-
-/// A completion result that only consists of a status code.
-pub struct SimpleResult;
-
-impl Completion for SimpleResult {
-    /// Parses a completion result from the queue element.
-    fn from_queue_element(element: QueueElement) -> Result<Self> {
+    fn try_from(element: QueueElement) -> Result<Self> {
         let data = element.data();
 
         assert!(data.len() >= size_of::<hel_sys::HelSimpleResult>());
@@ -38,7 +20,7 @@ impl Completion for SimpleResult {
         // correctly aligned.
         let result = unsafe { data.as_ptr().cast::<hel_sys::HelSimpleResult>().read() };
 
-        hel_check(result.error).map(|_| SimpleResult)
+        hel_check(result.error).map(|_| ())
     }
 }
 
@@ -80,82 +62,83 @@ impl<'a> OperationState<'a> {
     }
 }
 
-/// Operation object. This is a wrapper around the operation state
-/// object which is used by the executor to complete submissions and
-/// the submission itself which is used to submit the work to the queue.
-pub struct Operation<'a, S: Submission, R: Completion> {
-    _marker: std::marker::PhantomData<R>,
-    state: Rc<OperationState<'a>>,
-    submission: S,
-}
+/// Returns a future that will place a new element onto the given queue
+/// when first polled and will only be completed once the completion
+/// for the element is received.
+///
+/// If the [`submit`] closure returns a success, at most one
+/// queue element must be placed onto the given queue. If an error
+/// is returned, no elements may be placed on the given queue.
+fn new_async_operation<
+    'a,
+    Submit: Fn(&Handle, *const OperationState) -> Result<()>,
+    Output: TryFrom<QueueElement<'a>, Error = Error>,
+>(
+    executor: &Executor,
+    submit: Submit,
+) -> impl Future<Output = std::result::Result<Output, Output::Error>> {
+    let state = Rc::new(OperationState::new(executor.clone_inner()));
 
-impl<S: Submission, R: Completion> Future for Operation<'_, S, R> {
-    type Output = Result<R>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(element) = self.state.queue_element() {
+    core::future::poll_fn(move |cx| {
+        if let Some(element) = state.queue_element() {
             // Already completed, parse the result
-            Poll::Ready(R::from_queue_element(element))
+            Poll::Ready(Output::try_from(element))
         } else {
-            if !self.state.is_submitted() {
+            if !state.is_submitted() {
                 // Not submitted yet, submit it
 
-                // Bump the reference count of the operation state object
-                // and leak the created reference so that it doesn't get dropped
-                // in case the future goes out of scope - it will be dropped
-                // once the submission is completed.
+                // Leak a reference to the state object so that it doesn't
+                // get dropped in case the future goes out of scope - it will
+                // be dropped once the submission is completed.
+                let context = Rc::into_raw(state.clone());
 
-                let state_cloned = self.state.clone();
-                let context = Rc::into_raw(state_cloned) as usize;
-
-                // SAFETY: We expect the implementation to uphold the
-                // safety contract of the [`Submission`] trait. The following
-                // [`drop`] in the error case will drop the reference count
-                // of the operation state object and release the memory.
-                if let Err(err) = unsafe {
-                    self.submission
-                        .submit(self.state.executor.queue_handle(), context)
-                } {
-                    drop(unsafe { Rc::from_raw(context as *const OperationState) });
+                if let Err(err) = submit(state.executor.queue_handle(), context) {
+                    // In case of an error we need to release the previously
+                    // leaked reference to the state object and return the error.
+                    drop(unsafe { Rc::from_raw(context) });
 
                     return Poll::Ready(Err(err));
                 }
             }
 
             // Set the waker for this operation
-            self.state.waker.set(Some(cx.local_waker().clone()));
+            state.waker.set(Some(cx.local_waker().clone()));
 
             // Now we can wait for it to finish
             Poll::Pending
         }
-    }
+    })
 }
 
-/// Submission for a clock event. This is used to wait for the clock
-/// to reach a certain value.
-pub struct AwaitClockSubmission {
-    time: Time,
-}
-
-unsafe impl Submission for AwaitClockSubmission {
-    unsafe fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()> {
+/// Returns a future that will be completed when the system clock
+/// reaches the given time value.
+pub fn sleep_until(executor: &Executor, time: Time) -> impl Future<Output = Result<()>> {
+    new_async_operation(executor, move |queue_handle, context| {
         hel_check(unsafe {
-            hel_sys::helSubmitAwaitClock(self.time.value(), queue_handle.handle(), context, &mut 0)
+            hel_sys::helSubmitAwaitClock(
+                time.value(),
+                queue_handle.handle(),
+                context as usize,
+                &mut 0, // We don't need the async operation ID
+            )
         })
-    }
+    })
 }
 
-/// Creates a new `AwaitClockSubmission` for the time specified.
-pub fn await_clock<'a>(
-    executor: &Executor,
-    time: Time,
-) -> Operation<AwaitClockSubmission, SimpleResult> {
-    let submission = AwaitClockSubmission { time };
-    let state = Rc::new(OperationState::new(executor.clone_inner()));
+/// Returns a future that will be completed after the given duration
+/// has passed. This is equivalent to calling `sleep_until` with the
+/// current time plus the given duration.
+pub fn sleep_for(executor: &Executor, duration: Duration) -> impl Future<Output = Result<()>> {
+    let time = Time::now().map(|time| time + duration);
 
-    Operation {
-        _marker: std::marker::PhantomData,
-        state,
-        submission,
-    }
+    new_async_operation(executor, move |queue_handle, context| {
+        hel_check(unsafe {
+            hel_sys::helSubmitAwaitClock(
+                time?.value(),
+                queue_handle.handle(),
+                context as usize,
+                &mut 0, // We don't need the async operation ID
+            )
+        })
+    })
 }

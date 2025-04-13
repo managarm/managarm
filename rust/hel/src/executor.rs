@@ -1,9 +1,11 @@
-use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::{Rc, Weak};
-use std::task::{ContextBuilder, LocalWake, LocalWaker, Poll, Waker};
+use std::{
+    cell::{Cell, RefCell},
+    collections::VecDeque,
+    future::Future,
+    pin::Pin,
+    rc::{Rc, Weak},
+    task::{ContextBuilder, LocalWake, LocalWaker, Poll, Waker},
+};
 
 use crate::{Handle, OperationState, Queue, Result};
 
@@ -118,12 +120,9 @@ impl Executor {
         let mut queue = self.inner.queue.borrow_mut();
         let element = queue.wait()?;
 
-        // SAFETY: This is safe to do because the operation state object
-        // is reference counted and we explicitly leak a reference to it
-        // when submitting the work - in case the future goes out of scope
-        // before the submission is completed we still have a pointer
-        // to it and we can reconstruct the Rc that we can use to complete
-        // the submission.
+        // SAFETY: We only ever enqueue operation state objects onto the
+        // queue, and we leak a reference in the process so that we can
+        // soundly subtract it here.
         let state = unsafe { Rc::from_raw(element.context() as *const OperationState) };
 
         // Complete the submission - this lets the future advance.

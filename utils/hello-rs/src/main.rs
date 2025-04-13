@@ -7,20 +7,17 @@ fn main() -> hel::Result<()> {
     let executor_clone = executor.clone();
 
     executor.block_on::<_, hel::Result<()>>(async move {
-        let now = hel::Time::now()?;
+        println!("Sleeping for 1 second...");
 
-        println!("Current time: {:?}", now);
-        println!("Waiting for 1 second...");
+        hel::sleep_for(&executor_clone, Duration::from_secs(1)).await?;
 
-        hel::await_clock(&executor_clone, now + Duration::from_secs(1)).await?;
+        println!("Sleeping for 2 seconds...");
 
-        println!("Waiting for 2 seconds...");
+        hel::sleep_for(&executor_clone, Duration::from_secs(1)).await?;
 
-        hel::await_clock(&executor_clone, now + Duration::from_secs(2)).await?;
+        println!("Sleeping for 3 seconds...");
 
-        println!("Waiting for 3 seconds...");
-
-        hel::await_clock(&executor_clone, now + Duration::from_secs(3)).await?;
+        hel::sleep_for(&executor_clone, Duration::from_secs(1)).await?;
 
         println!("Done!");
 
