@@ -199,6 +199,15 @@ impl Queue {
                     .byte_add(self.last_progress)
             };
 
+            // SAFETY: The reference created here is valid and points to
+            // a valid [`hel_sys::HelElement`] structure followed by the
+            // data of the element which is guaranteed to be valid and
+            // initialized up to the amount of bytes specified in the
+            // [`hel_sys::HelElement::length`] field.
+            //
+            // The element and it's data were written into the shared buffer
+            // by the kernel before waking up the futex and it is guaranteed
+            // to no longer be accessed by the kernel.
             let element: &hel_sys::HelElement = unsafe { pointer.cast().as_ref() };
 
             self.last_progress += size_of::<hel_sys::HelElement>();
