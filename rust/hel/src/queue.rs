@@ -1,4 +1,5 @@
-use std::ffi::{c_int, c_uint, c_void};
+use std::ffi::{c_int, c_uint};
+use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -6,7 +7,7 @@ use crate::{Handle, Mapping, MappingFlags, Result, hel_check};
 
 /// Wrapper around a Hel queue chunk.
 struct Chunk<'a> {
-    _marker: core::marker::PhantomData<&'a ()>,
+    _marker: PhantomData<&'a ()>,
     chunk: NonNull<hel_sys::HelChunk>,
 }
 
@@ -14,7 +15,7 @@ impl<'a> Chunk<'a> {
     /// Creates a new chunk wrapper.
     fn new(chunk: NonNull<hel_sys::HelChunk>) -> Self {
         Self {
-            _marker: core::marker::PhantomData,
+            _marker: PhantomData,
             chunk,
         }
     }
@@ -25,7 +26,7 @@ impl<'a> Chunk<'a> {
     }
 
     /// Returns a pointer to the chunk's buffer.
-    fn buffer(&mut self) -> NonNull<c_void> {
+    fn buffer(&mut self) -> NonNull<()> {
         unsafe { self.chunk.byte_add(size_of::<hel_sys::HelChunk>()).cast() }
     }
 }
@@ -76,7 +77,7 @@ impl Drop for QueueElement<'_> {
     fn drop(&mut self) {
         self.queue
             .release_chunk(self.chunk_num)
-            .expect("Failed to surrender chunk");
+            .expect("Failed to release chunk");
     }
 }
 
@@ -190,7 +191,7 @@ impl Queue {
             break Ok(QueueElement::new(
                 self,
                 unsafe {
-                    core::slice::from_raw_parts(
+                    std::slice::from_raw_parts(
                         pointer
                             .byte_add(size_of::<hel_sys::HelElement>())
                             .cast()

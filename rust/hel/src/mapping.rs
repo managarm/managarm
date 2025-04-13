@@ -49,7 +49,7 @@ impl<T> Mapping<T> {
         length: usize,
         flags: MappingFlags,
     ) -> Result<Self> {
-        let mut mapping = core::ptr::null_mut();
+        let mut mapping = std::ptr::null_mut();
 
         hel_check(unsafe {
             hel_sys::helMapMemory(
