@@ -551,6 +551,8 @@ head(128):
 
 		// used by PT_IOCTL for TIOCSPGRP
 		tag(42) int64 pgid;
+
+		tag(44) uint64 ticks;
 	}
 }
 
