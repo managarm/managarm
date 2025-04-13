@@ -1,5 +1,6 @@
 use std::ffi::{c_int, c_uint};
 use std::marker::PhantomData;
+use std::mem::{MaybeUninit, offset_of};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -22,7 +23,16 @@ impl<'a> Chunk<'a> {
 
     /// Returns a reference to the chunk's progress futex.
     fn progress_futex(&mut self) -> &'a AtomicI32 {
-        unsafe { AtomicI32::from_ptr(&mut self.chunk.as_mut().progressFutex) }
+        // SAFETY: The progress futex is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.chunk
+                    .as_ptr()
+                    .byte_add(offset_of!(hel_sys::HelChunk, progressFutex))
+                    .cast(),
+            )
+        }
     }
 
     /// Returns a pointer to the chunk's buffer.
@@ -34,7 +44,7 @@ impl<'a> Chunk<'a> {
 /// A queue element that can be used to retrieve data from the queue.
 pub struct QueueElement<'a> {
     queue: &'a mut Queue,
-    data: &'a [u8],
+    data: &'a [MaybeUninit<u8>],
     context: usize,
     chunk_num: usize,
     offset: usize,
@@ -42,7 +52,12 @@ pub struct QueueElement<'a> {
 
 impl<'a> QueueElement<'a> {
     /// Creates a new queue element.
-    fn new(queue: &'a mut Queue, data: &'a [u8], context: usize, chunk_num: usize) -> Self {
+    fn new(
+        queue: &'a mut Queue,
+        data: &'a [MaybeUninit<u8>],
+        context: usize,
+        chunk_num: usize,
+    ) -> Self {
         queue.retain_chunk(chunk_num);
 
         Self {
@@ -60,12 +75,13 @@ impl<'a> QueueElement<'a> {
     }
 
     /// Returns a slice of the remaining data of this queue element.
-    pub fn data(&self) -> &'a [u8] {
+    pub fn data(&self) -> &'a [MaybeUninit<u8>] {
         &self.data[self.offset..]
     }
 
     /// Advances the offset of this queue element by the given length.
     /// This is used to consume the data of the queue element.
+    /// Panics if the offset would exceed the length of the data.
     pub fn advance(&mut self, length: usize) {
         assert!(self.offset + length <= self.data.len());
 
@@ -188,6 +204,11 @@ impl Queue {
             self.last_progress += size_of::<hel_sys::HelElement>();
             self.last_progress += element.length as usize;
 
+            // SAFETY: The data is stored inline after the
+            // HelElement header, but it might contain padding
+            // bytes which are not initialized, so we use
+            // [`MaybeUninit`] to avoid creating a reference
+            // to uninitialized memory.
             break Ok(QueueElement::new(
                 self,
                 unsafe {
@@ -304,23 +325,48 @@ impl Queue {
 
     /// Returns a reference to the head futex of the queue.
     fn head_futex(&mut self) -> &AtomicI32 {
-        let queue = self.mapping.as_mut().unwrap();
-
-        unsafe { AtomicI32::from_ptr(&mut queue.headFutex) }
+        // SAFETY: The head futex is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.mapping
+                    .as_ptr()
+                    .unwrap()
+                    .byte_add(offset_of!(hel_sys::HelQueue, headFutex))
+                    .as_ptr()
+                    .cast(),
+            )
+        }
     }
 
     /// Returns a reference to the index queue.
     fn index_queue(&self) -> &[i32] {
-        let queue = self.mapping.as_ref().unwrap();
+        let pointer = unsafe {
+            self.mapping
+                .as_ptr()
+                .unwrap()
+                .byte_add(offset_of!(hel_sys::HelQueue, indexQueue))
+                .cast::<i32>()
+        };
 
-        unsafe { queue.indexQueue.as_slice(1 << self.ring_shift) }
+        // SAFETY: The index queue is never written to by the kernel,
+        // so it's safe to obtain a slice to the it.
+        unsafe { std::slice::from_raw_parts(pointer.as_ptr(), 1 << self.ring_shift) }
     }
 
     /// Returns a mutable reference to the index queue.
     fn index_queue_mut(&mut self) -> &mut [i32] {
-        let queue = self.mapping.as_mut().unwrap();
+        let pointer = unsafe {
+            self.mapping
+                .as_ptr()
+                .unwrap()
+                .byte_add(offset_of!(hel_sys::HelQueue, indexQueue))
+                .cast::<i32>()
+        };
 
-        unsafe { queue.indexQueue.as_mut_slice(1 << self.ring_shift) }
+        // SAFETY: The index queue is never written to by the kernel,
+        // so it's safe to obtain a mutable slice to it.
+        unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), 1 << self.ring_shift) }
     }
 
     fn get_index(&self, index: usize) -> i32 {
@@ -330,10 +376,10 @@ impl Queue {
     }
 
     fn set_index(&mut self, index: usize, value: i32) {
-        let shift = self.ring_shift;
+        let ring_shift = self.ring_shift;
         let index_queue = self.index_queue_mut();
 
-        index_queue[index & ((1 << shift) - 1)] = value;
+        index_queue[index & ((1 << ring_shift) - 1)] = value;
     }
 
     /// Returns a reference to the chunk at the given index.

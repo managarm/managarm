@@ -29,8 +29,11 @@ impl Completion for SimpleResult {
     fn from_queue_element(element: QueueElement) -> Result<Self> {
         let data = element.data();
 
-        assert!(data.len() == size_of::<hel_sys::HelSimpleResult>());
+        assert!(data.len() >= size_of::<hel_sys::HelSimpleResult>());
 
+        // SAFETY: The data is guaranteed to contain enough bytes
+        // to read a [`hel_sys::HelSimpleResult`]` and that it is
+        // correctly aligned.
         let result = unsafe { data.as_ptr().cast::<hel_sys::HelSimpleResult>().read() };
 
         hel_check(result.error).map(|_| SimpleResult)
