@@ -16,9 +16,11 @@ pub trait Completion {
 }
 
 /// Common trait for all submissions.
-pub trait Submission {
+pub unsafe trait Submission {
     /// Submits a submission to the queue.
-    fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()>;
+    /// SAFETY: The implementation must ensure that no operation
+    /// is submitted if the return value is an error.
+    unsafe fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()>;
 }
 
 /// A completion result that only consists of a status code.
@@ -106,14 +108,14 @@ impl<S: Submission, R: Completion> Future for Operation<'_, S, R> {
                 let state_cloned = self.state.clone();
                 let context = Rc::into_raw(state_cloned) as usize;
 
-                if let Err(err) = self
-                    .submission
-                    .submit(self.state.executor.queue_handle(), context)
-                {
-                    // Submission failed, return the error
-                    // We need to drop the reference count of the operation state
-                    // object here to avoid leaking it
-
+                // SAFETY: We expect the implementation to uphold the
+                // safety contract of the [`Submission`] trait. The following
+                // [`drop`] in the error case will drop the reference count
+                // of the operation state object and release the memory.
+                if let Err(err) = unsafe {
+                    self.submission
+                        .submit(self.state.executor.queue_handle(), context)
+                } {
                     drop(unsafe { Rc::from_raw(context as *const OperationState) });
 
                     return Poll::Ready(Err(err));
@@ -135,8 +137,8 @@ pub struct AwaitClockSubmission {
     time: Time,
 }
 
-impl Submission for AwaitClockSubmission {
-    fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()> {
+unsafe impl Submission for AwaitClockSubmission {
+    unsafe fn submit(&self, queue_handle: &Handle, context: usize) -> Result<()> {
         hel_check(unsafe {
             hel_sys::helSubmitAwaitClock(self.time.value(), queue_handle.handle(), context, &mut 0)
         })
