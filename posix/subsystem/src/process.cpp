@@ -1206,7 +1206,8 @@ async::result<void> Process::terminate(TerminationState state) {
 	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
 	_generationUsage.userTime += stats.userTime;
 
-	realTimer->cancel();
+	if(realTimer)
+		realTimer->cancel();
 	_posixLane = {};
 	_threadDescriptor = {};
 	_vmContext = nullptr;
