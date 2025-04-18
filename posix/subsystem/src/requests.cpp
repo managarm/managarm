@@ -3984,6 +3984,42 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::TimerCreateRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerCreateRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests, "TIMER_CREATE", "clockid={}", req->clockid());
+
+			managarm::posix::TimerCreateResponse resp;
+			if(req->clockid() == CLOCK_MONOTONIC || req->clockid() == CLOCK_REALTIME) {
+				auto id = self->timerIdAllocator.allocate();
+				assert(!self->timers.contains(id));
+
+				self->timers[id] = std::make_shared<Process::PosixTimerContext>(
+					req->clockid(),
+					nullptr,
+					req->sigev_tid() ? std::optional{req->sigev_tid()} : std::nullopt,
+					req->sigev_signo()
+				);
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_timer_id(id);
+			} else {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				std::println("posix: unsupported clock_id {}", req->clockid());
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::PidfdOpenRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::PidfdOpenRequest>(recv_head);
 
