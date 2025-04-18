@@ -741,3 +741,22 @@ head(128):
 	Errors error;
 	uint64 timer_id;
 }
+
+message TimerSetRequest 119 {
+head(128):
+	uint64 timer;
+	int32 flags;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
+
+message TimerSetResponse 120 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
