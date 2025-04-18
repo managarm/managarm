@@ -245,6 +245,16 @@ struct SignalItem {
 using PollSignalResult = std::tuple<uint64_t, uint64_t>;
 using CheckSignalResult = std::tuple<uint64_t, uint64_t>;
 
+struct CompileSignalInfo {
+	void operator() (const UserSignal &info) const {
+		//si->si_code = SI_USER;
+		si->si_pid = info.pid;
+		si->si_uid = info.uid;
+	}
+
+	siginfo_t *si;
+};
+
 struct SignalContext {
 private:
 	struct SignalSlot {

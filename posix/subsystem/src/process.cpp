@@ -467,20 +467,6 @@ void FileContext::closeOnExec() {
 // SignalContext.
 // ----------------------------------------------------------------------------
 
-namespace {
-
-struct CompileSignalInfo {
-	void operator() (const UserSignal &info) const {
-		//si->si_code = SI_USER;
-		si->si_pid = info.pid;
-		si->si_uid = info.uid;
-	}
-
-	siginfo_t *si;
-};
-
-} // anonymous namespace
-
 SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 
