@@ -556,7 +556,7 @@ CheckSignalResult SignalContext::checkSignal() {
 	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
-async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock) {
+async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct) {
 	int sn;
 	while(true) {
 		for(sn = 1; sn <= 64; sn++) {
@@ -569,7 +569,8 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 			break;
 		if(nonBlock)
 			co_return nullptr;
-		co_await _signalBell.async_wait();
+		if(!co_await _signalBell.async_wait(ct))
+			co_return nullptr;
 	}
 
 	assert(!_slots[sn - 1].asyncQueue.empty());
