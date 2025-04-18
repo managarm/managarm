@@ -645,7 +645,45 @@ public:
 		std::weak_ptr<Process> process_;
 	};
 
+	struct PosixTimer;
+
+	struct PosixTimerContext {
+		clockid_t clockid;
+		std::shared_ptr<PosixTimer> timer = {};
+		std::optional<int> tid = std::nullopt;
+		int signo;
+	};
+
+	struct PosixTimer : posix::IntervalTimer {
+		PosixTimer(std::weak_ptr<Process> proc, PosixTimerContext *ctx, uint64_t initial, uint64_t interval)
+			: posix::IntervalTimer(initial, interval), process_{proc}, ctx_{ctx} {}
+
+		void raise(bool success) override {
+			if(!success)
+			return;
+
+			if(ctx_->tid) {
+				auto proc = process_.lock();
+				if(!proc) {
+					cancel();
+					return;
+				}
+				proc->signalContext()->issueSignal(ctx_->signo, TimerSignal{ctx_->clockid});
+			}
+		}
+
+		void expired() override {
+			ctx_->timer = {};
+		}
+
+	private:
+		std::weak_ptr<Process> process_;
+		PosixTimerContext *ctx_;
+	};
+
 	std::shared_ptr<IntervalTimer> realTimer;
+	std::unordered_map<size_t, PosixTimerContext *> timers;
+	id_allocator<size_t> timerIdAllocator{};
 
 private:
 	Process *_parent;
