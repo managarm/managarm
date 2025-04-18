@@ -211,8 +211,13 @@ struct UserSignal {
 	int uid = 0;
 };
 
+struct TimerSignal {
+	int timerId = 0;
+};
+
 using SignalInfo = std::variant<
-	UserSignal
+	UserSignal,
+	TimerSignal
 >;
 
 using SignalFlags = uint32_t;
@@ -250,6 +255,11 @@ struct CompileSignalInfo {
 		//si->si_code = SI_USER;
 		si->si_pid = info.pid;
 		si->si_uid = info.uid;
+	}
+
+	void operator() (const TimerSignal &info) const {
+		si->si_code = SI_TIMER;
+		si->si_timerid = info.timerId;
 	}
 
 	siginfo_t *si;
