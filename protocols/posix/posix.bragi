@@ -728,3 +728,16 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_nsec;
 }
+
+message TimerCreateRequest 117 {
+head(128):
+	int32 clockid;
+	int32 sigev_signo;
+	int32 sigev_tid;
+}
+
+message TimerCreateResponse 118 {
+head(128):
+	Errors error;
+	uint64 timer_id;
+}
