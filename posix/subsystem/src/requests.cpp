@@ -4081,6 +4081,41 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::TimerGetRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerGetRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests, "TIMER_GET", "timer={}", req->timer());
+
+			managarm::posix::TimerGetResponse resp;
+			if(self->timers.contains(req->timer())) {
+				auto timerContext = self->timers[req->timer()];
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				uint64_t value = 0;
+				uint64_t interval = 0;
+				if(timerContext->timer)
+					timerContext->timer->getTime(value, interval);
+
+				resp.set_value_sec(value / 1'000'000'000);
+				resp.set_value_nsec(value % 1'000'000'000);
+				resp.set_interval_sec(interval / 1'000'000'000);
+				resp.set_interval_nsec(interval % 1'000'000'000);
+			} else {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::PidfdOpenRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::PidfdOpenRequest>(recv_head);
 

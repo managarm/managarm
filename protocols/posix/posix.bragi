@@ -760,3 +760,17 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_nsec;
 }
+
+message TimerGetRequest 121 {
+head(128):
+	uint64 timer;
+}
+
+message TimerGetResponse 122 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
