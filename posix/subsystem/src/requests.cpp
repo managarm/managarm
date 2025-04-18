@@ -41,6 +41,7 @@
 #include <kerncfg.bragi.hpp>
 #include <hw.bragi.hpp>
 
+#include "clocks.hpp"
 #include "debug-options.hpp"
 
 async::result<void> serveRequests(std::shared_ptr<Process> self,
@@ -4011,6 +4012,66 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			} else {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				std::println("posix: unsupported clock_id {}", req->clockid());
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::TimerSetRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerSetRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests, "TIMER_SET", "timer={}", req->timer());
+
+			managarm::posix::TimerSetResponse resp;
+			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+			if(self->timers.contains(req->timer())) {
+				auto timerContext = self->timers[req->timer()];
+
+				uint64_t value = 0;
+				uint64_t interval = 0;
+				if(timerContext->timer)
+					timerContext->timer->getTime(value, interval);
+
+				resp.set_value_sec(value / 1'000'000'000);
+				resp.set_value_nsec(value % 1'000'000'000);
+				resp.set_interval_sec(interval / 1'000'000'000);
+				resp.set_interval_nsec(interval % 1'000'000'000);
+
+				if(timerContext->timer)
+					timerContext->timer->cancel();
+
+				auto targetProcess = self;
+				if(timerContext->tid && targetProcess->tid() != *timerContext->tid)
+					targetProcess = Process::findProcess(*timerContext->tid);
+
+				if(targetProcess) {
+					uint64_t valueNanos = 0;
+					uint64_t intervalNanos = 0;
+
+					if(req->value_sec() || req->value_nsec()) {
+						valueNanos = posix::convertToNanos(
+							{static_cast<time_t>(req->value_sec()), static_cast<long>(req->value_nsec())},
+							timerContext->clockid, !(req->flags() & TFD_TIMER_ABSTIME));
+						intervalNanos = posix::convertToNanos(
+							{static_cast<time_t>(req->interval_sec()), static_cast<long>(req->interval_nsec())},
+							CLOCK_MONOTONIC);
+					}
+
+					timerContext->timer = std::make_shared<Process::PosixTimer>(targetProcess,
+						timerContext->tid, timerContext->signo, req->timer(), valueNanos, intervalNanos);
+					timerContext->timer->arm(timerContext->timer);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+				}
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
