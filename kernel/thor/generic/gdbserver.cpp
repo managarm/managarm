@@ -390,11 +390,22 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 				co_return ProtocolError::malformedPacket;
 
 			frg::optional<frg::span<const uint8_t>> s;
+			// buffer to hold the constructed absolute path if path_ is relative
+			// needs to outlive the span s
+			frg::vector<uint8_t, KernelAlloc> absolutePath{*kernelAlloc};
 
 			if(object.matchFullString("exec-file")) {
 				// TODO: consider the annex (= process ID).
-				s = frg::span<const uint8_t>{reinterpret_cast<const uint8_t *>(path_.data()),
+				if(path_.size() > 0 && path_[0] == '/') {
+					s = frg::span<const uint8_t>{reinterpret_cast<const uint8_t *>(path_.data()),
 						path_.size()};
+				} else {
+					// Absolute path.
+					absolutePath.resize(path_.size() + 1);
+					absolutePath[0] = '/';
+					memcpy(absolutePath.data() + 1, path_.data(), path_.size());
+					s = frg::span<const uint8_t>{absolutePath.data(), absolutePath.size()};
+				}
 			}else if(object.matchFullString("features") && annex.matchFullString("target.xml")) {
 				const char *xml = "<target version=\"1.0\">"
 #if defined(__x86_64__)
