@@ -4116,6 +4116,37 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::TimerDeleteRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::TimerDeleteRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			logRequest(logRequests, "TIMER_DELETE", "timer={}", req->timer());
+
+			managarm::posix::TimerDeleteResponse resp;
+			if(self->timers.contains(req->timer())) {
+				auto ctx = self->timers[req->timer()];
+				if(ctx->timer) {
+					ctx->timer->cancel();
+					ctx->timer = nullptr;
+				}
+				self->timers.erase(req->timer());
+				self->timerIdAllocator.free(req->timer());
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::PidfdOpenRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::posix::PidfdOpenRequest>(recv_head);
 
