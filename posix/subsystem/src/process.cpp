@@ -473,6 +473,11 @@ void CompileSignalInfo::operator() (const UserSignal &info) const {
 	si->si_uid = info.uid;
 }
 
+void CompileSignalInfo::operator() (const TimerSignal &info) const {
+	si->si_code = SI_TIMER;
+	si->si_timerid = info.timerId;
+}
+
 SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 
