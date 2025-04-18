@@ -774,3 +774,13 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_nsec;
 }
+
+message TimerDeleteRequest 123 {
+head(128):
+	uint64 timer;
+}
+
+message TimerDeleteResponse 124 {
+head(128):
+	Errors error;
+}
