@@ -540,6 +540,8 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
 
+		protocols::ostrace::Timer timer;
+
 		auto bg_idx = manage.offset() >> blockPagesShift;
 		auto block = bgdt[bg_idx].blockBitmap;
 		assert(block);
@@ -566,6 +568,11 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
+
+		ostContext.emit(
+			ostEvtExt2ManageBlockBitmap,
+			ostAttrTime(timer.elapsed())
+		);
 	}
 }
 
@@ -576,6 +583,8 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 				&manage, helix::Dispatcher::global());
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
+
+		protocols::ostrace::Timer timer;
 
 		auto bg_idx = manage.offset() >> blockPagesShift;
 		auto block = bgdt[bg_idx].inodeBitmap;
@@ -603,6 +612,11 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
+
+		ostContext.emit(
+			ostEvtExt2ManageInodeBitmap,
+			ostAttrTime(timer.elapsed())
+		);
 	}
 }
 
@@ -1044,6 +1058,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					result.push_back(block);
 					if(result.size() == num) {
+						ostContext.emit(
+							ostEvtExt2AllocateBlocks,
+							ostAttrTime(timer.elapsed())
+						);
 						co_return result;
 					}
 				}
@@ -1086,6 +1104,10 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				bgdt[bg_idx].freeBlocksCount--;
 				result.push_back(block);
 				if(result.size() == num) {
+					ostContext.emit(
+						ostEvtExt2AllocateBlocks,
+						ostAttrTime(timer.elapsed())
+					);
 					co_return result;
 				}
 			}
@@ -1096,6 +1118,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 }
 
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
+	protocols::ostrace::Timer timer;
+
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		helix::LockMemoryView lock_bitmap;
 		auto &&submit_bitmap = helix::submitLockMemoryView(inodeBitmap,
@@ -1131,6 +1155,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 					bgdt[bg].usedDirsCount++;
 
 				co_await writebackBgdt();
+
+				ostContext.emit(
+					ostEvtExt2AllocateInode,
+					ostAttrTime(timer.elapsed())
+				);
 
 				co_return ino;
 			}
@@ -1172,11 +1201,18 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 			co_return *ino;
 	}
 
+	ostContext.emit(
+		ostEvtExt2AllocateInode,
+		ostAttrTime(timer.elapsed())
+	);
+
 	co_return 0;
 }
 
 async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		uint64_t block_offset, size_t num_blocks) {
+	protocols::ostrace::Timer timer;
+
 	size_t per_indirect = blockSize / 4;
 	size_t per_single = per_indirect;
 	size_t per_double = per_indirect * per_indirect;
@@ -1360,6 +1396,11 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskMapping.get(), inodeSize);
 	HEL_CHECK(syncInode.error());
+
+	ostContext.emit(
+		ostEvtExt2AssignDataBlocks,
+		ostAttrTime(timer.elapsed())
+	);
 }
 
 async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,

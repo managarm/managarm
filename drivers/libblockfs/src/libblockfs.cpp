@@ -33,8 +33,13 @@ constinit protocols::ostrace::Event ostEvtRead{"libblockfs.read"};
 constinit protocols::ostrace::Event ostEvtReadDir{"libblockfs.readDir"};
 constinit protocols::ostrace::Event ostEvtWrite{"libblockfs.write"};
 constinit protocols::ostrace::Event ostEvtRawRead{"libblockfs.rawRead"};
+constinit protocols::ostrace::Event ostEvtExt2AssignDataBlocks{"ext2.assignDataBlocks"};
 constinit protocols::ostrace::Event ostEvtExt2ManageInode{"ext2.manageInode"};
+constinit protocols::ostrace::Event ostEvtExt2ManageInodeBitmap{"ext2.manageInodeBitmap"};
 constinit protocols::ostrace::Event ostEvtExt2ManageFile{"ext2.manageFile"};
+constinit protocols::ostrace::Event ostEvtExt2ManageBlockBitmap{"ext2.manageBlockBitmap"};
+constinit protocols::ostrace::Event ostEvtExt2AllocateBlocks{"ext2.allocateBlocks"};
+constinit protocols::ostrace::Event ostEvtExt2AllocateInode{"ext2.allocateInode"};
 constinit protocols::ostrace::UintAttribute ostAttrTime{"time"};
 constinit protocols::ostrace::UintAttribute ostAttrNumBytes{"numBytes"};
 
@@ -45,8 +50,13 @@ protocols::ostrace::Vocabulary ostVocabulary{
 	ostEvtReadDir,
 	ostEvtWrite,
 	ostEvtRawRead,
+	ostEvtExt2AssignDataBlocks,
 	ostEvtExt2ManageInode,
+	ostEvtExt2ManageInodeBitmap,
 	ostEvtExt2ManageFile,
+	ostEvtExt2ManageBlockBitmap,
+	ostEvtExt2AllocateBlocks,
+	ostEvtExt2AllocateInode,
 	ostAttrTime,
 	ostAttrNumBytes,
 };
