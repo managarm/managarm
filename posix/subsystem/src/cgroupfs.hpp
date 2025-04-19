@@ -113,7 +113,7 @@ public:
 		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *, std::shared_ptr<FsNode>) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>

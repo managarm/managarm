@@ -264,6 +264,7 @@ head(128):
 		// used by SB_CREATE_REGULAR
 		tag(86) int64 uid;
 		tag(87) int64 gid;
+		tag(88) int64 parent_inode;
 	}
 }
 
