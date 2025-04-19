@@ -725,7 +725,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
-			auto inode = co_await fs->createRegular(req.uid(), req.gid());
+			auto inode = co_await fs->createRegular(req.uid(), req.gid(), req.parent_inode());
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

@@ -20,7 +20,7 @@ struct DirectoryNode;
 struct Superblock final : FsSuperblock {
 	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device);
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process) override;
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process, std::shared_ptr<FsNode>) override;
 	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
@@ -847,7 +847,7 @@ std::shared_ptr<FsNode> StructuralLink::getTarget() {
 Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device)
 : _lane{std::move(lane)}, device_{device} { }
 
-FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
+FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process, std::shared_ptr<FsNode> parent) {
 	helix::Offer offer;
 	helix::SendBuffer send_req;
 	helix::RecvInline recv_resp;
@@ -857,6 +857,7 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process)
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
 	req.set_uid(process->uid());
 	req.set_gid(process->gid());
+	req.set_parent_inode(std::static_pointer_cast<DirectoryNode>(parent)->getInode());
 
 	auto ser = req.SerializeAsString();
 	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
