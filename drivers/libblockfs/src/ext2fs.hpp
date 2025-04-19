@@ -253,7 +253,7 @@ struct FileSystem {
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
-	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid);
+	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid, uint32_t parentIno);
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 
@@ -268,7 +268,7 @@ struct FileSystem {
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
-	async::result<uint32_t> allocateInode();
+	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);

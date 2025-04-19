@@ -597,7 +597,7 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 		co_return protocols::fs::GetLinkResult{self->fs.accessInode(e.inode), e.inode, type};
 	}
 
-	auto inode = co_await self->fs.createRegular(uid, gid);
+	auto inode = co_await self->fs.createRegular(uid, gid, self->number);
 	auto chmodResult = co_await inode->chmod(mode);
 	if (chmodResult != protocols::fs::Error::none)
 		co_return std::unexpected{chmodResult};
@@ -775,7 +775,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
-			auto inode = co_await fs->createRegular(req.uid(), req.gid());
+			auto inode = co_await fs->createRegular(req.uid(), req.gid(), 0);
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

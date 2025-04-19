@@ -671,8 +671,8 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	return new_inode;
 }
 
-async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid) {
-	auto ino = co_await allocateInode();
+async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
+	auto ino = co_await allocateInode(parentIno);
 	assert(ino);
 
 	// Lock and map the inode table.
@@ -706,7 +706,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid
 }
 
 async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
-	auto ino = co_await allocateInode();
+	auto ino = co_await allocateInode(0, true);
 	assert(ino);
 
 	// Lock and map the inode table.
@@ -1095,19 +1095,18 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	assert(!"Failed to find zero-bit");
 }
 
-async::result<uint32_t> FileSystem::allocateInode() {
-	// TODO: Do not start at block group zero.
-	for(uint32_t bg_idx = 0; bg_idx < numBlockGroups; bg_idx++) {
+async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
+	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		helix::LockMemoryView lock_bitmap;
 		auto &&submit_bitmap = helix::submitLockMemoryView(inodeBitmap,
 				&lock_bitmap,
-				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				bg << blockPagesShift, 1 << blockPagesShift,
 				helix::Dispatcher::global());
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
 		helix::Mapping bitmap_map{inodeBitmap,
-				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
+				bg << blockPagesShift, size_t{1} << blockPagesShift,
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
@@ -1119,20 +1118,58 @@ async::result<uint32_t> FileSystem::allocateInode() {
 					break;
 				if(words[i] & (static_cast<uint32_t>(1) << j))
 					continue;
+
 				// TODO: Make sure we never return reserved inodes.
 				// TODO: Make sure we never return inodes higher than the max. inode in the SB.
-				auto ino = bg_idx * inodesPerGroup + i * 32 + j + 1;
+				auto ino = bg * inodesPerGroup + i * 32 + j + 1;
 				assert(ino);
 				assert(ino < inodesCount);
 				words[i] |= static_cast<uint32_t>(1) << j;
 
-				bgdt[bg_idx].freeInodesCount--;
+				bgdt[bg].freeInodesCount--;
+				if(directory)
+					bgdt[bg].usedDirsCount++;
+
 				co_await writebackBgdt();
 
 				co_return ino;
 			}
-			assert(!"Failed to find zero-bit");
 		}
+
+		co_return std::nullopt;
+	};
+
+	if(parentIno) {
+		auto preferred_bg = (parentIno - 1) / inodesPerGroup;
+		if(bgdt[preferred_bg].freeInodesCount) {
+			auto ino = co_await searchBlockGroup(preferred_bg);
+			if(ino)
+				co_return *ino;
+		}
+
+		// search the next block group in exponential offsets % numBlockGroups
+		size_t expOffset = 1;
+
+		while(expOffset < numBlockGroups) {
+			auto exp_bg = (preferred_bg + expOffset) % numBlockGroups;
+			if(bgdt[exp_bg].freeInodesCount) {
+				auto ino = co_await searchBlockGroup(exp_bg);
+				if(ino)
+					co_return *ino;
+			}
+
+			expOffset <<= 1;
+		}
+	}
+
+	// exhaustive linear search
+	for(uint32_t bg_idx = 0; bg_idx < numBlockGroups; bg_idx++) {
+		if(!bgdt[bg_idx].freeInodesCount)
+			continue;
+
+		auto ino = co_await searchBlockGroup(bg_idx);
+		if(ino)
+			co_return *ino;
 	}
 
 	co_return 0;
