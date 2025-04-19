@@ -304,7 +304,11 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 			HEL_CHECK(syncDir.error());
 
 			// Decrement the inode's link count
-			target->diskInode()->linksCount--;
+			if(--target->diskInode()->linksCount == 0) {
+				// TODO: free the data blocks and set size to 0
+				target->diskInode()->dtime = clk::getRealtime().tv_sec;
+			}
+
 			auto syncInode = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
 					target->diskMapping.get(), fs.inodeSize);
