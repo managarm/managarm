@@ -1422,9 +1422,21 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 
 
 async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
+	auto oldsize = inode->fileSize();
+	if(size == oldsize)
+		co_return;
+
 	HEL_CHECK(helResizeMemory(inode->backingMemory,
 			(size + 0xFFF) & ~size_t(0xFFF)));
 	inode->setFileSize(size);
+
+	if(size > oldsize) {
+		size_t diff = size - oldsize;
+		auto blockOffset = (oldsize & ~(blockSize - 1)) >> blockShift;
+		auto blockCount = ((oldsize & (blockSize - 1)) + diff + (blockSize - 1)) >> blockShift;
+		co_await inode->fs.assignDataBlocks(inode, blockOffset, blockCount);
+	}
+
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskMapping.get(), inodeSize);
