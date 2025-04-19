@@ -54,7 +54,7 @@ struct JsonPolicy {
 	}
 
 	bool onBufferAttribute(managarm::ostrace::BufferAttribute &record, size_t) {
-		std::cout << ",\"" << terms.at(record.id()) << "\":<buffer of size " << record.buffer().size() << ">";
+		std::cout << ",\"" << terms.at(record.id()) << "\": \"<buffer of size " << record.buffer().size() << ">\"";
 		return true;
 	}
 
