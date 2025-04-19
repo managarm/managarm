@@ -1,4 +1,5 @@
 
+#include <functional>
 #include <string.h>
 #include <time.h>
 #include <optional>
@@ -265,6 +266,11 @@ struct FileSystem {
 			helix::UniqueDescriptor memory);
 
 	async::result<uint32_t> allocateBlock();
+	// Allocate up to num blocks for the given inode. For each allocated block, the callback
+	// with the number of the allocated block (0 for the first, 1 for the second, ...) and that
+	// block's allocated address.
+	// This function does not write back the BGDT, this is the caller's responsibility.
+	async::result<uint32_t> allocateBlocks(uint32_t ino, size_t num, std::function<void(uint32_t, uint32_t)> cb);
 	async::result<uint32_t> allocateInode();
 
 	async::result<void> assignDataBlocks(Inode *inode,

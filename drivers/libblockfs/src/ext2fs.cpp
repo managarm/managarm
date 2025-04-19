@@ -1012,7 +1012,6 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 				words[i] |= static_cast<uint32_t>(1) << j;
 
 				bgdt[bg_idx].freeBlocksCount--;
-				co_await writebackBgdt();
 
 				co_return block;
 			}
@@ -1021,6 +1020,96 @@ async::result<uint32_t> FileSystem::allocateBlock() {
 	}
 
 	co_return 0;
+}
+
+async::result<uint32_t> FileSystem::allocateBlocks(uint32_t ino, size_t num, std::function<void(uint32_t, uint32_t)> cb) {
+	uint32_t preferred_bg = (ino - 1) / inodesPerGroup;
+	size_t blocks_allocated = 0;
+
+	if(bgdt[preferred_bg].freeBlocksCount) {
+		helix::LockMemoryView lock_bitmap;
+		auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
+			&lock_bitmap,
+			preferred_bg << blockPagesShift, 1 << blockPagesShift,
+			helix::Dispatcher::global());
+		co_await submit_bitmap.async_wait();
+		HEL_CHECK(lock_bitmap.error());
+
+		helix::Mapping bitmap_map{blockBitmap,
+			preferred_bg << blockPagesShift, size_t{1} << blockPagesShift,
+			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+
+		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+			if(words[i] == 0xFFFFFFFF)
+				continue;
+			for(int j = 0; j < 32; j++) {
+				if(i * 32 + j >= blocksPerGroup)
+					break;
+				if(words[i] & (static_cast<uint32_t>(1) << j))
+					continue;
+				// TODO: Make sure we never return reserved blocks.
+				// TODO: Make sure we never return blocks higher than the max. block in the SB.
+				auto block = preferred_bg * blocksPerGroup + i * 32 + j;
+				assert(block);
+				assert(block < blocksCount);
+				words[i] |= static_cast<uint32_t>(1) << j;
+
+				bgdt[preferred_bg].freeBlocksCount--;
+
+				cb(blocks_allocated, block);
+				blocks_allocated++;
+				if(blocks_allocated == num) {
+					co_return blocks_allocated;
+				}
+			}
+		}
+	}
+
+	for(uint32_t bg_idx = 0; bg_idx < numBlockGroups; bg_idx++) {
+		if(!bgdt[bg_idx].freeBlocksCount)
+			continue;
+
+		helix::LockMemoryView lock_bitmap;
+		auto &&submit_bitmap = helix::submitLockMemoryView(blockBitmap,
+				&lock_bitmap,
+				bg_idx << blockPagesShift, 1 << blockPagesShift,
+				helix::Dispatcher::global());
+		co_await submit_bitmap.async_wait();
+		HEL_CHECK(lock_bitmap.error());
+
+		helix::Mapping bitmap_map{blockBitmap,
+				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
+				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
+
+		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+			if(words[i] == 0xFFFFFFFF)
+				continue;
+			for(int j = 0; j < 32; j++) {
+				if(i * 32 + j >= blocksPerGroup)
+					break;
+				if(words[i] & (static_cast<uint32_t>(1) << j))
+					continue;
+				// TODO: Make sure we never return reserved blocks.
+				// TODO: Make sure we never return blocks higher than the max. block in the SB.
+				auto block = bg_idx * blocksPerGroup + i * 32 + j;
+				assert(block);
+				assert(block < blocksCount);
+				words[i] |= static_cast<uint32_t>(1) << j;
+
+				bgdt[bg_idx].freeBlocksCount--;
+				cb(blocks_allocated, block);
+				blocks_allocated++;
+				if(blocks_allocated == num) {
+					co_return blocks_allocated;
+				}
+			}
+		}
+	}
+
+	assert(!"Failed to find zero-bit");
 }
 
 async::result<uint32_t> FileSystem::allocateInode() {
@@ -1085,15 +1174,30 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 			while(prg < num_blocks
 					&& block_offset + prg < i_range) {
 				auto idx = block_offset + prg;
-				if(disk_inode->data.blocks.direct[idx]) {
+
+				size_t range = 0;
+				for(size_t i = idx; i < i_range; i++) {
+					if(prg + range >= num_blocks)
+						break;
+
+					if(disk_inode->data.blocks.direct[i])
+						break;
+
+					range++;
+				}
+
+				if(!range) {
 					prg++;
 					continue;
 				}
-				auto block = co_await allocateBlock();
-				assert(block && "Out of disk space"); // TODO: Fix this.
-				disk_inode->blocks += (blockSize / 512);
-				disk_inode->data.blocks.direct[idx] = block;
-				prg++;
+
+				auto allocated = co_await allocateBlocks(inode->number, range,
+				[&](uint32_t blocknum, uint32_t block) {
+					disk_inode->data.blocks.direct[idx + blocknum] = block;
+				});
+
+				disk_inode->blocks += allocated * (blockSize / 512);
+				prg += allocated;
 			}
 		}else if(block_offset + prg < s_range) {
 			bool needsReset = false;
@@ -1125,15 +1229,30 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 			while(prg < num_blocks
 					&& block_offset + prg < s_range) {
 				auto idx = block_offset + prg - i_range;
-				if(window[idx]) {
+
+				size_t range = 0;
+				for(size_t i = idx; i < per_single; i++) {
+					if(prg + range >= num_blocks)
+						break;
+
+					if(window[i])
+						break;
+
+					range++;
+				}
+
+				if(!range) {
 					prg++;
 					continue;
 				}
-				auto block = co_await allocateBlock();
-				assert(block && "Out of disk space"); // TODO: Fix this.
-				disk_inode->blocks += (blockSize / 512);
-				window[idx] = block;
-				prg++;
+
+				auto allocated = co_await allocateBlocks(inode->number, range,
+				[&](uint32_t blocknum, uint32_t block) {
+					window[idx + blocknum] = block;
+				});
+
+				disk_inode->blocks += allocated * (blockSize / 512);
+				prg += allocated;
 			}
 		}else if(block_offset + prg < d_range) {
 			bool doubleNeedsReset = false;
@@ -1190,22 +1309,36 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				if(needsReset)
 					memset(window, 0, size_t{1} << blockPagesShift);
 
-				if(window[indirect_index]) {
+				size_t range = 0;
+				for(size_t i = indirect_index; i < per_double; i++) {
+					if(prg + range >= num_blocks)
+						break;
+
+					if(window[i])
+						break;
+
+					range++;
+				}
+
+				if(!range) {
 					prg++;
 					continue;
 				}
 
-				auto block = co_await allocateBlock();
-				assert(block && "Out of disk space"); // TODO: Fix this.
-				disk_inode->blocks += (blockSize / 512);
-				window[indirect_index] = block;
-				prg++;
+				auto allocated = co_await allocateBlocks(inode->number, range,
+				[&](uint32_t blocknum, uint32_t block) {
+					window[indirect_index + blocknum] = block;
+				});
+
+				disk_inode->blocks += allocated * (blockSize / 512);
+				prg += allocated;
 			}
 		}else{
 			assert(!"TODO: Implement allocation in triple indirect blocks");
 		}
 	}
 
+	co_await writebackBgdt();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskMapping.get(), inodeSize);
