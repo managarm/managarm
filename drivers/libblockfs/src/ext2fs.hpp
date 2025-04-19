@@ -1,4 +1,5 @@
 
+#include <functional>
 #include <string.h>
 #include <time.h>
 #include <optional>
@@ -264,7 +265,9 @@ struct FileSystem {
 	async::detached manageIndirect(std::shared_ptr<Inode> inode, int order,
 			helix::UniqueDescriptor memory);
 
-	async::result<uint32_t> allocateBlock();
+	// Allocate up to num blocks for the given inode.
+	// This function does not write back the BGDT, this is the caller's responsibility.
+	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
 	async::result<uint32_t> allocateInode();
 
 	async::result<void> assignDataBlocks(Inode *inode,
