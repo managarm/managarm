@@ -506,6 +506,8 @@ async::result<void> FileSystem::init() {
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / device->sectorSize);
 
+	handleBgdtWriteback();
+
 	// Create memory bundles to manage the block and inode bitmaps.
 	HelHandle block_bitmap_frontal, inode_bitmap_frontal;
 	HelHandle block_bitmap_backing, inode_bitmap_backing;
@@ -530,6 +532,16 @@ async::result<void> FileSystem::init() {
 	manageInodeTable(helix::UniqueDescriptor{inode_table_backing});
 
 	co_return;
+}
+
+async::detached FileSystem::handleBgdtWriteback() {
+	while(true) {
+		co_await bdgtWriteback.async_wait();
+
+		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
+		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
+				blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / device->sectorSize);
+	}
 }
 
 async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
@@ -751,7 +763,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	// update usedDirsCount in the respective bgdt for this inode
 	auto bg_idx = (ino - 1) / inodesPerGroup;
 	bgdt[bg_idx].usedDirsCount++;
-	co_await writebackBgdt();
+	bdgtWriteback.raise();
 
 	co_return accessInode(ino);
 }
@@ -1154,7 +1166,7 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 				if(directory)
 					bgdt[bg].usedDirsCount++;
 
-				co_await writebackBgdt();
+				bdgtWriteback.raise();
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
@@ -1391,7 +1403,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		}
 	}
 
-	co_await writebackBgdt();
+	bdgtWriteback.raise();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			inode->diskMapping.get(), inodeSize);
@@ -1633,12 +1645,6 @@ async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
 			inode->diskMapping.get(), inodeSize);
 	HEL_CHECK(syncInode.error());
 	co_return;
-}
-
-async::result<void> FileSystem::writebackBgdt() {
-	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
-	co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / device->sectorSize);
 }
 
 // --------------------------------------------------------

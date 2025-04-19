@@ -247,6 +247,9 @@ struct FileSystem {
 
 	async::result<void> init();
 
+	async::recurring_event bdgtWriteback;
+	async::detached handleBgdtWriteback();
+
 	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeTable(helix::UniqueDescriptor memory);
@@ -279,8 +282,6 @@ struct FileSystem {
 			size_t num_blocks, const void *buffer);
 
 	async::result<void> truncate(Inode *inode, size_t size);
-
-	async::result<void> writebackBgdt();
 
 	BlockDevice *device;
 	uint16_t inodeSize;
