@@ -226,12 +226,20 @@ extern "C" void thorMain() {
 
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
-			assert(modules[0].physicalBase % kPageSize == 0);
+			auto initrdBase = modules[0].physicalBase;
+			auto initrdLength = modules[0].length;
+
+			auto initrdMisalign = initrdBase & (kPageSize - 1);
+			initrdBase &= ~(kPageSize - 1);
+			initrdLength += initrdMisalign;
+
 			auto base = static_cast<const char *>(KernelVirtualMemory::global().allocate(
-					modules[0].length));
-			for(size_t pg = 0; pg < modules[0].length; pg += kPageSize)
+					initrdLength));
+			for(size_t pg = 0; pg < initrdLength; pg += kPageSize)
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<VirtualAddr>(base) + pg,
-						modules[0].physicalBase + pg, 0, CachingMode::null);
+				initrdBase + pg, 0, CachingMode::null);
+
+			base += initrdMisalign;
 
 			struct Header {
 				char magic[6];
