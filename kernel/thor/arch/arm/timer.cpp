@@ -92,7 +92,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 		// the virtual one.
 
 		int idx = 0;
-		bool success = dt::walkInterrupts(
+		auto walkInterruptResult = dt::walkInterrupts(
 			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
 				// This offset is defined in the Linux
 				// DTB binding for compatible nodes.
@@ -104,7 +104,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 				idx++;
 			}, timerNode);
 
-		assert(success && "Failed to parse generic timer interrupts");
+		assert(walkInterruptResult && walkInterruptResult.value() && "Failed to parse generic timer interrupts");
 
 		initTimerOnThisCpu();
 

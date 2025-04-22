@@ -58,7 +58,7 @@ struct MbusNode final : private KernelBusObject {
 			);
 		}
 
-		bool success = dt::walkInterrupts(
+		auto walkInterruptResult = dt::walkInterrupts(
 			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
 				auto object = smarter::allocate_shared<DtIrqObject>(*kernelAlloc,
 						frg::string<KernelAlloc>{*kernelAlloc, "dt-irq."}
@@ -67,7 +67,7 @@ struct MbusNode final : private KernelBusObject {
 						irqCells);
 				irqs.push_back(object);
 			}, node);
-		if(!success)
+		if(walkInterruptResult && !walkInterruptResult.value())
 			warningLogger()
 				<< node->path() << ": failed to parse interrupts for mbus node."
 				<< frg::endlog;
