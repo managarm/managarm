@@ -79,8 +79,10 @@ struct MbusNode final : private KernelBusObject {
 
 		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dt"));
 
-		if(parent)
+		if(parent) {
+			co_await parent->mbusPublished.wait();
 			properties.decStringProperty("drvcore.mbus-parent", parent->mbusId, 1);
+		}
 
 		for(auto &compatible : node->compatible()) {
 			frg::string<KernelAlloc> prop{*kernelAlloc, "dt.compatible="};
@@ -91,6 +93,8 @@ struct MbusNode final : private KernelBusObject {
 		auto ret = co_await createObject("dt-node", std::move(properties));
 		assert(ret);
 		mbusId = ret.value();
+
+		mbusPublished.raise();
 	}
 
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
@@ -233,6 +237,7 @@ struct MbusNode final : private KernelBusObject {
 	frg::vector<DtRegister, KernelAlloc> regs;
 	frg::vector<smarter::shared_ptr<DtIrqObject>, KernelAlloc> irqs;
 	uint64_t mbusId;
+	async::oneshot_event mbusPublished;
 };
 
 frg::manual_box<
