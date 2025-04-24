@@ -5,6 +5,7 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
+#include <frg/optional.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/vector.hpp>
 #include <frg/array.hpp>
@@ -239,11 +240,10 @@ static inline frg::array<frg::string_view, 3> dtPciCompatible = {
 namespace dt {
 
 template<typename Fn>
-[[nodiscard]] bool walkInterrupts(Fn fn, DeviceTreeNode *node) {
+[[nodiscard]] frg::optional<bool> walkInterrupts(Fn fn, DeviceTreeNode *node) {
 	auto prop = node->dtNode().findProperty("interrupts");
 	if (!prop) {
-		warningLogger() << node->path() << " has no interrupts" << frg::endlog;
-		return false;
+		return frg::null_opt;
 	}
 
 	auto it = prop->access();
