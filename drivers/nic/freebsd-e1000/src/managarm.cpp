@@ -238,11 +238,11 @@ async::result<void> E1000Nic::send(const arch::dma_buffer_view buf) {
 }
 
 async::result<void> E1000Nic::identifyHardware() {
-	_hw.vendor_id = co_await _device.loadPciSpace(0, 2);
-	_hw.device_id = co_await _device.loadPciSpace(2, 2);
-	_hw.revision_id = co_await _device.loadPciSpace(8, 1);
-	_hw.subsystem_vendor_id = co_await _device.loadPciSpace(0x2C, 2);
-	_hw.subsystem_device_id = co_await _device.loadPciSpace(0x2E, 2);
+	_hw.vendor_id = co_await _device.loadPciSpace(pci::Vendor, 2);
+	_hw.device_id = co_await _device.loadPciSpace(pci::Device, 2);
+	_hw.revision_id = co_await _device.loadPciSpace(pci::Revision, 1);
+	_hw.subsystem_vendor_id = co_await _device.loadPciSpace(pci::SubsystemVendor, 2);
+	_hw.subsystem_device_id = co_await _device.loadPciSpace(pci::SubsystemDevice, 2);
 
 	auto ret = e1000_set_mac_type(&_hw);
 	assert(ret == E1000_SUCCESS);

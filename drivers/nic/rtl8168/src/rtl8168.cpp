@@ -415,7 +415,7 @@ async::result<bool> RealtekNic::startCard() {
 }
 
 async::result<void> RealtekNic::init() {
-	auto pci_id = co_await _device.loadPciSpace(2, 2);
+	auto pci_id = co_await _device.loadPciSpace(pci::Device, 2);
 
 	// TODO: Some cards that are realtek chipsets use different PCI device IDs.
 	//       It should be safe to treat them as rtl8168 cards, however we should ideally handle this.

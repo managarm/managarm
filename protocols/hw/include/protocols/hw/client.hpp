@@ -5,6 +5,18 @@
 #include <optional>
 #include <vector>
 
+namespace pci {
+
+enum {
+	Vendor = 0x00,
+	Device = 0x02,
+	Revision = 0x08,
+	SubsystemVendor = 0x2C,
+	SubsystemDevice = 0x2E,
+};
+
+} // namespace pci
+
 namespace protocols {
 namespace hw {
 
