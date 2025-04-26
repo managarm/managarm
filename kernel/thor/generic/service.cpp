@@ -543,6 +543,53 @@ namespace posix {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 				}
+			}else if(preamble.id() == bragi::message_id<managarm::posix::FstatAtRequest>) {
+				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
+				if(tailError != Error::success) {
+					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
+					co_return;
+				}
+
+				auto req = bragi::parse_head_tail<managarm::posix::FstatAtRequest>(
+					reqBuffer, tailBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				auto module = resolveModule(req->path());
+				if(!module || module->type != MfsType::regular) {
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					if(respError != Error::success) {
+						infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
+						co_return;
+					}
+					continue;
+				}
+
+				auto file = static_cast<MfsRegular *>(module);
+
+				managarm::posix::SvrResponse resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_file_size(file->size());
+				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				if(respError != Error::success) {
+					infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
+					co_return;
+				}
 			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
 						reqBuffer, *kernelAlloc);
