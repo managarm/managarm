@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include <iostream>
 
+#include <bragi/helpers-std.hpp>
+#include <core/logging.hpp>
 #include <helix/ipc.hpp>
 
 #include <protocols/svrctl/server.hpp>
@@ -12,9 +14,9 @@
 namespace protocols {
 namespace svrctl {
 
-static_assert(static_cast<int>(Error::success) == int(managarm::svrctl::Error::SUCCESS));
+static_assert(static_cast<int>(Error::success) == int(managarm::svrctl::Errors::SUCCESS));
 static_assert(static_cast<int>(Error::deviceNotSupported)
-		== int(managarm::svrctl::Error::DEVICE_NOT_SUPPORTED));
+		== int(managarm::svrctl::Errors::DEVICE_NOT_SUPPORTED));
 
 struct ManagarmServerData {
 	HelHandle controlLane;
@@ -38,33 +40,25 @@ serveControl(const ControlOperations *ops) {
 		HEL_CHECK(recv_req.error());
 
 		auto conversation = accept.descriptor();
-
-		managarm::svrctl::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
-		if(req.req_type() == managarm::svrctl::CntReqType::CTL_BIND) {
+		auto preamble = bragi::read_preamble(recv_req);
+		if(preamble.id() == bragi::message_id<managarm::svrctl::DeviceBindRequest>) {
 			assert(ops->bind);
-			auto error = co_await ops->bind(req.mbus_id());
 
-			managarm::svrctl::SvrResponse resp;
-			resp.set_error(static_cast<managarm::svrctl::Error>(error));
+			auto req = bragi::parse_head_only<managarm::svrctl::DeviceBindRequest>(recv_req);
+			recv_req.reset();
+			assert(req);
 
-			auto ser = resp.SerializeAsString();
+			auto error = co_await ops->bind(req->mbus_id());
+			managarm::svrctl::DeviceBindResponse resp;
+			resp.set_error(static_cast<managarm::svrctl::Errors>(error));
+
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			managarm::svrctl::SvrResponse resp;
-			resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
+			logPanic("serveControl: Unexpected request message ID {}", preamble.id());
 		}
 	}
 }

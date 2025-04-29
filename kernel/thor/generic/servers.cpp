@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <bragi/helpers-all.hpp>
+#include <bragi/helpers-frigg.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/string.hpp>
 #include <elf.h>
@@ -447,80 +449,54 @@ private:
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
 		if(reqError != Error::success)
 			co_return reqError;
-		managarm::svrctl::CntRequest<KernelAlloc> req(*kernelAlloc);
-		req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-		if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD) {
-			auto file = resolveModule(req.name());
-			if(file) {
-				// The file data is already known to us.
-				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::svrctl::Error::SUCCESS);
+		auto preamble = bragi::read_preamble(reqBuffer);
+		if(preamble.id() == bragi::message_id<managarm::svrctl::FileUploadRequest>) {
+			auto req = bragi::parse_head_only<managarm::svrctl::FileUploadRequest>(reqBuffer, *kernelAlloc);
+			if(!req)
+				co_return Error::protocolViolation;
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-				if(respError != Error::success)
-					co_return respError;
-			}else{
-				// Ask user space for the file data.
-				managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::svrctl::Error::DATA_REQUIRED);
+			managarm::svrctl::FileUploadResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Errors::SUCCESS);
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-				if(respError != Error::success)
-					co_return respError;
-			}
-		}else if(req.req_type() == managarm::svrctl::CntReqType::FILE_UPLOAD_DATA) {
-			auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
-			if(dataError != Error::success)
-				co_return dataError;
-			MfsRegular *file;
-			if(!(co_await createMfsFile(req.name(), dataBuffer.data(), dataBuffer.size(), &file))) {
-				// TODO: Verify that the file data matches. This is somewhat expensive because
-				//       we would have to map the file's memory. Hence, we do not implement
-				//       it for now.
-				if(file->size() != dataBuffer.size()) {
-					managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::svrctl::Error::SUCCESS);
+			if(req->with_data()) {
+				auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
+				if(dataError != Error::success)
+					co_return dataError;
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-					if(respError != Error::success)
-						co_return respError;
-					co_return Error::success;
+				MfsRegular *file;
+				if(!(co_await createMfsFile(req->name(), dataBuffer.data(), dataBuffer.size(), &file))) {
+					// TODO: Verify that the file data matches. This is somewhat expensive because
+					//       we would have to map the file's memory. Hence, we do not implement
+					//       it for now.
+					if(file->size() != dataBuffer.size())
+						resp.set_error(managarm::svrctl::Errors::DATA_MISMATCH);
 				}
+			}else{
+				auto file = resolveModule(req->name());
+				if(!file)
+					resp.set_error(managarm::svrctl::Errors::DATA_REQUIRED);
 			}
 
-			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::svrctl::Error::SUCCESS);
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.head_size};
+			bragi::write_head_only(resp, respBuffer);
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
-		}else if(req.req_type() == managarm::svrctl::CntReqType::SVR_RUN) {
-			auto controlLane = co_await runServer(req.name());
+		}else if(preamble.id() == bragi::message_id<managarm::svrctl::RunServerRequest>) {
+			auto req = bragi::parse_head_only<managarm::svrctl::RunServerRequest>(reqBuffer, *kernelAlloc);
+			if(!req)
+				co_return Error::protocolViolation;
 
-			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::svrctl::Error::SUCCESS);
+			auto controlLane = co_await runServer(req->name());
 
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
+			managarm::svrctl::RunServerResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::svrctl::Errors::SUCCESS);
+
+			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.head_size};
+			bragi::write_head_only(resp, respBuffer);
+
 			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
 			if(respError != Error::success)
 				co_return respError;
@@ -528,16 +504,11 @@ private:
 			if(controlError != Error::success)
 				co_return controlError;
 		}else{
-			managarm::svrctl::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-			resp.set_error(managarm::svrctl::Error::ILLEGAL_REQUEST);
-
-			frg::string<KernelAlloc> ser(*kernelAlloc);
-			resp.SerializeToString(&ser);
-			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
-			if(respError != Error::success)
-				co_return respError;
+			warningLogger() << "thor: Illegal message ID " << preamble.id()
+					<< " for SvrctlBusObject" << frg::endlog;
+			auto dismissError = co_await DismissSender{boundLane};
+			if(dismissError != Error::success)
+				co_return Error::protocolViolation;
 		}
 
 		co_return frg::success;

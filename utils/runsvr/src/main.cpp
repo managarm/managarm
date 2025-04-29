@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 #include <async/oneshot-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <helix/memory.hpp>
 #include <protocols/mbus/client.hpp>
 #include <svrctl.bragi.hpp>
@@ -94,15 +95,13 @@ async::result<void> enumerateSvrctl() {
 }
 
 async::result<helix::UniqueLane> runServer(const char *name) {
-	managarm::svrctl::CntRequest req;
-	req.set_req_type(managarm::svrctl::CntReqType::SVR_RUN);
+	managarm::svrctl::RunServerRequest req;
 	req.set_name(name);
 
-	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp, pull_server] = co_await helix_ng::exchangeMsgs(
 		svrctlLane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline(),
 			helix_ng::pullDescriptor())
 	);
@@ -111,51 +110,42 @@ async::result<helix::UniqueLane> runServer(const char *name) {
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(pull_server.error());
 
-	managarm::svrctl::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto resp = bragi::parse_head_only<managarm::svrctl::RunServerResponse>(recv_resp);
 	recv_resp.reset();
-	assert(resp.error() == managarm::svrctl::Error::SUCCESS);
+	assert(resp);
+	assert(resp->error() == managarm::svrctl::Errors::SUCCESS);
+
 	co_return pull_server.descriptor();
 }
 
 async::result<void> uploadFile(const char *name) {
-	std::vector<std::byte> buffer;
+	managarm::svrctl::FileUploadRequest req;
+	req.set_name(name);
+	req.set_with_data(false); // Avoid reading file data at first
 
-	auto optimisticUpload = [&] () -> async::result<bool> {
-		managarm::svrctl::CntRequest req;
-		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD);
-		req.set_name(name);
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		svrctlLane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline())
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
 
-		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
-			svrctlLane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(offer.error());
-		HEL_CHECK(send_req.error());
-		HEL_CHECK(recv_resp.error());
+	auto resp = bragi::parse_head_only<managarm::svrctl::FileUploadResponse>(recv_resp);
+	recv_resp.reset();
+	assert(resp);
 
-		managarm::svrctl::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
-		recv_resp.reset();
-		if(resp.error() == managarm::svrctl::Error::DATA_REQUIRED)
-			co_return false;
-		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
-		co_return true;
-	};
+	if(resp->error() == managarm::svrctl::Errors::DATA_REQUIRED) {
+		// The kernel does not know the file, we have to read its contents.
+		req.set_with_data(true);
 
-	auto uploadWithData = [&] () -> async::result<void> {
-		managarm::svrctl::CntRequest req;
-		req.set_req_type(managarm::svrctl::CntReqType::FILE_UPLOAD_DATA);
-		req.set_name(name);
-
-		auto ser = req.SerializeAsString();
+		auto buffer = readEntireFile(name);
 		auto [offer, send_req, send_data, recv_resp] = co_await helix_ng::exchangeMsgs(
 			svrctlLane,
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::sendBuffer(buffer.data(), buffer.size()),
 				helix_ng::recvInline())
 		);
@@ -164,44 +154,36 @@ async::result<void> uploadFile(const char *name) {
 		HEL_CHECK(send_data.error());
 		HEL_CHECK(recv_resp.error());
 
-		managarm::svrctl::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		resp = bragi::parse_head_only<managarm::svrctl::FileUploadResponse>(recv_resp);
 		recv_resp.reset();
-		assert(resp.error() == managarm::svrctl::Error::SUCCESS);
-	};
+		assert(resp);
+	}
 
-	// Try to avoid reading the file at first.
-	if(co_await optimisticUpload())
-		co_return;
-
-	// The kernel does not know the file; we have to read the entire contents.
-	buffer = readEntireFile(name);
-	co_await uploadWithData();
+	assert(resp->error() == managarm::svrctl::Errors::SUCCESS);
 }
 
 async::result<int> bindServer(helix::UniqueLane &lane, int mbusId) {
-	managarm::svrctl::CntRequest req;
-	req.set_req_type(managarm::svrctl::CntReqType::CTL_BIND);
+	managarm::svrctl::DeviceBindRequest req;
 	req.set_mbus_id(mbusId);
 
-	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
 		lane,
 		helix_ng::offer(
-			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 			helix_ng::recvInline())
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
 
-	managarm::svrctl::SvrResponse resp;
-	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	auto resp = bragi::parse_head_only<managarm::svrctl::DeviceBindResponse>(recv_resp);
 	recv_resp.reset();
-	if(resp.error() == managarm::svrctl::Error::SUCCESS)
+	assert(resp);
+
+	if(resp->error() == managarm::svrctl::Errors::SUCCESS)
 		co_return 0;
 	else
-	 	co_return 1;
+		co_return 1;
 }
 
 // ----------------------------------------------------------------
