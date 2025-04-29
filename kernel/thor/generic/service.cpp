@@ -7,7 +7,9 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/gdbserver.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/module.hpp>
+#include <thor-internal/servers.hpp>
 #include <thor-internal/stream.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
@@ -19,6 +21,8 @@
 namespace thor {
 
 extern frg::manual_box<LaneHandle> mbusClient;
+
+void runService(frg::string<KernelAlloc> name, LaneHandle controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 struct OpenFile {
 	OpenFile()
@@ -288,61 +292,89 @@ namespace initrd {
 } // namepace initrd
 
 namespace posix {
+	struct ThreadInfo {
+		smarter::shared_ptr<Thread, ActiveHandle> thread;
+		uint64_t tid;
+		Handle posixHandle;
+	};
+
 	// ----------------------------------------------------
 	// POSIX server.
 	// ----------------------------------------------------
 
 	struct Process {
-		Process(frg::string<KernelAlloc> name, smarter::shared_ptr<Thread, ActiveHandle> thread)
-		: _name{std::move(name)}, _thread(std::move(thread)), openFiles(*kernelAlloc) {
+		Process(frg::string<KernelAlloc> name)
+		: _name{std::move(name)}, openFiles(*kernelAlloc) {
 			fileTableMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, 0x1000);
 			fileTableMemory->selfPtr = fileTableMemory;
-
-			auto posixStream = createStream();
-			posixLane = std::move(posixStream.get<0>());
-
-			auto irqLock = frg::guard(&irqMutex());
-			Universe::Guard universeLock(_thread->getUniverse()->lock);
-
-			posixHandle = _thread->getUniverse()->attachDescriptor(universeLock,
-					LaneDescriptor{std::move(posixStream.get<1>())});
-
-			mbusHandle = _thread->getUniverse()->attachDescriptor(universeLock,
-					LaneDescriptor{*mbusClient});
 		}
 
-		coroutine<void> setupAddressSpace() {
+		coroutine<void> setupAddressSpace(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					fileTableMemory, 0, 0x1000);
-			auto result = co_await _thread->getAddressSpace()->map(std::move(view),
+			auto result = co_await thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
 			assert(result);
 			clientFileTable = result.value();
 		}
 
-		coroutine<void> runPosixRequests();
-		coroutine<void> runObserveLoop();
+		coroutine<void> runPosixRequests(ThreadInfo info, LaneHandle posixLane);
+		coroutine<void> runObserveLoop(ThreadInfo info);
 
 		frg::string_view name() {
 			return _name;
 		}
 
-		void attachControl(LaneHandle lane) {
-			auto irq_lock = frg::guard(&irqMutex());
-			Universe::Guard universe_guard(_thread->getUniverse()->lock);
+		ThreadInfo &attachThread(smarter::shared_ptr<Thread, ActiveHandle> thread) {
+			auto posixStream = createStream();
+			Handle posixHandle;
 
-			controlHandle = _thread->getUniverse()->attachDescriptor(universe_guard,
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				Universe::Guard universeLock(thread->getUniverse()->lock);
+
+				posixHandle = thread->getUniverse()->attachDescriptor(universeLock,
+					LaneDescriptor{std::move(posixStream.get<1>())});
+			}
+
+			ThreadInfo info {
+				.thread = thread,
+				.tid = nextTid_++,
+				.posixHandle = posixHandle,
+			};
+
+			async::detach_with_allocator(*kernelAlloc,
+				runPosixRequests(info, std::move(posixStream.get<0>())));
+			async::detach_with_allocator(*kernelAlloc,
+				runObserveLoop(info));
+
+			return _thread.push_back(std::move(info));
+		}
+
+		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, LaneHandle lane) {
+			auto irq_lock = frg::guard(&irqMutex());
+			Universe::Guard universe_guard(thread->getUniverse()->lock);
+
+			controlHandle = thread->getUniverse()->attachDescriptor(universe_guard,
 					LaneDescriptor{lane});
 		}
 
-		coroutine<int> attachFile(OpenFile *file) {
+		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
+			auto irqLock = frg::guard(&irqMutex());
+			Universe::Guard universeLock(thread->getUniverse()->lock);
+
+			mbusHandle = thread->getUniverse()->attachDescriptor(universeLock,
+					LaneDescriptor{*mbusClient});
+		}
+
+		coroutine<int> attachFile(smarter::shared_ptr<Thread, ActiveHandle> thread, OpenFile *file) {
 			Handle handle;
 			{
 				auto irq_lock = frg::guard(&irqMutex());
-				Universe::Guard universe_guard(_thread->getUniverse()->lock);
+				Universe::Guard universe_guard(thread->getUniverse()->lock);
 
-				handle = _thread->getUniverse()->attachDescriptor(universe_guard,
+				handle = thread->getUniverse()->attachDescriptor(universe_guard,
 						LaneDescriptor(file->clientLane));
 			}
 
@@ -365,18 +397,18 @@ namespace posix {
 		}
 
 		frg::string<KernelAlloc> _name;
-		smarter::shared_ptr<Thread, ActiveHandle> _thread;
+		frg::vector<ThreadInfo, KernelAlloc> _thread{*kernelAlloc};
 
-		Handle posixHandle;
+		uint64_t nextTid_ = 1;
+
 		Handle mbusHandle;
 		Handle controlHandle;
-		LaneHandle posixLane;
 		frg::vector<OpenFile *, KernelAlloc> openFiles;
 		smarter::shared_ptr<AllocatedMemory> fileTableMemory;
 		VirtualAddr clientFileTable;
 	};
 
-	coroutine<void> Process::runPosixRequests() {
+	coroutine<void> Process::runPosixRequests(ThreadInfo info, LaneHandle posixLane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await AcceptSender{posixLane};
 			if(acceptError != Error::success) {
@@ -427,7 +459,7 @@ namespace posix {
 						if(req->mode() & PROT_EXEC)
 							native_flags |= VirtualizedPageSpace::kMapProtExecute;
 
-						auto space = _thread->getAddressSpace();
+						auto space = info.thread->getAddressSpace();
 						auto result = co_await space->protect(
 							req->address(), req->size(), native_flags);
 						// TODO: improve error handling here.
@@ -505,7 +537,7 @@ namespace posix {
 					async::detach_with_allocator(*kernelAlloc,
 							runDirectoryRequests(file, std::move(stream.get<0>())));
 
-					auto fd = co_await attachFile(file);
+					auto fd = co_await attachFile(info.thread, file);
 
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -529,7 +561,7 @@ namespace posix {
 					async::detach_with_allocator(*kernelAlloc,
 							runRegularRequests(file, std::move(stream.get<0>())));
 
-					auto fd = co_await attachFile(file);
+					auto fd = co_await attachFile(info.thread, file);
 
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -559,6 +591,7 @@ namespace posix {
 
 				auto module = resolveModule(req->path());
 				if(!module || module->type != MfsType::regular) {
+					infoLogger() << "thor: cannot stat file " << req->path() << frg::endlog;
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
@@ -709,7 +742,7 @@ namespace posix {
 					assert(!"TODO: implement shared mappings");
 				}
 
-				auto space = _thread->getAddressSpace();
+				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
 						req->address_hint(), 0, req->size(), protFlags);
 				// TODO: improve error handling here.
@@ -726,6 +759,27 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
+			}else if(preamble.id() == bragi::message_id<managarm::posix::GetPidRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::GetPidRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(info.tid);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				if(respError != Error::success) {
+					infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
+					co_return;
+				}
 			}else{
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;
@@ -734,10 +788,10 @@ namespace posix {
 		}
 	}
 
-	coroutine<void> Process::runObserveLoop() {
+	coroutine<void> Process::runObserveLoop(ThreadInfo info) {
 		uint64_t currentSeq = 1;
 		while(true) {
-			auto [error, observedSeq, interrupt] = co_await _thread->observe(currentSeq);
+			auto [error, observedSeq, interrupt] = co_await info.thread->observe(currentSeq);
 			assert(error == Error::success);
 			currentSeq = observedSeq;
 
@@ -746,18 +800,18 @@ namespace posix {
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Panic in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Fault in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(_thread, _name, WorkQueue::generalQueue()->take());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue()->take());
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
-				auto size = *_thread->_executor.arg0();
+				auto size = *info.thread->_executor.arg0();
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
 				fileMemory->selfPtr = fileMemory;
 				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
@@ -766,7 +820,7 @@ namespace posix {
 				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 						std::move(cowMemory), 0, size);
 
-				auto space = _thread->getAddressSpace();
+				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
 						0, 0, size,
 						AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
@@ -774,69 +828,96 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				*_thread->_executor.result0() = kHelErrNone;
-				*_thread->_executor.result1() = mapResult.value();
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				*info.thread->_executor.result0() = kHelErrNone;
+				*info.thread->_executor.result1() = mapResult.value();
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonDeallocate) { // ANON_FREE.
-				auto address = *_thread->_executor.arg0();
-				auto size = *_thread->_executor.arg1();
-				auto space = _thread->getAddressSpace();
+				auto address = *info.thread->_executor.arg0();
+				auto size = *info.thread->_executor.arg1();
+				auto space = info.thread->getAddressSpace();
 				auto unmapOutcome = co_await space->unmap(address, size);
 
 				if(!unmapOutcome) {
 					assert(unmapOutcome.error() == Error::illegalArgs);
-					*_thread->_executor.result0() = kHelErrIllegalArgs;
+					*info.thread->_executor.result0() = kHelErrIllegalArgs;
 				}else{
-					*_thread->_executor.result0() = kHelErrNone;
+					*info.thread->_executor.result0() = kHelErrNone;
 				}
-				*_thread->_executor.result1() = 0;
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				*info.thread->_executor.result1() = 0;
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetProcessData) {
 				::posix::ManagarmProcessData data = {
-					posixHandle,
+					info.posixHandle,
 					mbusHandle,
 					nullptr,
 					reinterpret_cast<HelHandle *>(clientFileTable),
 					nullptr
 				};
 
-				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
-						*_thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData),
+				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
+						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {
-					*_thread->_executor.result0() = kHelErrFault;
+					*info.thread->_executor.result0() = kHelErrFault;
 				}else{
-					*_thread->_executor.result0() = kHelErrNone;
+					*info.thread->_executor.result0() = kHelErrNone;
 				}
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetServerData) {
 				::posix::ManagarmServerData data = {
 					controlHandle
 				};
 
-				auto outcome = co_await _thread->getAddressSpace()->writeSpace(
-						*_thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData),
+				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
+						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData),
 						WorkQueue::generalQueue()->take());
 				if(!outcome) {
-					*_thread->_executor.result0() = kHelErrFault;
+					*info.thread->_executor.result0() = kHelErrFault;
 				}else{
-					*_thread->_executor.result0() = kHelErrNone;
+					*info.thread->_executor.result0() = kHelErrNone;
 				}
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superSigMask) { // sigprocmask.
-				*_thread->_executor.result0() = kHelErrNone;
-				*_thread->_executor.result1() = 0;
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				*info.thread->_executor.result0() = kHelErrNone;
+				*info.thread->_executor.result1() = 0;
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetTid) {
-				*_thread->_executor.result0() = kHelErrNone;
-				*_thread->_executor.result1() = 1;
-				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+				*info.thread->_executor.result0() = kHelErrNone;
+				*info.thread->_executor.result1() = info.tid;
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+			}else if(interrupt == kIntrSuperCall + ::posix::superClone) {
+				AbiParameters params;
+				params.ip = *info.thread->_executor.arg0();
+				params.sp = *info.thread->_executor.arg1();
+				params.argument = 0;
+
+				auto new_thread = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
+				new_thread->self = remove_tag_cast(new_thread);
+				new_thread->flags |= Thread::kFlagServer;
+				attachThread(new_thread);
+
+				// see helCreateThread for the reasoning here
+				new_thread.ctr()->increment();
+				new_thread.ctr()->increment();
+
+				*info.thread->_executor.result0() = kHelErrNone;
+				*info.thread->_executor.result1() = info.tid;
+
+				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
+				Scheduler::associate(new_thread.get(), &localScheduler.get());
+
+				if(auto e = Thread::resumeOther(remove_tag_cast(new_thread)); e != Error::success)
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+			}else if(interrupt == kIntrSuperCall + ::posix::superExit) {
+				break;
 			}else{
 				panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frg::endlog;
@@ -855,17 +936,14 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		async::detach_with_allocator(*kernelAlloc,
 				stdio::runStdioRequests(stdioStream.get<0>()));
 
-		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name), thread);
-		KernelFiber::asyncBlockCurrent(process->setupAddressSpace());
-		process->attachControl(std::move(controlLane));
-		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
-		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
-		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
-
-		async::detach_with_allocator(*kernelAlloc,
-				process->runPosixRequests());
-		async::detach_with_allocator(*kernelAlloc,
-				process->runObserveLoop());
+		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name));
+		KernelFiber::asyncBlockCurrent(process->setupAddressSpace(thread));
+		process->attachControl(thread, std::move(controlLane));
+		process->attachMbus(thread);
+		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
+		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
+		KernelFiber::asyncBlockCurrent(process->attachFile(thread, stdioFile));
+		process->attachThread(std::move(thread));
 
 		// Just block this fiber forever (we're still processing worklets).
 		FiberBlocker blocker;
