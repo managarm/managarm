@@ -10,4 +10,6 @@ void initializeMbusStream();
 coroutine<void> runMbus();
 coroutine<LaneHandle> runServer(frg::string_view name);
 
+void registerServerThread(frg::string<KernelAlloc> name, LaneHandle handle);
+
 } // namespace thor

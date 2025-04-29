@@ -351,6 +351,12 @@ private:
 public:
 	// TODO: This should be private.
 	Executor _executor;
+	frg::vector<smarter::shared_ptr<Thread, ActiveHandle>, KernelAlloc> children_{*kernelAlloc};
+
+	// PID tracking is only used for servers, where every server has its own PID namespace
+	// and PIDs are given out to threads spawned with the clone supercall
+	uint64_t pid = 1;
+	frg::string<KernelAlloc> name{*kernelAlloc};
 
 	// Timestamp at which _updateRunTime() was last called.
 	uint64_t _lastRunTimeUpdate{0};
