@@ -16,7 +16,7 @@ namespace svrctl {
 
 enum class Error {
 	success,
-	deviceNotSupported = 2
+	deviceNotSupported = 4
 };
 
 struct ControlOperations {

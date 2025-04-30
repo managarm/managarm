@@ -4,28 +4,15 @@ namespace "managarm::svrctl";
 // Kernel <-> userspace protocol.
 // --------------------------------------------------------------------------------------
 
-enum Error {
+enum Errors {
 	SUCCESS = 0,
 	ILLEGAL_REQUEST = 1,
-	// For the first response to FILE_UPLOAD: Client needs to send data.
-	DATA_REQUIRED = 3,
-	// For CTL_BIND: The driver cannot bind to this device.
-	DEVICE_NOT_SUPPORTED = 2
+	// For FileUploadResponse: Client needs to send data.
+	DATA_REQUIRED = 2,
+	DATA_MISMATCH = 3,
+	// For DeviceBindResponse: The driver cannot bind to this device.
+	DEVICE_NOT_SUPPORTED = 4
 }
-
-enum CntReqType {
-	NONE = 0,
-
-	FILE_UPLOAD = 1,
-	FILE_UPLOAD_DATA = 3,
-	SVR_RUN = 2,
-
-	CTL_BIND = 1
-}
-
-// --------------------------------------------------------------------------------------
-// Server description files.
-// --------------------------------------------------------------------------------------
 
 struct File {
 	string path;
@@ -37,20 +24,33 @@ struct Description {
 	File[] files;
 }
 
-message CntRequest 1 {
+message FileUploadRequest 1 {
 head(128):
-	CntReqType req_type;
-
-	tags {
-		tag(1) string name;
-
-		// For CTL_BIND: mbus ID of the base device that should be bound.
-		tag(2) int64 mbus_id;
-	}
+	string name;
+	uint8 with_data;
 }
 
-message SvrResponse 2 {
+message FileUploadResponse 2 {
 head(128):
-	Error error;
+	Errors error;
 }
 
+message RunServerRequest 3 {
+head(128):
+	string name;
+}
+
+message RunServerResponse 4 {
+head(128):
+	Errors error;
+}
+
+message DeviceBindRequest 5 {
+head(128):
+	int64 mbus_id;
+}
+
+message DeviceBindResponse 6 {
+head(128):
+	Errors error;
+}

@@ -4,7 +4,7 @@ src = [ 'src/server.cpp', svrctl_bragi ]
 inc = [ 'include' ]
 
 if not provide_deps
-	deps = [ helix_dep ]
+	deps = [ core_dep, helix_dep ]
 
 	libsvrctl = shared_library('svrctl_protocol', src,
 		dependencies : deps,
