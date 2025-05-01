@@ -7,7 +7,7 @@
 #include <hel-types.h>
 #include <hel-stubs.h>
 
-extern inline __attribute__ (( always_inline )) HelError helLog(const HelLogSeverity severity, const char *string,
+extern inline __attribute__ (( always_inline )) HelError helLog(const enum HelLogSeverity severity, const char *string,
 		size_t length) {
 	return helSyscall3(kHelCallLog, severity, (HelWord)string, length);
 };
@@ -61,7 +61,7 @@ extern inline __attribute__ (( always_inline )) HelError helCloseDescriptor(
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
-		struct HelQueueParameters *params, HelHandle *handle) {
+		const struct HelQueueParameters *params, HelHandle *handle) {
 	HelWord hel_handle;
 	HelError error = helSyscall1_1(kHelCallCreateQueue, (HelWord)params, &hel_handle);
 	*handle = (HelHandle)hel_handle;
@@ -74,7 +74,7 @@ extern inline __attribute__ (( always_inline )) HelError helCancelAsync(HelHandl
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
-		uint32_t flags, struct HelAllocRestrictions *restrictions, HelHandle *handle) {
+		uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle) {
 	HelWord hel_handle;
 	HelError error = helSyscall3_1(kHelCallAllocateMemory, (HelWord)size, (HelWord)flags,
 			(HelWord)restrictions, &hel_handle);

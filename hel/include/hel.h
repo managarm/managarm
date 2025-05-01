@@ -192,6 +192,7 @@ enum {
 };
 
 enum {
+	kHelActionNone = 0,
 	kHelActionDismiss = 11,
 	kHelActionOffer = 5,
 	kHelActionAccept = 6,
@@ -603,7 +604,7 @@ enum HelLogSeverity {
 //!    	Text to be written.
 //! @param[in] length
 //! 	Size of the text in bytes.
-HEL_C_LINKAGE HelError helLog(const HelLogSeverity severity, const char *string, size_t length);
+HEL_C_LINKAGE HelError helLog(const enum HelLogSeverity severity, const char *string, size_t length);
 
 //! Kills the current thread and writes an error message to the kernel's log.
 //! @param[in] string
@@ -666,7 +667,11 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //! @{
 
 //! Creates an IPC queue.
-HEL_C_LINKAGE HelError helCreateQueue(struct HelQueueParameters *params,
+//! @param[in] params
+//!    	Parameters for the queue.
+//! @param[out] handle
+//!    	Handle to the newly created queue.
+HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 		HelHandle *handle);
 
 //! Cancels an ongoing asynchronous operation.
@@ -690,7 +695,7 @@ HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
 //! @param[out] handle
 //!    	Handle to the new memory object.
 HEL_C_LINKAGE HelError helAllocateMemory(size_t size, uint32_t flags,
-		struct HelAllocRestrictions *restrictions, HelHandle *handle);
+		const struct HelAllocRestrictions *restrictions, HelHandle *handle);
 
 //! Resizes a memory object.
 //! @param[in] handle
