@@ -579,7 +579,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	case kHelCallCreateQueue: {
 		HelHandle handle;
-		*image.error() = helCreateQueue((HelQueueParameters *)arg0, &handle);
+		*image.error() = helCreateQueue((const HelQueueParameters *)arg0, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallCancelAsync: {
@@ -589,7 +589,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallAllocateMemory: {
 		HelHandle handle;
 		*image.error() = helAllocateMemory((size_t)arg0, (uint32_t)arg1,
-				(HelAllocRestrictions *)arg2, &handle);
+				(const HelAllocRestrictions *)arg2, &handle);
 		*image.out0() = handle;
 	} break;
 	case kHelCallResizeMemory: {

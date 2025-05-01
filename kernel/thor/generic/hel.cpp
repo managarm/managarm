@@ -369,7 +369,7 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 	return kHelErrNone;
 }
 
-HelError helCreateQueue(HelQueueParameters *paramsPtr, HelHandle *handle) {
+HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
@@ -417,7 +417,7 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 }
 
 HelError helAllocateMemory(size_t size, uint32_t flags,
-		HelAllocRestrictions *restrictions, HelHandle *handle) {
+		const HelAllocRestrictions *restrictions, HelHandle *handle) {
 	if(!size)
 		return kHelErrIllegalArgs;
 	if(size & (kPageSize - 1))
