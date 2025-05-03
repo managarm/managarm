@@ -1,9 +1,10 @@
 src = [
 	'src/libblockfs.cpp',
 	'src/gpt.cpp',
-	'src/ext2fs.cpp',
 	'src/raw.cpp',
 	'src/scsi.cpp',
+	'src/ext2/ext2fs.cpp',
+	'src/ext2/ops.cpp',
 ]
 inc = [ 'include' ]
 deps = [ libarch, core_dep, fs_proto_dep, mbus_proto_dep, ostrace_proto_dep ]
