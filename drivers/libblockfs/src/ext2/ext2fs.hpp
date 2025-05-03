@@ -15,7 +15,7 @@
 #include <hel.h>
 
 #include <blockfs.hpp>
-#include "common.hpp"
+#include "../common.hpp"
 #include "fs.bragi.hpp"
 
 namespace blockfs {
