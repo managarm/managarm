@@ -172,7 +172,7 @@ struct DirEntry {
 
 struct FileSystem;
 
-struct Inode : std::enable_shared_from_this<Inode> {
+struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
 	DiskInode *diskInode() {
@@ -198,22 +198,17 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 	FileSystem &fs;
 
-	// ext2fs on-disk inode number
-	const uint32_t number;
-
-	// true if this inode has already been loaded from disk
-	bool isReady;
-
 	helix::UniqueDescriptor diskLock;
 	helix::Mapping diskMapping;
-
-	// called when the inode becomes ready
-	async::oneshot_event readyJump;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
 	helix::Mapping fileMapping;
+
+	helix::BorrowedDescriptor accessMemory() {
+		return helix::BorrowedDescriptor{frontalMemory};
+	}
 
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.
@@ -227,15 +222,6 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// Caches indirection blocks reachable from order 2 blocks.
 	// - Indirection level 3/3 for triple indirect blocks.
 	helix::UniqueDescriptor indirectOrder3;
-
-	// NOTE: The following fields are only meaningful if the isReady is true
-
-	FileType fileType;
-
-	int uid, gid;
-	FlockManager flockManager;
-
-	std::unordered_set<std::string> obstructedLinks;
 };
 
 // --------------------------------------------------------
@@ -244,7 +230,7 @@ struct Inode : std::enable_shared_from_this<Inode> {
 
 struct OpenFile;
 
-struct FileSystem : BaseFileSystem {
+struct FileSystem final : BaseFileSystem {
 	using Inode = Inode;
 	using File = OpenFile;
 
@@ -309,18 +295,18 @@ struct FileSystem : BaseFileSystem {
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
 
-//static_assert(blockfs::FileSystem<FileSystem>);
-
 // --------------------------------------------------------
 // File operation closures
 // --------------------------------------------------------
 
-struct OpenFile : BaseFile {
+struct OpenFile final : BaseFile {
 	OpenFile(std::shared_ptr<Inode> inode, bool append)
 	: BaseFile{inode, append} { }
 
 	async::result<std::optional<std::string>> readEntries();
 };
+
+static_assert(blockfs::FileSystem<FileSystem>);
 
 } } // namespace blockfs::ext2fs
 

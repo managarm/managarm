@@ -30,7 +30,7 @@ namespace {
 // --------------------------------------------------------
 
 Inode::Inode(FileSystem &fs, uint32_t number)
-: fs(fs), number(number), isReady(false) { }
+: BaseInode{fs, number}, fs{fs} { }
 
 void Inode::setFileSize(size_t size) {
 	assert(!(size & ~uint64_t(0xFFFFFFFF)));
@@ -39,7 +39,7 @@ void Inode::setFileSize(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -94,7 +94,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == fileSize());
@@ -131,7 +131,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 		// Increment the target's link count.
 		auto target = std::static_pointer_cast<Inode>(fs.accessInode(ino));
-		co_await target->readyJump.wait();
+		co_await target->readyEvent.wait();
 		target->diskInode()->linksCount++;
 
 		// Flush the target inode to disk.
@@ -218,7 +218,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -247,7 +247,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 
 			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
-			co_await target->readyJump.wait();
+			co_await target->readyEvent.wait();
 
 			if(target->fileType == kTypeDirectory) {
 				if(target->diskInode()->linksCount > 2) {
@@ -322,10 +322,10 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	auto dirNode = co_await fs.createDirectory();
-	co_await dirNode->readyJump.wait();
+	co_await dirNode->readyEvent.wait();
 
 	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
 
@@ -391,10 +391,10 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	auto newNode = co_await fs.createSymlink();
-	co_await newNode->readyJump.wait();
+	co_await newNode->readyEvent.wait();
 
 	assert(target.size() <= 60); // TODO: implement this case!
 	newNode->setFileSize(target.size());
@@ -409,7 +409,7 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	diskInode()->mode = (diskInode()->mode & 0xFFFFF000) | mode;
 
@@ -422,7 +422,7 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 }
 
 async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	if(atime)
 		diskInode()->atime = atime->tv_sec;
@@ -766,7 +766,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 
 async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
 		const void *buffer, size_t length) {
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 
 	// Make sure that data blocks are allocated.
 	auto blockOffset = (offset & ~(blockSize - 1)) >> blockShift;
@@ -870,8 +870,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
 	manageFileData(inode);
 
-	inode->isReady = true;
-	inode->readyJump.raise();
+	inode->readyEvent.raise();
 }
 
 async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
@@ -1247,7 +1246,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
 
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
 	constexpr size_t indirectBufferSize = 8;
@@ -1368,7 +1367,7 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
 
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not write past the EOF.
 
 	size_t progress = 0;
@@ -1458,7 +1457,7 @@ async::result<std::optional<std::string>>
 OpenFile::readEntries() {
 	auto inode = std::static_pointer_cast<Inode>(this->inode);
 
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 
 	if (inode->fileType != kTypeDirectory) {
 		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
