@@ -130,7 +130,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		HEL_CHECK(syncDir.error());
 
 		// Increment the target's link count.
-		auto target = fs.accessInode(ino);
+		auto target = std::static_pointer_cast<Inode>(fs.accessInode(ino));
 		co_await target->readyJump.wait();
 		target->diskInode()->linksCount++;
 
@@ -246,7 +246,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 
-			auto target = fs.accessInode(disk_entry->inode);
+			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
 			co_await target->readyJump.wait();
 
 			if(target->fileType == kTypeDirectory) {
@@ -446,6 +446,18 @@ FileSystem::FileSystem(BlockDevice *device)
 : device(device) {
 }
 
+
+extern protocols::fs::FileOperations fileOperations;
+extern protocols::fs::NodeOperations nodeOperations;
+
+const protocols::fs::FileOperations *FileSystem::fileOps() {
+	return &fileOperations;
+}
+
+const protocols::fs::NodeOperations *FileSystem::nodeOps() {
+	return &nodeOperations;
+}
+
 async::result<void> FileSystem::init() {
 	std::vector<uint8_t> buffer(1024);
 	co_await device->readSectors(2, buffer.data(), 2);
@@ -631,11 +643,11 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 	}
 }
 
-auto FileSystem::accessRoot() -> std::shared_ptr<Inode> {
+auto FileSystem::accessRoot() -> std::shared_ptr<void> {
 	return accessInode(EXT2_ROOT_INO);
 }
 
-auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
+auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<void> {
 	assert(number > 0);
 	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
 	std::shared_ptr<Inode> active_inode = inode_slot.lock();
@@ -649,7 +661,7 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	return new_inode;
 }
 
-async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid) {
+async::result<std::shared_ptr<void>> FileSystem::createRegular(int uid, int gid) {
 	auto ino = co_await allocateInode();
 	assert(ino);
 
@@ -717,7 +729,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	bgdt[bg_idx].usedDirsCount++;
 	co_await writebackBgdt();
 
-	co_return accessInode(ino);
+	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
 async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
@@ -749,7 +761,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
 
-	co_return accessInode(ino);
+	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
 async::result<void> FileSystem::write(Inode *inode, uint64_t offset,

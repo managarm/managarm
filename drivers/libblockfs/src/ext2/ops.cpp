@@ -1,5 +1,3 @@
-#include "ops.hpp"
-
 #include <core/clock.hpp>
 #include <async/result.hpp>
 #include <protocols/fs/server.hpp>
@@ -9,7 +7,9 @@
 
 #include "ext2fs.hpp"
 
-namespace blockfs::ext2 {
+namespace blockfs::ext2fs {
+
+extern protocols::fs::FileOperations fileOperations;
 
 namespace {
 
@@ -440,7 +440,7 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 			if (parent == self)
 				co_return std::make_tuple(nodes, protocols::fs::FileType::unknown, 0);
 
-			parent = self->fs.accessInode(FRG_CO_TRY(co_await parent->findEntry(".."))->inode);
+			parent = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(FRG_CO_TRY(co_await parent->findEntry(".."))->inode));
 			nodes.pop_back();
 		} else {
 			entry = FRG_CO_TRY(co_await parent->findEntry(component));
@@ -464,7 +464,7 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 				if (entry->fileType != kTypeDirectory)
 					co_return protocols::fs::Error::notDirectory;
 
-				parent = ino;
+				parent = std::static_pointer_cast<ext2fs::Inode>(ino);
 			}
 		}
 	}
@@ -523,4 +523,4 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.traverseLinks = &traverseLinks
 };
 
-} // namespace blockfs::ext2
+} // namespace blockfs::ext2fs
