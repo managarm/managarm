@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common.hpp"
 #include <memory>
 #include <unordered_set>
 
@@ -14,8 +15,31 @@ namespace blockfs {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
+struct BaseFileSystem;
+
+struct BaseInode {
+	BaseInode(BaseFileSystem &fs, uint32_t number)
+	: fs{fs}, number{number} {  }
+
+	BaseInode(const BaseInode &) = delete;
+	BaseInode(BaseInode &&) = delete;
+	BaseInode &operator=(const BaseInode &) = delete;
+	BaseInode &operator=(BaseInode &&) = delete;
+
+	BaseFileSystem &fs;
+	const uint32_t number;
+
+	async::oneshot_event readyEvent;
+
+	int uid, gid;
+	FileType fileType;
+
+	FlockManager flockManager;
+	std::unordered_set<std::string> obstructedLinks;
+};
+
 struct BaseFile {
-	BaseFile(std::shared_ptr<void> inode, bool append)
+	BaseFile(std::shared_ptr<BaseInode> inode, bool append)
 	: inode{inode}, append{append} { }
 
 	BaseFile(const BaseFile &) = delete;
@@ -23,7 +47,7 @@ struct BaseFile {
 	BaseFile &operator=(const BaseFile &) = delete;
 	BaseFile &operator=(BaseFile &&) = delete;
 
-	const std::shared_ptr<void> inode;
+	const std::shared_ptr<BaseInode> inode;
 	async::shared_mutex mutex;
 
 	uint64_t offset = 0;
@@ -38,9 +62,9 @@ struct BaseFileSystem {
 	virtual const protocols::fs::FileOperations *fileOps() = 0;
 	virtual const protocols::fs::NodeOperations *nodeOps() = 0;
 
-	virtual std::shared_ptr<void> accessRoot() = 0;
-	virtual std::shared_ptr<void> accessInode(uint32_t inode) = 0;
-	virtual async::result<std::shared_ptr<void>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
+	virtual std::shared_ptr<BaseInode> accessRoot() = 0;
+	virtual std::shared_ptr<BaseInode> accessInode(uint32_t inode) = 0;
+	virtual async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
 
 	constexpr BaseFileSystem() = default;
 
@@ -53,6 +77,14 @@ struct BaseFileSystem {
 };
 
 template <typename T>
+concept Inode =
+	std::derived_from<T, BaseInode>
+	&& requires (T ino) {
+		{ ino.fileSize() } -> std::same_as<size_t>;
+		{ ino.accessMemory() } -> std::same_as<helix::BorrowedDescriptor>;
+	};
+
+template <typename T>
 concept File =
 	std::derived_from<T, BaseFile>;
 
@@ -62,8 +94,9 @@ concept FileSystem =
 	&& requires {
 		typename T::File;
 		typename T::Inode;
-}
-	&& File<typename T::File>;
+	}
+	&& File<typename T::File>
+	&& Inode<typename T::Inode>;
 
 
 } // namespace blockfs

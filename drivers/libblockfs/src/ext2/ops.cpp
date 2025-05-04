@@ -17,113 +17,6 @@ namespace {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
-async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView,
-		void *buffer, size_t length, async::cancellation_token) {
-	if (!length)
-		co_return size_t{0};
-
-	protocols::ostrace::Timer timer;
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-
-	if(inode->fileType == FileType::kTypeDirectory) {
-		co_return std::unexpected{protocols::fs::Error::isDirectory};
-	}
-
-	co_await inode->readyJump.wait();
-
-	if(self->offset >= inode->fileSize())
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
-
-	auto remaining = inode->fileSize() - self->offset;
-	auto chunkSize = std::min(length, remaining);
-	if(!chunkSize)
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
-
-	auto chunk_offset = self->offset;
-	self->offset += chunkSize;
-
-	// TODO: If we *know* that the pages are already available,
-	//       we can also fall back to the following "old" mapping code.
-/*
-	auto mapOffset = chunk_offset & ~size_t(0xFFF);
-	auto mapSize = (((chunk_offset & size_t(0xFFF)) + chunkSize + 0xFFF) & ~size_t(0xFFF));
-
-	helix::LockMemoryView lockMemory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
-			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
-	co_await submit.wait();
-	HEL_CHECK(lockMemory.error());
-
-	// Map the page cache into the address space.
-	helix::Mapping fileMap{helix::BorrowedDescriptor{self->inode->frontalMemory},
-			static_cast<ptrdiff_t>(mapOffset), mapSize,
-			kHelMapProtRead | kHelMapDontRequireBacking};
-
-	memcpy(buffer, reinterpret_cast<char *>(fileMap.get()) + (chunk_offset - mapOffset),
-			chunkSize);
-*/
-
-	auto readMemory = co_await helix_ng::readMemory(
-			helix::BorrowedDescriptor(inode->frontalMemory),
-			chunk_offset, chunkSize, buffer);
-	HEL_CHECK(readMemory.error());
-
-	ostContext.emit(
-		ostEvtRead,
-		ostAttrNumBytes(length),
-		ostAttrTime(timer.elapsed())
-	);
-
-	co_return chunkSize;
-}
-
-async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, helix_ng::CredentialsView,
-		void *buffer, size_t length, async::cancellation_token) {
-	assert(length);
-
-	protocols::ostrace::Timer timer;
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-
-	// TODO(geert): pass cancellation token
-	co_await inode->readyJump.wait();
-
-	if(self->offset >= inode->fileSize())
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
-
-	auto remaining = inode->fileSize() - offset;
-	auto chunk_size = std::min(length, remaining);
-	if(!chunk_size)
-		co_return std::unexpected{protocols::fs::Error::endOfFile};
-
-	auto chunk_offset = offset;
-	auto map_offset = chunk_offset & ~size_t(0xFFF);
-	auto map_size = (((chunk_offset & size_t(0xFFF)) + chunk_size + 0xFFF) & ~size_t(0xFFF));
-
-	helix::LockMemoryView lock_memory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
-			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lock_memory.error());
-
-	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
-			static_cast<ptrdiff_t>(map_offset), map_size,
-			kHelMapProtRead | kHelMapDontRequireBacking};
-
-	memcpy(buffer, reinterpret_cast<char *>(file_map.get()) + (chunk_offset - map_offset),
-			chunk_size);
-
-	ostContext.emit(
-		ostEvtRead,
-		ostAttrNumBytes(length),
-		ostAttrTime(timer.elapsed())
-	);
-
-	co_return chunk_size;
-}
-
 async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, helix_ng::CredentialsView,
 		const void *buffer, size_t length) {
 	if(!length) {
@@ -162,14 +55,6 @@ async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, 
 	co_return length;
 }
 
-async::result<helix::BorrowedDescriptor>
-accessMemory(void *object) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-	co_await inode->readyJump.wait();
-	co_return inode->frontalMemory;
-}
-
 async::result<protocols::fs::ReadEntriesResult>
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
@@ -186,7 +71,7 @@ truncate(void *object, size_t size) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 	co_await inode->fs.truncate(inode.get(), size);
-	co_return {};
+	co_return frg::success;
 }
 
 async::result<int> getFileFlags(void *) {
@@ -294,7 +179,7 @@ async::detached serve(smarter::shared_ptr<ext2fs::OpenFile> file,
 async::result<protocols::fs::FileStats>
 getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	co_await self->readyJump.wait();
+	co_await self->readyEvent.wait();
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->diskInode()->linksCount;
@@ -313,7 +198,7 @@ async::result<protocols::fs::OpenResult>
 open(std::shared_ptr<void> object, bool append) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto file = smarter::make_shared<ext2fs::OpenFile>(self, append);
-	co_await self->readyJump.wait();
+	co_await self->readyEvent.wait();
 
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;
@@ -334,7 +219,7 @@ open(std::shared_ptr<void> object, bool append) {
 
 async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	co_await self->readyJump.wait();
+	co_await self->readyEvent.wait();
 
 	if(self->fileSize() <= 60) {
 		co_return std::string{self->diskInode()->data.embedded,
@@ -525,12 +410,12 @@ constinit protocols::fs::FileOperations fileOperations {
 	.seekAbs      = &doSeekAbs<FileSystem>,
 	.seekRel      = &doSeekRel<FileSystem>,
 	.seekEof      = &doSeekEof<FileSystem>,
-	.read         = &read,
-	.pread        = &pread,
+	.read         = &doRead<FileSystem>,
+	.pread        = &doPread<FileSystem>,
 	.write        = &write,
 	.pwrite       = &pwrite,
 	.readEntries  = &readEntries,
-	.accessMemory = &accessMemory,
+	.accessMemory = &doAccessMemory<FileSystem>,
 	.truncate     = &truncate,
 	.flock        = &doFlock<FileSystem>,
 	.getFileFlags = &getFileFlags,
