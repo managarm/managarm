@@ -1,6 +1,9 @@
 #pragma once
 
 #include <memory>
+#include <unordered_set>
+
+#include <async/mutex.hpp>
 
 #include <protocols/fs/server.hpp>
 #include <protocols/fs/file-locks.hpp>
@@ -10,6 +13,23 @@ namespace blockfs {
 
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
+
+struct BaseFile {
+	BaseFile(std::shared_ptr<void> inode, bool append)
+	: inode{inode}, append{append} { }
+
+	BaseFile(const BaseFile &) = delete;
+	BaseFile(BaseFile &&) = delete;
+	BaseFile &operator=(const BaseFile &) = delete;
+	BaseFile &operator=(BaseFile &&) = delete;
+
+	const std::shared_ptr<void> inode;
+	async::shared_mutex mutex;
+
+	uint64_t offset = 0;
+	Flock flock;
+	bool append;
+};
 
 struct BaseFileSystem {
 	// TODO(qookie): Ideally, these methods would be a part of the concept
@@ -33,11 +53,17 @@ struct BaseFileSystem {
 };
 
 template <typename T>
+concept File =
+	std::derived_from<T, BaseFile>;
+
+template <typename T>
 concept FileSystem =
 	std::derived_from<T, BaseFileSystem>
 	&& requires {
 		typename T::File;
 		typename T::Inode;
-};
+}
+	&& File<typename T::File>;
+
 
 } // namespace blockfs

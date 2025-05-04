@@ -1663,11 +1663,10 @@ async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
 // OpenFile
 // --------------------------------------------------------
 
-OpenFile::OpenFile(std::shared_ptr<Inode> inode)
-: inode(inode), offset(0) { }
-
 async::result<std::optional<std::string>>
 OpenFile::readEntries() {
+	auto inode = std::static_pointer_cast<Inode>(this->inode);
+
 	co_await inode->readyJump.wait();
 
 	if (inode->fileType != kTypeDirectory) {

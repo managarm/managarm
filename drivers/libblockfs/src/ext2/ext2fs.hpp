@@ -313,19 +313,17 @@ struct FileSystem : BaseFileSystem {
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
 
+//static_assert(blockfs::FileSystem<FileSystem>);
+
 // --------------------------------------------------------
 // File operation closures
 // --------------------------------------------------------
 
-struct OpenFile {
-	OpenFile(std::shared_ptr<Inode> inode);
+struct OpenFile : BaseFile {
+	OpenFile(std::shared_ptr<Inode> inode, bool append)
+	: BaseFile{inode, append} { }
 
 	async::result<std::optional<std::string>> readEntries();
-
-	std::shared_ptr<Inode> inode;
-	uint64_t offset;
-	Flock flock;
-	bool append;
 };
 
 } } // namespace blockfs::ext2fs

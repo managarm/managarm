@@ -4,6 +4,7 @@
 #include <frg/scope_exit.hpp>
 
 #include "../trace.hpp"
+#include "../common-ops.hpp"
 
 #include "ext2fs.hpp"
 
@@ -13,35 +14,8 @@ extern protocols::fs::FileOperations fileOperations;
 
 namespace {
 
-async::result<protocols::fs::SeekResult> seekAbs(void *object, int64_t offset) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	self->offset = offset;
-	co_return static_cast<ssize_t>(self->offset);
-}
-
-async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	self->offset += offset;
-	co_return static_cast<ssize_t>(self->offset);
-}
-
-async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	self->offset += offset + self->inode->fileSize();
-	co_return static_cast<ssize_t>(self->offset);
-}
-
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
-
-async::result<protocols::fs::Error> flock(void *object, int flags) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.wait();
-	auto inode = self->inode;
-
-	auto result = co_await inode->flockManager.lock(&self->flock, flags);
-	co_return result;
-}
 
 async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length, async::cancellation_token) {
@@ -50,17 +24,18 @@ async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Credential
 
 	protocols::ostrace::Timer timer;
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
-	if(self->inode->fileType == FileType::kTypeDirectory) {
+	if(inode->fileType == FileType::kTypeDirectory) {
 		co_return std::unexpected{protocols::fs::Error::isDirectory};
 	}
 
-	co_await self->inode->readyJump.wait();
+	co_await inode->readyJump.wait();
 
-	if(self->offset >= self->inode->fileSize())
+	if(self->offset >= inode->fileSize())
 		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
-	auto remaining = self->inode->fileSize() - self->offset;
+	auto remaining = inode->fileSize() - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
 		co_return std::unexpected{protocols::fs::Error::endOfFile};
@@ -90,7 +65,7 @@ async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Credential
 */
 
 	auto readMemory = co_await helix_ng::readMemory(
-			helix::BorrowedDescriptor(self->inode->frontalMemory),
+			helix::BorrowedDescriptor(inode->frontalMemory),
 			chunk_offset, chunkSize, buffer);
 	HEL_CHECK(readMemory.error());
 
@@ -109,13 +84,15 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, hel
 
 	protocols::ostrace::Timer timer;
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	// TODO(geert): pass cancellation token
-	co_await self->inode->readyJump.wait();
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
-	if(self->offset >= self->inode->fileSize())
+	// TODO(geert): pass cancellation token
+	co_await inode->readyJump.wait();
+
+	if(self->offset >= inode->fileSize())
 		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
-	auto remaining = self->inode->fileSize() - offset;
+	auto remaining = inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
 		co_return std::unexpected{protocols::fs::Error::endOfFile};
@@ -125,13 +102,13 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, hel
 	auto map_size = (((chunk_offset & size_t(0xFFF)) + chunk_size + 0xFFF) & ~size_t(0xFFF));
 
 	helix::LockMemoryView lock_memory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(self->inode->frontalMemory),
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
 			&lock_memory, map_offset, map_size, helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_memory.error());
 
 	// Map the page cache into the address space.
-	helix::Mapping file_map{helix::BorrowedDescriptor{self->inode->frontalMemory},
+	helix::Mapping file_map{helix::BorrowedDescriptor{inode->frontalMemory},
 			static_cast<ptrdiff_t>(map_offset), map_size,
 			kHelMapProtRead | kHelMapDontRequireBacking};
 
@@ -155,10 +132,11 @@ async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, h
 	protocols::ostrace::Timer timer;
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
 	if(self->append) {
-		self->offset = self->inode->fileSize();
+		self->offset = inode->fileSize();
 	}
-	co_await self->inode->fs.write(self->inode.get(), self->offset, buffer, length);
+	co_await inode->fs.write(inode.get(), self->offset, buffer, length);
 	self->offset += length;
 
 	ostContext.emit(
@@ -179,15 +157,17 @@ async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, 
 	}
 
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->fs.write(self->inode.get(), offset, buffer, length);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+	co_await inode->fs.write(inode.get(), offset, buffer, length);
 	co_return length;
 }
 
 async::result<helix::BorrowedDescriptor>
 accessMemory(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->readyJump.wait();
-	co_return self->inode->frontalMemory;
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+	co_await inode->readyJump.wait();
+	co_return inode->frontalMemory;
 }
 
 async::result<protocols::fs::ReadEntriesResult>
@@ -204,7 +184,8 @@ readEntries(void *object) {
 async::result<frg::expected<protocols::fs::Error>>
 truncate(void *object, size_t size) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	co_await self->inode->fs.truncate(self->inode.get(), size);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+	co_await inode->fs.truncate(inode.get(), size);
 	co_return {};
 }
 
@@ -331,9 +312,8 @@ getStats(std::shared_ptr<void> object) {
 async::result<protocols::fs::OpenResult>
 open(std::shared_ptr<void> object, bool append) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto file = smarter::make_shared<ext2fs::OpenFile>(self);
+	auto file = smarter::make_shared<ext2fs::OpenFile>(self, append);
 	co_await self->readyJump.wait();
-	file->append = append;
 
 	helix::UniqueLane local_ctrl, remote_ctrl;
 	helix::UniqueLane local_pt, remote_pt;
@@ -542,9 +522,9 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 } // namespace anonymous
 
 constinit protocols::fs::FileOperations fileOperations {
-	.seekAbs      = &seekAbs,
-	.seekRel      = &seekRel,
-	.seekEof      = &seekEof,
+	.seekAbs      = &doSeekAbs<FileSystem>,
+	.seekRel      = &doSeekRel<FileSystem>,
+	.seekEof      = &doSeekEof<FileSystem>,
 	.read         = &read,
 	.pread        = &pread,
 	.write        = &write,
@@ -552,7 +532,7 @@ constinit protocols::fs::FileOperations fileOperations {
 	.readEntries  = &readEntries,
 	.accessMemory = &accessMemory,
 	.truncate     = &truncate,
-	.flock        = &flock,
+	.flock        = &doFlock<FileSystem>,
 	.getFileFlags = &getFileFlags,
 	.setFileFlags = &setFileFlags,
 };
