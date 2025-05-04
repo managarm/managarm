@@ -17,7 +17,6 @@
 #include <blockfs.hpp>
 #include "gpt.hpp"
 #include "ext2/ext2fs.hpp"
-#include "ext2/ops.hpp"
 #include "raw.hpp"
 #include "trace.hpp"
 #include "fs.bragi.hpp"
@@ -34,7 +33,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 	std::cout << "unix device: Connection" << std::endl;
 
 	// TODO(qookie): Generic file system type
-	std::unique_ptr<ext2fs::FileSystem> fs;
+	std::unique_ptr<BaseFileSystem> fs;
 
 	while(true) {
 		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
@@ -75,13 +74,13 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
 			// Mount the actual file system
 			fs = std::make_unique<ext2fs::FileSystem>(partition);
-			co_await fs->init();
+			co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
 			printf("ext2fs is ready!\n");
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
-					&ext2::nodeOperations);
+					fs->nodeOps());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -95,12 +94,13 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
-			auto inode = co_await fs->createRegular(req.uid(), req.gid(), 0);
+			auto inodeRaw = co_await fs->createRegular(req.uid(), req.gid(), 0);
+			auto inode = std::static_pointer_cast<ext2fs::Inode>(inodeRaw);
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
 			protocols::fs::serveNode(std::move(local_lane),
-					inode, &ext2::nodeOperations);
+					inode, fs->nodeOps());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -130,8 +130,11 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 				break;
 			}
 
-			auto oldInode = fs->accessInode(req->inode_source());
-			auto newInode = fs->accessInode(req->inode_target());
+			auto oldInodeRaw = fs->accessInode(req->inode_source());
+			auto newInodeRaw = fs->accessInode(req->inode_target());
+
+			auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
+			auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
 
 			assert(!req->old_name().empty() && req->old_name() != "." && req->old_name() != "..");
 			auto old_result = co_await oldInode->findEntry(req->old_name());

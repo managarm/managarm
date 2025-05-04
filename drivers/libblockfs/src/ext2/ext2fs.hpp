@@ -17,6 +17,7 @@
 #include <blockfs.hpp>
 #include "../common.hpp"
 #include "fs.bragi.hpp"
+#include "../fs.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -242,8 +243,16 @@ struct Inode : std::enable_shared_from_this<Inode> {
 // FileSystem
 // --------------------------------------------------------
 
-struct FileSystem {
+struct OpenFile;
+
+struct FileSystem : BaseFileSystem {
+	using Inode = Inode;
+	using File = OpenFile;
+
 	FileSystem(BlockDevice *device);
+
+	const protocols::fs::FileOperations *fileOps() override;
+	const protocols::fs::NodeOperations *nodeOps() override;
 
 	async::result<void> init();
 
@@ -254,9 +263,9 @@ struct FileSystem {
 	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeTable(helix::UniqueDescriptor memory);
 
-	std::shared_ptr<Inode> accessRoot();
-	std::shared_ptr<Inode> accessInode(uint32_t number);
-	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid, uint32_t parentIno);
+	std::shared_ptr<void> accessRoot() override;
+	std::shared_ptr<void> accessInode(uint32_t number) override;
+	async::result<std::shared_ptr<void>> createRegular(int uid, int gid, uint32_t parentIno) override;
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 

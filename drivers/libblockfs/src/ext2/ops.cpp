@@ -1,5 +1,3 @@
-#include "ops.hpp"
-
 #include <core/clock.hpp>
 #include <async/result.hpp>
 #include <protocols/fs/server.hpp>
@@ -9,7 +7,9 @@
 
 #include "ext2fs.hpp"
 
-namespace blockfs::ext2 {
+namespace blockfs::ext2fs {
+
+extern protocols::fs::FileOperations fileOperations;
 
 namespace {
 
@@ -443,7 +443,7 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 
 			auto entry = FRG_CO_TRY(co_await parent->findEntry(".."));
 			assert(entry);
-			parent = self->fs.accessInode(entry->inode);
+			parent = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(entry->inode));
 			nodes.pop_back();
 		} else {
 			entry = FRG_CO_TRY(co_await parent->findEntry(component));
@@ -467,7 +467,7 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 				if (entry->fileType != kTypeDirectory)
 					co_return protocols::fs::Error::notDirectory;
 
-				parent = ino;
+				parent = std::static_pointer_cast<ext2fs::Inode>(ino);
 			}
 		}
 	}
@@ -526,7 +526,8 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 		co_return protocols::fs::GetLinkResult{self->fs.accessInode(e.inode), e.inode, type};
 	}
 
-	auto inode = co_await self->fs.createRegular(uid, gid, self->number);
+	auto baseInode = co_await self->fs.createRegular(uid, gid, self->number);
+	auto inode = std::static_pointer_cast<ext2fs::Inode>(baseInode);
 	auto chmodResult = co_await inode->chmod(mode);
 	if (chmodResult != protocols::fs::Error::none)
 		co_return std::unexpected{chmodResult};
@@ -572,4 +573,4 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.getLinkOrCreate = &getLinkOrCreate
 };
 
-} // namespace blockfs::ext2
+} // namespace blockfs::ext2fs
