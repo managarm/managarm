@@ -156,4 +156,14 @@ doAccessMemory(void *object) {
 	co_return inode->accessMemory();
 }
 
+template <FileSystem T>
+async::result<void> doObstructLink(std::shared_ptr<void> object, std::string name) {
+	using Inode = typename T::Inode;
+
+	auto self = std::static_pointer_cast<Inode>(object);
+
+	self->obstructedLinks.insert(name);
+	co_return;
+}
+
 } // namespace blockfs

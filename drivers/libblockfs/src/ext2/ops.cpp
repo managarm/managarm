@@ -273,12 +273,6 @@ async::result<protocols::fs::Error> utimensat(std::shared_ptr<void> object,
 	co_return result;
 }
 
-async::result<void> obstructLink(std::shared_ptr<void> object, std::string name) {
-	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	self->obstructedLinks.insert(name);
-	co_return;
-}
-
 async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<void> object,
 		std::deque<std::string> components) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
@@ -433,7 +427,7 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.symlink = &symlink,
 	.chmod = &chmod,
 	.utimensat = &utimensat,
-	.obstructLink = &obstructLink,
+	.obstructLink = &doObstructLink<FileSystem>,
 	.traverseLinks = &traverseLinks,
 	.getLinkOrCreate = &getLinkOrCreate
 };
