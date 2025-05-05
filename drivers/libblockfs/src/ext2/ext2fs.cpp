@@ -444,6 +444,18 @@ async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> ati
 	co_return protocols::fs::Error::none;
 }
 
+async::result<void> Inode::updateAtime(struct timespec ts) {
+	co_await readyEvent.wait();
+
+	diskInode()->atime = ts.tv_sec;
+
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+}
+
+
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------

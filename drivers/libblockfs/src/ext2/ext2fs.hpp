@@ -211,6 +211,8 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 		return helix::BorrowedDescriptor{frontalMemory};
 	}
 
+	async::result<void> updateAtime(struct timespec ts);
+
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.
 	// - Indirection level 1/2 for double indirect blocks.
@@ -310,6 +312,8 @@ struct OpenFile final : BaseFile {
 	async::result<std::optional<std::string>> readEntries();
 };
 
+static_assert(blockfs::Inode<Inode>);
+static_assert(blockfs::File<OpenFile>);
 static_assert(blockfs::FileSystem<FileSystem>);
 
 } } // namespace blockfs::ext2fs

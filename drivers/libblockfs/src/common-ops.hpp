@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
 #include "fs.hpp"
 #include "trace.hpp"
@@ -165,5 +166,41 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 	self->obstructedLinks.insert(name);
 	co_return;
 }
+
+template <FileSystem T>
+async::result<protocols::fs::OpenResult>
+doOpen(std::shared_ptr<void> object, bool append) {
+	using File = typename T::File;
+	using Inode = typename T::Inode;
+
+	auto self = std::static_pointer_cast<Inode>(object);
+	auto file = smarter::make_shared<File>(self, append);
+	co_await self->readyEvent.wait();
+
+	auto [localCtrl, remoteCtrl] = helix::createStream();
+	auto [localPt, remotePt] = helix::createStream();
+
+	co_await self->updateAtime(clk::getRealtime());
+
+	[] (smarter::shared_ptr<File> file, BaseFileSystem &fs, helix::UniqueLane localCtrl,
+			helix::UniqueLane localPt) -> async::detached {
+		async::cancellation_event cancelPt;
+		auto fileOps = fs.fileOps();
+
+		// Cancel the passthrough lane once the file line is closed.
+		async::detach(
+			protocols::fs::serveFile(std::move(localCtrl),
+					file.get(), fileOps),
+			[&] {
+				cancelPt.cancel();
+			});
+
+		co_await protocols::fs::servePassthrough(std::move(localPt),
+				file, fileOps, cancelPt);
+	}(file, self->fs, std::move(localCtrl), std::move(localPt));
+
+	co_return protocols::fs::OpenResult{std::move(remoteCtrl), std::move(remotePt)};
+}
+
 
 } // namespace blockfs

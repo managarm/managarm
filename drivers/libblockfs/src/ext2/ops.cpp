@@ -10,12 +10,7 @@
 
 namespace blockfs::ext2fs {
 
-extern protocols::fs::FileOperations fileOperations;
-
 namespace {
-
-using FlockManager = protocols::fs::FlockManager;
-using Flock = protocols::fs::Flock;
 
 async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, helix_ng::CredentialsView,
 		const void *buffer, size_t length) {
@@ -162,20 +157,6 @@ async::result<frg::expected<protocols::fs::Error>> unlink(std::shared_ptr<void> 
 	co_return {};
 }
 
-async::detached serve(smarter::shared_ptr<ext2fs::OpenFile> file,
-		helix::UniqueLane local_ctrl, helix::UniqueLane local_pt) {
-	async::cancellation_event cancel_pt;
-
-	// Cancel the passthrough lane once the file line is closed.
-	async::detach(protocols::fs::serveFile(std::move(local_ctrl),
-			file.get(), &fileOperations), [&] {
-		cancel_pt.cancel();
-	});
-
-	co_await protocols::fs::servePassthrough(std::move(local_pt),
-			file, &fileOperations, cancel_pt);
-}
-
 async::result<protocols::fs::FileStats>
 getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
@@ -192,29 +173,6 @@ getStats(std::shared_ptr<void> object) {
 	stats.anyChangeTime.tv_sec = self->diskInode()->ctime;
 
 	co_return stats;
-}
-
-async::result<protocols::fs::OpenResult>
-open(std::shared_ptr<void> object, bool append) {
-	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto file = smarter::make_shared<ext2fs::OpenFile>(self, append);
-	co_await self->readyEvent.wait();
-
-	helix::UniqueLane local_ctrl, remote_ctrl;
-	helix::UniqueLane local_pt, remote_pt;
-	std::tie(local_ctrl, remote_ctrl) = helix::createStream();
-	std::tie(local_pt, remote_pt) = helix::createStream();
-	struct timespec time = clk::getRealtime();
-	self->diskInode()->atime = time.tv_sec;
-
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			self->diskMapping.get(), self->fs.inodeSize);
-	HEL_CHECK(syncInode.error());
-
-	serve(file, std::move(local_ctrl), std::move(local_pt));
-
-	co_return protocols::fs::OpenResult{std::move(remote_ctrl), std::move(remote_pt)};
 }
 
 async::result<std::string> readSymlink(std::shared_ptr<void> object) {
@@ -421,7 +379,7 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.getLink = &getLink,
 	.link = &link,
 	.unlink = &unlink,
-	.open = &open,
+	.open = &doOpen<FileSystem>,
 	.readSymlink = &readSymlink,
 	.mkdir = &mkdir,
 	.symlink = &symlink,
