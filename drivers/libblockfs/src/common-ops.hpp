@@ -180,7 +180,7 @@ doOpen(std::shared_ptr<void> object, bool append) {
 	auto [localCtrl, remoteCtrl] = helix::createStream();
 	auto [localPt, remotePt] = helix::createStream();
 
-	co_await self->updateAtime(clk::getRealtime());
+	co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
 
 	[] (smarter::shared_ptr<File> file, BaseFileSystem &fs, helix::UniqueLane localCtrl,
 			helix::UniqueLane localPt) -> async::detached {
@@ -202,5 +202,15 @@ doOpen(std::shared_ptr<void> object, bool append) {
 	co_return protocols::fs::OpenResult{std::move(remoteCtrl), std::move(remotePt)};
 }
 
+template <FileSystem T>
+async::result<protocols::fs::Error> doUtimensat(std::shared_ptr<void> object,
+		std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
+	using Inode = typename T::Inode;
+
+	auto self = std::static_pointer_cast<Inode>(object);
+	co_await self->readyEvent.wait();
+
+	co_return co_await self->updateTimes(atime, mtime, ctime);
+}
 
 } // namespace blockfs

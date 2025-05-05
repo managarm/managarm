@@ -195,7 +195,10 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
 	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
-	async::result<protocols::fs::Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
+	async::result<protocols::fs::Error> updateTimes(
+		std::optional<timespec> atime,
+		std::optional<timespec> mtime,
+		std::optional<timespec> ctime);
 
 	FileSystem &fs;
 
@@ -210,8 +213,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	helix::BorrowedDescriptor accessMemory() {
 		return helix::BorrowedDescriptor{frontalMemory};
 	}
-
-	async::result<void> updateAtime(struct timespec ts);
 
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.

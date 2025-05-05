@@ -223,14 +223,6 @@ async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode
 	co_return result;
 }
 
-async::result<protocols::fs::Error> utimensat(std::shared_ptr<void> object,
-		std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
-	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto result = co_await self->utimensat(atime, mtime, ctime);
-
-	co_return result;
-}
-
 async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<void> object,
 		std::deque<std::string> components) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
@@ -384,7 +376,7 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.mkdir = &mkdir,
 	.symlink = &symlink,
 	.chmod = &chmod,
-	.utimensat = &utimensat,
+	.utimensat = &doUtimensat<FileSystem>,
 	.obstructLink = &doObstructLink<FileSystem>,
 	.traverseLinks = &traverseLinks,
 	.getLinkOrCreate = &getLinkOrCreate

@@ -427,14 +427,16 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
-	co_await readyEvent.wait();
-
+async::result<protocols::fs::Error> Inode::updateTimes(
+		std::optional<timespec> atime,
+		std::optional<timespec> mtime,
+		std::optional<timespec> ctime) {
 	if(atime)
 		diskInode()->atime = atime->tv_sec;
 	if(mtime)
 		diskInode()->mtime = mtime->tv_sec;
-	diskInode()->ctime = ctime.tv_sec;
+	if(ctime)
+		diskInode()->ctime = ctime->tv_sec;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -443,18 +445,6 @@ async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> ati
 
 	co_return protocols::fs::Error::none;
 }
-
-async::result<void> Inode::updateAtime(struct timespec ts) {
-	co_await readyEvent.wait();
-
-	diskInode()->atime = ts.tv_sec;
-
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskMapping.get(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
-}
-
 
 // --------------------------------------------------------
 // FileSystem
