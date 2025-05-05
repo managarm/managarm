@@ -59,10 +59,10 @@ struct BaseFileSystem {
 template <typename T>
 concept Inode =
 	std::derived_from<T, BaseInode>
-	&& requires (T ino, struct timespec ts) {
+	&& requires (T ino, std::optional<timespec> ts) {
 		{ ino.fileSize() } -> std::same_as<size_t>;
 		{ ino.accessMemory() } -> std::same_as<helix::BorrowedDescriptor>;
-		{ ino.updateAtime(ts) }; // TODO(qookie): Verify somehow that this is awaitable
+		{ ino.updateTimes(ts, ts, ts) }; // TODO(qookie): Verify somehow that this is awaitable
 	};
 
 template <typename T>
