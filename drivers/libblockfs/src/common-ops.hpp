@@ -138,7 +138,7 @@ async::result<protocols::fs::ReadResult> doPread(void *object, int64_t offset, h
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
 	co_await self->mutex.async_lock_shared();
-	frg::unique_lock lock{frg::adopt_lock, self->mutex};
+	frg::shared_lock lock{frg::adopt_lock, self->mutex};
 
 	co_return co_await detail::doReadImpl(inode.get(), buffer, length, unsignedOffset);
 }
