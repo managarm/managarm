@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sys/stat.h>
+#include <print>
 
 #include <async/result.hpp>
 #include <core/clock.hpp>
@@ -438,6 +439,44 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 	HEL_CHECK(syncInode.error());
 
 	co_return protocols::fs::Error::none;
+}
+
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::ensureBackingBlocks(size_t offset, size_t length) {
+	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
+	auto blockCount = ((offset & (fs.blockSize - 1)) + length + (fs.blockSize - 1)) >> fs.blockShift;
+	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::resizeFile(size_t newSize) {
+	auto oldSize = fileSize();
+
+	if (newSize > oldSize) {
+		// TODO(qookie): Technically we only need to assign 0
+		// blocks here, not allocate new ones. We also should
+		// zero out the new blocks.
+		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+	} else if (newSize < oldSize) {
+		// TODO(qookie): Deallocate blocks if they're no longer within the file.
+		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
+	} else if (newSize == oldSize) {
+		// Nothing to do.
+		co_return frg::success;
+	}
+
+	HEL_CHECK(helResizeMemory(backingMemory,
+			(newSize + 0xFFF) & ~size_t(0xFFF)));
+	setFileSize(newSize);
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+		helix::BorrowedDescriptor{kHelNullHandle},
+		diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return frg::success;
 }
 
 // --------------------------------------------------------
