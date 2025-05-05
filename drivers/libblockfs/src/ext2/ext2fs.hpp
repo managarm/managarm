@@ -279,8 +279,6 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, const void *buffer);
 
-	async::result<void> truncate(Inode *inode, size_t size);
-
 	async::result<void> writebackBgdt();
 
 	BlockDevice *device;
