@@ -951,16 +951,18 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
+			helix::Mapping fileMap{helix::BorrowedDescriptor{inode->backingMemory},
 					static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtRead};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
-			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
+			size_t backedSize = std::min(manage.length(), inode->fileSize() - manage.offset());
+			auto blockOffset = manage.offset() / inode->fs.blockSize;
+			size_t numBlocks = (backedSize + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 
-			assert(num_blocks * inode->fs.blockSize <= manage.length());
-			co_await inode->fs.writeDataBlocks(inode, manage.offset() / inode->fs.blockSize,
-					num_blocks, file_map.get());
+			assert(numBlocks * inode->fs.blockSize <= manage.length());
+
+			co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+			co_await inode->fs.writeDataBlocks(inode, blockOffset, numBlocks, fileMap.get());
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
