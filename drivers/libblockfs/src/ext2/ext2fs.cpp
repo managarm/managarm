@@ -1474,18 +1474,6 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 	}
 }
 
-
-async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
-	HEL_CHECK(helResizeMemory(inode->backingMemory,
-			(size + 0xFFF) & ~size_t(0xFFF)));
-	inode->setFileSize(size);
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskMapping.get(), inodeSize);
-	HEL_CHECK(syncInode.error());
-	co_return;
-}
-
 async::result<void> FileSystem::writebackBgdt() {
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
