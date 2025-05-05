@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sys/stat.h>
+#include <print>
 
 #include <async/result.hpp>
 #include <core/align.hpp>
@@ -446,6 +447,44 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 	co_return protocols::fs::Error::none;
 }
 
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::ensureBackingBlocks(size_t offset, size_t length) {
+	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
+	auto blockCount = ((offset & (fs.blockSize - 1)) + length + (fs.blockSize - 1)) >> fs.blockShift;
+	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::resizeFile(size_t newSize) {
+	auto oldSize = fileSize();
+
+	if (newSize > oldSize) {
+		// TODO(qookie): Technically we only need to assign 0
+		// blocks here, not allocate new ones. We also should
+		// zero out the new blocks.
+		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+	} else if (newSize < oldSize) {
+		// TODO(qookie): Deallocate blocks if they're no longer within the file.
+		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
+	} else if (newSize == oldSize) {
+		// Nothing to do.
+		co_return frg::success;
+	}
+
+	HEL_CHECK(helResizeMemory(backingMemory,
+			(newSize + 0xFFF) & ~size_t(0xFFF)));
+	setFileSize(newSize);
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+		helix::BorrowedDescriptor{kHelNullHandle},
+		diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return frg::success;
+}
+
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
@@ -812,53 +851,6 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->mtime = time.tv_sec;
 
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
-}
-
-async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
-		const void *buffer, size_t length) {
-	co_await inode->readyEvent.wait();
-
-	// Make sure that data blocks are allocated.
-	auto blockOffset = (offset & ~(blockSize - 1)) >> blockShift;
-	auto blockCount = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
-	co_await assignDataBlocks(inode, blockOffset, blockCount);
-
-	// Resize the file if necessary.
-	if(offset + length > inode->fileSize()) {
-		HEL_CHECK(helResizeMemory(inode->backingMemory,
-				(offset + length + 0xFFF) & ~size_t(0xFFF)));
-		inode->setFileSize(offset + length);
-		auto syncInode = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				inode->diskMapping.get(), inodeSize);
-		HEL_CHECK(syncInode.error());
-	}
-
-	// TODO: If we *know* that the pages are already available,
-	//       we can also fall back to the following "old" mapping code.
-/*
-	auto mapOffset = offset & ~size_t(0xFFF);
-	auto mapSize = ((offset & size_t(0xFFF)) + length + 0xFFF) & ~size_t(0xFFF);
-
-	helix::LockMemoryView lockMemory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
-			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lockMemory.error());
-
-	// Map the page cache into the address space.
-	helix::Mapping fileMap{helix::BorrowedDescriptor{inode->frontalMemory},
-			static_cast<ptrdiff_t>(mapOffset), mapSize,
-			kHelMapProtWrite | kHelMapDontRequireBacking};
-
-	memcpy(reinterpret_cast<char *>(fileMap.get()) + (offset - mapOffset),
-			buffer, length);
-*/
-
-	auto writeMemory = co_await helix_ng::writeMemory(
-			helix::BorrowedDescriptor(inode->frontalMemory),
-			offset, length, buffer);
-	HEL_CHECK(writeMemory.error());
 }
 
 async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {

@@ -12,44 +12,6 @@ namespace blockfs::ext2fs {
 
 namespace {
 
-async::result<frg::expected<protocols::fs::Error, size_t>> write(void *object, helix_ng::CredentialsView,
-		const void *buffer, size_t length) {
-	if(!length) {
-		co_return 0;
-	}
-	protocols::ostrace::Timer timer;
-
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-	if(self->append) {
-		self->offset = inode->fileSize();
-	}
-	co_await inode->fs.write(inode.get(), self->offset, buffer, length);
-	self->offset += length;
-
-	ostContext.emit(
-		ostEvtWrite,
-		ostAttrNumBytes(length),
-		ostAttrTime(timer.elapsed())
-	);
-
-	co_return length;
-}
-
-async::result<frg::expected<protocols::fs::Error, size_t>> pwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials,
-			const void *buffer, size_t length) {
-	(void) credentials;
-
-	if(!length) {
-		co_return 0;
-	}
-
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-	co_await inode->fs.write(inode.get(), offset, buffer, length);
-	co_return length;
-}
-
 async::result<protocols::fs::ReadEntriesResult>
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
@@ -356,8 +318,8 @@ constinit protocols::fs::FileOperations fileOperations {
 	.seekEof      = &doSeekEof<FileSystem>,
 	.read         = &doRead<FileSystem>,
 	.pread        = &doPread<FileSystem>,
-	.write        = &write,
-	.pwrite       = &pwrite,
+	.write        = &doWrite<FileSystem>,
+	.pwrite       = &doPwrite<FileSystem>,
 	.readEntries  = &readEntries,
 	.accessMemory = &doAccessMemory<FileSystem>,
 	.truncate     = &truncate,

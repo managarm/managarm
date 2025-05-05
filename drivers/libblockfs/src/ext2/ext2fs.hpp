@@ -214,6 +214,12 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 		return helix::BorrowedDescriptor{frontalMemory};
 	}
 
+	async::result<frg::expected<protocols::fs::Error>>
+	ensureBackingBlocks(size_t offset, size_t length);
+
+	async::result<frg::expected<protocols::fs::Error>>
+	resizeFile(size_t newSize);
+
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.
 	// - Indirection level 1/2 for double indirect blocks.
@@ -257,9 +263,6 @@ struct FileSystem final : BaseFileSystem {
 	async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) override;
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
-
-	async::result<void> write(Inode *inode, uint64_t offset,
-			const void *buffer, size_t length);
 
 	async::detached initiateInode(std::shared_ptr<Inode> inode);
 	async::detached manageFileData(std::shared_ptr<Inode> inode);

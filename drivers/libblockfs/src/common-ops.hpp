@@ -106,6 +106,44 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 	co_return chunkSize;
 }
 
+template <Inode T>
+async::result<frg::expected<protocols::fs::Error, size_t>>
+doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offset) {
+	protocols::ostrace::Timer timer;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(
+			ostEvtWrite,
+			ostAttrNumBytes(length),
+			ostAttrTime(timer.elapsed())
+		);
+	}};
+
+	if (!length)
+		co_return size_t{0};
+
+	co_await inode->readyEvent.wait();
+
+	if (inode->fileType == FileType::kTypeDirectory)
+		co_return protocols::fs::Error::isDirectory;
+
+	if (append)
+		offset = inode->fileSize();
+	if (offset >= inode->fileSize())
+		FRG_CO_TRY(co_await inode->resizeFile(offset + length));
+
+	// TODO: Add a recvToMemory action to exchangeMsgs to avoid
+	// having to copy this data twice.
+	auto writeMemory = co_await helix_ng::writeMemory(
+		inode->accessMemory(),
+		offset, length, buffer);
+	HEL_CHECK(writeMemory.error());
+
+	offset += length;
+
+	co_return length;
+}
+
+
 } // namespace detail
 
 
@@ -142,6 +180,41 @@ async::result<protocols::fs::ReadResult> doPread(void *object, int64_t offset, h
 	frg::shared_lock lock{frg::adopt_lock, self->mutex};
 
 	co_return co_await detail::doReadImpl(inode.get(), buffer, length, unsignedOffset);
+}
+
+
+template <FileSystem T>
+async::result<frg::expected<protocols::fs::Error, size_t>> doWrite(void *object, helix_ng::CredentialsView,
+		const void *buffer, size_t length) {
+	using File = typename T::File;
+	using Inode = typename T::Inode;
+
+	auto self = static_cast<File *>(object);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+
+	co_await self->mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, self->mutex};
+
+	co_return co_await detail::doWriteImpl(inode.get(), buffer, length, self->append, self->offset);
+}
+
+template <FileSystem T>
+async::result<frg::expected<protocols::fs::Error, size_t>> doPwrite(void *object, int64_t offset, helix_ng::CredentialsView,
+		const void *buffer, size_t length) {
+	using File = typename T::File;
+	using Inode = typename T::Inode;
+
+	if (offset < 0)
+		co_return protocols::fs::Error::illegalArguments;
+	size_t unsignedOffset = offset;
+
+	auto self = static_cast<File *>(object);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+
+	co_await self->mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, self->mutex};
+
+	co_return co_await detail::doWriteImpl(inode.get(), buffer, length, false, unsignedOffset);
 }
 
 template <FileSystem T>
