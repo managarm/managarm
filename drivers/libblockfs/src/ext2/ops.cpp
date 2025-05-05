@@ -23,14 +23,6 @@ readEntries(void *object) {
 	co_return co_await self->readEntries();
 }
 
-async::result<frg::expected<protocols::fs::Error>>
-truncate(void *object, size_t size) {
-	auto self = static_cast<ext2fs::OpenFile *>(object);
-	auto inode = std::static_pointer_cast<Inode>(self->inode);
-	co_await inode->fs.truncate(inode.get(), size);
-	co_return frg::success;
-}
-
 async::result<int> getFileFlags(void *) {
 	std::cout << "libblockfs: getFileFlags is stubbed" << std::endl;
 	co_return 0;
@@ -322,7 +314,7 @@ constinit protocols::fs::FileOperations fileOperations {
 	.pwrite       = &doPwrite<FileSystem>,
 	.readEntries  = &readEntries,
 	.accessMemory = &doAccessMemory<FileSystem>,
-	.truncate     = &truncate,
+	.truncate     = &doTruncate<FileSystem>,
 	.flock        = &doFlock<FileSystem>,
 	.getFileFlags = &getFileFlags,
 	.setFileFlags = &setFileFlags,

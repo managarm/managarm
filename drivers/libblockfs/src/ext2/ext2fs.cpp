@@ -450,8 +450,9 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 
 async::result<frg::expected<protocols::fs::Error>>
 Inode::ensureBackingBlocks(size_t offset, size_t length) {
-	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
-	auto blockCount = ((offset & (fs.blockSize - 1)) + length + (fs.blockSize - 1)) >> fs.blockShift;
+	auto [alignedOffset, alignedSize] = core::alignExtend({offset, length}, fs.blockSize);
+	size_t blockOffset = alignedOffset / fs.blockSize;
+	size_t blockCount = alignedSize / fs.blockSize;
 	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
 
 	co_return frg::success;
@@ -1628,30 +1629,6 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 				issue.second * sectorsPerBlock);
 		progress += issue.second;
 	}
-}
-
-
-async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
-	auto oldsize = inode->fileSize();
-	if(size == oldsize)
-		co_return;
-
-	HEL_CHECK(helResizeMemory(inode->backingMemory,
-			(size + 0xFFF) & ~size_t(0xFFF)));
-	inode->setFileSize(size);
-
-	if(size > oldsize) {
-		size_t diff = size - oldsize;
-		auto [blockOffset, alignedSize] = core::alignExtend({oldsize, diff}, blockSize);
-		size_t blockCount = alignedSize / blockSize;
-		co_await inode->fs.assignDataBlocks(inode, blockOffset, blockCount);
-	}
-
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskMapping.get(), inodeSize);
-	HEL_CHECK(syncInode.error());
-	co_return;
 }
 
 // --------------------------------------------------------

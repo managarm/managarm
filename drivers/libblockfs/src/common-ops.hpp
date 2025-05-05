@@ -218,6 +218,24 @@ async::result<frg::expected<protocols::fs::Error, size_t>> doPwrite(void *object
 }
 
 template <FileSystem T>
+async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size_t size) {
+	using File = typename T::File;
+	using Inode = typename T::Inode;
+
+	auto self = static_cast<File *>(object);
+	auto inode = std::static_pointer_cast<Inode>(self->inode);
+
+	co_await self->mutex.async_lock_shared();
+	frg::shared_lock lock{frg::adopt_lock, self->mutex};
+
+	co_await inode->readyEvent.wait();
+
+	FRG_CO_TRY(co_await inode->resizeFile(size));
+
+	co_return frg::success;
+}
+
+template <FileSystem T>
 async::result<helix::BorrowedDescriptor>
 doAccessMemory(void *object) {
 	using File = typename T::File;
