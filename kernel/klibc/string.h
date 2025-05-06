@@ -14,6 +14,7 @@ extern "C" {
 // memcpy is defined as a macro above.
 char *strcpy(char *__restrict, const char *);
 char *strncpy(char *__restrict, const char *, size_t);
+void *memmove(void *, const void *, size_t);
 
 // [7.24.4] Comparison functions
 
