@@ -22,13 +22,15 @@ void publishNodes();
 
 } // namespace dt
 
+struct Iommu;
+
 struct DeviceTreeNode {
 	DeviceTreeNode(::DeviceTreeNode dtNode, DeviceTreeNode *parent)
 	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
 	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
 	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
-	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
-	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF} { }
+	iommuCells_{}, hasIommuCells_{false}, reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
+	interruptParentId_{0}, interruptParent_{}, referencedIommus_{*kernelAlloc}, busRange_{0, 0xFF} { }
 
 	void initializeWith(::DeviceTreeNode dtNode);
 	void finalizeInit();
@@ -47,6 +49,15 @@ struct DeviceTreeNode {
 
 	DeviceTreeNode *interruptParent() const {
 		return interruptParent_;
+	}
+
+	struct IommuReference {
+		DeviceTreeNode *node;
+		DeviceTreeProperty prop;
+	};
+
+	const frg::vector<IommuReference, KernelAlloc> &referencedIommus() const {
+		return referencedIommus_;
 	}
 
 	frg::string_view name() const {
@@ -76,6 +87,10 @@ struct DeviceTreeNode {
 
 	bool isInterruptController() const {
 		return interruptController_;
+	}
+
+	bool isIommu() const {
+		return hasIommuCells_;
 	}
 
 	struct RegRange {
@@ -119,6 +134,9 @@ struct DeviceTreeNode {
 	auto interruptCells() const {
 		return interruptCells_;
 	}
+	auto iommuCells() const {
+		return iommuCells_;
+	}
 
 	const auto &reg() const {
 		return reg_;
@@ -156,6 +174,14 @@ struct DeviceTreeNode {
 		return associatedIrqController_;
 	}
 
+	void associateIommu(Iommu *iommu) {
+		associatedIommu_ = iommu;
+	}
+
+	Iommu *getAssociatedIommu() {
+		return associatedIommu_;
+	}
+
 	void associateMbusNode(dt::MbusNode *node) {
 		associatedMbusNode_ = node;
 	}
@@ -190,6 +216,8 @@ private:
 	bool hasSizeCells_;
 	int interruptCells_;
 	bool hasInterruptCells_;
+	int iommuCells_;
+	bool hasIommuCells_;
 
 	frg::vector<RegRange, KernelAlloc> reg_;
 	frg::vector<AddrTranslateRange, KernelAlloc> ranges_;
@@ -199,11 +227,14 @@ private:
 	uint32_t interruptParentId_;
 	DeviceTreeNode *interruptParent_;
 
+	frg::vector<IommuReference, KernelAlloc> referencedIommus_;
+
 	BusRange busRange_;
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
 	dt::MbusNode *associatedMbusNode_{nullptr};
+	Iommu *associatedIommu_{nullptr};
 };
 
 DeviceTreeNode *getDeviceTreeNodeByPath(frg::string_view path);
