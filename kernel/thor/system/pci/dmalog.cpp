@@ -280,8 +280,36 @@ static initgraph::Task enumerateDmalog{&globalInitEngine, "pci.enumerate-dmalog"
 					frg::string<KernelAlloc>{*kernelAlloc, tag},
 					frg::string<KernelAlloc>{*kernelAlloc, tag},
 					mmioPtr);
-			IrqPin::attachSink(pciDevice->getIrqPin(), dmalog.get());
-			pciDevice->enableIrq();
+
+			bool useMsi = false;
+
+			if(pciDevice->numMsis) {
+				auto pin = pciDevice->parentBus->msiController->allocateMsiPin(
+					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
+					+ frg::to_allocated_string(*kernelAlloc, pciDevice->bus)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, pciDevice->slot)
+					+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
+					+ frg::to_allocated_string(*kernelAlloc, pciDevice->function)
+					+ frg::string<KernelAlloc>{*kernelAlloc, ".0"});
+				if(!pin) {
+					warningLogger() << "thor: could not allocate MSI for dmalog" << frg::endlog;
+				} else {
+					IrqPin::attachSink(pin, dmalog.get());
+
+					pciDevice->enableBusmaster();
+					pciDevice->setupMsi(pin, 0);
+					pciDevice->enableMsi();
+					useMsi = true;
+				}
+			}
+
+			// fall back to legacy IRQs if necessary
+			if(!useMsi) {
+				IrqPin::attachSink(pciDevice->getIrqPin(), dmalog.get());
+				pciDevice->enableIrq();
+			}
+
 			publishIoChannel(std::move(dmalog));
 		}
 	}

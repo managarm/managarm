@@ -502,12 +502,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		auto io = parentBus->io;
-
-		auto command = io->readConfigHalf(parentBus,
-				slot, function, kPciCommand);
-		io->writeConfigHalf(parentBus, slot, function,
-				kPciCommand, command | 0x0004);
+		enableBusmaster();
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -736,6 +731,14 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 	}
 
 	co_return frg::success;
+}
+
+void PciEntity::enableBusmaster() {
+	// enable busmastering
+	auto command = parentBus->io->readConfigHalf(parentBus, slot, function,
+		kPciCommand);
+	parentBus->io->writeConfigHalf(parentBus, slot, function, kPciCommand,
+		command | 0x0004);
 }
 
 namespace {
