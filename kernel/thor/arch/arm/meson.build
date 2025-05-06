@@ -10,6 +10,7 @@ src += files(
 	'gic_v3.cpp',
 	'ints.cpp',
 	'paging.cpp',
+	'smmu.cpp',
 	'system.cpp',
 	'smp.cpp',
 	'timer.cpp',
