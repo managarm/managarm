@@ -348,9 +348,9 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 				resp.appendString("xx");
 #elif defined (__aarch64__)
 		for (int i = 0; i < 31; i++)
-			resp.appendLeHex32(thread_->_executor.general()->x[i]);
-		resp.appendLeHex32(thread_->_executor.general()->sp);
-		resp.appendLeHex32(thread_->_executor.general()->elr);
+			resp.appendLeHex64(thread_->_executor.general()->x[i]);
+		resp.appendLeHex64(thread_->_executor.general()->sp);
+		resp.appendLeHex64(thread_->_executor.general()->elr);
 		resp.appendLeHex32(thread_->_executor.general()->spsr);
 #elif defined(__riscv) && __riscv_xlen == 64
 		warningLogger() << "GDB server is unimplemented for RISC-V" << frg::endlog;

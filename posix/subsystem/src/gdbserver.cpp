@@ -375,6 +375,13 @@ async::result<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		for(int i = 0; i < 8; ++i) // 8 FPU control registers.
 			for(int j = 0; j < 4; ++j)
 				resp.appendString("xx");
+#elif defined (__aarch64__)
+			for (int i = 0; i < 31; i++)
+				resp.appendLeHex64(gprs[i]);
+			resp.appendLeHex64(pcrs[kHelRegSp]);
+			resp.appendLeHex64(pcrs[kHelRegIp]);
+			for(int j = 0; j < 4; ++j)
+				resp.appendString("xx");
 #else
 		std::cout << "posix, gdbserver: Register access is not implemented for this architecture"
 				<< std::endl;
