@@ -277,6 +277,8 @@ struct PciEntity : protected KernelBusObject {
 
 	virtual frg::span<PciBar> getBars() = 0;
 
+	void enableBusmaster();
+
 	// Location of the device on the PCI bus.
 	uint32_t seg;
 	uint32_t bus;
