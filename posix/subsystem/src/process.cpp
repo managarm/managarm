@@ -467,20 +467,6 @@ void FileContext::closeOnExec() {
 // SignalContext.
 // ----------------------------------------------------------------------------
 
-namespace {
-
-struct CompileSignalInfo {
-	void operator() (const UserSignal &info) const {
-		//si->si_code = SI_USER;
-		si->si_pid = info.pid;
-		si->si_uid = info.uid;
-	}
-
-	siginfo_t *si;
-};
-
-} // anonymous namespace
-
 SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 
@@ -556,7 +542,7 @@ CheckSignalResult SignalContext::checkSignal() {
 	return CheckSignalResult(_currentSeq, _activeSet);
 }
 
-async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock) {
+async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct) {
 	int sn;
 	while(true) {
 		for(sn = 1; sn <= 64; sn++) {
@@ -569,7 +555,8 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 			break;
 		if(nonBlock)
 			co_return nullptr;
-		co_await _signalBell.async_wait();
+		if(!co_await _signalBell.async_wait(ct))
+			co_return nullptr;
 	}
 
 	assert(!_slots[sn - 1].asyncQueue.empty());
