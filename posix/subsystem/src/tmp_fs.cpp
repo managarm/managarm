@@ -541,7 +541,7 @@ struct Superblock final : FsSuperblock {
 		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *, std::shared_ptr<FsNode>) override {
 		auto node = std::make_shared<MemoryNode>(this);
 		co_return std::move(node);
 	}

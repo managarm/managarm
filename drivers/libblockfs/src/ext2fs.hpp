@@ -1,4 +1,5 @@
 
+#include <functional>
 #include <string.h>
 #include <time.h>
 #include <optional>
@@ -246,13 +247,16 @@ struct FileSystem {
 
 	async::result<void> init();
 
+	async::recurring_event bdgtWriteback;
+	async::detached handleBgdtWriteback();
+
 	async::detached manageBlockBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeTable(helix::UniqueDescriptor memory);
 
 	std::shared_ptr<Inode> accessRoot();
 	std::shared_ptr<Inode> accessInode(uint32_t number);
-	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid);
+	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid, uint32_t parentIno);
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 
@@ -265,7 +269,12 @@ struct FileSystem {
 			helix::UniqueDescriptor memory);
 
 	async::result<uint32_t> allocateBlock();
-	async::result<uint32_t> allocateInode();
+	// Allocate up to num blocks for the given inode. For each allocated block, the callback
+	// with the number of the allocated block (0 for the first, 1 for the second, ...) and that
+	// block's allocated address.
+	// This function does not write back the BGDT, this is the caller's responsibility.
+	async::result<uint32_t> allocateBlocks(uint32_t ino, size_t num, std::function<void(uint32_t, uint32_t)> cb);
+	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
@@ -276,8 +285,6 @@ struct FileSystem {
 			size_t num_blocks, const void *buffer);
 
 	async::result<void> truncate(Inode *inode, size_t size);
-
-	async::result<void> writebackBgdt();
 
 	BlockDevice *device;
 	uint16_t inodeSize;

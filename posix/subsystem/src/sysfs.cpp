@@ -16,7 +16,7 @@ sysfs::SysfsSuperblock sysfsSuperblock{};
 
 namespace sysfs {
 
-FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *) {
+FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *, std::shared_ptr<FsNode>) {
 	std::cout << "posix: createRegular on SysfsSuperblock unsupported" << std::endl;
 	co_return nullptr;
 }
