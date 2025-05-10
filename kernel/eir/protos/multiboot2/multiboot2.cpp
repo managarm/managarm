@@ -210,7 +210,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 		}
 	}
 
-	if(newAcpiTag)
+	if (newAcpiTag)
 		acpiTag = newAcpiTag;
 	else
 		acpiTag = oldAcpiTag;
