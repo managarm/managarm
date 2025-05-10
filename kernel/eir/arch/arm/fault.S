@@ -59,4 +59,6 @@ eirCommonHandler:
 	mrs x4, far_el1
 	b eirExceptionHandler
 
+#ifndef __clang__
 	.section .note.GNU-stack,"",%progbits
+#endif

@@ -409,6 +409,8 @@ initgraph::Task exitBootServices{
 
 #if defined(__x86_64__)
 	    asm volatile("cli");
+#elif defined(__aarch64__)
+	    asm volatile("msr daifset, #15");
 #elif defined(__riscv)
 	    asm volatile("csrci sstatus, 0x2" ::: "memory");
 #else
@@ -657,6 +659,10 @@ initgraph::Task setupFramebufferInfo{
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
+	if (initPlatform) {
+		initPlatform();
+	}
+
 	eirRunConstructors();
 
 	// Set the system table so we can use loggers early on.
