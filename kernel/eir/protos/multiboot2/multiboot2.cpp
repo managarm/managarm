@@ -120,6 +120,9 @@ initgraph::Task setupInitrdInfo{
 } // namespace
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
+	if (initPlatform) {
+		initPlatform();
+	}
 	if (magic != MB2_MAGIC)
 		eir::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frg::endlog;
 
@@ -207,7 +210,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 		}
 	}
 
-	if(newAcpiTag)
+	if (newAcpiTag)
 		acpiTag = newAcpiTag;
 	else
 		acpiTag = oldAcpiTag;

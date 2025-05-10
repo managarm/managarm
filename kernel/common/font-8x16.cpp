@@ -1,4 +1,4 @@
-
+// clang-format off
 #include <stdint.h>
 
 // Same data as the Linux kernel uses, extracted from the PC VGA font.

@@ -148,7 +148,7 @@ enum class DevicePathType : uint8_t {
 };
 
 constexpr efi_guid EFI_DEVICE_PATH_PROTOCOL_GUID = {
-	0x09576E91, 0x6D3F, 0x11D2, {0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B}
+    0x09576E91, 0x6D3F, 0x11D2, {0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B}
 };
 
 struct efi_device_path_protocol {
@@ -160,12 +160,16 @@ struct efi_device_path_protocol {
 // 10.6.2 Device Path to Text Protocol
 
 constexpr efi_guid EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID = {
-	0x8B843E20, 0x8132, 0x4852, {0x90, 0xCC, 0x55, 0x1A, 0x4E, 0x4A, 0x7F, 0x1C}
+    0x8B843E20, 0x8132, 0x4852, {0x90, 0xCC, 0x55, 0x1A, 0x4E, 0x4A, 0x7F, 0x1C}
 };
 
 struct efi_device_path_to_text_protocol {
-	char16_t *(*convert_device_node_to_text)(const efi_device_path_protocol *device_node, bool display_only, bool allow_shortcuts);
-	char16_t *(*convert_device_path_to_text)(const efi_device_path_protocol *device_path, bool display_only, bool allow_shortcuts);
+	char16_t *(*convert_device_node_to_text)(
+	    const efi_device_path_protocol *device_node, bool display_only, bool allow_shortcuts
+	);
+	char16_t *(*convert_device_path_to_text)(
+	    const efi_device_path_protocol *device_path, bool display_only, bool allow_shortcuts
+	);
 };
 
 // 12.4.1 EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL
@@ -313,7 +317,7 @@ struct efi_file_info {
 constexpr uint64_t EFI_PXE_BASE_CODE_PROTOCOL_REVISION = 0x00010000;
 
 constexpr efi_guid EFI_PXE_BASE_CODE_PROTOCOL_GUID = {
-    0x03C4E603, 0xAC28, 0x11d3, { 0x9A, 0x2D, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D }
+    0x03C4E603, 0xAC28, 0x11d3, {0x9A, 0x2D, 0x00, 0x90, 0x27, 0x3F, 0xC1, 0x4D}
 };
 
 struct efi_pxe_base_code_mode;
@@ -362,7 +366,18 @@ struct efi_pxe_base_code_protocol {
 	void *stop;
 	void *dhcp;
 	void *discover;
-	efi_status (*mtftp)(efi_pxe_base_code_protocol *self, efi_pxe_base_code_tftp_opcode operation, void *buffer_ptr, bool overwrite, uint64_t *buffer_size, size_t *block_size, efi_ip_address *server_ip, char *filename, efi_pxe_base_code_mtftp_info *info, bool dont_use_buffer);
+	efi_status (*mtftp)(
+	    efi_pxe_base_code_protocol *self,
+	    efi_pxe_base_code_tftp_opcode operation,
+	    void *buffer_ptr,
+	    bool overwrite,
+	    uint64_t *buffer_size,
+	    size_t *block_size,
+	    efi_ip_address *server_ip,
+	    char *filename,
+	    efi_pxe_base_code_mtftp_info *info,
+	    bool dont_use_buffer
+	);
 	void *udp_write;
 	void *udp_read;
 	void *set_ip_filter;

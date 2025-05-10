@@ -29,10 +29,10 @@ header_end:
 
 eirEntry:
 	cld
-	
+
 	.extern eirStackTop
 	mov $eirStackTop, %esp
-	
+
 	push %eax
 	push %ebx
 

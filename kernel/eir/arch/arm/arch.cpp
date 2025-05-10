@@ -165,11 +165,11 @@ void initProcessorEarly() {
 
 	auto pa = frg::min(uint64_t(5), aa64mmfr0 & 0xF);
 
-	uint64_t mair = 0b11111111 |          // Normal, Write-back RW-Allocate non-transient
-	                (0b00001100 << 8) |   // Device, GRE
-	                (0b00000000 << 16) |  // Device, nGnRnE
-	                (0b00000100 << 24) |  // Device, nGnRE
-	                (0b01000100UL << 32); // Normal Non-cacheable
+	uint64_t mair = UINT64_C(0b11111111) |         // Normal, Write-back RW-Allocate non-transient
+	                (UINT64_C(0b00001100) << 8) |  // Device, GRE
+	                (UINT64_C(0b00000000) << 16) | // Device, nGnRnE
+	                (UINT64_C(0b00000100) << 24) | // Device, nGnRE
+	                (UINT64_C(0b01000100) << 32);  // Normal Non-cacheable
 
 	asm volatile("msr mair_el1, %0" ::"r"(mair));
 
@@ -197,10 +197,12 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	// Identically map the first 128 MiB so that we can activate paging
 	// without causing a page fault.
+#if !defined(EIR_UEFI)
 	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
 	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
 	for (address_t addr = floor; addr < ceiling; addr += 0x1000)
 		mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+#endif
 
 	mapRegionsAndStructs();
 #ifdef KERNEL_LOG_ALLOCATIONS
