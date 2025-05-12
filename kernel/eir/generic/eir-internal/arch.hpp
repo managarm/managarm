@@ -35,6 +35,7 @@ void mapSingle4kPage(
 );
 address_t getSingle4kPage(address_t address);
 
+[[gnu::weak]] void initPlatform();
 void initProcessorEarly();
 void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry);
 

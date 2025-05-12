@@ -71,13 +71,9 @@ initgraph::Stage *getBootservicesDoneStage() {
 }
 
 struct EirAllocator {
-	void *allocate(size_t size) {
-		return bootAlloc<char>(size);
-	}
+	void *allocate(size_t size) { return bootAlloc<char>(size); }
 
-	void free(void *) {
-		return;
-	}
+	void free(void *) { return; }
 };
 
 void uefiBootServicesLogHandler(const char c) {
@@ -94,7 +90,10 @@ void uefiBootServicesLogHandler(const char c) {
 }
 
 initgraph::Task findAcpi{
-    &globalInitEngine, "uefi.find-acpi", initgraph::Entails{getBootservicesDoneStage()}, [] {
+    &globalInitEngine,
+    "uefi.find-acpi",
+    initgraph::Entails{getBootservicesDoneStage()},
+    [] {
 	    // acquire ACPI table info
 	    efi_guid acpi_guid = ACPI_20_TABLE_GUID;
 	    const efi_configuration_table *t = st->configuration_table;
@@ -106,25 +105,24 @@ initgraph::Task findAcpi{
     }
 };
 
-initgraph::Task findDtb{
-    &globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
-	    // acquire ACPI table info
-	    efi_guid dtb_guid = EFI_DTB_TABLE_GUID;
-	    const efi_configuration_table *t = st->configuration_table;
-	    for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
-		    if (!memcmp(&dtb_guid, &t->vendor_guid, sizeof(dtb_guid))) {
-			    eirDtbPtr = reinterpret_cast<physaddr_t>(t->vendor_table);
-			    infoLogger() << "eir: Got DTB" << frg::endlog;
-		    }
-    }
-};
+initgraph::Task
+    findDtb{&globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
+	            // acquire ACPI table info
+	            efi_guid dtb_guid = EFI_DTB_TABLE_GUID;
+	            const efi_configuration_table *t = st->configuration_table;
+	            for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
+		            if (!memcmp(&dtb_guid, &t->vendor_guid, sizeof(dtb_guid))) {
+			            eirDtbPtr = reinterpret_cast<physaddr_t>(t->vendor_table);
+			            infoLogger() << "eir: Got DTB" << frg::endlog;
+		            }
+            }};
 
 uint32_t convertIp(frg::string_view ip) {
 	uint32_t res = 0;
 
-	for(size_t i = 0; i < 4; i++) {
+	for (size_t i = 0; i < 4; i++) {
 		auto dot = ip.find_first('.');
-		if(dot == size_t(-1))
+		if (dot == size_t(-1))
 			dot = ip.size();
 
 		auto num = ip.sub_string(0, dot).to_number<uint8_t>();
@@ -138,154 +136,209 @@ uint32_t convertIp(frg::string_view ip) {
 }
 
 initgraph::Task preparePxe{
-    &globalInitEngine, "uefi.pxe-setup", initgraph::Entails{getBootservicesDoneStage()}, [] {
-		efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
-		efi_guid devpath_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
-		efi_guid devpath2text_guid = EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID;
-		efi_pxe_base_code_protocol *pxe = nullptr;
-		efi_device_path_protocol *devpath = nullptr;
-		efi_device_path_to_text_protocol *devpath2text = nullptr;
+    &globalInitEngine,
+    "uefi.pxe-setup",
+    initgraph::Entails{getBootservicesDoneStage()},
+    [] {
+	    efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
+	    efi_guid devpath_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
+	    efi_guid devpath2text_guid = EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID;
+	    efi_pxe_base_code_protocol *pxe = nullptr;
+	    efi_device_path_protocol *devpath = nullptr;
+	    efi_device_path_to_text_protocol *devpath2text = nullptr;
 
-	    auto status = bs->handle_protocol(loadedImage->device_handle, &pxe_guid, reinterpret_cast<void **>(&pxe));
-		if(status != EFI_SUCCESS)
-			return;
+	    auto status = bs->handle_protocol(
+	        loadedImage->device_handle, &pxe_guid, reinterpret_cast<void **>(&pxe)
+	    );
+	    if (status != EFI_SUCCESS)
+		    return;
 
-		EFI_CHECK(bs->allocate_pool(EfiLoaderData, sizeof(pxe_info), reinterpret_cast<void **>(&pxeInfo)));
-		new (pxeInfo) pxe_info{};
+	    EFI_CHECK(
+	        bs->allocate_pool(EfiLoaderData, sizeof(pxe_info), reinterpret_cast<void **>(&pxeInfo))
+	    );
+	    new (pxeInfo) pxe_info{};
 
-		EFI_CHECK(bs->handle_protocol(loadedImage->device_handle, &devpath_guid, reinterpret_cast<void **>(&devpath)));
-		EFI_CHECK(bs->locate_protocol(&devpath2text_guid, nullptr, reinterpret_cast<void **>(&devpath2text)));
+	    EFI_CHECK(bs->handle_protocol(
+	        loadedImage->device_handle, &devpath_guid, reinterpret_cast<void **>(&devpath)
+	    ));
+	    EFI_CHECK(bs->locate_protocol(
+	        &devpath2text_guid, nullptr, reinterpret_cast<void **>(&devpath2text)
+	    ));
 
-		auto devpathstr = devpath2text->convert_device_path_to_text(devpath, true, true);
-		assert(devpathstr);
+	    auto devpathstr = devpath2text->convert_device_path_to_text(devpath, true, true);
+	    assert(devpathstr);
 
-		char *devpathascii = nullptr;
-		size_t devpathstr_len = 0;
-		while(devpathstr[devpathstr_len])
-			devpathstr_len++;
+	    char *devpathascii = nullptr;
+	    size_t devpathstr_len = 0;
+	    while (devpathstr[devpathstr_len])
+		    devpathstr_len++;
 
-		EFI_CHECK(bs->allocate_pool(
-			EfiLoaderData,
-			devpathstr_len + 1,
-			reinterpret_cast<void **>(&devpathascii)
-		));
+	    EFI_CHECK(bs->allocate_pool(
+	        EfiLoaderData, devpathstr_len + 1, reinterpret_cast<void **>(&devpathascii)
+	    ));
 
-		size_t i = 0;
-		for (; i < devpathstr_len; i++) {
-			auto c = devpathstr[i];
-			// we only use printable ASCII characters, everything else gets discarded
-			if (c >= 0x20 && c <= 0x7E) {
-				devpathascii[i] = static_cast<char>(c);
-			} else {
-				devpathascii[i] = '?';
-			}
-		}
+	    size_t i = 0;
+	    for (; i < devpathstr_len; i++) {
+		    auto c = devpathstr[i];
+		    // we only use printable ASCII characters, everything else gets discarded
+		    if (c >= 0x20 && c <= 0x7E) {
+			    devpathascii[i] = static_cast<char>(c);
+		    } else {
+			    devpathascii[i] = '?';
+		    }
+	    }
 
-		// Null-terminate the buffer.
-		devpathascii[i] = '\0';
+	    // Null-terminate the buffer.
+	    devpathascii[i] = '\0';
 
-		pxeInfo->device_path = frg::string_view{devpathascii};
+	    pxeInfo->device_path = frg::string_view{devpathascii};
 
-		eir::infoLogger() << "eir: PXE booted from device '" << pxeInfo->device_path << "'" << frg::endlog;
+	    eir::infoLogger() << "eir: PXE booted from device '" << pxeInfo->device_path << "'"
+	                      << frg::endlog;
 
-		// TODO: support IPv6
-		if(pxe->mode->using_ipv6) {
-			eir::infoLogger() << "eir: PXE over IPv6 is unsupported" << frg::endlog;
-			return;
-		}
+	    // TODO: support IPv6
+	    if (pxe->mode->using_ipv6) {
+		    eir::infoLogger() << "eir: PXE over IPv6 is unsupported" << frg::endlog;
+		    return;
+	    }
 
-		eir::infoLogger() << "eir: PXE available, " << (pxe->mode->started ? "started" : "stopped") << frg::endlog;
+	    eir::infoLogger() << "eir: PXE available, " << (pxe->mode->started ? "started" : "stopped")
+	                      << frg::endlog;
 
-		if(!pxe->mode->started) {
-			eir::infoLogger() << "eir: PXE protocol is not yet started, skipping" << frg::endlog;
-			return;
-		}
+	    if (!pxe->mode->started) {
+		    eir::infoLogger() << "eir: PXE protocol is not yet started, skipping" << frg::endlog;
+		    return;
+	    }
 
-		if(!overrideStation)
-			pxeInfo->station_ip = pxe->mode->station_ip;
-		else
-			pxeInfo->station_ip.addr[0] = convertIp(stationStr);
+	    if (!overrideStation)
+		    pxeInfo->station_ip = pxe->mode->station_ip;
+	    else
+		    pxeInfo->station_ip.addr[0] = convertIp(stationStr);
 
-		if(!overrideSubnet)
-			pxeInfo->subnet_mask = pxe->mode->subnet_mask;
-		else
-			pxeInfo->subnet_mask.addr[0] = convertIp(subnetStr);
+	    if (!overrideSubnet)
+		    pxeInfo->subnet_mask = pxe->mode->subnet_mask;
+	    else
+		    pxeInfo->subnet_mask.addr[0] = convertIp(subnetStr);
 
-		if(!overrideServer) {
-			if(pxe->mode->pxe_reply_received) {
-				pxeInfo->server_ip.v4 = {};
-				memcpy(&pxeInfo->server_ip.v4, pxe->mode->pxe_reply.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
-			} else if(pxe->mode->proxy_offer_received) {
-				pxeInfo->server_ip.v4 = {};
-				memcpy(&pxeInfo->server_ip.v4, pxe->mode->proxy_offer.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
-			} else {
-				pxeInfo->server_ip.v4 = {};
-				memcpy(&pxeInfo->server_ip.v4, pxe->mode->dhcp_ack.dhcpv4.bootp_si_addr, sizeof(pxeInfo->server_ip.v4));
-			}
-		} else {
-			pxeInfo->server_ip.addr[0] = convertIp(serverStr);
-		}
+	    if (!overrideServer) {
+		    if (pxe->mode->pxe_reply_received) {
+			    pxeInfo->server_ip.v4 = {};
+			    memcpy(
+			        &pxeInfo->server_ip.v4,
+			        pxe->mode->pxe_reply.dhcpv4.bootp_si_addr,
+			        sizeof(pxeInfo->server_ip.v4)
+			    );
+		    } else if (pxe->mode->proxy_offer_received) {
+			    pxeInfo->server_ip.v4 = {};
+			    memcpy(
+			        &pxeInfo->server_ip.v4,
+			        pxe->mode->proxy_offer.dhcpv4.bootp_si_addr,
+			        sizeof(pxeInfo->server_ip.v4)
+			    );
+		    } else {
+			    pxeInfo->server_ip.v4 = {};
+			    memcpy(
+			        &pxeInfo->server_ip.v4,
+			        pxe->mode->dhcp_ack.dhcpv4.bootp_si_addr,
+			        sizeof(pxeInfo->server_ip.v4)
+			    );
+		    }
+	    } else {
+		    pxeInfo->server_ip.addr[0] = convertIp(serverStr);
+	    }
 
-		if(!overrideGateway) {
-			if(!pxeInfo->gateway_ip.addr[0]) {
-				size_t offset = 0;
-				auto packet = &pxe->mode->dhcp_ack.dhcpv4;
+	    if (!overrideGateway) {
+		    if (!pxeInfo->gateway_ip.addr[0]) {
+			    size_t offset = 0;
+			    auto packet = &pxe->mode->dhcp_ack.dhcpv4;
 
-				while(packet->dhcp_options[offset] != 0xff) {
-					auto code = packet->dhcp_options[offset];
-					auto len = packet->dhcp_options[offset + 1];
+			    while (packet->dhcp_options[offset] != 0xff) {
+				    auto code = packet->dhcp_options[offset];
+				    auto len = packet->dhcp_options[offset + 1];
 
-					if(code == 3) {
-						pxeInfo->gateway_ip = {};
-						memcpy(&pxeInfo->gateway_ip.v4, &packet->dhcp_options[offset + 2], sizeof(pxeInfo->gateway_ip.v4));
-						break;
-					}
+				    if (code == 3) {
+					    pxeInfo->gateway_ip = {};
+					    memcpy(
+					        &pxeInfo->gateway_ip.v4,
+					        &packet->dhcp_options[offset + 2],
+					        sizeof(pxeInfo->gateway_ip.v4)
+					    );
+					    break;
+				    }
 
-					offset += 2 + len;
-				}
-			}
+				    offset += 2 + len;
+			    }
+		    }
 
-			if(!pxeInfo->gateway_ip.addr[0]) {
-				pxeInfo->gateway_ip = {};
-				memcpy(&pxeInfo->gateway_ip.v4, pxe->mode->dhcp_ack.dhcpv4.bootp_gi_addr, sizeof(pxeInfo->gateway_ip.v4));
-			}
-		} else {
-			pxeInfo->gateway_ip.addr[0] = convertIp(gatewayStr);
-		}
+		    if (!pxeInfo->gateway_ip.addr[0]) {
+			    pxeInfo->gateway_ip = {};
+			    memcpy(
+			        &pxeInfo->gateway_ip.v4,
+			        pxe->mode->dhcp_ack.dhcpv4.bootp_gi_addr,
+			        sizeof(pxeInfo->gateway_ip.v4)
+			    );
+		    }
+	    } else {
+		    pxeInfo->gateway_ip.addr[0] = convertIp(gatewayStr);
+	    }
 
-		// TODO: fall back to using DHCP option 54 or DHCP next-server
-		if(!pxeInfo->server_ip.addr[0]) {
-			eir::infoLogger() << "eir: failed to determine PXE server address" << frg::endlog;
-			return;
-		}
+	    // TODO: fall back to using DHCP option 54 or DHCP next-server
+	    if (!pxeInfo->server_ip.addr[0]) {
+		    eir::infoLogger() << "eir: failed to determine PXE server address" << frg::endlog;
+		    return;
+	    }
 
-		size_t file_size = 0;
-		char *path = nullptr;
-		EFI_CHECK(bs->allocate_pool(EfiLoaderData, initrdPath.size() + 1, reinterpret_cast<void **>(&path)));
-		memcpy(path, initrdPath.data(), initrdPath.size());
-		path[initrdPath.size()] = '\0';
+	    size_t file_size = 0;
+	    char *path = nullptr;
+	    EFI_CHECK(bs->allocate_pool(
+	        EfiLoaderData, initrdPath.size() + 1, reinterpret_cast<void **>(&path)
+	    ));
+	    memcpy(path, initrdPath.data(), initrdPath.size());
+	    path[initrdPath.size()] = '\0';
 
-		// normalize slashes in paths
-		for(size_t i = 0; i < strlen(path); i++) {
-			if(path[i] == '\\')
-				path[i] = '/';
-		}
+	    // normalize slashes in paths
+	    for (size_t i = 0; i < strlen(path); i++) {
+		    if (path[i] == '\\')
+			    path[i] = '/';
+	    }
 
-		EFI_CHECK(pxe->mtftp(pxe, EfiPxeBaseCodeTftpGetFileSize, nullptr, false, &file_size, nullptr, &pxeInfo->server_ip, path, nullptr, false));
+	    EFI_CHECK(pxe->mtftp(
+	        pxe,
+	        EfiPxeBaseCodeTftpGetFileSize,
+	        nullptr,
+	        false,
+	        &file_size,
+	        nullptr,
+	        &pxeInfo->server_ip,
+	        path,
+	        nullptr,
+	        false
+	    ));
 
-		initrdSize = file_size;
-		efi_physical_addr initrd_addr = 0;
-		EFI_CHECK(bs->allocate_pages(
-			AllocateAnyPages, EfiLoaderData, (file_size >> 12) + 1, &initrd_addr
-		));
+	    initrdSize = file_size;
+	    efi_physical_addr initrd_addr = 0;
+	    EFI_CHECK(
+	        bs->allocate_pages(AllocateAnyPages, EfiLoaderData, (file_size >> 12) + 1, &initrd_addr)
+	    );
 
-		file_size = ((file_size >> 12) + 1) << 12;
+	    file_size = ((file_size >> 12) + 1) << 12;
 
-		EFI_CHECK(pxe->mtftp(pxe, EfiPxeBaseCodeTftpReadFile, (void *) initrd_addr, false, &file_size, nullptr, &pxeInfo->server_ip, path, nullptr, false));
+	    EFI_CHECK(pxe->mtftp(
+	        pxe,
+	        EfiPxeBaseCodeTftpReadFile,
+	        (void *)initrd_addr,
+	        false,
+	        &file_size,
+	        nullptr,
+	        &pxeInfo->server_ip,
+	        path,
+	        nullptr,
+	        false
+	    ));
 
-		bs->free_pool(path);
+	    bs->free_pool(path);
 
-		initrd = reinterpret_cast<void *>(initrd_addr);
+	    initrd = reinterpret_cast<void *>(initrd_addr);
     }
 };
 
@@ -320,11 +373,15 @@ initgraph::Task setupBootHartId{
 #endif
 
 initgraph::Task readInitrd{
-    &globalInitEngine, "uefi.read-initrd", initgraph::Requires{&preparePxe}, initgraph::Entails{getBootservicesDoneStage()}, [] {
-	    if(initrd)
-			return;
+    &globalInitEngine,
+    "uefi.read-initrd",
+    initgraph::Requires{&preparePxe},
+    initgraph::Entails{getBootservicesDoneStage()},
+    [] {
+	    if (initrd)
+		    return;
 
-		efi_file_protocol *initrdFile = nullptr;
+	    efi_file_protocol *initrdFile = nullptr;
 	    EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrdPath)));
 	    initrdSize = fsGetSize(initrdFile);
 
@@ -340,7 +397,10 @@ initgraph::Task readInitrd{
 };
 
 initgraph::Task setupGop{
-    &globalInitEngine, "uefi.setup-gop", initgraph::Entails{getBootservicesDoneStage()}, [] {
+    &globalInitEngine,
+    "uefi.setup-gop",
+    initgraph::Entails{getBootservicesDoneStage()},
+    [] {
 	    // Get the frame buffer.
 	    efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	    efi_status status =
@@ -409,6 +469,8 @@ initgraph::Task exitBootServices{
 
 #if defined(__x86_64__)
 	    asm volatile("cli");
+#elif defined(__aarch64__)
+	    asm volatile("msr daifset, #15");
 #elif defined(__riscv)
 	    asm volatile("csrci sstatus, 0x2" ::: "memory");
 #else
@@ -426,9 +488,7 @@ initgraph::Task setupMemoryMap{
 	    reservedRegions[nReservedRegions++] = {
 	        reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size
 	    };
-	    reservedRegions[nReservedRegions++] = {
-	        reinterpret_cast<uintptr_t>(initrd), initrdSize
-	    };
+	    reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(initrd), initrdSize};
 
 	    auto entries = memMapSize / descriptorSize;
 
@@ -530,55 +590,55 @@ initgraph::Task setupInitrdInfo{
 
 	    info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
-		EirAllocator alloc{};
+	    EirAllocator alloc{};
 
-		frg::string<EirAllocator> cmdline_extras{alloc, cmdline};
+	    frg::string<EirAllocator> cmdline_extras{alloc, cmdline};
 
-		auto format_ip = [&](efi_ip_address *addr) {
-			auto ip = frg::to_allocated_string(alloc, addr->v4.addr[0]);
-			ip.push_back('.');
-			ip += frg::to_allocated_string(alloc, addr->v4.addr[1]);
-			ip.push_back('.');
-			ip += frg::to_allocated_string(alloc, addr->v4.addr[2]);
-			ip.push_back('.');
-			ip += frg::to_allocated_string(alloc, addr->v4.addr[3]);
-			return std::move(ip);
-		};
+	    auto format_ip = [&](efi_ip_address *addr) {
+		    auto ip = frg::to_allocated_string(alloc, addr->v4.addr[0]);
+		    ip.push_back('.');
+		    ip += frg::to_allocated_string(alloc, addr->v4.addr[1]);
+		    ip.push_back('.');
+		    ip += frg::to_allocated_string(alloc, addr->v4.addr[2]);
+		    ip.push_back('.');
+		    ip += frg::to_allocated_string(alloc, addr->v4.addr[3]);
+		    return std::move(ip);
+	    };
 
-		if(pxeInfo) {
-			if(!overrideServer) {
-				cmdline_extras += " netserver.server=";
-				cmdline_extras += format_ip(&pxeInfo->server_ip);
-			}
+	    if (pxeInfo) {
+		    if (!overrideServer) {
+			    cmdline_extras += " netserver.server=";
+			    cmdline_extras += format_ip(&pxeInfo->server_ip);
+		    }
 
-			if(!overrideGateway) {
-				cmdline_extras += " netserver.gateway=";
-				cmdline_extras += format_ip(&pxeInfo->gateway_ip);
-			}
+		    if (!overrideGateway) {
+			    cmdline_extras += " netserver.gateway=";
+			    cmdline_extras += format_ip(&pxeInfo->gateway_ip);
+		    }
 
-			if(!overrideStation) {
-				cmdline_extras += " netserver.ip=";
-				cmdline_extras += format_ip(&pxeInfo->station_ip);
-			}
+		    if (!overrideStation) {
+			    cmdline_extras += " netserver.ip=";
+			    cmdline_extras += format_ip(&pxeInfo->station_ip);
+		    }
 
-			if(!overrideSubnet) {
-				cmdline_extras += " netserver.subnet=";
-				cmdline_extras += format_ip(&pxeInfo->subnet_mask);
-			}
+		    if (!overrideSubnet) {
+			    cmdline_extras += " netserver.subnet=";
+			    cmdline_extras += format_ip(&pxeInfo->subnet_mask);
+		    }
 
-			if(pxeInfo->device_path.size()) {
-				cmdline_extras += " netserver.device=";
-				cmdline_extras += pxeInfo->device_path;
-			}
-		}
+		    if (pxeInfo->device_path.size()) {
+			    cmdline_extras += " netserver.device=";
+			    cmdline_extras += pxeInfo->device_path;
+		    }
+	    }
 
-		cmdline = cmdline_extras;
+	    cmdline = cmdline_extras;
 
-		auto cmd_length = cmdline.size();
-		assert(cmd_length <= pageSize);
-		auto cmd_buffer = bootAlloc<char>(cmd_length);
-		memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
-		info_ptr->commandLine = mapBootstrapData(cmd_buffer);
+	    auto cmd_length = cmdline.size();
+	    assert(cmd_length <= pageSize);
+	    auto cmd_buffer = bootAlloc<char>(cmd_length);
+	    memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
+	    info_ptr->commandLine = mapBootstrapData(cmd_buffer);
     }
 };
 
@@ -657,6 +717,10 @@ initgraph::Task setupFramebufferInfo{
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
+	if (initPlatform) {
+		initPlatform();
+	}
+
 	eirRunConstructors();
 
 	// Set the system table so we can use loggers early on.

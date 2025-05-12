@@ -21,9 +21,15 @@ static initgraph::Task prepareSerialForThor{
     }
 };
 
-extern "C" [[noreturn]] void eirVirtMain() {
+void initPlatform() {
 	debugUart.initialize(0x9000000, 24000000);
 	debugUart->init(115200);
+}
+
+extern "C" [[noreturn]] void eirVirtMain() {
+	if (initPlatform) {
+		initPlatform();
+	}
 	eirRunConstructors();
 
 	GenericInfo info{.cmdline = nullptr, .fb{}, .debugFlags = eirDebugSerial, .hasFb = false};
