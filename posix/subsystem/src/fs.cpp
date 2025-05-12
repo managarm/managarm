@@ -12,7 +12,7 @@ struct AnonymousSuperblock : FsSuperblock {
 		deviceMinor_ = getUnnamedDeviceIdAllocator().allocate();
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override {
+	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *, std::shared_ptr<FsNode>) override {
 		std::cout << "posix: createRegular on AnonymousSuperblock unsupported" << std::endl;
 		co_return nullptr;
 	}

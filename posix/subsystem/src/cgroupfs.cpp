@@ -204,7 +204,7 @@ RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	co_return File::constructHandle(std::move(file));
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *) {
+FutureMaybe<std::shared_ptr<FsNode>> SuperBlock::createRegular(Process *, std::shared_ptr<FsNode>) {
 	std::cout << "posix: createRegular on cgroupfs Superblock unsupported" << std::endl;
 	co_return nullptr;
 }
