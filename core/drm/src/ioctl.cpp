@@ -158,10 +158,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.set_drm_value(1);
 				if(logDrmRequests) std::cout << "\tCAP_CRTC_IN_VBLANK_EVENT supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_CURSOR_WIDTH) {
-				resp.set_drm_value(32);
+				resp.set_drm_value(self->_device->getCursorWidth());
 				if(logDrmRequests) std::cout << "\tCAP_CURSOR_WIDTH supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
-				resp.set_drm_value(32);
+				resp.set_drm_value(self->_device->getCursorHeight());
 				if(logDrmRequests) std::cout << "\tCAP_CURSOR_HEIGHT supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_PRIME) {
 				resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
