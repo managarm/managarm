@@ -5,6 +5,7 @@
 #include <helix/ipc.hpp>
 #include "posix.bragi.hpp"
 #include <protocols/ostrace/ostrace.hpp>
+#include <print>
 
 #include <core/clock.hpp>
 #include "core/drm/core.hpp"
@@ -306,15 +307,14 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: GETENCODER()" << std::endl;
-
-			resp.set_drm_encoder_type(0);
+				std::println("core/drm: GETENCODER([{}])", req->drm_encoder_id());
 
 			auto obj = self->_device->findObject(req->drm_encoder_id());
 			assert(obj);
 			auto enc = obj->asEncoder();
 			assert(enc);
-			resp.set_drm_crtc_id(enc->currentCrtc()->id());
+			resp.set_drm_encoder_type(enc->getEncoderType());
+			resp.set_drm_crtc_id(enc->currentCrtc() ? enc->currentCrtc()->id() : 0);
 
 			uint32_t crtc_mask = 0;
 			for(auto crtc : enc->getPossibleCrtcs()) {
