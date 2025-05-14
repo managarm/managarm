@@ -192,6 +192,7 @@ struct Connector : ModeObject {
 	uint32_t getCurrentStatus();
 
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
+	void addPossibleEncoder(Encoder * encoder);
 	const std::vector<Encoder *> &getPossibleEncoders();
 
 	void setupPhysicalDimensions(uint32_t width, uint32_t height);
