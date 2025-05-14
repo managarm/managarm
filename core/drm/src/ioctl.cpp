@@ -595,6 +595,21 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), true));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), mode_blob));
 				assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcWProperty(), fb->asFrameBuffer()->getWidth() << 16));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcHProperty(), fb->asFrameBuffer()->getHeight() << 16));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcXProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcYProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcWProperty(), fb->asFrameBuffer()->getWidth()));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcHProperty(), fb->asFrameBuffer()->getHeight()));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcXProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcYProperty(), 0));
+
+				for(auto connectorId : req->drm_connector_ids()) {
+					auto con = self->_device->findObject(connectorId);
+					assert(con);
+
+					assignments.push_back(Assignment::withModeObj(con, self->_device->crtcIdProperty(), crtc->sharedModeObject()));
+				}
 			}else{
 				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), false));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), nullptr));
