@@ -529,28 +529,33 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: GETCRTC()" << std::endl;
-
-			auto obj = self->_device->findObject(req->drm_crtc_id());
-			assert(obj);
-			auto crtc = obj->asCrtc();
-			assert(crtc);
-
-			drm_mode_modeinfo mode_info;
-			if(crtc->drmState()->mode) {
-				memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
-				resp.set_drm_mode_valid(1);
-				resp.set_drm_x(crtc->primaryPlane()->drmState()->src_x);
-				resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
-				/* TODO: wire up gamma once we support that */
-				resp.set_drm_gamma_size(0);
-				resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
-			}else{
-				memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
-				resp.set_drm_mode_valid(0);
-			}
+				std::println("core/drm: GETCRTC([{}])", req->drm_crtc_id());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto obj = self->_device->findObject(req->drm_crtc_id());
+			drm_mode_modeinfo mode_info;
+			memset(&mode_info, 0, sizeof(mode_info));
+
+			if(obj) {
+				auto crtc = obj->asCrtc();
+				assert(crtc);
+
+				if(crtc->drmState()->mode) {
+					memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
+					resp.set_drm_mode_valid(1);
+					resp.set_drm_x(crtc->primaryPlane()->drmState()->src_x);
+					resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
+					/* TODO: wire up gamma once we support that */
+					resp.set_drm_gamma_size(0);
+					resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
+				}else{
+					memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
+					resp.set_drm_mode_valid(0);
+				}
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
