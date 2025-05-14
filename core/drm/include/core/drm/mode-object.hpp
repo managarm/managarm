@@ -94,6 +94,12 @@ private:
 struct CrtcState {
 	CrtcState(std::weak_ptr<Crtc> crtc);
 
+	virtual ~CrtcState() = default;
+
+	virtual std::shared_ptr<CrtcState> clone() const {
+		return std::make_shared<drm_core::CrtcState>(*this);
+	}
+
 	std::weak_ptr<Crtc> crtc(void);
 
 	std::weak_ptr<Crtc> _crtc;

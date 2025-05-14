@@ -104,8 +104,7 @@ std::shared_ptr<drm_core::CrtcState> drm_core::AtomicState::crtc(uint32_t id) {
 	} else {
 		auto crtc = _device->findObject(id)->asCrtc();
 		assert(crtc->drmState());
-		auto crtc_state = CrtcState(*crtc->drmState());
-		auto crtc_state_shared = std::make_shared<drm_core::CrtcState>(crtc_state);
+		auto crtc_state_shared = crtc->drmState()->clone();
 		_crtcStates.insert({id, crtc_state_shared});
 		return crtc_state_shared;
 	}
