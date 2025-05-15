@@ -10,9 +10,11 @@ exe = executable('eir-raspi4', eir_sources, raspi4_sources,
 	install : true
 )
 
-custom_target('kernel8.img',
+rawbin = custom_target('kernel8.img',
+	command : [ objcopy, '-O', 'binary', '@INPUT@', '@OUTPUT@' ],
 	input : exe,
 	output : 'kernel8.img',
 	build_by_default : true,
-	command : [ objcopy, '-O', 'binary', '@INPUT@', '@OUTPUT@' ]
+	install : true,
+	install_dir : get_option('bindir'),
 )

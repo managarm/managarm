@@ -12,9 +12,11 @@ exe = executable('eir-virt', eir_sources, raspi4_sources,
 	install : true
 )
 
-custom_target('eir-virt.bin',
+rawbin = custom_target('eir-virt.bin',
+	command : [ objcopy, '-O', 'binary', '@INPUT@', '@OUTPUT@' ],
 	input : exe,
 	output : 'eir-virt.bin',
 	build_by_default : true,
-	command : [ objcopy, '-O', 'binary', '@INPUT@', '@OUTPUT@' ]
+	install : true,
+	install_dir : get_option('bindir'),
 )
