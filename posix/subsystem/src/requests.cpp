@@ -407,7 +407,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto wait_result = co_await self->wait(wait_pid, flags);
 
-			helix::SendBuffer send_resp;
 			managarm::posix::WaitIdResponse resp;
 
 			if(wait_result) {
@@ -460,8 +459,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto wait_result = co_await self->wait(req.pid(), flags);
 
-			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
 			if(wait_result) {
 				auto proc_state = wait_result.value();
@@ -483,10 +480,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::RebootRequest::message_id) {
@@ -517,15 +513,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(hwSendResp.error());
 			HEL_CHECK(hwResp.error());
 
-			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
@@ -547,16 +541,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				// TODO: Return an error response.
 			}
 
-			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_ru_user_time(user_time);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
@@ -655,8 +646,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_REMAP) {
 			logRequest(logRequests, "VM_REMAP");
 
-			helix::SendBuffer send_resp;
-
 			auto address = co_await self->vmContext()->remapFile(
 					reinterpret_cast<void *>(req.address()), req.size(), req.new_size());
 
@@ -664,23 +653,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_offset(reinterpret_cast<uintptr_t>(address));
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_PROTECT) {
 			logRequest(logRequests, "VM_PROTECT");
-			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
 			if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -697,26 +683,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					reinterpret_cast<void *>(req.address()), req.size(), native_flags);
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
 			logRequest(logRequests, "VM_UNMAP", "address={:#08x} size={:#x}", req.address(), req.size());
-
-			helix::SendBuffer send_resp;
 
 			self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), req.size());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::MountRequest::message_id) {
@@ -807,8 +789,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
 			logRequest(logRequests, "CHROOT");
 
-			helix::SendBuffer send_resp;
-
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 			if(!pathResult) {
@@ -829,16 +809,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::CHDIR) {
 			logRequest(logRequests, "CHDIR");
-
-			helix::SendBuffer send_resp;
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
 					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
@@ -860,27 +837,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::FCHDIR) {
 			logRequest(logRequests, "FCHDIR");
 
 			managarm::posix::SvrResponse resp;
-			helix::SendBuffer send_resp;
 
 			auto file = self->fileContext()->getFile(req.fd());
 
 			if(!file) {
 				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				continue;
 			}
@@ -890,10 +864,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::AccessAtRequest::message_id) {
@@ -1812,9 +1785,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_data;
-
 			ViewPath relative_to;
 			smarter::shared_ptr<File, FileHandle> file;
 
@@ -1838,11 +1808,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					managarm::posix::SvrResponse resp;
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-							helix::action(&send_data, nullptr, 0));
-					co_await transmit.async_wait();
+					auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+						helix_ng::sendBuffer(nullptr, 0)
+					);
 					HEL_CHECK(send_resp.error());
 					logBragiReply(resp);
 					continue;
@@ -1850,11 +1819,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					managarm::posix::SvrResponse resp;
 					resp.set_error(managarm::posix::Errors::NOT_A_DIRECTORY);
 
-					auto ser = resp.SerializeAsString();
-					auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-							helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-							helix::action(&send_data, nullptr, 0));
-					co_await transmit.async_wait();
+					auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+						helix_ng::sendBuffer(nullptr, 0)
+					);
 					HEL_CHECK(send_resp.error());
 					logBragiReply(resp);
 					continue;
@@ -1872,11 +1840,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&send_data, nullptr, 0));
-				co_await transmit.async_wait();
+				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::sendBuffer(nullptr, 0)
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 			}else{
@@ -1889,11 +1856,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-						helix::action(&send_data, target.data(), target.size()));
-				co_await transmit.async_wait();
+				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::sendBuffer(target.data(), target.size())
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 			}
@@ -2175,30 +2141,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto file = self->fileContext()->getFile(req.fd());
 
 			if (!file) {
-				helix::SendBuffer send_resp;
-
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 				continue;
 			}
 
 			if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)) {
-				helix::SendBuffer send_resp;
-
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 				continue;
@@ -2207,16 +2167,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			int newfd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
-			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(newfd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 		}else if(preamble.id() == bragi::message_id<managarm::posix::Dup2Request>) {
 			auto req = bragi::parse_head_only<managarm::posix::Dup2Request>(recv_head);
@@ -2290,8 +2247,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_mode(file->isTerminal());
@@ -2304,8 +2259,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
 			logRequest(logRequests, "TTY_NAME", "fd={}", req.fd());
-
-			helix::SendBuffer send_resp;
 
 			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
@@ -2326,10 +2279,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_path(ttynameResult.value());
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::GETCWD) {
@@ -2338,19 +2290,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "GETCWD", "path={}", path);
 
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_path;
-
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_size(path.size());
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_path, path.data(),
-							std::min(static_cast<size_t>(req.size()), path.size() + 1)));
-			co_await transmit.async_wait();
+			auto [send_resp, send_path] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(path.data(), std::min(static_cast<size_t>(req.size()), path.size() + 1))
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_path.error());
 			logBragiReply(resp);
@@ -2497,17 +2444,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
 			logRequest(logRequests, "FD_GET_FLAGS");
 
-			helix::SendBuffer send_resp;
-
 			auto descriptor = self->fileContext()->getDescriptor(req.fd());
 			if(!descriptor) {
 				managarm::posix::SvrResponse resp;
 				resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 				continue;
@@ -2521,10 +2465,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(flags);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::FD_SET_FLAGS) {
@@ -2581,16 +2524,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(!"Flags not implemented");
 			}
 
-			helix::SendBuffer send_resp;
-
 			managarm::posix::SvrResponse resp;
 
 			if(req.sig_number() <= 0 || req.sig_number() > 64) {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 				logBragiReply(resp);
 				continue;
@@ -2653,10 +2593,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_sig_handler((uint64_t)SIG_IGN);
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::PIPE_CREATE) {
@@ -2669,8 +2608,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(req.flags() & O_NONBLOCK)
 				nonBlock = true;
 
-			helix::SendBuffer send_resp;
-
 			auto pair = fifo::createPair(nonBlock);
 			auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
 					req.flags() & O_CLOEXEC);
@@ -2682,10 +2619,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.add_fds(r_fd);
 			resp.add_fds(w_fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::SETSID) {
@@ -2944,8 +2880,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
 			logRequest(logRequests, "EPOLL_CALL");
 
-			helix::SendBuffer send_resp;
-
 			// Since file descriptors may appear multiple times in a poll() call,
 			// we need to de-duplicate them here.
 			std::unordered_map<int, unsigned int> fdsToEvents;
@@ -3037,16 +2971,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.add_events(it->second);
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
 			logRequest(logRequests, "EPOLL_CREATE");
-
-			helix::SendBuffer send_resp;
 
 			assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
 
@@ -3058,16 +2989,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_ADD) {
 			logRequest(logRequests, "EPOLL_ADD", "epollfd={} fd={}", req.fd(), req.newfd());
-
-			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
@@ -3089,16 +3017,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_MODIFY) {
 			logRequest(logRequests, "EPOLL_MODIFY");
-
-			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
@@ -3116,16 +3041,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_DELETE) {
 			logRequest(logRequests, "EPOLL_DELETE");
-
-			helix::SendBuffer send_resp;
 
 			auto epfile = self->fileContext()->getFile(req.fd());
 			auto file = self->fileContext()->getFile(req.newfd());
@@ -3145,17 +3067,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
 			logRequest(logRequests, "EPOLL_WAIT", "epollfd={}", req.fd());
 
-			helix::SendBuffer send_resp;
-			helix::SendBuffer send_data;
 			uint64_t former = self->signalMask();
 
 			auto epfile = self->fileContext()->getFile(req.fd());
@@ -3192,11 +3111,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&send_data, events, k * sizeof(struct epoll_event)));
-			co_await transmit.async_wait();
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(events, k * sizeof(struct epoll_event))
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == bragi::message_id<managarm::posix::TimerFdCreateRequest>) {
@@ -3314,8 +3232,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 			logRequest(logRequests, "SIGNALFD_CREATE");
 
-			helix::SendBuffer send_resp;
-
 			if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC
 					| managarm::posix::OpenFlags::OF_NONBLOCK)) {
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -3342,10 +3258,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				}
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
 		}else if(preamble.id() == managarm::posix::InotifyCreateRequest::message_id) {
@@ -4174,15 +4089,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logBragiReply(resp);
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
-			helix::SendBuffer send_resp;
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 		}
 

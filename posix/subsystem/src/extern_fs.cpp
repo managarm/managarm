@@ -54,19 +54,16 @@ private:
 
 struct Node : FsNode {
 	async::result<frg::expected<Error, FileStats>> getStats() override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_GET_STATS);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -292,11 +289,6 @@ private:
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_ctrl;
-		helix::PullDescriptor pull_passthrough;
 
 		bool append = false;
 		if(semantic_flags & semanticAppend) {
@@ -307,14 +299,15 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 		req.set_append(append);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_ctrl, kHelItemChain),
-				helix::action(&pull_passthrough));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp, pull_ctrl, pull_passthrough] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor(),
+				helix_ng::pullDescriptor()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -343,21 +336,17 @@ private:
 	}
 
 	expected<std::string> readSymlink(FsLink *, Process *) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::RecvInline recv_target;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_READ_SYMLINK);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&recv_target));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp, recv_target] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::recvInline()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -630,22 +619,18 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			getLink(std::string name) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_node;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_GET_LINK);
 		req.set_path(name);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_node));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -674,23 +659,19 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_node;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_LINK);
 		req.set_path(name);
 		req.set_fd(static_cast<Node *>(target.get())->getInode());
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_node));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -715,20 +696,17 @@ private:
 	}
 
 	async::result<frg::expected<Error>> unlink(std::string name) override {
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-
 		managarm::fs::CntRequest req;
 		req.set_req_type(managarm::fs::CntReqType::NODE_UNLINK);
 		req.set_path(name);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -786,11 +764,6 @@ private:
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
-		helix::Offer offer;
-		helix::SendBuffer send_req;
-		helix::RecvInline recv_resp;
-		helix::PullDescriptor pull_ctrl;
-		helix::PullDescriptor pull_passthrough;
 
 		bool append = false;
 		if(semantic_flags & semanticAppend) {
@@ -801,14 +774,15 @@ private:
 		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
 		req.set_append(append);
 
-		auto ser = req.SerializeAsString();
-		auto &&transmit = helix::submitAsync(getLane(), helix::Dispatcher::global(),
-				helix::action(&offer, kHelItemAncillary),
-				helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-				helix::action(&recv_resp, kHelItemChain),
-				helix::action(&pull_ctrl, kHelItemChain),
-				helix::action(&pull_passthrough));
-		co_await transmit.async_wait();
+		auto [offer, send_req, recv_resp, pull_ctrl, pull_passthrough] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor(),
+				helix_ng::pullDescriptor()
+			)
+		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
 		HEL_CHECK(recv_resp.error());
@@ -848,23 +822,19 @@ Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> devic
 : _lane{std::move(lane)}, device_{device} { }
 
 FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
-	helix::Offer offer;
-	helix::SendBuffer send_req;
-	helix::RecvInline recv_resp;
-	helix::PullDescriptor pull_node;
-
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
 	req.set_uid(process->uid());
 	req.set_gid(process->gid());
 
-	auto ser = req.SerializeAsString();
-	auto &&transmit = helix::submitAsync(_lane, helix::Dispatcher::global(),
-			helix::action(&offer, kHelItemAncillary),
-			helix::action(&send_req, ser.data(), ser.size(), kHelItemChain),
-			helix::action(&recv_resp, kHelItemChain),
-			helix::action(&pull_node));
-	co_await transmit.async_wait();
+	auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline(),
+			helix_ng::pullDescriptor()
+		)
+	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());

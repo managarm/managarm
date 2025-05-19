@@ -321,7 +321,6 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 		recv_req.reset();
 
 		if(req.request_type() == managarm::posix::CntReqType::FD_SERVE) {
-			helix::SendBuffer send_resp;
 			managarm::posix::SvrResponse resp;
 
 			auto [recv_handle] = co_await helix_ng::exchangeMsgs(
@@ -343,10 +342,9 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_fd(fd);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size()));
-			co_await transmit.async_wait();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
 			HEL_CHECK(send_resp.error());
 		}
 	}
