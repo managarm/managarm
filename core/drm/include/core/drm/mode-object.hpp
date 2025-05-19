@@ -148,6 +148,8 @@ struct Encoder : ModeObject {
 
 	drm_core::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_core::Crtc *crtc);
+	drm_core::Connector *currentConnector();
+	void setCurrentConnector(drm_core::Connector *con);
 	void setupEncoderType(uint32_t type);
 	uint32_t getEncoderType();
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
@@ -159,6 +161,7 @@ struct Encoder : ModeObject {
 
 private:
 	drm_core::Crtc *_currentCrtc;
+	drm_core::Connector *_connector;
 	uint32_t _encoderType;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::vector<Encoder *> _possibleClones;

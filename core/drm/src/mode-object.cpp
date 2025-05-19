@@ -98,6 +98,14 @@ void drm_core::Encoder::setCurrentCrtc(drm_core::Crtc *crtc) {
 	_currentCrtc = crtc;
 }
 
+drm_core::Connector *drm_core::Encoder::currentConnector() {
+	return _connector;
+}
+
+void drm_core::Encoder::setCurrentConnector(drm_core::Connector *con) {
+	_connector = con;
+}
+
 void drm_core::Encoder::setupEncoderType(uint32_t type) {
 	_encoderType = type;
 }
