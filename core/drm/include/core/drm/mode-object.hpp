@@ -28,6 +28,9 @@ public:
 	virtual std::shared_ptr<BufferObject> sharedBufferObject() = 0;
 	virtual size_t getSize() = 0;
 	virtual std::pair<helix::BorrowedDescriptor, uint64_t> getMemory() = 0;
+	virtual uint32_t getFlags() {
+		return 0;
+	}
 
 	void setupMapping(uint64_t mapping);
 	uint64_t getMapping();
