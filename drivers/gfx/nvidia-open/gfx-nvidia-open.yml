@@ -1,0 +1,7 @@
+name: gfx-nvidia-open
+exec: /usr/bin/gfx_nvidia_open
+files:
+  - /usr/bin/gfx_nvidia_open
+  - /usr/lib/libdrm_core.so
+  - /usr/lib/firmware/nvidia/575.51.02/gsp_ga10x.bin
+  - /usr/lib/firmware/nvidia/575.51.02/gsp_tu10x.bin
