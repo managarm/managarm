@@ -249,8 +249,10 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			auto old = state->crtc(assignment.object->id())->mode;
+
 			state->crtc(assignment.object->id())->mode = assignment.blobValue;
-			state->crtc(assignment.object->id())->modeChanged = true;
+			state->crtc(assignment.object->id())->modeChanged = assignment.blobValue != old;
 		}
 	};
 	registerProperty(_modeIdProperty = std::make_shared<ModeIdProperty>());
@@ -354,7 +356,10 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			auto old = state->crtc(assignment.object->id())->active;
+
 			state->crtc(assignment.object->id())->active = assignment.intValue;
+			state->crtc(assignment.object->id())->activeChanged = old != static_cast<bool>(assignment.intValue);
 		}
 	};
 	registerProperty(_activeProperty = std::make_shared<ActiveProperty>());
