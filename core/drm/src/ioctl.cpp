@@ -253,7 +253,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.add_drm_encoders(psbl_enc[i]->id());
 			}
 
-			resp.set_drm_encoder_id(conn->currentEncoder()->id());
+			resp.set_drm_encoder_id(conn->currentEncoder() ? conn->currentEncoder()->id() : 0);
 			resp.set_drm_connector_type(conn->connectorType());
 			resp.set_drm_connector_type_id(0);
 			resp.set_drm_connection(conn->getCurrentStatus()); // DRM_MODE_CONNECTED
