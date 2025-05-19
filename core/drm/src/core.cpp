@@ -251,39 +251,31 @@ static constexpr auto defaultFileOperations = protocols::fs::FileOperations{
 async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 		helix::UniqueLane lane) {
 	while(true) {
-		helix::Accept accept;
-		helix::RecvInline recv_req;
+		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+			lane,
+			helix_ng::accept(
+				helix_ng::recvInline())
+		);
 
-		auto &&header = helix::submitAsync(lane, helix::Dispatcher::global(),
-				helix::action(&accept, kHelItemAncillary),
-				helix::action(&recv_req));
-		co_await header.async_wait();
 		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
+		HEL_CHECK(recvHead.error());
 
 		auto conversation = accept.descriptor();
 		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
+		req.ParseFromArray(recvHead.data(), recvHead.length());
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			if(req.flags() & ~(managarm::fs::OpenFlags::OF_NONBLOCK)) {
-				helix::SendBuffer send_resp;
-
 				std::cout << "\e[31m" "core/drm: Illegal flags " << req.flags()
 						<< " for DEV_OPEN" "\e[39m" << std::endl;
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 
-				auto ser = resp.SerializeAsString();
-				auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-						helix::action(&send_resp, ser.data(), ser.size()));
-				co_await transmit.async_wait();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
 				HEL_CHECK(send_resp.error());
 			}
-
-			helix::SendBuffer send_resp;
-			helix::PushDescriptor push_pt;
-			helix::PushDescriptor push_page;
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -299,12 +291,11 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE | managarm::fs::FileCaps::FC_POSIX_LANE);
 
-			auto ser = resp.SerializeAsString();
-			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
-					helix::action(&send_resp, ser.data(), ser.size(), kHelItemChain),
-					helix::action(&push_pt, remote_lane, kHelItemChain),
-					helix::action(&push_page, file->statusPageMemory()));
-			co_await transmit.async_wait();
+			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::pushDescriptor(remote_lane),
+				helix_ng::pushDescriptor(file->statusPageMemory())
+			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
 			HEL_CHECK(push_page.error());
