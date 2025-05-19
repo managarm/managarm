@@ -230,6 +230,7 @@ public:
 
 		if(id == managarm::fs::GenericIoctlRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			msg.reset();
 			assert(req);
 
 			switch(req->command()) {
@@ -264,6 +265,7 @@ public:
 			HEL_CHECK(send_resp.error());
 			co_return;
 		}else{
+			msg.reset();
 			std::cout << "\e[31m" "fifo: Unknown ioctl() message with ID "
 					<< id << "\e[39m" << std::endl;
 

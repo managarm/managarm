@@ -268,6 +268,7 @@ struct Tcp4Socket {
 
 		if(id == managarm::fs::GenericIoctlRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			msg.reset();
 			assert(req);
 
 			switch(req->command()) {
@@ -295,6 +296,7 @@ struct Tcp4Socket {
 			);
 			HEL_CHECK(send_resp.error());
 		}else {
+			msg.reset();
 			std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 			conversation, helix_ng::dismiss());

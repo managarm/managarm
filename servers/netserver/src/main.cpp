@@ -763,6 +763,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(send_tail.error());
 			logBragiReply(resp);
 		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
+			recv_req.reset();
 			co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::dismiss()
@@ -770,6 +771,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 			posixLane = std::move(conversation);
 		} else {
+			recv_req.reset();
 			std::cout << "netserver: received unknown message: "
 				<< preamble.id() << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(

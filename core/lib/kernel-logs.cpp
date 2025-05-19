@@ -40,6 +40,7 @@ async::result<size_t> KernelLogs::getMessage(std::span<uint8_t> buffer) {
 	HEL_CHECK(recvBuffer.error());
 
 	auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
+	recvResp.reset();
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 	assert(offset_ == resp.effective_dequeue());

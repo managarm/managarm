@@ -263,6 +263,8 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 		auto conversation = accept.descriptor();
 		managarm::fs::CntRequest req;
 		req.ParseFromArray(recvHead.data(), recvHead.length());
+		recvHead.reset();
+
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			if(req.flags() & ~(managarm::fs::OpenFlags::OF_NONBLOCK)) {
 				std::cout << "\e[31m" "core/drm: Illegal flags " << req.flags()

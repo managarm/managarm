@@ -109,6 +109,7 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::deviceDescripto
 	HEL_CHECK(recvResp.error());
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+	recvResp.reset();
 
 	FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -116,6 +117,7 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::deviceDescripto
 
 	std::string data(recvData.length(), 0);
 	memcpy(&data[0], recvData.data(), recvData.length());
+	recvData.reset();
 	co_return std::move(data);
 }
 
@@ -137,6 +139,7 @@ async::result<frg::expected<UsbError, std::string>> DeviceState::configurationDe
 	HEL_CHECK(recvResp.error());
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+	recvResp.reset();
 
 	std::string recvBuffer(resp->size(), 0);
 	auto [recvData] = co_await helix_ng::exchangeMsgs(
@@ -170,6 +173,7 @@ async::result<frg::expected<UsbError, Configuration>> DeviceState::useConfigurat
 	HEL_CHECK(recvResp.error());
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+	recvResp.reset();
 
 	FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -208,6 +212,7 @@ doControlTransfer(auto &lane, ControlTransfer info) {
 		HEL_CHECK(recvResp.error());
 
 		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+		recvResp.reset();
 
 		FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -229,6 +234,7 @@ doControlTransfer(auto &lane, ControlTransfer info) {
 		HEL_CHECK(recvResp.error());
 
 		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+		recvResp.reset();
 
 		FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -263,6 +269,7 @@ ConfigurationState::useInterface(int number, int alternative) {
 	HEL_CHECK(recvResp.error());
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+	recvResp.reset();
 
 	FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -293,6 +300,7 @@ InterfaceState::getEndpoint(PipeType type, int number) {
 	HEL_CHECK(recvResp.error());
 
 	auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+	recvResp.reset();
 
 	FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -333,6 +341,7 @@ doTransferOfType(auto &lane, managarm::usb::XferType type, XferInfo info) {
 		HEL_CHECK(recvResp.error());
 
 		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+		recvResp.reset();
 
 		FRG_CO_TRY(transformProtocolError(resp->error()));
 
@@ -352,6 +361,7 @@ doTransferOfType(auto &lane, managarm::usb::XferType type, XferInfo info) {
 		HEL_CHECK(recvResp.error());
 
 		auto resp = bragi::parse_head_only<managarm::usb::SvrResponse>(recvResp);
+		recvResp.reset();
 
 		FRG_CO_TRY(transformProtocolError(resp->error()));
 

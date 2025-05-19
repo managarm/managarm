@@ -512,6 +512,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(offer.error());
 			HEL_CHECK(hwSendResp.error());
 			HEL_CHECK(hwResp.error());
+			hwResp.reset();
 
 			managarm::posix::SvrResponse resp;
 
@@ -3864,6 +3865,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(kerncfgResp.error());
 
 			auto kernResp = bragi::parse_head_only<managarm::kerncfg::GetMemoryInformationResponse>(kerncfgResp);
+			kerncfgResp.reset();
 
 			managarm::posix::GetMemoryInformationResponse resp;
 			resp.set_total_usable_memory(kernResp->total_usable_memory());
@@ -3903,6 +3905,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				HEL_CHECK(kerncfgResp.error());
 
 				auto kernResp = bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(kerncfgResp);
+				kerncfgResp.reset();
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_value(kernResp->num_cpu());

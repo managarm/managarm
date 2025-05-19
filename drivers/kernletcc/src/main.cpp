@@ -108,7 +108,7 @@ async::detached serveCompiler(helix::UniqueLane lane) {
 
 		if(preamble.id() == bragi::message_id<managarm::kernlet::CompileRequest>) {
 			auto maybeReq = bragi::parse_head_tail<managarm::kernlet::CompileRequest>(recvHead, tailBuffer);
-
+			recvHead.reset();
 			if (!maybeReq) {
 				std::cout << "kernletcc: Ignoring request due to decoding failure.\n";
 				continue;

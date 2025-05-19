@@ -177,6 +177,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		msg.reset();
 		assert(req);
 		if(req->command() == EVIOCGBIT(0, 0)) {
 			assert(req->size());
@@ -275,6 +276,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			HEL_CHECK(dismiss.error());
 		}
 	} else if(id == managarm::fs::EvioGetNameRequest::message_id) {
+		msg.reset();
 		managarm::fs::EvioGetNameReply resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -287,6 +289,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		HEL_CHECK(send_head.error());
 		HEL_CHECK(send_tail.error());
 	} else if(id == managarm::fs::EvioGetIdRequest::message_id) {
+		msg.reset();
 		managarm::fs::EvioGetIdReply resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -302,6 +305,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		HEL_CHECK(send_resp.error());
 	} else if(id == managarm::fs::EvioGetMultitouchSlotsRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::EvioGetMultitouchSlotsRequest>(msg);
+		msg.reset();
 		managarm::fs::EvioGetMultitouchSlotsReply resp;
 
 		for(auto &e : self->_device->_mtState) {
@@ -326,6 +330,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		HEL_CHECK(send_head.error());
 		HEL_CHECK(send_tail.error());
 	}else{
+		msg.reset();
 		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
 			conversation, helix_ng::dismiss());

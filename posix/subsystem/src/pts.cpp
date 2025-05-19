@@ -839,6 +839,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 		helix::UniqueLane conversation) {
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		msg.reset();
 		assert(req);
 
 		if(req->command() == TIOCGPTN) {
@@ -940,6 +941,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 					<< "\e[39m" << std::endl;
 		}
 	}else{
+		msg.reset();
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl message " << id
 				<< "\e[39m" << std::endl;
 	}
@@ -1063,6 +1065,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 		helix::UniqueLane conversation) {
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		msg.reset();
 
 		if(req->command() == TCGETS) {
 			managarm::fs::GenericIoctlReply resp;
@@ -1246,6 +1249,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 					<< "\e[39m" << std::endl;
 		}
 	}else{
+		msg.reset();
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl message " << id
 				<< "\e[39m" << std::endl;
 	}

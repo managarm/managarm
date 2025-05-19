@@ -70,6 +70,7 @@ struct Node : FsNode {
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		FileStats stats{};
@@ -316,6 +317,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
@@ -354,6 +356,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		co_return std::string{static_cast<char *>(recv_target.data()), recv_target.length()};
@@ -637,6 +640,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pull_node.error());
 
@@ -678,6 +682,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pull_node.error());
 
@@ -713,6 +718,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND)
 			co_return Error::noSuchFile;
 		else if(resp.error() == managarm::fs::Errors::DIRECTORY_NOT_EMPTY)
@@ -791,6 +797,7 @@ private:
 
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
@@ -841,6 +848,7 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process)
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	if(resp.error() == managarm::fs::Errors::SUCCESS) {
 		HEL_CHECK(pull_node.error());
 

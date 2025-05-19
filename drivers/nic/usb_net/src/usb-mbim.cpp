@@ -104,6 +104,7 @@ static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInline
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		msg.reset();
 		assert(req);
 
 		switch(req->command()) {
@@ -129,6 +130,7 @@ static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInline
 			}
 		}
 	} else {
+		msg.reset();
 		std::cout << std::format("drivers/usb-mbim: unexpected ioctl message type 0x{:x}\n", id);
 
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(

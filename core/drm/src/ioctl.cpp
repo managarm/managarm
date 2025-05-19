@@ -115,6 +115,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		msg.reset();
 		assert(req);
 
 		if(req->command() == DRM_IOCTL_VERSION) {
@@ -1290,6 +1291,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
 	}else{
+		msg.reset();
 		std::cout << "\e[31m" "core/drm: Unknown ioctl() message with ID "
 				<< id << "\e[39m" << std::endl;
 

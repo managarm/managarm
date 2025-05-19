@@ -463,7 +463,7 @@ FutureMaybe<helix::UniqueDescriptor> File::accessMemory() {
 async::result<void> File::ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	(void) id;
-	(void) msg;
+	msg.reset();
 
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement ioctl()" << std::endl;

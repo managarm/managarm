@@ -225,6 +225,7 @@ async::result<frg::expected<Error, File>> File::createSocket(helix::BorrowedLane
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return static_cast<Error>(resp.error());
 
@@ -253,6 +254,7 @@ async::result<Error> File::connect(const struct sockaddr *addr_ptr, socklen_t ad
 
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 
 	co_return static_cast<Error>(resp.error());
 }
@@ -287,6 +289,7 @@ File::sendto(const void *buf, size_t len, int flags, const struct sockaddr *addr
 
 	managarm::fs::SendMsgReply resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return static_cast<Error>(resp.error());
@@ -322,6 +325,7 @@ File::recvfrom(void *buf, size_t len, int flags, struct sockaddr *addr_ptr, sock
 
 	managarm::fs::RecvMsgReply resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
 
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return static_cast<Error>(resp.error());

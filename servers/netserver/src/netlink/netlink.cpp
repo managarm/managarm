@@ -80,6 +80,7 @@ async::result<protocols::fs::RecvResult> NetlinkSocket::recvMsg(void *obj,
 				helix_ng::recvInline()
 			)
 		);
+		recv_resp.reset();
 
 		memset(&ucreds, 0, sizeof(struct ucred));
 		ucreds.pid = senderPid;
