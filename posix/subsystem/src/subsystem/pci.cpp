@@ -122,31 +122,23 @@ struct RootPort final : drvcore::Device {
 };
 
 async::result<frg::expected<Error, std::string>> VendorAttribute::show(sysfs::Object *object) {
-	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	snprintf(buffer, 7, "0x%.4x", device->vendorId);
-	co_return std::string{buffer};
+	co_return std::format("0x{:04x}\n", device->vendorId);
 }
 
 async::result<frg::expected<Error, std::string>> DeviceAttribute::show(sysfs::Object *object) {
-	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	snprintf(buffer, 7, "0x%.4x", device->deviceId);
-	co_return std::string{buffer};
+	co_return std::format("0x{:04x}\n", device->deviceId);
 }
 
 async::result<frg::expected<Error, std::string>> SubsystemVendorAttribute::show(sysfs::Object *object) {
-	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	snprintf(buffer, 7, "0x%.4x", device->subsystemVendorId);
-	co_return std::string{buffer};
+	co_return std::format("0x{:04x}\n", device->subsystemVendorId);
 }
 
 async::result<frg::expected<Error, std::string>> SubsystemDeviceAttribute::show(sysfs::Object *object) {
-	char buffer[7]; // The format is 0x1234\0.
 	auto device = static_cast<Device *>(object);
-	snprintf(buffer, 7, "0x%.4x", device->subsystemDeviceId);
-	co_return std::string{buffer};
+	co_return std::format("0x{:04x}\n", device->subsystemDeviceId);
 }
 
 async::result<frg::expected<Error, std::string>> PlainfbAttribute::show(sysfs::Object *object) {
