@@ -5,6 +5,7 @@
 #include <helix/ipc.hpp>
 #include "posix.bragi.hpp"
 #include <protocols/ostrace/ostrace.hpp>
+#include <print>
 
 #include <core/clock.hpp>
 #include "core/drm/core.hpp"
@@ -158,10 +159,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.set_drm_value(1);
 				if(logDrmRequests) std::cout << "\tCAP_CRTC_IN_VBLANK_EVENT supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_CURSOR_WIDTH) {
-				resp.set_drm_value(32);
+				resp.set_drm_value(self->_device->getCursorWidth());
 				if(logDrmRequests) std::cout << "\tCAP_CURSOR_WIDTH supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_CURSOR_HEIGHT) {
-				resp.set_drm_value(32);
+				resp.set_drm_value(self->_device->getCursorHeight());
 				if(logDrmRequests) std::cout << "\tCAP_CURSOR_HEIGHT supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_PRIME) {
 				resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
@@ -252,7 +253,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.add_drm_encoders(psbl_enc[i]->id());
 			}
 
-			resp.set_drm_encoder_id(conn->currentEncoder()->id());
+			resp.set_drm_encoder_id(conn->currentEncoder() ? conn->currentEncoder()->id() : 0);
 			resp.set_drm_connector_type(conn->connectorType());
 			resp.set_drm_connector_type_id(0);
 			resp.set_drm_connection(conn->getCurrentStatus()); // DRM_MODE_CONNECTED
@@ -306,15 +307,14 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: GETENCODER()" << std::endl;
-
-			resp.set_drm_encoder_type(0);
+				std::println("core/drm: GETENCODER([{}])", req->drm_encoder_id());
 
 			auto obj = self->_device->findObject(req->drm_encoder_id());
 			assert(obj);
 			auto enc = obj->asEncoder();
 			assert(enc);
-			resp.set_drm_crtc_id(enc->currentCrtc()->id());
+			resp.set_drm_encoder_type(enc->getEncoderType());
+			resp.set_drm_crtc_id(enc->currentCrtc() ? enc->currentCrtc()->id() : 0);
 
 			uint32_t crtc_mask = 0;
 			for(auto crtc : enc->getPossibleCrtcs()) {
@@ -529,28 +529,33 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: GETCRTC()" << std::endl;
-
-			auto obj = self->_device->findObject(req->drm_crtc_id());
-			assert(obj);
-			auto crtc = obj->asCrtc();
-			assert(crtc);
-
-			drm_mode_modeinfo mode_info;
-			if(crtc->drmState()->mode) {
-				memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
-				resp.set_drm_mode_valid(1);
-				resp.set_drm_x(crtc->primaryPlane()->drmState()->src_x);
-				resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
-				/* TODO: wire up gamma once we support that */
-				resp.set_drm_gamma_size(0);
-				resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
-			}else{
-				memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
-				resp.set_drm_mode_valid(0);
-			}
+				std::println("core/drm: GETCRTC([{}])", req->drm_crtc_id());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto obj = self->_device->findObject(req->drm_crtc_id());
+			drm_mode_modeinfo mode_info;
+			memset(&mode_info, 0, sizeof(mode_info));
+
+			if(obj) {
+				auto crtc = obj->asCrtc();
+				assert(crtc);
+
+				if(crtc->drmState()->mode) {
+					memcpy(&mode_info, crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
+					resp.set_drm_mode_valid(1);
+					resp.set_drm_x(crtc->primaryPlane()->drmState()->src_x);
+					resp.set_drm_y(crtc->primaryPlane()->drmState()->src_y);
+					/* TODO: wire up gamma once we support that */
+					resp.set_drm_gamma_size(0);
+					resp.set_drm_fb_id(crtc->primaryPlane()->drmState()->fb->id());
+				}else{
+					memset(&mode_info, 0, sizeof(drm_mode_modeinfo));
+					resp.set_drm_mode_valid(0);
+				}
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto &&transmit = helix::submitAsync(conversation, helix::Dispatcher::global(),
@@ -590,6 +595,21 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), true));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), mode_blob));
 				assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcWProperty(), fb->asFrameBuffer()->getWidth() << 16));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcHProperty(), fb->asFrameBuffer()->getHeight() << 16));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcXProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->srcYProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcWProperty(), fb->asFrameBuffer()->getWidth()));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcHProperty(), fb->asFrameBuffer()->getHeight()));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcXProperty(), 0));
+				assignments.push_back(Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcYProperty(), 0));
+
+				for(auto connectorId : req->drm_connector_ids()) {
+					auto con = self->_device->findObject(connectorId);
+					assert(con);
+
+					assignments.push_back(Assignment::withModeObj(con, self->_device->crtcIdProperty(), crtc->sharedModeObject()));
+				}
 			}else{
 				assignments.push_back(Assignment::withInt(crtc->sharedModeObject(), self->_device->activeProperty(), false));
 				assignments.push_back(Assignment::withBlob(crtc->sharedModeObject(), self->_device->modeIdProperty(), nullptr));

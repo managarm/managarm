@@ -98,6 +98,14 @@ void drm_core::Encoder::setCurrentCrtc(drm_core::Crtc *crtc) {
 	_currentCrtc = crtc;
 }
 
+drm_core::Connector *drm_core::Encoder::currentConnector() {
+	return _connector;
+}
+
+void drm_core::Encoder::setCurrentConnector(drm_core::Connector *con) {
+	_connector = con;
+}
+
 void drm_core::Encoder::setupEncoderType(uint32_t type) {
 	_encoderType = type;
 }
@@ -297,6 +305,10 @@ uint32_t drm_core::Connector::getCurrentStatus() {
 
 void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *> encoders) {
 	_possibleEncoders = encoders;
+}
+
+void drm_core::Connector::addPossibleEncoder(drm_core::Encoder * encoder) {
+	_possibleEncoders.push_back(encoder);
 }
 
 const std::vector<drm_core::Encoder *> &drm_core::Connector::getPossibleEncoders() {

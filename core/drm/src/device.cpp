@@ -109,6 +109,11 @@ void drm_core::Device::setupMaxDimensions(uint32_t width, uint32_t height) {
 	_maxHeight = height;
 }
 
+void drm_core::Device::setupCursorDimensions(uint32_t width, uint32_t height) {
+	_cursorWidth = width;
+	_cursorHeight = height;
+}
+
 uint32_t drm_core::Device::getMinWidth() {
 	return _minWidth;
 }
@@ -123,6 +128,14 @@ uint32_t drm_core::Device::getMinHeight() {
 
 uint32_t drm_core::Device::getMaxHeight() {
 	return _maxHeight;
+}
+
+uint32_t drm_core::Device::getCursorWidth() {
+	return _cursorWidth;
+}
+
+uint32_t drm_core::Device::getCursorHeight() {
+	return _cursorHeight;
 }
 
 drm_core::Property *drm_core::Device::srcWProperty() {

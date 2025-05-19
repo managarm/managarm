@@ -104,8 +104,7 @@ std::shared_ptr<drm_core::CrtcState> drm_core::AtomicState::crtc(uint32_t id) {
 	} else {
 		auto crtc = _device->findObject(id)->asCrtc();
 		assert(crtc->drmState());
-		auto crtc_state = CrtcState(*crtc->drmState());
-		auto crtc_state_shared = std::make_shared<drm_core::CrtcState>(crtc_state);
+		auto crtc_state_shared = crtc->drmState()->clone();
 		_crtcStates.insert({id, crtc_state_shared});
 		return crtc_state_shared;
 	}
@@ -250,8 +249,10 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			auto old = state->crtc(assignment.object->id())->mode;
+
 			state->crtc(assignment.object->id())->mode = assignment.blobValue;
-			state->crtc(assignment.object->id())->modeChanged = true;
+			state->crtc(assignment.object->id())->modeChanged = assignment.blobValue != old;
 		}
 	};
 	registerProperty(_modeIdProperty = std::make_shared<ModeIdProperty>());
@@ -355,7 +356,10 @@ drm_core::Device::Device() {
 		};
 
 		void writeToState(const Assignment assignment, std::unique_ptr<AtomicState> &state) override {
+			auto old = state->crtc(assignment.object->id())->active;
+
 			state->crtc(assignment.object->id())->active = assignment.intValue;
+			state->crtc(assignment.object->id())->activeChanged = old != static_cast<bool>(assignment.intValue);
 		}
 	};
 	registerProperty(_activeProperty = std::make_shared<ActiveProperty>());

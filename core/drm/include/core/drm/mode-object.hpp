@@ -94,6 +94,12 @@ private:
 struct CrtcState {
 	CrtcState(std::weak_ptr<Crtc> crtc);
 
+	virtual ~CrtcState() = default;
+
+	virtual std::shared_ptr<CrtcState> clone() const {
+		return std::make_shared<drm_core::CrtcState>(*this);
+	}
+
 	std::weak_ptr<Crtc> crtc(void);
 
 	std::weak_ptr<Crtc> _crtc;
@@ -142,6 +148,8 @@ struct Encoder : ModeObject {
 
 	drm_core::Crtc *currentCrtc();
 	void setCurrentCrtc(drm_core::Crtc *crtc);
+	drm_core::Connector *currentConnector();
+	void setCurrentConnector(drm_core::Connector *con);
 	void setupEncoderType(uint32_t type);
 	uint32_t getEncoderType();
 	void setupPossibleCrtcs(std::vector<Crtc *> crtcs);
@@ -153,6 +161,7 @@ struct Encoder : ModeObject {
 
 private:
 	drm_core::Crtc *_currentCrtc;
+	drm_core::Connector *_connector;
 	uint32_t _encoderType;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::vector<Encoder *> _possibleClones;
@@ -186,6 +195,7 @@ struct Connector : ModeObject {
 	uint32_t getCurrentStatus();
 
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
+	void addPossibleEncoder(Encoder * encoder);
 	const std::vector<Encoder *> &getPossibleEncoders();
 
 	void setupPhysicalDimensions(uint32_t width, uint32_t height);

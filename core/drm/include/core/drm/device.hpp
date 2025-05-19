@@ -58,10 +58,13 @@ public:
 
 	void setupMinDimensions(uint32_t width, uint32_t height);
 	void setupMaxDimensions(uint32_t width, uint32_t height);
+	void setupCursorDimensions(uint32_t width, uint32_t height);
 	uint32_t getMinWidth();
 	uint32_t getMaxWidth();
 	uint32_t getMinHeight();
 	uint32_t getMaxHeight();
+	uint32_t getCursorWidth();
+	uint32_t getCursorHeight();
 
 	helix::UniqueDescriptor _posixLane;
 private:
@@ -87,6 +90,8 @@ private:
 	uint32_t _maxWidth = 0;
 	uint32_t _minHeight = 0;
 	uint32_t _maxHeight = 0;
+	uint32_t _cursorWidth = 32;
+	uint32_t _cursorHeight = 32;
 	std::shared_ptr<Property> _srcWProperty;
 	std::shared_ptr<Property> _srcHProperty;
 	std::shared_ptr<Property> _fbIdProperty;
