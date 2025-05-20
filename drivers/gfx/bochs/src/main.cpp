@@ -104,10 +104,6 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, 1024, 768);
-	std::sort(supported_modes.begin(), supported_modes.end(),
-			[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
-		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
-	});
 	_theConnector->setModeList(supported_modes);
 
 	setupMinDimensions(640, 480);
