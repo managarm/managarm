@@ -6,7 +6,6 @@
 #include "fwd-decls.hpp"
 
 #include "device.hpp"
-#include "range-allocator.hpp"
 #include "property.hpp"
 
 namespace drm_core {
@@ -193,6 +192,14 @@ struct Connector : ModeObject {
 
 	void setCurrentStatus(uint32_t status);
 	uint32_t getCurrentStatus();
+
+
+	// Equivalent to Linux's connector->funcs->fill_modes call where it performs a probe
+	// on the connector, except that this updates the state of the connector so it can be read out
+	// via the usual ways.
+	virtual async::result<void> probe() {
+		co_return;
+	}
 
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
 	void addPossibleEncoder(Encoder * encoder);
