@@ -246,6 +246,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.add_drm_encoders(psbl_enc[i]->id());
 			}
 
+			// TODO: check if we're current master
+			if(req->drm_max_modes() == 0)
+				co_await conn->probe();
+
 			resp.set_drm_encoder_id(conn->currentEncoder() ? conn->currentEncoder()->id() : 0);
 			resp.set_drm_connector_type(conn->connectorType());
 			resp.set_drm_connector_type_id(0);
