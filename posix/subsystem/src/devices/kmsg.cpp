@@ -40,6 +40,7 @@ private:
 		HEL_CHECK(recvBuffer.error());
 
 		auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
+		recvResp.reset();
 
 		if(resp.error() == managarm::kerncfg::Error::WOULD_BLOCK)
 			co_return Error::wouldBlock;

@@ -753,6 +753,7 @@ public:
 
 		if(id == managarm::fs::GenericIoctlRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			msg.reset();
 			assert(req);
 
 			switch(req->command()) {

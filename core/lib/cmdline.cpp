@@ -36,6 +36,7 @@ async::result<std::string> Cmdline::get() {
 	HEL_CHECK(recvResp.error());
 
 	auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
+	recvResp.reset();
 	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 	std::vector<char> buffer(resp.size());

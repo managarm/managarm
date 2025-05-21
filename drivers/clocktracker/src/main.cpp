@@ -84,6 +84,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 		if (preamble.id() == bragi::message_id<managarm::clock::AccessPageRequest>) {
 			auto req = bragi::parse_head_only<managarm::clock::AccessPageRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				std::cout << "clocktracker: Ignoring IPC request due to decoding error." << std::endl;
 				continue;
@@ -101,6 +102,7 @@ async::detached serve(helix::UniqueLane lane) {
 			HEL_CHECK(sendMemory.error());
 
 		} else {
+			recvReq.reset();
 			managarm::clock::SvrResponse resp;
 			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
 

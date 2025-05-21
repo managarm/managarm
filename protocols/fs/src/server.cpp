@@ -1551,6 +1551,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
+			recv_req.reset();
 			auto result = co_await node_ops->getLink(node, req.path());
 			if(!result) {
 				managarm::fs::SvrResponse resp;
@@ -1697,6 +1698,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				HEL_CHECK(push_node.error());
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
+			recv_req.reset();
 			auto result = co_await node_ops->mkdir(node, req.path());
 
 			if (std::get<0>(result)) {
@@ -1730,6 +1732,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_SYMLINK) {
+			recv_req.reset();
 			std::string name;
 			std::string target;
 			name.resize(req.name_length());
@@ -1776,6 +1779,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
+			recv_req.reset();
 			auto result = co_await node_ops->link(node, req.path(), req.fd());
 			if(std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -1821,6 +1825,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				logBragiSerializedReply(ser);
 			}
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
+			recv_req.reset();
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
@@ -1847,6 +1852,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_RMDIR) {
+			recv_req.reset();
 			// TODO: This should probably be it's own operation, for now, let it be
 			auto result = co_await node_ops->unlink(node, req.path());
 			managarm::fs::SvrResponse resp;
@@ -1871,6 +1877,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
+			recv_req.reset();
 			auto result = co_await node_ops->open(node, req.append());
 
 			managarm::fs::SvrResponse resp;
@@ -1888,6 +1895,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(push_pt.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
+			recv_req.reset();
 			auto link = co_await node_ops->readSymlink(node);
 
 			managarm::fs::SvrResponse resp;
@@ -1903,6 +1911,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_link.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_CHMOD) {
+			recv_req.reset();
 			co_await node_ops->chmod(node, req.mode());
 
 			managarm::fs::SvrResponse resp;
@@ -1916,6 +1925,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
+			recv_req.reset();
 			co_await node_ops->obstructLink(node, req.link_name());
 
 			managarm::fs::SvrResponse resp;

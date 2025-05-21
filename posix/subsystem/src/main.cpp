@@ -120,6 +120,7 @@ struct CmdlineNode final : public procfs::RegularNode {
 		HEL_CHECK(recvResp.error());
 
 		auto resp = *bragi::parse_head_only<managarm::kerncfg::SvrResponse>(recvResp);
+		recvResp.reset();
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 		std::vector<char> recvCmdline(resp.size());

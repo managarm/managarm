@@ -77,6 +77,7 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 
 		if (preamble.id() == bragi::message_id<managarm::usb::TransferRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::TransferRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -143,6 +144,7 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 				HEL_CHECK(sendResp.error());
 			}
 		}else{
+			recvReq.reset();
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
@@ -179,6 +181,7 @@ async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 
 		if (preamble.id() == bragi::message_id<managarm::usb::GetEndpointRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::GetEndpointRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -210,6 +213,7 @@ async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(sendLane.error());
 		}else {
+			recvReq.reset();
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
@@ -246,6 +250,7 @@ async::detached serveConfiguration(Configuration configuration, helix::UniqueLan
 
 		if (preamble.id() == bragi::message_id<managarm::usb::UseInterfaceRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::UseInterfaceRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -276,6 +281,7 @@ async::detached serveConfiguration(Configuration configuration, helix::UniqueLan
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(sendLane.error());
 		}else {
+			recvReq.reset();
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 
@@ -312,6 +318,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 		if (preamble.id() == bragi::message_id<managarm::usb::GetConfigurationDescriptorRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::GetConfigurationDescriptorRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -339,6 +346,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			HEL_CHECK(sendData.error());
 		} else if (preamble.id() == bragi::message_id<managarm::usb::GetDeviceDescriptorRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::GetDeviceDescriptorRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -365,6 +373,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			HEL_CHECK(sendData.error());
 		} else if (preamble.id() == bragi::message_id<managarm::usb::TransferRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::TransferRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -434,6 +443,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			}
 		} else if (preamble.id() == bragi::message_id<managarm::usb::UseConfigurationRequest>) {
 			auto req = bragi::parse_head_only<managarm::usb::UseConfigurationRequest>(recvReq);
+			recvReq.reset();
 			if (!req) {
 				co_return;
 			}
@@ -463,6 +473,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(sendLane.error());
 		}else {
+			recvReq.reset();
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::ILLEGAL_REQUEST);
 

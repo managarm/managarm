@@ -104,18 +104,12 @@ struct OperationBase {
 	friend struct Dispatcher;
 
 	OperationBase()
-	: _asyncId(0), _element(nullptr) { }
+	: _asyncId(0) { }
 
 	virtual ~OperationBase() { }
 
-	void *element() {
-		return _element;
-	}
-
 protected:
 	int64_t _asyncId;
-public: // TODO: This should not be public.
-	void *_element;
 };
 
 struct Operation : OperationBase {
@@ -130,9 +124,7 @@ struct Operation : OperationBase {
 		_asyncId = async_id;
 	}
 
-	virtual void parse(void *&) {
-		assert(!"Not supported");
-	}
+	virtual void parse(const void *) = 0;
 
 private:
 	uint64_t _asyncId;
@@ -362,58 +354,58 @@ inline ElementHandle::ElementHandle(const ElementHandle &other) {
 
 struct AwaitClock : Operation {
 	HelError error() {
-		return result()->error;
+		return result_.error;
 	}
 
 private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	void parse(const void *ptr) override {
+		memcpy(&result_, ptr, sizeof(result_));
 	}
+
+	HelSimpleResult result_;
 };
 
 struct ProtectMemory : Operation {
 	HelError error() {
-		return result()->error;
+		return result_.error;
 	}
 
 private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
+	void parse(const void *ptr) override {
+		memcpy(&result_, ptr, sizeof(result_));
 	}
+
+	HelSimpleResult result_;
 };
 
 struct ManageMemory : Operation {
 	HelError error() {
-		return result()->error;
+		return result_.error;
 	}
 
 	int type() {
-		return result()->type;
+		return result_.type;
 	}
 
 	uintptr_t offset() {
-		return result()->offset;
+		return result_.offset;
 	}
 
 	size_t length() {
-		return result()->length;
+		return result_.length;
 	}
 
 private:
-	HelManageResult *result() {
-		return reinterpret_cast<HelManageResult *>(OperationBase::element());
+	void parse(const void *ptr) override {
+		memcpy(&result_, ptr, sizeof(result_));
 	}
+
+	HelManageResult result_;
 };
 
 struct LockMemoryView : Operation {
-	static void completeOperation(Operation *base) {
-		auto self = static_cast<LockMemoryView *>(base);
-		if(!self->error())
-			self->_descriptor = UniqueDescriptor{self->result()->handle};
-	}
-
 	HelError error() {
-		return result()->error;
+		return result_.error;
 	}
 
 	UniqueDescriptor descriptor() {
@@ -422,240 +414,37 @@ struct LockMemoryView : Operation {
 	}
 
 private:
-	HelHandleResult *result() {
-		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
-	}
+	void parse(const void *ptr) override {
+		memcpy(&result_, ptr, sizeof(result_));
 
-	UniqueDescriptor _descriptor;
-};
-
-struct Offer : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	UniqueDescriptor descriptor() {
-		HEL_CHECK(error());
-		return std::move(_descriptor);
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelHandleResult);
 		if(!error())
-			_descriptor = UniqueDescriptor{result()->handle};
+			_descriptor = UniqueDescriptor{result_.handle};
 	}
 
-private:
-	HelHandleResult *result() {
-		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
-	}
+	HelHandleResult result_;
 
 	UniqueDescriptor _descriptor;
-};
-
-struct Accept : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	UniqueDescriptor descriptor() {
-		HEL_CHECK(error());
-		return std::move(_descriptor);
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelHandleResult);
-		if(!error())
-			_descriptor = UniqueDescriptor{result()->handle};
-	}
-
-private:
-	HelHandleResult *result() {
-		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
-	}
-
-	UniqueDescriptor _descriptor;
-};
-
-struct ImbueCredentials : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelSimpleResult);
-	}
-
-private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
-	}
-};
-
-struct ExtractCredentials : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	std::array<const char, 16> credentials() {
-		return std::array<const char, 16>{
-			result()->credentials[0], result()->credentials[1], result()->credentials[2], result()->credentials[3],
-			result()->credentials[4], result()->credentials[5], result()->credentials[6], result()->credentials[7],
-			result()->credentials[8], result()->credentials[9], result()->credentials[10], result()->credentials[11],
-			result()->credentials[12], result()->credentials[13], result()->credentials[14], result()->credentials[15],
-		};
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelCredentialsResult);
-	}
-
-private:
-	HelCredentialsResult *result() {
-		return reinterpret_cast<HelCredentialsResult *>(OperationBase::element());
-	}
-};
-
-struct RecvInline : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	void *data() {
-		HEL_CHECK(error());
-		return result()->data;
-	}
-
-	size_t length() {
-		HEL_CHECK(error());
-		return result()->length;
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelInlineResult)
-				+ ((result()->length + 7) & ~size_t(7));
-	}
-
-private:
-	HelInlineResult *result() {
-		return reinterpret_cast<HelInlineResult *>(OperationBase::element());
-	}
-};
-
-struct RecvBuffer : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	size_t actualLength() {
-		HEL_CHECK(error());
-		return result()->length;
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelLengthResult);
-	}
-
-private:
-	HelLengthResult *result() {
-		return reinterpret_cast<HelLengthResult *>(OperationBase::element());
-	}
-};
-
-struct PullDescriptor : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	UniqueDescriptor descriptor() {
-		HEL_CHECK(error());
-		return std::move(_descriptor);
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelHandleResult);
-		if(!error())
-			_descriptor = UniqueDescriptor{result()->handle};
-	}
-
-private:
-	HelHandleResult *result() {
-		return reinterpret_cast<HelHandleResult *>(OperationBase::element());
-	}
-
-	UniqueDescriptor _descriptor;
-};
-
-struct SendBuffer : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelSimpleResult);
-	}
-
-private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
-	}
-};
-
-struct PushDescriptor : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	void parse(void *&ptr) override {
-		_element = ptr;
-		ptr = (char *)ptr + sizeof(HelSimpleResult);
-	}
-
-private:
-	HelSimpleResult *result() {
-		return reinterpret_cast<HelSimpleResult *>(OperationBase::element());
-	}
-};
-
-struct AwaitEvent : Operation {
-	HelError error() {
-		return result()->error;
-	}
-
-	uint64_t sequence() { return result()->sequence; }
-	uint32_t bitset() { return result()->bitset; }
-
-private:
-	HelEventResult *result() {
-		return reinterpret_cast<HelEventResult *>(OperationBase::element());
-	}
 };
 
 struct Observe : Operation {
 	HelError error() {
-		return result()->error;
+		return result_.error;
 	}
 
 	unsigned int observation() {
-		return result()->observation;
+		return result_.observation;
 	}
 
 	uint64_t sequence() {
-		return result()->sequence;
+		return result_.sequence;
 	}
 
 private:
-	HelObserveResult *result() {
-		return reinterpret_cast<HelObserveResult *>(OperationBase::element());
+	void parse(const void *ptr) override {
+		memcpy(&result_, ptr, sizeof(result_));
 	}
+
+	HelObserveResult result_;
 };
 
 // ----------------------------------------------------------------------------
@@ -692,7 +481,7 @@ struct Submission : private Context {
 
 	Submission(BorrowedDescriptor memory, LockMemoryView *operation,
 			uintptr_t offset, size_t size, Dispatcher &dispatcher)
-	: _result(operation), _completeOperation{&LockMemoryView::completeOperation} {
+	: _result(operation) {
 		HEL_CHECK(helSubmitLockMemoryView(memory.getHandle(), offset, size,
 				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
@@ -702,14 +491,6 @@ struct Submission : private Context {
 			uint64_t in_seq, Dispatcher &dispatcher)
 	: _result(operation) {
 		HEL_CHECK(helSubmitObserve(thread.getHandle(), in_seq,
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
-	}
-
-	Submission(BorrowedDescriptor descriptor, AwaitEvent *operation,
-			uint64_t sequence, Dispatcher &dispatcher)
-	: _result(operation) {
-		HEL_CHECK(helSubmitAwaitEvent(descriptor.getHandle(), sequence,
 				dispatcher.acquire(),
 				reinterpret_cast<uintptr_t>(context())));
 	}
@@ -728,138 +509,13 @@ private:
 	}
 
 	void complete(ElementHandle element) override {
-		_element = std::move(element);
-
-		_result->_element = _element.data();
-		if(_completeOperation)
-			_completeOperation(_result);
+		auto ptr = element.data();
+		_result->parse(ptr);
 		_ev.raise();
 	}
 
 	Operation *_result;
-	void (*_completeOperation)(Operation *) = nullptr;
 	async::oneshot_event _ev;
-	ElementHandle _element;
-};
-
-template<typename R>
-struct Item {
-	Operation *operation;
-	HelAction action;
-};
-
-inline Item<Offer> action(Offer *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionOffer;
-	action.flags = flags;
-	return {operation, action};
-}
-
-inline Item<Accept> action(Accept *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionAccept;
-	action.flags = flags;
-	return {operation, action};
-}
-
-inline Item<ImbueCredentials> action(ImbueCredentials *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionImbueCredentials;
-	action.handle = kHelThisThread;
-	action.flags = flags;
-	return {operation, action};
-}
-
-inline Item<ImbueCredentials> action(ImbueCredentials *operation, BorrowedDescriptor descriptor, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionImbueCredentials;
-	action.flags = flags;
-	action.handle = descriptor.getHandle();
-	return {operation, action};
-}
-
-inline Item<ExtractCredentials> action(ExtractCredentials *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionExtractCredentials;
-	action.flags = flags;
-	return {operation, action};
-}
-
-inline Item<SendBuffer> action(SendBuffer *operation, const void *buffer, size_t length,
-		uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionSendFromBuffer;
-	action.flags = flags;
-	action.buffer = const_cast<void *>(buffer);
-	action.length = length;
-	return {operation, action};
-}
-
-inline Item<RecvInline> action(RecvInline *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionRecvInline;
-	action.flags = flags;
-	return {operation, action};
-}
-
-inline Item<RecvBuffer> action(RecvBuffer *operation, void *buffer, size_t length,
-		uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionRecvToBuffer;
-	action.flags = flags;
-	action.buffer = buffer;
-	action.length = length;
-	return {operation, action};
-}
-
-inline Item<PushDescriptor> action(PushDescriptor *operation, BorrowedDescriptor descriptor,
-		uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionPushDescriptor;
-	action.flags = flags;
-	action.handle = descriptor.getHandle();
-	return {operation, action};
-}
-
-inline Item<PullDescriptor> action(PullDescriptor *operation, uint32_t flags = 0) {
-	HelAction action;
-	action.type = kHelActionPullDescriptor;
-	action.flags = flags;
-	return {operation, action};
-}
-
-template<typename... I>
-struct Transmission : private Context {
-	Transmission(BorrowedDescriptor descriptor, std::array<HelAction, sizeof...(I)> actions,
-			std::array<Operation *, sizeof...(I)> results, Dispatcher &dispatcher)
-	: _results(results) {
-		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitAsync(descriptor.getHandle(), actions.data(), sizeof...(I),
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context), 0));
-	}
-
-	Transmission(const Transmission &) = delete;
-
-	Transmission &operator= (Transmission &other) = delete;
-
-	auto async_wait() {
-		return _ev.wait();
-	}
-
-private:
-	void complete(ElementHandle element) override {
-		_element = std::move(element);
-
-		auto ptr = _element.data();
-		for(size_t i = 0; i < sizeof...(I); ++i)
-			_results[i]->parse(ptr);
-		_ev.raise();
-	}
-
-	std::array<Operation *, sizeof...(I)> _results;
-	async::oneshot_event _ev;
-	ElementHandle _element;
 };
 
 inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,
@@ -886,19 +542,6 @@ inline Submission submitLockMemoryView(BorrowedDescriptor memory, LockMemoryView
 inline Submission submitObserve(BorrowedDescriptor thread, Observe *operation,
 		uint64_t in_seq, Dispatcher &dispatcher) {
 	return {thread, operation, in_seq, dispatcher};
-}
-
-template<typename... I>
-inline Transmission<I...> submitAsync(BorrowedDescriptor descriptor, Dispatcher &dispatcher,
-		Item<I>... items) {
-	std::array<HelAction, sizeof...(I)> actions{items.action...};
-	std::array<Operation *, sizeof...(I)> results{items.operation...};
-	return {descriptor, actions, results, dispatcher};
-}
-
-inline Submission submitAwaitEvent(BorrowedDescriptor descriptor, AwaitEvent *operation,
-		uint64_t sequence, Dispatcher &dispatcher) {
-	return {descriptor, operation, sequence, dispatcher};
 }
 
 } // namespace helix
