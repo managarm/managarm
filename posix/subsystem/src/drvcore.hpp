@@ -43,7 +43,7 @@ private:
 // This struct corresponds to Linux' struct Device (i.e. a device that is part of sysfs).
 // TODO: Make the sysfs::Object private?
 struct Device : sysfs::Object {
-	Device(std::shared_ptr<Device> parent, std::string name, UnixDevice *unix_device, Subsystem *subsys = nullptr);
+	Device(std::shared_ptr<sysfs::Object> parent, std::string name, UnixDevice *unix_device, Subsystem *subsys = nullptr);
 
 protected:
 	~Device() = default;
@@ -57,7 +57,7 @@ public:
 		return std::shared_ptr<Device>(_devicePtr);
 	}
 
-	std::shared_ptr<Device> parentDevice() {
+	std::shared_ptr<sysfs::Object> parentDevice() {
 		return _parentDevice;
 	}
 
@@ -67,6 +67,10 @@ public:
 
 	UnixDevice *unixDevice() {
 		return _unixDevice;
+	}
+
+	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> &classDirectories() {
+		return classDirectories_;
 	}
 
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> &classDevices() {
@@ -85,9 +89,10 @@ public:
 private:
 	std::weak_ptr<Device> _devicePtr;
 	UnixDevice *_unixDevice;
-	std::shared_ptr<Device> _parentDevice;
+	std::shared_ptr<sysfs::Object> _parentDevice;
 	Subsystem *_subsystem;
 
+	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> classDirectories_;
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> _classDevices;
 };
 
@@ -120,6 +125,22 @@ struct BusDriver : sysfs::Object {
 
 struct ClassSubsystem : Subsystem {
 	ClassSubsystem(std::string name);
+
+	friend ClassDevice;
+private:
+	std::shared_ptr<sysfs::Object> classDirFor(std::shared_ptr<Device> parent) {
+		if(!parent)
+			return parent;
+
+		auto it = parent->classDirectories().find(object()->name());
+		if(it != parent->classDirectories().end())
+			return it->second;
+
+		auto classDir = std::make_shared<sysfs::Object>(parent, object()->name());
+		classDir->addObject();
+		parent->classDirectories().insert({object()->name(), classDir});
+		return classDir;
+	}
 };
 
 struct ClassDevice : Device {
@@ -131,6 +152,9 @@ protected:
 
 public:
 	void linkToSubsystem() override;
+
+private:
+	std::shared_ptr<Device> parentDevice_;
 };
 
 struct BlockDevice : Device {
