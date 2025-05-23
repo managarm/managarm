@@ -728,3 +728,59 @@ head(128):
 	uint64 interval_sec;
 	uint64 interval_nsec;
 }
+
+message TimerCreateRequest 117 {
+head(128):
+	int32 clockid;
+	int32 sigev_signo;
+	int32 sigev_tid;
+}
+
+message TimerCreateResponse 118 {
+head(128):
+	Errors error;
+	uint64 timer_id;
+}
+
+message TimerSetRequest 119 {
+head(128):
+	uint64 timer;
+	int32 flags;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
+
+message TimerSetResponse 120 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
+
+message TimerGetRequest 121 {
+head(128):
+	uint64 timer;
+}
+
+message TimerGetResponse 122 {
+head(128):
+	Errors error;
+	uint64 value_sec;
+	uint64 value_nsec;
+	uint64 interval_sec;
+	uint64 interval_nsec;
+}
+
+message TimerDeleteRequest 123 {
+head(128):
+	uint64 timer;
+}
+
+message TimerDeleteResponse 124 {
+head(128):
+	Errors error;
+}
