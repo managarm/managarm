@@ -7,7 +7,9 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/gdbserver.hpp>
+#include <thor-internal/load-balancing.hpp>
 #include <thor-internal/module.hpp>
+#include <thor-internal/servers.hpp>
 #include <thor-internal/stream.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
@@ -19,6 +21,8 @@
 namespace thor {
 
 extern frg::manual_box<LaneHandle> mbusClient;
+
+void runService(frg::string<KernelAlloc> name, LaneHandle controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 struct OpenFile {
 	OpenFile()
@@ -321,7 +325,7 @@ namespace posix {
 			clientFileTable = result.value();
 		}
 
-		coroutine<void> runPosixRequests();
+		coroutine<void> runPosixRequests(uint64_t pid);
 		coroutine<void> runObserveLoop();
 
 		frg::string_view name() {
@@ -376,7 +380,7 @@ namespace posix {
 		VirtualAddr clientFileTable;
 	};
 
-	coroutine<void> Process::runPosixRequests() {
+	coroutine<void> Process::runPosixRequests(uint64_t pid) {
 		while(true) {
 			auto [acceptError, conversation] = co_await AcceptSender{posixLane};
 			if(acceptError != Error::success) {
@@ -543,6 +547,50 @@ namespace posix {
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 				}
+			}else if(preamble.id() == bragi::message_id<managarm::posix::FstatAtRequest>) {
+				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
+				if(tailError != Error::success) {
+					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
+					co_return;
+				}
+
+				auto req = bragi::parse_head_tail<managarm::posix::FstatAtRequest>(
+					reqBuffer, tailBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				auto module = resolveModule(req->path());
+				if(!module || module->type != MfsType::regular) {
+					infoLogger() << "thor: cannot stat file " << req->path() << frg::endlog;
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+					continue;
+				}
+
+				auto file = static_cast<MfsRegular *>(module);
+
+				managarm::posix::SvrResponse resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_file_size(file->size());
+				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::IsTtyRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::IsTtyRequest>(
 						reqBuffer, *kernelAlloc);
@@ -679,6 +727,25 @@ namespace posix {
 				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
+			}else if(preamble.id() == bragi::message_id<managarm::posix::GetPidRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::GetPidRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(pid);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else{
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;
@@ -787,9 +854,50 @@ namespace posix {
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetTid) {
 				*_thread->_executor.result0() = kHelErrNone;
-				*_thread->_executor.result1() = 1;
+				*_thread->_executor.result1() = _thread->pid;
 				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+			}else if(interrupt == kIntrSuperCall + ::posix::superClone) {
+				AbiParameters params;
+				params.ip = *_thread->_executor.arg0();
+				params.sp = *_thread->_executor.arg1();
+				params.argument = 0;
+
+				auto new_thread = Thread::create(_thread->getUniverse().lock(), _thread->getAddressSpace().lock(), params);
+				new_thread->self = remove_tag_cast(new_thread);
+				new_thread->flags |= Thread::kFlagServer;
+				new_thread->pid = 2 + _thread->children_.size();
+				new_thread->name = {_thread->name};
+
+				_thread->children_.push_back(new_thread);
+
+				auto controlStream = createStream();
+				frg::string<KernelAlloc> registryName = {new_thread->name};
+				registryName.push_back('\0');
+				registryName += frg::to_allocated_string(*kernelAlloc, new_thread->pid);
+				registerServerThread(registryName, controlStream.get<1>());
+
+				// listen to POSIX calls from the new_thread.
+				runService(frg::string<KernelAlloc>{*kernelAlloc,
+					new_thread->name.data(), new_thread->name.size()},
+					controlStream.get<0>(), new_thread);
+
+				// see helCreateThread for the reasoning here
+				new_thread.ctr()->increment();
+				new_thread.ctr()->increment();
+
+				*_thread->_executor.result0() = kHelErrNone;
+				*_thread->_executor.result1() = new_thread->pid;
+
+				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
+				Scheduler::associate(new_thread.get(), &localScheduler.get());
+
+				if(auto e = Thread::resumeOther(remove_tag_cast(new_thread)); e != Error::success)
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+				if(auto e = Thread::resumeOther(remove_tag_cast(_thread)); e != Error::success)
+					panicLogger() << "thor: Failed to resume server" << frg::endlog;
+			}else if(interrupt == kIntrSuperCall + ::posix::superExit) {
+				break;
 			}else{
 				panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frg::endlog;
@@ -816,7 +924,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		KernelFiber::asyncBlockCurrent(process->attachFile(stdioFile));
 
 		async::detach_with_allocator(*kernelAlloc,
-				process->runPosixRequests());
+				process->runPosixRequests(thread->pid));
 		async::detach_with_allocator(*kernelAlloc,
 				process->runObserveLoop());
 

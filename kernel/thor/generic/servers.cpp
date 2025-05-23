@@ -425,6 +425,10 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 	co_return controlStream.get<1>();
 }
 
+void registerServerThread(frg::string<KernelAlloc> name, LaneHandle handle) {
+	allServers->insert(name, handle);
+}
+
 // ------------------------------------------------------------------------
 // svrctl interface to user space.
 // mbus object creation and management.
