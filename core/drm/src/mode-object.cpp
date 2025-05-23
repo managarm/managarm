@@ -309,7 +309,8 @@ void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *>
 }
 
 void drm_core::Connector::addPossibleEncoder(drm_core::Encoder * encoder) {
-	_possibleEncoders.push_back(encoder);
+	if(std::ranges::find(_possibleEncoders, encoder) == _possibleEncoders.end())
+		_possibleEncoders.push_back(encoder);
 }
 
 const std::vector<drm_core::Encoder *> &drm_core::Connector::getPossibleEncoders() {
