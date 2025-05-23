@@ -111,7 +111,7 @@ Device::Device(std::string sysfs_name, int64_t mbus_id, protocols::hw::Device hw
 
 struct RootPort final : drvcore::Device {
 	RootPort(std::string sysfs_name, int64_t mbus_id, std::shared_ptr<drvcore::Device> parent = nullptr)
-	: drvcore::Device{parent, std::move(sysfs_name), nullptr},
+	: drvcore::Device{parent, parent, std::move(sysfs_name), nullptr},
 			mbusId{mbus_id} { }
 
 	void composeUevent(drvcore::UeventProperties &) override {
