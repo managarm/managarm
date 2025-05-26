@@ -14,6 +14,7 @@ fn main() {
         .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .prepend_enum_name(false)
+        .generate_inline_functions(true)
         .generate()
         .expect("Unable to generate bindings");
 
