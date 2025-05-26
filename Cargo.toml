@@ -3,3 +3,7 @@ resolver = "3"
 members = [
     "utils/hello-rs"
 ]
+
+[workspace.dependencies]
+hel = { path = "rust/hel" }
+hel-sys = { path = "rust/hel-sys" }
