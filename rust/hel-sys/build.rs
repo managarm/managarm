@@ -4,15 +4,14 @@ fn main() {
     let hel_include_path = Path::new("../../hel/include");
 
     cc::Build::new()
-        .cpp(true)
         .include(hel_include_path)
         .flag("-fkeep-inline-functions")
-        .file("hel.cpp")
+        .file("hel.c")
         .compile("hel");
 
     let bindings = bindgen::Builder::default()
         .clang_arg(format!("-I{}", hel_include_path.display()))
-        .header("wrapper.hpp")
+        .header("wrapper.h")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .prepend_enum_name(false)
         .generate()
@@ -23,4 +22,7 @@ fn main() {
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+
+    println!("cargo:rerun-if-changed=hel.c");
+    println!("cargo:rerun-if-changed=wrapper.h");
 }
