@@ -1,4 +1,7 @@
 //! A Rust wrapper for Hel.
+#![allow(incomplete_features)]
+#![feature(maybe_uninit_slice)]
+#![feature(generic_const_exprs)]
 #![feature(local_waker)]
 
 pub mod executor;
@@ -10,12 +13,15 @@ pub mod submission;
 
 use std::time::Duration;
 
-pub use executor::*;
-pub use handle::*;
-pub use mapping::*;
-pub use queue::*;
-pub use result::*;
-pub use submission::*;
+pub use executor::{block_on, spawn};
+pub use handle::Handle;
+pub use mapping::{Mapping, MappingFlags};
+pub use queue::Queue;
+pub use result::{Error, Result};
+pub use submission::{
+    action::{Offer, PullDescriptor, ReceiveBuffer, ReceiveInline, SendBuffer},
+    sleep_for, sleep_until, submit_async,
+};
 
 /// A time value in nanoseconds since boot.
 #[repr(transparent)]
@@ -23,15 +29,22 @@ pub use submission::*;
 pub struct Time(u64);
 
 impl Time {
-    /// Returns the current value of the system-wide clock in nanoseconds since boot.
-    pub fn now() -> Result<Self> {
-        let mut clock = 0;
+    /// Creates a new [`Time`] instance representing the current time
+    /// since boot in nanoseconds.
+    pub fn new_since_boot() -> Result<Self> {
+        let mut nanos = 0;
 
-        hel_check(unsafe { hel_sys::helGetClock(&mut clock) }).map(|_| Self(clock))
+        result::hel_check(unsafe { hel_sys::helGetClock(&mut nanos) }).map(|_| Self(nanos))
+    }
+
+    /// Creates a new [`Time`] instance from the given number of
+    /// nanoseconds since boot.
+    pub fn from_nanos(nanos: u64) -> Self {
+        Self(nanos)
     }
 
     /// Returns the value of the clock in nanoseconds since boot.
-    pub fn value(&self) -> u64 {
+    pub fn nanos(&self) -> u64 {
         self.0
     }
 }

@@ -1,32 +1,28 @@
+pub mod action;
+pub mod result;
+
 use std::{
     cell::Cell,
+    mem::MaybeUninit,
     rc::Rc,
     task::{LocalWaker, Poll},
     time::Duration,
 };
 
-use crate::{Error, Executor, ExecutorInner, Handle, QueueElement, Result, Time, hel_check};
+use action::Action;
+use result::{FromQueueElement, SimpleResult};
 
-impl TryFrom<QueueElement<'_>> for () {
-    type Error = Error;
-
-    fn try_from(element: QueueElement) -> Result<Self> {
-        let data = element.data();
-
-        assert!(data.len() >= size_of::<hel_sys::HelSimpleResult>());
-
-        // SAFETY: The data is guaranteed to contain enough bytes
-        // to read a [`hel_sys::HelSimpleResult`]` and that it is
-        // correctly aligned.
-        let result = unsafe { data.as_ptr().cast::<hel_sys::HelSimpleResult>().read() };
-
-        hel_check(result.error).map(|_| ())
-    }
-}
+use crate::{
+    Time,
+    executor::{Executor, ExecutorInner, current_executor},
+    handle::Handle,
+    queue::QueueElement,
+    result::{Result, hel_check},
+};
 
 /// Operation state object. This is used to store the submission and completion
 /// status alond with any other data that is needed to submit and complete work.
-pub(crate) struct OperationState<'a> {
+pub struct OperationState<'a> {
     is_submitted: Cell<bool>,
     waker: Cell<Option<LocalWaker>>,
     element: Cell<Option<QueueElement<'a>>>,
@@ -70,19 +66,20 @@ impl<'a> OperationState<'a> {
 /// queue element must be placed onto the given queue. If an error
 /// is returned, no elements may be placed on the given queue.
 fn new_async_operation<
-    'a,
     Submit: Fn(&Handle, *const OperationState) -> Result<()>,
-    Output: TryFrom<QueueElement<'a>, Error = Error>,
+    Complete: Fn(&mut QueueElement) -> Result<T>,
+    T: Sized,
 >(
-    executor: &Executor,
+    executor: Rc<ExecutorInner>,
     submit: Submit,
-) -> impl Future<Output = std::result::Result<Output, Output::Error>> {
-    let state = Rc::new(OperationState::new(executor.clone_inner()));
+    complete: Complete,
+) -> impl Future<Output = Result<T>> {
+    let state = Rc::new(OperationState::new(executor));
 
     core::future::poll_fn(move |cx| {
-        if let Some(element) = state.queue_element() {
+        if let Some(mut element) = state.queue_element() {
             // Already completed, parse the result
-            Poll::Ready(Output::try_from(element))
+            Poll::Ready(complete(&mut element))
         } else {
             if !state.is_submitted() {
                 // Not submitted yet, submit it
@@ -111,34 +108,105 @@ fn new_async_operation<
 }
 
 /// Returns a future that will be completed when the system clock
+/// reaches the given time value. The submissions will be placed
+/// on the given executor's queue.
+pub fn sleep_until_with_executor(
+    executor: Executor,
+    time: Time,
+) -> impl Future<Output = Result<()>> {
+    new_async_operation(
+        executor.clone_inner(),
+        move |queue_handle, context| {
+            hel_check(unsafe {
+                hel_sys::helSubmitAwaitClock(
+                    time.nanos(),
+                    queue_handle.handle(),
+                    context as usize,
+                    &mut 0, // We don't need the async operation ID
+                )
+            })
+        },
+        SimpleResult::from_queue_element,
+    )
+}
+
+/// Returns a future that will be completed when the system clock
 /// reaches the given time value.
-pub fn sleep_until(executor: &Executor, time: Time) -> impl Future<Output = Result<()>> {
-    new_async_operation(executor, move |queue_handle, context| {
-        hel_check(unsafe {
-            hel_sys::helSubmitAwaitClock(
-                time.value(),
-                queue_handle.handle(),
-                context as usize,
-                &mut 0, // We don't need the async operation ID
-            )
-        })
-    })
+pub fn sleep_until(time: Time) -> impl Future<Output = Result<()>> {
+    sleep_until_with_executor(current_executor(), time)
+}
+
+/// Returns a future that will be completed after the given duration
+/// has passed. This is equivalent to calling `sleep_until` with the
+/// current time plus the given duration. The submission will be placed
+/// on the given executor's queue.
+pub fn sleep_for_with_executor(
+    executor: Executor,
+    duration: Duration,
+) -> impl Future<Output = Result<()>> {
+    let time = Time::new_since_boot().map(|time| time + duration);
+
+    new_async_operation(
+        executor.clone_inner(),
+        move |queue_handle, context| {
+            hel_check(unsafe {
+                hel_sys::helSubmitAwaitClock(
+                    time?.nanos(),
+                    queue_handle.handle(),
+                    context as usize,
+                    &mut 0, // We don't need the async operation ID
+                )
+            })
+        },
+        SimpleResult::from_queue_element,
+    )
 }
 
 /// Returns a future that will be completed after the given duration
 /// has passed. This is equivalent to calling `sleep_until` with the
 /// current time plus the given duration.
-pub fn sleep_for(executor: &Executor, duration: Duration) -> impl Future<Output = Result<()>> {
-    let time = Time::now().map(|time| time + duration);
+pub fn sleep_for(duration: Duration) -> impl Future<Output = Result<()>> {
+    sleep_for_with_executor(current_executor(), duration)
+}
 
-    new_async_operation(executor, move |queue_handle, context| {
-        hel_check(unsafe {
-            hel_sys::helSubmitAwaitClock(
-                time?.value(),
-                queue_handle.handle(),
-                context as usize,
-                &mut 0, // We don't need the async operation ID
-            )
-        })
-    })
+pub fn submit_async_with_executor<T: Action>(
+    executor: Executor,
+    lane: &Handle,
+    action: T,
+) -> impl Future<Output = Result<<T::Output as FromQueueElement>::Output>>
+where
+    [(); T::ACTION_COUNT]: Sized,
+{
+    let mut actions = [const { MaybeUninit::uninit() }; T::ACTION_COUNT];
+
+    action.to_hel_actions(false, &mut actions);
+
+    let actions = actions.map(|action| unsafe { action.assume_init() });
+
+    new_async_operation(
+        executor.clone_inner(),
+        move |queue_handle, context| {
+            hel_check(unsafe {
+                hel_sys::helSubmitAsync(
+                    lane.handle(),
+                    actions.as_ptr() as *const _,
+                    actions.len(),
+                    queue_handle.handle(),
+                    context as usize,
+                    0,
+                )
+            })
+        },
+        |element| Ok(T::Output::from_queue_element(element)),
+    )
+}
+
+pub fn submit_async<T: Action>(
+    lane: &Handle,
+    action: T,
+) -> impl Future<Output = Result<<T::Output as FromQueueElement>::Output>>
+where
+    [(); T::ACTION_COUNT]: Sized,
+{
+    submit_async_with_executor(current_executor(), lane, action)
 }
