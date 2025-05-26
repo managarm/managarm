@@ -7,3 +7,4 @@ members = [
 [workspace.dependencies]
 hel = { path = "rust/hel" }
 hel-sys = { path = "rust/hel-sys" }
+managarm = { path = "rust/managarm" }
