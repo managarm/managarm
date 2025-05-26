@@ -50,7 +50,7 @@ struct Controller final : drvcore::ClassDevice {
 
 struct Namespace final : drvcore::Device {
 	Namespace(std::shared_ptr<Device> parent, size_t nsid)
-		: drvcore::Device{parent, std::format("{}n{}", parent->name(), nsid), nullptr}, nsid_{nsid} {
+		: drvcore::Device{parent, parent, std::format("{}n{}", parent->name(), nsid), nullptr}, nsid_{nsid} {
 
 	}
 
