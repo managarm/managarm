@@ -3,3 +3,4 @@ subprojects
 *.xbstrap
 .clangd
 compile_commands.json
+Cargo.lock
