@@ -1,0 +1,13 @@
+[package]
+name = "managarm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+bragi = "0.2"
+hel.workspace = true
+hel-sys.workspace = true
+
+[build-dependencies]
+bragi-build = "0.1"

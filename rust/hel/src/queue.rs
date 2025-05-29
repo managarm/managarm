@@ -4,7 +4,11 @@ use std::mem::{MaybeUninit, offset_of};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use crate::{Handle, Mapping, MappingFlags, Result, hel_check};
+use crate::{
+    handle::Handle,
+    mapping::{Mapping, MappingFlags},
+    result::{Result, hel_check},
+};
 
 /// Wrapper around a Hel queue chunk.
 struct Chunk<'a> {
@@ -84,7 +88,6 @@ impl<'a> QueueElement<'a> {
     /// Panics if the offset would exceed the length of the data.
     pub fn advance(&mut self, length: usize) {
         assert!(self.offset + length <= self.data.len());
-
         self.offset += length;
     }
 }
@@ -135,7 +138,7 @@ impl Queue {
         let chunks_offset = (size_of::<hel_sys::HelQueue>() + (size_of::<c_int>() << ring_shift))
             .next_multiple_of(64);
         let reserved_per_chunk = (size_of::<hel_sys::HelChunk>() + chunk_size).next_multiple_of(64);
-        let handle = Handle::new(raw_handle, hel_sys::kHelThisUniverse as hel_sys::HelHandle);
+        let handle = unsafe { Handle::from_raw(raw_handle) };
         let mapping = unsafe {
             Mapping::new(
                 &handle,

@@ -4,10 +4,10 @@ use std::{
     future::Future,
     pin::Pin,
     rc::{Rc, Weak},
-    task::{ContextBuilder, LocalWake, LocalWaker, Poll, Waker},
+    task::{ContextBuilder, LocalWake, LocalWaker, Waker},
 };
 
-use crate::{Handle, OperationState, Queue, Result};
+use crate::{handle::Handle, queue::Queue, result::Result, submission::OperationState};
 
 type BoxedFuture = Box<dyn Future<Output = ()>>;
 type RunQueue = VecDeque<Rc<Task>>;
@@ -97,15 +97,16 @@ impl Executor {
     /// Runs the executor once, executing all tasks in the run queue and
     /// returning true if any task was completed.
     pub fn run_once(&self) -> bool {
-        let mut run_queue = self.inner.run_queue.borrow_mut();
-
-        while let Some(task) = run_queue.pop_front() {
+        while let Some(task) = {
+            let mut queue = self.inner.run_queue.borrow_mut();
+            queue.pop_front()
+        } {
             let waker = LocalWaker::from(task.clone());
             let mut cx = ContextBuilder::from_waker(Waker::noop())
                 .local_waker(&waker)
                 .build();
 
-            if let Poll::Ready(_) = task.future.borrow_mut().as_mut().poll(&mut cx) {
+            if task.future.borrow_mut().as_mut().poll(&mut cx).is_ready() {
                 return true;
             }
         }
@@ -156,5 +157,51 @@ impl Executor {
     /// Creates a new reference to the executor's inner state.
     pub(crate) fn clone_inner(&self) -> Rc<ExecutorInner> {
         self.inner.clone()
+    }
+}
+
+/// Spawns a new task.
+pub fn spawn<F>(future: F)
+where
+    F: Future<Output = ()> + 'static,
+{
+    EXECUTOR.with(|executor| executor.borrow().spawn(future));
+}
+
+/// Blocks the current thread until the given future is ready.
+pub fn block_on<F, R: 'static>(future: F) -> Result<R>
+where
+    F: Future<Output = R> + 'static,
+{
+    EXECUTOR.with(|executor| executor.borrow().block_on(future))
+}
+
+/// Temporarily replaces the default per-thread executor with the given one.
+/// The returned value ensures that the executor is restored to its previous state
+/// when dropped.
+pub fn enter_executor(new_executor: Executor) -> ExecutorGuard {
+    let previous_executor = EXECUTOR.with(|executor| executor.replace(new_executor));
+
+    ExecutorGuard { previous_executor }
+}
+
+/// Returns a new reference to the current executor.
+pub fn current_executor() -> Executor {
+    EXECUTOR.with(|executor| executor.borrow().clone())
+}
+
+thread_local! {
+    /// The current executor for the thread.
+    pub(crate) static EXECUTOR: RefCell<Executor>
+        = RefCell::new(Executor::new().expect("Failed to create executor"));
+}
+
+pub struct ExecutorGuard {
+    previous_executor: Executor,
+}
+
+impl Drop for ExecutorGuard {
+    fn drop(&mut self) {
+        EXECUTOR.with(|executor| executor.replace(self.previous_executor.clone()));
     }
 }

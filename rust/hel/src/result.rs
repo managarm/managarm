@@ -25,6 +25,35 @@ pub enum Error {
     AlreadyExists,
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::IllegalSyscall => write!(f, "Illegal syscall"),
+            Error::IllegalArgs => write!(f, "Illegal arguments"),
+            Error::IllegalState => write!(f, "Illegal state"),
+            Error::UnsupportedOperation => write!(f, "Unsupported operation"),
+            Error::OutOfBounds => write!(f, "Out of bounds"),
+            Error::QueueTooSmall => write!(f, "Queue too small"),
+            Error::Cancelled => write!(f, "Cancelled"),
+            Error::NoDescriptor => write!(f, "No descriptor"),
+            Error::BadDescriptor => write!(f, "Bad descriptor"),
+            Error::ThreadTerminated => write!(f, "Thread terminated"),
+            Error::TransmissionMismatch => write!(f, "Transmission mismatch"),
+            Error::LaneShutdown => write!(f, "Lane shutdown"),
+            Error::EndOfLane => write!(f, "End of lane"),
+            Error::Dismissed => write!(f, "Dismissed"),
+            Error::BufferTooSmall => write!(f, "Buffer too small"),
+            Error::Fault => write!(f, "Fault"),
+            Error::RemoteFault => write!(f, "Remote fault"),
+            Error::NoHardwareSupport => write!(f, "No hardware support"),
+            Error::NoMemory => write!(f, "No memory"),
+            Error::AlreadyExists => write!(f, "Already exists"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 impl From<hel_sys::HelError> for Error {
     fn from(error: hel_sys::HelError) -> Self {
         match error as u32 {

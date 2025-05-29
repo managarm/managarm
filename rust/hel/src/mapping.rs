@@ -1,7 +1,10 @@
 use std::ptr::NonNull;
 use std::{ffi::c_void, num::NonZeroUsize};
 
-use crate::{Handle, Result, hel_check};
+use crate::{
+    handle::Handle,
+    result::{Result, hel_check},
+};
 
 bitflags::bitflags! {
     /// Flags that control the characteristics of a memory mapping.

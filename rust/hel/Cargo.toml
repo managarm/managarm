@@ -5,6 +5,4 @@ edition = "2024"
 
 [dependencies]
 bitflags = "2.9.0"
-
-[dependencies.hel-sys]
-path = "../hel-sys"
+hel-sys.workspace = true
