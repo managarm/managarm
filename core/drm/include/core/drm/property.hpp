@@ -2,9 +2,6 @@
 
 #include "fwd-decls.hpp"
 
-#include <map>
-#include <vector>
-
 #include <helix/memory.hpp>
 #include <libdrm/drm.h>
 

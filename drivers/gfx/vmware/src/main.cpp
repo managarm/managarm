@@ -157,8 +157,6 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, current_w, current_h);
 
-	std::reverse(std::begin(supported_modes), std::end(supported_modes));
-
 	_connector->setModeList(supported_modes);
 
 	setupMinDimensions(640, 480);
