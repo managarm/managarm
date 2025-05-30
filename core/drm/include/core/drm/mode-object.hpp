@@ -283,7 +283,7 @@ struct Plane : ModeObject {
 
 private:
 	PlaneType _type;
-	drm_core::FrameBuffer *_fb;
+	drm_core::FrameBuffer *_fb = nullptr;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::shared_ptr<PlaneState> _drmState;
 	std::vector<uint32_t> _formats = { DRM_FORMAT_XRGB8888 };

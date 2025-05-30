@@ -625,6 +625,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto fb = self->_device->findObject(req->drm_fb_id());
 			assert(fb);
 			assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
+			assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcIdProperty(), crtc->sharedModeObject()));
 
 			auto config = self->_device->createConfiguration();
 			auto state = self->_device->atomicState();
