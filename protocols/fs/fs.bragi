@@ -399,7 +399,7 @@ head(128):
 		tag(88) uint64[] drm_property_vals;
 		tag(89) uint32 drm_property_flags;
 
-		tag(90) uint32[] drm_format_type;
+		tag(90) uint32 drm_format_types;
 
 		tag(91) uint64[] drm_enum_value;
 		tag(92) string[] drm_enum_name;
@@ -511,6 +511,7 @@ head(128):
 		tag(15) uint32 drm_pitch;
 		tag(16) uint32 drm_depth;
 		tag(43) uint32 drm_fourcc;
+		tag(45) uint32 drm_modifier;
 
 		tag(17) uint32 drm_handle;
 
@@ -545,6 +546,8 @@ head(128):
 		tag(38) uint64 drm_cookie;
 
 		tag(39) uint32 drm_prime_handle;
+
+		tag(44) uint32 drm_format_types;
 
 		tag(40) int32 input_type;
 		tag(41) int32 input_clock;
@@ -630,7 +633,7 @@ head(128):
 		tag(50) uint64[] drm_property_vals;
 		tag(51) uint32 drm_property_flags;
 
-		tag(52) uint32[] drm_format_type;
+		tag(52) uint32 drm_format_types;
 
 		tag(53) uint64[] drm_enum_value;
 		tag(54) string[] drm_enum_name;
