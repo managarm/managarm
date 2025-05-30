@@ -40,7 +40,7 @@ namespace {
 // --------------------------------------------------------
 
 frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -56,8 +56,10 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 			continue;
 		assert(!(physicalRange.get<0>() & (kPageSize - 1)));
 
+		auto cachingMode = mode == CachingMode::null ? physicalRange.get<1>() : mode;
+
 		mapSingle4k(va + progress, physicalRange.get<0>(),
-				flags, physicalRange.get<1>());
+				flags, cachingMode);
 	}
 	return {};
 }
@@ -475,6 +477,10 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 
 		assert(!(flags & kMapPopulate));
 
+		auto caching = CachingMode::null;
+		if(flags & kMapCacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
 		// Install the new mapping object.
 		mapping->tie(selfPtr.lock(), actualAddress);
 		_mappings.insert(mapping.get());
@@ -495,7 +501,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			pageFlags |= page_access::read;
 
 		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length, pageFlags);
+				mapping->viewOffset, mapping->length, pageFlags, caching);
 		assert(mapOutcome);
 	}
 

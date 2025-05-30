@@ -255,7 +255,8 @@ enum HelMapFlags {
 	kHelMapProtExecute = 1024,
 	kHelMapDontRequireBacking = 128,
 	kHelMapFixed = 2048,
-	kHelMapFixedNoReplace = 4096
+	kHelMapFixedNoReplace = 4096,
+	kHelMapCacheWriteCombine = 8192,
 };
 
 enum HelThreadFlags {
@@ -759,7 +760,7 @@ HEL_C_LINKAGE HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handl
 //!    	Size of the indirection in bytes.
 //!    	Must be aligned to the system's page size.
 HEL_C_LINKAGE HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slotIndex,
-		HelHandle memoryHandle, uintptr_t offset, size_t size);
+		HelHandle memoryHandle, uintptr_t offset, size_t size, uint32_t flags);
 
 HEL_C_LINKAGE HelError helCreateSliceView(HelHandle bundle, uintptr_t offset, size_t size,
 		uint32_t flags, HelHandle *handle);
