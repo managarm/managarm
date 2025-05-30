@@ -622,7 +622,7 @@ head(128):
 		tag(45) uint32[] drm_obj_property_ids;
 		tag(46) uint32[] drm_obj_property_values;
 
-		tag(47) uint8[] drm_property_blob;
+		tag(47) uint32 drm_property_blob_size;
 
 		tag(48) uint32[] drm_plane_res;
 

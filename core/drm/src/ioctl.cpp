@@ -1005,20 +1005,19 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				std::cout << "core/drm: GETPROPBLOB([" << req->drm_blob_id() << ((!blob) ? "] [invalid]" : "]") << ")" << std::endl;
 
 			if(blob) {
-				auto data = reinterpret_cast<const uint8_t *>(blob->data());
-				for(size_t i = 0; i < blob->size(); i++) {
-					resp.add_drm_property_blob(data[i]);
-				}
-
+				resp.set_drm_property_blob_size(blob->size());
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			} else {
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 			}
 
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(blob ? blob->data() : nullptr,
+					std::min(blob ? blob->size() : 0, size_t{req->drm_blob_size()}))
 			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
 			logBragiReply(resp);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATEPROPBLOB) {
 			std::vector<char> blob_data;
