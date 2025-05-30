@@ -165,6 +165,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}else if(req->drm_capability() == DRM_CAP_PRIME) {
 				resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
 				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
+			}else if(req->drm_capability() == DRM_CAP_ADDFB2_MODIFIERS) {
+				resp.set_drm_value(1);
+				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
 			}else{
 				std::cout << "\tUnknown capability " << req->drm_capability() << std::endl;
 				resp.set_drm_value(0);
@@ -362,17 +365,17 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			resp.set_drm_gamma_size(0);
-
-			for(auto f : plane->getFormats()) {
-				resp.add_drm_format_type(f);
-			}
+			resp.set_drm_format_types(plane->getFormats().size());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			auto [send_resp, send_formats] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(plane->getFormats().data(),
+					std::min(size_t{req->drm_format_types()}, plane->getFormats().size()) * sizeof(uint32_t))
 			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_formats.error());
 			logBragiReply(resp);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATE_DUMB) {
 			managarm::fs::GenericIoctlReply resp;
@@ -407,7 +410,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.set_drm_width(fb->getWidth());
 				resp.set_drm_height(fb->getHeight());
 				resp.set_pixel_format(fb->format());
-				resp.set_modifier(DRM_FORMAT_MOD_INVALID);
+				resp.set_modifier(fb->getModifier());
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
 
@@ -428,7 +431,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 			auto fourcc = convertLegacyFormat(req->drm_bpp(), req->drm_depth());
 			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
-					fourcc, req->drm_pitch());
+					fourcc, req->drm_pitch(), DRM_FORMAT_MOD_LINEAR);
 			self->attachFrameBuffer(fb);
 			resp.set_drm_fb_id(fb->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -451,8 +454,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assert(bo);
 			auto buffer = bo->sharedBufferObject();
 
+			auto modifier = req->drm_flags() & DRM_MODE_FB_MODIFIERS ? req->drm_modifier() : DRM_FORMAT_MOD_LINEAR;
+
 			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
-					req->drm_fourcc(), req->drm_pitch());
+					req->drm_fourcc(), req->drm_pitch(), modifier);
 			self->attachFrameBuffer(fb);
 			resp.set_drm_fb_id(fb->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -691,7 +696,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
 
 				if (bo) {
-					auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+					auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4, DRM_FORMAT_MOD_LINEAR);
 					assert(fb);
 					assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 				} else {
@@ -754,7 +759,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
 
 			if(bo) {
-				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4, DRM_FORMAT_MOD_LINEAR);
 				assert(fb);
 				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 			} else {
