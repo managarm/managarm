@@ -258,6 +258,10 @@ enum HelMapFlags {
 	kHelMapFixedNoReplace = 4096
 };
 
+enum HelSliceFlags {
+	kHelSliceCacheWriteCombine = 1,
+};
+
 enum HelThreadFlags {
 	kHelThreadStopped = 1
 };
