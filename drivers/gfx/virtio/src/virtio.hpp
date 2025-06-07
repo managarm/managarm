@@ -107,6 +107,9 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 		void notifyDirty() override;
 		uint32_t getWidth() override;
 		uint32_t getHeight() override;
+		uint32_t getModifier() override {
+			return DRM_FORMAT_MOD_LINEAR;
+		}
 		async::detached _xferAndFlush();
 
 	private:
@@ -122,7 +125,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 			uint32_t height, uint32_t bpp) override;
 	std::shared_ptr<drm_core::FrameBuffer>
 			createFrameBuffer(std::shared_ptr<drm_core::BufferObject> bo,
-			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) override;
+			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch, uint32_t mod [[maybe_unused]]) override;
 
 	//returns major, minor, patchlvl
 	std::tuple<int, int, int> driverVersion() override;

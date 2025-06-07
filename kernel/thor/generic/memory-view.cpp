@@ -350,7 +350,7 @@ void MemoryView::submitManage(ManageNode *) {
 }
 
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
-		uintptr_t, size_t) {
+		uintptr_t, size_t, CachingFlags) {
 	return Error::illegalObject;
 }
 
@@ -1396,8 +1396,13 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
-	return indirections_[slot]->memory->peekRange(indirections_[slot]->offset
-			+ inSlotOffset);
+	if(indirections_[slot]->flags & cacheWriteCombine) {
+		auto res = indirections_[slot]->memory->peekRange(indirections_[slot]->offset + inSlotOffset);
+		return {res.get<0>(), CachingMode::writeCombine};
+	} else {
+		return indirections_[slot]->memory->peekRange(indirections_[slot]->offset
+				+ inSlotOffset);
+	}
 }
 
 coroutine<frg::expected<Error, PhysicalRange>>
@@ -1431,14 +1436,14 @@ size_t IndirectMemory::getLength() {
 }
 
 Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
-		uintptr_t offset, size_t size) {
+		uintptr_t offset, size_t size, CachingFlags flags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
 	if(slot >= indirections_.size())
 		return Error::outOfBounds;
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
-			this, slot, memory, offset, size);
+			this, slot, memory, offset, size, flags);
 	// TODO: start a coroutine to observe evictions.
 	memory->addObserver(&indirection->observer);
 	indirections_[slot] = std::move(indirection);

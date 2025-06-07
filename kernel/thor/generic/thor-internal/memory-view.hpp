@@ -171,6 +171,9 @@ public:
 using FetchFlags = uint32_t;
 inline constexpr FetchFlags fetchDisallowBacking = 1;
 
+using CachingFlags = uint32_t;
+inline constexpr CachingFlags cacheWriteCombine = 1;
+
 struct RangeToEvict {
 	uintptr_t offset;
 	size_t size;
@@ -322,7 +325,7 @@ public:
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
 
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
-			uintptr_t offset, size_t size);
+			uintptr_t offset, size_t size, CachingFlags flags);
 
 	// ----------------------------------------------------------------------------------
 	// Memory eviction.
@@ -1002,21 +1005,22 @@ struct IndirectMemory final : MemoryView {
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
-			uintptr_t offset, size_t size) override;
+			uintptr_t offset, size_t size, CachingFlags flags) override;
 
 private:
 	struct IndirectionSlot {
 		IndirectionSlot(IndirectMemory *owner, size_t slot,
 				smarter::shared_ptr<MemoryView> memory,
-				uintptr_t offset, size_t size)
+				uintptr_t offset, size_t size, CachingFlags flags)
 		: owner{owner}, slot{slot}, memory{std::move(memory)}, offset{offset},
-			size{size}, observer{} { }
+			size{size}, flags{flags}, observer{} { }
 
 		IndirectMemory *owner;
 		size_t slot;
 		smarter::shared_ptr<MemoryView> memory;
 		uintptr_t offset;
 		size_t size;
+		CachingFlags flags;
 		MemoryObserver observer;
 	};
 

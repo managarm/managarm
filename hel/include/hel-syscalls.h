@@ -127,10 +127,10 @@ extern inline __attribute__ (( always_inline )) HelError helCreateIndirectMemory
 
 extern inline __attribute__ (( always_inline )) HelError helAlterMemoryIndirection(
 		HelHandle indirectHandle, size_t slotIndex,
-		HelHandle memoryHandle, uintptr_t offset, size_t size) {
-	HelError error = helSyscall5(kHelCallAlterMemoryIndirection,
+		HelHandle memoryHandle, uintptr_t offset, size_t size, uint32_t flags) {
+	HelError error = helSyscall6(kHelCallAlterMemoryIndirection,
 			(HelWord)indirectHandle, (HelWord)slotIndex,
-			(HelWord)memoryHandle, (HelWord)offset, (HelWord)size);
+			(HelWord)memoryHandle, (HelWord)offset, (HelWord)size, (HelWord)flags);
 	return error;
 }
 

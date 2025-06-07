@@ -66,7 +66,7 @@ uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	auto [boMemory, boOffset] = bo->getMemory();
 	HEL_CHECK(helAlterMemoryIndirection(_memory.getHandle(),
 			bo->getMapping() >> 32, boMemory.getHandle(),
-			boOffset, bo->getSize()));
+			boOffset, bo->getSize(), bo->getFlags()));
 
 	return handle;
 }
