@@ -518,6 +518,75 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = std::get<1>(self->signalContext()->checkSignal());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigTimedWait) {
+			if(logRequests)
+				std::cout << "posix: SIG_TIMED_WAIT supercall" << std::endl;
+
+			uintptr_t gprs[kHelNumGprs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			auto mask = gprs[kHelRegArg0];
+			auto timeout = gprs[kHelRegArg1];
+			auto infoPtr = gprs[kHelRegArg2];
+
+			gprs[kHelRegError] = 0;
+			gprs[kHelRegOut0] = EAGAIN;
+			gprs[kHelRegOut1] = 0;
+
+			auto check = co_await self->signalContext()->fetchSignal(mask, true);
+			if(check) {
+				if(infoPtr) {
+					siginfo_t siginfo{};
+					std::visit(CompileSignalInfo{&siginfo}, check->info);
+					auto store = co_await helix_ng::writeMemory(
+						self->vmContext()->getSpace(),
+						infoPtr, sizeof(siginfo_t), &siginfo);
+					HEL_CHECK(store.error());
+				}
+
+				gprs[kHelRegOut0] = 0;
+				gprs[kHelRegOut1] = check->signalNumber;
+			} else if(timeout) {
+				SignalItem *item = nullptr;
+
+				auto raceWait = [](async::cancellation_token c, uint64_t timeout) -> async::result<void> {
+					if(timeout != UINT64_MAX) {
+						co_await helix_ng::sleepFor(timeout, c);
+					} else {
+						co_await async::suspend_indefinitely(c);
+					}
+				};
+
+				auto raceSignal = [](async::cancellation_token c, uintptr_t mask, SignalItem *&item, std::shared_ptr<Process> self) -> async::result<void> {
+					item = co_await self->signalContext()->fetchSignal(mask, false, c);
+				};
+
+				co_await async::race_and_cancel(
+					[&](async::cancellation_token c) -> async::result<void> {
+						return raceWait(c, timeout);
+					},
+					[&](async::cancellation_token c) -> async::result<void> {
+						return raceSignal(c, mask, item, self);
+					}
+				);
+
+				if(item) {
+					if(infoPtr) {
+						siginfo_t siginfo{};
+						std::visit(CompileSignalInfo{&siginfo}, item->info);
+						auto store = co_await helix_ng::writeMemory(
+							self->vmContext()->getSpace(),
+							infoPtr, sizeof(siginfo_t), &siginfo);
+						HEL_CHECK(store.error());
+					}
+
+					gprs[kHelRegOut0] = 0;
+					gprs[kHelRegOut1] = item->signalNumber;
+				}
+			}
+
+			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			bool killed = false;

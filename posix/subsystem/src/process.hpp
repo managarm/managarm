@@ -211,8 +211,13 @@ struct UserSignal {
 	int uid = 0;
 };
 
+struct TimerSignal {
+	int timerId = 0;
+};
+
 using SignalInfo = std::variant<
-	UserSignal
+	UserSignal,
+	TimerSignal
 >;
 
 using SignalFlags = uint32_t;
@@ -244,6 +249,13 @@ struct SignalItem {
 
 using PollSignalResult = std::tuple<uint64_t, uint64_t>;
 using CheckSignalResult = std::tuple<uint64_t, uint64_t>;
+
+struct CompileSignalInfo {
+	void operator() (const UserSignal &info) const;
+	void operator() (const TimerSignal &info) const;
+
+	siginfo_t *si;
+};
 
 struct SignalContext {
 private:
@@ -279,7 +291,7 @@ public:
 
 	// TODO: If we ever need to cancel this operation, it would be better to
 	//       take a cancellation token instead of nonBlock.
-	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock);
+	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct = {});
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
@@ -625,7 +637,51 @@ public:
 		std::weak_ptr<Process> process_;
 	};
 
+	struct PosixTimer;
+
+	struct PosixTimerContext {
+		clockid_t clockid;
+		std::shared_ptr<PosixTimer> timer = {};
+		std::optional<int> tid = std::nullopt;
+		int signo;
+	};
+
+	struct PosixTimer : posix::IntervalTimer {
+		PosixTimer(std::weak_ptr<Process> proc, std::optional<int> tid,
+			int signo, int timerId, uint64_t initial, uint64_t interval)
+			: posix::IntervalTimer(initial, interval), process_{proc},
+			tid{tid}, signo{signo}, timerId{timerId} {}
+
+		void raise(bool success) override {
+			if(!success)
+				return;
+
+			if(tid) {
+				auto proc = process_.lock();
+				if(!proc) {
+					cancel();
+					expired();
+					return;
+				}
+				proc->signalContext()->issueSignal(signo, TimerSignal{static_cast<int>(timerId)});
+			}
+		}
+
+		void expired() override {
+			isExpired = true;
+		}
+
+	private:
+		std::weak_ptr<Process> process_;
+		std::optional<int> tid = std::nullopt;
+		int signo;
+		int timerId;
+		bool isExpired = false;
+	};
+
 	std::shared_ptr<IntervalTimer> realTimer;
+	std::unordered_map<int, std::shared_ptr<PosixTimerContext>> timers;
+	id_allocator<int> timerIdAllocator{};
 
 private:
 	Process *_parent;

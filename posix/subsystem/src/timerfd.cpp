@@ -9,6 +9,7 @@
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 
+#include "clocks.hpp"
 #include "fs.hpp"
 #include "interval-timer.hpp"
 #include "timerfd.hpp"
@@ -16,13 +17,6 @@
 namespace {
 
 bool logTimerfd = false;
-
-uint64_t add_sat(uint64_t x, uint64_t y) {
-	uint64_t r;
-	if (__builtin_add_overflow(x, y, &r))
-		return UINT64_MAX;
-	return r;
-}
 
 struct OpenFile : File {
 private:
@@ -147,33 +141,19 @@ public:
 		return _passthrough;
 	}
 
-	void setTime(bool relative, uint64_t initial, uint64_t interval) {
-		// TODO: Add a better abstraction for different clocks.
-		uint64_t now;
-		HEL_CHECK(helGetClock(&now));
-		if (initial) {
-			if (relative) {
-				// Transform relative time to absolute time since boot.
-				initial = add_sat(now, initial);
-			} else {
-				if (_clock == CLOCK_REALTIME) {
-					// Transform real time to time since boot.
-					int64_t bootTime = clk::getRealtimeNanos() - now;
-					assert(bootTime >= 0);
-					if (initial < static_cast<uint64_t>(bootTime)) {
-						// TODO: This is not entirely correct but arm() does not handle negative times.
-						initial = 1;
-					} else {
-						initial -= bootTime;
-					}
-				}
-			}
+	void setTime(bool relative, const timespec initial, const timespec interval) {
+		uint64_t initialNanos = 0;
+		uint64_t intervalNanos = 0;
+
+		if(initial.tv_sec || initial.tv_nsec) {
+			initialNanos = posix::convertToNanos(initial, _clock, relative);
+			intervalNanos = posix::convertToNanos(interval, CLOCK_MONOTONIC);
 		}
 
 		if(_activeTimer)
 			_activeTimer->cancel();
-		if(initial || interval) {
-			_activeTimer = std::make_shared<Timer>(weakFile(), initial, interval);
+		if(initialNanos || intervalNanos) {
+			_activeTimer = std::make_shared<Timer>(weakFile(), initialNanos, intervalNanos);
 			_expirations = 0;
 			Timer::arm(_activeTimer);
 		} else {
@@ -229,29 +209,12 @@ smarter::shared_ptr<File, FileHandle> createFile(int clock, bool non_block) {
 }
 
 void setTime(File *file, int flags, struct timespec initial, struct timespec interval) {
-	assert(initial.tv_sec >= 0 && initial.tv_nsec >= 0);
-	assert(interval.tv_sec >= 0 && interval.tv_nsec >= 0);
-
 	if(logTimerfd)
 		std::cout << "setTime() initial: " << initial.tv_sec << " + " << initial.tv_nsec
 				<< ", interval: " << interval.tv_sec << " + " << interval.tv_nsec << std::endl;
 
-	// Note: __builtin_mul_overflow() with signed arguments requires a call to a
-	// compiler-rt function for clang. Cast to unsigned to avoid this issue.
-
-	uint64_t initial_nanos;
-	if(__builtin_mul_overflow(static_cast<uint64_t>(initial.tv_sec), 1000000000, &initial_nanos)
-			|| __builtin_add_overflow(initial.tv_nsec, initial_nanos, &initial_nanos)) {
-		initial_nanos = UINT64_MAX;
-	}
-
-	uint64_t interval_nanos;
-	if(__builtin_mul_overflow(static_cast<uint64_t>(interval.tv_sec), 1000000000, &interval_nanos)
-			|| __builtin_add_overflow(interval.tv_nsec, interval_nanos, &interval_nanos))
-		interval_nanos = UINT64_MAX;
-
 	auto timerfd = static_cast<OpenFile *>(file);
-	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial_nanos, interval_nanos);
+	timerfd->setTime(!(flags & TFD_TIMER_ABSTIME), initial, interval);
 }
 
 void getTime(File *file, timespec &initial, timespec &interval) {
