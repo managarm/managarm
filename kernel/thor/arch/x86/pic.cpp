@@ -13,6 +13,7 @@
 #include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
+#include <frg/hash_map.hpp>
 
 namespace thor {
 
@@ -163,6 +164,17 @@ void LocalApicContext::clearPmi() {
 }
 
 // --------------------------------------------------------
+
+frg::manual_box<
+	frg::hash_map<uint32_t, IrqPin *, frg::hash<uint32_t>, KernelAlloc>
+> globalSystemIrqs;
+
+IrqPin *getGlobalSystemIrq(size_t n) {
+	auto irq = globalSystemIrqs->get(static_cast<uint32_t>(n));
+	return irq ? *irq : nullptr;
+}
+
+// --------------------------------------------------------
 // Local PIC management
 // --------------------------------------------------------
 
@@ -196,6 +208,8 @@ static initgraph::Task discoverApicTask{&globalInitEngine, "x86.discover-apic",
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(register_ptr), msr & ~PhysicalAddr{0xFFF},
 				page_access::write, CachingMode::null);
 		picBase = ApicRegisterSpace(haveX2apic, register_ptr);
+
+		globalSystemIrqs.initialize(frg::hash<uint32_t> {}, *kernelAlloc);
 	}
 };
 
@@ -384,7 +398,7 @@ void sendShootdownIpi() {
 				| apicIcrLowLevel(true) | apicIcrLowShorthand(2));
 		while(picBase.load(lApicIcrLow) & apicIcrLowDelivStatus) {
 			// Wait for IPI delivery.
-		}	
+		}
 	}
 }
 
@@ -433,15 +447,6 @@ void sendGlobalNmi() {
 			// Wait for IPI delivery.
 		}
 	}
-}
-
-// --------------------------------------------------------
-
-IrqPin *globalSystemIrqs[256];
-
-IrqPin *getGlobalSystemIrq(size_t n) {
-	assert(n <= 256);
-	return globalSystemIrqs[n];
 }
 
 // --------------------------------------------------------
@@ -738,7 +743,7 @@ void setupIoApic(int apic_id, int gsi_base, PhysicalAddr address) {
 	auto apic = frg::construct<IoApic>(*kernelAlloc, apic_id, arch::mem_space{register_ptr});
 	for(size_t i = 0; i < apic->pinCount(); i++) {
 		auto pin = apic->accessPin(i);
-		globalSystemIrqs[gsi_base + i] = pin;
+		globalSystemIrqs->insert(gsi_base + i, pin);
 	}
 
 	KernelFiber::run([=] {
