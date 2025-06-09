@@ -41,6 +41,14 @@ struct [[gnu::packed]] MadtLocalEntry {
 	uint32_t flags;
 };
 
+struct [[gnu::packed]] MadtLocalX2Entry {
+	MadtGenericEntry generic;
+	uint16_t reserved;
+	uint32_t localX2ApicId;
+	uint32_t flags;
+	uint32_t processorId;
+};
+
 namespace local_flags {
 	static constexpr uint32_t enabled = 1;
 };
@@ -78,6 +86,14 @@ struct [[gnu::packed]] MadtLocalNmiEntry {
 	uint8_t processorId;
 	uint16_t flags;
 	uint8_t localInt;
+};
+
+struct [[gnu::packed]] MadtLocalX2NmiEntry {
+	MadtGenericEntry generic;
+	uint16_t flags;
+	uint32_t processorId;
+	uint8_t localInt;
+	uint8_t reserved[3];
 };
 
 } } // namespace thor::acpi
@@ -139,6 +155,12 @@ void bootOtherProcessors() {
 			if((entry->flags & local_flags::enabled)
 					&& entry->localApicId) // We ignore the BSP here.
 				bootSecondary(entry->localApicId);
+		}else if(generic->type == 9) { // local x2APIC
+			auto entry = (MadtLocalX2Entry *)generic;
+			// TODO: Support BSPs with APIC ID != 0.
+			if((entry->flags & local_flags::enabled)
+					&& entry->localX2ApicId) // We ignore the BSP here.
+				bootSecondary(entry->localX2ApicId);
 		}
 		offset += generic->length;
 	}
@@ -209,6 +231,16 @@ void dumpMadt() {
 		}else if(generic->type == 4) { // local APIC NMI source
 			auto entry = (MadtLocalNmiEntry *)generic;
 			infoLogger() << "    Local APIC NMI: processor " << (int)entry->processorId
+					<< ", lint: " << (int)entry->localInt << frg::endlog;
+		}else if(generic->type == 9) { // local x2APIC
+			auto entry = (MadtLocalX2Entry *)generic;
+			infoLogger() << "    Local x2APIC id: "
+					<< entry->localX2ApicId
+					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
+					<< frg::endlog;
+		}else if(generic->type == 10) { // local x2APIC NMI source
+			auto entry = (MadtLocalX2NmiEntry *)generic;
+			infoLogger() << "    Local x2APIC NMI: processor " << (int)entry->processorId
 					<< ", lint: " << (int)entry->localInt << frg::endlog;
 		}else{
 			infoLogger() << "    Unexpected MADT entry of type "
