@@ -109,7 +109,7 @@ bool EptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode) {
 	return mapPresentPagesByCursor<EptCursor>(pageSpace_,
 			va, view, offset, size, flags);
 }

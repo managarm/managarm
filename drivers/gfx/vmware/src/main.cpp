@@ -157,8 +157,6 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, current_w, current_h);
 
-	std::reverse(std::begin(supported_modes), std::end(supported_modes));
-
 	_connector->setModeList(supported_modes);
 
 	setupMinDimensions(640, 480);
@@ -178,7 +176,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t w, uint32_t, uint32_t, uint32_t) {
+		uint32_t w, uint32_t, uint32_t, uint32_t, uint32_t) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	auto fb = std::make_shared<FrameBuffer>(this, bo, w * 4);

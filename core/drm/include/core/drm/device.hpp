@@ -31,7 +31,7 @@ public:
 	virtual std::pair<std::shared_ptr<BufferObject>, uint32_t> createDumb(uint32_t width,
 			uint32_t height, uint32_t bpp) = 0;
 	virtual std::shared_ptr<FrameBuffer> createFrameBuffer(std::shared_ptr<BufferObject> buff,
-			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch) = 0;
+			uint32_t width, uint32_t height, uint32_t format, uint32_t pitch, uint32_t modifier) = 0;
 	//returns major, minor, patchlvl
 	virtual std::tuple<int, int, int> driverVersion() = 0;
 	//returns name, desc, date

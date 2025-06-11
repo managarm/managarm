@@ -593,7 +593,7 @@ HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
 }
 
 HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
-		HelHandle memoryHandle, uintptr_t offset, size_t size) {
+		HelHandle memoryHandle, uintptr_t offset, size_t size, uint32_t flags) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
@@ -622,7 +622,11 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 			return kHelErrBadDescriptor;
 	}
 
-	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size);
+	CachingFlags cacheFlags = 0;
+	if(flags & kHelMapCacheWriteCombine)
+		cacheFlags |= cacheWriteCombine;
+
+	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size, cacheFlags);
 			e != Error::success) {
 		if(e == Error::illegalObject) {
 			return kHelErrUnsupportedOperation;
@@ -869,6 +873,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
+
+	if(flags & kHelMapCacheWriteCombine)
+		map_flags |= AddressSpace::kMapCacheWriteCombine;
 
 	smarter::shared_ptr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;

@@ -97,7 +97,7 @@ bool NptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode) {
 	return mapPresentPagesByCursor<NptCursor>(pageSpace_,
 			va, view, offset, size, flags);
 }

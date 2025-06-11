@@ -32,7 +32,7 @@ public:
 		auto it = _nodes.begin();
 		auto id = it->lb;
 		if(it->lb < it->ub)
-			_nodes.insert(std::next(it), node{it->lb + 1, it->ub});
+			_nodes.insert(std::next(it), node{static_cast<T>(it->lb + 1), it->ub});
 		_nodes.erase(it);
 		return id;
 	}
