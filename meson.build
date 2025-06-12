@@ -154,17 +154,18 @@ if build_kernel or build_drivers
 	libarch = subproject('libarch',
 		default_options : libarch_opts
 	).get_variable('libarch_dep')
+
+	libasync_dep = dependency('libasync', method: 'pkg-config')
+	libsmarter = dependency('libsmarter', method : 'pkg-config')
 endif
 
 if build_kernel
 	cralgo = subproject('cralgo')
 	uacpi = subproject('uacpi')
-	libasync = subproject('libasync', default_options : [ 'install_headers=false' ])
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
 	uacpi_sources = uacpi.get_variable('sources')
 	uacpi_includes = uacpi.get_variable('includes')
-	libasync_dep = libasync.get_variable('libasync_dep')
 
 	subdir('hel')
 	subdir('kernel/eir')
