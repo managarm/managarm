@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <sys/pidfd.h>
 #include <unistd.h>
+#include <print>
 
 #include <helix/timer.hpp>
 
@@ -2740,6 +2741,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			smarter::shared_ptr<File, FileHandle> file;
 			if(req->domain() == AF_UNIX) {
+				if(req->socktype() != SOCK_DGRAM && req->socktype() != SOCK_STREAM
+				&& req->socktype() != SOCK_SEQPACKET) {
+					std::println("posix: unexpected socket type {:#x}", req->socktype());
+					co_await sendErrorResponse(managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE);
+					continue;
+				}
+
+				if(req->protocol()) {
+					std::println("posix: unexpected protocol {:#x} for socket", req->protocol());
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
 				auto un = un_socket::createSocketFile(req->flags() & SOCK_NONBLOCK, req->socktype());
 
 				if(!un) {
