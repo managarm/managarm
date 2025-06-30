@@ -614,12 +614,14 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 		auto memoryWrapper = thisUniverse->getDescriptor(universeLock, memoryHandle);
 		if(!memoryWrapper)
 			return kHelErrNoDescriptor;
-		if(memoryWrapper->is<MemoryViewDescriptor>())
+		if(memoryWrapper->is<MemoryViewDescriptor>()) {
 			memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
-		else if(memoryWrapper->is<MemorySliceDescriptor>())
+		} else if(memoryWrapper->is<MemorySliceDescriptor>()) {
 			memoryView = memoryWrapper->get<MemorySliceDescriptor>().slice->getView();
-		else
+			offset += memoryWrapper->get<MemorySliceDescriptor>().slice->offset();
+		} else {
 			return kHelErrBadDescriptor;
+		}
 	}
 
 	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size);
