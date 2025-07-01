@@ -345,42 +345,45 @@ void GfxDevice::setupConnectorsAndEncoders() {
 	auto success = nvKms->getDisplays(kmsdev, &nDisplays, nullptr);
 	assert(success);
 
-	auto hDisplays =
-	    reinterpret_cast<NvKmsKapiDisplay *>(calloc(nDisplays, sizeof(NvKmsKapiDisplay)));
-	success = nvKms->getDisplays(kmsdev, &nDisplays, hDisplays);
+	std::vector<NvKmsKapiDisplay> hDisplays(nDisplays);
+
+	success = nvKms->getDisplays(kmsdev, &nDisplays, hDisplays.data());
+	if (!success) {
+		std::println("gfx/nvidia-open: failed to get displays");
+		return;
+	}
 
 	for (size_t i = 0; i < nDisplays; i++) {
-		auto displayInfo = reinterpret_cast<NvKmsKapiStaticDisplayInfo *>(
-		    calloc(1, sizeof(NvKmsKapiStaticDisplayInfo))
-		);
+		NvKmsKapiStaticDisplayInfo displayInfo = {};
 
-		success = nvKms->getStaticDisplayInfo(kmsdev, hDisplays[i], displayInfo);
-		assert(success);
+		success = nvKms->getStaticDisplayInfo(kmsdev, hDisplays[i], &displayInfo);
+		if(!success)
+			continue;
 
-		auto connectorInfo =
-		    reinterpret_cast<NvKmsKapiConnectorInfo *>(calloc(1, sizeof(NvKmsKapiConnectorInfo)));
+		NvKmsKapiConnectorInfo connectorInfo = {};
 
-		success = nvKms->getConnectorInfo(kmsdev, displayInfo->connectorHandle, connectorInfo);
-		assert(success);
+		success = nvKms->getConnectorInfo(kmsdev, displayInfo.connectorHandle, &connectorInfo);
+		if (!success)
+			continue;
 
-		auto encoder = std::make_shared<Encoder>(this, displayInfo->handle);
+		auto encoder = std::make_shared<Encoder>(this, displayInfo.handle);
 		encoder->setupWeakPtr(encoder);
-		encoder->setupEncoderType(Encoder::getSignalFormat(connectorInfo->signalFormat));
+		encoder->setupEncoderType(Encoder::getSignalFormat(connectorInfo.signalFormat));
 
 		std::vector<drm_core::Crtc *> possibleCrtcs;
 
 		for (auto crtc : crtcs_) {
-			if (displayInfo->headMask & (1 << crtc->headId())) {
+			if (displayInfo.headMask & (1 << crtc->headId())) {
 				possibleCrtcs.push_back(crtc.get());
 			}
 		}
 
 		auto connector = Connector::find(
 		    this,
-		    connectorInfo->physicalIndex,
-		    connectorInfo->type,
-		    displayInfo->internal,
-		    displayInfo->dpAddress
+		    connectorInfo.physicalIndex,
+		    connectorInfo.type,
+		    displayInfo.internal,
+		    displayInfo.dpAddress
 		);
 		connector->addPossibleEncoder(encoder.get());
 

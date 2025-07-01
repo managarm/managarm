@@ -508,7 +508,8 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 				auto valid = nvKms->validateDisplayMode(
 				    _device->kmsdev, encoder->handle(), &crtcState->params.modeSetConfig.mode
 				);
-				assert(valid);
+				if(!valid)
+					return false;
 
 				crtcState->params.modeSetConfig
 				    .displays[crtcState->params.modeSetConfig.numDisplays++] = encoder->handle();
