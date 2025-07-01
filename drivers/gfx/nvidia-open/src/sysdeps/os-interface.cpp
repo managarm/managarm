@@ -491,9 +491,11 @@ NV_STATUS NV_API_CALL os_get_is_openrm(NvBool *bIsOpenRm) {
 	return NV_OK;
 }
 
+extern std::atomic<pid_t> irqThreadTid;
+
 NvBool NV_API_CALL os_is_isr(void) {
 	auto l = frg::guard(&getpidLock);
-	return getpid() == 2 && irqHigherHalf;
+	return getpid() == irqThreadTid && irqHigherHalf;
 }
 
 NvBool NV_API_CALL os_pat_supported(void) { return NV_FALSE; }

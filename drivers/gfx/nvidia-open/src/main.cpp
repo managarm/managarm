@@ -159,6 +159,8 @@ std::shared_ptr<GfxDevice> GfxDevice::getGpu(size_t gpuId) {
 	return {};
 }
 
+std::atomic<pid_t> irqThreadTid = 0;
+
 namespace {
 
 void *irqHandler(void *arg) {
@@ -186,6 +188,8 @@ std::atomic<bool> irqHigherHalf = false;
 async::result<void> GfxDevice::handleIrqs() {
 	msi_ = co_await hwDevice_.installMsi(0);
 	nv_.flags |= NV_FLAG_USES_MSI;
+
+	irqThreadTid = gettid();
 
 	sem_post(&irqInitSem_);
 
