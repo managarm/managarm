@@ -3,11 +3,7 @@
 #include <helix/memory.hpp>
 #include <libdrm/drm_fourcc.h>
 
-#include "fs.bragi.hpp"
-#include "posix.bragi.hpp"
-
 #include "core/drm/mode-object.hpp"
-#include "core/drm/debug.hpp"
 
 
 // ----------------------------------------------------------------
@@ -285,6 +281,11 @@ const std::vector<drm_mode_modeinfo> &drm_core::Connector::modeList() {
 
 void drm_core::Connector::setModeList(std::vector<drm_mode_modeinfo> mode_list) {
 	_modeList = mode_list;
+
+	std::sort(_modeList.begin(), _modeList.end(),
+			[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
+		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
+	});
 }
 
 void drm_core::Connector::setCurrentStatus(uint32_t status) {
@@ -308,7 +309,8 @@ void drm_core::Connector::setupPossibleEncoders(std::vector<drm_core::Encoder *>
 }
 
 void drm_core::Connector::addPossibleEncoder(drm_core::Encoder * encoder) {
-	_possibleEncoders.push_back(encoder);
+	if(std::ranges::find(_possibleEncoders, encoder) == _possibleEncoders.end())
+		_possibleEncoders.push_back(encoder);
 }
 
 const std::vector<drm_core::Encoder *> &drm_core::Connector::getPossibleEncoders() {

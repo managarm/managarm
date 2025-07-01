@@ -109,21 +109,21 @@ bool EptOperations::submitShootdown(ShootNode *node) {
 }
 
 frg::expected<Error> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	return mapPresentPagesByCursor<EptCursor>(pageSpace_,
-			va, view, offset, size, flags);
+			va, view, offset, size, flags, mode);
 }
 
 frg::expected<Error> EptOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	return remapPresentPagesByCursor<EptCursor>(pageSpace_,
-			va, view, offset, size, flags);
+			va, view, offset, size, flags, mode);
 }
 
 frg::expected<Error> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, PageFlags flags) {
+		uintptr_t offset, PageFlags flags, CachingMode mode) {
 	return faultPageByCursor<EptCursor>(pageSpace_,
-			va, view, offset, flags);
+			va, view, offset, flags, mode);
 }
 
 frg::expected<Error> EptOperations::cleanPages(VirtualAddr va, MemoryView *view,

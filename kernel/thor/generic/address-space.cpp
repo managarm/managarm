@@ -40,7 +40,7 @@ namespace {
 // --------------------------------------------------------
 
 frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -57,13 +57,13 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 		assert(!(physicalRange.get<0>() & (kPageSize - 1)));
 
 		mapSingle4k(va + progress, physicalRange.get<0>(),
-				flags, physicalRange.get<1>());
+				flags, determineCachingMode(physicalRange.get<1>(), mode));
 	}
 	return {};
 }
 
 frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags) {
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
@@ -78,7 +78,7 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
 			assert(!(physicalRange.get<0>() & (kPageSize - 1)));
 			mapSingle4k(va + progress, physicalRange.get<0>(),
-					flags, physicalRange.get<1>());
+					flags, determineCachingMode(physicalRange.get<1>(), mode));
 		}
 
 		if(status & page_status::present) {
@@ -90,7 +90,7 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 }
 
 frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, PageFlags flags) {
+		uintptr_t offset, PageFlags flags, CachingMode mode) {
 	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
 	if(physicalRange.get<0>() == PhysicalAddr(-1))
 		return Error::fault;
@@ -98,7 +98,7 @@ frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *vi
 	// TODO: detect spurious page faults.
 	PageStatus status = unmapSingle4k(va & ~(kPageSize - 1));
 	mapSingle4k(va & ~(kPageSize - 1), physicalRange.get<0>() & ~(kPageSize - 1),
-			flags, physicalRange.get<1>());
+			flags, determineCachingMode(physicalRange.get<1>(), mode));
 
 	if(status & page_status::present) {
 		if(status & page_status::dirty)
@@ -150,8 +150,8 @@ size_t VirtualOperations::getRss() {
 // --------------------------------------------------------
 
 MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
-		ptrdiff_t view_offset, size_t view_size)
-: _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size} {
+		ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags)
+: _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size}, cachingFlags_{cachingFlags} {
 	assert(!(_viewOffset & (kPageSize - 1)));
 	assert(!(_viewSize & (kPageSize - 1)));
 }
@@ -475,6 +475,10 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 
 		assert(!(flags & kMapPopulate));
 
+		auto caching = CachingMode::null;
+		if(slice->getCachingFlags() == cacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
 		// Install the new mapping object.
 		mapping->tie(selfPtr.lock(), actualAddress);
 		_mappings.insert(mapping.get());
@@ -495,7 +499,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			pageFlags |= page_access::read;
 
 		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length, pageFlags);
+				mapping->viewOffset, mapping->length, pageFlags, caching);
 		assert(mapOutcome);
 	}
 
@@ -558,11 +562,15 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
 			pageFlags |= page_access::read;
 
+		auto caching = CachingMode::null;
+		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
 		co_await mapping->evictionMutex.async_lock();
 		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
 		auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length, pageFlags);
+				mapping->viewOffset, mapping->length, pageFlags, caching);
 		assert(remapOutcome);
 	}
 
@@ -656,12 +664,16 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 		FRG_CO_TRY(co_await mapping->view->fetchRange(
 				mapping->viewOffset + offset, fetchFlags, wq));
 
+		auto caching = CachingMode::null;
+		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
 		co_await mapping->evictionMutex.async_lock();
 		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
 		auto remapOutcome = _ops->faultPage(address & ~(kPageSize - 1),
 				mapping->view.get(), mapping->viewOffset + offset,
-				mapping->compilePageFlags());
+				mapping->compilePageFlags(), caching);
 		if(!remapOutcome) {
 			if(remapOutcome.error() == Error::spuriousOperation) {
 				// Spurious page faults are the result of race conditions.

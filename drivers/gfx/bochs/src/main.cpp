@@ -104,10 +104,6 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 
 	std::vector<drm_mode_modeinfo> supported_modes;
 	drm_core::addDmtModes(supported_modes, 1024, 768);
-	std::sort(supported_modes.begin(), supported_modes.end(),
-			[] (const drm_mode_modeinfo &u, const drm_mode_modeinfo &v) {
-		return u.hdisplay * u.vdisplay > v.hdisplay * v.vdisplay;
-	});
 	_theConnector->setModeList(supported_modes);
 
 	setupMinDimensions(640, 480);
@@ -130,7 +126,7 @@ std::unique_ptr<drm_core::Configuration> GfxDevice::createConfiguration() {
 }
 
 std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_ptr<drm_core::BufferObject> base_bo,
-		uint32_t width, uint32_t height, uint32_t, uint32_t pitch) {
+		uint32_t width, uint32_t height, uint32_t, uint32_t pitch, uint32_t mod [[maybe_unused]]) {
 	auto bo = std::static_pointer_cast<GfxDevice::BufferObject>(base_bo);
 
 	assert(pitch % 4 == 0);

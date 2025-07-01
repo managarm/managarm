@@ -24,13 +24,13 @@ struct NptOperations final : VirtualOperations {
 	bool submitShootdown(ShootNode *node) override;
 
 	frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags) override;
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags) override;
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, PageFlags flags) override;
+			uintptr_t offset, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size) override;

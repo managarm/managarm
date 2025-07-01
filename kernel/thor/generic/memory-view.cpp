@@ -1,3 +1,4 @@
+#include <thor-internal/address-space.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
@@ -350,7 +351,7 @@ void MemoryView::submitManage(ManageNode *) {
 }
 
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
-		uintptr_t, size_t) {
+		uintptr_t, size_t, CachingFlags) {
 	return Error::illegalObject;
 }
 
@@ -1396,8 +1397,17 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
-	return indirections_[slot]->memory->peekRange(indirections_[slot]->offset
-			+ inSlotOffset);
+
+	auto physicalRange = indirections_[slot]->memory->peekRange(indirections_[slot]->offset
+		+ inSlotOffset);
+
+	CachingMode cachingMode = CachingMode::null;
+	if(indirections_[slot]->flags & cacheWriteCombine)
+		cachingMode = CachingMode::writeCombine;
+
+	return {physicalRange.get<0>(), determineCachingMode(
+		determineCachingMode(physicalRange.template get<1>(), cachingMode),
+		cachingMode)};
 }
 
 coroutine<frg::expected<Error, PhysicalRange>>
@@ -1409,8 +1419,19 @@ IndirectMemory::fetchRange(uintptr_t offset, FetchFlags flags, smarter::shared_p
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
-	return indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
-			+ inSlotOffset, flags, std::move(wq));
+
+	auto physicalRange = co_await indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
+		+ inSlotOffset, flags, std::move(wq));
+
+	if(!physicalRange)
+		co_return physicalRange;
+
+	CachingMode cachingMode = CachingMode::null;
+	if(indirections_[slot]->flags & cacheWriteCombine)
+		cachingMode = CachingMode::writeCombine;
+
+	co_return frg::tuple{physicalRange.value().get<0>(), physicalRange.value().get<1>(),
+		determineCachingMode(physicalRange.value().template get<2>(), cachingMode)};
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1431,14 +1452,14 @@ size_t IndirectMemory::getLength() {
 }
 
 Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
-		uintptr_t offset, size_t size) {
+		uintptr_t offset, size_t size, CachingFlags flags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
 	if(slot >= indirections_.size())
 		return Error::outOfBounds;
 	auto indirection = smarter::allocate_shared<IndirectionSlot>(*kernelAlloc,
-			this, slot, memory, offset, size);
+			this, slot, memory, offset, size, flags);
 	// TODO: start a coroutine to observe evictions.
 	memory->addObserver(&indirection->observer);
 	indirections_[slot] = std::move(indirection);

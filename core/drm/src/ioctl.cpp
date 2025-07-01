@@ -47,6 +47,19 @@ async::result<void> initOstrace() {
 
 }
 
+async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
+		drm_core::File *self, uint64_t cookie, uint32_t crtc_id) {
+	co_await config->waitForCompletion();
+	self->_retirePageFlip(cookie, crtc_id);
+}
+
+async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
+		drm_core::File *self, uint64_t cookie, std::vector<uint32_t> crtc_ids) {
+	co_await config->waitForCompletion();
+	for(auto id : crtc_ids)
+		self->_retirePageFlip(cookie, id);
+}
+
 async::result<void>
 drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
@@ -165,6 +178,9 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}else if(req->drm_capability() == DRM_CAP_PRIME) {
 				resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
 				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
+			}else if(req->drm_capability() == DRM_CAP_ADDFB2_MODIFIERS) {
+				resp.set_drm_value(1);
+				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
 			}else{
 				std::cout << "\tUnknown capability " << req->drm_capability() << std::endl;
 				resp.set_drm_value(0);
@@ -245,6 +261,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			for(size_t i = 0; i < psbl_enc.size(); i++) {
 				resp.add_drm_encoders(psbl_enc[i]->id());
 			}
+
+			// TODO: check if we're current master
+			if(req->drm_max_modes() == 0)
+				co_await conn->probe();
 
 			resp.set_drm_encoder_id(conn->currentEncoder() ? conn->currentEncoder()->id() : 0);
 			resp.set_drm_connector_type(conn->connectorType());
@@ -358,17 +378,17 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			resp.set_drm_gamma_size(0);
-
-			for(auto f : plane->getFormats()) {
-				resp.add_drm_format_type(f);
-			}
+			resp.set_drm_format_types(plane->getFormats().size());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			auto [send_resp, send_formats] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(plane->getFormats().data(),
+					std::min(size_t{req->drm_format_types()}, plane->getFormats().size()) * sizeof(uint32_t))
 			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_formats.error());
 			logBragiReply(resp);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATE_DUMB) {
 			managarm::fs::GenericIoctlReply resp;
@@ -403,7 +423,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.set_drm_width(fb->getWidth());
 				resp.set_drm_height(fb->getHeight());
 				resp.set_pixel_format(fb->format());
-				resp.set_modifier(DRM_FORMAT_MOD_INVALID);
+				resp.set_modifier(fb->getModifier());
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
 
@@ -424,7 +444,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 
 			auto fourcc = convertLegacyFormat(req->drm_bpp(), req->drm_depth());
 			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
-					fourcc, req->drm_pitch());
+					fourcc, req->drm_pitch(), DRM_FORMAT_MOD_LINEAR);
 			self->attachFrameBuffer(fb);
 			resp.set_drm_fb_id(fb->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -447,8 +467,10 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assert(bo);
 			auto buffer = bo->sharedBufferObject();
 
+			auto modifier = req->drm_flags() & DRM_MODE_FB_MODIFIERS ? req->drm_modifier() : DRM_FORMAT_MOD_LINEAR;
+
 			auto fb = self->_device->createFrameBuffer(buffer, req->drm_width(), req->drm_height(),
-					req->drm_fourcc(), req->drm_pitch());
+					req->drm_fourcc(), req->drm_pitch(), modifier);
 			self->attachFrameBuffer(fb);
 			resp.set_drm_fb_id(fb->id());
 			resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -616,6 +638,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto fb = self->_device->findObject(req->drm_fb_id());
 			assert(fb);
 			assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
+			assignments.push_back(Assignment::withModeObj(crtc->primaryPlane()->sharedModeObject(), self->_device->crtcIdProperty(), crtc->sharedModeObject()));
 
 			auto config = self->_device->createConfiguration();
 			auto state = self->_device->atomicState();
@@ -623,8 +646,8 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assert(valid);
 			config->commit(std::move(state));
 
-			co_await config->waitForCompletion();
-			self->_retirePageFlip(req->drm_cookie(), crtc->id());
+			if(req->drm_flags() & DRM_MODE_PAGE_FLIP_EVENT)
+				self->pageFlipEvent(std::move(config), self, req->drm_cookie(), crtc->id());
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -687,7 +710,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
 
 				if (bo) {
-					auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+					auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4, DRM_FORMAT_MOD_LINEAR);
 					assert(fb);
 					assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 				} else {
@@ -750,7 +773,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			assignments.push_back(Assignment::withInt(cursor_plane->sharedModeObject(), self->_device->srcHProperty(), height << 16));
 
 			if(bo) {
-				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4);
+				auto fb = self->_device->createFrameBuffer(bo->sharedBufferObject(), width, height, DRM_FORMAT_ARGB8888, width * 4, DRM_FORMAT_MOD_LINEAR);
 				assert(fb);
 				assignments.push_back(Assignment::withModeObj(crtc->cursorPlane()->sharedModeObject(), self->_device->fbIdProperty(), fb));
 			} else {
@@ -1001,20 +1024,19 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				std::cout << "core/drm: GETPROPBLOB([" << req->drm_blob_id() << ((!blob) ? "] [invalid]" : "]") << ")" << std::endl;
 
 			if(blob) {
-				auto data = reinterpret_cast<const uint8_t *>(blob->data());
-				for(size_t i = 0; i < blob->size(); i++) {
-					resp.add_drm_property_blob(data[i]);
-				}
-
+				resp.set_drm_property_blob_size(blob->size());
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			} else {
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 			}
 
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::sendBuffer(blob ? blob->data() : nullptr,
+					std::min(blob ? blob->size() : 0, size_t{req->drm_blob_size()}))
 			);
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_data.error());
 			logBragiReply(resp);
 		}else if(req->command() == DRM_IOCTL_MODE_CREATEPROPBLOB) {
 			std::vector<char> blob_data;
@@ -1150,15 +1172,12 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				if(logDrmRequests)
 					std::cout << "\tCommitting configuration ..." << std::endl;
 				config->commit(std::move(state));
-				co_await config->waitForCompletion();
+				if(!(req->drm_flags() & DRM_MODE_ATOMIC_NONBLOCK))
+					co_await config->waitForCompletion();
 			}
 
 			if(req->drm_flags() & DRM_MODE_PAGE_FLIP_EVENT) {
-				co_await config->waitForCompletion();
-
-				for(auto id : crtc_ids) {
-					self->_retirePageFlip(req->drm_cookie(), id);
-				}
+				self->pageFlipEvent(std::move(config), self, req->drm_cookie(), std::move(crtc_ids));
 			}
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);

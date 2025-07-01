@@ -599,6 +599,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 
 	smarter::shared_ptr<MemoryView> indirectView;
 	smarter::shared_ptr<MemoryView> memoryView;
+	CachingFlags cacheFlags = 0;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		Universe::Guard universeLock(thisUniverse->lock);
@@ -614,15 +615,18 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 		auto memoryWrapper = thisUniverse->getDescriptor(universeLock, memoryHandle);
 		if(!memoryWrapper)
 			return kHelErrNoDescriptor;
-		if(memoryWrapper->is<MemoryViewDescriptor>())
+		if(memoryWrapper->is<MemoryViewDescriptor>()) {
 			memoryView = memoryWrapper->get<MemoryViewDescriptor>().memory;
-		else if(memoryWrapper->is<MemorySliceDescriptor>())
+		} else if(memoryWrapper->is<MemorySliceDescriptor>()) {
 			memoryView = memoryWrapper->get<MemorySliceDescriptor>().slice->getView();
-		else
+			offset += memoryWrapper->get<MemorySliceDescriptor>().slice->offset();
+			cacheFlags = memoryWrapper->get<MemorySliceDescriptor>().slice->getCachingFlags();
+		} else {
 			return kHelErrBadDescriptor;
+		}
 	}
 
-	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size);
+	if(auto e = indirectView->setIndirection(slot, std::move(memoryView), offset, size, cacheFlags);
 			e != Error::success) {
 		if(e == Error::illegalObject) {
 			return kHelErrUnsupportedOperation;
@@ -636,7 +640,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 
 HelError helCreateSliceView(HelHandle memoryHandle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
-	assert(!flags);
+	assert(!(flags & ~kHelSliceCacheWriteCombine));
 	assert((offset % kPageSize) == 0);
 	assert((size % kPageSize) == 0);
 
@@ -656,8 +660,12 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 		view = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
+	CachingFlags cachingFlags = 0;
+	if(flags & kHelSliceCacheWriteCombine)
+		cachingFlags = cacheWriteCombine;
+
 	auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-			std::move(view), offset, size);
+			std::move(view), offset, size, cachingFlags);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(this_universe->lock);

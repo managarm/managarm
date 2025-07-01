@@ -6,7 +6,6 @@
 #include "fwd-decls.hpp"
 
 #include "device.hpp"
-#include "range-allocator.hpp"
 #include "property.hpp"
 
 namespace drm_core {
@@ -194,6 +193,14 @@ struct Connector : ModeObject {
 	void setCurrentStatus(uint32_t status);
 	uint32_t getCurrentStatus();
 
+
+	// Equivalent to Linux's connector->funcs->fill_modes call where it performs a probe
+	// on the connector, except that this updates the state of the connector so it can be read out
+	// via the usual ways.
+	virtual async::result<void> probe() {
+		co_return;
+	}
+
 	void setupPossibleEncoders(std::vector<Encoder *> encoders);
 	void addPossibleEncoder(Encoder * encoder);
 	const std::vector<Encoder *> &getPossibleEncoders();
@@ -243,6 +250,7 @@ public:
 	virtual void notifyDirty() = 0;
 	virtual uint32_t getWidth() = 0;
 	virtual uint32_t getHeight() = 0;
+	virtual uint32_t getModifier() = 0;
 };
 
 struct Plane : ModeObject {
@@ -275,7 +283,7 @@ struct Plane : ModeObject {
 
 private:
 	PlaneType _type;
-	drm_core::FrameBuffer *_fb;
+	drm_core::FrameBuffer *_fb = nullptr;
 	std::vector<Crtc *> _possibleCrtcs;
 	std::shared_ptr<PlaneState> _drmState;
 	std::vector<uint32_t> _formats = { DRM_FORMAT_XRGB8888 };
