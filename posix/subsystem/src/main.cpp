@@ -12,6 +12,7 @@
 #include "devices/random.hpp"
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
+#include "firmware/dmi.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "subsystem/acpi.hpp"
@@ -212,6 +213,8 @@ int main() {
 
 	pci_subsystem::run();
 	usb_subsystem::run();
+
+	firmware_dmi::run();
 
 	runInit();
 

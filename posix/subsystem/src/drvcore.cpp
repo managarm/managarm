@@ -14,6 +14,7 @@ std::shared_ptr<sysfs::Object> globalClassObject;
 std::shared_ptr<sysfs::Object> globalCharObject;
 std::shared_ptr<sysfs::Object> globalBlockDevObject;
 std::shared_ptr<sysfs::Object> globalBlockObject;
+std::shared_ptr<sysfs::Object> globalFirmwareObject;
 
 sysfs::Object *devicesObject() {
 	assert(globalDevicesObject);
@@ -33,6 +34,11 @@ sysfs::Object *busObject() {
 sysfs::Object *classObject() {
 	assert(globalClassObject);
 	return globalClassObject.get();
+}
+
+std::shared_ptr<sysfs::Object> firmwareObject() {
+	assert(globalFirmwareObject);
+	return globalFirmwareObject;
 }
 
 struct UeventAttribute : sysfs::Attribute {
@@ -189,12 +195,13 @@ void initialize() {
 	globalCharObject = std::make_shared<sysfs::Object>(dev_object, "char");
 	globalBlockDevObject = std::make_shared<sysfs::Object>(dev_object, "block");
 
-	// Create the global /sys/{devices,class,dev} directories.
+	// Create the global /sys/{devices,class,dev ...} directories.
 	globalDevicesObject = std::make_shared<sysfs::Object>(nullptr, "devices");
 	globalVirtualDeviceParent = std::make_shared<sysfs::Object>(globalDevicesObject, "virtual");
 	globalBusObject = std::make_shared<sysfs::Object>(nullptr, "bus");
 	globalClassObject = std::make_shared<sysfs::Object>(nullptr, "class");
 	globalBlockObject = std::make_shared<sysfs::Object>(nullptr, "block");
+	globalFirmwareObject = std::make_shared<sysfs::Object>(nullptr, "firmware");
 	globalDevicesObject->addObject();
 	globalVirtualDeviceParent->addObject();
 	globalBusObject->addObject();
@@ -203,6 +210,7 @@ void initialize() {
 	dev_object->addObject();
 	globalCharObject->addObject(); // TODO: Do this before dev_object is visible.
 	globalBlockDevObject->addObject();
+	globalFirmwareObject->addObject();
 
 	// Create /sys/fs/cgroup directories
 	auto fs_object = std::make_shared<sysfs::Object>(nullptr, "fs");
