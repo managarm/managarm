@@ -816,5 +816,61 @@ async::result<void> Device::enableDma() {
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
 }
 
+async::result<std::vector<uint8_t>> Device::getSmbiosHeader() {
+	managarm::hw::GetSmbiosHeaderRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::GetSmbiosHeaderReply>(recv_head);
+
+	std::vector<uint8_t> smbiosHeader(resp.size());
+	auto [recv_data] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(smbiosHeader.data(), smbiosHeader.size())
+	);
+
+	HEL_CHECK(recv_data.error());
+	co_return std::move(smbiosHeader);
+}
+
+async::result<std::vector<uint8_t>> Device::getSmbiosTable() {
+	managarm::hw::GetSmbiosTableRequest req;
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::GetSmbiosTableReply>(recv_head);
+
+	std::vector<uint8_t> smbiosTable(resp.size());
+	auto [recv_data] = co_await helix_ng::exchangeMsgs(
+		offer.descriptor(),
+		helix_ng::recvBuffer(smbiosTable.data(), smbiosTable.size())
+	);
+
+	HEL_CHECK(recv_data.error());
+	co_return std::move(smbiosTable);
+}
+
 } // namespace protocols::hw
 
