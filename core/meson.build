@@ -8,7 +8,9 @@ headers = [
 	'include/core/logging.hpp',
 	'include/core/id-allocator.hpp',
 	'include/core/kernel-logs.hpp',
+	'include/core/netlink.hpp',
 	'include/core/queue.hpp',
+	'include/core/tty.hpp',
 ]
 
 core_lib_sources = files(
