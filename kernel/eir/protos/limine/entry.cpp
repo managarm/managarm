@@ -34,7 +34,19 @@ LIMINE_REQUEST(kernel_file_request, LIMINE_KERNEL_FILE_REQUEST, 0);
 LIMINE_REQUEST(kernel_address_request, LIMINE_KERNEL_ADDRESS_REQUEST, 0);
 LIMINE_REQUEST(rsdp_request, LIMINE_RSDP_REQUEST, 0);
 LIMINE_REQUEST(dtb_request, LIMINE_DTB_REQUEST, 0);
+LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST, 0);
 [[gnu::used, gnu::section(".requestsEndMarker")]] volatile LIMINE_REQUESTS_END_MARKER;
+
+initgraph::Task setupSmbiosInfo{
+    &globalInitEngine,
+    "limine.setup-smbios-info",
+    initgraph::Entails{getInfoStructAvailableStage()},
+    [] {
+	    if (smbios_request.response) {
+		    eirSmbios3Ptr = reinterpret_cast<uint64_t>(smbios_request.response->entry_64);
+	    }
+    }
+};
 
 initgraph::Task setupMiscInfo{
     &globalInitEngine,

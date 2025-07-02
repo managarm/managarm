@@ -15,6 +15,7 @@ namespace eir {
 
 // Address of the DTB.
 constinit physaddr_t eirDtbPtr{0};
+constinit physaddr_t eirSmbios3Ptr{0};
 
 void *initrd = nullptr;
 
@@ -414,6 +415,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 		if (desc.size() != sizeof(PerCpuRegion))
 			panicLogger() << "PerCpuRegion size does not match ELF note" << frg::endlog;
 		memcpy(&perCpuRegion, desc.data(), sizeof(PerCpuRegion));
+		return true;
+	} else if (type == elf_note_type::smbiosData) {
+		if (desc.size() != sizeof(SmbiosData))
+			panicLogger() << "SmbiosData size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &eirSmbios3Ptr, sizeof(SmbiosData));
 		return true;
 	}
 	return false;

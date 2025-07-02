@@ -89,33 +89,34 @@ void uefiBootServicesLogHandler(const char c) {
 	}
 }
 
+std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
+	const efi_configuration_table *t = st->configuration_table;
+	for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++) {
+		if (!memcmp(&guid, &t->vendor_guid, sizeof(guid))) {
+			return reinterpret_cast<physaddr_t>(t->vendor_table);
+		}
+	}
+
+	return std::nullopt;
+}
+
 initgraph::Task findAcpi{
-    &globalInitEngine,
-    "uefi.find-acpi",
-    initgraph::Entails{getBootservicesDoneStage()},
-    [] {
-	    // acquire ACPI table info
-	    efi_guid acpi_guid = ACPI_20_TABLE_GUID;
-	    const efi_configuration_table *t = st->configuration_table;
-	    for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
-		    if (!memcmp(&acpi_guid, &t->vendor_guid, sizeof(acpi_guid))) {
-			    rsdp = reinterpret_cast<physaddr_t>(t->vendor_table);
-			    infoLogger() << "eir: Got RSDP" << frg::endlog;
-		    }
+    &globalInitEngine, "uefi.find-acpi", initgraph::Entails{getBootservicesDoneStage()}, [] {
+		rsdp = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);
     }
 };
 
-initgraph::Task
-    findDtb{&globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
-	            // acquire ACPI table info
-	            efi_guid dtb_guid = EFI_DTB_TABLE_GUID;
-	            const efi_configuration_table *t = st->configuration_table;
-	            for (size_t i = 0; i < st->number_of_table_entries && t; i++, t++)
-		            if (!memcmp(&dtb_guid, &t->vendor_guid, sizeof(dtb_guid))) {
-			            eirDtbPtr = reinterpret_cast<physaddr_t>(t->vendor_table);
-			            infoLogger() << "eir: Got DTB" << frg::endlog;
-		            }
-            }};
+initgraph::Task findDtb{
+    &globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
+		eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
+    }
+};
+
+initgraph::Task findSmbios3{
+    &globalInitEngine, "uefi.find-smbios3", initgraph::Entails{getBootservicesDoneStage()}, [] {
+		eirSmbios3Ptr = findConfigurationTable(SMBIOS3_TABLE_GUID).value_or(0);
+    }
+};
 
 uint32_t convertIp(frg::string_view ip) {
 	uint32_t res = 0;
