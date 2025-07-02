@@ -1,29 +1,30 @@
 #include <algorithm>
-#include <frg/string.hpp>
 #include <elf.h>
+#include <frg/string.hpp>
 #include <hel.h>
+#include <initgraph.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
-#include <initgraph.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kerncfg.hpp>
-#include <thor-internal/kernlet.hpp>
 #include <thor-internal/kernel-log.hpp>
+#include <thor-internal/kernlet.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/module.hpp>
 #include <thor-internal/pci/pci.hpp>
-#include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
+#include <thor-internal/smbios/smbios.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/traps.hpp>
-#include <thor-internal/arch-generic/timer.hpp>
 
 namespace thor {
 
@@ -220,6 +221,7 @@ extern "C" void thorMain() {
 #ifdef __aarch64__
 		dt::publishNodes();
 #endif
+		smbios::publish();
 
 		// Parse the initrd image.
 		auto modules = reinterpret_cast<EirModule *>(getEirInfo()->moduleInfo);

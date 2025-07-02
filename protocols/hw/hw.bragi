@@ -195,3 +195,23 @@ head(128):
 message EnableDmaRequest 24 {
 head(128):
 }
+
+message GetSmbiosHeaderRequest 25 {
+head(128):
+}
+
+message GetSmbiosHeaderReply 26 {
+head(128):
+	Errors error;
+	uint32 size;
+}
+
+message GetSmbiosTableRequest 27 {
+head(128):
+}
+
+message GetSmbiosTableReply 28 {
+head(128):
+	Errors error;
+	uint32 size;
+}
