@@ -69,12 +69,12 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 
 	memset(buffer, 0, sizeof(buffer));
 	chunk = read(ifd, buffer, sizeof(buffer));
-	assert(chunk > 0 && chunk >= sizeof(inotify_event));
+	assert(chunk > 0 && size_t(chunk) >= sizeof(inotify_event));
 
 	memcpy(&evtHeader, buffer, sizeof(inotify_event));
 	assert(evtHeader.wd == wd);
 	assert((evtHeader.mask & IN_MODIFY) == IN_MODIFY);
-	assert(chunk > sizeof(inotify_event) + evtHeader.len);
+	assert(size_t(chunk) > sizeof(inotify_event) + evtHeader.len);
 
 	memcpy(&evtHeader, buffer + sizeof(inotify_event) + evtHeader.len, sizeof(inotify_event));
 	assert(evtHeader.wd == wd);
