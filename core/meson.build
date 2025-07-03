@@ -10,6 +10,7 @@ headers = [
 	'include/core/kernel-logs.hpp',
 	'include/core/netlink.hpp',
 	'include/core/queue.hpp',
+	'include/core/smbios.hpp',
 	'include/core/tty.hpp',
 ]
 
@@ -18,6 +19,7 @@ core_lib_sources = files(
 	'lib/clock.cpp',
 	'lib/cmdline.cpp',
 	'lib/kernel-logs.cpp',
+	'lib/smbios.cpp',
 )
 
 core_lib = static_library('core-lib', core_lib_sources,
