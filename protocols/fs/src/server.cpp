@@ -569,7 +569,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				async::cancellation_token{});
 		if(!resultOrError) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+			resp.set_error(resultOrError.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -613,7 +613,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		auto resultOrError = co_await file_ops->pollStatus(file.get());
 		if(!resultOrError) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(resultOrError.error()));
+			resp.set_error(resultOrError.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -668,7 +668,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
+		resp.set_error(error | toFsError);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -706,7 +706,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		recv_addr.reset();
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(static_cast<managarm::fs::Errors>(error));
+		resp.set_error(error | toFsError);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -718,7 +718,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 	}else if(req.req_type() == managarm::fs::CntReqType::PT_SOCKNAME) {
 		if(!file_ops->sockname) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_error(managarm::fs::Errors::NOT_A_SOCKET);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -763,7 +763,7 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 
 		if (!result) {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(static_cast<managarm::fs::Errors>(result.error()));
+			resp.set_error(result.error() | toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1290,6 +1290,39 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_buf.error());
+		logBragiReply(resp);
+	} else if(preamble.id() == managarm::fs::ShutdownSocket::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::ShutdownSocket>(recv_req);
+		auto how = req->how();
+		recv_req.reset();
+
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		managarm::fs::SvrResponse resp;
+
+		if(!file_ops->shutdown) {
+			std::cout << "protocols/fs: shutdown not supported on this file" << std::endl;
+			resp.set_error(managarm::fs::Errors::NOT_A_SOCKET);
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto ret = co_await file_ops->shutdown(file.get(), how);
+		resp.set_error(ret | toFsError);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;

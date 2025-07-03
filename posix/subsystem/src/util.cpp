@@ -29,6 +29,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::noChildProcesses: err_string = "noChildProcesses"; break;
 		case Error::alreadyConnected: err_string = "alreadyConnected"; break;
 		case Error::unsupportedSocketType: err_string = "unsupportedSocketType"; break;
+		case Error::notSocket: err_string = "notSocket"; break;
 	}
 
 	return os << err_string;
