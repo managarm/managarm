@@ -55,26 +55,39 @@ async::result<void> RealtekNic::RTL8168gCommonConfiguration() {
 	disablePCIeL2L3State();
 }
 
+// Also handles MacVer34, which is a RTL8168e card, but seems to have a quite similar hardware init phase.
 async::result<void> RealtekNic::RTL8168fCommonConfiguration() {
 	// Use CSI to set the ASPM latency
-	co_await writeCSIRegister(0x070C, (co_await readCSIRegister(0x070C) & 0x00FFFFFF) | (0x27 << 24));
+	// On MacVer34, this is done in the revision switchcase in configureHardware, as it is done earlier.
+	if(_revision != MacRevision::MacVer34) {
+		co_await writeCSIRegister(0x070C, (co_await readCSIRegister(0x070C) & 0x00FFFFFF) | (0x27 << 24));
+	}
 
 	co_await writeERIRegister(0xC0, 0b0011, 0x0000);
 	co_await writeERIRegister(0xB8, 0b1111, 0x0000);
 
 	co_await setFifoSize(0x10, 0x10, 0x02, 0x06);
 
+	// The register inits between MacVer 34 and 35/36 in the Linux kernel are very similar, except this register is set earlier.
+	// Given this could have been quite easily broken out into another function if that wasn't the case, we do that here too.
+	if(_revision == MacRevision::MacVer34) {
+		co_await writeERIRegister(0x1B0, 0b1111, co_await readERIRegister(0x1B0) | (1 << 4));
+	}
+
 	// Reset packet filter
 	co_await writeERIRegister(0xDC, 0b1111, co_await readERIRegister(0xDC) & ~1);
 	co_await writeERIRegister(0xDC, 0b1111, co_await readERIRegister(0xDC) | 1);
 
-	co_await writeERIRegister(0x1B0, 0b1111, co_await readERIRegister(0x1B0) | (1 << 4));
+	if(_revision != MacRevision::MacVer34) {
+		co_await writeERIRegister(0x1B0, 0b1111, co_await readERIRegister(0x1B0) | (1 << 4));
+	}
 	co_await writeERIRegister(0x1D0, 0b1111, co_await readERIRegister(0x1B0) | (1 << 4) | (1 << 1));
 	co_await writeERIRegister(0xCC, 0b1111, 0x50);
 	co_await writeERIRegister(0xD0, 0b1111, 0x60);
 
 	// TODO: rtl_disable_clock_request
 	_mmio.store(regs::mcu, _mmio.load(regs::mcu) / flags::mcu::now_is_oob(false));
+	// TODO: for macver34, config_eee_mac is called here
 	_mmio.store(regs::dllpr, _mmio.load(regs::dllpr) | flags::dllpr::pfm_en(true));
 	_mmio.store(regs::misc, _mmio.load(regs::misc) | flags::misc::pwm_enable(true));
 	_mmio.store(regs::config5, _mmio.load(regs::config5) / flags::config5::spi_enable(false));
@@ -85,6 +98,21 @@ async::result<void> RealtekNic::configureHardware() {
 	_mmio.store(regs::timer_interrupt, 0);
 
 	switch(_revision) {
+		// MacVer34 seems to have very similar, but slightly different, init logic to MacVers 35/36.
+		case MacRevision::MacVer34: {
+			static const struct ephy_info e_info_8168e_2[] = {
+				{ 0x09, 0x0000,	0x0080 },
+				{ 0x19, 0x0000,	0x0224 },
+				{ 0x00, 0x0000,	0x0004 },
+				{ 0x0c, 0x3df0,	0x0200 },
+			};
+
+			co_await writeCSIRegister(0x070C, (co_await readCSIRegister(0x070C) & 0x00FFFFFF) | (0x27 << 24));
+			co_await initializeEPHY((ephy_info*)e_info_8168e_2, 4);
+			co_await RTL8168fCommonConfiguration();
+			break;
+		}
+
 		case MacRevision::MacVer35:
 		case MacRevision::MacVer36: {
 			co_await RTL8168fCommonConfiguration();
