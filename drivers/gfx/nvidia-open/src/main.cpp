@@ -1,5 +1,6 @@
 #include <core/clock.hpp>
 #include <core/logging.hpp>
+#include <core/smbios.hpp>
 #include <helix/memory.hpp>
 #include <helix/timer.hpp>
 #include <print>
@@ -35,6 +36,7 @@ nvidia_stack_t *sp[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
 std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
 std::map<std::pair<uintptr_t, size_t>, helix::UniqueDescriptor> mmioRanges;
 std::deque<WorkqueueItem> workqueue_ = {};
+std::vector<uint8_t> smbiosTable;
 
 } // namespace
 
@@ -679,6 +681,47 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_return protocols::svrctl::Error::success;
 }
 
+async::result<void> enumerateSmbios() {
+	auto filter = mbus_ng::Conjunction({
+	    mbus_ng::EqualsFilter{"unix.subsystem", "firmware"},
+	    mbus_ng::EqualsFilter{"firmware.type", "smbios"},
+	});
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			if (!event.properties.contains("version")
+			    || std::get_if<mbus_ng::StringItem>(&event.properties.at("version"))->value
+			           != "3") {
+				co_return;
+			}
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			protocols::hw::Device device((co_await entity.getRemoteLane()).unwrap());
+			smbiosTable = co_await device.getSmbiosTable();
+
+			co_return;
+		}
+	}
+}
+
+uint8_t getSmbiosChassis() {
+	if(smbiosTable.empty())
+		return 0x02; // Unknown
+
+	auto entry = getSmbiosEntry({smbiosTable.data(), smbiosTable.size()}, 3);
+	if(entry.size() >= 0x0D) // 0x0D is the minimum size for version >= 2.1
+		return entry[5] & 0x7F; // bit 7 is set for chassis lock
+
+	return 0x02; // Unknown
+}
+
 static constexpr protocols::svrctl::ControlOperations controlOps = {.bind = bindDevice};
 
 int main() {
@@ -686,6 +729,7 @@ int main() {
 
 	// set up clock access
 	async::run(clk::enumerateTracker(), helix::currentDispatcher);
+	async::run(enumerateSmbios(), helix::currentDispatcher);
 
 	pthread_t workqueue;
 	auto ret = pthread_create(&workqueue, nullptr, workqueueHandler, nullptr);

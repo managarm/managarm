@@ -292,3 +292,5 @@ struct AllocInfo {
 	size_t page_count;
 	uintptr_t base;
 };
+
+uint8_t getSmbiosChassis();
