@@ -491,9 +491,11 @@ NV_STATUS NV_API_CALL os_get_is_openrm(NvBool *bIsOpenRm) {
 	return NV_OK;
 }
 
+extern std::atomic<pid_t> irqThreadTid;
+
 NvBool NV_API_CALL os_is_isr(void) {
 	auto l = frg::guard(&getpidLock);
-	return getpid() == 2 && irqHigherHalf;
+	return getpid() == irqThreadTid && irqHigherHalf;
 }
 
 NvBool NV_API_CALL os_pat_supported(void) { return NV_FALSE; }
@@ -919,7 +921,11 @@ void NV_API_CALL nv_schedule_uvm_resume_p2p(NvU8 *) STUBBED;
 NvBool NV_API_CALL nv_platform_supports_s0ix(void) STUBBED;
 NvBool NV_API_CALL nv_s2idle_pm_configured(void) STUBBED;
 
-NvBool NV_API_CALL nv_is_chassis_notebook(void) { return false; }
+NvBool NV_API_CALL nv_is_chassis_notebook(void) {
+	auto chassis = getSmbiosChassis();
+	return chassis == 9 || chassis == 10; // Laptop or Notebook
+}
+
 void NV_API_CALL nv_allow_runtime_suspend(nv_state_t *nv [[maybe_unused]]) STUBBED;
 void NV_API_CALL nv_disallow_runtime_suspend(nv_state_t *nv [[maybe_unused]]) STUBBED;
 

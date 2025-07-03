@@ -1,5 +1,6 @@
 #include <core/clock.hpp>
 #include <core/logging.hpp>
+#include <core/smbios.hpp>
 #include <helix/memory.hpp>
 #include <helix/timer.hpp>
 #include <print>
@@ -35,6 +36,7 @@ nvidia_stack_t *sp[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
 std::unordered_map<int64_t, std::shared_ptr<GfxDevice>> baseDeviceMap;
 std::map<std::pair<uintptr_t, size_t>, helix::UniqueDescriptor> mmioRanges;
 std::deque<WorkqueueItem> workqueue_ = {};
+std::vector<uint8_t> smbiosTable;
 
 } // namespace
 
@@ -159,6 +161,8 @@ std::shared_ptr<GfxDevice> GfxDevice::getGpu(size_t gpuId) {
 	return {};
 }
 
+std::atomic<pid_t> irqThreadTid = 0;
+
 namespace {
 
 void *irqHandler(void *arg) {
@@ -186,6 +190,8 @@ std::atomic<bool> irqHigherHalf = false;
 async::result<void> GfxDevice::handleIrqs() {
 	msi_ = co_await hwDevice_.installMsi(0);
 	nv_.flags |= NV_FLAG_USES_MSI;
+
+	irqThreadTid = gettid();
 
 	sem_post(&irqInitSem_);
 
@@ -345,42 +351,45 @@ void GfxDevice::setupConnectorsAndEncoders() {
 	auto success = nvKms->getDisplays(kmsdev, &nDisplays, nullptr);
 	assert(success);
 
-	auto hDisplays =
-	    reinterpret_cast<NvKmsKapiDisplay *>(calloc(nDisplays, sizeof(NvKmsKapiDisplay)));
-	success = nvKms->getDisplays(kmsdev, &nDisplays, hDisplays);
+	std::vector<NvKmsKapiDisplay> hDisplays(nDisplays);
+
+	success = nvKms->getDisplays(kmsdev, &nDisplays, hDisplays.data());
+	if (!success) {
+		std::println("gfx/nvidia-open: failed to get displays");
+		return;
+	}
 
 	for (size_t i = 0; i < nDisplays; i++) {
-		auto displayInfo = reinterpret_cast<NvKmsKapiStaticDisplayInfo *>(
-		    calloc(1, sizeof(NvKmsKapiStaticDisplayInfo))
-		);
+		NvKmsKapiStaticDisplayInfo displayInfo = {};
 
-		success = nvKms->getStaticDisplayInfo(kmsdev, hDisplays[i], displayInfo);
-		assert(success);
+		success = nvKms->getStaticDisplayInfo(kmsdev, hDisplays[i], &displayInfo);
+		if(!success)
+			continue;
 
-		auto connectorInfo =
-		    reinterpret_cast<NvKmsKapiConnectorInfo *>(calloc(1, sizeof(NvKmsKapiConnectorInfo)));
+		NvKmsKapiConnectorInfo connectorInfo = {};
 
-		success = nvKms->getConnectorInfo(kmsdev, displayInfo->connectorHandle, connectorInfo);
-		assert(success);
+		success = nvKms->getConnectorInfo(kmsdev, displayInfo.connectorHandle, &connectorInfo);
+		if (!success)
+			continue;
 
-		auto encoder = std::make_shared<Encoder>(this, displayInfo->handle);
+		auto encoder = std::make_shared<Encoder>(this, displayInfo.handle);
 		encoder->setupWeakPtr(encoder);
-		encoder->setupEncoderType(Encoder::getSignalFormat(connectorInfo->signalFormat));
+		encoder->setupEncoderType(Encoder::getSignalFormat(connectorInfo.signalFormat));
 
 		std::vector<drm_core::Crtc *> possibleCrtcs;
 
 		for (auto crtc : crtcs_) {
-			if (displayInfo->headMask & (1 << crtc->headId())) {
+			if (displayInfo.headMask & (1 << crtc->headId())) {
 				possibleCrtcs.push_back(crtc.get());
 			}
 		}
 
 		auto connector = Connector::find(
 		    this,
-		    connectorInfo->physicalIndex,
-		    connectorInfo->type,
-		    displayInfo->internal,
-		    displayInfo->dpAddress
+		    connectorInfo.physicalIndex,
+		    connectorInfo.type,
+		    displayInfo.internal,
+		    displayInfo.dpAddress
 		);
 		connector->addPossibleEncoder(encoder.get());
 
@@ -672,6 +681,47 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	co_return protocols::svrctl::Error::success;
 }
 
+async::result<void> enumerateSmbios() {
+	auto filter = mbus_ng::Conjunction({
+	    mbus_ng::EqualsFilter{"unix.subsystem", "firmware"},
+	    mbus_ng::EqualsFilter{"firmware.type", "smbios"},
+	});
+
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+
+	while (true) {
+		auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+		for (auto &event : events) {
+			if (event.type != mbus_ng::EnumerationEvent::Type::created)
+				continue;
+
+			if (!event.properties.contains("version")
+			    || std::get_if<mbus_ng::StringItem>(&event.properties.at("version"))->value
+			           != "3") {
+				co_return;
+			}
+
+			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			protocols::hw::Device device((co_await entity.getRemoteLane()).unwrap());
+			smbiosTable = co_await device.getSmbiosTable();
+
+			co_return;
+		}
+	}
+}
+
+uint8_t getSmbiosChassis() {
+	if(smbiosTable.empty())
+		return 0x02; // Unknown
+
+	auto entry = getSmbiosEntry({smbiosTable.data(), smbiosTable.size()}, 3);
+	if(entry.size() >= 0x0D) // 0x0D is the minimum size for version >= 2.1
+		return entry[5] & 0x7F; // bit 7 is set for chassis lock
+
+	return 0x02; // Unknown
+}
+
 static constexpr protocols::svrctl::ControlOperations controlOps = {.bind = bindDevice};
 
 int main() {
@@ -679,6 +729,7 @@ int main() {
 
 	// set up clock access
 	async::run(clk::enumerateTracker(), helix::currentDispatcher);
+	async::run(enumerateSmbios(), helix::currentDispatcher);
 
 	pthread_t workqueue;
 	auto ret = pthread_create(&workqueue, nullptr, workqueueHandler, nullptr);

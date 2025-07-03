@@ -900,14 +900,14 @@ namespace posix {
 				auto new_thread = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
 				new_thread->self = remove_tag_cast(new_thread);
 				new_thread->flags |= Thread::kFlagServer;
-				attachThread(new_thread);
+				auto new_info = attachThread(new_thread);
 
 				// see helCreateThread for the reasoning here
 				new_thread.ctr()->increment();
 				new_thread.ctr()->increment();
 
 				*info.thread->_executor.result0() = kHelErrNone;
-				*info.thread->_executor.result1() = info.tid;
+				*info.thread->_executor.result1() = new_info.tid;
 
 				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
 				Scheduler::associate(new_thread.get(), &localScheduler.get());
