@@ -117,6 +117,9 @@ struct Device {
 
 	async::result<std::shared_ptr<AcpiResources>> getResources();
 
+	async::result<std::vector<uint8_t>> getSmbiosHeader();
+	async::result<std::vector<uint8_t>> getSmbiosTable();
+
 private:
 	helix::UniqueLane _lane;
 };

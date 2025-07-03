@@ -10,6 +10,8 @@
 
 namespace drvcore {
 
+std::shared_ptr<sysfs::Object> firmwareObject();
+
 struct UeventProperties {
 	auto begin() {
 		return map.begin();

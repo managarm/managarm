@@ -11,6 +11,7 @@ src = [
 	'src/devices/random.cpp',
 	'src/devices/urandom.cpp',
 	'src/devices/zero.cpp',
+	'src/firmware/dmi.cpp',
 	'src/drvcore.cpp',
 	'src/epoll.cpp',
 	'src/eventfd.cpp',

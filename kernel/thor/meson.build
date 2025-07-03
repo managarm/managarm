@@ -69,7 +69,8 @@ src = files(
 	'system/pci/pci_legacy.cpp',
 	'system/pci/pci_quirks.cpp',
 	'system/pci/pcie_ecam.cpp',
-	'system/pci/pcie_brcmstb.cpp'
+	'system/pci/pcie_brcmstb.cpp',
+	'system/smbios/smbios3.cpp'
 )
 
 src += frgbragi.process([
@@ -94,6 +95,7 @@ inc += include_directories(
 	'system/framebuffer',
 	'system/legacy-pc',
 	'system/pci',
+	'system/smbios',
 	'../common',
 	'../../protocols/posix/include',
 )

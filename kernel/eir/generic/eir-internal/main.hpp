@@ -8,6 +8,7 @@
 namespace eir {
 
 extern "C" physaddr_t eirDtbPtr;
+extern "C" physaddr_t eirSmbios3Ptr;
 
 struct GlobalInitEngine final : initgraph::Engine {
 	void preActivate(initgraph::Node *node) override;
