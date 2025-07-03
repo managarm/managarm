@@ -12,6 +12,8 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <boost/intrusive/list.hpp>
+#include <core/cmdline.hpp>
+#include <core/kernel-logs.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
@@ -307,26 +309,58 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 	}
 }
 
+async::result<void> dumpKernelMessages() {
+	std::vector<uint8_t> buffer(2048);
+	KernelLogs logs{};
+
+	while(true) {
+		auto res = co_await logs.getMessage({buffer});
+
+		WriteRequest req{buffer.data(), res};
+		sendRequests.push_back(req);
+
+		flushSends();
+		co_await req.event.wait();
+	}
+}
+
 async::detached runTerminal() {
-	// Create an mbus object for the UART.
-	mbus_ng::Properties descriptor{
-		{"generic.devtype", mbus_ng::StringItem{"block"}},
-		{"generic.devname", mbus_ng::StringItem{"ttyS"}}
-	};
+	Cmdline cmdlineHelper{};
 
-	auto entity = (co_await mbus_ng::Instance::global().createEntity(
-				"uart0", descriptor)).unwrap();
+	if(co_await cmdlineHelper.dumpKernelLogs("uart")) {
+		// Set the baud rate to 115200, which is the same as thor uses.
+		base.store(uart_register::lineControl, line_control::dlab(true));
+		base.store(uart_register::baudLow, BaudRate::low115200);
+		base.store(uart_register::baudHigh, BaudRate::high115200);
 
-	[] (mbus_ng::EntityManager entity) -> async::detached {
-		while (true) {
-			auto [localLane, remoteLane] = helix::createStream();
+		base.store(uart_register::lineControl,
+				line_control::dataBits(DataBits::charLen8)
+				| line_control::stopBit(StopBits::one)
+				| line_control::parityBits(Parity::none)
+				| line_control::dlab(false));
 
-			// If this fails, too bad!
-			(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+		async::detach(dumpKernelMessages());
+	} else {
+		// Create an mbus object for the UART.
+		mbus_ng::Properties descriptor{
+			{"generic.devtype", mbus_ng::StringItem{"block"}},
+			{"generic.devname", mbus_ng::StringItem{"ttyS"}}
+		};
 
-			serveTerminal(std::move(localLane));
-		}
-	}(std::move(entity));
+		auto entity = (co_await mbus_ng::Instance::global().createEntity(
+					"uart0", descriptor)).unwrap();
+
+		[] (mbus_ng::EntityManager entity) -> async::detached {
+			while (true) {
+				auto [localLane, remoteLane] = helix::createStream();
+
+				// If this fails, too bad!
+				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+
+				serveTerminal(std::move(localLane));
+			}
+		}(std::move(entity));
+	}
 }
 
 int main() {
@@ -370,8 +404,8 @@ int main() {
 			| line_control::parityBits(Parity::none)
 			| line_control::dlab(false));
 
-	runTerminal();
 	handleIrqs();
+	runTerminal();
 	async::run_forever(helix::currentDispatcher);
 
 	return 0;

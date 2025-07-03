@@ -7,7 +7,10 @@ constexpr int COM4 = 0x2E8;
 
 enum BaudRate {
 	low9600 = 0x0C,
-	high9600 = 0
+	high9600 = 0,
+	
+	low115200 = 1,
+	high115200 = 0,
 };
 
 enum class DataBits {
