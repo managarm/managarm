@@ -247,41 +247,52 @@ HelError helCreateUniverse(HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
-		HelHandle *out_handle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError
+helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDescriptorFlags direction, HelHandle *outHandle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 	AnyDescriptor descriptor;
-	smarter::shared_ptr<Universe> universe;
+	smarter::shared_ptr<Universe> dstUniverse;
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(this_universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(thisUniverse->lock);
 
-		auto descriptor_it = this_universe->getDescriptor(lock, handle);
-		if(!descriptor_it)
-			return kHelErrNoDescriptor;
-		descriptor = *descriptor_it;
-
-		if(universe_handle == kHelThisUniverse) {
-			universe = this_universe.lock();
+		smarter::shared_ptr<Universe> universe;
+		if(universeHandle == kHelThisUniverse) {
+			universe = thisUniverse.lock();
 		}else{
-			auto universe_it = this_universe->getDescriptor(lock, universe_handle);
-			if(!universe_it)
+			auto universeIt = thisUniverse->getDescriptor(lock, universeHandle);
+			if(!universeIt)
 				return kHelErrNoDescriptor;
-			if(!universe_it->is<UniverseDescriptor>())
+			if(!universeIt->is<UniverseDescriptor>())
 				return kHelErrBadDescriptor;
-			universe = universe_it->get<UniverseDescriptor>().universe;
+			universe = universeIt->get<UniverseDescriptor>().universe;
 		}
+
+		smarter::borrowed_ptr<Universe> srcUniverse;
+		if(direction == kHelTransferDescriptorOut) {
+			srcUniverse = thisUniverse;
+			dstUniverse = universe;
+		} else {
+			assert(direction == kHelTransferDescriptorIn);
+			srcUniverse = universe;
+			dstUniverse = thisUniverse.lock();
+		}
+
+		auto descriptorIt = srcUniverse->getDescriptor(lock, handle);
+		if (!descriptorIt)
+			return kHelErrNoDescriptor;
+		descriptor = *descriptorIt;
 	}
 
 	// TODO: make sure the descriptor is copyable.
 
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(dstUniverse->lock);
 
-		*out_handle = universe->attachDescriptor(lock, std::move(descriptor));
+		*outHandle = dstUniverse->attachDescriptor(lock, std::move(descriptor));
 	}
 	return kHelErrNone;
 }
@@ -2749,7 +2760,15 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					&& peer->tag() == kTagRecvKernelBuffer) {
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (res) {
+					peer->_error = Error::threadExited;
+					node->_error = Error::threadExited;
+					peer->complete();
+					node->complete();
+					continue;
+				}
+
 				auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 				if(!outcome) {
 					// We complete with fault; the remote with success.
@@ -2826,7 +2845,23 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					auto chunkSize = frg::min(recipe->length - progress, xb.size());
 					assert(chunkSize);
 
-					co_await thread->mainWorkQueue()->enter();
+					auto res = co_await thread->mainWorkQueue()->enter();
+					if (res) {
+						peer->flowQueue.put({ .terminate = true, .fault = true });
+						++numSent;
+
+						// Retrieve but ignore all acks.
+						assert(numSent > numAcked);
+						while(numSent != numAcked) {
+							auto ackPacket = co_await node->flowQueue.async_get();
+							assert(ackPacket);
+							++numAcked;
+						}
+
+						node->_error = Error::threadExited;
+						break;
+					}
+
 					auto outcome = readUserMemory(xb.data(),
 							reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
 					if(!outcome) {
@@ -2860,7 +2895,14 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				node->complete();
 			}else if(recipe->type == kHelActionRecvToBuffer
 					&& peer->tag() == kTagSendKernelBuffer) {
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (res) {
+					peer->_error = Error::threadExited;
+					node->_error = Error::threadExited;
+					peer->complete();
+					node->complete();
+					continue;
+				}
 				auto outcome = writeUserMemory(recipe->buffer,
 						peer->_inBuffer.data(), peer->_inBuffer.size());
 				if(!outcome) {
@@ -2984,21 +3026,40 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
-		Thread::asyncBlockCurrent(
-			getGlobalFutexRealm()->wait(std::move(futex), expected)
-		);
+		if (!Thread::asyncBlockCurrent(
+		        [&](async::cancellation_token ct) {
+			        return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
+		        },
+		        Thread::asyncBlockCurrentInterruptible{}
+		    )) {
+			return kHelErrCancelled;
+		}
 	}else{
-		Thread::asyncBlockCurrent(
-			async::race_and_cancel(
-				[&] (async::cancellation_token cancellation) {
-					return getGlobalFutexRealm()->wait(std::move(futex), expected,
-							cancellation);
-				},
-				[&] (async::cancellation_token cancellation) {
-					return generalTimerEngine()->sleep(deadline, cancellation);
-				}
-			)
-		);
+		if (!Thread::asyncBlockCurrent(
+		        [&](async::cancellation_token ct) {
+			        return async::race_and_cancel(
+			            [&](async::cancellation_token cancellation) {
+				            return getGlobalFutexRealm()->wait(
+				                std::move(futex), expected, cancellation
+				            );
+			            },
+			            [&](async::cancellation_token cancellation) {
+				            return generalTimerEngine()->sleep(deadline, cancellation);
+			            },
+			            [&](async::cancellation_token cancellation) -> coroutine<void> {
+				            async::cancellation_event ce;
+				            async::cancellation_callback cb1{ct, [&ce]() { ce.cancel(); }};
+				            async::cancellation_callback cb2{cancellation, [&ce]() {
+					                                             ce.cancel();
+				                                             }};
+				            co_await async::suspend_indefinitely({ce});
+			            }
+			        );
+		        },
+		        Thread::asyncBlockCurrentInterruptible{}
+		    )) {
+			return kHelErrCancelled;
+		}
 	}
 
 	return kHelErrNone;

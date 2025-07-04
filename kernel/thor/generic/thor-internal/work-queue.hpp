@@ -6,6 +6,7 @@
 #include <frg/container_of.hpp>
 #include <frg/list.hpp>
 #include <frg/spinlock.hpp>
+#include <thor-internal/debug.hpp>
 #include <smarter.hpp>
 
 #include <thor-internal/executor-context.hpp>
@@ -22,6 +23,7 @@ struct Worklet {
 private:
 	smarter::shared_ptr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
+	bool _cancelled;
 	frg::default_list_hook<Worklet> _hook;
 };
 
@@ -94,12 +96,17 @@ struct WorkQueue {
 		: wq_{wq}, r_{std::move(r)} { }
 
 		bool start_inline() {
+			auto swq = wq_->selfPtr.lock();
+			if (!swq) {
+				async::execution::set_value_inline(r_, true);
+				return true;
+			}
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
-				async::execution::set_value_noinline(self->r_);
+				async::execution::set_value_noinline(self->r_, base->_cancelled);
 			}, wq_);
 			if(enter(&worklet_)) {
-				async::execution::set_value_inline(r_);
+				async::execution::set_value_inline(r_, false);
 				return true;
 			}
 			return false;
@@ -112,14 +119,14 @@ struct WorkQueue {
 	};
 
 	struct EnterSender {
-		using value_type = void;
+		using value_type = bool;
 
 		template<typename Receiver>
 		friend EnterOperation<Receiver> connect(EnterSender s, Receiver r) {
 			return {s.wq, std::move(r)};
 		}
 
-		friend async::sender_awaiter<EnterSender> operator co_await (EnterSender s) {
+		friend async::sender_awaiter<EnterSender, bool> operator co_await (EnterSender s) {
 			return {s};
 		}
 

@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -153,10 +154,10 @@ public:
 	}
 
 public:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
-			co_return Error::notConnected;
+			co_return {protocols::fs::Error::notConnected, 0};
 
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
@@ -164,22 +165,31 @@ public:
 		if(_recvQueue.empty() && nonBlock_) {
 			if(logSockets)
 				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return Error::wouldBlock;
+			co_return {protocols::fs::Error::wouldBlock, 0};
 		}
 
 		if(_recvQueue.empty() && shutdownFlags_ & shutdownRead)
-			co_return 0;
+			co_return {protocols::fs::Error::none, 0};
 
 		co_await async::race_and_cancel(
-			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
-			[&](async::cancellation_token c) -> async::result<void> {
-				while (_recvQueue.empty() && !c.is_cancellation_requested())
-					co_await _statusBell.async_wait(c);
-			}
+		    [&](async::cancellation_token c) { return raceReceiveTimeout(c); },
+		    [&](async::cancellation_token c) -> async::result<void> {
+			    while (_recvQueue.empty())
+				    if (!co_await _statusBell.async_wait(c))
+					    co_return;
+		    },
+		    [&](async::cancellation_token c) -> async::result<void> {
+				async::cancellation_event ce;
+			    async::cancellation_callback cb1{ct, [&ce]() { ce.cancel(); }};
+			    async::cancellation_callback cb2{c, [&ce]() { ce.cancel(); }};
+			    co_await async::suspend_indefinitely({ce});
+		    }
 		);
 
-		if(_recvQueue.empty())
-			co_return Error::wouldBlock;
+		if(_recvQueue.empty() && ct.is_cancellation_requested())
+			co_return {protocols::fs::Error::interrupted, 0}; // cancelled
+		else if(_recvQueue.empty())
+		co_return {protocols::fs::Error::wouldBlock, 0}; // timed out
 
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {
@@ -190,7 +200,7 @@ public:
 			packet->offset += chunk;
 			if(packet->offset == packet->buffer.size())
 				_recvQueue.pop_front();
-			co_return chunk;
+			co_return {protocols::fs::Error::none, chunk};
 		} else {
 			assert(!packet->offset);
 			assert(packet->files.empty());
@@ -198,7 +208,7 @@ public:
 			assert(max_length >= size);
 			memcpy(data, packet->buffer.data(), size);
 			_recvQueue.pop_front();
-			co_return size;
+			co_return {protocols::fs::Error::none, size};
 		}
 	}
 
