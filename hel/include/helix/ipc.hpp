@@ -879,19 +879,23 @@ inline auto writeMemory(BorrowedDescriptor descriptor,
 
 template <typename Receiver>
 struct AwaitEventOperation : private Context {
-	AwaitEventOperation(BorrowedDescriptor event, uint64_t sequence, Receiver receiver)
-	: event_{std::move(event)}, sequence_{sequence}, receiver_{std::move(receiver)} { }
+	AwaitEventOperation(BorrowedDescriptor event, uint64_t sequence, async::cancellation_token ct, Receiver receiver)
+	: event_{std::move(event)}, sequence_{sequence}, ct_{ct}, receiver_{std::move(receiver)} { }
 
 	void start() {
 		auto context = static_cast<Context *>(this);
 
 		HEL_CHECK(helSubmitAwaitEvent(event_.getHandle(), sequence_,
 				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context)));
+				reinterpret_cast<uintptr_t>(context), &asyncId_));
+
+		cb_.emplace(ct_, this);
 	}
 
 private:
 	void complete(ElementHandle element) override {
+		cb_ = std::nullopt;
+
 		AwaitEventResult result;
 		void *ptr = element.data();
 
@@ -900,25 +904,33 @@ private:
 		async::execution::set_value(receiver_, std::move(result));
 	}
 
+	void cancel() {
+		HEL_CHECK(helCancelAsync(Dispatcher::global().acquire(), asyncId_));
+	}
+
 	BorrowedDescriptor event_;
 	uint64_t sequence_;
+	async::cancellation_token ct_;
+	std::optional<async::cancellation_callback<frg::bound_mem_fn<&AwaitEventOperation::cancel>>> cb_ = std::nullopt;
+	uint64_t asyncId_;
 	Receiver receiver_;
 };
 
 struct [[nodiscard]] AwaitEventSender {
 	using value_type = AwaitEventResult;
 
-	AwaitEventSender(BorrowedDescriptor event, uint64_t sequence)
-	: event_{std::move(event)}, sequence_{sequence} { }
+	AwaitEventSender(BorrowedDescriptor event, uint64_t sequence, async::cancellation_token ct)
+	: event_{std::move(event)}, sequence_{sequence}, ct_{ct} { }
 
 	template<typename Receiver>
 	AwaitEventOperation<Receiver> connect(Receiver receiver) {
-		return {std::move(event_), sequence_, std::move(receiver)};
+		return {std::move(event_), sequence_, ct_, std::move(receiver)};
 	}
 
 private:
 	BorrowedDescriptor event_;
 	uint64_t sequence_;
+	async::cancellation_token ct_;
 };
 
 inline async::sender_awaiter<AwaitEventSender, AwaitEventResult>
@@ -926,10 +938,11 @@ operator co_await (AwaitEventSender sender) {
 	return {std::move(sender)};
 }
 
-inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence) {
+inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence, async::cancellation_token ct = {}) {
 	return AwaitEventSender{
 		std::move(event),
-		sequence
+		sequence,
+		ct
 	};
 }
 

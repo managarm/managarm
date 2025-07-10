@@ -426,9 +426,9 @@ extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHa
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(HelHandle handle,
-		uint64_t sequence, HelHandle queue, uintptr_t context) {
-	return helSyscall4(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
-			(HelWord)queue, (HelWord)context);
+		uint64_t sequence, HelHandle queue, uintptr_t context, uint64_t *async_id) {
+	return helSyscall4_1(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
+			(HelWord)queue, (HelWord)context, (HelWord *)async_id);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandle handle,

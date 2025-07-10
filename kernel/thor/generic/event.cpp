@@ -18,35 +18,52 @@ void OneshotEvent::trigger() {
 
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = Error::success;
-		node->_sequence = 2;
-		node->_bitset = 1;
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = 2;
+		node->bitset_ = 1;
+		if(node->cancelCb_.try_reset())
+			WorkQueue::post(node->awaited_);
 	}
 }
 
-void OneshotEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
+void OneshotEvent::submitAwait(AwaitEventNode<OneshotEvent> *node, uint64_t sequence) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
 	assert(sequence <= 1); // TODO: Return an error.
 
 	if(_triggered) {
-		node->_error = Error::success;
-		node->_sequence = 2;
-		node->_bitset = 1;
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = 2;
+		node->bitset_ = 1;
+		WorkQueue::post(node->awaited_);
 	}else{
 		if(!sequence) {
-			node->_error = Error::success;
-			node->_sequence = 1;
-			node->_bitset = 0;
-			WorkQueue::post(node->_awaited);
+			node->error_ = Error::success;
+			node->sequence_ = 1;
+			node->bitset_ = 0;
+			WorkQueue::post(node->awaited_);
 		}else{
 			assert(sequence == 1);
+
+			if(!node->cancelCb_.try_set(node->cancelToken_)) {
+				node->wasCancelled_ = true;
+				WorkQueue::post(node->awaited_);
+				return;
+			}
+
 			_waitQueue.push_back(node);
 		}
 	}
+}
+
+void OneshotEvent::cancelAwait(AwaitEventNode<OneshotEvent> *node) {
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	node->wasCancelled_ = true;
+	_waitQueue.erase(_waitQueue.iterator_to(node));
+	WorkQueue::post(node->awaited_);
 }
 
 //---------------------------------------------------------------------------------------
@@ -73,14 +90,15 @@ void BitsetEvent::trigger(uint32_t bits) {
 
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = Error::success;
-		node->_sequence = _currentSequence;
-		node->_bitset = bits;
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = _currentSequence;
+		node->bitset_ = bits;
+		if(node->cancelCb_.try_reset())
+			WorkQueue::post(node->awaited_);
 	}
 }
 
-void BitsetEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
+void BitsetEvent::submitAwait(AwaitEventNode<BitsetEvent> *node, uint64_t sequence) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -92,13 +110,28 @@ void BitsetEvent::submitAwait(AwaitEventNode *node, uint64_t sequence) {
 				bits |= 1 << i;
 		assert(!sequence || bits);
 
-		node->_error = Error::success;
-		node->_sequence = _currentSequence;
-		node->_bitset = bits;
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = _currentSequence;
+		node->bitset_ = bits;
+		WorkQueue::post(node->awaited_);
 	}else{
+		if(!node->cancelCb_.try_set(node->cancelToken_)) {
+			node->wasCancelled_ = true;
+			WorkQueue::post(node->awaited_);
+			return;
+		}
+
 		_waitQueue.push_back(node);
 	}
+}
+
+void BitsetEvent::cancelAwait(AwaitEventNode<BitsetEvent> *node) {
+	auto irq_lock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
+
+	node->wasCancelled_ = true;
+	_waitQueue.erase(_waitQueue.iterator_to(node));
+	WorkQueue::post(node->awaited_);
 }
 
 } // namespace thor

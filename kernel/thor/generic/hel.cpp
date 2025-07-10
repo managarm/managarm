@@ -3157,21 +3157,90 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	}
 }
 
+template <typename Event>
+requires (std::is_same_v<Event, OneshotEvent> || std::is_same_v<Event, BitsetEvent>)
+struct EventClosure final : CancelNode, AwaitEventNode<Event>, IpcNode {
+	static void issue(smarter::shared_ptr<Event> event, uint64_t sequence,
+			smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
+		auto closure = frg::construct<EventClosure>(*kernelAlloc, event.get(),
+				std::move(queue), context);
+		closure->_queue->registerNode(closure);
+		*async_id = closure->asyncId();
+
+		event->submitAwait(closure, sequence);
+	}
+
+	static void awaited(Worklet *worklet) {
+		auto closure = frg::container_of(worklet, &EventClosure::worklet);
+
+		if(!closure->wasCancelled())
+			closure->result.error = translateError(closure->error());
+		else
+			closure->result.error = kHelErrCancelled;
+
+		closure->_queue->unregisterNode(closure);
+		closure->result.sequence = closure->sequence();
+		closure->result.bitset = closure->bitset();
+		closure->_queue->submit(closure);
+	}
+
+	void handleCancellation() override {
+		cancelEvent.cancel();
+	}
+
+public:
+	explicit EventClosure(Event *event, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
+	: _queue{std::move(the_queue)},
+			source{&result, sizeof(HelEventResult), nullptr} {
+		memset(&result, 0, sizeof(HelEventResult));
+		setupContext(context);
+		setupSource(&source);
+		worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
+		AwaitEventNode<Event>::setup(&worklet, event, cancelEvent);
+	}
+
+	void complete() override {
+		frg::destruct(*kernelAlloc, this);
+	}
+
+private:
+	Worklet worklet;
+	async::cancellation_event cancelEvent;
+	smarter::shared_ptr<IpcQueue> _queue;
+	QueueSource source;
+	HelEventResult result;
+};
+
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue_handle, uintptr_t context) {
-	struct IrqClosure final : IpcNode {
+		HelHandle queue_handle, uintptr_t context, uint64_t *async_id) {
+	struct IrqClosure final : CancelNode, IpcNode {
 		static void issue(smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
+				smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
 			auto closure = frg::construct<IrqClosure>(*kernelAlloc,
 					std::move(queue), context);
+			closure->_queue->registerNode(closure);
+			*async_id = closure->asyncId();
 			irq->submitAwait(&closure->irqNode, sequence);
 		}
 
 		static void awaited(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &IrqClosure::worklet);
-			closure->result.error = translateError(closure->irqNode.error());
+			if(closure->wasCancelled())
+				closure->result.error = kHelErrCancelled;
+			else
+				closure->result.error = translateError(closure->irqNode.error());
+			closure->_queue->unregisterNode(closure);
 			closure->result.sequence = closure->irqNode.sequence();
 			closure->_queue->submit(closure);
+		}
+
+		bool wasCancelled() const {
+			return _cancelled;
+		}
+
+		void handleCancellation() override {
+			_cancelled = true;
+			cancelEvent.cancel();
 		}
 
 	public:
@@ -3191,56 +3260,12 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	private:
 		Worklet worklet;
+		async::cancellation_event cancelEvent;
 		AwaitIrqNode irqNode;
 		smarter::shared_ptr<IpcQueue> _queue;
 		QueueSource source;
 		HelEventResult result;
-	};
-
-	struct EventClosure final : IpcNode {
-		static void issue(smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
-			auto closure = frg::construct<EventClosure>(*kernelAlloc,
-					std::move(queue), context);
-			event->submitAwait(&closure->eventNode, sequence);
-		}
-
-		static void issue(smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
-			auto closure = frg::construct<EventClosure>(*kernelAlloc,
-					std::move(queue), context);
-			event->submitAwait(&closure->eventNode, sequence);
-		}
-
-		static void awaited(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &EventClosure::worklet);
-			closure->result.error = translateError(closure->eventNode.error());
-			closure->result.sequence = closure->eventNode.sequence();
-			closure->result.bitset = closure->eventNode.bitset();
-			closure->_queue->submit(closure);
-		}
-
-	public:
-		explicit EventClosure(smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{std::move(the_queue)},
-				source{&result, sizeof(HelEventResult), nullptr} {
-			memset(&result, 0, sizeof(HelEventResult));
-			setupContext(context);
-			setupSource(&source);
-			worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
-			eventNode.setup(&worklet);
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-	private:
-		Worklet worklet;
-		AwaitEventNode eventNode;
-		smarter::shared_ptr<IpcQueue> _queue;
-		QueueSource source;
-		HelEventResult result;
+		bool _cancelled = false;
 	};
 
 	auto this_thread = getCurrentThread();
@@ -3272,15 +3297,15 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
 		IrqClosure::issue(std::move(irq), sequence,
-				std::move(queue), context);
+				std::move(queue), context, async_id);
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-		EventClosure::issue(std::move(event), sequence,
-				std::move(queue), context);
+		EventClosure<OneshotEvent>::issue(std::move(event), sequence,
+				std::move(queue), context, async_id);
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-		EventClosure::issue(std::move(event), sequence,
-				std::move(queue), context);
+		EventClosure<BitsetEvent>::issue(std::move(event), sequence,
+				std::move(queue), context, async_id);
 	}else{
 		return kHelErrBadDescriptor;
 	}
