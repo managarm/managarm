@@ -483,9 +483,10 @@ void IrqObject::automate(smarter::shared_ptr<BoundKernlet> kernlet) {
 IrqStatus IrqObject::raise() {
 	while(!_waitQueue.empty()) {
 		auto node = _waitQueue.pop_front();
-		node->_error = Error::success;
-		node->_sequence = currentSequence();
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = currentSequence();
+		if (node->cancelCb_.try_reset())
+			WorkQueue::post(node->awaited_);
 	}
 
 	if(_automationKernlet) {
@@ -509,12 +510,24 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 
 	assert(sequence <= currentSequence());
 	if(sequence < currentSequence()) {
-		node->_error = Error::success;
-		node->_sequence = currentSequence();
-		WorkQueue::post(node->_awaited);
+		node->error_ = Error::success;
+		node->sequence_ = currentSequence();
+		WorkQueue::post(node->awaited_);
 	}else{
+		if(!node->cancelCb_.try_set(node->cancelToken_)) {
+			node->wasCancelled_ = true;
+			WorkQueue::post(node->awaited_);
+			return;
+		}
+
 		_waitQueue.push_back(node);
 	}
+}
+
+void AwaitIrqNode::cancel() {
+	wasCancelled_ = true;
+	irq_->_waitQueue.erase(irq_->_waitQueue.iterator_to(this));
+	WorkQueue::post(awaited_);
 }
 
 } // namespace thor
