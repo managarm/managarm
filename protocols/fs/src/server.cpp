@@ -86,18 +86,16 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
 			co_return;
 		}
 		auto result = co_await file_ops->seekAbs(file.get(), req.rel_offset());
 		auto error = std::get_if<Error>(&result);
 
 		managarm::fs::SvrResponse resp;
-		if(error && *error == Error::seekOnPipe) {
-			resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
-		} else if(error && *error == Error::illegalArguments) {
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		if(error) {
+			resp.set_error(*error | toFsError);
 		} else {
-			assert(!error);
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_offset(std::get<int64_t>(result));
 		}
