@@ -23,6 +23,8 @@ struct File {
 	}
 
 	async::result<void> seekAbsolute(int64_t offset);
+	async::result<int64_t> seekRelative(int64_t offset);
+	async::result<int64_t> seekEof(int64_t offset);
 
 	async::result<size_t> readSome(void *data, size_t max_length);
 	async::result<size_t> writeSome(const void *data, size_t max_length);

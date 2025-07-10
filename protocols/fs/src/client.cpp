@@ -1,4 +1,5 @@
 
+#include <bragi/helpers-std.hpp>
 #include <iostream>
 
 #include "fs.bragi.hpp"
@@ -34,6 +35,56 @@ async::result<void> File::seekAbsolute(int64_t offset) {
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(buffer, recv_resp.actualLength());
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+}
+
+async::result<int64_t> File::seekRelative(int64_t offset) {
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::SEEK_REL);
+	req.set_rel_offset(offset);
+
+	auto ser = req.SerializeAsString();
+
+	auto [offer, send_req, recv_resp] =
+		co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	auto resp = *bragi::parse_head_only<managarm::fs::SvrResponse>(recv_resp);
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	co_return resp.offset();
+}
+
+async::result<int64_t> File::seekEof(int64_t offset) {
+	managarm::fs::CntRequest req;
+	req.set_req_type(managarm::fs::CntReqType::SEEK_EOF);
+	req.set_rel_offset(offset);
+
+	auto ser = req.SerializeAsString();
+
+	auto [offer, send_req, recv_resp] =
+		co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	auto resp = *bragi::parse_head_only<managarm::fs::SvrResponse>(recv_resp);
+	assert(resp.error() == managarm::fs::Errors::SUCCESS);
+	co_return resp.offset();
 }
 
 async::result<size_t> File::readSome(void *data, size_t max_length) {

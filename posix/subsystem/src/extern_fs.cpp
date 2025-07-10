@@ -187,9 +187,15 @@ private:
 struct OpenFile final : File {
 private:
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override {
-		assert(whence == VfsSeek::absolute);
-		co_await _file.seekAbsolute(offset);
-		co_return offset;
+		if(whence == VfsSeek::absolute) {
+			co_await _file.seekAbsolute(offset);
+			co_return offset;
+		} else if(whence == VfsSeek::relative) {
+			co_return co_await _file.seekRelative(offset);
+		} else if(whence == VfsSeek::eof) {
+			co_return co_await _file.seekEof(offset);
+		}
+		co_return Error::illegalArguments;
 	}
 
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
