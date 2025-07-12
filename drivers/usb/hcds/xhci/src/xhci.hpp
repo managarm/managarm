@@ -237,7 +237,7 @@ struct Controller final : proto::BaseController {
 			helix::UniqueIrq irq,
 			std::string name);
 
-	virtual ~Controller() = default;
+	~Controller() = default;
 
 	async::detached initialize();
 

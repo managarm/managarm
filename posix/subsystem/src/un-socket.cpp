@@ -183,8 +183,6 @@ public:
 
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {
-			assert(packet->files.empty());
-
 			auto chunk = std::min(packet->buffer.size() - packet->offset, max_length);
 			memcpy(data, packet->buffer.data() + packet->offset, chunk);
 			packet->offset += chunk;
@@ -193,7 +191,6 @@ public:
 			co_return chunk;
 		} else {
 			assert(!packet->offset);
-			assert(packet->files.empty());
 			auto size = packet->buffer.size();
 			assert(max_length >= size);
 			memcpy(data, packet->buffer.data(), size);
@@ -292,7 +289,7 @@ public:
 				ctrl.write(packet->recvTimestamp);
 		}
 
-		if(!packet->files.empty()) {
+		if(!packet->files.empty() && !packet->offset) {
 			auto [truncated, payload_len] = ctrl.message_truncated(SOL_SOCKET, SCM_RIGHTS, sizeof(int) * packet->files.size(), sizeof(int));
 			assert(!(payload_len % sizeof(int)));
 			for(auto &file : packet->files) {

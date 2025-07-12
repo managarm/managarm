@@ -1,3 +1,8 @@
+// needed to avoid redefinitions in linux/timerfd.h
+#ifdef _GNU_SOURCE
+#undef _GNU_SOURCE
+#endif
+
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
@@ -5,14 +10,20 @@
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
+#include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
+#include <protocols/fs/common.hpp>
 
 #include "clocks.hpp"
 #include "fs.hpp"
 #include "interval-timer.hpp"
 #include "timerfd.hpp"
+
+// avoid flock redefinition
+#define HAVE_ARCH_STRUCT_FLOCK
+#include <linux/timerfd.h>
 
 namespace {
 
@@ -135,6 +146,49 @@ public:
 		else
 			nonBlock_ = false;
 		co_return;
+	}
+
+	async::result<void> ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg,
+			helix::UniqueLane conversation) override {
+		if(id == managarm::fs::GenericIoctlRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+			if (!req) {
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+				co_return;
+			}
+
+			switch(req->command()) {
+				case TFD_IOC_SET_TICKS: {
+					_expirations = req->ticks();
+					_theSeq++;
+					_seqBell.raise();
+
+					managarm::fs::GenericIoctlReply resp;
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+					HEL_CHECK(send_resp.error());
+					break;
+				}
+				default: {
+					std::println("timerfd: unexpected ioctl request 0x{:x}", req->command());
+					auto [dismiss] = co_await helix_ng::exchangeMsgs(
+						conversation, helix_ng::dismiss());
+					HEL_CHECK(dismiss.error());
+					break;
+				}
+			}
+		} else {
+			std::println("timerfd: unexpected ioctl message type 0x{:x}\n", id);
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
