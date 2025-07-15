@@ -102,6 +102,10 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
+	async::result<Error> chmod(int) override {
+		co_return Error::success;
+	}
+
 protected:
 	virtual async::result<std::string> show() = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
@@ -159,6 +163,10 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 			SemanticFlags semantic_flags) override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;
+
+	async::result<Error> chmod(int) override {
+		co_return Error::success;
+	}
 
 	std::shared_ptr<Link> createCgroupDirectory(std::string name);
 	void createCgroupFiles();
