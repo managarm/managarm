@@ -1608,7 +1608,7 @@ void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shar
 				}
 
 				return false;
-			});
+			}) == async::maybe_awaited::awaited;
 			co_await WorkQueue::generalQueue()->schedule();
 		}
 
@@ -1692,7 +1692,7 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 							return true;
 						assert(cowPage->state == CowState::hasCopy);
 						return false;
-					});
+					}) == async::maybe_awaited::awaited;
 					co_await wq->schedule();
 				} while(stillWaiting);
 
@@ -1836,7 +1836,7 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, smarter::shared_ptr<
 					return true;
 				assert(cowPage->state == CowState::hasCopy);
 				return false;
-			});
+			}) == async::maybe_awaited::awaited;
 			co_await wq->schedule();
 		} while(stillWaiting);
 
