@@ -104,7 +104,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	drm_core::addDmtModes(supported_modes, _screenWidth, _screenHeight);
 	_theConnector->setModeList(supported_modes);
 
-	auto info_ptr = reinterpret_cast<char *>(&supported_modes.front());
+	// Connector::setModeList() sorts the modes in descending order of (width * height)
+	auto info_ptr = reinterpret_cast<const char *>(&_theConnector->modeList().front());
 	std::vector<char> modeData(info_ptr, info_ptr + sizeof(drm_mode_modeinfo));
 	auto modeBlob = registerBlob(std::move(modeData));
 
