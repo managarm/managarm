@@ -1015,6 +1015,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			auto target = std::get<std::shared_ptr<FsLink>>(result)->getTarget();
+			auto chmodResult = co_await target->chmod(req->mode() & ~self->fsContext()->getUmask() & 0777);
+			if (chmodResult != Error::success) {
+				std::cout << "posix: chmod failed when creating directory for MkdirAtRequest!" << std::endl;
+				co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
+
 			co_await sendErrorResponse(managarm::posix::Errors::SUCCESS);
 		}else if(preamble.id() == managarm::posix::MkfifoAtRequest::message_id) {
 			std::vector<uint8_t> tail(preamble.tail_size());
@@ -1079,7 +1087,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto result = co_await parent->mkfifo(resolver.nextComponent(), req->mode());
+			auto result = co_await parent->mkfifo(
+				resolver.nextComponent(),
+				req->mode() & ~self->fsContext()->getUmask()
+			);
 			if(!result) {
 				std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
 				co_return;
@@ -1990,7 +2001,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
 						continue;
 					}
-					auto chmodResult = co_await node->chmod(req->mode());
+					auto chmodResult = co_await node->chmod(req->mode() & ~self->fsContext()->getUmask());
 					if (chmodResult != Error::success) {
 						std::cout << "posix: chmod failed when creating file for OpenAtRequest!" << std::endl;
 						co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
@@ -3545,7 +3556,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					}
 				}
 			} else if(type == VfsType::fifo) {
-				auto result = co_await parent->mkfifo(resolver.nextComponent(), req->mode());
+				auto result = co_await parent->mkfifo(
+					resolver.nextComponent(),
+					req->mode() & ~self->fsContext()->getUmask()
+				);
 				if(!result) {
 					if(result.error() == Error::illegalOperationTarget) {
 						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -3997,6 +4011,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				std::cout << "posix: ITIMER_VIRTUAL and ITIMER_PROF are unsupported" << std::endl;
 			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
+		} else if (preamble.id() == managarm::posix::UmaskRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::UmaskRequest>(recv_head);
+			logRequest(logRequests, "UMASK", "newmask={:o}", req->newmask());
+
+			managarm::posix::UmaskResponse resp;
+			mode_t oldmask = self->fsContext()->setUmask(req->newmask());
+			resp.set_oldmask(oldmask);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
