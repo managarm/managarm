@@ -433,7 +433,7 @@ public:
 	}
 
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-			std::shared_ptr<Channel> channel, bool nonBlock);
+			std::shared_ptr<Channel> channel, bool nonBlock, bool read, bool write);
 
 	async::result<frg::expected<Error, size_t>>
 	readSome(Process *, void *data, size_t maxLength) override;
@@ -455,9 +455,19 @@ public:
 	ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override;
 
 	async::result<int> getFileFlags() override {
+		int flags = 0;
+
 		if(nonBlock_)
-			co_return O_NONBLOCK;
-		co_return 0;
+			flags |= O_NONBLOCK;
+
+		if(read_ && write_)
+			flags |= O_RDWR;
+		else if(read_)
+			flags |= O_RDONLY;
+		else if(write_)
+			flags |= O_WRONLY;
+
+		co_return flags;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -474,6 +484,8 @@ private:
 	Packet _packet{};
 
 	bool nonBlock_;
+	bool read_;
+	bool write_;
 };
 
 //-----------------------------------------------------------------------------
@@ -968,17 +980,17 @@ SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 	}
 
 	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel,
-			semantic_flags & semanticNonBlock);
+			semantic_flags & semanticNonBlock, semantic_flags & semanticRead, semantic_flags & semanticWrite);
 	file->setupWeakFile(file);
 	SlaveFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
 SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
-		std::shared_ptr<Channel> channel, bool nonBlock)
+		std::shared_ptr<Channel> channel, bool nonBlock, bool read, bool write)
 : File{FileKind::unknown,  StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
-		_channel{std::move(channel)}, nonBlock_{nonBlock} { }
+		_channel{std::move(channel)}, nonBlock_{nonBlock}, read_{read}, write_{write} { }
 
 async::result<frg::expected<Error, size_t>>
 SlaveFile::readSome(Process *, void *data, size_t maxLength) {
