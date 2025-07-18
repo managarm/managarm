@@ -19,6 +19,7 @@
 #include "clocks.hpp"
 #include "fs.hpp"
 #include "interval-timer.hpp"
+#include "protocols/fs/common.hpp"
 #include "timerfd.hpp"
 
 // avoid flock redefinition
@@ -88,16 +89,19 @@ public:
 		_cancelServe.cancel();
 	}
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<protocols::fs::ReadResult>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
 		if(max_length < sizeof(uint64_t))
-			co_return Error::illegalArguments;
+			co_return protocols::fs::Error::illegalArguments;
 
 		if(!_expirations && nonBlock_)
-			co_return Error::wouldBlock;
+			co_return protocols::fs::Error::wouldBlock;
 
-		while(!_expirations)
-			co_await _seqBell.async_wait();
+		while(!_expirations) {
+			co_await _seqBell.async_wait(ct);
+			if (ct.is_cancellation_requested())
+				co_return protocols::fs::Error::interrupted;
+		}
 
 		memcpy(data, &_expirations, sizeof(uint64_t));
 		_expirations = 0;

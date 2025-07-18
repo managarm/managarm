@@ -79,6 +79,8 @@ enum class Error {
 	unsupportedSocketType,
 
 	notSocket,
+
+	interrupted,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -108,6 +110,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::noChildProcesses: return protocols::fs::Error::internalError;
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
 		case Error::notSocket: return protocols::fs::Error::notSocket;
+		case Error::interrupted: return protocols::fs::Error::interrupted;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -142,6 +145,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::noChildProcesses: return managarm::posix::Errors::NO_CHILD_PROCESSES;
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
 		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
+		case Error::interrupted: return managarm::posix::Errors::INTERRUPTED;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
@@ -211,7 +215,8 @@ public:
 	ptSeekEof(void *object, int64_t offset);
 
 	static async::result<protocols::fs::ReadResult>
-	ptRead(void *object, helix_ng::CredentialsView credentials, void *buffer, size_t length);
+	ptRead(void *object, helix_ng::CredentialsView credentials, void *buffer, size_t length,
+			async::cancellation_token ce);
 
 	static async::result<protocols::fs::ReadResult>
 	ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length);
@@ -385,8 +390,9 @@ public:
 	virtual async::result<frg::expected<Error, off_t>>
 	seek(off_t offset, VfsSeek whence);
 
-	virtual async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t max_length);
+	virtual async::result<protocols::fs::ReadResult>
+	readSome(Process *process, void *data, size_t max_length,
+			async::cancellation_token ce);
 
 	virtual async::result<frg::expected<Error, size_t>>
 	writeAll(Process *process, const void *data, size_t length);
@@ -394,7 +400,7 @@ public:
 	virtual async::result<frg::expected<Error, ControllingTerminalState *>>
 	getControllingTerminal();
 
-	virtual async::result<frg::expected<Error, size_t>>
+	virtual async::result<protocols::fs::ReadResult>
 	pread(Process *process, int64_t offset, void *buffer, size_t length);
 
 	virtual async::result<frg::expected<Error, size_t>>

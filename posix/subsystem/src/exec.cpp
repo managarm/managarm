@@ -214,12 +214,12 @@ execute(ViewPath root, ViewPath workdir,
 			}
 
 			char buffer[128];
-			auto readResult = co_await execFile->readSome(nullptr, buffer, 128);
-			if(!readResult) {
+			auto readResult = co_await execFile->readSome(nullptr, buffer, 128, {});
+			if (std::get_if<protocols::fs::Error>(&readResult)) {
 				std::cout << "posix: Failed to read executable" << std::endl;
 				co_return Error::badExecutable;
 			}
-			size_t chunk = readResult.value();
+			size_t chunk = std::get<size_t>(readResult);
 			if(!chunk) {
 				std::cout << "posix: EOF in shebang line" << std::endl;
 				co_return Error::badExecutable;

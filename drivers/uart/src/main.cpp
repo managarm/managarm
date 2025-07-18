@@ -224,7 +224,7 @@ async::detached handleIrqs() {
 }
 
 async::result<protocols::fs::ReadResult>
-read(void *, helix_ng::CredentialsView , void *buffer, size_t length) {
+read(void *, helix_ng::CredentialsView, void *buffer, size_t length, async::cancellation_token ce) {
 	if(!length)
 		co_return size_t{0};
 
@@ -234,7 +234,9 @@ read(void *, helix_ng::CredentialsView , void *buffer, size_t length) {
 	if(!recvBuffer.empty())
 		completeRecvs();
 
-	co_await req.event.wait();
+	co_await req.event.wait(ce);
+	if (ce.is_cancellation_requested())
+		co_return protocols::fs::Error::interrupted;
 	co_return req.progress;
 }
 
