@@ -615,7 +615,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed) {			
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
@@ -628,7 +628,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			if(debugFaults) {
 				launchGdbServer(self.get());
-				co_await async::suspend_indefinitely({});
+				co_await async::suspend_indefinitely(async::cancellation_token{});
 			}
 		}else if(observe.observation() == kHelObservePageFault) {
 			if(logPageFaults) {
@@ -655,7 +655,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
@@ -676,7 +676,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed) {			
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
@@ -697,7 +697,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed) {			
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
@@ -718,7 +718,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed) {			
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
@@ -739,7 +739,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(killed) {			
 				if(debugFaults) {
 					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			}
