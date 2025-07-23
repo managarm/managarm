@@ -247,7 +247,7 @@ jobs:
           - name: Generate image
             run: |
                 set -x
-                curl -o image.xz https://builds.managarm.org/repos/files/managarm/latest/image.xz
+                curl -o image.xz https://builds.managarm.org/projects/managarm/success/repo/files/x86_64/image.xz
                 unxz image.xz
                 ~/.xbstrap/bin/xbps-rindex -fa xbps-repo/*.xbps
                 ../src/scripts/update-image.py -m loopback mount
