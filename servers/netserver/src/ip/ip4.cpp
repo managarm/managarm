@@ -47,8 +47,8 @@ std::optional<Route> Ip4Router::resolveRoute(uint32_t ip, std::shared_ptr<nic::L
 	return {};
 }
 
-bool operator<(const CidrAddress &lhs, const CidrAddress &) {
-	return std::tie(lhs.prefix, lhs.ip) < std::tie(lhs.prefix, lhs.ip);
+bool operator<(const CidrAddress &lhs, const CidrAddress &rhs) {
+	return std::tie(lhs.prefix, lhs.ip) < std::tie(rhs.prefix, rhs.ip);
 }
 
 auto operator<=>(const Route &lhs, const Route &rhs) {
