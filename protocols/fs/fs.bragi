@@ -32,7 +32,8 @@ enum Errors {
 	ALREADY_CONNECTED = 29,
 	NOT_A_SOCKET = 30,
 	INTERRUPTED = 31,
-	NO_SUCH_PROCESS = 32
+	NO_SUCH_PROCESS = 32,
+	NAME_TOO_LONG = 33
 }
 
 consts FileType int64 {
