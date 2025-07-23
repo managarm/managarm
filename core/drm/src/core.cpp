@@ -134,13 +134,15 @@ void drm_core::File::postEvent(drm_core::Event event) {
 
 async::result<protocols::fs::ReadResult>
 drm_core::File::read(void *object, helix_ng::CredentialsView,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token ce) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(!self->_isBlocking && self->_pendingEvents.empty())
-		co_return protocols::fs::Error::wouldBlock;
-	while(self->_pendingEvents.empty())
-		co_await self->_eventBell.async_wait();
+		co_return std::unexpected{protocols::fs::Error::wouldBlock};
+	while (self->_pendingEvents.empty()) {
+		if (!co_await self->_eventBell.async_wait(ce))
+			co_return std::unexpected{protocols::fs::Error::interrupted};
+	}
 
 	auto ev = &self->_pendingEvents.front();
 

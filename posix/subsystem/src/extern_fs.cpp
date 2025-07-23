@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <sys/epoll.h>
 #include <map>
 
@@ -199,10 +200,10 @@ private:
 	}
 
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
-		size_t length = co_await _file.readSome(data, max_length);
-		co_return length;
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
+		auto res = co_await _file.readSome(data, max_length, ce);
+		co_return res.transform_error(toPosixError);
 	}
 
 	async::result<frg::expected<Error, PollWaitResult>>

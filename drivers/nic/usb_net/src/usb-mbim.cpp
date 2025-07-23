@@ -85,17 +85,18 @@ write(void *object, helix_ng::CredentialsView credentials, const void *buffer, s
 }
 
 static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView credentials,
-			void *buffer, size_t length) {
+			void *buffer, size_t length, async::cancellation_token ct) {
 	(void) credentials;
 
 	auto self = static_cast<CdcWdmDevice *>(object);
 
-	auto p = co_await self->nic->queue_.async_get();
-	assert(p);
+	auto p = co_await self->nic->queue_.async_get(ct);
+	if (!p)
+		co_return std::unexpected{protocols::fs::Error::interrupted};
 
 	memcpy(buffer, p->view().data(), std::min(length, p->size()));
 
-	co_return protocols::fs::ReadResult{p->size()};
+	co_return p->size();
 }
 
 static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,

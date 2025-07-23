@@ -36,10 +36,10 @@ extern inline __attribute__ (( always_inline )) HelError helCreateUniverse(HelHa
 };
 
 extern inline __attribute__ (( always_inline )) HelError helTransferDescriptor(HelHandle handle,
-		HelHandle universe_handle, HelHandle *out_handle) {
+		HelHandle universe_handle, enum HelTransferDescriptorFlags direction, HelHandle *out_handle) {
 	HelWord hel_out_handle;
-	HelError error = helSyscall2_1(kHelCallTransferDescriptor, (HelWord)handle,
-			(HelWord) universe_handle, &hel_out_handle);
+	HelError error = helSyscall3_1(kHelCallTransferDescriptor, (HelWord)handle,
+			(HelWord) universe_handle, (HelWord) direction, &hel_out_handle);
 	*out_handle = (HelHandle)hel_out_handle;
 	return error;
 };
@@ -426,9 +426,9 @@ extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHa
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(HelHandle handle,
-		uint64_t sequence, HelHandle queue, uintptr_t context) {
-	return helSyscall4(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
-			(HelWord)queue, (HelWord)context);
+		uint64_t sequence, HelHandle queue, uintptr_t context, uint64_t *async_id) {
+	return helSyscall4_1(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
+			(HelWord)queue, (HelWord)context, (HelWord *)async_id);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandle handle,

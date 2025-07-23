@@ -348,8 +348,9 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
 	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
 
-	HEL_CHECK(helTransferDescriptor(posixMbusClient,
-			context->_universe.getHandle(), &context->_clientMbusLane));
+	HEL_CHECK(helTransferDescriptor(
+	    posixMbusClient, context->_universe.getHandle(), kHelTransferDescriptorOut, &context->_clientMbusLane
+	));
 
 	return context;
 }
@@ -374,8 +375,9 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 		context->attachFile(entry.first, entry.second.file, entry.second.closeOnExec);
 	}
 
-	HEL_CHECK(helTransferDescriptor(posixMbusClient,
-			context->_universe.getHandle(), &context->_clientMbusLane));
+	HEL_CHECK(helTransferDescriptor(
+	    posixMbusClient, context->_universe.getHandle(), kHelTransferDescriptorOut, &context->_clientMbusLane
+	));
 
 	return context;
 }
@@ -388,8 +390,9 @@ FileContext::~FileContext() {
 int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 		bool closeOnExec, int startAt) {
 	HelHandle handle;
-	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
-			_universe.getHandle(), &handle));
+	HEL_CHECK(helTransferDescriptor(
+	    file->getPassthroughLane().getHandle(), _universe.getHandle(), kHelTransferDescriptorOut, &handle
+	));
 
 	for(int fd = startAt; ; fd++) {
 		if(_fileTable.find(fd) != _fileTable.end())
@@ -407,8 +410,9 @@ int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
 	HelHandle handle;
-	HEL_CHECK(helTransferDescriptor(file->getPassthroughLane().getHandle(),
-			_universe.getHandle(), &handle));
+	HEL_CHECK(helTransferDescriptor(
+	    file->getPassthroughLane().getHandle(), _universe.getHandle(), kHelTransferDescriptorOut, &handle
+	));
 
 	if(logFileAttach)
 		std::cout << "posix: Attaching fixed FD " << fd << std::endl;
@@ -577,7 +581,7 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 			break;
 		if(nonBlock)
 			co_return nullptr;
-		if(!co_await _signalBell.async_wait(ct))
+		if (!co_await _signalBell.async_wait(ct))
 			co_return nullptr;
 	}
 
@@ -632,13 +636,14 @@ static const auto simdStateSize = [] () -> size_t {
 	return regInfo.setSize;
 }();
 
-async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
-		bool &killed) {
-	auto thread = process->threadDescriptor();
-
+SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item, Process *process) {
 	SignalHandler handler = _handlers[item->signalNumber - 1];
 
 	process->enterSignal();
+
+	SignalContext::SignalHandling result {
+		.handler = handler,
+	};
 
 	// Implement SA_RESETHAND by resetting the signal disposition to default.
 	if(handler.flags & signalOnce)
@@ -652,42 +657,67 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGURG:
 			case SIGWINCH:
 				// Ignore the signal.
-				killed = false;
-				co_return;
+				result.ignored = true;
+				break;
+			default:
+				result.killed = true;
+				break;
+		}
+	} else if(handler.disposition == SignalDisposition::ignore) {
+		// Ignore the signal.
+	} else {
+		assert(handler.disposition == SignalDisposition::handle);
+	}
 
+	return result;
+}
+
+async::result<void> SignalContext::raiseContext(SignalItem *item, Process *process,
+		SignalContext::SignalHandling handling) {
+	if (handling.ignored) {
+		delete item;
+		co_return;
+	}
+
+	if (handling.handler.disposition == SignalDisposition::none) {
+
+		switch (item->signalNumber) {
 			case SIGABRT:
 			case SIGILL:
 			case SIGSEGV:
 				if(debugFaults) {
-					std::cout << "posix: Thread killed as the result of signal "
-						<< item->signalNumber << std::endl;
+					std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
+					<< item->signalNumber << std::endl;
 					launchGdbServer(process);
 					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
-				[[fallthrough]];
+				break;
 			default:
-				std::cout << "posix: Thread killed as the result of signal "
-						<< item->signalNumber << std::endl;
-				killed = true;
-				co_await process->terminate(TerminationBySignal{item->signalNumber});
-				co_return;
+				std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
+					<< item->signalNumber << std::endl;
+				assert(handling.killed);
+				break;
 		}
-	} else if(handler.disposition == SignalDisposition::ignore) {
+	} else if (handling.handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
-		killed = false;
+		delete item;
 		co_return;
 	}
 
-	assert(handler.disposition == SignalDisposition::handle);
-	killed = false;
+	if (handling.killed) {
+		co_await process->terminate(TerminationBySignal{item->signalNumber});
+		delete item;
+		co_return;
+	}
 
+	auto thread = process->threadDescriptor();
 	SignalFrame sf;
 	memset(&sf, 0, sizeof(SignalFrame));
 
 #if defined (__x86_64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 
-	sf.returnAddress = handler.restorerIp;
+	sf.returnAddress = handling.handler.restorerIp;
 #elif defined(__aarch64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
 #elif defined(__riscv) && __riscv_xlen == 64
@@ -697,13 +727,13 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Signal register loading code is missing for architecture
 #endif
 
-	memcpy(&sf.ucontext.uc_sigmask, &handler.mask, sizeof(handler.mask));
+	memcpy(&sf.ucontext.uc_sigmask, &handling.handler.mask, sizeof(handling.handler.mask));
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
 
 	// Once compile siginfo_t if that is neccessary (matches Linux behavior).
-	if(handler.flags & signalInfo) {
+	if(handling.handler.flags & signalInfo) {
 		sf.info.si_signo = item->signalNumber;
 		std::visit(CompileSignalInfo{&sf.info}, item->info);
 	}
@@ -721,7 +751,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Code to get stack pointer is missing for architecture
 #endif
 
-	if (handler.flags & signalOnStack && process->isAltStackEnabled()) {
+	if (handling.handler.flags & signalOnStack && process->isAltStackEnabled()) {
 		if (!process->isOnAltStack(threadSp)) {
 			threadSp = process->altStackSp() + process->altStackSize();
 		}
@@ -754,7 +784,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	if(logSignals) {
 		std::cout << "posix: Saving pre-signal stack to " << (void *)frame << std::endl;
-		std::cout << "posix: Calling signal handler at " << (void *)handler.handlerIp << std::endl;
+		std::cout << "posix: Calling signal handler at " << (void *)handling.handler.handlerIp << std::endl;
 	}
 	// Setup the new register image and resume.
 #if defined(__x86_64__)
@@ -763,7 +793,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.ucontext.uc_mcontext.gregs[REG_RDX] = frame + offsetof(SignalFrame, ucontext);
 	sf.ucontext.uc_mcontext.gregs[REG_RAX] = 0; // Number of variable arguments.
 
-	sf.ucontext.uc_mcontext.gregs[REG_RIP] = handler.handlerIp;
+	sf.ucontext.uc_mcontext.gregs[REG_RIP] = handling.handler.handlerIp;
 	sf.ucontext.uc_mcontext.gregs[REG_RSP] = frame;
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
@@ -773,9 +803,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	sf.ucontext.uc_mcontext.regs[2] = frame + offsetof(SignalFrame, ucontext);
 
 	// Return address for the 'ret' instruction
-	sf.ucontext.uc_mcontext.regs[30] = handler.restorerIp;
+	sf.ucontext.uc_mcontext.regs[30] = handling.handler.restorerIp;
 
-	sf.ucontext.uc_mcontext.pc = handler.handlerIp;
+	sf.ucontext.uc_mcontext.pc = handling.handler.handlerIp;
 	sf.ucontext.uc_mcontext.sp = frame;
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
@@ -787,6 +817,13 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #endif
 
 	delete item;
+}
+
+async::result<void> SignalContext::determineAndRaiseContext(SignalItem *item, Process *process,
+		bool &killed) {
+	auto handling = determineHandling(item, process);
+	killed = handling.killed;
+	co_return co_await raiseContext(item, process, handling);
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
@@ -894,6 +931,19 @@ Process::~Process() {
 	_pgPointer->dropProcess(this);
 }
 
+void Process::cancelEvent() {
+	auto cancelEventPtr = reinterpret_cast<HelHandle *>(_cancelEventMapping.get());
+	auto cancelEvent = __atomic_load_n(cancelEventPtr, __ATOMIC_ACQUIRE);
+	if (cancelEvent != kHelNullHandle) {
+		HelHandle posixCancelEvent;
+		HEL_CHECK(helTransferDescriptor(
+		    cancelEvent, _fileContext->getUniverse().getHandle(), kHelTransferDescriptorIn, &posixCancelEvent
+		));
+		HEL_CHECK(helRaiseEvent(posixCancelEvent));
+		*cancelEventPtr = kHelNullHandle;
+	}
+}
+
 bool Process::checkSignalRaise() {
 	auto p = reinterpret_cast<unsigned int *>(accessThreadPage());
 	unsigned int gsf = __atomic_load_n(p, __ATOMIC_RELAXED);
@@ -935,18 +985,32 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
+
 	// The initial signal mask allows all signals.
 	process->_signalMask = 0;
 
 	auto [server_lane, client_lane] = helix::createStream();
-	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	HEL_CHECK(helTransferDescriptor(
+	    client_lane.getHandle(),
+	    process->_fileContext->getUniverse().getHandle(),
+	    kHelTransferDescriptorOut,
+	    &process->_clientPosixLane
+	));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientCancelEvent));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -1007,18 +1071,32 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
+
 	// Signal masks are copied on fork().
 	process->_signalMask = original->_signalMask;
 
 	auto [server_lane, client_lane] = helix::createStream();
-	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	HEL_CHECK(helTransferDescriptor(
+	    client_lane.getHandle(),
+	    process->_fileContext->getUniverse().getHandle(),
+	    kHelTransferDescriptorOut,
+	    &process->_clientPosixLane
+	));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientCancelEvent));
 	HEL_CHECK(helMapMemory(process->_fileContext->fileTableMemory().getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -1073,18 +1151,32 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	process->_threadPageMemory = helix::UniqueDescriptor{thread_memory};
 	process->_threadPageMapping = helix::Mapping{process->_threadPageMemory, 0, 0x1000};
 
+	HelHandle cancel_event_memory;
+	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
+	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
+	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
+	new (process->_cancelEventMapping.get()) HelHandle{};
+
 	// Signal masks are copied on clone().
 	process->_signalMask = original->_signalMask;
 
 	auto [server_lane, client_lane] = helix::createStream();
-	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &process->_clientPosixLane));
+	HEL_CHECK(helTransferDescriptor(
+	    client_lane.getHandle(),
+	    process->_fileContext->getUniverse().getHandle(),
+	    kHelTransferDescriptorOut,
+	    &process->_clientPosixLane
+	));
 	client_lane.release();
 
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			process->_vmContext->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&process->_clientThreadPage));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			process->_vmContext->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&process->_clientCancelEvent));
 
 	process->_clientFileTable = original->_clientFileTable;
 	process->_clientClkTrackerPage = original->_clientClkTrackerPage;
@@ -1131,17 +1223,26 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	// Allocate resources.
 	HelHandle exec_posix_lane;
 	auto [server_lane, client_lane] = helix::createStream();
-	HEL_CHECK(helTransferDescriptor(client_lane.getHandle(),
-			process->_fileContext->getUniverse().getHandle(), &exec_posix_lane));
+	HEL_CHECK(helTransferDescriptor(
+	    client_lane.getHandle(),
+	    process->_fileContext->getUniverse().getHandle(),
+	    kHelTransferDescriptorOut,
+	    &exec_posix_lane
+	));
 	client_lane.release();
 
 	void *exec_thread_page;
+	void *exec_cancel_event;
 	void *exec_clk_tracker_page;
 	void *exec_client_table;
 	HEL_CHECK(helMapMemory(process->_threadPageMemory.getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
 			&exec_thread_page));
+	HEL_CHECK(helMapMemory(process->_cancelEventMemory.getHandle(),
+			exec_vm_context->getSpace().getHandle(),
+			nullptr, 0, 0x1000, kHelMapProtRead | kHelMapProtWrite,
+			&exec_cancel_event));
 	HEL_CHECK(helMapMemory(clk::trackerPageMemory().getHandle(),
 			exec_vm_context->getSpace().getHandle(),
 			nullptr, 0, 0x1000, kHelMapProtRead,
@@ -1174,6 +1275,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_vmContext = std::move(exec_vm_context);
 	process->_signalContext->resetHandlers();
 	process->_clientThreadPage = exec_thread_page;
+	process->_clientCancelEvent = exec_cancel_event;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
 	process->_clientClkTrackerPage = exec_clk_tracker_page;
@@ -1217,6 +1319,7 @@ async::result<void> Process::terminate(TerminationState state) {
 
 	if(realTimer)
 		realTimer->cancel();
+
 	_posixLane = {};
 	_threadDescriptor = {};
 	_vmContext = nullptr;
@@ -1263,7 +1366,8 @@ async::result<void> Process::terminate(TerminationState state) {
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<frg::expected<Error, Process::WaitResult>> Process::wait(int pid, WaitFlags flags) {
+async::result<frg::expected<Error, Process::WaitResult>>
+Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 	assert(pid == -1 || pid > 0);
 	assert(flags & waitExited);
 	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
@@ -1301,7 +1405,8 @@ async::result<frg::expected<Error, Process::WaitResult>> Process::wait(int pid, 
 		if(result || (flags & waitNonBlocking))
 			co_return result.value_or(WaitResult{});
 
-		co_await _notifyBell.async_wait();
+		if (!co_await _notifyBell.async_wait(ct))
+			co_return Error::interrupted;
 	}
 }
 

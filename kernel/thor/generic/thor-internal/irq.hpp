@@ -11,21 +11,34 @@
 
 namespace thor {
 
+struct IrqObject;
+
 struct AwaitIrqNode {
 	friend struct IrqObject;
 
-	void setup(Worklet *awaited) {
-		_awaited = awaited;
+	void setup(Worklet *awaited, IrqObject *irq, async::cancellation_token ct) {
+		awaited_ = awaited;
+		ct_ = ct;
+		irq_ = irq;
 	}
 
-	Error error() { return _error; }
-	uint64_t sequence() { return _sequence; }
+	Error error() { return error_; }
+	uint64_t sequence() { return sequence_; }
+
+	bool wasCancelled() const { return wasCancelled_; }
+	void cancel();
 
 private:
-	Worklet *_awaited;
+	Worklet *awaited_;
+	async::cancellation_token ct_;
 
-	Error _error;
-	uint64_t _sequence;
+	IrqObject *irq_;
+	bool wasCancelled_ = false;
+	async::cancellation_observer<frg::bound_mem_fn<&AwaitIrqNode::cancel>> cancelCb_{this};
+	async::cancellation_token cancelToken_;
+
+	Error error_;
+	uint64_t sequence_;
 
 	frg::default_list_hook<AwaitIrqNode> _queueNode;
 };
@@ -273,6 +286,8 @@ protected:
 
 // This class implements the user-visible part of IRQ handling.
 struct IrqObject : IrqSink {
+	friend AwaitIrqNode;
+
 	IrqObject(frg::string<KernelAlloc> name);
 
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);

@@ -52,45 +52,19 @@ File::ptSeekEof(void *object, int64_t offset) {
 
 async::result<protocols::fs::ReadResult>
 File::ptRead(void *object, helix_ng::CredentialsView credentials,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token ce) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	auto result = co_await self->readSome(process.get(), buffer, length);
-	if(!result) {
-		switch(result.error()) {
-		case Error::illegalOperationTarget:
-			co_return protocols::fs::Error::illegalArguments;
-		case Error::wouldBlock:
-			co_return protocols::fs::Error::wouldBlock;
-		case Error::notConnected:
-			co_return protocols::fs::Error::notConnected;
-		default:
-			assert(!"Unexpected error from readSome()");
-			__builtin_unreachable();
-		}
-	}else{
-		co_return result.value();
-	}
+	co_return (co_await self->readSome(process.get(), buffer, length, ce))
+		.transform_error(protocols::fs::toFsProtoError);
 }
 
 async::result<protocols::fs::ReadResult>
 File::ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	auto result = co_await self->pread(process.get(), offset, buffer, length);
-	if(!result) {
-		switch(result.error()) {
-		case Error::illegalOperationTarget:
-			co_return protocols::fs::Error::illegalArguments;
-		case Error::wouldBlock:
-			co_return protocols::fs::Error::wouldBlock;
-		default:
-			assert(!"Unexpected error from pread()");
-			__builtin_unreachable();
-		}
-	}else{
-		co_return result.value();
-	}
+	co_return (co_await self->pread(process.get(), offset, buffer, length))
+		.transform_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, helix_ng::CredentialsView credentials,
@@ -283,26 +257,33 @@ async::result<frg::expected<Error>> File::readExactly(Process *process,
 		void *data, size_t length) {
 	size_t offset = 0;
 	while(offset < length) {
-		auto result = FRG_CO_TRY(co_await readSome(process,
-				(char *)data + offset, length - offset));
-		if(!result)
+		// readExactly() only used in exec() so pass empty
+		// cancellation token.
+		auto result = co_await readSome(process, (char *)data + offset, length - offset, {});
+		// TODO(geert): This is really weird, this function should
+		// return a protocols::fs::Error and just propogate the error we
+		// get from readSome(). Practically it has no effect right now,
+		// since exec() doesn't check for the error code, but it's still
+		// highly confusing.
+		if (!result.has_value())
 			co_return Error::eof;
-		offset += result;
+		offset += result.value();
 	}
 
 	co_return {};
 }
 
-async::result<frg::expected<Error, size_t>> File::readSome(Process *, void *, size_t) {
+async::result<std::expected<size_t, Error>>
+File::readSome(Process *, void *, size_t, async::cancellation_token) {
 	std::cout << "\e[35mposix \e[1;34m" << structName()
 			<< "\e[0m\e[35m: File does not support read()\e[39m" << std::endl;
-	co_return Error::illegalOperationTarget;
+	co_return std::unexpected{Error::illegalOperationTarget};
 }
 
-async::result<frg::expected<Error, size_t>> File::pread(Process *, int64_t, void *, size_t) {
+async::result<std::expected<size_t, Error>> File::pread(Process *, int64_t, void *, size_t) {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement pread()" << std::endl;
-	co_return Error::seekOnPipe;
+	co_return std::unexpected{Error::seekOnPipe};
 }
 
 void File::handleClose() {

@@ -565,8 +565,9 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallTransferDescriptor: {
 		HelHandle out_handle;
-		*image.error() = helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
-				&out_handle);
+		*image.error() =
+			helTransferDescriptor((HelHandle)arg0, (HelHandle)arg1,
+				(HelTransferDescriptorFlags) arg2, &out_handle);
 		*image.out0() = out_handle;
 	} break;
 	case kHelCallDescriptorInfo: {
@@ -817,8 +818,10 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helAcknowledgeIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2);
 	} break;
 	case kHelCallSubmitAwaitEvent: {
+		uint64_t async_id;
 		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3);
+				(HelHandle)arg2, (uintptr_t)arg3, &async_id);
+		*image.out0() = async_id;
 	} break;
 	case kHelCallAutomateIrq: {
 		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);

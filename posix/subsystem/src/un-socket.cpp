@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -153,33 +154,51 @@ public:
 	}
 
 public:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
-			co_return Error::notConnected;
+			co_return std::unexpected{Error::notConnected};
 
 		if(logSockets)
 			std::cout << "posix: Read from socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		if(_recvQueue.empty() && nonBlock_) {
-			if(logSockets)
-				std::cout << "posix: UNIX socket would block" << std::endl;
-			co_return Error::wouldBlock;
+		bool queueWaitCancelled = false;
+
+		if(_recvQueue.empty()) {
+			if(nonBlock_) {
+				if(logSockets)
+					std::cout << "posix: UNIX socket would block" << std::endl;
+				co_return std::unexpected{Error::wouldBlock};
+			}
+
+			if(shutdownFlags_ & shutdownRead)
+				co_return size_t{0};
+
+			if(ct.is_cancellation_requested())
+				co_return std::unexpected{Error::interrupted};
+
+			co_await async::race_and_cancel(
+				async::lambda([&](async::cancellation_token c) {
+					return raceReceiveTimeout(c);
+				}),
+				async::lambda([&](async::cancellation_token c) -> async::result<void> {
+					while (_recvQueue.empty()) {
+						if (!co_await _statusBell.async_wait(c)) {
+							queueWaitCancelled = true;
+							co_return;
+						}
+					}
+				}),
+				async::lambda([&](async::cancellation_token c) -> async::result<void> {
+					co_await async::suspend_indefinitely(c, ct);
+				})
+			);
 		}
 
-		if(_recvQueue.empty() && shutdownFlags_ & shutdownRead)
-			co_return 0;
-
-		co_await async::race_and_cancel(
-			[&](async::cancellation_token c) { return raceReceiveTimeout(c); },
-			[&](async::cancellation_token c) -> async::result<void> {
-				while (_recvQueue.empty() && !c.is_cancellation_requested())
-					co_await _statusBell.async_wait(c);
-			}
-		);
-
-		if(_recvQueue.empty())
-			co_return Error::wouldBlock;
+		if(_recvQueue.empty() && queueWaitCancelled)
+			co_return std::unexpected{Error::interrupted};
+		else if(_recvQueue.empty())
+			co_return std::unexpected{Error::wouldBlock}; // timed out
 
 		auto packet = &_recvQueue.front();
 		if(socktype_ == SOCK_STREAM) {

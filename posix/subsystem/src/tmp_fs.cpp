@@ -10,6 +10,7 @@
 #include <protocols/fs/server.hpp>
 #include "common.hpp"
 #include "device.hpp"
+#include "protocols/fs/common.hpp"
 #include "tmp_fs.hpp"
 #include "fifo.hpp"
 #include "process.hpp"
@@ -364,7 +365,7 @@ private:
 		auto target = it->get()->getTarget();
 		if(target->getType() == VfsType::directory) {
 			auto dir_target = reinterpret_cast<DirectoryNode *>(target.get());
-			
+
 			if(dir_target->_entries.size()) {
 				co_return Error::directoryNotEmpty;
 			}
@@ -437,13 +438,13 @@ public:
 
 	async::result<frg::expected<Error, off_t>> seek(off_t delta, VfsSeek whence) override;
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *buffer, size_t max_length) override;
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *buffer, size_t max_length, async::cancellation_token ce) override;
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *buffer, size_t length) override;
 
-	async::result<frg::expected<Error, size_t>>
+	async::result<std::expected<size_t, Error>>
 	pread(Process *, int64_t offset, void *buffer, size_t length) override;
 
 	async::result<frg::expected<Error, size_t>>
@@ -636,12 +637,12 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-MemoryFile::readSome(Process *, void *buffer, size_t max_length) {
+async::result<std::expected<size_t, Error>>
+MemoryFile::readSome(Process *, void *buffer, size_t max_length, async::cancellation_token) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(!(_offset <= node->_fileSize))
-		co_return 0;
+		co_return size_t{0};
 	auto chunk = std::min(node->_fileSize - _offset, max_length);
 
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);
@@ -663,12 +664,12 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	co_return length;
 }
 
-async::result<frg::expected<Error, size_t>>
+async::result<std::expected<size_t, Error>>
 MemoryFile::pread(Process *, int64_t offset, void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(static_cast<size_t>(offset) >= node->_fileSize)
-		co_return 0;
+		co_return std::unexpected{Error::eof};
 	auto chunk = std::min(node->_fileSize - offset, length);
 
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + offset, chunk);

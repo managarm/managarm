@@ -1,12 +1,13 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
-#include <iostream>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 #include "signalfd.hpp"
 
 namespace signal_fd {
@@ -23,14 +24,16 @@ void OpenFile::serve(smarter::shared_ptr<OpenFile> file) {
 OpenFile::OpenFile(uint64_t mask, bool nonBlock)
 : File{FileKind::unknown,  StructName::get("signalfd"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, _mask{mask}, _nonBlock{nonBlock} { }
 
-async::result<frg::expected<Error, size_t>>
-OpenFile::readSome(Process *process, void *data, size_t maxLength) {
+async::result<std::expected<size_t, Error>>
+OpenFile::readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(maxLength < sizeof(struct signalfd_siginfo))
-		co_return Error::illegalArguments;
+		co_return std::unexpected{Error::illegalArguments};
 
-	auto active = co_await process->signalContext()->fetchSignal(_mask, _nonBlock);
-	if(!active)
-		co_return Error::wouldBlock;
+	auto active = co_await process->signalContext()->fetchSignal(_mask, _nonBlock, ce);
+	if (!active && _nonBlock)
+		co_return std::unexpected{Error::wouldBlock};
+	if (!active && !_nonBlock)
+		co_return std::unexpected{Error::interrupted};
 
 	struct signalfd_siginfo si = {};
 	si.ssi_signo = active->signalNumber;

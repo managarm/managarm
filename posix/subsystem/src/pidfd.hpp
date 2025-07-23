@@ -13,8 +13,8 @@ public:
 
 	OpenFile(std::weak_ptr<Process> proc, bool nonBlock);
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *process, void *data, size_t maxLength) override;
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ct) override;
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *process, uint64_t inSeq, int pollMask,

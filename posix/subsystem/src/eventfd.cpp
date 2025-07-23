@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 
@@ -6,6 +7,7 @@
 #include <helix/ipc.hpp>
 #include "eventfd.hpp"
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 
 namespace eventfd {
 
@@ -31,10 +33,10 @@ struct OpenFile : File {
 		_passthrough = {};
 	}
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
 		if (max_length < 8)
-			co_return Error::illegalArguments;
+			co_return std::unexpected{Error::illegalArguments};
 
 		while (1) {
 			if (_counter) {
@@ -48,13 +50,15 @@ struct OpenFile : File {
 				}
 				_writeableSeq = ++_currentSeq;
 				_doorbell.raise();
-				co_return 8;
+				co_return size_t{8};
 			}
 
-			if (_nonBlock)
-				co_return Error::wouldBlock;
-			else
-				co_await _doorbell.async_wait();
+			if (_nonBlock) {
+				co_return std::unexpected{Error::wouldBlock};
+			} else {
+				if (!co_await _doorbell.async_wait(ce))
+					co_return std::unexpected{Error::interrupted};
+			}
 		}
 	}
 

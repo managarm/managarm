@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -85,7 +86,7 @@ async::result<protocols::fs::Error> flock(void *object, int flags) {
 }
 
 async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token) {
 	if (!length)
 		co_return size_t{0};
 
@@ -93,7 +94,7 @@ async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Credential
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 
 	if(self->inode->fileType == FileType::kTypeDirectory) {
-		co_return protocols::fs::Error::isDirectory;
+		co_return std::unexpected{protocols::fs::Error::isDirectory};
 	}
 
 	co_await self->inode->readyJump.wait();
@@ -150,6 +151,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, hel
 
 	protocols::ostrace::Timer timer;
 	auto self = static_cast<ext2fs::OpenFile *>(object);
+	// TODO(geert): pass cancellation token
 	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
@@ -158,7 +160,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, hel
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
 	if(!chunk_size)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto chunk_offset = offset;
 	auto map_offset = chunk_offset & ~size_t(0xFFF);
@@ -562,13 +564,14 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 };
 
 async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::CredentialsView,
-		void *buffer, size_t length) {
+		void *buffer, size_t length, async::cancellation_token) {
 	assert(length);
 
 	uint64_t start;
 	HEL_CHECK(helGetClock(&start));
 
 	auto self = static_cast<raw::OpenFile *>(object);
+	// TODO(geert): pass cancellation token through here
 	auto file_size = co_await self->rawFs->device->getSize();
 
 	if(self->offset >= file_size)
@@ -577,11 +580,12 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::Credent
 	auto remaining = file_size - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto chunk_offset = self->offset;
 	self->offset += chunkSize;
 
+	// TODO(geert): use cancellation token here
 	auto readMemory = co_await helix_ng::readMemory(
 			helix::BorrowedDescriptor(self->rawFs->frontalMemory),
 			chunk_offset, chunkSize, buffer);

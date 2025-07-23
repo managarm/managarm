@@ -1,4 +1,5 @@
 
+#include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
 #include <iostream>
@@ -11,6 +12,7 @@
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
+#include "protocols/fs/common.hpp"
 
 #include <sys/ioctl.h>
 
@@ -89,27 +91,32 @@ public:
 		_channel = nullptr;
 	}
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t maxLength) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
 		if(logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
 		if (!isReader_)
-			co_return Error::insufficientPermissions;
+			co_return std::unexpected{Error::insufficientPermissions};
 		if(!maxLength)
-			co_return 0;
+			co_return size_t{0};
 
 		while(_channel->packetQueue.empty() && _channel->writerCount) {
 			if(nonBlock_) {
 				if(logFifos)
 					std::cout << "posix: FIFO pipe would block" << std::endl;
-				co_return Error::wouldBlock;
+				co_return std::unexpected{Error::wouldBlock};
 			}
-			co_await _channel->statusBell.async_wait();
+
+			if (!co_await _channel->statusBell.async_wait(ce)) {
+				if (logFifos)
+					std::cout << "posix: FIFO pipe read interrupted" << std::endl;
+				co_return std::unexpected{Error::interrupted};
+			}
 		}
 
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
-			co_return 0;
+			co_return size_t{0};
 		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.

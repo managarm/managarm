@@ -10,8 +10,8 @@ namespace {
 
 struct FullFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
 		memset(data, 0, length);
 		co_return length;
 	}

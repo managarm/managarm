@@ -86,18 +86,21 @@ async::detached issueReset() {
 // ----------------------------------------------------------------------------
 
 async::result<protocols::fs::ReadResult>
-File::read(void *object, helix_ng::CredentialsView, void *buffer, size_t max_size) {
+File::read(void *object, helix_ng::CredentialsView, void *buffer, size_t max_size,
+		async::cancellation_token ct) {
 	auto self = static_cast<File *>(object);
 
 	// Make sure that we can at least write the SYN_DROPPED packet.
 	if(max_size < sizeof(input_event))
-		co_return protocols::fs::Error::illegalArguments;
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	if(self->_nonBlock && self->_pending.empty() && !self->_overflow)
-		co_return protocols::fs::Error::wouldBlock;
+		co_return std::unexpected{protocols::fs::Error::wouldBlock};
 
-	while(self->_pending.empty() && !self->_overflow)
-		co_await self->_statusBell.async_wait();
+	while (self->_pending.empty() && !self->_overflow) {
+		if (!co_await self->_statusBell.async_wait(ct))
+			co_return std::unexpected{protocols::fs::Error::interrupted};
+	}
 
 	if(self->_overflow) {
 		struct timespec now;
@@ -141,7 +144,6 @@ File::read(void *object, helix_ng::CredentialsView, void *buffer, size_t max_siz
 		co_return written;
 	}
 }
-
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 File::pollWait(void *object, uint64_t past_seq, int mask,

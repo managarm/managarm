@@ -292,15 +292,25 @@ public:
 
 	CheckSignalResult checkSignal();
 
-	// TODO: If we ever need to cancel this operation, it would be better to
-	//       take a cancellation token instead of nonBlock.
 	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct = {});
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 
+	struct SignalHandling {
+		bool killed = false;
+		bool ignored = false;
+		SignalHandler handler;
+	};
+
+	// As this function bumps the signal seq number, only call this exactly
+	// once per SignalItem!
+	SignalHandling determineHandling(SignalItem *item, Process *process);
 	async::result<void> raiseContext(SignalItem *item, Process *process,
+			SignalHandling handling);
+
+	async::result<void> determineAndRaiseContext(SignalItem *item, Process *process,
 			bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
@@ -547,10 +557,13 @@ public:
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 	void *clientAuxBegin() { return _clientAuxBegin; }
 	void *clientAuxEnd() { return _clientAuxEnd; }
+	void *clientCancelEvent() { return _clientCancelEvent; }
 
 	ThreadPage *accessThreadPage() {
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
 	}
+
+	void cancelEvent();
 
 	// Like checkOrRequestSignalRaise() but only check if raising is possible.
 	bool checkSignalRaise();
@@ -569,7 +582,8 @@ public:
 		ResourceUsage stats = {};
 	};
 
-	async::result<frg::expected<Error, WaitResult>> wait(int pid, WaitFlags flags);
+	async::result<frg::expected<Error, WaitResult>>
+	wait(int pid, WaitFlags flags, async::cancellation_token ct);
 
 	bool hasChild(int pid);
 
@@ -712,10 +726,14 @@ private:
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
+	helix::UniqueDescriptor _cancelEventMemory;
+	helix::Mapping _cancelEventMapping;
+
 	HelHandle _clientPosixLane;
 	void *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
+	void *_clientCancelEvent;
 	// Pointers to the aux vector in the client.
 	void *_clientAuxBegin = nullptr;
 	void *_clientAuxEnd = nullptr;

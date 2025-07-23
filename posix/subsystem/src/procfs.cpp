@@ -1,3 +1,4 @@
+#include <async/cancellation.hpp>
 #include <functional>
 #include <linux/magic.h>
 #include <print>
@@ -9,6 +10,7 @@
 #include "common.hpp"
 #include "procfs.hpp"
 #include "process.hpp"
+#include "protocols/fs/common.hpp"
 
 #include <bitset>
 #include <sys/epoll.h>
@@ -65,13 +67,14 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 	co_return _offset;
 }
 
-async::result<frg::expected<Error, size_t>>
-RegularFile::readSome(Process *process, void *data, size_t max_length) {
+async::result<std::expected<size_t, Error>>
+RegularFile::readSome(Process *process, void *data, size_t max_length, async::cancellation_token) {
 	assert(max_length > 0);
 
 	if(!_cached) {
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
+		// TODO(geert): We assume this can't block (probably wrong).
 		_buffer = co_await node->show(process);
 		_cached = true;
 	}

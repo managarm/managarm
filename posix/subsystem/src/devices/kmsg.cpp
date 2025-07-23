@@ -12,8 +12,10 @@ namespace {
 
 struct KmsgFile final : File {
 private:
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t length) override {
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t length, async::cancellation_token ct) override {
+		// TODO(geert): Make this cancellable.
+		(void)ct;
 		std::vector<char> buffer(2048);
 
 		uint32_t flags = managarm::kerncfg::GetBufferContentsFlags::ONE_RECORD;
@@ -43,17 +45,20 @@ private:
 		recvResp.reset();
 
 		if(resp.error() == managarm::kerncfg::Error::WOULD_BLOCK)
-			co_return Error::wouldBlock;
+			co_return std::unexpected{Error::wouldBlock};
 
 		assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
 
 		int ret_len = snprintf(reinterpret_cast<char *>(data), length,
 			"%s", reinterpret_cast<char *>(buffer.data()));
 
+		if(ret_len < 0)
+			co_return std::unexpected{Error::ioError};
+
 		assert(offset_ == resp.effective_dequeue());
 		offset_ = resp.new_dequeue();
 
-		co_return ret_len;
+		co_return static_cast<size_t>(ret_len);
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *data, size_t length) override {

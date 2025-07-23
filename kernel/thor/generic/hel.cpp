@@ -247,41 +247,60 @@ HelError helCreateUniverse(HelHandle *handle) {
 	return kHelErrNone;
 }
 
-HelError helTransferDescriptor(HelHandle handle, HelHandle universe_handle,
-		HelHandle *out_handle) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
+HelError
+helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDescriptorFlags direction, HelHandle *outHandle) {
+	if(direction != kHelTransferDescriptorOut && direction != kHelTransferDescriptorIn)
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
 
 	AnyDescriptor descriptor;
-	smarter::shared_ptr<Universe> universe;
+	smarter::shared_ptr<Universe> srcUniverse;
+	smarter::shared_ptr<Universe> dstUniverse;
+
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(this_universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(thisUniverse->lock);
 
-		auto descriptor_it = this_universe->getDescriptor(lock, handle);
-		if(!descriptor_it)
-			return kHelErrNoDescriptor;
-		descriptor = *descriptor_it;
-
-		if(universe_handle == kHelThisUniverse) {
-			universe = this_universe.lock();
+		smarter::shared_ptr<Universe> universe;
+		if(universeHandle == kHelThisUniverse) {
+			universe = thisUniverse.lock();
 		}else{
-			auto universe_it = this_universe->getDescriptor(lock, universe_handle);
-			if(!universe_it)
+			auto universeIt = thisUniverse->getDescriptor(lock, universeHandle);
+			if(!universeIt)
 				return kHelErrNoDescriptor;
-			if(!universe_it->is<UniverseDescriptor>())
+			if(!universeIt->is<UniverseDescriptor>())
 				return kHelErrBadDescriptor;
-			universe = universe_it->get<UniverseDescriptor>().universe;
+			universe = universeIt->get<UniverseDescriptor>().universe;
 		}
+
+		if(direction == kHelTransferDescriptorOut) {
+			srcUniverse = thisUniverse.lock();
+			dstUniverse = universe;
+		} else {
+			assert(direction == kHelTransferDescriptorIn);
+			dstUniverse = thisUniverse.lock();
+			srcUniverse = universe;
+		}
+	}
+
+	{
+		Universe::Guard lock{srcUniverse->lock};
+
+		auto descriptorIt = srcUniverse->getDescriptor(lock, handle);
+		if (!descriptorIt)
+			return kHelErrNoDescriptor;
+		descriptor = *descriptorIt;
 	}
 
 	// TODO: make sure the descriptor is copyable.
 
 	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard lock(universe->lock);
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard lock(dstUniverse->lock);
 
-		*out_handle = universe->attachDescriptor(lock, std::move(descriptor));
+		*outHandle = dstUniverse->attachDescriptor(lock, std::move(descriptor));
 	}
 	return kHelErrNone;
 }
@@ -2749,7 +2768,15 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					&& peer->tag() == kTagRecvKernelBuffer) {
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (!res) {
+					peer->_error = Error::threadExited;
+					node->_error = Error::threadExited;
+					peer->complete();
+					node->complete();
+					continue;
+				}
+
 				auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 				if(!outcome) {
 					// We complete with fault; the remote with success.
@@ -2826,7 +2853,23 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 					auto chunkSize = frg::min(recipe->length - progress, xb.size());
 					assert(chunkSize);
 
-					co_await thread->mainWorkQueue()->enter();
+					auto res = co_await thread->mainWorkQueue()->enter();
+					if (!res) {
+						peer->flowQueue.put({ .terminate = true, .fault = true });
+						++numSent;
+
+						// Retrieve but ignore all acks.
+						assert(numSent > numAcked);
+						while(numSent != numAcked) {
+							auto ackPacket = co_await node->flowQueue.async_get();
+							assert(ackPacket);
+							++numAcked;
+						}
+
+						node->_error = Error::threadExited;
+						break;
+					}
+
 					auto outcome = readUserMemory(xb.data(),
 							reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
 					if(!outcome) {
@@ -2860,7 +2903,14 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				node->complete();
 			}else if(recipe->type == kHelActionRecvToBuffer
 					&& peer->tag() == kTagSendKernelBuffer) {
-				co_await thread->mainWorkQueue()->enter();
+				auto res = co_await thread->mainWorkQueue()->enter();
+				if (!res) {
+					peer->_error = Error::threadExited;
+					node->_error = Error::threadExited;
+					peer->complete();
+					node->complete();
+					continue;
+				}
 				auto outcome = writeUserMemory(recipe->buffer,
 						peer->_inBuffer.data(), peer->_inBuffer.size());
 				if(!outcome) {
@@ -2984,21 +3034,33 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
-		Thread::asyncBlockCurrent(
-			getGlobalFutexRealm()->wait(std::move(futex), expected)
-		);
+		if (!Thread::asyncBlockCurrentInterruptible(
+		        [&](async::cancellation_token ct) {
+			        return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
+		        }
+		    )) {
+			return kHelErrCancelled;
+		}
 	}else{
-		Thread::asyncBlockCurrent(
-			async::race_and_cancel(
-				[&] (async::cancellation_token cancellation) {
-					return getGlobalFutexRealm()->wait(std::move(futex), expected,
-							cancellation);
-				},
-				[&] (async::cancellation_token cancellation) {
-					return generalTimerEngine()->sleep(deadline, cancellation);
-				}
-			)
-		);
+		if (!Thread::asyncBlockCurrentInterruptible(
+		        [&](async::cancellation_token ct) {
+			        return async::race_and_cancel(
+						async::lambda([&](async::cancellation_token cancellation) {
+							return getGlobalFutexRealm()->wait(
+								std::move(futex), expected, cancellation
+							);
+						}),
+			            async::lambda([&](async::cancellation_token cancellation) {
+				            return generalTimerEngine()->sleep(deadline, cancellation);
+			            }),
+			            async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
+				            co_await async::suspend_indefinitely(ct, cancellation);
+			            })
+			        );
+		        }
+		    )) {
+			return kHelErrCancelled;
+		}
 	}
 
 	return kHelErrNone;
@@ -3140,32 +3202,98 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	}
 }
 
+template <typename Event>
+requires (std::is_same_v<Event, OneshotEvent> || std::is_same_v<Event, BitsetEvent>)
+struct EventClosure final : CancelNode, AwaitEventNode<Event>, IpcNode {
+	static void issue(smarter::shared_ptr<Event> event, uint64_t sequence,
+			smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
+		auto closure = frg::construct<EventClosure>(*kernelAlloc, event.get(),
+				std::move(queue), context);
+		closure->_queue->registerNode(closure);
+		*async_id = closure->asyncId();
+
+		event->submitAwait(closure, sequence);
+	}
+
+	static void awaited(Worklet *worklet) {
+		auto closure = frg::container_of(worklet, &EventClosure::worklet);
+
+		if(!closure->wasCancelled())
+			closure->result.error = translateError(closure->error());
+		else
+			closure->result.error = kHelErrCancelled;
+
+		closure->_queue->unregisterNode(closure);
+		closure->result.sequence = closure->sequence();
+		closure->result.bitset = closure->bitset();
+		closure->_queue->submit(closure);
+	}
+
+	void handleCancellation() override {
+		cancelEvent.cancel();
+	}
+
+public:
+	explicit EventClosure(Event *event, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
+	: _queue{std::move(the_queue)},
+			source{&result, sizeof(HelEventResult), nullptr} {
+		setupContext(context);
+		setupSource(&source);
+		worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
+		AwaitEventNode<Event>::setup(&worklet, event, cancelEvent);
+	}
+
+	void complete() override {
+		frg::destruct(*kernelAlloc, this);
+	}
+
+private:
+	Worklet worklet;
+	async::cancellation_event cancelEvent;
+	smarter::shared_ptr<IpcQueue> _queue;
+	QueueSource source;
+	HelEventResult result{
+		.error = kHelErrNone,
+		.bitset = 0,
+		.sequence = 0,
+	};
+};
+
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue_handle, uintptr_t context) {
-	struct IrqClosure final : IpcNode {
+		HelHandle queue_handle, uintptr_t context, uint64_t *async_id) {
+	struct IrqClosure final : CancelNode, IpcNode {
 		static void issue(smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
-			auto closure = frg::construct<IrqClosure>(*kernelAlloc,
+				smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
+			auto closure = frg::construct<IrqClosure>(*kernelAlloc, irq.get(),
 					std::move(queue), context);
+			closure->_queue->registerNode(closure);
+			*async_id = closure->asyncId();
 			irq->submitAwait(&closure->irqNode, sequence);
 		}
 
 		static void awaited(Worklet *worklet) {
 			auto closure = frg::container_of(worklet, &IrqClosure::worklet);
-			closure->result.error = translateError(closure->irqNode.error());
+			if(closure->irqNode.wasCancelled())
+				closure->result.error = kHelErrCancelled;
+			else
+				closure->result.error = translateError(closure->irqNode.error());
+			closure->_queue->unregisterNode(closure);
 			closure->result.sequence = closure->irqNode.sequence();
 			closure->_queue->submit(closure);
 		}
 
+		void handleCancellation() override {
+			cancelEvent.cancel();
+		}
+
 	public:
-		explicit IrqClosure(smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
+		explicit IrqClosure(IrqObject *irq, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
 		: _queue{std::move(the_queue)},
 				source{&result, sizeof(HelEventResult), nullptr} {
-			memset(&result, 0, sizeof(HelEventResult));
 			setupContext(context);
 			setupSource(&source);
 			worklet.setup(&IrqClosure::awaited, getCurrentThread()->mainWorkQueue());
-			irqNode.setup(&worklet);
+			irqNode.setup(&worklet, irq, cancelEvent);
 		}
 
 		void complete() override {
@@ -3174,56 +3302,15 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	private:
 		Worklet worklet;
+		async::cancellation_event cancelEvent;
 		AwaitIrqNode irqNode;
 		smarter::shared_ptr<IpcQueue> _queue;
 		QueueSource source;
-		HelEventResult result;
-	};
-
-	struct EventClosure final : IpcNode {
-		static void issue(smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
-			auto closure = frg::construct<EventClosure>(*kernelAlloc,
-					std::move(queue), context);
-			event->submitAwait(&closure->eventNode, sequence);
-		}
-
-		static void issue(smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context) {
-			auto closure = frg::construct<EventClosure>(*kernelAlloc,
-					std::move(queue), context);
-			event->submitAwait(&closure->eventNode, sequence);
-		}
-
-		static void awaited(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &EventClosure::worklet);
-			closure->result.error = translateError(closure->eventNode.error());
-			closure->result.sequence = closure->eventNode.sequence();
-			closure->result.bitset = closure->eventNode.bitset();
-			closure->_queue->submit(closure);
-		}
-
-	public:
-		explicit EventClosure(smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{std::move(the_queue)},
-				source{&result, sizeof(HelEventResult), nullptr} {
-			memset(&result, 0, sizeof(HelEventResult));
-			setupContext(context);
-			setupSource(&source);
-			worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
-			eventNode.setup(&worklet);
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-	private:
-		Worklet worklet;
-		AwaitEventNode eventNode;
-		smarter::shared_ptr<IpcQueue> _queue;
-		QueueSource source;
-		HelEventResult result;
+		HelEventResult result{
+			.error = kHelErrNone,
+			.bitset = 0,
+			.sequence = 0,
+		};
 	};
 
 	auto this_thread = getCurrentThread();
@@ -3255,15 +3342,15 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
 		IrqClosure::issue(std::move(irq), sequence,
-				std::move(queue), context);
+				std::move(queue), context, async_id);
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-		EventClosure::issue(std::move(event), sequence,
-				std::move(queue), context);
+		EventClosure<OneshotEvent>::issue(std::move(event), sequence,
+				std::move(queue), context, async_id);
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-		EventClosure::issue(std::move(event), sequence,
-				std::move(queue), context);
+		EventClosure<BitsetEvent>::issue(std::move(event), sequence,
+				std::move(queue), context, async_id);
 	}else{
 		return kHelErrBadDescriptor;
 	}

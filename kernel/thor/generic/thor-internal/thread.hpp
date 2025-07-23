@@ -1,6 +1,5 @@
 #pragma once
 
-#include <string.h>
 #include <atomic>
 
 #include <frg/container_of.hpp>
@@ -25,6 +24,12 @@ enum Interrupt {
 	kIntrIllegalInstruction,
 	kIntrSuperCall = 0x80000000
 };
+
+struct AsyncBlockCurrentInterruptibleTag {};
+struct AsyncBlockCurrentNormalTag {};
+
+template <typename T>
+concept AnyTag = (std::same_as<T, AsyncBlockCurrentNormalTag> || std::same_as<T, AsyncBlockCurrentInterruptibleTag>);
 
 // Shift for fixed point numbers that represent the load level.
 constexpr int loadShift = 10;
@@ -77,15 +82,35 @@ public:
 		return sptr;
 	}
 
-	template<typename Sender>
+	template <typename Sender>
 	static auto asyncBlockCurrent(Sender s) {
 		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue);
 	}
 
-	template<typename Sender>
-	requires std::is_same_v<typename Sender::value_type, void>
-	static void asyncBlockCurrent(Sender s, WorkQueue *wq) {
+	template <typename Sender>
+	static auto asyncBlockCurrent(Sender s, WorkQueue *wq) {
+		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
+			return std::move(s);
+		}, wq, AsyncBlockCurrentNormalTag{});
+	}
+
+	template <typename SenderFactory>
+	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
+	static auto asyncBlockCurrentInterruptible(SenderFactory s) {
+		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue, AsyncBlockCurrentInterruptibleTag{});
+	}
+
+	template <typename SenderFactory, AnyTag Tag>
+	    requires(std::is_invocable_v<SenderFactory, async::cancellation_token>
+	             && std::is_same_v<
+	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
+	                 void>)
+	static bool asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+		(void)tag;
 		auto thisThread = getCurrentThread();
+
+		async::cancellation_event ce;
+		auto sv = std::move(s(async::cancellation_token{ce}));
 
 		struct BlockingState {
 			// We need a shared_ptr since the thread might continue (and thus could be killed)
@@ -110,9 +135,11 @@ public:
 			BlockingState *blsp;
 		};
 
-		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
+		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
+
+		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
 		if(async::execution::start_inline(operation))
-			return;
+			return true;
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
@@ -122,14 +149,31 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			Thread::blockCurrent();
+			if (!Thread::blockCurrent(interruptible)) {
+				ce.cancel();
+				interruptible = false;
+				continue;
+			}
 		}
+
+		return true;
 	}
 
-	template<typename Sender>
-	requires (!std::is_same_v<typename Sender::value_type, void>)
-	static typename Sender::value_type asyncBlockCurrent(Sender s, WorkQueue *wq) {
+	template <typename SenderFactory, AnyTag Tag>
+	    requires(
+	        (std::is_invocable_v<SenderFactory, async::cancellation_token>
+	         && !std::is_same_v<
+	             typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
+	             void>)
+	    )
+	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+		(void)tag;
 		auto thisThread = getCurrentThread();
+
+		async::cancellation_event ce;
+		auto sv = std::move(s(async::cancellation_token{ce}));
+
+		using ValueType = typename decltype(sv)::value_type;
 
 		struct BlockingState {
 			// We need a shared_ptr since the thread might continue (and thus could be killed)
@@ -137,15 +181,13 @@ public:
 			smarter::shared_ptr<Thread> thread;
 			// Acquire-release semantics to publish the result of the async operation.
 			std::atomic<bool> done{false};
-			frg::optional<typename Sender::value_type> value{};
+			frg::optional<ValueType> value{};
 		} bls{.thread = thisThread.lock()};
 
 		struct Receiver {
-			void set_value_inline(typename Sender::value_type value) {
-				blsp->value.emplace(std::move(value));
-			}
+			void set_value_inline(ValueType value) { blsp->value.emplace(std::move(value)); }
 
-			void set_value_noinline(typename Sender::value_type value) {
+			void set_value_noinline(ValueType value) {
 				// The blsp pointer may become invalid as soon as we set blsp->done.
 				auto thread = std::move(blsp->thread);
 				blsp->value.emplace(std::move(value));
@@ -156,7 +198,9 @@ public:
 			BlockingState *blsp;
 		};
 
-		auto operation = async::execution::connect(std::move(s), Receiver{&bls});
+		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
+
+		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
 		if(async::execution::start_inline(operation))
 			return std::move(*bls.value);
 		while(true) {
@@ -168,13 +212,19 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			Thread::blockCurrent();
+			if (!Thread::blockCurrent(interruptible)) {
+				ce.cancel();
+				interruptible = false;
+				continue;
+			}
 		}
 		return std::move(*bls.value);
 	}
 
 	// State transitions that apply to the current thread only.
-	static void blockCurrent();
+
+	// returns false if the block was interrupted
+	static bool blockCurrent(bool interruptible = false);
 	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
@@ -312,6 +362,10 @@ private:
 		// the thread is waiting for progress inside the kernel.
 		// it is not scheduled.
 		kRunBlocked,
+
+		// thread is waiting for progress inside the kernel.
+		// it is not scheduled, but it can be interrupted.
+		kRunInterruptableBlocked,
 
 		// the thread was manually stopped from userspace.
 		// it is not scheduled.

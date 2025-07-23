@@ -41,8 +41,8 @@ public:
 
 	void handleClose() override;
 
-	async::result<frg::expected<Error, size_t>>
-	readSome(Process *, void *data, size_t max_length) override;
+	async::result<std::expected<size_t, Error>>
+	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override;
 
 	async::result<frg::expected<Error, size_t>>
 	writeAll(Process *, const void *data, size_t length) override;

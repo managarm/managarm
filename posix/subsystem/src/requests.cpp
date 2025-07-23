@@ -383,6 +383,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				flags |= waitLeaveZombie;
 
 			int wait_pid = 0;
+			// TODO (geert): make this operation cancelable.
 			if(req->idtype() == P_PID) {
 				wait_pid = req->id();
 			} else if(req->idtype() == P_ALL) {
@@ -407,7 +408,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT_ID", "pid={}", wait_pid);
 
-			auto wait_result = co_await self->wait(wait_pid, flags);
+			auto wait_result = co_await self->wait(wait_pid, flags, {});
 
 			managarm::posix::WaitIdResponse resp;
 
@@ -440,6 +441,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
+			auto [cancel_event] = co_await exchangeMsgs(conversation, helix_ng::pullDescriptor());
+			HEL_CHECK(cancel_event.error());
+
 			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
 				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -459,11 +463,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT", "pid={}", req.pid());
 
-			auto wait_result = co_await self->wait(req.pid(), flags);
+			auto event = cancel_event.descriptor();
+			frg::expected<Error, Process::WaitResult> waitResult{Error::ioError};
+
+			co_await async::race_and_cancel(
+				async::lambda([&](async::cancellation_token c) -> async::result<void> {
+					co_await helix_ng::awaitEvent(event, 1, c);
+				}),
+				async::lambda([&](async::cancellation_token c) -> async::result<void> {
+					waitResult = co_await self->wait(req.pid(), flags, c);
+				})
+			);
 
 			managarm::posix::SvrResponse resp;
-			if(wait_result) {
-				auto proc_state = wait_result.value();
+			if(waitResult) {
+				auto proc_state = waitResult.value();
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_pid(proc_state.pid);
 				resp.set_ru_user_time(proc_state.stats.userTime);
@@ -477,8 +491,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
 				resp.set_mode(mode);
+			} else if (waitResult.error() == Error::interrupted) {
+				resp.set_error(managarm::posix::Errors::INTERRUPTED);
 			} else {
-				assert(wait_result.error() == Error::noChildProcesses);
+				assert(waitResult.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
 			}
 
