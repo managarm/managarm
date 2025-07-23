@@ -215,7 +215,7 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 
 	auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
-	if(!attrs.has_value()) {
+	if(!attrs.has_value() || msg->ifa_family != AF_INET) {
 		sendError(this, hdr, EINVAL);
 		return;
 	}
