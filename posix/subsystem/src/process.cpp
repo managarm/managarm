@@ -1320,6 +1320,12 @@ async::result<void> Process::terminate(TerminationState state) {
 	if(realTimer)
 		realTimer->cancel();
 
+	// procfs attributes use some contexts for obtaining information, hence the procfs dir needs to be destructed first
+	if(_procfs_dir) {
+		auto result [[maybe_unused]] = co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName());
+		assert(result);
+	}
+
 	_posixLane = {};
 	_threadDescriptor = {};
 	_vmContext = nullptr;
@@ -1327,11 +1333,6 @@ async::result<void> Process::terminate(TerminationState state) {
 	_fileContext = nullptr;
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
-	if(_procfs_dir) {
-		auto result = co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName());
-		assert(result);
-		(void)result;
-	}
 
 	auto reparent_to = parent;
 	// walk up the chain until we hit a process that has no parent

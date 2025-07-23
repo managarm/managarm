@@ -2,12 +2,12 @@
 #include <async/cancellation.hpp>
 #include <string.h>
 #include <sys/epoll.h>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <helix/ipc.hpp>
 #include "eventfd.hpp"
 #include "process.hpp"
-#include "protocols/fs/common.hpp"
 
 namespace eventfd {
 
@@ -115,6 +115,26 @@ struct OpenFile : File {
 			events |= EPOLLOUT;
 
 		co_return PollStatusResult(_currentSeq, events);
+	}
+
+	async::result<void> setFileFlags(int flags) override {
+		// ignore O_{RDWR,WRONLY,RDONLY}
+		flags &= ~(O_RDWR | O_WRONLY | O_RDONLY);
+
+		if (flags & ~O_NONBLOCK) {
+			std::println("posix: setFileFlags on eventfd called with unknown flags {:#x}", flags & ~O_NONBLOCK);
+			co_return;
+		}
+
+		_nonBlock = (flags & O_NONBLOCK);
+		co_return;
+	}
+
+	async::result<int> getFileFlags() override {
+		int flags = O_RDWR;
+		if(_nonBlock)
+			flags |= O_NONBLOCK;
+		co_return flags;
 	}
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
