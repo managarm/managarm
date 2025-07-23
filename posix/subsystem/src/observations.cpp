@@ -1,4 +1,5 @@
 #include <signal.h>
+#include <print>
 
 #include "gdbserver.hpp"
 #include "observations.hpp"
@@ -100,6 +101,9 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
+
+	SignalItem *delayedSignal = nullptr;
+	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
 
 	uint64_t sequence = 1;
 	while(true) {
@@ -328,16 +332,28 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut1] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active) {
-					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+			if (!delayedSignal) {
+				auto active =
+					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+
+				if (active) {
+					auto handling = self->signalContext()->determineHandling(active, self.get());
+
+					if (handling.ignored) {
+						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+					} else {
+						self->cancelEvent();
+						if (self->checkOrRequestSignalRaise()) {
+							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							if (handling.killed)
+								break;
+						} else {
+							delayedSignal = active;
+							delayedSignalHandling = handling;
+						}
+					}
 				}
 			}
-			if(killed)
-				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigRaise) {
@@ -354,9 +370,16 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			bool killed = false;
-			auto active = co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
-			if(active)
-				co_await self->signalContext()->raiseContext(active, self.get(), killed);
+
+			if(delayedSignal) {
+				killed = delayedSignalHandling->killed;
+				co_await self->signalContext()->raiseContext(delayedSignal, self.get(), *delayedSignalHandling);
+				delayedSignal = nullptr;
+				delayedSignalHandling = std::nullopt;
+			} else {
+				std::println("posix: userspace misbehavior, superSigRaise called without available signal");
+			}
+
 			if(killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -418,15 +441,29 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}
 
 			// If the process signalled itself, we should process the signal before resuming.
-			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active)
-					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+			if (!delayedSignal) {
+				auto active =
+					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+
+				if (active) {
+					auto handling = self->signalContext()->determineHandling(active, self.get());
+
+					if (handling.ignored) {
+						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+					} else {
+						self->cancelEvent();
+						if (self->checkOrRequestSignalRaise()) {
+							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							if (handling.killed)
+								break;
+						} else {
+							delayedSignal = active;
+							delayedSignalHandling = handling;
+						}
+					}
+				}
 			}
-			if(killed)
-				break;
+
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigAltStack) {
 			// sigaltstack is implemented as a supercall because it
@@ -550,25 +587,20 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			} else if(timeout) {
 				SignalItem *item = nullptr;
 
-				auto raceWait = [](async::cancellation_token c, uint64_t timeout) -> async::result<void> {
-					if(timeout != UINT64_MAX) {
-						co_await helix_ng::sleepFor(timeout, c);
-					} else {
-						co_await async::suspend_indefinitely(c);
-					}
-				};
-
-				auto raceSignal = [](async::cancellation_token c, uintptr_t mask, SignalItem *&item, std::shared_ptr<Process> self) -> async::result<void> {
-					item = co_await self->signalContext()->fetchSignal(mask, false, c);
-				};
-
 				co_await async::race_and_cancel(
-					[&](async::cancellation_token c) -> async::result<void> {
-						return raceWait(c, timeout);
-					},
-					[&](async::cancellation_token c) -> async::result<void> {
-						return raceSignal(c, mask, item, self);
-					}
+					async::lambda([&](async::cancellation_token c) -> async::result<void> {
+						if(timeout != UINT64_MAX) {
+							co_await helix_ng::sleepFor(timeout, c);
+						} else {
+							co_await async::suspend_indefinitely(c);
+						}
+					}),
+					async::lambda([&](async::cancellation_token c) -> async::result<void> {
+						item = co_await self->signalContext()->fetchSignal(mask, false, c);
+					}),
+					async::lambda([&](async::cancellation_token c) -> async::result<void> {
+						co_await async::suspend_indefinitely(c, generation->cancelServe);
+					})
 				);
 
 				if(item) {
@@ -590,15 +622,28 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
-			bool killed = false;
-			if(self->checkOrRequestSignalRaise()) {
-				auto active = co_await self->signalContext()->fetchSignal(
-						~self->signalMask(), true);
-				if(active)
-					co_await self->signalContext()->raiseContext(active, self.get(), killed);
+			if (!delayedSignal) {
+				auto active =
+					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+
+				if (active) {
+					auto handling = self->signalContext()->determineHandling(active, self.get());
+
+					if (handling.ignored) {
+						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+					} else {
+						self->cancelEvent();
+						if (self->checkOrRequestSignalRaise()) {
+							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							if (handling.killed)
+								break;
+						} else {
+							delayedSignal = active;
+							delayedSignalHandling = handling;
+						}
+					}
+				}
 			}
-			if(killed)
-				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
 			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
@@ -612,8 +657,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});
@@ -645,7 +690,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(!logPageFaults) {
 					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
@@ -673,8 +718,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});
@@ -694,8 +739,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});
@@ -715,8 +760,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});
@@ -736,8 +781,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->raiseContext(item, self.get(), killed);
-			if(killed) {			
+			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});

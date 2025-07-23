@@ -292,15 +292,25 @@ public:
 
 	CheckSignalResult checkSignal();
 
-	// TODO: If we ever need to cancel this operation, it would be better to
-	//       take a cancellation token instead of nonBlock.
 	async::result<SignalItem *> fetchSignal(uint64_t mask, bool nonBlock, async::cancellation_token ct = {});
 
 	// ------------------------------------------------------------------------
 	// Signal context manipulation.
 	// ------------------------------------------------------------------------
 
+	struct SignalHandling {
+		bool killed = false;
+		bool ignored = false;
+		SignalHandler handler;
+	};
+
+	// As this function bumps the signal seq number, only call this exactly
+	// once per SignalItem!
+	SignalHandling determineHandling(SignalItem *item, Process *process);
 	async::result<void> raiseContext(SignalItem *item, Process *process,
+			SignalHandling handling);
+
+	async::result<void> determineAndRaiseContext(SignalItem *item, Process *process,
 			bool &killed);
 
 	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
@@ -552,6 +562,8 @@ public:
 	ThreadPage *accessThreadPage() {
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
 	}
+
+	void cancelEvent();
 
 	// Like checkOrRequestSignalRaise() but only check if raising is possible.
 	bool checkSignalRaise();
