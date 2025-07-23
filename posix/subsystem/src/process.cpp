@@ -662,7 +662,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 					std::cout << "posix: Thread killed as the result of signal "
 						<< item->signalNumber << std::endl;
 					launchGdbServer(process);
-					co_await async::suspend_indefinitely({});
+					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				[[fallthrough]];
 			default:
