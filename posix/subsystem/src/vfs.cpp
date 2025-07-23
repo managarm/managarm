@@ -258,6 +258,9 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		if(debugResolve)
 			std::cout << "posix " << sn << ":     Resolving '" << name << "'" << std::endl;
 
+		if (name.length() > NAME_MAX)
+			co_return protocols::fs::Error::nameTooLong;
+
 		// Resolve the link into the directory.
 		assert(!name.empty()); // This is ensured by the path decomposition algorithm.
 		if(name == ".") {
@@ -441,6 +444,12 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		if(!_components.size())
 			co_return protocols::fs::Error::fileNotFound;
 		assert(_components.size() == 1);
+
+		if (_components.front().length() > NAME_MAX)
+			co_return protocols::fs::Error::nameTooLong;
+
+		if (_components.front() == ".")
+			_components.pop_front();
 	}else{
 		assert(!_components.size());
 
