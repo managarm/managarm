@@ -1960,6 +1960,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
+			if (req->path().length() > PATH_MAX) {
+				co_await sendErrorResponse(managarm::posix::Errors::NAME_TOO_LONG);
+				continue;
+			}
+
 			SemanticFlags semantic_flags = 0;
 			if(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
 				semantic_flags |= semanticNonBlock;
@@ -2008,6 +2013,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
 						co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
 						continue;
+					} else if(resolveResult.error() == protocols::fs::Error::nameTooLong) {
+						co_await sendErrorResponse(managarm::posix::Errors::NAME_TOO_LONG);
+						continue;
 					} else {
 						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
 						co_return;
@@ -2017,6 +2025,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				logRequest(logRequests || logPaths, "OPENAT", "create '{}'",
 					ViewPath{resolver.currentView(), resolver.currentLink()}
 					.getPath(self->fsContext()->getRoot()));
+
+				if (!resolver.hasComponent()) {
+					if ((req->flags() & managarm::posix::OpenFlags::OF_RDWR)
+					|| (req->flags() & managarm::posix::OpenFlags::OF_WRONLY))
+						co_await sendErrorResponse(managarm::posix::Errors::IS_DIRECTORY);
+					else
+						co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
+					continue;
+				}
 
 				auto directory = resolver.currentLink()->getTarget();
 				auto tailResult = co_await directory->getLink(resolver.nextComponent());
