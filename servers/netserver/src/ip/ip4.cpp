@@ -265,7 +265,7 @@ Ip4::targetByRemote(uint32_t remote, std::shared_ptr<nic::Link> link) {
 bool Ip4::hasIp(uint32_t addr) {
 	return std::any_of(ips.cbegin(), ips.cend(),
 		[addr] (auto &x) {
-			return x.first.ip == addr;
+			return x.first.addr.ip == addr;
 		});
 }
 
@@ -370,13 +370,13 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	}
 }
 
-void Ip4::setLink(CidrAddress addr, std::weak_ptr<nic::Link> l) {
+void Ip4::setLink(Ip4AddressInfo addr, std::weak_ptr<nic::Link> l) {
 	ips.emplace(addr, std::move(l));
 }
 
 std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
 	auto iter = std::find_if(ips.begin(), ips.end(),
-		[addr] (const auto &e) { return e.first.ip == addr; });
+		[addr] (const auto &e) { return e.first.addr.ip == addr; });
 	if (iter == ips.end()) {
 		return {};
 	}
@@ -388,7 +388,7 @@ std::shared_ptr<nic::Link> Ip4::getLink(uint32_t addr) {
 	return ptr;
 }
 
-std::optional<CidrAddress> Ip4::getCidrByIndex(int index) {
+std::optional<Ip4AddressInfo> Ip4::getCidrByIndex(int index) {
 	auto iter = std::find_if(ips.begin(), ips.end(),
 		[index] (const auto &e) {
 			auto ptr = e.second.lock();
@@ -404,16 +404,16 @@ std::optional<CidrAddress> Ip4::getCidrByIndex(int index) {
 	return iter->first;
 }
 
-bool Ip4::deleteLink(CidrAddress addr) {
+bool Ip4::deleteLink(Ip4AddressInfo addr) {
 	return ips.erase(addr) > 0;
 }
 
 std::optional<uint32_t> Ip4::findLinkIp(uint32_t ipOnNet, nic::Link *link) {
 	for (auto &entry : ips) {
-		if (!entry.second.expired() && entry.first.sameNet(ipOnNet)) {
+		if (!entry.second.expired() && entry.first.addr.sameNet(ipOnNet)) {
 			auto o = entry.second.lock();
 			if (o.get() == link) {
-				return entry.first.ip;
+				return entry.first.addr.ip;
 			}
 		}
 	}
