@@ -15,23 +15,22 @@ parser.add_argument('-t', '--triple', dest = 'arch',
 args = parser.parse_args()
 
 class Entry:
-	__slots__ = ('is_dir', 'source', 'strip')
+	__slots__ = ('is_dir', 'source')
 
-	def __init__(self, is_dir=False, source=None, strip=False):
+	def __init__(self, is_dir=False, source=None):
 		self.is_dir = is_dir
 		self.source = source
-		self.strip = strip
 
 file_dict = dict()
 
 def add_dir(rel_path):
 	file_dict[rel_path] = Entry(is_dir=True)
 
-def add_file(src_prefix, tree_prefix, filename, rename_to=None, strip=False):
+def add_file(src_prefix, tree_prefix, filename, rename_to=None):
 	dest_filename = filename if rename_to is None else rename_to
 	src_path = os.path.join(src_prefix, filename)
 	rel_path = os.path.join(tree_prefix, dest_filename)
-	file_dict[rel_path] = Entry(source=src_path, strip=strip)
+	file_dict[rel_path] = Entry(source=src_path)
 
 # Add all the files.
 
@@ -42,56 +41,56 @@ add_dir('usr/lib/managarm')
 add_dir('usr/lib/managarm/server')
 
 # The kernel
-add_file('system-root/usr/managarm/bin', '', 'thor', strip=True)
+add_file('system-root/usr/managarm/bin', '', 'thor')
 
 # Runtime libraries.
-add_file('system-root/usr/lib', 'usr/lib', 'libhelix.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libc.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libm.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'liblewis.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libz.so.1', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libvirtio_core.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libarch.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libfs_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libhw_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libkernlet_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libmbus.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libostrace_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libsvrctl_protocol.so', strip=True)
-add_file('system-root/usr/lib', 'usr/lib', 'libusb_protocol.so', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libhelix.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libc.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libm.so')
+add_file('system-root/usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so')
+add_file('system-root/usr/lib', 'usr/lib', 'liblewis.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libz.so.1')
+add_file('system-root/usr/lib', 'usr/lib', 'libvirtio_core.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libarch.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libfs_protocol.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libhw_protocol.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libkernlet_protocol.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libmbus.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libostrace_protocol.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libsvrctl_protocol.so')
+add_file('system-root/usr/lib', 'usr/lib', 'libusb_protocol.so')
 if args.arch == 'riscv64-managarm':
-	add_file('system-root/usr/lib', 'usr/lib', 'libgcc_s.so.1', strip=True)
-	add_file('system-root/usr/lib', 'usr/lib', 'libstdc++.so.6', strip=True)
+	add_file('system-root/usr/lib', 'usr/lib', 'libgcc_s.so.1')
+	add_file('system-root/usr/lib', 'usr/lib', 'libstdc++.so.6')
 else:
-	add_file('system-root/usr/lib64', 'usr/lib', 'libgcc_s.so.1', strip=True)
-	add_file('system-root/usr/lib64', 'usr/lib', 'libstdc++.so.6', strip=True)
+	add_file('system-root/usr/lib64', 'usr/lib', 'libgcc_s.so.1')
+	add_file('system-root/usr/lib64', 'usr/lib', 'libstdc++.so.6')
 
 # User-space core components.
-add_file('system-root/usr/bin', 'usr/bin', 'mbus', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'kernletcc', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'clocktracker', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'posix-subsystem', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'posix-init', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'mbus')
+add_file('system-root/usr/bin', 'usr/bin', 'kernletcc')
+add_file('system-root/usr/bin', 'usr/bin', 'clocktracker')
+add_file('system-root/usr/bin', 'usr/bin', 'posix-subsystem')
+add_file('system-root/usr/bin', 'usr/bin', 'posix-init')
 
 # Essential drivers.
-add_file('system-root/usr/lib', 'usr/lib', 'libblockfs.so', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'ehci', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'xhci', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'netserver', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'block-ahci', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'block-nvme', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'storage', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'virtio-block', strip=True)
-add_file('system-root/usr/bin', 'usr/bin', 'virtio-console', strip=True)
+add_file('system-root/usr/lib', 'usr/lib', 'libblockfs.so')
+add_file('system-root/usr/bin', 'usr/bin', 'ehci')
+add_file('system-root/usr/bin', 'usr/bin', 'xhci')
+add_file('system-root/usr/bin', 'usr/bin', 'netserver')
+add_file('system-root/usr/bin', 'usr/bin', 'block-ahci')
+add_file('system-root/usr/bin', 'usr/bin', 'block-nvme')
+add_file('system-root/usr/bin', 'usr/bin', 'storage')
+add_file('system-root/usr/bin', 'usr/bin', 'virtio-block')
+add_file('system-root/usr/bin', 'usr/bin', 'virtio-console')
 
 if args.arch == 'x86_64-managarm':
-	add_file('system-root/usr/bin', 'usr/bin', 'uhci', strip=True)
-	add_file('system-root/usr/bin', 'usr/bin', 'block-ata', strip=True)
-	add_file('system-root/usr/bin', 'usr/bin', 'uart', strip=True)
+	add_file('system-root/usr/bin', 'usr/bin', 'uhci')
+	add_file('system-root/usr/bin', 'usr/bin', 'block-ata')
+	add_file('system-root/usr/bin', 'usr/bin', 'uart')
 
 # Essential utilities.
-add_file('system-root/usr/bin', 'usr/bin', 'runsvr', strip=True)
+add_file('system-root/usr/bin', 'usr/bin', 'runsvr')
 
 # Server descriptions.
 for fname in os.listdir('system-root/usr/lib/managarm/server'):
@@ -110,8 +109,6 @@ for rel_path in file_list:
 
 	if entry.is_dir:
 		os.mkdir(dest_path)
-	elif entry.strip:
-		subprocess.check_call([f'{args.arch}-strip', '-o', dest_path, entry.source])
 	else:
 		os.link(entry.source, dest_path)
 
