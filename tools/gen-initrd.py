@@ -12,6 +12,7 @@ parser.add_argument('-t', '--triple', dest = 'arch',
 		choices = ['x86_64-managarm', 'aarch64-managarm', 'riscv64-managarm'], default = 'x86_64-managarm',
 		help = 'Target system triple (default: x86_64-managarm)')
 parser.add_argument('--sysroot', type=str, default='/')
+parser.add_argument('-o', '--out', type=str, default='initrd.cpio')
 
 args = parser.parse_args()
 
@@ -115,7 +116,7 @@ for rel_path in file_list:
 
 proc = subprocess.Popen(['cpio', '--create', '--format=newc',
 			'-D', tree_path,
-			'--file', 'initrd.cpio',
+			'--file', args.out,
 			'--quiet'],
 		stdin=subprocess.PIPE,
 		encoding='ascii')
