@@ -47,6 +47,7 @@ enum class Error {
 	notSocket = 30,
 	interrupted = 31,
 	nameTooLong = 32,
+	noFileDescriptorsAvailable = 33,
 };
 
 struct ToFsError {
@@ -89,6 +90,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::notSocket: return managarm::fs::Errors::NOT_A_SOCKET;
 		case Error::interrupted: return managarm::fs::Errors::INTERRUPTED;
 		case Error::nameTooLong: return managarm::fs::Errors::NAME_TOO_LONG;
+		case Error::noFileDescriptorsAvailable: return managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
 	}
 }
 
@@ -132,6 +134,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
 		case managarm::fs::Errors::INTERRUPTED: return Error::interrupted;
 		case managarm::fs::Errors::NAME_TOO_LONG: return Error::nameTooLong;
+		case managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE: return Error::noFileDescriptorsAvailable;
 	}
 }
 
