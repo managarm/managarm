@@ -805,17 +805,34 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
-		}else if(req.request_type() == managarm::posix::CntReqType::CHROOT) {
+		}else if(preamble.id() == managarm::posix::ChrootRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			logBragiRequest(tail);
+			auto req = bragi::parse_head_tail<managarm::posix::ChrootRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			logRequest(logRequests, "CHROOT");
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
+					self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
-					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					co_await sendErrorResponse.template operator()<managarm::posix::ChrootResponse>
+						(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
-					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					co_await sendErrorResponse.template operator()<managarm::posix::ChrootResponse>
+						(managarm::posix::Errors::NOT_A_DIRECTORY);
 					continue;
 				} else {
 					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -825,7 +842,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto path = pathResult.value();
 			self->fsContext()->changeRoot(path);
 
-			managarm::posix::SvrResponse resp;
+			managarm::posix::ChrootResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
@@ -833,17 +850,34 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
-		}else if(req.request_type() == managarm::posix::CntReqType::CHDIR) {
+		}else if(preamble.id() == managarm::posix::ChdirRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+
+			logBragiRequest(tail);
+			auto req = bragi::parse_head_tail<managarm::posix::ChdirRequest>(recv_head, tail);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			logRequest(logRequests, "CHDIR");
 
 			auto pathResult = co_await resolve(self->fsContext()->getRoot(),
-					self->fsContext()->getWorkingDirectory(), req.path(), self.get());
+					self->fsContext()->getWorkingDirectory(), req->path(), self.get());
 			if(!pathResult) {
 				if(pathResult.error() == protocols::fs::Error::fileNotFound) {
-					co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
+					co_await sendErrorResponse.template operator()<managarm::posix::ChdirResponse>
+						(managarm::posix::Errors::FILE_NOT_FOUND);
 					continue;
 				} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
-					co_await sendErrorResponse(managarm::posix::Errors::NOT_A_DIRECTORY);
+					co_await sendErrorResponse.template operator()<managarm::posix::ChdirResponse>
+						(managarm::posix::Errors::NOT_A_DIRECTORY);
 					continue;
 				} else {
 					std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -853,7 +887,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto path = pathResult.value();
 			self->fsContext()->changeWorkingDirectory(path);
 
-			managarm::posix::SvrResponse resp;
+			managarm::posix::ChdirResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

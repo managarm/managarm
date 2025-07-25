@@ -416,36 +416,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
-	}else if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
-		if(!file_ops->readEntries) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-			co_return;
-		}
-		auto result = co_await file_ops->readEntries(file.get());
-
-		managarm::fs::SvrResponse resp;
-		if(result) {
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_path(std::move(*result));
-		}else{
-			resp.set_error(managarm::fs::Errors::END_OF_FILE);
-		}
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size()));
-		HEL_CHECK(send_resp.error());
-		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
 		if(!file_ops->accessMemory) {
 			managarm::fs::SvrResponse resp;
@@ -1318,6 +1288,36 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
+	} else if(preamble.id() == managarm::fs::ReadEntriesRequest::message_id) {
+		if(!file_ops->readEntries) {
+			managarm::fs::ReadEntriesResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
+			co_return;
+		}
+		auto result = co_await file_ops->readEntries(file.get());
+
+		managarm::fs::ReadEntriesResponse resp;
+		if(result) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_path(std::move(*result));
+		}else{
+			resp.set_error(managarm::fs::Errors::END_OF_FILE);
+		}
+
+		auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{}));
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_tail.error());
+		logBragiReply(resp);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");
@@ -1577,9 +1577,24 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_GET_LINK) {
+		}else if(preamble.id() == managarm::fs::GetLinkRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::GetLinkRequest>(recv_req, tail);
 			recv_req.reset();
-			auto result = co_await node_ops->getLink(node, req.path());
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto result = co_await node_ops->getLink(node, req->path());
 			if(!result) {
 				managarm::fs::SvrResponse resp;
 				assert(result.error() == protocols::fs::Error::notDirectory);
@@ -1656,7 +1671,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->traverseLinks(node, std::deque(req->path_segments().begin(), req->path_segments().end()));
 
 			if (!result) {
-				managarm::fs::SvrResponse resp;
+				managarm::fs::NodeTraverseLinksResponse resp;
 				if (result.error() == protocols::fs::Error::notDirectory) {
 					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
 				} else {
@@ -1665,18 +1680,19 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				}
 
 				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(
 					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
+					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
 				);
 				HEL_CHECK(send_resp.error());
-				logBragiSerializedReply(ser);
+				HEL_CHECK(send_tail.error());
+				logBragiReply(resp);
 				continue;
 			}
 
 			auto [nodes, type, processedComponents] = result.value();
 
-			managarm::fs::SvrResponse resp;
+			managarm::fs::NodeTraverseLinksResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 			resp.set_links_traversed(processedComponents);
 			switch(type) {
@@ -1701,16 +1717,16 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				resp.add_ids(id);
 			}
 
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_desc] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp, send_tail, push_desc] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{}),
 				helix_ng::pushDescriptor(remote_push)
 			);
 
 			HEL_CHECK(send_resp.error());
+			HEL_CHECK(send_tail.error());
 			HEL_CHECK(push_desc.error());
-			logBragiSerializedReply(ser);
+			logBragiReply(resp);
 
 			for (auto &[node, _] : nodes) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -1724,9 +1740,23 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 
 				HEL_CHECK(push_node.error());
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_MKDIR) {
+		}else if(preamble.id() == managarm::fs::MkdirRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::MkdirRequest>(recv_req, tail);
 			recv_req.reset();
-			auto result = co_await node_ops->mkdir(node, req.path());
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+			auto result = co_await node_ops->mkdir(node, req->path());
 
 			if (std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
@@ -1805,9 +1835,24 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				HEL_CHECK(sendResp.error());
 				logBragiSerializedReply(ser);
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_LINK) {
+		}else if(preamble.id() == managarm::fs::LinkRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::LinkRequest>(recv_req, tail);
 			recv_req.reset();
-			auto result = co_await node_ops->link(node, req.path(), req.fd());
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto result = co_await node_ops->link(node, req->path(), req->fd());
 			if(std::get<0>(result)) {
 				helix::UniqueLane local_lane, remote_lane;
 				std::tie(local_lane, remote_lane) = helix::createStream();
@@ -1851,9 +1896,24 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				HEL_CHECK(send_resp.error());
 				logBragiSerializedReply(ser);
 			}
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_UNLINK) {
+		}else if(preamble.id() == managarm::fs::UnlinkRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::UnlinkRequest>(recv_req, tail);
 			recv_req.reset();
-			auto result = co_await node_ops->unlink(node, req.path());
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto result = co_await node_ops->unlink(node, req->path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
 				assert(result.error() == protocols::fs::Error::fileNotFound
@@ -1878,10 +1938,25 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_RMDIR) {
+		}else if(preamble.id() == managarm::fs::RmdirRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::RmdirRequest>(recv_req, tail);
 			recv_req.reset();
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
 			// TODO: This should probably be it's own operation, for now, let it be
-			auto result = co_await node_ops->unlink(node, req.path());
+			auto result = co_await node_ops->unlink(node, req->path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
 				resp.set_error(result.error() | toFsError);
@@ -1951,9 +2026,23 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OBSTRUCT_LINK) {
+		}else if(preamble.id() == managarm::fs::ObstructLinkRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::ObstructLinkRequest>(recv_req, tail);
 			recv_req.reset();
-			co_await node_ops->obstructLink(node, req.link_name());
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+			co_await node_ops->obstructLink(node, req->link_name());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);

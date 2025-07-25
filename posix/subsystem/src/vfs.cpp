@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <coroutine>
 #include <future>
+#include <bragi/helpers-std.hpp>
 #include <helix/passthrough-fd.hpp>
 
 #include "common.hpp"
@@ -102,24 +103,40 @@ async::result<void> populateRootView() {
 
 		auto lane = helix::BorrowedLane{helix::handleForFd(dir_fd)};
 		while(true) {
-			managarm::fs::CntRequest req;
-			req.set_req_type(managarm::fs::CntReqType::PT_READ_ENTRIES);
+			managarm::fs::ReadEntriesRequest req;
 
 			auto ser = req.SerializeAsString();
 			auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
 				lane,
 				helix_ng::offer(
+					helix_ng::want_lane,
 					helix_ng::sendBuffer(ser.data(), ser.size()),
 					helix_ng::recvInline()
 				)
 			);
 			HEL_CHECK(offer.error());
+			auto conversation = offer.descriptor();
 			HEL_CHECK(send_req.error());
 			HEL_CHECK(recv_resp.error());
 
-			managarm::fs::SvrResponse resp;
-			resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+			auto preamble = bragi::read_preamble(recv_resp);
+			if (preamble.error()) {
+				std::cout << "posix: error decoding preamble" << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+			}
+
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(tail.data(), tail.size())
+			);
+			HEL_CHECK(recv_tail.error());
+
+			auto resp = *bragi::parse_head_tail<managarm::fs::ReadEntriesResponse>(recv_resp, tail);
 			recv_resp.reset();
+
 			if(resp.error() == managarm::fs::Errors::END_OF_FILE)
 				break;
 			assert(resp.error() == managarm::fs::Errors::SUCCESS);
