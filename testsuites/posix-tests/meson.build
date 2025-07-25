@@ -19,6 +19,7 @@ src = [
 	'src/timerfd.cpp',
 	'src/posix-timers.cpp',
 	'src/eventfd.cpp',
+	'src/path-resolution.cpp',
 ]
 
 executable('posix-tests', src, install : true)
