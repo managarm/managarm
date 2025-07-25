@@ -315,7 +315,9 @@ public:
 				if(truncated && payload_len < sizeof(int))
 					break;
 
-				ctrl.write<int>(process->fileContext()->attachFile(std::move(file), flags & MSG_CMSG_CLOEXEC));
+				ctrl.write<int>(
+					process->fileContext()->attachFile(std::move(file), flags & MSG_CMSG_CLOEXEC)
+					.value_or(-1));
 
 				if(truncated)
 					payload_len -= sizeof(int);
@@ -781,7 +783,7 @@ public:
 
 				if(remoteProc) {
 					auto pidfd = createPidfdFile(remoteProc, false);
-					result = process->fileContext()->attachFile(pidfd);
+					result = process->fileContext()->attachFile(pidfd).value_or(-EMFILE);
 				} else {
 					result = -ENODATA;
 				}

@@ -32,6 +32,7 @@ std::ostream& operator<<(std::ostream& os, const Error& err) {
 		case Error::notSocket: err_string = "notSocket"; break;
 		case Error::interrupted: err_string = "interrupted"; break;
 		case Error::noSuchProcess: err_string = "noSuchProcess"; break;
+		case Error::noFileDescriptorsAvailable: err_string = "noFileDescriptorsAvailable"; break;
 	}
 
 	return os << err_string;

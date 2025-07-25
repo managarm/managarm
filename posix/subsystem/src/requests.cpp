@@ -2141,12 +2141,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto result = co_await file->truncate(0);
 				assert(result || result.error() == protocols::fs::Error::illegalOperationTarget);
 			}
-			int fd = self->fileContext()->attachFile(file,
+			auto fd = self->fileContext()->attachFile(file,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -2213,12 +2217,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			int newfd = self->fileContext()->attachFile(file,
+			auto newfd = self->fileContext()->attachFile(file,
 					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(newfd);
+			if (newfd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(newfd.value());
+			} else {
+				resp.set_error(newfd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -2263,17 +2271,21 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 			bool closeOnExec = (req->flags() & O_CLOEXEC);
 
-			int result = req->newfd();
+			std::expected<int, Error> result = req->newfd();
 			if(req->fcntl_mode())
 				result = self->fileContext()->attachFile(file, closeOnExec, req->newfd());
 			else
-				self->fileContext()->attachFile(req->newfd(), file, closeOnExec);
+				result = self->fileContext()->attachFile(req->newfd(), file, closeOnExec)
+					.transform([&]() {
+						return req->newfd();
+					});
 
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			if(result != req->newfd())
-				resp.set_fd(result);
-			else
-				resp.set_fd(req->newfd());
+			if (result) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(result.value());
+			} else {
+				resp.set_error(result.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -2666,9 +2678,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req.flags() & O_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.add_fds(r_fd);
-			resp.add_fds(w_fd);
+			if (r_fd && w_fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.add_fds(r_fd.value());
+				resp.add_fds(w_fd.value());
+			} else {
+				resp.set_error((!r_fd ? r_fd.error() : w_fd.error()) | toPosixProtoError);
+				if (r_fd)
+					self->fileContext()->closeFile(r_fd.value());
+				if (w_fd)
+					self->fileContext()->closeFile(w_fd.value());
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -2843,7 +2863,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto fd = self->fileContext()->attachFile(file,
 					req->flags() & SOCK_CLOEXEC);
 
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -2895,9 +2919,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req->flags() & SOCK_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.add_fds(fd0);
-			resp.add_fds(fd1);
+			if (fd0 && fd1) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.add_fds(fd0.value());
+				resp.add_fds(fd1.value());
+			} else {
+				resp.set_error((!fd0 ? fd0.error() : fd1.error()) | toPosixProtoError);
+				if (fd0)
+					self->fileContext()->closeFile(fd0.value());
+				if (fd1)
+					self->fileContext()->closeFile(fd1.value());
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -2931,8 +2963,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto fd = self->fileContext()->attachFile(std::move(newfile));
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -3050,8 +3086,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -3210,8 +3250,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto fd = self->fileContext()->attachFile(file, req->flags() & TFD_CLOEXEC);
 
 			managarm::posix::TimerFdCreateResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
@@ -3310,7 +3354,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
 				auto fd = self->fileContext()->attachFile(file,
 						req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-				resp.set_fd(fd);
+
+				if (fd)
+					resp.set_fd(fd.value());
+				else
+					resp.set_error(fd.error() | toPosixProtoError);
 			} else {
 				auto file = self->fileContext()->getFile(req.fd());
 				if(file) {
@@ -3347,8 +3395,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -3478,8 +3530,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				auto fd = self->fileContext()->attachFile(file,
 						req->flags() & managarm::posix::EventFdFlags::CLOEXEC);
 
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd);
+				if (fd) {
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_fd(fd.value());
+				} else {
+					resp.set_error(fd.error() | toPosixProtoError);
+				}
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -3799,10 +3855,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				flags |= managarm::posix::OpenFlags::OF_CLOEXEC;
 			}
 
-			int fd = self->fileContext()->attachFile(file, flags);
+			auto fd = self->fileContext()->attachFile(file, flags);
 
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -4250,8 +4310,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto fd = self->fileContext()->attachFile(pidfd, req->flags() & PIDFD_NONBLOCK);
 
 			managarm::posix::PidfdOpenResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
