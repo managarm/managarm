@@ -171,10 +171,12 @@ if build_kernel
 	subdir('kernel/thor')
 
 	# For now, managarm-kernel also provides gen-initrd.py.
-	install_data(
-		'tools/gen-initrd.py',
-		install_dir : get_option('bindir'),
-	)
+	if not build_uefi
+		install_data(
+			'tools/gen-initrd.py',
+			install_dir : get_option('bindir'),
+		)
+	endif
 endif
 
 if build_drivers
