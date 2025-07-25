@@ -169,6 +169,12 @@ if build_kernel
 	subdir('hel')
 	subdir('kernel/eir')
 	subdir('kernel/thor')
+
+	# For now, managarm-kernel also provides gen-initrd.py.
+	install_data(
+		'tools/gen-initrd.py',
+		install_dir : get_option('bindir'),
+	)
 endif
 
 if build_drivers
