@@ -4401,6 +4401,33 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			HEL_CHECK(send_resp.error());
 			logBragiReply(resp);
+		}else if(preamble.id() == managarm::posix::SetResourceLimitRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::posix::SetResourceLimitRequest>(recv_head);
+
+			if (!req) {
+				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			managarm::posix::SetResourceLimitResponse resp;
+			resp.set_error(managarm::posix::Errors::SUCCESS);
+
+			switch(req->resource()) {
+				case RLIMIT_NOFILE:
+					self->fileContext()->setFdLimit(req->max());
+					break;
+				default:
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					break;
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+
+			HEL_CHECK(send_resp.error());
+			logBragiReply(resp);
 		}else{
 			std::cout << "posix: Illegal request" << std::endl;
 
