@@ -112,7 +112,7 @@ for rel_path in file_list:
 	if entry.is_dir:
 		os.mkdir(dest_path)
 	else:
-		os.link(os.path.join(args.sysroot, entry.source), dest_path)
+		os.link(os.path.realpath(os.path.join(args.sysroot, entry.source)), dest_path)
 
 proc = subprocess.Popen(['cpio', '--create', '--format=newc',
 			'-D', tree_path,
