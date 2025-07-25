@@ -74,6 +74,9 @@ void DeviceTreeNode::initializeWith(::DeviceTreeNode dtNode) {
 		} else if (pn == "#interrupt-cells") {
 			interruptCells_ = prop.asU32();
 			hasInterruptCells_ = true;
+		} else if (pn == "#iommu-cells") {
+			iommuCells_ = prop.asU32();
+			hasIommuCells_ = true;
 		} else if (pn == "interrupt-parent") {
 			interruptParentId_ = prop.asU32();
 		} else if (pn == "interrupt-controller") {
@@ -186,6 +189,33 @@ void DeviceTreeNode::finalizeInit() {
 				<< interruptParentId_ << " but no such node exists" << frg::endlog;
 		} else {
 			interruptParent_ = ipIt->get<1>();
+		}
+	}
+
+	if (auto prop = dtNode_.findProperty("iommus")) {
+		size_t j = 0;
+		while (j < prop->size()) {
+			uint32_t handle = prop->asPropArrayEntry(1, j);
+			j += 4;
+
+			auto iommuIt = phandles->find(handle);
+			if (iommuIt == phandles->end()) {
+				panicLogger() << "thor: node \"" << name() << "\" has an iommus property referencing id "
+					<< handle << " but no such node exists" << frg::endlog;
+			}
+
+			auto iommuNode = iommuIt->get<1>();
+			if (!iommuNode->isIommu()) {
+				panicLogger() << "thor: node \"" << iommuNode->name() << "\" is not an iommu" << frg::endlog;
+			}
+
+			IommuReference ref{
+				.node = iommuNode,
+				.prop{prop->subProperty(j)}
+			};
+			referencedIommus_.push(ref);
+
+			j += iommuNode->iommuCells() * 4;
 		}
 	}
 
