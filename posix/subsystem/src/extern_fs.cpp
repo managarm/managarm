@@ -2,6 +2,7 @@
 #include <sys/epoll.h>
 #include <map>
 
+#include <bragi/helpers-std.hpp>
 #include <frg/std_compat.hpp>
 #include <protocols/fs/client.hpp>
 #include "common.hpp"
@@ -387,22 +388,22 @@ public:
 
 	async::result<frg::expected<Error>> obstruct() override {
 		assert(_owner);
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_OBSTRUCT_LINK);
+		managarm::fs::ObstructLinkRequest req;
 		req.set_link_name(_name);
 
 		auto lane = static_cast<Node *>(_owner.get())->getLane();
 
 		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			lane,
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::fs::SvrResponse resp;
@@ -529,24 +530,40 @@ private:
 		for (auto &i : path)
 			req.add_path_segments(i);
 
-		auto [offer, send_head, send_tail, recv_resp, pull_desc] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_head, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
+				helix_ng::want_lane,
 				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline(),
-				helix_ng::pullDescriptor()
+				helix_ng::recvInline()
 			)
 		);
 
 		HEL_CHECK(offer.error());
+		auto conversation = offer.descriptor();
 		HEL_CHECK(send_head.error());
 		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		std::shared_ptr<FsLink> link = nullptr;
 
-		managarm::fs::SvrResponse resp;
-		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		auto preamble = bragi::read_preamble(recv_resp);
+		if (preamble.error()) {
+			std::cout << "posix: error decoding preamble" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+
+		std::vector<uint8_t> tail(preamble.tail_size());
+		auto [recv_tail, pull_desc] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(tail.data(), tail.size()),
+			helix_ng::pullDescriptor()
+		);
+		HEL_CHECK(recv_tail.error());
+
+		auto resp = *bragi::parse_head_tail<managarm::fs::NodeTraverseLinksResponse>(recv_resp, tail);
 		recv_resp.reset();
 
 		if (resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
@@ -592,21 +609,20 @@ private:
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	mkdir(std::string name) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_MKDIR);
+		managarm::fs::MkdirRequest req;
 		req.set_path(name);
 
-		auto ser = req.SerializeAsString();
-		auto [offer, sendReq, recvResp, pullNode] = co_await helix_ng::exchangeMsgs(
+		auto [offer, sendReq, sendTail, recvResp, pullNode] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
 				helix_ng::pullDescriptor()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(sendReq.error());
+		HEL_CHECK(sendTail.error());
 		HEL_CHECK(recvResp.error());
 
 		managarm::fs::SvrResponse resp;
@@ -671,20 +687,20 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			getLink(std::string name) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_GET_LINK);
+		managarm::fs::GetLinkRequest req;
 		req.set_path(name);
 
-		auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_req, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
 				helix_ng::pullDescriptor()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::fs::SvrResponse resp;
@@ -712,21 +728,21 @@ private:
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
 			std::shared_ptr<FsNode> target) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_LINK);
+		managarm::fs::LinkRequest req;
 		req.set_path(name);
 		req.set_fd(static_cast<Node *>(target.get())->getInode());
 
-		auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_req, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline(),
 				helix_ng::pullDescriptor()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::fs::SvrResponse resp;
@@ -750,19 +766,19 @@ private:
 	}
 
 	async::result<frg::expected<Error>> unlink(std::string name) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_UNLINK);
+		managarm::fs::UnlinkRequest req;
 		req.set_path(name);
 
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::fs::SvrResponse resp;
@@ -777,20 +793,19 @@ private:
 	}
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_RMDIR);
+		managarm::fs::RmdirRequest req;
 		req.set_path(name);
 
-		auto ser = req.SerializeAsString();
-		auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			getLane(),
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
 				helix_ng::recvInline()
 			)
 		);
 		HEL_CHECK(offer.error());
 		HEL_CHECK(send_req.error());
+		HEL_CHECK(send_tail.error());
 		HEL_CHECK(recv_resp.error());
 
 		managarm::fs::SvrResponse resp;

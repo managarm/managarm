@@ -1,3 +1,4 @@
+#include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 #include <frg/span.hpp>
 #include <frg/string.hpp>
@@ -250,14 +251,17 @@ namespace initrd {
 				co_return;
 			}
 
-			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
-			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+			auto preamble = bragi::read_preamble(reqBuffer);
+			if(preamble.error()) {
+				infoLogger() << "thor: Could not decode directory request preamble" << frg::endlog;
+				co_return;
+			}
 
-			if(req.req_type() == managarm::fs::CntReqType::PT_READ_ENTRIES) {
+			if(preamble.id() == managarm::fs::ReadEntriesRequest<KernelAlloc>::message_id) {
 				if(file->index < file->node->numEntries()) {
 					auto entry = file->node->getEntry(file->index);
 
-					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::fs::ReadEntriesResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 					resp.set_path(entry.name);
 					if(entry.node->type == MfsType::directory) {
@@ -269,27 +273,49 @@ namespace initrd {
 
 					file->index++;
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
+					frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+						resp.head_size};
+					frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+						resp.size_of_tail()};
+
+					bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+					auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+					if (respHeadError != Error::success) {
+						infoLogger() << "thor: Could not send ReadEntriesResponse head" << frg::endlog;
+						co_return;
+					}
+
+					auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+					if (respTailError != Error::success) {
+						infoLogger() << "thor: Could not send ReadEntriesResponse tail" << frg::endlog;
+						co_return;
+					}
 				}else{
-					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::fs::ReadEntriesResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::fs::Errors::END_OF_FILE);
 
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
+					frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+						resp.head_size};
+					frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+						resp.size_of_tail()};
+
+					bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+					auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+					if (respHeadError != Error::success) {
+						infoLogger() << "thor: Could not send ReadEntriesResponse head" << frg::endlog;
+						co_return;
+					}
+
+					auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+					if (respTailError != Error::success) {
+						infoLogger() << "thor: Could not send ReadEntriesResponse tail" << frg::endlog;
+						co_return;
+					}
 				}
 			}else{
-				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+				urgentLogger() << "thor: Illegal request with message ID " << preamble.id()
 						<< " for kernel provided directory file" << frg::endlog;
 
 				auto dismissError = co_await DismissSender{conversation};
