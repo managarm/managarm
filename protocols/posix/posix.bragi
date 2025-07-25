@@ -809,3 +809,15 @@ message ChrootResponse 130 {
 head(128):
 	Errors error;
 }
+
+message SetResourceLimitRequest 131 {
+head(128):
+	int32 resource;
+	int64 cur;
+	int64 max;
+}
+
+message SetResourceLimitResponse 132 {
+head(128):
+	Errors error;
+}
