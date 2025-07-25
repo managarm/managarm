@@ -11,6 +11,7 @@ parser = argparse.ArgumentParser(description = 'Generate a managarm initrd')
 parser.add_argument('-t', '--triple', dest = 'arch',
 		choices = ['x86_64-managarm', 'aarch64-managarm', 'riscv64-managarm'], default = 'x86_64-managarm',
 		help = 'Target system triple (default: x86_64-managarm)')
+parser.add_argument('--sysroot', type=str, default='/')
 
 args = parser.parse_args()
 
@@ -41,62 +42,62 @@ add_dir('usr/lib/managarm')
 add_dir('usr/lib/managarm/server')
 
 # The kernel
-add_file('system-root/usr/managarm/bin', '', 'thor')
+add_file('usr/managarm/bin', '', 'thor')
 
 # Runtime libraries.
-add_file('system-root/usr/lib', 'usr/lib', 'libhelix.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libc.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libm.so')
-add_file('system-root/usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so')
-add_file('system-root/usr/lib', 'usr/lib', 'liblewis.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libz.so.1')
-add_file('system-root/usr/lib', 'usr/lib', 'libvirtio_core.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libarch.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libfs_protocol.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libhw_protocol.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libkernlet_protocol.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libmbus.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libostrace_protocol.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libsvrctl_protocol.so')
-add_file('system-root/usr/lib', 'usr/lib', 'libusb_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libhelix.so')
+add_file('usr/lib', 'usr/lib', 'libc.so')
+add_file('usr/lib', 'usr/lib', 'libm.so')
+add_file('usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so')
+add_file('usr/lib', 'usr/lib', 'liblewis.so')
+add_file('usr/lib', 'usr/lib', 'libz.so.1')
+add_file('usr/lib', 'usr/lib', 'libvirtio_core.so')
+add_file('usr/lib', 'usr/lib', 'libarch.so')
+add_file('usr/lib', 'usr/lib', 'libfs_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libhw_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libkernlet_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libmbus.so')
+add_file('usr/lib', 'usr/lib', 'libostrace_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libsvrctl_protocol.so')
+add_file('usr/lib', 'usr/lib', 'libusb_protocol.so')
 if args.arch == 'riscv64-managarm':
-	add_file('system-root/usr/lib', 'usr/lib', 'libgcc_s.so.1')
-	add_file('system-root/usr/lib', 'usr/lib', 'libstdc++.so.6')
+	add_file('usr/lib', 'usr/lib', 'libgcc_s.so.1')
+	add_file('usr/lib', 'usr/lib', 'libstdc++.so.6')
 else:
-	add_file('system-root/usr/lib64', 'usr/lib', 'libgcc_s.so.1')
-	add_file('system-root/usr/lib64', 'usr/lib', 'libstdc++.so.6')
+	add_file('usr/lib64', 'usr/lib', 'libgcc_s.so.1')
+	add_file('usr/lib64', 'usr/lib', 'libstdc++.so.6')
 
 # User-space core components.
-add_file('system-root/usr/bin', 'usr/bin', 'mbus')
-add_file('system-root/usr/bin', 'usr/bin', 'kernletcc')
-add_file('system-root/usr/bin', 'usr/bin', 'clocktracker')
-add_file('system-root/usr/bin', 'usr/bin', 'posix-subsystem')
-add_file('system-root/usr/bin', 'usr/bin', 'posix-init')
+add_file('usr/bin', 'usr/bin', 'mbus')
+add_file('usr/bin', 'usr/bin', 'kernletcc')
+add_file('usr/bin', 'usr/bin', 'clocktracker')
+add_file('usr/bin', 'usr/bin', 'posix-subsystem')
+add_file('usr/bin', 'usr/bin', 'posix-init')
 
 # Essential drivers.
-add_file('system-root/usr/lib', 'usr/lib', 'libblockfs.so')
-add_file('system-root/usr/bin', 'usr/bin', 'ehci')
-add_file('system-root/usr/bin', 'usr/bin', 'xhci')
-add_file('system-root/usr/bin', 'usr/bin', 'netserver')
-add_file('system-root/usr/bin', 'usr/bin', 'block-ahci')
-add_file('system-root/usr/bin', 'usr/bin', 'block-nvme')
-add_file('system-root/usr/bin', 'usr/bin', 'storage')
-add_file('system-root/usr/bin', 'usr/bin', 'virtio-block')
-add_file('system-root/usr/bin', 'usr/bin', 'virtio-console')
+add_file('usr/lib', 'usr/lib', 'libblockfs.so')
+add_file('usr/bin', 'usr/bin', 'ehci')
+add_file('usr/bin', 'usr/bin', 'xhci')
+add_file('usr/bin', 'usr/bin', 'netserver')
+add_file('usr/bin', 'usr/bin', 'block-ahci')
+add_file('usr/bin', 'usr/bin', 'block-nvme')
+add_file('usr/bin', 'usr/bin', 'storage')
+add_file('usr/bin', 'usr/bin', 'virtio-block')
+add_file('usr/bin', 'usr/bin', 'virtio-console')
 
 if args.arch == 'x86_64-managarm':
-	add_file('system-root/usr/bin', 'usr/bin', 'uhci')
-	add_file('system-root/usr/bin', 'usr/bin', 'block-ata')
-	add_file('system-root/usr/bin', 'usr/bin', 'uart')
+	add_file('usr/bin', 'usr/bin', 'uhci')
+	add_file('usr/bin', 'usr/bin', 'block-ata')
+	add_file('usr/bin', 'usr/bin', 'uart')
 
 # Essential utilities.
-add_file('system-root/usr/bin', 'usr/bin', 'runsvr')
+add_file('usr/bin', 'usr/bin', 'runsvr')
 
 # Server descriptions.
-for fname in os.listdir('system-root/usr/lib/managarm/server'):
+for fname in os.listdir(os.path.join(args.sysroot, 'usr/lib/managarm/server')):
 	if not fname.endswith('.bin'):
 		continue
-	add_file('system-root/usr/lib/managarm/server', 'usr/lib/managarm/server', fname)
+	add_file('usr/lib/managarm/server', 'usr/lib/managarm/server', fname)
 
 # Copy (= hard link) the files to a temporary directory, run GNU cpio.
 
@@ -110,7 +111,7 @@ for rel_path in file_list:
 	if entry.is_dir:
 		os.mkdir(dest_path)
 	else:
-		os.link(entry.source, dest_path)
+		os.link(os.path.join(args.sysroot, entry.source), dest_path)
 
 proc = subprocess.Popen(['cpio', '--create', '--format=newc',
 			'-D', tree_path,
