@@ -367,7 +367,7 @@ public:
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &File::fileOperations));
+				file, &File::fileOperations, {file->cancelServe_}));
 	}
 
 	MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -414,11 +414,17 @@ public:
 		return _passthrough;
 	}
 
+	void handleClose() override {
+		cancelServe_.cancel();
+		_passthrough = {};
+	}
+
 private:
 	helix::UniqueLane _passthrough;
 
 	std::shared_ptr<Channel> _channel;
 	Packet _packet{};
+	async::cancellation_event cancelServe_;
 
 	bool _nonBlocking;
 };
