@@ -1,6 +1,6 @@
 # The managarm Operating System
 
-![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg) ![x86_64](https://builds.managarm.org/badge/managarm) ![aarch64](https://builds.managarm.org/badge/managarm_aarch64) ![riscv](https://builds.managarm.org/badge/managarm_riscv)
+![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg) ![x86_64](https://builds.managarm.org/projects/managarm/badge) ![aarch64](https://builds.managarm.org/projects/managarm_aarch64/badge) ![riscv](https://builds.managarm.org/projects/managarm_riscv64/badge)
 
 ![Screenshot](../assets/screenshots/managarm-glxgears-xclock.png?raw=true)
 
@@ -37,7 +37,7 @@ managarm does not share any source code (or binaries) with the Linux kernel.
 ## Trying out managarm
 
 If you want to try out managarm without building the whole OS, you can download a
-xz-compressed [nightly image](https://builds.managarm.org/repos/files/managarm/latest/image.xz);
+xz-compressed [nightly image](https://builds.managarm.org/projects/managarm/success/repo/files/x86_64/image.xz);
 these images are automatically compiled on [our build server](https://builds.managarm.org)
 and reflect the current state of Managarm development.
 To run the (uncompressed) image using qemu, we recommend the following flags:
