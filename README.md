@@ -1,6 +1,10 @@
 # The managarm Operating System
 
-![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg) ![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg) ![x86_64](https://builds.managarm.org/projects/managarm/badge) ![aarch64](https://builds.managarm.org/projects/managarm_aarch64/badge) ![riscv](https://builds.managarm.org/projects/managarm_riscv64/badge)
+![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg)
+![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)
+[![x86_64](https://builds.managarm.org/projects/managarm/badge)](https://builds.managarm.org/projects/managarm)
+[![aarch64](https://builds.managarm.org/projects/managarm_aarch64/badge)](https://builds.managarm.org/projects/managarm_aarch64)
+[![riscv](https://builds.managarm.org/projects/managarm_riscv64/badge)](https://builds.managarm.org/projects/managarm_riscv64)
 
 ![Screenshot](../assets/screenshots/managarm-glxgears-xclock.png?raw=true)
 
