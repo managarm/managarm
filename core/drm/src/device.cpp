@@ -138,6 +138,10 @@ uint32_t drm_core::Device::getCursorHeight() {
 	return _cursorHeight;
 }
 
+bool drm_core::Device::getAddFb2ModifiersSupport() {
+	return fb2ModifiersSupport;
+}
+
 drm_core::Property *drm_core::Device::srcWProperty() {
 	return _srcWProperty.get();
 }

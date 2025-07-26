@@ -179,8 +179,8 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				resp.set_drm_value(DRM_PRIME_CAP_IMPORT | DRM_PRIME_CAP_EXPORT);
 				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
 			}else if(req->drm_capability() == DRM_CAP_ADDFB2_MODIFIERS) {
-				resp.set_drm_value(1);
-				if(logDrmRequests) std::cout << "\tCAP_PRIME supported" << std::endl;
+				resp.set_drm_value(self->_device->getAddFb2ModifiersSupport());
+				if(logDrmRequests) std::println("\tCAP_ADDFB2_MODIFIERS {}supported", resp.drm_value() ? "" : "un");
 			}else{
 				std::cout << "\tUnknown capability " << req->drm_capability() << std::endl;
 				resp.set_drm_value(0);
