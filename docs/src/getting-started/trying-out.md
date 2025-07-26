@@ -5,7 +5,7 @@ Managarm without setting up the development environment and building the whole
 OS yourself.
 
 ## Nightly builds
-The latest nightly build can be downloaded [here](https://builds.managarm.org/repos/files/managarm/rolling/image.xz).
+The latest nightly build can be downloaded [here](https://builds.managarm.org/projects/managarm/success/repo/files/x86_64/image.xz).
 
 Our build server, named `xbbs`, the xbstrap build server, which builds all of our packages automatically can be viewed at [https://builds.managarm.org](https://builds.managarm.org).
 
