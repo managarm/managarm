@@ -65,6 +65,7 @@ public:
 	uint32_t getMaxHeight();
 	uint32_t getCursorWidth();
 	uint32_t getCursorHeight();
+	bool getAddFb2ModifiersSupport();
 
 	helix::UniqueDescriptor _posixLane;
 private:
@@ -109,6 +110,9 @@ private:
 	std::shared_ptr<Property> _inFormatsProperty;
 
 	std::map<helix_ng::Credentials, std::shared_ptr<drm_core::BufferObject>> _exportedBufferObjects;
+
+protected:
+	bool fb2ModifiersSupport = false;
 
 public:
 	void registerBufferObject(std::shared_ptr<drm_core::BufferObject> obj, helix_ng::Credentials creds);

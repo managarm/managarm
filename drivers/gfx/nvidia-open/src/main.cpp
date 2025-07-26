@@ -149,7 +149,7 @@ void GfxDevice::pciWrite(uint32_t reg, uint8_t value) {
 
 GfxDevice::GfxDevice(protocols::hw::Device hw_device, uint32_t seg, uint32_t bus, uint32_t dev, uint32_t func)
 : hwDevice_{std::move(hw_device)}, segment_{seg}, bus_{bus}, slot_{dev}, function_{func} {
-
+	fb2ModifiersSupport = true;
 }
 
 std::shared_ptr<GfxDevice> GfxDevice::getGpu(size_t gpuId) {
