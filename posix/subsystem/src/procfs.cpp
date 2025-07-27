@@ -797,7 +797,7 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
 	stream << "Uid: " << p->uid() << "\n";
 	stream << "Gid: " << p->gid() << "\n";
-	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
+	stream << "FDSize: 512\n"; // TODO: adjust once we're not limited to one page worth of handles
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
 	stream << "NStgid: N/A\n";
