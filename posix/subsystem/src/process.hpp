@@ -229,6 +229,7 @@ inline constexpr SignalFlags signalInfo = (1 << 0);
 inline constexpr SignalFlags signalOnce = (1 << 1);
 inline constexpr SignalFlags signalReentrant = (1 << 2);
 inline constexpr SignalFlags signalOnStack = (1 << 3);
+inline constexpr SignalFlags signalNoChildWait = (1 << 4);
 
 enum class SignalDisposition {
 	none,

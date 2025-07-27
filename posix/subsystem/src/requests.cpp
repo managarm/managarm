@@ -2593,7 +2593,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(req.flags() & SA_NOCLDSTOP)
 					std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
 				if(req.flags() & SA_NOCLDWAIT)
-					std::cout << "\e[31mposix: Ignoring SA_NOCLDWAIT\e[39m" << std::endl;
+					handler.flags |= signalNoChildWait;
 
 				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{
@@ -2609,6 +2609,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				saved_flags |= SA_NODEFER;
 			if(saved_handler.flags & signalOnStack)
 				saved_flags |= SA_ONSTACK;
+			if(saved_handler.flags & signalNoChildWait)
+				saved_flags |= SA_NOCLDWAIT;
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_flags(saved_flags);
