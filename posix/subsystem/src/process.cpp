@@ -665,6 +665,7 @@ SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item,
 		}
 	} else if(handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
+		result.ignored = true;
 	} else {
 		assert(handler.disposition == SignalDisposition::handle);
 	}
@@ -680,7 +681,6 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	if (handling.handler.disposition == SignalDisposition::none) {
-
 		switch (item->signalNumber) {
 			case SIGABRT:
 			case SIGILL:
@@ -698,10 +698,6 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 				assert(handling.killed);
 				break;
 		}
-	} else if (handling.handler.disposition == SignalDisposition::ignore) {
-		// Ignore the signal.
-		delete item;
-		co_return;
 	}
 
 	if (handling.killed) {
