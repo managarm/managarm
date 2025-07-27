@@ -763,7 +763,7 @@ async::result<std::string> StatusNode::show(Process *) {
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
 	stream << "Uid: " << _process->uid() << "\n";
 	stream << "Gid: " << _process->gid() << "\n";
-	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
+	stream << "FDSize: 512\n"; // Pick a sane default, I don't believe we have a real maximum here.
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
 	stream << "NStgid: N/A\n";
