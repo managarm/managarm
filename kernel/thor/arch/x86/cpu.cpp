@@ -248,6 +248,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 		activateTss(&getCpuData()->tss);
 	}
 
+	getCpuData()->activeExecutor = executor;
 	getCpuData()->syscallStack = executor->_syscallStack;
 
 	// TODO: use wr{fs,gs}base if it is available

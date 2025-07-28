@@ -24,7 +24,8 @@
 .p2align 2
 doCopyFromUser:
 	la t0, 1b
-	sd t0, THOR_TP_CURRENT_UAR(tp) # Setup the UAR.
+	ld t1, THOR_TP_EXECUTOR(tp)
+	sd t0, THOR_EXECUTOR_UAR(t1) # Setup the UAR.
 
 2:
 	# TODO: It would be easy to improve this to not do a byte-wise copy.
@@ -37,12 +38,12 @@ doCopyFromUser:
 	j 2b
 
 3:
-	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
+	sd zero, THOR_EXECUTOR_UAR(t1) # Clean up the UAR.
 	li a0, 0
 	ret
 
 4:
-	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
+	sd zero, THOR_EXECUTOR_UAR(t1) # Clean up the UAR.
 	li a0, 1
 	ret
 
@@ -65,7 +66,8 @@ doCopyFromUser:
 .p2align 2
 doCopyToUser:
 	la t0, 1b
-	sd t0, THOR_TP_CURRENT_UAR(tp) # Setup the UAR.
+	ld t1, THOR_TP_EXECUTOR(tp)
+	sd t0, THOR_EXECUTOR_UAR(t1) # Setup the UAR.
 
 2:
 	# TODO: It would be easy to improve this to not do a byte-wise copy.
@@ -78,12 +80,12 @@ doCopyToUser:
 	j 2b
 
 3:
-	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
+	sd zero, THOR_EXECUTOR_UAR(t1) # Clean up the UAR.
 	li a0, 0
 	ret
 
 4:
-	sd zero, THOR_TP_CURRENT_UAR(tp) # Clean up the UAR.
+	sd zero, THOR_EXECUTOR_UAR(t1) # Clean up the UAR.
 	li a0, 1
 	ret
 

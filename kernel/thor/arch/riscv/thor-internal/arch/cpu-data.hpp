@@ -8,30 +8,30 @@ namespace thor {
 
 struct IseqContext;
 struct UserAccessRegion;
+struct Executor;
 
 // Note: This struct is accessed from assembly.
 // Do not change the field offsets!
 struct AssemblyCpuData {
-	AssemblyCpuData *selfPointer; //  0x0
-	uint64_t currentDomain;       //  0x8
-	void *exceptionStackPtr;      // 0x10
-	void *irqStackPtr;            // 0x18
-	uint64_t scratchSp;           // 0x20
-	UserAccessRegion *currentUar; // 0x28
+	AssemblyCpuData *selfPointer;
+	uint64_t currentDomain;
+	Executor *activeExecutor{nullptr};
+	void *exceptionStackPtr;
+	void *irqStackPtr;
+	uint64_t scratchSp;
 	IseqContext *iseqPtr;
 };
 
 static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
 static_assert(offsetof(AssemblyCpuData, currentDomain) == THOR_TP_DOMAIN);
+static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_TP_EXECUTOR);
 static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
 static_assert(offsetof(AssemblyCpuData, irqStackPtr) == THOR_TP_IRQ_STACK);
 static_assert(offsetof(AssemblyCpuData, scratchSp) == THOR_TP_SCRATCH_SP);
-static_assert(offsetof(AssemblyCpuData, currentUar) == THOR_TP_CURRENT_UAR);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);
 
 inline void writeToTp(AssemblyCpuData *context) { asm volatile("mv tp, %0" : : "r"(context)); }
 
-struct Executor;
 struct Thread;
 
 struct PlatformCpuData : public AssemblyCpuData {
@@ -42,9 +42,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 	static constexpr uint64_t ipiSelfCall = UINT64_C(1) << 2;
 
 	uint64_t hartId{~UINT64_C(0)};
-
-	// Executor image that we use to save/restore state.
-	Executor *activeExecutor{nullptr};
 
 	// Actual value of the FS field in sstatus before it was cleared in the kernel.
 	// Zero (= extOff) indicates that the current register state cannot be relied upon

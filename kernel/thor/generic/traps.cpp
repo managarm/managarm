@@ -7,7 +7,7 @@ bool handleUserAccessFault(uintptr_t address, bool write, FaultImageAccessor acc
 	if(inHigherHalf(address))
 		return false;
 
-	auto uar = getCpuData()->currentUar;
+	auto uar = getCpuData()->activeExecutor->currentUar();
 	if(!uar)
 		return false;
 

@@ -6,20 +6,21 @@
 
 namespace thor {
 
+struct Executor;
 struct IseqContext;
 struct UserAccessRegion;
 
 // Note: This struct is accessed from assembly.
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
+	Executor *activeExecutor{nullptr};
 	void *syscallStack;
-	UserAccessRegion *currentUar;
 	IseqContext *iseqPtr{nullptr};
 };
 
 static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_GS_SELF);
+static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_GS_EXECUTOR);
 static_assert(offsetof(AssemblyCpuData, syscallStack) == THOR_GS_SYSCALL_STACK);
-static_assert(offsetof(AssemblyCpuData, currentUar) == THOR_GS_CURRENT_UAR);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_GS_ISEQ_PTR);
 
 struct Thread;
