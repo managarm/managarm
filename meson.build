@@ -183,6 +183,9 @@ if build_drivers
 	bakesvr = find_program('bakesvr')
 
 	libudev_dep = dependency('libudev')
+endif
+
+if build_drivers or build_testsuite
 	cli11_dep = dependency('CLI11')
 endif
 
