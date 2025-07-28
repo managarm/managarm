@@ -21,4 +21,4 @@ src = [
 	'src/eventfd.cpp',
 ]
 
-executable('posix-tests', src, install : true)
+executable('posix-tests', src, dependencies: [cli11_dep], install : true)
