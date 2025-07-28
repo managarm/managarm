@@ -38,7 +38,7 @@ constexpr uint64_t codeLoadPageFault = 13;
 constexpr uint64_t codeStorePageFault = 15;
 
 // Bits of sstatus that we save/restore on context switch.
-constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit
+constexpr uint64_t sstatusMask = riscv::sstatus::spieBit | riscv::sstatus::sppBit | riscv::sstatus::sumBit
                                  | (riscv::sstatus::extMask << riscv::sstatus::fsShift);
 
 constexpr const char *exceptionStrings[] = {
@@ -274,7 +274,9 @@ extern "C" void thorHandleException(Frame *frame) {
 	// Perform the trap entry.
 	frame->sstatus = riscv::readCsr<riscv::Csr::sstatus>();
 	// TODO: This could be combined with the CSR read above.
-	riscv::clearCsrBits<riscv::Csr::sstatus>((riscv::sstatus::extMask << riscv::sstatus::fsShift));
+	riscv::clearCsrBits<riscv::Csr::sstatus>(
+		(riscv::sstatus::extMask << riscv::sstatus::fsShift) |
+		riscv::sstatus::sumBit);
 	auto cause = riscv::readCsr<riscv::Csr::scause>();
 
 	// Disable FP.
