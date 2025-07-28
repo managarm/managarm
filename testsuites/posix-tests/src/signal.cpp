@@ -73,3 +73,61 @@ DEFINE_TEST(signal_save_simd, ([] {
 }))
 
 #endif
+
+namespace {
+	std::atomic<int> nodefer_signal_flag = 0;
+	std::atomic<int> nodefer_mask_is_set = 0;
+} // namespace anonymous
+
+DEFINE_TEST(signal_nodefer, ([] {
+	struct sigaction sa;
+	memset(&sa, 0, sizeof(struct sigaction));
+
+	sa.sa_flags = SA_RESETHAND;
+	sa.sa_handler = [] (int) {
+		sigset_t set;
+		int ret = sigprocmask(SIG_BLOCK, NULL, &set);
+		assert(ret == 0);
+		if(sigismember(&set, SIGUSR1))
+			nodefer_mask_is_set = 1;
+
+		nodefer_signal_flag = 1;
+	};
+
+	int ret = sigaction(SIGUSR1, &sa, nullptr);
+	assert(ret == 0);
+
+	nodefer_signal_flag = 0;
+	nodefer_mask_is_set = 0;
+
+	ret = kill(getpid(), SIGUSR1);
+	assert(ret == 0);
+
+	assert(nodefer_signal_flag == 1);
+	assert(nodefer_mask_is_set == 1);
+
+	memset(&sa, 0, sizeof(struct sigaction));
+
+	sa.sa_flags = SA_NODEFER;
+	sa.sa_handler = [] (int) {
+		sigset_t set;
+		int ret = sigprocmask(SIG_BLOCK, NULL, &set);
+		assert(ret == 0);
+		if(sigismember(&set, SIGUSR1))
+			nodefer_mask_is_set = 1;
+
+		nodefer_signal_flag = 1;
+	};
+
+	ret = sigaction(SIGUSR1, &sa, nullptr);
+	assert(ret == 0);
+
+	nodefer_signal_flag = 0;
+	nodefer_mask_is_set = 0;
+
+	ret = kill(getpid(), SIGUSR1);
+	assert(ret == 0);
+
+	assert(nodefer_signal_flag == 1);
+	assert(nodefer_mask_is_set == 0);
+}))
