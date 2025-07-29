@@ -1,4 +1,4 @@
-// vim: ft=arm64asm
+#include <thor-internal/arch/asm.h>
 
 // Emit debugging information + unwind tables.
 .cfi_sections .eh_frame, .debug_frame
@@ -36,10 +36,6 @@ thorExcVectors:
 .set .L_irqDomain, 0
 .set .L_faultDomain, 1
 .set .L_userDomain, 3
-
-.set .L_currentDomainOff, 8
-.set .L_exceptionStackOff, 16
-.set .L_irqStackOff, 24
 
 .macro MAKE_STUB name, handler, el, domain, stack
 \name:
@@ -142,7 +138,7 @@ thorExcVectors:
 
 	// Save domain
 	mrs x0, tpidr_el1
-	ldr x1, [x0, .L_currentDomainOff]
+	ldr x1, [x0, THOR_TP_DOMAIN]
 	str x1, [sp, #288]
 
 	// Set new domain
@@ -247,16 +243,16 @@ thorExcVectors:
 	.cfi_endproc
 .endm
 
-MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, .L_exceptionStackOff
-MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
-MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain, .L_exceptionStackOff
-MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, .L_irqStackOff
-MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, THOR_TP_IRQ_STACK
+MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
-MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, .L_exceptionStackOff
-MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, .L_irqStackOff
-MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, .L_exceptionStackOff
+MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, THOR_TP_IRQ_STACK
+MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
 .global workStub
 workStub:

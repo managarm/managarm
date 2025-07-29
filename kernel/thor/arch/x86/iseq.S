@@ -1,5 +1,4 @@
-# Kernel GS segment fields.
-.set .L_gsIseqPtr, 0x18
+#include <thor-internal/arch/asm.h>
 
 .global iseqStore64
 
@@ -13,7 +12,7 @@
 # rdi: Destination pointer
 # rsi: Destination word
 iseqStore64:
-	mov %gs:.L_gsIseqPtr, %r8 # Obtain the IseqContext.
+	mov %gs:THOR_GS_ISEQ_PTR, %r8 # Obtain the IseqContext.
 	mov $1b, %rax
 	mov %rax, (%r8)
 
@@ -48,7 +47,7 @@ iseqStore64:
 # rsi: Source pointer
 # rdx: Size
 iseqCopyWeak:
-	mov %gs:.L_gsIseqPtr, %r8 # Obtain the IseqContext.
+	mov %gs:THOR_GS_ISEQ_PTR, %r8 # Obtain the IseqContext.
 	mov $1b, %rax
 	mov %rax, (%r8)
 

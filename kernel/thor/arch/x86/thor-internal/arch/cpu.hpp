@@ -497,10 +497,24 @@ public:
 		return reinterpret_cast<FxState *>(_pointer + sizeof(General) + 0x10);
 	}
 
+	UserAccessRegion *currentUar() {
+		return _uar;
+	}
+
 private:
+	// Private function only used for the static_assert check.
+	//
+	// We can't put the static_assert outside because the members are private
+	// and we can't put it at the end of the struct body because the type
+	// is incomplete at that point.
+	static void staticChecks() {
+		static_assert(offsetof(Executor, _uar) == THOR_EXECUTOR_UAR);
+	}
+
 	char *_pointer;
 	void *_syscallStack;
 	common::x86::Tss64 *_tss;
+	UserAccessRegion *_uar;
 };
 
 struct CpuFeatures {

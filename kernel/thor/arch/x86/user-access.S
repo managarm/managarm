@@ -1,5 +1,4 @@
-# Kernel GS segment fields.
-.set .L_gsCurrentUar, 0x10
+#include <thor-internal/arch/asm.h>
 
 .set .L_uarRead, 1
 .set .L_uarWrite, 2
@@ -16,7 +15,8 @@
 .text
 doCopyFromUser:
 	mov $1b, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Setup the UAR.
+	mov %gs:THOR_GS_EXECUTOR, %r8
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Setup the UAR.
 	mov %rdx, %rcx
 
 2:
@@ -25,12 +25,12 @@ doCopyFromUser:
 
 3:
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	ret
 
 4:
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	mov $1, %rax
 	ret
 
@@ -46,7 +46,8 @@ doCopyFromUser:
 .text
 doCopyToUser:
 	mov $1b, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Setup the UAR.
+	mov %gs:THOR_GS_EXECUTOR, %r8
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Setup the UAR.
 	mov %rdx, %rcx
 
 2:
@@ -55,12 +56,12 @@ doCopyToUser:
 
 3:
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	ret
 
 4:
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	mov $1, %rax
 	ret
 
@@ -76,7 +77,8 @@ doCopyToUser:
 .text
 doAtomicUserLoad:
 	mov $1b, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Setup the UAR.
+	mov %gs:THOR_GS_EXECUTOR, %r8
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Setup the UAR.
 
 2:
 	mov (%rsi), %r11
@@ -84,12 +86,12 @@ doAtomicUserLoad:
 3:
 	mov %r11, (%rdi)
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	ret
 
 4:
 	xor %rax, %rax
-	mov %rax, %gs:.L_gsCurrentUar # Clean up the UAR.
+	mov %rax, THOR_EXECUTOR_UAR(%r8) # Clean up the UAR.
 	mov $1, %rax
 	ret
 

@@ -255,9 +255,23 @@ struct Executor {
 		return _exceptionStack;
 	}
 
+	UserAccessRegion *currentUar() {
+		return _uar;
+	}
+
 private:
+	// Private function only used for the static_assert check.
+	//
+	// We can't put the static_assert outside because the members are private
+	// and we can't put it at the end of the struct body because the type
+	// is incomplete at that point.
+	static void staticChecks() {
+		static_assert(offsetof(Executor, _uar) == THOR_EXECUTOR_UAR);
+	}
+
 	char *_pointer;
 	void *_exceptionStack;
+	UserAccessRegion *_uar{nullptr};
 };
 
 size_t getStateSize();
