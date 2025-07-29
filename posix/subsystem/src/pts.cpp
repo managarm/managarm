@@ -5,7 +5,7 @@
 #include <termios.h>
 #include <sys/epoll.h>
 #include <signal.h>
-#include <sstream>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -13,7 +13,6 @@
 #include "core/tty.hpp"
 #include "file.hpp"
 #include "process.hpp"
-#include "protocols/fs/common.hpp"
 #include "pts.hpp"
 #include "fs.bragi.hpp"
 
@@ -92,6 +91,9 @@ struct Channel {
 	// The actual queue of this pipe.
 	std::deque<Packet> masterQueue;
 	std::deque<Packet> slaveQueue;
+
+	size_t masterCount = 0;
+	size_t slaveCount = 0;
 };
 
 namespace {
@@ -364,10 +366,12 @@ public:
 	static void serve(smarter::shared_ptr<MasterFile> file) {
 		assert(!file->_passthrough);
 
+		file->_channel->masterCount++;
+
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &File::fileOperations));
+				file, &File::fileOperations, file->cancelServe_));
 	}
 
 	MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -414,8 +418,11 @@ public:
 		return _passthrough;
 	}
 
+	void handleClose() override;
+
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event cancelServe_;
 
 	std::shared_ptr<Channel> _channel;
 	Packet _packet{};
@@ -428,10 +435,12 @@ public:
 	static void serve(smarter::shared_ptr<SlaveFile> file) {
 		assert(!file->_passthrough);
 
+		file->_channel->slaveCount++;
+
 		helix::UniqueLane lane;
 		std::tie(lane, file->_passthrough) = helix::createStream();
 		async::detach(protocols::fs::servePassthrough(std::move(lane),
-				file, &File::fileOperations));
+				file, &File::fileOperations, file->cancelServe_));
 	}
 
 	SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
@@ -479,8 +488,11 @@ public:
 	async::result<frg::expected<Error, std::string>>
 	ttyname() override;
 
+	void handleClose() override;
+
 private:
 	helix::UniqueLane _passthrough;
+	async::cancellation_event cancelServe_;
 
 	std::shared_ptr<Channel> _channel;
 	Packet _packet{};
@@ -835,6 +847,8 @@ MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;
+	if(_channel->slaveCount == 0)
+		edges |= EPOLLHUP;
 	if(_channel->masterInSeq > past_seq)
 		edges |= EPOLLIN;
 
@@ -845,6 +859,8 @@ async::result<frg::expected<Error, PollStatusResult>>
 MasterFile::pollStatus(Process *) {
 	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
+	if(_channel->slaveCount == 0)
+		events |= EPOLLHUP;
 	if(!_channel->masterQueue.empty())
 		events |= EPOLLIN;
 
@@ -963,6 +979,16 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 	}
 }
 
+void MasterFile::handleClose() {
+	cancelServe_.cancel();
+	_passthrough = {};
+
+	if (--_channel->masterCount == 0) {
+		_channel->currentSeq++;
+		_channel->statusBell.raise();
+	}
+}
+
 //-----------------------------------------------------------------------------
 // SlaveDevice implementation.
 //-----------------------------------------------------------------------------
@@ -1065,6 +1091,8 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 
 	// For now making pts files always writable is sufficient.
 	int edges = EPOLLOUT;
+	if(_channel->masterCount == 0)
+		edges |= EPOLLHUP;
 	if(_channel->slaveInSeq > past_seq)
 		edges |= EPOLLIN;
 
@@ -1075,6 +1103,8 @@ async::result<frg::expected<Error, PollStatusResult>>
 SlaveFile::pollStatus(Process *) {
 	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
+	if(_channel->masterCount == 0)
+		events |= EPOLLHUP;
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 
@@ -1286,6 +1316,16 @@ SlaveFile::ttyname() {
 
 	//TODO: dynamically resolve absolute path?
 	co_return std::string("/dev/pts/").append(name);
+}
+
+void SlaveFile::handleClose() {
+	cancelServe_.cancel();
+	_passthrough = {};
+
+	if (--_channel->slaveCount == 0) {
+		_channel->currentSeq++;
+		_channel->statusBell.raise();
+	}
 }
 
 //-----------------------------------------------------------------------------
