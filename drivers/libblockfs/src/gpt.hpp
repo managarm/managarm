@@ -1,6 +1,7 @@
 
 #include <string.h>
 #include <vector>
+#include <utility>
 
 #include <blockfs.hpp>
 
@@ -49,7 +50,7 @@ struct DiskHeader {
 	uint64_t firstLba;
 	uint64_t lastLba;
 	uint8_t diskGuid[16];
-	uint64_t startingLba;
+	uint64_t entryTableLba;
 	uint32_t numEntries;
 	uint32_t entrySize;
 	uint32_t tableCheckSum;
@@ -86,8 +87,11 @@ public:
 	Partition &getPartition(int index);
 
 private:
-	BlockDevice *device;
-	std::vector<Partition> partitions;
+	async::result<std::pair<char *, DiskHeader *>> probeSectorSize_(size_t sectorSize);
+
+	BlockDevice *device_;
+	std::vector<Partition> partitions_;
+	size_t gptSectorSize_;
 };
 
 // --------------------------------------------------------

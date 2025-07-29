@@ -1,62 +1,109 @@
 
 #include <stdlib.h>
-#include <iostream>
+#include <print>
+#include <array>
 
 #include "gpt.hpp"
 
 namespace blockfs {
 namespace gpt {
 
+namespace {
+	constexpr std::array<size_t, 4> commonSectorSizes{512, 2048, 4096, 8192};
+
+	constexpr size_t gptSectorNumber = 1;
+}
+
 // --------------------------------------------------------
 // Table
 // --------------------------------------------------------
 
 Table::Table(BlockDevice *device)
-: device(device) { }
+: device_(device), gptSectorSize_{device->sectorSize} { }
+
+async::result<std::pair<char *, DiskHeader *>> Table::probeSectorSize_(size_t sectorSize) {
+	size_t deviceGptSector = (sectorSize * gptSectorNumber) / getDevice()->sectorSize;
+	size_t deviceGptOffset = (sectorSize * gptSectorNumber) % getDevice()->sectorSize;
+
+	size_t deviceSectors = (sectorSize + deviceGptOffset + getDevice()->sectorSize - 1) / getDevice()->sectorSize;
+
+	auto headerBuffer = new char[deviceSectors * getDevice()->sectorSize];
+	co_await getDevice()->readSectors(deviceGptSector, headerBuffer, deviceSectors);
+
+	DiskHeader *header = reinterpret_cast<DiskHeader *>(headerBuffer + deviceGptOffset);
+	if (header->signature == 0x5452415020494645)
+		co_return std::make_pair(headerBuffer, header);
+
+	delete[] headerBuffer;
+	co_return std::make_pair(nullptr, nullptr);
+}
 
 async::result<void> Table::parse() {
-	assert(getDevice()->sectorSize == 512);
+	// probe for the gpt header
+	auto header = co_await probeSectorSize_(getDevice()->sectorSize);
+	if (!header.first) {
+		// try other sizes
+		for (auto size : commonSectorSizes) {
+			if (size == getDevice()->sectorSize)
+				continue;
 
-	auto header_buffer = malloc(512);
-	assert(header_buffer);
-	co_await getDevice()->readSectors(1, header_buffer, 1);
+			header = co_await probeSectorSize_(size);
+			if (header.first) {
+				gptSectorSize_ = size;
+				break;
+			}
+		}
 
-	DiskHeader *header = (DiskHeader *)header_buffer;
-	assert(header->signature == 0x5452415020494645); // TODO: handle this error
+		// TODO: handle this error
+		assert(header.first);
 
-	size_t table_size = header->entrySize * header->numEntries;
-	size_t table_sectors = table_size / 512;
-	if(!(table_size % 512))
-		table_sectors++;
-
-	auto table_buffer = malloc(table_sectors * 512);
-	assert(table_buffer);
-	co_await getDevice()->readSectors(2, table_buffer, table_sectors);
-
-	for(uint32_t i = 0; i < header->numEntries; i++) {
-		DiskEntry *entry = (DiskEntry *)((char *)table_buffer + i * header->entrySize);
-
-		if(entry->typeGuid == type_guids::null)
-			continue;
-
-		partitions.push_back(Partition{*this, entry->uniqueGuid, entry->typeGuid,
-				entry->firstLba, entry->lastLba - entry->firstLba + 1});
+		std::println(std::cout, "libblockfs: using non-native gpt sector size {}",
+			gptSectorSize_);
 	}
 
-	free(header_buffer);
-	free(table_buffer);
+	size_t deviceTableSector = (header.second->entryTableLba * gptSectorSize_) / getDevice()->sectorSize;
+	size_t deviceTableOffset = (header.second->entryTableLba * gptSectorSize_) % getDevice()->sectorSize;
+
+	size_t tableSize = header.second->entrySize * header.second->numEntries;
+	size_t tableSectors = (tableSize + deviceTableOffset + getDevice()->sectorSize - 1) / getDevice()->sectorSize;
+
+	auto tableBuffer = new char[tableSectors * getDevice()->sectorSize];
+	co_await getDevice()->readSectors(deviceTableSector, tableBuffer, tableSectors);
+
+	for (uint32_t i = 0; i < header.second->numEntries; i++) {
+		DiskEntry *entry = reinterpret_cast<DiskEntry *>(
+			tableBuffer + deviceTableOffset + i * header.second->entrySize);
+
+		if (entry->typeGuid == type_guids::null)
+			continue;
+
+		size_t offset = entry->firstLba * gptSectorSize_;
+		size_t size = (entry->lastLba - entry->firstLba + 1) * gptSectorSize_;
+
+		size_t deviceSector = offset / getDevice()->sectorSize;
+		size_t deviceSectorOffset = offset % getDevice()->sectorSize;
+
+		assert(deviceSectorOffset == 0);
+		assert(size % getDevice()->sectorSize == 0);
+
+		partitions_.push_back(Partition{*this, entry->uniqueGuid, entry->typeGuid,
+				deviceSector, size / getDevice()->sectorSize});
+	}
+
+	delete[] header.first;
+	delete[] tableBuffer;
 }
 
 BlockDevice *Table::getDevice() {
-	return device;
+	return device_;
 }
 
 size_t Table::numPartitions() {
-	return partitions.size();
+	return partitions_.size();
 }
 
 Partition &Table::getPartition(int index) {
-	return partitions[index];
+	return partitions_[index];
 }
 
 // --------------------------------------------------------

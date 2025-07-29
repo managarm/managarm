@@ -31,7 +31,7 @@ async::detached RawFs::manageMapping() {
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping file_map{helix::BorrowedDescriptor{backingMemory},
 				static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtWrite};
-			assert(!(manage.offset() & device->sectorSize));
+			assert(!(manage.offset() & (device->sectorSize - 1)));
 
 			size_t backed_size = std::min(manage.length(), device_size - manage.offset());
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;
@@ -48,7 +48,7 @@ async::detached RawFs::manageMapping() {
 			helix::Mapping file_map{helix::BorrowedDescriptor{backingMemory},
 				static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtRead};
 
-			assert(!(manage.offset() & device->sectorSize));
+			assert(!(manage.offset() & (device->sectorSize - 1)));
 
 			size_t backed_size = std::min(manage.length(), device_size - manage.offset());
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;

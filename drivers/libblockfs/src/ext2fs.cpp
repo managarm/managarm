@@ -442,23 +442,32 @@ async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> ati
 // FileSystem
 // --------------------------------------------------------
 
+namespace {
+	constexpr size_t superBlockOffset = 1024;
+}
+
 FileSystem::FileSystem(BlockDevice *device)
 : device(device) {
 }
 
 async::result<void> FileSystem::init() {
-	std::vector<uint8_t> buffer(1024);
-	co_await device->readSectors(2, buffer.data(), 2);
+	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
+	size_t deviceSuperBlockOffset = superBlockOffset % device->sectorSize;
+
+	size_t deviceSuperBlockSectors = (1024 + deviceSuperBlockOffset + device->sectorSize - 1) / device->sectorSize;
+
+	std::vector<uint8_t> buffer(deviceSuperBlockSectors * device->sectorSize);
+	co_await device->readSectors(deviceSuperBlockSector, buffer.data(), deviceSuperBlockSectors);
 
 	DiskSuperblock sb;
-	memcpy(&sb, buffer.data(), sizeof(DiskSuperblock));
+	memcpy(&sb, buffer.data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
 	assert(sb.magic == 0xEF53);
 
 	inodeSize = sb.inodeSize;
 	blockShift = 10 + sb.logBlockSize;
 	blockSize = 1024 << sb.logBlockSize;
 	blockPagesShift = blockShift < pageShift ? pageShift : blockShift;
-	sectorsPerBlock = blockSize / 512;
+	sectorsPerBlock = blockSize / device->sectorSize;
 	blocksPerGroup = sb.blocksPerGroup;
 	inodesPerGroup = sb.inodesPerGroup;
 	blocksCount = sb.blocksCount;
@@ -480,12 +489,16 @@ async::result<void> FileSystem::init() {
 		std::cout << "ext2fs:     Inodes per group: " << inodesPerGroup << std::endl;
 	}
 
-	blockGroupDescriptorBuffer.resize((numBlockGroups * sizeof(DiskGroupDesc) + 511) & ~size_t(511));
+	assert(blockSize >= device->sectorSize);
+	assert(blockSize % device->sectorSize == 0);
+
+	blockGroupDescriptorBuffer.resize(
+			(numBlockGroups * sizeof(DiskGroupDesc) + device->sectorSize - 1) & ~(device->sectorSize - 1));
 	bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer.data();
 
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / 512);
+			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / device->sectorSize);
 
 	// Create memory bundles to manage the block and inode bitmaps.
 	HelHandle block_bitmap_frontal, inode_bitmap_frontal;
@@ -606,11 +619,14 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		auto block = bgdt[bg_idx].inodeTable;
 		assert(block);
 
+		assert(bg_offset % device->sectorSize == 0);
+		assert(manage.length() % device->sectorSize == 0);
+
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping table_map{memory,
 					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->readSectors(block * sectorsPerBlock + bg_offset / 512,
-					table_map.get(), manage.length() / 512);
+			co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+					table_map.get(), manage.length() / device->sectorSize);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
@@ -618,8 +634,8 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 
 			helix::Mapping table_map{memory,
 					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->writeSectors(block * sectorsPerBlock + bg_offset / 512,
-					table_map.get(), manage.length() / 512);
+			co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+					table_map.get(), manage.length() / device->sectorSize);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -1435,7 +1451,7 @@ async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
 async::result<void> FileSystem::writebackBgdt() {
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
-			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / 512);
+			blockGroupDescriptorBuffer.data(), blockGroupDescriptorBuffer.size() / device->sectorSize);
 }
 
 // --------------------------------------------------------
