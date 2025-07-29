@@ -141,6 +141,9 @@ void saveCurrentSimdState(Executor *executor) {
 	assert(!intsAreEnabled());
 	auto cpuData = getCpuData();
 
+	auto sstatus = riscv::readCsr<riscv::Csr::sstatus>();
+	assert((sstatus & riscv::sstatus::sumBit) == 0);
+
 	if (cpuData->stashedFs == riscv::sstatus::extDirty) {
 		auto fs = reinterpret_cast<uint64_t *>(executor->_pointer + Executor::fsOffset());
 		riscv::setCsrBits<riscv::Csr::sstatus>(riscv::sstatus::extDirty << riscv::sstatus::fsShift);
