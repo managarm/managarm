@@ -1016,9 +1016,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto parent = resolver.currentLink()->getTarget();
 			auto existsResult = co_await parent->getLink(resolver.nextComponent());
-			assert(existsResult);
-			auto exists = existsResult.value();
-			if(exists) {
+			if (existsResult) {
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}
@@ -1098,7 +1096,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto parent = resolver.currentLink()->getTarget();
-			if((co_await parent->getLink(resolver.nextComponent())).unwrap()) {
+			if(co_await parent->getLink(resolver.nextComponent())) {
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}
@@ -3531,9 +3529,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto parent = resolver.currentLink()->getTarget();
 			auto existsResult = co_await parent->getLink(resolver.nextComponent());
-			assert(existsResult);
-			auto exists = existsResult.value();
-			if(exists) {
+			if (existsResult) {
 				co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
 				continue;
 			}

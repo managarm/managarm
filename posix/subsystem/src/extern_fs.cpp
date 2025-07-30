@@ -660,7 +660,7 @@ private:
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
 		}else if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
-			co_return nullptr;
+			co_return Error::noSuchFile;
 		}else{
 			assert(resp.error() == managarm::fs::Errors::NOT_DIRECTORY);
 			co_return Error::notDirectory;

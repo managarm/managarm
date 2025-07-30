@@ -317,7 +317,7 @@ private:
 		auto it = _entries.find(name);
 		if(it != _entries.end())
 			co_return *it;
-		co_return nullptr; // TODO: Return an error code.
+		co_return Error::noSuchFile;
 	}
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> link(std::string name,
