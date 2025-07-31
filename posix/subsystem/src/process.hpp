@@ -313,7 +313,7 @@ public:
 	async::result<void> determineAndRaiseContext(SignalItem *item, Process *process,
 			bool &killed);
 
-	async::result<void> restoreContext(helix::BorrowedDescriptor thread);
+	async::result<void> restoreContext(helix::BorrowedDescriptor thread, Process *process);
 
 private:
 	SignalHandler _handlers[64];
@@ -551,6 +551,14 @@ public:
 		return _signalMask;
 	}
 
+	void setSavedSignalMask(uint64_t mask) {
+		_savedSignalMask = mask;
+	}
+
+	uint64_t savedSignalMask() {
+		return _savedSignalMask;
+	}
+
 	HelHandle clientPosixLane() { return _clientPosixLane; }
 	void *clientThreadPage() { return _clientThreadPage; }
 	void *clientFileTable() { return _clientFileTable; }
@@ -739,6 +747,7 @@ private:
 	void *_clientAuxEnd = nullptr;
 
 	uint64_t _signalMask;
+	uint64_t _savedSignalMask;
 	std::vector<std::shared_ptr<Process>> _children;
 
 	// The following intrusive queue stores notifications for wait().

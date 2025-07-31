@@ -728,6 +728,14 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #endif
 
 	memcpy(&sf.ucontext.uc_sigmask, &handling.handler.mask, sizeof(handling.handler.mask));
+	auto prevSignalMask = process->signalMask();
+	sf.ucontext.uc_sigmask.sig[0] |= prevSignalMask;
+
+	if (!(handling.handler.flags & signalReentrant))
+		sigaddset(&sf.ucontext.uc_sigmask, item->signalNumber);
+
+	process->setSavedSignalMask(prevSignalMask);
+	process->setSignalMask(sf.ucontext.uc_sigmask.sig[0]);
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
@@ -826,7 +834,7 @@ async::result<void> SignalContext::determineAndRaiseContext(SignalItem *item, Pr
 	co_return co_await raiseContext(item, process, handling);
 }
 
-async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread) {
+async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread, Process *process) {
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
@@ -843,6 +851,8 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 			simdStateSize, simdState.data());
 	HEL_CHECK(loadFrame.error());
 	HEL_CHECK(loadSimd.error());
+
+	process->setSignalMask(process->savedSignalMask());
 
 #if defined(__x86_64__)
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));

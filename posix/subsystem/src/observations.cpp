@@ -387,7 +387,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
-			co_await self->signalContext()->restoreContext(thread);
+			co_await self->signalContext()->restoreContext(thread, self.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
 			if(logRequests || logSignals)
