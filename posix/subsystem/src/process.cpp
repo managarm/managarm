@@ -665,6 +665,7 @@ SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item,
 		}
 	} else if(handler.disposition == SignalDisposition::ignore) {
 		// Ignore the signal.
+		result.ignored = true;
 	} else {
 		assert(handler.disposition == SignalDisposition::handle);
 	}
@@ -680,7 +681,6 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	if (handling.handler.disposition == SignalDisposition::none) {
-
 		switch (item->signalNumber) {
 			case SIGABRT:
 			case SIGILL:
@@ -698,10 +698,6 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 				assert(handling.killed);
 				break;
 		}
-	} else if (handling.handler.disposition == SignalDisposition::ignore) {
-		// Ignore the signal.
-		delete item;
-		co_return;
 	}
 
 	if (handling.killed) {
@@ -1368,12 +1364,19 @@ async::result<void> Process::terminate(TerminationState state) {
 	notifyType_ = NotifyType::terminated;
 	_state = std::move(state);
 	notifyTypeChange_.raise();
-	parent->_notifyQueue.push_back(*this);
+
+	UserSignal info;
+	info.pid = pid();
+
+	auto sigchldHandling = parent->signalContext()->getHandler(SIGCHLD);
+	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait))
+		parent->_notifyQueue.push_back(*this);
+	else
+		Process::retire(this);
+
 	parent->_notifyBell.raise();
 
 	// Send SIGCHLD to the parent.
-	UserSignal info;
-	info.pid = pid();
 	parent->signalContext()->issueSignal(SIGCHLD, info);
 }
 
@@ -1385,6 +1388,19 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 
 	if(_children.empty() || (pid > 0 && !hasChild(pid)))
 		co_return Error::noChildProcesses;
+
+	auto sigchldHandling = signalContext()->getHandler(SIGCHLD);
+
+	if (sigchldHandling.disposition == SignalDisposition::ignore || (sigchldHandling.flags & signalNoChildWait)) {
+		while(!_children.empty()) {
+			if (!co_await _notifyBell.async_wait(ct)) {
+				if (_children.empty())
+					co_return Error::noChildProcesses;
+				co_return Error::interrupted;
+			}
+		}
+		co_return Error::noChildProcesses;
+	}
 
 	std::optional<WaitResult> result{};
 	while(true) {

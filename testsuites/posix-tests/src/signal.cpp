@@ -1,10 +1,9 @@
-#include <cstdio>
-#include <cassert>
-#include <string.h>
-#include <signal.h>
-#include <unistd.h>
-
+#include <assert.h>
 #include <atomic>
+#include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "testsuite.hpp"
 
@@ -130,4 +129,81 @@ DEFINE_TEST(signal_nodefer, ([] {
 
 	assert(nodefer_signal_flag == 1);
 	assert(nodefer_mask_is_set == 0);
+}))
+
+DEFINE_TEST(kill_null_signal, ([] {
+	int ret = kill(1, 0);
+	assert(!ret || errno == EPERM);
+
+	pid_t pid = fork();
+	assert(pid >= 0);
+
+	if(!pid) {
+		_exit(0);
+	}
+
+	int status;
+	ret = waitpid(pid, &status, 0);
+	assert(ret == pid);
+
+	ret = kill(pid, 0);
+	assert(ret == -1);
+	assert(errno == ESRCH);
+}))
+
+DEFINE_TEST(sigchld_ignore, ([] {
+	struct sigaction sa = {};
+	sa.sa_handler = SIG_IGN;
+	struct sigaction old = {};
+	int ret = sigaction(SIGCHLD, &sa, &old);
+	assert(!ret);
+
+	pid_t pid = fork();
+	assert(pid >= 0);
+
+	if(!pid)
+		_exit(0);
+
+	int status;
+	ret = waitpid(pid, &status, 0);
+	assert(ret == -1);
+	assert(errno == ECHILD);
+
+	ret = sigaction(SIGCHLD, &old, nullptr);
+	assert(!ret);
+
+	sa = {};
+	sa.sa_flags = SA_NOCLDWAIT;
+	ret = sigaction(SIGCHLD, &sa, nullptr);
+	assert(!ret);
+
+	pid = fork();
+	assert(pid >= 0);
+
+	if(!pid)
+		_exit(0);
+
+	ret = waitpid(pid, &status, 0);
+	assert(ret == -1);
+	assert(errno == ECHILD);
+
+	ret = sigaction(SIGCHLD, &old, nullptr);
+	assert(!ret);
+
+	sa = {};
+	sa.sa_handler = SIG_DFL;
+	ret = sigaction(SIGCHLD, &sa, nullptr);
+	assert(!ret);
+
+	pid = fork();
+	assert(pid >= 0);
+
+	if(!pid)
+		_exit(0);
+
+	ret = waitpid(pid, &status, 0);
+	assert(ret == pid);
+
+	ret = sigaction(SIGCHLD, &old, nullptr);
+	assert(!ret);
 }))
