@@ -147,6 +147,10 @@ public:
 
 	virtual void removeObserver(FsObserver *observer);
 
+	//! Get an existing link or create one (directories only).
+	virtual async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive = false);
+
 	//! Resolves a file in a directory (directories only).
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name);
 

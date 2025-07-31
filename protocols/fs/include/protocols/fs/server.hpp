@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 
 #include <async/cancellation.hpp>
@@ -233,6 +234,9 @@ struct NodeOperations {
 
 	async::result<void> (*obstructLink)(std::shared_ptr<void> object, std::string name);
 	async::result<TraverseLinksResult> (*traverseLinks)(std::shared_ptr<void> object, std::deque<std::string> path);
+
+	async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>> (*getLinkOrCreate)(std::shared_ptr<void> object,
+		std::string name, mode_t mode, bool exclusive, uid_t uid, gid_t gid);
 };
 
 async::result<void>

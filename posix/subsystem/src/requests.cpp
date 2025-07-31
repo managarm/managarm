@@ -1983,56 +1983,22 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					.getPath(self->fsContext()->getRoot()));
 
 				auto directory = resolver.currentLink()->getTarget();
-				auto tailResult = co_await directory->getLink(resolver.nextComponent());
-				if(!tailResult) {
-					if(tailResult.error() == Error::illegalOperationTarget) {
-						co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-						continue;
-					} else {
-						std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-						co_return;
-					}
+
+				auto linkResult = co_await directory->getLinkOrCreate(self.get(), resolver.nextComponent(),
+					req->mode() & ~self->fsContext()->getUmask(), req->flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE);
+				if (!linkResult) {
+					co_await sendErrorResponse(linkResult.error() | toPosixProtoError);
+					continue;
 				}
-				assert(tailResult);
-				auto pathTail = tailResult.value();
-				if(pathTail) {
-					if(req->flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE) {
-						co_await sendErrorResponse(managarm::posix::Errors::ALREADY_EXISTS);
-						continue;
-					}else{
-						auto target = pathTail->getTarget();
-						auto fileResult = co_await target->open(
-											resolver.currentView(), std::move(pathTail),
-											semantic_flags);
-						assert(fileResult);
-						file = fileResult.value();
-						assert(file);
-					}
-				}else{
-					assert(directory->superblock());
-					auto node = co_await directory->superblock()->createRegular(self.get());
-					if (!node) {
-						co_await sendErrorResponse(managarm::posix::Errors::FILE_NOT_FOUND);
-						continue;
-					}
-					auto chmodResult = co_await node->chmod(req->mode() & ~self->fsContext()->getUmask());
-					if (chmodResult != Error::success) {
-						std::cout << "posix: chmod failed when creating file for OpenAtRequest!" << std::endl;
-						co_await sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-						continue;
-					}
-					// Due to races, link() can fail here.
-					// TODO: Implement a version of link() that eithers links the new node
-					// or returns the current node without failing.
-					auto linkResult = co_await directory->link(resolver.nextComponent(), node);
-					assert(linkResult);
-					auto link = linkResult.value();
-					auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
-										semantic_flags);
-					assert(fileResult);
-					file = fileResult.value();
-					assert(file);
-				}
+				auto link = linkResult.value();
+				assert(link);
+				auto node = link->getTarget();
+
+				auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+									semantic_flags);
+				assert(fileResult);
+				file = fileResult.value();
+				assert(file);
 			}else{
 				ResolveFlags resolveFlags = 0;
 

@@ -480,6 +480,43 @@ private:
 		return true;
 	}
 
+	async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override {
+		assert(this->getType() == VfsType::directory);
+
+		managarm::fs::GetLinkOrCreateRequest req;
+		req.set_mode(mode);
+		req.set_exclusive(exclusive);
+		req.set_name(name);
+		req.set_uid(process->uid());
+		req.set_gid(process->gid());
+
+		auto [offer, send_head, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::GetLinkOrCreateResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pull_node.error());
+
+			auto node = _sb->internalizePeripheralNode(resp.file_type(), resp.id(), pull_node.descriptor());
+			co_return _sb->internalizePeripheralLink(this, name, std::move(node));
+		} else {
+			co_return std::unexpected{resp.error() | toPosixError};
+		}
+	}
+
 	async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
 	traverseLinks(std::deque<std::string> path) override {
 		managarm::fs::NodeTraverseLinksRequest req;

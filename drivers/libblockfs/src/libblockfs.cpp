@@ -548,6 +548,10 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 	co_return std::make_tuple(nodes, type, processedComponents);
 }
 
+async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
+getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, bool exclusive,
+		uid_t uid, gid_t gid);
+
 constexpr protocols::fs::NodeOperations nodeOperations{
 	.getStats = &getStats,
 	.getLink = &getLink,
@@ -560,8 +564,50 @@ constexpr protocols::fs::NodeOperations nodeOperations{
 	.chmod = &chmod,
 	.utimensat = &utimensat,
 	.obstructLink = &obstructLink,
-	.traverseLinks = &traverseLinks
+	.traverseLinks = &traverseLinks,
+	.getLinkOrCreate = &getLinkOrCreate,
 };
+
+
+async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
+getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, bool exclusive,
+		uid_t uid, gid_t gid) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto findResult = co_await self->findEntry(name);
+
+	if (findResult && findResult.value()) {
+		if (exclusive)
+			co_return std::unexpected{protocols::fs::Error::alreadyExists};
+
+		auto e = findResult.unwrap().value();
+		protocols::fs::FileType type;
+		switch(e.fileType) {
+		case kTypeDirectory:
+			type = protocols::fs::FileType::directory;
+			break;
+		case kTypeRegular:
+			type = protocols::fs::FileType::regular;
+			break;
+		case kTypeSymlink:
+			type = protocols::fs::FileType::symlink;
+			break;
+		default:
+			throw std::runtime_error("Unexpected file type");
+		}
+		co_return protocols::fs::GetLinkResult{self->fs.accessInode(e.inode), e.inode, type};
+	}
+
+	auto inode = co_await self->fs.createRegular(uid, gid);
+	auto chmodResult = co_await inode->chmod(mode);
+	if (chmodResult != protocols::fs::Error::none)
+		co_return std::unexpected{chmodResult};
+
+	auto linkResult = co_await self->link(name, inode->number, FileType::kTypeRegular);
+	if (!linkResult)
+		co_return std::unexpected{protocols::fs::Error::internalError};
+
+	co_return protocols::fs::GetLinkResult{inode, inode->number, protocols::fs::FileType::regular};
+}
 
 async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::CredentialsView,
 		void *buffer, size_t length, async::cancellation_token) {

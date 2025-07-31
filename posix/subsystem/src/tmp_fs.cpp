@@ -312,6 +312,8 @@ private:
 		co_return File::constructHandle(std::move(file));
 	}
 
+	async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override {
 		auto it = _entries.find(name);
@@ -806,6 +808,21 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock)
 
 DirectoryNode::DirectoryNode(Superblock *superblock)
 : Node{superblock, FsNode::defaultSupportsObservers} { }
+
+async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive) {
+	auto linkResult = co_await getLink(name);
+	if (linkResult && !exclusive)
+		co_return linkResult.value();
+	else if (linkResult && exclusive)
+		co_return std::unexpected{Error::alreadyExists};
+
+	auto node = std::make_shared<MemoryNode>(static_cast<Superblock *>(superblock()));
+	co_await node->chmod(mode);
+	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
+	_entries.insert(link);
+	co_return link;
+}
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 DirectoryNode::mkdir(std::string name) {
