@@ -31,7 +31,8 @@ enum Errors {
 	INTERNAL_ERROR = 28,
 	ALREADY_CONNECTED = 29,
 	NOT_A_SOCKET = 30,
-	INTERRUPTED = 31
+	INTERRUPTED = 31,
+	NO_SUCH_PROCESS = 32
 }
 
 consts FileType int64 {

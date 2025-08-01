@@ -90,6 +90,7 @@ struct Link final : FsLink, std::enable_shared_from_this<Link> {
 	std::shared_ptr<FsNode> getOwner() override;
 	std::string getName() override;
 	std::shared_ptr<FsNode> getTarget() override;
+	void unlinkSelf();
 
 private:
 	std::shared_ptr<FsNode> _owner;
@@ -172,6 +173,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 			SemanticFlags semantic_flags) override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;
+
+	Error directUnlink(std::string name);
 
 private:
 	Link *_treeLink;
@@ -339,7 +342,7 @@ private:
 };
 
 struct StatusNode final : RegularNode {
-	StatusNode(Process *process)
+	StatusNode(std::weak_ptr<Process> process)
 	: _process(process)
 	{ }
 
@@ -348,7 +351,7 @@ struct StatusNode final : RegularNode {
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct FdDirectoryFile final : File {

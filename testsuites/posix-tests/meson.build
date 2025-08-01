@@ -20,6 +20,7 @@ src = [
 	'src/posix-timers.cpp',
 	'src/eventfd.cpp',
 	'src/pty.cpp',
+	'src/procfs.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep], install : true)
