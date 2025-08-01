@@ -261,6 +261,10 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 	arch::dma_object<proto::DeviceDescriptor> descriptor{&_memoryPool};
 	FRG_CO_TRY(co_await device->readDescriptor(descriptor.view_buffer(), 0x0100));
 
+	arch::dma_object<proto::ConfigDescriptor> configDescriptor{&_memoryPool};
+	FRG_CO_TRY(co_await device->readDescriptor(configDescriptor.view_buffer(), 0x0200));
+	FRG_CO_TRY(co_await device->useConfiguration(0, configDescriptor->configValue));
+
 	// Advertise the USB device on mbus.
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];

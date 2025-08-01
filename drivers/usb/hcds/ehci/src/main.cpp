@@ -356,7 +356,31 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 			get_descriptor, descriptor.view_buffer()})).unwrap();
 	assert(descriptor->length == sizeof(proto::DeviceDescriptor));
 
-	// TODO: Read configuration descriptor from the device.
+	// Read the configuration descriptor
+	arch::dma_object<proto::SetupPacket> getConfigDescriptor{&schedulePool};
+	arch::dma_object<proto::ConfigDescriptor> configDescriptor{&schedulePool};
+
+	getConfigDescriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
+			| proto::setup_type::toHost;
+	getConfigDescriptor->request = proto::request_type::getDescriptor;
+	getConfigDescriptor->value = proto::descriptor_type::configuration << 8;
+	getConfigDescriptor->index = 0;
+	getConfigDescriptor->length = sizeof(proto::ConfigDescriptor);
+
+	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			getConfigDescriptor, configDescriptor.view_buffer()})).unwrap();
+	assert(configDescriptor->length == sizeof(proto::ConfigDescriptor));
+
+	// Select the first configuration in order to exit the addressing state
+	arch::dma_object<proto::SetupPacket> setConfig{&schedulePool};
+	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
+			| proto::setup_type::toDevice;
+	setConfig->request = proto::request_type::setConfig;
+	setConfig->value = configDescriptor->configValue;
+	setConfig->index = 0;
+	setConfig->length = 0;
+	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			setConfig, {}})).unwrap();
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
