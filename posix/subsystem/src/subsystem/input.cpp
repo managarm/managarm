@@ -10,6 +10,7 @@
 #include "../device.hpp"
 #include "../drvcore.hpp"
 #include "../vfs.hpp"
+#include "usb/usb.hpp"
 #include "fs.bragi.hpp"
 
 namespace input_subsystem {
@@ -36,10 +37,10 @@ CapabilityAttribute keyCapability{"key", EV_KEY, KEY_MAX};
 CapabilityAttribute relCapability{"rel", EV_REL, REL_MAX};
 CapabilityAttribute absCapability{"abs", EV_ABS, ABS_MAX};
 
-struct Device final : UnixDevice, drvcore::ClassDevice {
-	Device(VfsType type, int index, helix::UniqueLane lane)
+struct EventDevice final : UnixDevice, drvcore::ClassDevice {
+	EventDevice(VfsType type, int index, std::shared_ptr<Device> parent, helix::UniqueLane lane)
 	: UnixDevice{type},
-			drvcore::ClassDevice{sysfsSubsystem, nullptr, "event" + std::to_string(index), this},
+			drvcore::ClassDevice{sysfsSubsystem, parent, "event" + std::to_string(index), this},
 			_index{index}, _lane{std::move(lane)} { }
 
 	std::string nodePath() override {
@@ -65,8 +66,21 @@ private:
 	helix::UniqueLane _lane;
 };
 
+struct InputDevice final : drvcore::ClassDevice {
+	InputDevice(int index, std::shared_ptr<Device> parent)
+	: drvcore::ClassDevice{sysfsSubsystem, std::move(parent), "input" + std::to_string(index), nullptr} { }
+
+	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("SUBSYSTEM", "input");
+	}
+
+	std::optional<std::string> getClassPath() override {
+		return "input";
+	};
+};
+
 async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs::Object *object) {
-	auto device = static_cast<Device *>(object);
+	auto device = static_cast<EventDevice *>(object);
 	auto fileMaybe = co_await device->open(nullptr, nullptr, 0);
 	if(!fileMaybe){
 		std::cout << "\e[31mposix: show(): open() error\e[39m" << std::endl;
@@ -142,13 +156,21 @@ async::detached run() {
 				continue;
 
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			auto parent_id = std::get<mbus_ng::StringItem>(event.properties.at("drvcore.mbus-parent")).value;
+			auto parent_dev = drvcore::getMbusDevice(std::stoi(parent_id));
+
+			if(event.properties.contains("usb.parent-interface"))
+				parent_dev = co_await usb_subsystem::getInterfaceDevice(parent_dev, event.properties);
 
 			int index = evdevAllocator.allocate();
 			std::cout << "POSIX: Installing input device input/event" << index << std::endl;
 
+			auto inputDevice = std::make_shared<InputDevice>(index, parent_dev);
+			drvcore::installDevice(inputDevice);
+
 			auto lane = (co_await entity.getRemoteLane()).unwrap();
-			auto device = std::make_shared<Device>(VfsType::charDevice,
-					index, std::move(lane));
+			auto device = std::make_shared<EventDevice>(VfsType::charDevice,
+					index, inputDevice, std::move(lane));
 			device->assignId({13, 64 + index}); // evdev devices start at minor 64.
 
 			charRegistry.install(device);

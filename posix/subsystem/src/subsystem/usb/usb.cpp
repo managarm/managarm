@@ -357,6 +357,10 @@ std::shared_ptr<drvcore::BusDriver> getInterfaceDriver(std::string name) {
 		auto cdcEtherDriver = std::make_shared<CdcEtherDriver>(sysfsSubsystem, name);
 		cdcEtherDriver->addObject();
 		interface_driver_list.insert({name, cdcEtherDriver});
+	} else if(name == "usbhid") {
+		auto usbHidDriver = std::make_shared<UsbHidDriver>(sysfsSubsystem, name);
+		usbHidDriver->addObject();
+		interface_driver_list.insert({name, usbHidDriver});
 	} else {
 		assert(!"unsupported USB interface driver");
 	}

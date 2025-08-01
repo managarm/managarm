@@ -68,7 +68,8 @@ struct DeviceType {
 };
 
 struct Controller {
-	Controller(std::shared_ptr<protocols::hw::Device> device, std::array<uintptr_t, 2> ports,
+	Controller(mbus_ng::EntityId mbusParent, std::shared_ptr<protocols::hw::Device> device,
+		std::array<uintptr_t, 2> ports,
 		std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
 		std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq);
 	async::detached init();
@@ -95,6 +96,10 @@ struct Controller {
 
 		DeviceType deviceType() {
 			return _deviceType;
+		}
+
+		mbus_ng::EntityId mbusParent() const {
+			return _controller->mbusParent_;
 		}
 
 		void pushByte(uint8_t byte);
@@ -180,6 +185,7 @@ private:
 	bool _portsOwnData = false;
 
 	std::shared_ptr<protocols::hw::Device> _hwDevice;
+	mbus_ng::EntityId mbusParent_;
 	std::array<uintptr_t, 2> _ioPorts;
 
 	arch::io_space _dataSpace;
