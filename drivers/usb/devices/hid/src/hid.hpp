@@ -129,7 +129,7 @@ struct Handler {
 // -----------------------------------------------------
 
 struct HidDevice {
-	HidDevice() = default;
+	HidDevice(mbus_ng::EntityId parentId) : parentId_{parentId} {}
 	void parseReportDescriptor(protocols::usb::Device device, uint8_t* p, uint8_t* limit);
 	async::detached run(protocols::usb::Device device, int intf_num, int config_num);
 
@@ -148,7 +148,10 @@ struct HidDevice {
 	bool usesReportIds = false;
 
 private:
+	mbus_ng::EntityId parentId_;
+
 	std::shared_ptr<libevbackend::EventDevice> _eventDev;
+	std::unordered_map<int, mbus_ng::EntityId> interfaceEntities_;
 
 	uint16_t _vendorId = 0xFFFF;
 	uint16_t _deviceId = 0xFFFF;

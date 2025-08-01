@@ -16,3 +16,8 @@ struct CdcEtherDriver final : drvcore::BusDriver {
 	CdcEtherDriver(drvcore::BusSubsystem *parent, std::string name)
 	: drvcore::BusDriver(parent, name) {}
 };
+
+struct UsbHidDriver final : drvcore::BusDriver {
+	UsbHidDriver(drvcore::BusSubsystem *parent, std::string name)
+	: drvcore::BusDriver(parent, name) {}
+};
