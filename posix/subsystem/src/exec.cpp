@@ -10,6 +10,7 @@
 #include <fs.bragi.hpp>
 
 constexpr size_t kPageSize = 0x1000;
+constexpr uintptr_t ldsoBaseAddress = 0x40000000;
 
 // This struct is parsed before knowing the type of executable (PIE vs. non-PIE)
 // and also before knowing the ELF's base address.
@@ -274,7 +275,7 @@ execute(ViewPath root, ViewPath workdir,
 	// TODO: Should we really look up the dynamic linker in the current working dir?
 	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, execInfo.interpreter, self));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
-	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), 0x40000000));
+	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), ldsoBaseAddress));
 
 	constexpr size_t stackSize = 0x200000;
 
@@ -339,6 +340,8 @@ execute(ViewPath root, ViewPath workdir,
 		execfn,
 		AT_SECURE,
 		0,
+		AT_BASE,
+		ldsoBaseAddress,
 		AT_NULL,
 		0
 	});
