@@ -1295,6 +1295,9 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 }
 
 void Process::retire(Process *process) {
+	if(process->_procfs_dir)
+		process->_procfs_dir->unlinkSelf();
+
 	assert(process->_parent);
 	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
 
@@ -1322,12 +1325,6 @@ async::result<void> Process::terminate(TerminationState state) {
 
 	if(realTimer)
 		realTimer->cancel();
-
-	// procfs attributes use some contexts for obtaining information, hence the procfs dir needs to be destructed first
-	if(_procfs_dir) {
-		auto result [[maybe_unused]] = co_await _procfs_dir->getOwner()->unlink(_procfs_dir->getName());
-		assert(result);
-	}
 
 	_posixLane = {};
 	_threadDescriptor = {};

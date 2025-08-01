@@ -190,6 +190,14 @@ std::shared_ptr<FsNode> Link::getTarget() {
 	return _target;
 }
 
+void Link::unlinkSelf() {
+	assert(_target->getType() == VfsType::directory);
+
+	auto node = std::static_pointer_cast<DirectoryNode>(_owner);
+	auto err = node->directUnlink(_name);
+	assert(err == Error::success);
+}
+
 // ----------------------------------------------------------------------------
 // RegularNode implementation.
 // ----------------------------------------------------------------------------
@@ -366,7 +374,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
-	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
+	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
 	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>(process));
 	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
@@ -433,6 +441,14 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 		co_return Error::noSuchFile;
 	_entries.erase(it);
 	co_return frg::expected<Error>{};
+}
+
+Error DirectoryNode::directUnlink(std::string name) {
+	auto it = _entries.find(name);
+	if (it == _entries.end())
+		return Error::noSuchFile;
+	_entries.erase(it);
+	return Error::success;
 }
 
 LinkNode::LinkNode()
@@ -753,25 +769,34 @@ async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
 }
 
 async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
+	auto p = _process.lock();
+	if (!p)
+		co_return std::unexpected{Error::noSuchProcess};
+
+	char state = 'R';
+	if(p->notifyType() == NotifyType::terminated)
+		state = 'Z';
+
 	// Everything that has a value of N/A is not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << "Name: " << _process->name() << "\n"; // Name is hardcoded to be the last part of the path
-	stream << std::format("Umask: 0{:03o}\n", _process->fsContext()->getUmask());
-	stream << "State: R\n"; // Hardcoded to R, running.
-	stream << "Tgid: " << _process->pid() << "\n"; // Thread group id, same as gid for now
+	stream << "Name: " << p->name() << "\n"; // Name is hardcoded to be the last part of the path
+	if (p->fsContext())
+		stream << std::format("Umask: 0{:03o}\n", p->fsContext()->getUmask());
+	stream << std::format("State: {}\n", state); // R=running, Z=zombie.
+	stream << "Tgid: " << p->pid() << "\n"; // Thread group id, same as gid for now
 	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
-	stream << "Pid: " << _process->pid() << "\n";
+	stream << "Pid: " << p->pid() << "\n";
 	// This avoids a crash when asking for the parent of init.
-	if(_process->getParent()) {
-		stream << "PPid: " << _process->getParent()->pid() << "\n";
+	if(p->getParent()) {
+		stream << "PPid: " << p->getParent()->pid() << "\n";
 	} else {
 		stream << "PPid: 0\n";
 	}
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
-	stream << "Uid: " << _process->uid() << "\n";
-	stream << "Gid: " << _process->gid() << "\n";
+	stream << "Uid: " << p->uid() << "\n";
+	stream << "Gid: " << p->gid() << "\n";
 	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
@@ -840,7 +865,11 @@ async::result<void> StatusNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchFile;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
