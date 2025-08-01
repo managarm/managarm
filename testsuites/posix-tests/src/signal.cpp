@@ -81,14 +81,17 @@ namespace {
 DEFINE_TEST(signal_nodefer, ([] {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(struct sigaction));
+	sigemptyset(&sa.sa_mask);
 
 	sa.sa_flags = SA_RESETHAND;
+	sigaddset(&sa.sa_mask, SIGPROF);
 	sa.sa_handler = [] (int) {
 		sigset_t set;
 		int ret = sigprocmask(SIG_BLOCK, NULL, &set);
 		assert(ret == 0);
 		if(sigismember(&set, SIGUSR1))
 			nodefer_mask_is_set = 1;
+		assert(sigismember(&set, SIGPROF));
 
 		nodefer_signal_flag = 1;
 	};
@@ -106,6 +109,7 @@ DEFINE_TEST(signal_nodefer, ([] {
 	assert(nodefer_mask_is_set == 1);
 
 	memset(&sa, 0, sizeof(struct sigaction));
+	sigemptyset(&sa.sa_mask);
 
 	sa.sa_flags = SA_NODEFER;
 	sa.sa_handler = [] (int) {
