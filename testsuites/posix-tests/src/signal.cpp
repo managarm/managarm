@@ -211,3 +211,44 @@ DEFINE_TEST(sigchld_ignore, ([] {
 	ret = sigaction(SIGCHLD, &old, nullptr);
 	assert(!ret);
 }))
+
+DEFINE_TEST(sigchld_nocldwait_after_zombie, ([] {
+	struct sigaction sa = {};
+	struct sigaction old = {};
+
+	// Save the original sigaction to restore it later
+	int ret = sigaction(SIGCHLD, nullptr, &old);
+	assert(!ret);
+
+	pid_t pid = fork();
+	assert(pid >= 0);
+
+	if(!pid) {
+		_exit(0);
+	}
+
+	// Wait for the child to exit without reaping it.
+	siginfo_t info = {};
+	ret = waitid(P_PID, (id_t)pid, &info, WEXITED | WNOWAIT);
+	assert(!ret);
+	assert(info.si_pid == pid);
+
+	// Now the child is a zombie. Set SA_NOCLDWAIT.
+	sa.sa_flags = SA_NOCLDWAIT;
+	ret = sigaction(SIGCHLD, &sa, nullptr);
+	assert(!ret);
+
+	// waitpid() should fail with ECHILD because SA_NOCLDWAIT is set,
+	// which should have reaped the zombie child.
+	int status;
+	ret = waitpid(pid, &status, WNOHANG);
+	assert(ret == pid);
+
+	ret = waitpid(pid, &status, WNOHANG);
+	assert(ret == -1);
+	assert(errno == ECHILD);
+
+	// Restore the original sigaction
+	ret = sigaction(SIGCHLD, &old, nullptr);
+	assert(!ret);
+}))
