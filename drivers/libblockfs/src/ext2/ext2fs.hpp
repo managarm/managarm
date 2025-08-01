@@ -14,8 +14,9 @@
 #include <hel.h>
 
 #include <blockfs.hpp>
-#include "common.hpp"
+#include "../common.hpp"
 #include "fs.bragi.hpp"
+#include "../fs.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -171,7 +172,7 @@ struct DirEntry {
 
 struct FileSystem;
 
-struct Inode : std::enable_shared_from_this<Inode> {
+struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
 	DiskInode *diskInode() {
@@ -193,26 +194,30 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	async::result<std::optional<DirEntry>> mkdir(std::string name);
 	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
-	async::result<protocols::fs::Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
+	async::result<protocols::fs::Error> updateTimes(
+		std::optional<timespec> atime,
+		std::optional<timespec> mtime,
+		std::optional<timespec> ctime);
 
 	FileSystem &fs;
 
-	// ext2fs on-disk inode number
-	const uint32_t number;
-
-	// true if this inode has already been loaded from disk
-	bool isReady;
-
 	helix::UniqueDescriptor diskLock;
 	helix::Mapping diskMapping;
-
-	// called when the inode becomes ready
-	async::oneshot_event readyJump;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
 	helix::Mapping fileMapping;
+
+	helix::BorrowedDescriptor accessMemory() {
+		return helix::BorrowedDescriptor{frontalMemory};
+	}
+
+	async::result<frg::expected<protocols::fs::Error>>
+	ensureBackingBlocks(size_t offset, size_t length);
+
+	async::result<frg::expected<protocols::fs::Error>>
+	resizeFile(size_t newSize);
 
 	// Caches indirection blocks reachable from the inode.
 	// - Indirection level 1/1 for single indirect blocks.
@@ -226,23 +231,22 @@ struct Inode : std::enable_shared_from_this<Inode> {
 	// Caches indirection blocks reachable from order 2 blocks.
 	// - Indirection level 3/3 for triple indirect blocks.
 	helix::UniqueDescriptor indirectOrder3;
-
-	// NOTE: The following fields are only meaningful if the isReady is true
-
-	FileType fileType;
-
-	int uid, gid;
-	FlockManager flockManager;
-
-	std::unordered_set<std::string> obstructedLinks;
 };
 
 // --------------------------------------------------------
 // FileSystem
 // --------------------------------------------------------
 
-struct FileSystem {
+struct OpenFile;
+
+struct FileSystem final : BaseFileSystem {
+	using Inode = Inode;
+	using File = OpenFile;
+
 	FileSystem(BlockDevice *device);
+
+	const protocols::fs::FileOperations *fileOps() override;
+	const protocols::fs::NodeOperations *nodeOps() override;
 
 	async::result<void> init();
 
@@ -250,9 +254,9 @@ struct FileSystem {
 	async::detached manageInodeBitmap(helix::UniqueDescriptor memory);
 	async::detached manageInodeTable(helix::UniqueDescriptor memory);
 
-	std::shared_ptr<Inode> accessRoot();
-	std::shared_ptr<Inode> accessInode(uint32_t number);
-	async::result<std::shared_ptr<Inode>> createRegular(int uid, int gid);
+	std::shared_ptr<BaseInode> accessRoot() override;
+	std::shared_ptr<BaseInode> accessInode(uint32_t number) override;
+	async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid) override;
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 
@@ -274,8 +278,6 @@ struct FileSystem {
 			size_t num_blocks, void *buffer);
 	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, const void *buffer);
-
-	async::result<void> truncate(Inode *inode, size_t size);
 
 	async::result<void> writebackBgdt();
 
@@ -304,16 +306,16 @@ struct FileSystem {
 // File operation closures
 // --------------------------------------------------------
 
-struct OpenFile {
-	OpenFile(std::shared_ptr<Inode> inode);
+struct OpenFile final : BaseFile {
+	OpenFile(std::shared_ptr<Inode> inode, bool append)
+	: BaseFile{inode, append} { }
 
 	async::result<std::optional<std::string>> readEntries();
-
-	std::shared_ptr<Inode> inode;
-	uint64_t offset;
-	Flock flock;
-	bool append;
 };
+
+static_assert(blockfs::Inode<Inode>);
+static_assert(blockfs::File<OpenFile>);
+static_assert(blockfs::FileSystem<FileSystem>);
 
 } } // namespace blockfs::ext2fs
 

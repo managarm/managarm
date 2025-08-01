@@ -33,5 +33,7 @@ struct OpenFile {
 	Flock flock;
 };
 
+extern protocols::fs::FileOperations rawOperations;
+
 } // namespace raw
 } // namespace blockfs
