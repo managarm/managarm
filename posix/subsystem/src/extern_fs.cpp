@@ -199,6 +199,12 @@ private:
 		co_return Error::illegalArguments;
 	}
 
+	async::result<frg::expected<Error, size_t>>
+	writeAll(Process *, const void *data, size_t length) override {
+		size_t res = co_await _file.writeSome(data, length);
+		co_return res;
+	}
+
 	// TODO: Ensure that the process is null? Pass credentials of the thread in the request?
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ce) override {
@@ -480,6 +486,43 @@ private:
 		return true;
 	}
 
+	async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+	getLinkOrCreate(Process *process, std::string name, mode_t mode, bool exclusive) override {
+		assert(this->getType() == VfsType::directory);
+
+		managarm::fs::GetLinkOrCreateRequest req;
+		req.set_mode(mode);
+		req.set_exclusive(exclusive);
+		req.set_name(name);
+		req.set_uid(process->uid());
+		req.set_gid(process->gid());
+
+		auto [offer, send_head, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
+			getLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+		HEL_CHECK(offer.error());
+		HEL_CHECK(send_head.error());
+		HEL_CHECK(send_tail.error());
+		HEL_CHECK(recv_resp.error());
+
+		managarm::fs::GetLinkOrCreateResponse resp;
+		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+		recv_resp.reset();
+		if(resp.error() == managarm::fs::Errors::SUCCESS) {
+			HEL_CHECK(pull_node.error());
+
+			auto node = _sb->internalizePeripheralNode(resp.file_type(), resp.id(), pull_node.descriptor());
+			co_return _sb->internalizePeripheralLink(this, name, std::move(node));
+		} else {
+			co_return std::unexpected{resp.error() | toPosixError};
+		}
+	}
+
 	async::result<frg::expected<Error, std::pair<std::shared_ptr<FsLink>, size_t>>>
 	traverseLinks(std::deque<std::string> path) override {
 		managarm::fs::NodeTraverseLinksRequest req;
@@ -660,7 +703,7 @@ private:
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
 		}else if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
-			co_return nullptr;
+			co_return Error::noSuchFile;
 		}else{
 			assert(resp.error() == managarm::fs::Errors::NOT_DIRECTORY);
 			co_return Error::notDirectory;

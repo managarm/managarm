@@ -927,6 +927,11 @@ namespace posix {
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superExit) {
 				break;
+			}else if(interrupt == kIntrSuperCall + ::posix::superSigKill) {
+				urgentLogger() << "thor: Signal sent by server "
+						<< name().data() << frg::endlog;
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue()->take());
+				break;
 			}else{
 				panicLogger() << "thor: Unexpected observation "
 						<< (uint32_t)interrupt << frg::endlog;

@@ -1965,6 +1965,65 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
+		}else if(preamble.id() == managarm::fs::GetLinkOrCreateRequest::message_id) {
+			std::vector<uint8_t> tail(preamble.tail_size());
+			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::recvBuffer(tail.data(), tail.size())
+			);
+			HEL_CHECK(recv_tail.error());
+			logBragiRequest(tail);
+
+			auto req = bragi::parse_head_tail<managarm::fs::GetLinkOrCreateRequest>(recv_req, tail);
+			recv_req.reset();
+
+			if (!req) {
+				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
+				break;
+			}
+
+			auto result = co_await node_ops->getLinkOrCreate(node, req->name(), req->mode(), req->exclusive(),
+				req->uid(), req->gid());
+
+			managarm::fs::GetLinkOrCreateResponse resp;
+			if (result) {
+				helix::UniqueLane local_lane, remote_lane;
+				std::tie(local_lane, remote_lane) = helix::createStream();
+				serveNode(std::move(local_lane), std::move(std::get<0>(result.value())), node_ops);
+
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_id(std::get<1>(result.value()));
+				switch(std::get<2>(result.value())) {
+					case FileType::directory:
+						resp.set_file_type(managarm::fs::FileType::DIRECTORY);
+						break;
+					case FileType::regular:
+						resp.set_file_type(managarm::fs::FileType::REGULAR);
+						break;
+					case FileType::symlink:
+						resp.set_file_type(managarm::fs::FileType::SYMLINK);
+						break;
+					default:
+						throw std::runtime_error("Unexpected file type");
+				}
+				auto [send_resp, send_node] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::pushDescriptor(remote_lane)
+				);
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(send_node.error());
+			} else {
+				resp.set_error(result.error() | toFsError);
+				auto [send_resp, dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+					helix_ng::dismiss()
+				);
+				HEL_CHECK(send_resp.error());
+			}
+
+			logBragiReply(resp);
 		}else{
 			throw std::runtime_error("libfs_protocol: Unexpected request type in serveNode");
 		}

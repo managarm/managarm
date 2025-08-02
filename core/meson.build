@@ -1,6 +1,7 @@
 inc = [ 'include' ]
 
 headers = [
+	'include/core/align.hpp',
 	'include/core/bpf.hpp',
 	'include/core/clock.hpp',
 	'include/core/cmdline.hpp',

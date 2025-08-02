@@ -2,6 +2,7 @@
 
 #include <variant>
 #include <string.h> // for hel.h
+#include <print>
 #include <vector>
 
 #include <async/result.hpp>
@@ -186,6 +187,36 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::internalError: return Error::fileClosed;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			return Error::ioError;
+	}
+}
+
+inline Error operator|(managarm::fs::Errors e, ToPosixError) {
+	switch(e) {
+		case managarm::fs::Errors::SUCCESS: return Error::success;
+		case managarm::fs::Errors::FILE_NOT_FOUND: return Error::noSuchFile;
+		case managarm::fs::Errors::END_OF_FILE: return Error::eof;
+		case managarm::fs::Errors::ILLEGAL_ARGUMENT: return Error::illegalArguments;
+		case managarm::fs::Errors::WOULD_BLOCK: return Error::wouldBlock;
+		case managarm::fs::Errors::SEEK_ON_PIPE: return Error::seekOnPipe;
+		case managarm::fs::Errors::BROKEN_PIPE: return Error::brokenPipe;
+		case managarm::fs::Errors::ACCESS_DENIED: return Error::accessDenied;
+		case managarm::fs::Errors::INSUFFICIENT_PERMISSIONS: return Error::insufficientPermissions;
+		case managarm::fs::Errors::NOT_CONNECTED: return Error::notConnected;
+		case managarm::fs::Errors::ALREADY_EXISTS: return Error::alreadyExists;
+		case managarm::fs::Errors::ILLEGAL_OPERATION_TARGET: return Error::illegalOperationTarget;
+		case managarm::fs::Errors::NOT_DIRECTORY: return Error::notDirectory;
+		case managarm::fs::Errors::NO_SPACE_LEFT: return Error::noSpaceLeft;
+		case managarm::fs::Errors::NOT_A_TERMINAL: return Error::notTerminal;
+		case managarm::fs::Errors::NO_BACKING_DEVICE: return Error::noBackingDevice;
+		case managarm::fs::Errors::IS_DIRECTORY: return Error::isDirectory;
+		case managarm::fs::Errors::DIRECTORY_NOT_EMPTY: return Error::directoryNotEmpty;
+		case managarm::fs::Errors::INTERNAL_ERROR: return Error::ioError;
+		case managarm::fs::Errors::ALREADY_CONNECTED: return Error::alreadyConnected;
+		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
+		case managarm::fs::Errors::INTERRUPTED: return Error::interrupted;
+		default:
+			std::println("posix: unmapped managarm::fs::Errors Error {}", static_cast<int>(e));
 			return Error::ioError;
 	}
 }

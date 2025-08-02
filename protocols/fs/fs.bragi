@@ -796,3 +796,20 @@ message ShutdownSocket 29 {
 head(128):
 	int32 how;
 }
+
+message GetLinkOrCreateRequest 30 {
+head(128):
+	int32 mode;
+	byte exclusive;
+	int64 uid;
+	int64 gid;
+tail:
+	string name;
+}
+
+message GetLinkOrCreateResponse 31 {
+head(128):
+	Errors error;
+	FileType file_type;
+	int64 id;
+}

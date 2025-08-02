@@ -103,6 +103,12 @@ void FsNode::removeObserver(FsObserver *observer) {
 	_observers.erase(it);
 }
 
+async::result<std::expected<std::shared_ptr<FsLink>, Error>>
+FsNode::getLinkOrCreate(Process *, std::string, mode_t, bool) {
+	std::println("posix: getLink() is not implemented for this FsNode");
+	co_return std::unexpected{Error::illegalOperationTarget};
+}
+
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::getLink(std::string) {
 	std::cout << "posix: getLink() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
