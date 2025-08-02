@@ -15,7 +15,10 @@ void dumpRegisters(std::shared_ptr<Process> proc) {
 	auto thread = proc->threadDescriptor();
 
 	uintptr_t pcrs[2];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
+	auto registerLoad = helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs);
+	if(registerLoad == kHelErrNoDescriptor)
+		return;
+	HEL_CHECK(registerLoad);
 
 	uintptr_t gprs[kHelNumGprs];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
@@ -659,6 +662,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			bool killed;
 			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
+				co_await self->coredump({});
+
 				if(debugFaults) {
 					launchGdbServer(self.get());
 					co_await async::suspend_indefinitely(async::cancellation_token{});
