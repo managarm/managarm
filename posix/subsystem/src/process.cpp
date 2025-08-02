@@ -1386,19 +1386,6 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 	if(_children.empty() || (pid > 0 && !hasChild(pid)))
 		co_return Error::noChildProcesses;
 
-	auto sigchldHandling = signalContext()->getHandler(SIGCHLD);
-
-	if (sigchldHandling.disposition == SignalDisposition::ignore || (sigchldHandling.flags & signalNoChildWait)) {
-		while(!_children.empty()) {
-			if (!co_await _notifyBell.async_wait(ct)) {
-				if (_children.empty())
-					co_return Error::noChildProcesses;
-				co_return Error::interrupted;
-			}
-		}
-		co_return Error::noChildProcesses;
-	}
-
 	std::optional<WaitResult> result{};
 	while(true) {
 		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
@@ -1431,6 +1418,9 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 
 		if (!co_await _notifyBell.async_wait(ct))
 			co_return Error::interrupted;
+
+		if (_children.empty())
+			co_return Error::noChildProcesses;
 	}
 }
 
