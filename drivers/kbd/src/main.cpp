@@ -116,10 +116,11 @@ struct EventDevice final : libevbackend::EventDevice {
 // Controller
 // --------------------------------------------------------------------
 
-Controller::Controller(std::shared_ptr<protocols::hw::Device> device, std::array<uintptr_t, 2> ports,
+Controller::Controller(mbus_ng::EntityId mbusParent, std::shared_ptr<protocols::hw::Device> device,
+	std::array<uintptr_t, 2> ports,
 	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq,
 	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq)
-	: _hwDevice{std::move(device)}, _ioPorts{ports}, _primaryIrq{primaryIrq},
+	: _hwDevice{std::move(device)}, mbusParent_{mbusParent}, _ioPorts{ports}, _primaryIrq{primaryIrq},
 	_secondaryIrq{secondaryIrq} {
 
 	if(!secondaryIrq)
@@ -491,7 +492,8 @@ async::result<void> Controller::KbdDevice::run() {
 
 	// Create an mbus object for the partition.
 	mbus_ng::Properties descriptor{
-		{"unix.subsystem", mbus_ng::StringItem{"input"}}
+		{"unix.subsystem", mbus_ng::StringItem{"input"}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(_port->mbusParent())}},
 	};
 
 	auto entity = (co_await mbus_ng::Instance::global().createEntity(
@@ -576,7 +578,8 @@ async::result<void> Controller::MouseDevice::run() {
 
 	// Create an mbus object for the partition.
 	mbus_ng::Properties descriptor{
-		{"unix.subsystem", mbus_ng::StringItem{"input"}}
+		{"unix.subsystem", mbus_ng::StringItem{"input"}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(_port->mbusParent())}},
 	};
 
 	auto entity = (co_await mbus_ng::Instance::global().createEntity(
@@ -1203,6 +1206,7 @@ async::detached observeControllers() {
 	std::optional<uintptr_t> secondaryPort = std::nullopt;
 	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> primaryIrq = std::nullopt;
 	std::optional<std::pair<int, std::shared_ptr<protocols::hw::Device>>> secondaryIrq = std::nullopt;
+	std::optional<mbus_ng::EntityId> entityId = std::nullopt;
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
 	while(!ready && !done) {
@@ -1221,6 +1225,7 @@ async::detached observeControllers() {
 			}
 
 			auto entity = co_await mbus_ng::Instance::global().getEntity(event.id);
+			entityId = entity.id();
 			auto device = std::make_shared<protocols::hw::Device>((co_await entity.getRemoteLane()).unwrap());
 			auto res = co_await device->getResources();
 
@@ -1258,9 +1263,10 @@ async::detached observeControllers() {
 		co_return;
 	}
 
+	assert(entityId);
 	std::array<uintptr_t, 2> ports{*primaryPort, *secondaryPort};
 
-	_controller = new Controller(hwDevice.value(), ports, primaryIrq, secondaryIrq);
+	_controller = new Controller(*entityId, hwDevice.value(), ports, primaryIrq, secondaryIrq);
 	_controller->init();
 }
 
