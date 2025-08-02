@@ -82,6 +82,9 @@ enum class Error {
 	notSocket,
 
 	interrupted,
+
+	// Corresponds to ESRCH
+	noSuchProcess,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -112,6 +115,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::alreadyConnected: return protocols::fs::Error::alreadyConnected;
 		case Error::notSocket: return protocols::fs::Error::notSocket;
 		case Error::interrupted: return protocols::fs::Error::interrupted;
+		case Error::noSuchProcess: return protocols::fs::Error::noSuchProcess;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -147,6 +151,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::alreadyConnected: return managarm::posix::Errors::ALREADY_CONNECTED;
 		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
 		case Error::interrupted: return managarm::posix::Errors::INTERRUPTED;
+		case Error::noSuchProcess: return managarm::posix::Errors::NO_SUCH_RESOURCE;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
@@ -185,8 +190,9 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::isDirectory: return Error::isDirectory;
 		case protocols::fs::Error::directoryNotEmpty: return Error::directoryNotEmpty;
 		case protocols::fs::Error::internalError: return Error::fileClosed;
+		case protocols::fs::Error::noSuchProcess: return Error::noSuchProcess;
 		default:
-			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			std::cout << std::format("posix: unmapped protocols::fs::Error {}", static_cast<int>(e)) << std::endl;
 			return Error::ioError;
 	}
 }
