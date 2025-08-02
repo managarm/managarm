@@ -1480,61 +1480,65 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			auto statsResult = co_await target_link->getTarget()->getStats();
-			assert(statsResult);
-			auto stats = statsResult.value();
-
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
 
-			DeviceId devnum;
-			switch(target_link->getTarget()->getType()) {
-			case VfsType::regular:
-				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
-				break;
-			case VfsType::directory:
-				resp.set_file_type(managarm::posix::FileType::FT_DIRECTORY);
-				break;
-			case VfsType::symlink:
-				resp.set_file_type(managarm::posix::FileType::FT_SYMLINK);
-				break;
-			case VfsType::charDevice:
-				resp.set_file_type(managarm::posix::FileType::FT_CHAR_DEVICE);
-				devnum = target_link->getTarget()->readDevice();
-				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-				break;
-			case VfsType::blockDevice:
-				resp.set_file_type(managarm::posix::FileType::FT_BLOCK_DEVICE);
-				devnum = target_link->getTarget()->readDevice();
-				resp.set_ref_devnum(makedev(devnum.first, devnum.second));
-				break;
-			case VfsType::socket:
-				resp.set_file_type(managarm::posix::FileType::FT_SOCKET);
-				break;
-			case VfsType::fifo:
-				resp.set_file_type(managarm::posix::FileType::FT_FIFO);
-				break;
-			default:
-				assert(target_link->getTarget()->getType() == VfsType::null);
+			if (statsResult) {
+				auto stats = statsResult.value();
+
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				DeviceId devnum;
+				switch(target_link->getTarget()->getType()) {
+				case VfsType::regular:
+					resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
+					break;
+				case VfsType::directory:
+					resp.set_file_type(managarm::posix::FileType::FT_DIRECTORY);
+					break;
+				case VfsType::symlink:
+					resp.set_file_type(managarm::posix::FileType::FT_SYMLINK);
+					break;
+				case VfsType::charDevice:
+					resp.set_file_type(managarm::posix::FileType::FT_CHAR_DEVICE);
+					devnum = target_link->getTarget()->readDevice();
+					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+					break;
+				case VfsType::blockDevice:
+					resp.set_file_type(managarm::posix::FileType::FT_BLOCK_DEVICE);
+					devnum = target_link->getTarget()->readDevice();
+					resp.set_ref_devnum(makedev(devnum.first, devnum.second));
+					break;
+				case VfsType::socket:
+					resp.set_file_type(managarm::posix::FileType::FT_SOCKET);
+					break;
+				case VfsType::fifo:
+					resp.set_file_type(managarm::posix::FileType::FT_FIFO);
+					break;
+				default:
+					assert(target_link->getTarget()->getType() == VfsType::null);
+				}
+
+				if(stats.mode & ~0xFFFu)
+					std::cout << "\e[31m" "posix: FsNode::getStats() returned illegal mode of "
+							<< stats.mode << "\e[39m" << std::endl;
+
+				resp.set_fs_inode(stats.inodeNumber);
+				resp.set_mode(stats.mode);
+				resp.set_num_links(stats.numLinks);
+				resp.set_uid(stats.uid);
+				resp.set_gid(stats.gid);
+				resp.set_file_size(stats.fileSize);
+				resp.set_atime_secs(stats.atimeSecs);
+				resp.set_atime_nanos(stats.atimeNanos);
+				resp.set_mtime_secs(stats.mtimeSecs);
+				resp.set_mtime_nanos(stats.mtimeNanos);
+				resp.set_ctime_secs(stats.ctimeSecs);
+				resp.set_ctime_nanos(stats.ctimeNanos);
+				resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
+				resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
+			} else {
+				resp.set_error(statsResult.error() | toPosixProtoError);
 			}
-
-			if(stats.mode & ~0xFFFu)
-				std::cout << "\e[31m" "posix: FsNode::getStats() returned illegal mode of "
-						<< stats.mode << "\e[39m" << std::endl;
-
-			resp.set_fs_inode(stats.inodeNumber);
-			resp.set_mode(stats.mode);
-			resp.set_num_links(stats.numLinks);
-			resp.set_uid(stats.uid);
-			resp.set_gid(stats.gid);
-			resp.set_file_size(stats.fileSize);
-			resp.set_atime_secs(stats.atimeSecs);
-			resp.set_atime_nanos(stats.atimeNanos);
-			resp.set_mtime_secs(stats.mtimeSecs);
-			resp.set_mtime_nanos(stats.mtimeNanos);
-			resp.set_ctime_secs(stats.ctimeSecs);
-			resp.set_ctime_nanos(stats.ctimeNanos);
-			resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
-			resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
