@@ -64,6 +64,11 @@ async::result<frg::expected<Error, off_t>> RegularFile::seek(off_t offset, VfsSe
 	else if(whence == VfsSeek::eof)
 		// TODO: Unimplemented!
 		assert(whence == VfsSeek::eof);
+
+	// rewinding all the way invalidates caching; this is necessary for propagating errors like ESRCH
+	if (_offset == 0)
+		_cached = false;
+
 	co_return _offset;
 }
 
@@ -75,7 +80,11 @@ RegularFile::readSome(Process *process, void *data, size_t max_length, async::ca
 		assert(!_offset);
 		auto node = static_cast<RegularNode *>(associatedLink()->getTarget().get());
 		// TODO(geert): We assume this can't block (probably wrong).
-		_buffer = co_await node->show(process);
+		auto result = co_await node->show(process);
+		if (!result)
+			co_return std::unexpected{result.error()};
+
+		_buffer = result.value();
 		_cached = true;
 	}
 
@@ -179,6 +188,14 @@ std::string Link::getName() {
 
 std::shared_ptr<FsNode> Link::getTarget() {
 	return _target;
+}
+
+void Link::unlinkSelf() {
+	assert(_target->getType() == VfsType::directory);
+
+	auto node = std::static_pointer_cast<DirectoryNode>(_owner);
+	auto err = node->directUnlink(_name);
+	assert(err == Error::success);
 }
 
 // ----------------------------------------------------------------------------
@@ -357,7 +374,7 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
-	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process));
+	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
 	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>(process));
 	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
@@ -426,6 +443,14 @@ async::result<frg::expected<Error>> DirectoryNode::unlink(std::string name) {
 	co_return frg::expected<Error>{};
 }
 
+Error DirectoryNode::directUnlink(std::string name) {
+	auto it = _entries.find(name);
+	if (it == _entries.end())
+		return Error::noSuchFile;
+	_entries.erase(it);
+	return Error::success;
+}
+
 LinkNode::LinkNode()
 : FsNode{&procfsSuperblock} { }
 
@@ -449,7 +474,7 @@ async::result<frg::expected<Error, FileStats>> LinkNode::getStatsInternal(Proces
 	co_return stats;
 }
 
-async::result<std::string> UptimeNode::show(Process *) {
+async::result<std::expected<std::string, Error>> UptimeNode::show(Process *) {
 	auto uptime = clk::getTimeSinceBoot();
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -465,7 +490,7 @@ async::result<void> UptimeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OstypeNode::show(Process *) {
+async::result<std::expected<std::string, Error>> OstypeNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -479,7 +504,7 @@ async::result<void> OstypeNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> OsreleaseNode::show(Process *) {
+async::result<std::expected<std::string, Error>> OsreleaseNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	// TODO: The version is a placeholder!
@@ -494,7 +519,7 @@ async::result<void> OsreleaseNode::store(std::string) {
 	co_return;
 }
 
-async::result<std::string> ArchNode::show(Process *) {
+async::result<std::expected<std::string, Error>> ArchNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -539,7 +564,7 @@ BootIdNode::BootIdNode() {
 		a, b, c, d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7]);
 }
 
-async::result<std::string> BootIdNode::show(Process *) {
+async::result<std::expected<std::string, Error>> BootIdNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	co_return bootId_ + "\n";
@@ -567,7 +592,7 @@ async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> MapNode::show(Process *) {
+async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 	auto vmContext = _process->vmContext();
 	std::stringstream stream;
 	for (auto area : *vmContext) {
@@ -616,7 +641,7 @@ async::result<frg::expected<Error, FileStats>> MapNode::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> CommNode::show(Process *) {
+async::result<std::expected<std::string, Error>> CommNode::show(Process *) {
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -642,7 +667,7 @@ async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> StatNode::show(Process *) {
+async::result<std::expected<std::string, Error>> StatNode::show(Process *) {
 	// Everything that has a value of 0 is likely not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
@@ -717,7 +742,7 @@ async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> StatmNode::show(Process *) {
+async::result<std::expected<std::string, Error>> StatmNode::show(Process *) {
 	(void)_process;
 	// All hardcoded to 0.
 	// See man 5 proc for more details.
@@ -743,26 +768,35 @@ async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> StatusNode::show(Process *) {
+async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
+	auto p = _process.lock();
+	if (!p)
+		co_return std::unexpected{Error::noSuchProcess};
+
+	char state = 'R';
+	if(p->notifyType() == NotifyType::terminated)
+		state = 'Z';
+
 	// Everything that has a value of N/A is not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << "Name: " << _process->name() << "\n"; // Name is hardcoded to be the last part of the path
-	stream << std::format("Umask: 0{:03o}\n", _process->fsContext()->getUmask());
-	stream << "State: R\n"; // Hardcoded to R, running.
-	stream << "Tgid: " << _process->pid() << "\n"; // Thread group id, same as gid for now
+	stream << "Name: " << p->name() << "\n"; // Name is hardcoded to be the last part of the path
+	if (p->fsContext())
+		stream << std::format("Umask: 0{:03o}\n", p->fsContext()->getUmask());
+	stream << std::format("State: {}\n", state); // R=running, Z=zombie.
+	stream << "Tgid: " << p->pid() << "\n"; // Thread group id, same as gid for now
 	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
-	stream << "Pid: " << _process->pid() << "\n";
+	stream << "Pid: " << p->pid() << "\n";
 	// This avoids a crash when asking for the parent of init.
-	if(_process->getParent()) {
-		stream << "PPid: " << _process->getParent()->pid() << "\n";
+	if(p->getParent()) {
+		stream << "PPid: " << p->getParent()->pid() << "\n";
 	} else {
 		stream << "PPid: 0\n";
 	}
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
-	stream << "Uid: " << _process->uid() << "\n";
-	stream << "Gid: " << _process->gid() << "\n";
+	stream << "Uid: " << p->uid() << "\n";
+	stream << "Gid: " << p->gid() << "\n";
 	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
@@ -831,7 +865,11 @@ async::result<void> StatusNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchFile;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
@@ -847,7 +885,7 @@ expected<std::string> MountsLink::readSymlink(FsLink *, Process *) {
 }
 
 // MASSIVE STUBS
-async::result<std::string> CgroupNode::show(Process *) {
+async::result<std::expected<std::string, Error>> CgroupNode::show(Process *) {
 	// See man 7 cgroups for more details, I'm emulating cgroups2 here.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
@@ -956,7 +994,7 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
 	co_return path;
 }
 
-async::result<std::string> MountsNode::show(Process *proc) {
+async::result<std::expected<std::string, Error>> MountsNode::show(Process *proc) {
 	auto root = proc->fsContext()->getRoot();
 
 	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
@@ -1006,7 +1044,7 @@ async::result<frg::expected<Error, FileStats>> MountsNode::getStats() {
 	co_return co_await getStatsInternal(_process);
 }
 
-async::result<std::string> MountInfoNode::show(Process *proc) {
+async::result<std::expected<std::string, Error>> MountInfoNode::show(Process *proc) {
 	auto root = proc->fsContext()->getRoot();
 
 	auto processMount = [&proc](std::shared_ptr<MountView> mount, bool root = false) {
@@ -1136,7 +1174,7 @@ helix::BorrowedDescriptor FdInfoDirectoryFile::getPassthroughLane() {
 	return _passthrough;
 }
 
-async::result<std::string> FdInfoNode::show(Process *) {
+async::result<std::expected<std::string, Error>> FdInfoNode::show(Process *) {
 	auto seekResult = co_await file_->seek(0, VfsSeek::relative);
 	auto pos = seekResult ? seekResult.value() : 0;
 	auto mountId = mountView_ ? mountView_->mountId() : 0;
