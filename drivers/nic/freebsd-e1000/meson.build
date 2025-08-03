@@ -2,22 +2,10 @@ if host_machine.cpu_family() != 'x86_64'
 	subdir_done()
 endif
 
-import = subproject('freebsd-e1000')
-
 inc = ['../../../servers/netserver/include', 'include']
-inc += [ import.get_variable('inc') ]
 
-nic_freebsd_e1000_import_lib = static_library('nic-freebsd-e1000-import',
-	import.get_variable('src'),
-	include_directories : [ inc ],
-	install : true,
-	c_args : ['-Wno-implicit-fallthrough', '-Wno-unused-parameter']
-)
-
-nic_freebsd_e1000_import_dep = declare_dependency(
-	include_directories : [ import.get_variable('inc') ],
-	link_with : nic_freebsd_e1000_import_lib
-)
+nic_freebsd_e1000_import_dep = dependency('e1000-freebsd', method: 'pkg-config')
+nic_freebsd_e1000_deps = deps + [ nic_freebsd_e1000_import_dep ]
 
 src_files = files(
 	'src/managarm.cpp',
@@ -29,12 +17,12 @@ src_files = files(
 
 nic_freebsd_e1000_lib = static_library('nic-freebsd-e1000', src_files,
 	include_directories : inc,
-	dependencies: [ deps, nic_freebsd_e1000_import_dep ],
+	dependencies: nic_freebsd_e1000_deps,
 	install : true
 )
 
 nic_freebsd_e1000_dep = declare_dependency(
 	include_directories : inc,
-	dependencies : deps,
+	dependencies : nic_freebsd_e1000_import_dep,
 	link_with : nic_freebsd_e1000_lib
 )
