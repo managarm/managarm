@@ -715,9 +715,38 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			}
 		}
 
+	auto config = (co_await device.useConfiguration(0, config_num)).unwrap();
+	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
+
+	if (!interfaceEntities_.contains(intf.num())) {
+		mbus_ng::Properties interfaceDescriptor = {
+			{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(parentId_)}},
+			{"usb.interface_drivers", mbus_ng::ArrayItem{{
+				mbus_ng::ArrayItem{{
+					mbus_ng::StringItem{std::format("{}.{}", config_num, intf.num())},
+					mbus_ng::StringItem{"usbhid"},
+				}},
+			}}},
+		};
+		auto interfaceEntity = (co_await mbus_ng::Instance::global().createEntity("usb-interface", interfaceDescriptor)).unwrap();
+
+		interfaceEntities_.insert({intf.num(), interfaceEntity.id()});
+
+		[] (mbus_ng::EntityManager entity) -> async::detached {
+			while (true) {
+				auto [localLane, remoteLane] = helix::createStream();
+
+				// If this fails, too bad!
+				(void)(co_await entity.serveRemoteLane(std::move(remoteLane)));
+			}
+		}(std::move(interfaceEntity));
+	}
+
 	// Create an mbus object for the device.
 	mbus_ng::Properties mbusDescriptor{
-		{"unix.subsystem", mbus_ng::StringItem{"input"}}
+		{"unix.subsystem", mbus_ng::StringItem{"input"}},
+		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(parentId_)}},
+		{"usb.parent-interface", mbus_ng::StringItem{std::format("{}.{}", config_num, intf.num())},},
 	};
 
 	auto entity = (co_await mbus_ng::Instance::global().createEntity(
@@ -734,8 +763,6 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 		}
 	}(_eventDev, std::move(entity));
 
-	auto config = (co_await device.useConfiguration(0, config_num)).unwrap();
-	auto intf = (co_await config.useInterface(intf_num, 0)).unwrap();
 	auto endp = (co_await intf.getEndpoint(proto::PipeType::in, in_endp_number.value())).unwrap();
 
 	// Read reports from the USB device.
@@ -849,7 +876,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 			"Interface: " << intf_number.value()
 			<< ", alternative: " << intf_alternative.value() << std::endl;
 
-	HidDevice* hid_device = new HidDevice();
+	HidDevice* hid_device = new HidDevice(entity.id());
 	hid_device->run(device, config_number.value(), intf_number.value());
 }
 
