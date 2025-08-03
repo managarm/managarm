@@ -18,12 +18,13 @@ driver_src = files(
 	'src/sysdeps/libspdm.c',
 )
 
-import = subproject('nvidia-open')
+libnvo = dependency('nvidia-open', method: 'pkg-config')
+libnvo_modeset = dependency('nvidia-open-modeset', method: 'pkg-config')
 
 executable('gfx_nvidia_open', driver_src,
-	dependencies : [drm_core_dep, svrctl_proto_dep, import.get_variable('nvidia_open_lib_dep')],
+	dependencies : [drm_core_dep, svrctl_proto_dep, libnvo, libnvo_modeset],
 	include_directories : ['src'],
-	cpp_args : import.get_variable('nvidia_open_cpp_args'),
+	cpp_args : ['-fno-operator-names'],
 	install : true
 )
 
