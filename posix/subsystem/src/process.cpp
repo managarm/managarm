@@ -717,8 +717,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #elif defined(__aarch64__)
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
 #elif defined(__riscv) && __riscv_xlen == 64
-	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
-	__builtin_trap();
+	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 #else
 #error Signal register loading code is missing for architecture
 #endif
@@ -745,9 +744,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #elif defined(__aarch64__)
 	uintptr_t threadSp = sf.ucontext.uc_mcontext.sp;
 #elif defined(__riscv) && __riscv_xlen == 64
-	uintptr_t threadSp;
-	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
-	__builtin_trap();
+	uintptr_t threadSp = sf.ucontext.uc_mcontext.gregs[REG_SP];
 #else
 #error Code to get stack pointer is missing for architecture
 #endif
@@ -768,8 +765,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	size_t totalFrameSize = simdStateSize + sizeof(SignalFrame);
 
 	// Store the current register stack on the stack.
-	assert(alignof(SignalFrame) == 8);
 	auto frame = alignFrame(totalFrameSize);
+	assert((frame & (alignof(SignalFrame) - 1)) == 0);
 
 #if defined(__x86_64__)
 	sf.ucontext.uc_mcontext.fpregs = (struct _fpstate*)(frame + sizeof(SignalFrame));
@@ -811,8 +808,15 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
 #elif defined(__riscv) && __riscv_xlen == 64
-	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
-	__builtin_trap();
+	sf.ucontext.uc_mcontext.gregs[REG_A0 + 0] = item->signalNumber;
+	sf.ucontext.uc_mcontext.gregs[REG_A0 + 1] = frame + offsetof(SignalFrame, info);
+	sf.ucontext.uc_mcontext.gregs[REG_A0 + 2] = frame + offsetof(SignalFrame, ucontext);
+
+	sf.ucontext.uc_mcontext.gregs[REG_RA] = handling.handler.restorerIp;
+	sf.ucontext.uc_mcontext.gregs[REG_PC] = handling.handler.handlerIp;
+	sf.ucontext.uc_mcontext.gregs[REG_SP] = frame;
+
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 #else
 #error Signal frame register setup code is missing for architecture
 #endif
@@ -852,8 +856,7 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 #elif defined(__aarch64__)
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext));
 #elif defined(__riscv) && __riscv_xlen == 64
-	std::cout << "posix: Signal support on RISC-V is missing" << std::endl;
-	__builtin_trap();
+	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
 #else
 #error Signal register storing code is missing for architecture
 #endif

@@ -178,6 +178,10 @@ struct Executor;
 [[noreturn]] void restoreExecutor(Executor *executor);
 
 struct Executor {
+	// 32 FP registers (32 * 8 bytes) + FCSR (8 bytes).
+	// TODO: This hardcodes the size of the FP state (RISC-V allows 32/64/128 bit).
+	constexpr static size_t fpStateSize = 32 * sizeof(uint64_t) + sizeof(uint64_t);
+
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
@@ -185,8 +189,7 @@ struct Executor {
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
-	// TODO: This hardcodes the size of the FP state (RISC-V allows 32/64/128 bit).
-	static size_t determineSize() { return sizeof(Frame) + 33 * sizeof(uint64_t); }
+	static size_t determineSize() { return sizeof(Frame) + fpStateSize; }
 	// Offset (relative to _pointer) of f0-f31 and fcsr (in this order).
 	static size_t fsOffset() { return sizeof(Frame); }
 
