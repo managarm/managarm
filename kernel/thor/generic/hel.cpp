@@ -3035,15 +3035,15 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			return kHelErrIllegalArgs;
 
 		if (!Thread::asyncBlockCurrentInterruptible(
-		        [&](async::cancellation_token ct) {
+		        async::lambda([&](async::cancellation_token ct) {
 			        return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
-		        }
+		        })
 		    )) {
 			return kHelErrCancelled;
 		}
 	}else{
 		if (!Thread::asyncBlockCurrentInterruptible(
-		        [&](async::cancellation_token ct) {
+		        async::lambda([&](async::cancellation_token ct) {
 			        return async::race_and_cancel(
 						async::lambda([&](async::cancellation_token cancellation) {
 							return getGlobalFutexRealm()->wait(
@@ -3057,7 +3057,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 				            co_await async::suspend_indefinitely(ct, cancellation);
 			            })
 			        );
-		        }
+		        })
 		    )) {
 			return kHelErrCancelled;
 		}
