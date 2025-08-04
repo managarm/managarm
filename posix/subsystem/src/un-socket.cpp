@@ -380,8 +380,12 @@ public:
 			remote = _remote;
 		} else if(socktype_ == SOCK_DGRAM) {
 			if(addr_length == 0) {
-				if(!_remote)
-					co_return protocols::fs::Error::destAddrRequired;
+				if(!_remote) {
+					// While returning ENOTCONN is not what the man page makes you believe
+					// should happen here, this is what Linux does. Linux does not return
+					// EDESTADDRREQ for unix sockets, even datagram ones. Make it make sense.
+					co_return protocols::fs::Error::notConnected;
+				}
 				remote = _remote;
 			} else {
 				struct sockaddr_un sa;
@@ -587,11 +591,23 @@ public:
 
 	async::result<protocols::fs::Error>
 	connect(Process *process, const void *addr_ptr, size_t addr_length) override {
+		if (addr_length > sizeof(struct sockaddr_un))
+			co_return protocols::fs::Error::illegalArguments;
+
 		// Resolve the socket node in the FS.
 		struct sockaddr_un sa;
-		assert(addr_length <= sizeof(struct sockaddr_un));
 		memcpy(&sa, addr_ptr, addr_length);
 		std::string path;
+
+		if (sa.sun_family == AF_UNSPEC) {
+			// POSIX 1003.1-2024: If the sa_family member of address is AF_UNSPEC,
+			// the socket's peer address shall be reset.
+			_currentState = State::null;
+			_remote = nullptr;
+			co_return protocols::fs::Error::none;
+		} else if(sa.sun_family != AF_UNIX) {
+			co_return protocols::fs::Error::illegalArguments;
+		}
 
 		if(addr_length <= offsetof(struct sockaddr_un, sun_path)) {
 			co_return protocols::fs::Error::illegalArguments;
@@ -667,10 +683,12 @@ public:
 				assert(_remote != nullptr);
 			} else if(socktype_ == SOCK_DGRAM) {
 				_remote = server;
+				// POSIX 1003.1-2024: Note that despite no connection being made, the term "connected"
+				// is used to describe a connectionless-mode socket for which a peer address has been set.
 				_currentState = State::connected;
-				_remote->_currentState = State::connected;
-				_remote->_remote = this;
-				_remote->_statusBell.raise();
+
+				// connect(2)ing on a datagram socket just sets the address to which datagrams
+				// are sent by default; the remote remains untouched.
 			}
 
 			co_return protocols::fs::Error::none;
