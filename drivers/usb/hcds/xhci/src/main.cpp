@@ -81,6 +81,10 @@ void Controller::_processExtendedCapabilities() {
 			proto.major = (v >> 24) & 0xFF;
 			proto.minor = (v >> 16) & 0xFF;
 
+			// some broken controllers incorrectly set this BCD-coded value
+			if (proto.minor == 0x01)
+				proto.minor = 0x10;
+
 			v = arch::scalar_load<uint32_t>(_space, cur + 8);
 			proto.compatiblePortStart = v & 0xFF;
 			proto.compatiblePortCount = (v >> 8) & 0xFF;
