@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -310,4 +311,68 @@ DEFINE_TEST(socket_msg_fd_truncation, ([] {
 	} else {
 		printf("no control data received\n");
 	}
+}));
+
+DEFINE_TEST(socket_connect_dgram, ([] {
+	int client_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	assert(client_fd != -1);
+	int server_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	assert(server_fd != -1);
+
+	struct sockaddr_un server_addr;
+	memset(&server_addr, 0, sizeof(struct sockaddr_un));
+	server_addr.sun_family = AF_UNIX;
+	strcpy(server_addr.sun_path, "/tmp/managarm-test-dgram.sock");
+
+	unlink(server_addr.sun_path);
+	int ret = bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+	assert(ret == 0);
+
+	const char *msg = "hello";
+	ret = send(client_fd, msg, strlen(msg), 0);
+	assert(ret == -1);
+	assert(errno == ENOTCONN);
+
+	ret = connect(client_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+	assert(ret == 0);
+
+	struct sockaddr_un peer_addr;
+	socklen_t peer_addr_len = sizeof(struct sockaddr_un);
+	ret = getpeername(client_fd, (struct sockaddr *) &peer_addr, &peer_addr_len);
+	assert(ret == 0);
+	assert(strcmp(peer_addr.sun_path, server_addr.sun_path) == 0);
+
+	ret = send(client_fd, msg, strlen(msg), 0);
+	assert(ret == (int)strlen(msg));
+
+	char buffer[16];
+	struct sockaddr_un remote_addr;
+	socklen_t remote_addr_len = sizeof(struct sockaddr_un);
+	ret = recvfrom(server_fd, buffer, 15, 0, (struct sockaddr *) &remote_addr, &remote_addr_len);
+	assert(ret == (int)strlen(msg));
+	buffer[ret] = 0;
+	assert(strcmp(buffer, msg) == 0);
+
+	struct sockaddr_un zero_addr;
+	memset(&zero_addr, 0, sizeof(zero_addr));
+	zero_addr.sun_family = AF_UNSPEC;
+	ret = connect(client_fd, (struct sockaddr *) &zero_addr, sizeof(zero_addr));
+	assert(ret == 0);
+
+	ret = send(client_fd, msg, strlen(msg), 0);
+	assert(ret == -1);
+	assert(errno == ENOTCONN);
+
+	struct sockaddr_in inet_addr;
+	memset(&inet_addr, 0, sizeof(inet_addr));
+	inet_addr.sin_family = AF_INET;
+	inet_addr.sin_port = 420;
+	inet_addr.sin_addr = {INADDR_LOOPBACK};
+	ret = connect(client_fd, (struct sockaddr *) &inet_addr, sizeof(inet_addr));
+	assert(ret == -1);
+	assert(errno == EINVAL);
+
+	close(client_fd);
+	close(server_fd);
+	unlink(server_addr.sun_path);
 }));
