@@ -179,74 +179,83 @@ void dumpMadt() {
 
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while(offset < madt->length) {
-		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
-		if(generic->type == 0) { // local APIC
-			auto entry = (MadtLocalEntry *)generic;
+		MadtGenericEntry generic;
+		auto genericPtr = (void *)(madtTbl.virt_addr + offset);
+		memcpy(&generic, genericPtr, sizeof(generic));
+		// auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
+		if(generic.type == 0) { // local APIC
+			MadtLocalEntry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtLocalEntry));
 			infoLogger() << "    Local APIC id: "
-					<< (int)entry->localApicId
-					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
+					<< (int)entry.localApicId
+					<< ((entry.flags & local_flags::enabled) ? "" :" (disabled)")
 					<< frg::endlog;
-		}else if(generic->type == 1) { // I/O APIC
-			auto entry = (MadtIoEntry *)generic;
-			infoLogger() << "    I/O APIC id: " << (int)entry->ioApicId
-					<< ", sytem interrupt base: " << (int)entry->systemIntBase
+		}else if(generic.type == 1) { // I/O APIC
+			MadtIoEntry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtIoEntry));
+			infoLogger() << "    I/O APIC id: " << (int)entry.ioApicId
+					<< ", system interrupt base: " << (int)entry.systemIntBase
 					<< frg::endlog;
-		}else if(generic->type == 2) { // interrupt source override
-			auto entry = (MadtIntOverrideEntry *)generic;
+		}else if(generic.type == 2) { // interrupt source override
+			MadtIntOverrideEntry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtIntOverrideEntry));
 
 			const char *bus, *polarity, *trigger;
-			if(entry->bus == 0) {
+			if(entry.bus == 0) {
 				bus = "ISA";
 			}else{
 				panicLogger() << "Unexpected bus in MADT interrupt override"
 						<< frg::endlog;
 			}
 
-			if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
+			if((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
 				polarity = "default";
-			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityHigh) {
+			}else if((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityHigh) {
 				polarity = "high";
-			}else if((entry->flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
+			}else if((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
 				polarity = "low";
 			}else{
 				panicLogger() << "Unexpected polarity in MADT interrupt override"
 						<< frg::endlog;
 			}
 
-			if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
+			if((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
 				trigger = "default";
-			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerEdge) {
+			}else if((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerEdge) {
 				trigger = "edge";
-			}else if((entry->flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
+			}else if((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
 				trigger = "level";
 			}else{
 				panicLogger() << "Unexpected trigger mode in MADT interrupt override"
 						<< frg::endlog;
 			}
 
-			infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry->sourceIrq
-					<< " is mapped to GSI " << entry->systemInt
+			infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry.sourceIrq
+					<< " is mapped to GSI " << entry.systemInt
 					<< " (Polarity: " << polarity << ", trigger mode: " << trigger
 					<< ")" << frg::endlog;
-		}else if(generic->type == 4) { // local APIC NMI source
-			auto entry = (MadtLocalNmiEntry *)generic;
-			infoLogger() << "    Local APIC NMI: processor " << (int)entry->processorId
-					<< ", lint: " << (int)entry->localInt << frg::endlog;
-		}else if(generic->type == 9) { // local x2APIC
-			auto entry = (MadtLocalX2Entry *)generic;
+		}else if(generic.type == 4) { // local APIC NMI source
+			MadtLocalNmiEntry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtLocalNmiEntry));
+			infoLogger() << "    Local APIC NMI: processor " << (int)entry.processorId
+					<< ", lint: " << (int)entry.localInt << frg::endlog;
+		}else if(generic.type == 9) { // local x2APIC
+			MadtLocalX2Entry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtLocalX2Entry));
 			infoLogger() << "    Local x2APIC id: "
-					<< entry->localX2ApicId
-					<< ((entry->flags & local_flags::enabled) ? "" :" (disabled)")
+					<< entry.localX2ApicId
+					<< ((entry.flags & local_flags::enabled) ? "" :" (disabled)")
 					<< frg::endlog;
-		}else if(generic->type == 10) { // local x2APIC NMI source
-			auto entry = (MadtLocalX2NmiEntry *)generic;
-			infoLogger() << "    Local x2APIC NMI: processor " << (int)entry->processorId
-					<< ", lint: " << (int)entry->localInt << frg::endlog;
+		}else if(generic.type == 10) { // local x2APIC NMI source
+			MadtLocalX2NmiEntry entry;
+			memcpy(&entry, genericPtr, sizeof(MadtLocalX2NmiEntry));
+			infoLogger() << "    Local x2APIC NMI: processor " << (int)entry.processorId
+					<< ", lint: " << (int)entry.localInt << frg::endlog;
 		}else{
 			infoLogger() << "    Unexpected MADT entry of type "
-					<< generic->type << frg::endlog;
+					<< generic.type << frg::endlog;
 		}
-		offset += generic->length;
+		offset += generic.length;
 	}
 }
 
