@@ -182,7 +182,7 @@ namespace extendedCapability {
 namespace globalStatus {
 	constexpr arch::field<uint32_t, bool> interruptRemappingPointerStatus{24, 1};
 	constexpr arch::field<uint32_t, bool> writeBufferFlushStatus{27, 1};
-	constexpr arch::field<uint32_t, bool> faultLogStatus{39, 1};
+	constexpr arch::field<uint32_t, bool> faultLogStatus{29, 1};
 	constexpr arch::field<uint32_t, bool> rootTablePointerStatus{30, 1};
 	constexpr arch::field<uint32_t, bool> translationEnable{31, 1};
 
