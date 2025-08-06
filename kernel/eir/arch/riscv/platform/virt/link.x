@@ -30,7 +30,17 @@ SECTIONS {
 	.data : { *(.data) *(.data.*) }
 	.got : { *(.got) }
 	.got.plt : { *(.got.plt) }
-	.bss (TYPE = SHT_PROGBITS) : { *(.bss) *(.bss.*) LONG(0) }
+	.bss (TYPE = SHT_PROGBITS) : {
+		*(.sbss)
+		*(.bss)
+		*(.bss.*)
+		LONG(0)
+	}
+
+	/DISCARD/ : {
+		*(.riscv.attributes)
+		*(.note.GNU-stack)
+	}
 
 	eirImageCeiling = .;
 }
