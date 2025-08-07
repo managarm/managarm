@@ -36,6 +36,7 @@ def add_file(src_prefix, tree_prefix, filename, rename_to=None):
 
 # Add all the files.
 
+add_dir('lib')
 add_dir('usr')
 add_dir('usr/bin')
 add_dir('usr/lib')
@@ -46,10 +47,10 @@ add_dir('usr/lib/managarm/server')
 add_file('usr/managarm/bin', '', 'thor')
 
 # Runtime libraries.
+add_file('lib', 'lib', args.arch + '-mlibc-ld.so')
 add_file('usr/lib', 'usr/lib', 'libhelix.so')
 add_file('usr/lib', 'usr/lib', 'libc.so')
 add_file('usr/lib', 'usr/lib', 'libm.so')
-add_file('usr/lib', 'usr/lib', 'ld.so', rename_to='ld-init.so')
 add_file('usr/lib', 'usr/lib', 'liblewis.so')
 add_file('usr/lib', 'usr/lib', 'libz.so.1')
 add_file('usr/lib', 'usr/lib', 'libvirtio_core.so')
