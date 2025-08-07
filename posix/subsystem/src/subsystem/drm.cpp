@@ -1,15 +1,11 @@
 
-#include <string.h>
-#include <iostream>
-
 #include <core/id-allocator.hpp>
 #include <protocols/mbus/client.hpp>
 
-#include "../common.hpp"
 #include "../device.hpp"
 #include "../drvcore.hpp"
 #include "../vfs.hpp"
-#include "pci.hpp"
+#include "helpers.hpp"
 
 namespace drm_subsystem {
 
@@ -49,6 +45,8 @@ private:
 	helix::UniqueLane _lane;
 };
 
+DevAttribute<Device> devAttr{"dev"};
+
 } // anonymous namepsace
 
 async::detached run() {
@@ -85,6 +83,8 @@ async::detached run() {
 
 			charRegistry.install(device);
 			drvcore::installDevice(device);
+
+			device->realizeAttribute(&devAttr);
 		}
 	}
 }
