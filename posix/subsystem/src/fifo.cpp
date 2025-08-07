@@ -6,6 +6,7 @@
 #include <deque>
 #include <map>
 #include <numeric>
+#include <print>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
@@ -203,9 +204,9 @@ public:
 	}
 
 	async::result<void> setFileFlags(int flags) override {
-		std::cout << "posix: setFileFlags on fifo \e[1;34m" << structName() << "\e[0m only supports O_NONBLOCK" << std::endl;
 		if(flags & ~O_NONBLOCK) {
-			std::cout << "posix: setFileFlags on socket \e[1;34m" << structName() << "\e[0m called with unknown flags" << std::endl;
+			std::println("posix: setFileFlags on FIFO \e[1;34m{}\e[0m called with unknown flags {:#x}",
+				structName(), flags & ~O_NONBLOCK);
 			co_return;
 		}
 		if(flags & O_NONBLOCK)
