@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include <atomic>
 
+#include <frg/array.hpp>
+
 #include <thor-internal/debug.hpp>
 
 namespace {
@@ -71,6 +73,13 @@ namespace {
 		thor::infoLogger() << "thor: UBSAN failure at "
 				<< loc.filename << ":" << loc.line << frg::endlog;
 	}
+
+	frg::array<const char *, 12> type_check_kinds = {
+		"load of", "store to", "reference binding to", "member access within",
+		"member call on", "constructor call on", "downcast of", "downcast of",
+		"upcast of", "cast to virtual base of", "_Nonnull binding to",
+		"dynamic operation on"
+	};
 }
 
 namespace thor {
@@ -158,7 +167,16 @@ extern "C" void __ubsan_handle_type_mismatch_v1(struct type_mismatch_data_v1 *da
 	} else if (ptr & ((1 << data->log_alignment) - 1)) {
 		thor::infoLogger() << "thor: UBSAN failure, use of misaligned pointer" << frg::endlog;
 	} else {
-		thor::infoLogger() << "thor: UBSAN failure, insufficient space for object" << frg::endlog;
+		if(data->type_check_kind >= type_check_kinds.size()) {
+			thor::infoLogger() << "thor: UBSAN failure, unknown type check kind: "
+					<< (int)data->type_check_kind << frg::endlog;
+			thor::infoLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
+					<< ", expected type: " << data->type->type_name << frg::endlog;
+		} else {
+			thor::infoLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
+					<< ", expected type: " << data->type->type_name << ", kind: "
+					<< type_check_kinds[data->type_check_kind] << frg::endlog;
+		}
 	}
 	log_location(data->loc);
 	if(thor::ubsanAbort.load(std::memory_order_relaxed))
