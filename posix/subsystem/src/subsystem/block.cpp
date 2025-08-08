@@ -10,7 +10,7 @@
 #include "../device.hpp"
 #include "../vfs.hpp"
 #include "../drvcore.hpp"
-#include "pci.hpp"
+#include "helpers.hpp"
 
 namespace block_subsystem {
 
@@ -75,13 +75,6 @@ struct ReadOnlyAttribute : sysfs::Attribute {
 	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
 };
 
-struct DevAttribute : sysfs::Attribute {
-	DevAttribute(std::string name)
-	: sysfs::Attribute{std::move(name), false} { }
-
-	async::result<frg::expected<Error, std::string>> show(sysfs::Object *object) override;
-};
-
 struct SizeAttribute : sysfs::Attribute {
 	SizeAttribute(std::string name)
 	: sysfs::Attribute{std::move(name), false} { }
@@ -97,7 +90,7 @@ struct ManagarmRootAttribute : sysfs::Attribute {
 };
 
 ReadOnlyAttribute roAttr{"ro"};
-DevAttribute devAttr{"dev"};
+DevAttribute<Device> devAttr{"dev"};
 SizeAttribute sizeAttr{"size"};
 ManagarmRootAttribute managarmRootAttr{"managarm-root"};
 
@@ -106,13 +99,6 @@ async::result<frg::expected<Error, std::string>> ReadOnlyAttribute::show(sysfs::
 	// The format is 0\n\0.
 	// Hardcode to zero as we don't support ro mounts yet.
 	co_return "0\n";
-}
-
-async::result<frg::expected<Error, std::string>> DevAttribute::show(sysfs::Object *object) {
-	auto device = static_cast<Device *>(object);
-	auto dev = device->getId();
-	// The format is 0:0\n\0.
-	co_return std::to_string(dev.first) + ":" + std::to_string(dev.second) + "\n";
 }
 
 async::result<frg::expected<Error, std::string>> SizeAttribute::show(sysfs::Object *object) {
