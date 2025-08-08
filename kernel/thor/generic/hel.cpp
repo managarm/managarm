@@ -3074,8 +3074,8 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			            async::lambda([&](async::cancellation_token cancellation) {
 				            return generalTimerEngine()->sleep(deadline, cancellation);
 			            }),
-			            async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
-				            co_await async::suspend_indefinitely(ct, cancellation);
+			            async::lambda([ct](async::cancellation_token cancellation) {
+				            return async::suspend_indefinitely(ct, cancellation);
 			            })
 			        );
 		        })
