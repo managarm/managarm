@@ -128,6 +128,7 @@ public:
 			void set_value_noinline() {
 				// The blsp pointer may become invalid as soon as we set blsp->done.
 				auto thread = std::move(blsp->thread);
+				assert(!blsp->done.load(std::memory_order_relaxed));
 				blsp->done.store(true, std::memory_order_release);
 				Thread::unblockOther(thread);
 			}
@@ -190,6 +191,7 @@ public:
 			void set_value_noinline(ValueType value) {
 				// The blsp pointer may become invalid as soon as we set blsp->done.
 				auto thread = std::move(blsp->thread);
+				assert(!blsp->done.load(std::memory_order_relaxed));
 				blsp->value.emplace(std::move(value));
 				blsp->done.store(true, std::memory_order_release);
 				Thread::unblockOther(thread);
