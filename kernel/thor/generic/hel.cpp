@@ -31,6 +31,7 @@
 
 using namespace thor;
 
+
 namespace {
 	// TODO: Replace this by a function that returns the type of special descriptor.
 	bool isSpecialMemoryView(HelHandle handle) {
@@ -1999,6 +2000,9 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 #elif defined(__aarch64__)
 		if(!writeUserMemory(image, &thread->_executor.general()->fp, sizeof(FpRegisters)))
 			return kHelErrFault;
+#elif defined(__riscv) && __riscv_xlen == 64
+		if(!writeUserMemory(image, thread->_executor.fpRegisters(), Executor::fpStateSize))
+			return kHelErrFault;
 #endif
 	}else if(set == kHelRegsSignal) {
 		if(!thread) {
@@ -2036,6 +2040,13 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		regs[33] = thread->_executor.general()->elr;
 		regs[34] = thread->_executor.general()->spsr;
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 35))
+			return kHelErrFault;
+#elif defined (__riscv) && __riscv_xlen == 64
+		uintptr_t regs[32];
+		regs[0] = thread->_executor.general()->ip;
+		for(int i = 1; i < 32; i++)
+			regs[i] = thread->_executor.general()->x(i);
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 32))
 			return kHelErrFault;
 #else
 		return kHelErrUnsupportedOperation;
@@ -2173,6 +2184,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 #elif defined(__aarch64__)
 		if(!readUserMemory(&thread->_executor.general()->fp, image, sizeof(FpRegisters)))
 			return kHelErrFault;
+#elif defined(__riscv) && __riscv_xlen == 64
+		if(!readUserMemory(thread->_executor.fpRegisters(), image, Executor::fpStateSize))
+			return kHelErrFault;
 #endif
 	}else if(set == kHelRegsSignal) {
 		if(!thread) {
@@ -2221,6 +2235,13 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		constexpr uintptr_t allowedFlagsMask = 0b1111U << 28 | 1U << 21;
 		thread->_executor.general()->spsr &= ~allowedFlagsMask;
 		thread->_executor.general()->spsr |= regs[34] & allowedFlagsMask;
+#elif defined (__riscv) && __riscv_xlen == 64
+		uintptr_t regs[32];
+		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 32))
+			return kHelErrFault;
+		thread->_executor.general()->ip = regs[0];
+		for(int i = 1; i < 32; i++)
+			thread->_executor.general()->x(i) = regs[i];
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -3671,8 +3692,7 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #elif defined (__aarch64__)
 			outInfo.setSize = sizeof(FpRegisters);
 #elif defined (__riscv) && __riscv_xlen == 64
-			// TODO: Need to adjust this when we support FP + SIMD.
-			outInfo.setSize = 0;
+			outInfo.setSize = Executor::fpStateSize;
 #else
 #			error Unknown architecture
 #endif
@@ -3684,8 +3704,8 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #elif defined (__aarch64__)
 			outInfo.setSize = 35 * sizeof(uintptr_t);
 #elif defined (__riscv) && __riscv_xlen == 64
-			// TODO: Implement this.
-			return kHelErrUnsupportedOperation;
+			// PC + 31 GP registers (X0 is constant zero, no need to save it).
+			outInfo.setSize = 32 * sizeof(uintptr_t);
 #else
 #			error Unknown architecture
 #endif
