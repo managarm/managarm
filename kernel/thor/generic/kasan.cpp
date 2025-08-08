@@ -138,6 +138,7 @@ namespace {
 				<< "address " << (void *)address << frg::endlog;
 		auto shadow = thor::kasanShadowOf(reinterpret_cast<void *>(address));
 		auto l = reinterpret_cast<uintptr_t>(shadow) & 15;
+		auto lSigned = static_cast<ptrdiff_t>(l);
 		auto validBehind = (reinterpret_cast<uintptr_t>(shadow) - l) & (thor::kPageSize - 1);
 		auto validAhead = thor::kPageSize - validBehind;
 		auto shownBehind = frg::min(validBehind, size_t{2 * 16});
@@ -145,13 +146,13 @@ namespace {
 		ptrdiff_t i = -static_cast<ptrdiff_t>(shownBehind);
 		while(i < static_cast<ptrdiff_t>(16 + shownAhead)) {
 			auto msg = thor::infoLogger();
-			msg << "thor: Shadow[" << thor::kasanPointerOf(&shadow[-l + i]) << "]:";
+			msg << "thor: Shadow[" << thor::kasanPointerOf(&shadow[-lSigned + i]) << "]:";
 			for(size_t j = 0; j < 16; ++j) {
-				auto v = static_cast<uint8_t>(shadow[-l + i]);
-				msg << (i == l ? "[" : " ")
+				auto v = static_cast<uint8_t>(shadow[-lSigned + i]);
+				msg << (i == lSigned ? "[" : " ")
 					<< (v <= 8 ? "0" : "")
 					<< frg::hex_fmt(static_cast<unsigned int>(v))
-					<< (i == l ? "]" : " ");
+					<< (i == lSigned ? "]" : " ");
 				++i;
 			}
 			msg << frg::endlog;
