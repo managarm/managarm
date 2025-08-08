@@ -7,6 +7,7 @@
 #include <thor-internal/arch/pic.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
+#include <thor-internal/pci/pci_iommu.hpp>
 #include <thor-internal/physical.hpp>
 #include <initgraph.hpp>
 
@@ -96,45 +97,6 @@ namespace contextTable {
 	static_assert(sizeof(Entry) == 16);
 }
 
-namespace sourceIDMasks {
-	constexpr arch::field<uint16_t, uint8_t> function{0, 3};
-	constexpr arch::field<uint16_t, uint8_t> device{3, 5};
-	constexpr arch::field<uint16_t, uint8_t> bus{8, 8};
-}
-
-struct SourceID {
-	operator uint16_t() {
-		return uint16_t{data_.load()};
-	}
-
-	uint8_t bus() {
-		return data_.load() & sourceIDMasks::bus;
-	}
-
-	uint8_t device() {
-		return data_.load() & sourceIDMasks::device;
-	}
-
-	uint8_t function() {
-		return data_.load() & sourceIDMasks::function;
-	}
-
-	uint8_t devfn() {
-		return (device() << 3) | function();
-	}
-
-	SourceID(uint8_t bus, uint8_t slot, uint8_t function) :
-	data_{sourceIDMasks::function(function) | sourceIDMasks::device(slot) | sourceIDMasks::bus(bus)} {
-	}
-
-	explicit SourceID(uint16_t val) :
-	data_{arch::bit_value{val}} { }
-
-private:
-	arch::bit_variable<uint16_t> data_;
-};
-static_assert(sizeof(SourceID) == 2);
-
 namespace regs {
 	constexpr arch::bit_register<uint32_t> version{0x00};
 	constexpr arch::bit_register<uint64_t> capability{0x08};
@@ -199,7 +161,7 @@ namespace contextCommand {
 	};
 
 	constexpr arch::field<uint64_t, uint16_t> domainId{0, 16};
-	constexpr arch::field<uint64_t, SourceID> sourceId{16, 16};
+	constexpr arch::field<uint64_t, pci::RequestID> sourceId{16, 16};
 	constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{61, 2};
 	constexpr arch::field<uint64_t, bool> invalidateContextCache{63, 1};
 } // namespace contextCommand
@@ -245,7 +207,7 @@ namespace iotlbInvalidate {
 } // namespace iotlbInvalidate
 
 namespace faultRecording {
-	constexpr arch::field<uint64_t, SourceID> sourceIdentifier{0, 16};
+	constexpr arch::field<uint64_t, pci::RequestID> sourceIdentifier{0, 16};
 	constexpr arch::field<uint64_t, uint8_t> faultReason{32, 8};
 	[[maybe_unused]]
 	constexpr arch::field<uint64_t, uint8_t> addressType{60, 2};
@@ -361,7 +323,7 @@ struct IntelIommu final : Iommu, IrqSink {
 					break;
 
 				auto reason = flags & faultRecording::faultReason;
-				auto sourceId = SourceID{flags & faultRecording::sourceIdentifier};
+				auto sourceId = pci::RequestID{flags & faultRecording::sourceIdentifier};
 
 				warningLogger() << frg::fmt("thor: IOMMU fault {}, {} request from {:02x}:{:02x}:{:x} to 0x{:x}: {} (0x{:x})",
 					i, (flags & faultRecording::read) ? "Read" : "Write",
@@ -411,7 +373,7 @@ struct IntelIommu final : Iommu, IrqSink {
 			contextTable = {reinterpret_cast<contextTable::Entry *>(context.get()), 256};
 		}
 
-		auto sourceId = SourceID{
+		auto sourceId = pci::RequestID{
 			static_cast<uint8_t>(dev->bus),
 			static_cast<uint8_t>(dev->slot),
 			static_cast<uint8_t>(dev->function),
@@ -478,7 +440,7 @@ private:
 		while(regs_.load(regs::contextCommand) & contextCommand::invalidateContextCache);
 	}
 
-	void invalidateDeviceContext(uint16_t domain, SourceID device) {
+	void invalidateDeviceContext(uint16_t domain, pci::RequestID device) {
 		regs_.store(regs::contextCommand, contextCommand::invalidateContextCache(true) |
 			contextCommand::invalidationGranularity(contextCommand::InvalidationGranularity::Device) |
 			contextCommand::sourceId(device) | contextCommand::domainId(domain));
