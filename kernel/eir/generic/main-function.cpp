@@ -30,12 +30,12 @@ void GlobalInitEngine::onUnreached() {
 constinit GlobalInitEngine globalInitEngine;
 
 initgraph::Stage *getReservedRegionsKnownStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.memory-discovered"};
+	static initgraph::Stage s{&globalInitEngine, "generic.reserved-regions-known"};
 	return &s;
 }
 
 initgraph::Stage *getMemoryRegionsKnownStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.memory-set-up"};
+	static initgraph::Stage s{&globalInitEngine, "generic.memory-regions-known"};
 	return &s;
 }
 
@@ -50,7 +50,7 @@ initgraph::Stage *getKernelAvailableStage() {
 }
 
 initgraph::Stage *getAllocationAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.boot-info-buildable"};
+	static initgraph::Stage s{&globalInitEngine, "generic.allocation-available"};
 	return &s;
 }
 
