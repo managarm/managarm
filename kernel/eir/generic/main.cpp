@@ -403,6 +403,8 @@ void parseInitrd(void *initrd) {
 		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
 }
 
+BootUartConfig bootUartConfig;
+
 namespace {
 
 bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
@@ -420,6 +422,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 		if (desc.size() != sizeof(SmbiosData))
 			panicLogger() << "SmbiosData size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &eirSmbios3Ptr, sizeof(SmbiosData));
+		return true;
+	} else if (type == elf_note_type::bootUartConfig) {
+		if (desc.size() != sizeof(BootUartConfig))
+			panicLogger() << "BootUartConfig size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &bootUartConfig, sizeof(BootUartConfig));
 		return true;
 	}
 	return false;

@@ -151,6 +151,7 @@ namespace elf_note_type {
 constexpr unsigned int memoryLayout = 0x1000'0000;
 constexpr unsigned int perCpuRegion = 0x1000'0001;
 constexpr unsigned int smbiosData = 0x1000'0002;
+constexpr unsigned int bootUartConfig = 0x1000'0003;
 // 0x11xx'xxxx range reserved for arch-specific notes in Thor.
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -209,4 +210,14 @@ struct PerCpuRegion {
 
 struct SmbiosData {
 	EirPtr address;
+};
+
+enum class BootUartType {
+	none,
+	pl011,
+};
+
+struct BootUartConfig {
+	uint64_t address = 0;
+	BootUartType type = BootUartType::none;
 };
