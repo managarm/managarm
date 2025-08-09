@@ -144,8 +144,7 @@ address_t getSingle4kPage(address_t address) {
 }
 
 int getKernelVirtualBits() {
-	// TODO: This could be changed to 49 after some testing.
-	return 48;
+	return 49;
 }
 
 void initProcessorEarly() {
