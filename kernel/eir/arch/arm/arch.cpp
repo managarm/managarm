@@ -187,8 +187,7 @@ void initProcessorEarly() {
 	asm volatile("msr tcr_el1, %0" ::"r"(tcr));
 }
 
-// Returns Core region index
-void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
+void initProcessorPaging() {
 	setupPaging();
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
 	                  << " KiB"
@@ -209,13 +208,6 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 	allocLogRingBuffer();
 #endif
 
-	// Setup the kernel image.
-	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
-	                  << " KiB"
-	                     " after loading the kernel"
-	                  << frg::endlog;
-
 	const auto &ml = getMemoryLayout();
 
 	// Setup the kernel stack.
@@ -226,6 +218,7 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 
 	mapKasanShadow(ml.kernelVirtual, ml.kernelVirtualSize);
 }
+
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 

@@ -44,8 +44,8 @@ initgraph::Stage *getInitrdAvailableStage() {
 	return &s;
 }
 
-initgraph::Stage *getKernelAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.kernel-available"};
+initgraph::Stage *getKernelLoadableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.kernel-loadable"};
 	return &s;
 }
 
@@ -130,8 +130,20 @@ static initgraph::Task setupRegionsAndPaging{
 			                      << frg::hex_fmt{regions[i].buddyOverhead} << frg::endlog;
 	    }
 
-	    uint64_t kernel_entry = 0;
-	    initProcessorPaging(reinterpret_cast<void *>(kernel_image.data()), kernel_entry);
+	    initProcessorPaging();
+    }
+};
+
+static initgraph::Task loadKernelImageTask{
+    &globalInitEngine,
+    "generic.load-kernel-image",
+    initgraph::Requires{getAllocationAvailableStage(), getKernelLoadableStage()},
+    [] {
+	    // Setup the kernel image.
+	    loadKernelImage(reinterpret_cast<void *>(kernel_image.data()));
+	    eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
+			      << " KiB after loading the kernel"
+			      << frg::endlog;
     }
 };
 

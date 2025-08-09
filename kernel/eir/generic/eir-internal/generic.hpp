@@ -76,7 +76,7 @@ void mapRegionsAndStructs();
 extern uint64_t kernelEntry;
 
 void parseInitrd(void *initrd);
-address_t loadKernelImage(void *image);
+void loadKernelImage(void *image);
 
 EirInfo *generateInfo(frg::string_view cmdline);
 

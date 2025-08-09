@@ -190,8 +190,7 @@ void initProcessorEarly() {
 
 int getKernelVirtualBits() { return 48; }
 
-// Returns Core region index
-void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
+void initProcessorPaging() {
 	setupPaging();
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
 	                  << " KiB"
@@ -218,13 +217,6 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 #ifdef KERNEL_LOG_ALLOCATIONS
 	allocLogRingBuffer();
 #endif
-
-	// Setup the kernel image.
-	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
-	                  << " KiB"
-	                     " after loading the kernel"
-	                  << frg::endlog;
 }
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }

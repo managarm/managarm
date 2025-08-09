@@ -427,7 +427,7 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 
 } // namespace
 
-address_t loadKernelImage(void *imagePtr) {
+void loadKernelImage(void *imagePtr) {
 	auto image = reinterpret_cast<char *>(imagePtr);
 
 	Elf64_Ehdr ehdr;
@@ -545,7 +545,6 @@ address_t loadKernelImage(void *imagePtr) {
 	}
 
 	kernelEntry = ehdr.e_entry;
-	return ehdr.e_entry;
 }
 
 EirInfo *generateInfo(frg::string_view cmdline) {
