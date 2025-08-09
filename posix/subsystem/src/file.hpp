@@ -85,6 +85,8 @@ enum class Error {
 
 	// Corresponds to ESRCH
 	noSuchProcess,
+
+	noFileDescriptorsAvailable,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -116,6 +118,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::notSocket: return protocols::fs::Error::notSocket;
 		case Error::interrupted: return protocols::fs::Error::interrupted;
 		case Error::noSuchProcess: return protocols::fs::Error::noSuchProcess;
+		case Error::noFileDescriptorsAvailable: return protocols::fs::Error::noFileDescriptorsAvailable;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -152,6 +155,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::unsupportedSocketType: return managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE;
 		case Error::interrupted: return managarm::posix::Errors::INTERRUPTED;
 		case Error::noSuchProcess: return managarm::posix::Errors::NO_SUCH_RESOURCE;
+		case Error::noFileDescriptorsAvailable: return managarm::posix::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:

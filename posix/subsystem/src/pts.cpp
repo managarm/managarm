@@ -755,7 +755,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: pts MasterDevice open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;
@@ -1002,7 +1002,7 @@ async::result<frg::expected<Error, SharedFilePtr>>
 SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: pts SlaveDevice open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;

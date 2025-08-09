@@ -387,7 +387,7 @@ FileContext::~FileContext() {
 		std::cout << "\e[33mposix: FileContext is destructed\e[39m" << std::endl;
 }
 
-int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
+std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 		bool closeOnExec, int startAt) {
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
@@ -398,6 +398,9 @@ int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 		if(_fileTable.find(fd) != _fileTable.end())
 			continue;
 
+		if (static_cast<uint64_t>(fd) >= fdLimit_)
+			return std::unexpected{Error::noFileDescriptorsAvailable};
+
 		if(logFileAttach)
 			std::cout << "posix: Attaching FD " << fd << std::endl;
 
@@ -407,8 +410,11 @@ int FileContext::attachFile(smarter::shared_ptr<File, FileHandle> file,
 	}
 }
 
-void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
+std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		bool close_on_exec) {
+	if (static_cast<uint64_t>(fd) >= fdLimit_)
+		return std::unexpected{Error::noFileDescriptorsAvailable};
+
 	HelHandle handle;
 	HEL_CHECK(helTransferDescriptor(
 	    file->getPassthroughLane().getHandle(), _universe.getHandle(), kHelTransferDescriptorOut, &handle
@@ -424,6 +430,8 @@ void FileContext::attachFile(int fd, smarter::shared_ptr<File, FileHandle> file,
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 	}
 	_fileTableWindow[fd] = handle;
+
+	return {};
 }
 
 std::optional<FileDescriptor> FileContext::getDescriptor(int fd) {

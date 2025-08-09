@@ -21,6 +21,7 @@ src = [
 	'src/eventfd.cpp',
 	'src/pty.cpp',
 	'src/procfs.cpp',
+	'src/path-resolution.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep], install : true)
