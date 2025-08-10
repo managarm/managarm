@@ -11,6 +11,7 @@ enum class Csr : uint16_t {
 	sstatus = 0x100, // Status register.
 	sie = 0x104,     // Interrupt enable.
 	stvec = 0x105,   // Trap vector address.
+	senvcfg = 0x10A, // Environment configuration.
 	// Supervisor trap handling.
 	sscratch = 0x140,
 	sepc = 0x141,     // Exception program counter.
@@ -57,6 +58,15 @@ constexpr uint64_t uxl64 = 2;
 constexpr uint64_t uxl128 = 3;
 
 } // namespace sstatus
+
+namespace senvcfg {
+
+// Enables the execution of `cbo.inval` in U-mode, the instruction performs a flush operation.
+constexpr uint64_t cbie = UINT64_C(0b01) << 4;
+// Enables the execution of `cbo.clean` and `cbo.flush` instructions in U-mode.
+constexpr uint64_t cbcfe = UINT64_C(1) << 6;
+
+} // namespace senvcfg
 
 namespace interrupts {
 
