@@ -111,26 +111,6 @@ initgraph::Task setupMemoryRegions{
     }
 };
 
-initgraph::Task setupInitrdInfo{
-    &globalInitEngine,
-    "limine.setup-initrd-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    auto initrd_module = bootAlloc<EirModule>(1);
-	    initrd_module->physicalBase = virtToPhys(initrd);
-	    initrd_module->length = module_request.response->modules[0]->size;
-	    const char *initrd_mod_name = "initrd.cpio";
-	    size_t name_length = strlen(initrd_mod_name);
-	    char *name_ptr = bootAlloc<char>(name_length);
-	    memcpy(name_ptr, initrd_mod_name, name_length);
-	    initrd_module->namePtr = mapBootstrapData(name_ptr);
-	    initrd_module->nameLength = name_length;
-
-	    info_ptr->moduleInfo = mapBootstrapData(initrd_module);
-    }
-};
-
 } // namespace
 
 extern "C" void eirLimineMain(void) {
