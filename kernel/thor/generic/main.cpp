@@ -219,7 +219,7 @@ extern "C" void thorMain() {
 		pci::runAllBridges();
 		pci::runAllDevices();
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
 		dt::publishNodes();
 #endif
 		smbios::publish();
