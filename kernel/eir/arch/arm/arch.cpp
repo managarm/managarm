@@ -206,16 +206,6 @@ void initProcessorPaging() {
 #ifdef KERNEL_LOG_ALLOCATIONS
 	allocLogRingBuffer();
 #endif
-
-	const auto &ml = getMemoryLayout();
-
-	// Setup the kernel stack.
-	for (address_t page = 0; page < kernelStackSize; page += pageSize)
-		mapSingle4kPage(kernelStack + page, allocPage(), PageFlags::write);
-	mapKasanShadow(kernelStack, kernelStackSize);
-	unpoisonKasanShadow(kernelStack, kernelStackSize);
-
-	mapKasanShadow(ml.kernelVirtual, ml.kernelVirtualSize);
 }
 
 

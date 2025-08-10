@@ -82,7 +82,6 @@ uint64_t getKernelStackPtr() { return kernelStack + kernelStackSize; }
 
 namespace {
 
-#ifndef __aarch64__
 initgraph::Task setupKernelStackHeap{
     &globalInitEngine,
     "generic.setup-kernel-stack-heap",
@@ -97,7 +96,6 @@ initgraph::Task setupKernelStackHeap{
 	    mapKasanShadow(memoryLayout.kernelVirtual, memoryLayout.kernelVirtualSize);
     }
 };
-#endif
 
 } // namespace
 
