@@ -32,6 +32,9 @@ initgraph::Stage *getMemoryRegionsKnownStage();
 // everything needed to construct handoff information for thor is done
 initgraph::Stage *getAllocationAvailableStage();
 
+// everything needed to fill out ELF notes and load the kernel image is done
+initgraph::Stage *getKernelLoadableStage();
+
 // the handoff information struct can be filled from here on
 initgraph::Stage *getInfoStructAvailableStage();
 

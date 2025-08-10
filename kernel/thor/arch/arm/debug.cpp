@@ -1,4 +1,6 @@
 #include <thor-internal/arch/debug.hpp>
+#include <thor-internal/elf-notes.hpp>
+#include <eir/interface.hpp>
 #include <arch/aarch64/mem_space.hpp>
 #include <arch/register.hpp>
 
@@ -22,10 +24,10 @@ namespace {
 	namespace status {
 		static constexpr arch::field<uint32_t, bool> tx_full{5, 1};
 	};
-
-	static constexpr arch::mem_space space{0xFFFF000000000000};
-
 } // namespace anonymous
+
+extern ManagarmElfNote<BootUartConfig> bootUartConfig;
+THOR_DEFINE_ELF_NOTE(bootUartConfig){elf_note_type::bootUartConfig, {}};
 
 void UartLogHandler::emit(frg::string_view record) {
 	auto [md, msg] = destructureLogRecord(record);
@@ -45,10 +47,13 @@ void UartLogHandler::emitUrgent(frg::string_view record) {
 }
 
 void UartLogHandler::printChar(char c) {
-	// Here we depend on a few things:
-	// 1. Eir has mapped the UART to 0xFFFF000000000000
-	// 2. The UART is at least somewhat PL011 compatible
-	// 3. The UART is already configured by Eir to some sensible settings
+	if (bootUartConfig->type != BootUartType::pl011)
+		return;
+
+	arch::mem_space space{bootUartConfig->address};
+
+	// We assume here that Eir has mapped the UART as device memory, and
+	// configured the UART to some sensible settings (115200 8N1).
 
 	while (space.load(reg::status) & status::tx_full)
 		;

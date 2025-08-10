@@ -144,8 +144,7 @@ address_t getSingle4kPage(address_t address) {
 }
 
 int getKernelVirtualBits() {
-	// TODO: This could be changed to 49 after some testing.
-	return 48;
+	return 49;
 }
 
 void initProcessorEarly() {
@@ -187,8 +186,7 @@ void initProcessorEarly() {
 	asm volatile("msr tcr_el1, %0" ::"r"(tcr));
 }
 
-// Returns Core region index
-void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
+void initProcessorPaging() {
 	setupPaging();
 	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
 	                  << " KiB"
@@ -208,24 +206,8 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 #ifdef KERNEL_LOG_ALLOCATIONS
 	allocLogRingBuffer();
 #endif
-
-	// Setup the kernel image.
-	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
-	                  << " KiB"
-	                     " after loading the kernel"
-	                  << frg::endlog;
-
-	const auto &ml = getMemoryLayout();
-
-	// Setup the kernel stack.
-	for (address_t page = 0; page < kernelStackSize; page += pageSize)
-		mapSingle4kPage(kernelStack + page, allocPage(), PageFlags::write);
-	mapKasanShadow(kernelStack, kernelStackSize);
-	unpoisonKasanShadow(kernelStack, kernelStackSize);
-
-	mapKasanShadow(ml.kernelVirtual, ml.kernelVirtualSize);
 }
+
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 

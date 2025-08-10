@@ -73,7 +73,7 @@ int getKernelVirtualBits() {
 	return 9 * riscvConfig.numPtLevels + 12;
 }
 
-void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
+void initProcessorPaging() {
 	pml4 = allocPage();
 
 	auto pml4Virtual = physToVirt<uint64_t>(pml4);
@@ -112,13 +112,6 @@ void initProcessorPaging(void *kernel_start, uint64_t &kernel_entry) {
 #endif
 
 	mapRegionsAndStructs();
-
-	// Setup the kernel image.
-	kernel_entry = loadKernelImage(kernel_start);
-	eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
-	                  << " KiB"
-	                     " after loading the kernel"
-	                  << frg::endlog;
 }
 
 } // namespace eir

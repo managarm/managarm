@@ -11,7 +11,25 @@ MemoryLayout memoryLayout;
 // Virtual address of the kernel's boot frame buffer.
 uint64_t kernelFrameBuffer;
 
+uint64_t earlyMmioBase;
+uint64_t earlyMmioPosition;
+uint64_t earlyMmioSize;
+
 } // namespace
+
+void reserveEarlyMmio(uint64_t nPages) {
+	assert(!earlyMmioBase);
+	earlyMmioSize += nPages * pageSize;
+}
+
+uint64_t allocateEarlyMmio(uint64_t nPages) {
+	assert(earlyMmioBase);
+	assert(earlyMmioPosition < earlyMmioSize);
+
+	uint64_t offset = earlyMmioPosition;
+	earlyMmioPosition += nPages * pageSize;
+	return earlyMmioBase + offset;
+}
 
 uint64_t kernelStack;
 uint64_t kernelStackSize;
@@ -41,6 +59,8 @@ void determineMemoryLayout() {
 	ml.eirInfo = assignLayout(0x200000);           // 2 MiB should be enough.
 	kernelFrameBuffer = assignLayout(0x4000'0000); // 1 GiB.
 	kernelStack = assignLayout(kernelStackSize);
+	if (earlyMmioSize)
+		earlyMmioBase = assignLayout(earlyMmioSize);
 
 	infoLogger() << "eir: Kernel virtual memory layout:" << frg::endlog;
 	infoLogger() << "    Direct physical : 0x" << frg::hex_fmt{ml.directPhysical} << frg::endlog;
@@ -49,6 +69,10 @@ void determineMemoryLayout() {
 	infoLogger() << "    EirInfo         : 0x" << frg::hex_fmt{ml.eirInfo} << frg::endlog;
 	infoLogger() << "    Kernel FB       : 0x" << frg::hex_fmt{kernelFrameBuffer} << frg::endlog;
 	infoLogger() << "    Kernel stack    : 0x" << frg::hex_fmt{kernelStack} << frg::endlog;
+	if (earlyMmioSize)
+		infoLogger() << "    Early MMIO      : 0x" << frg::hex_fmt{earlyMmioBase} << frg::endlog;
+	else
+		infoLogger() << "    Early MMIO      : (not assigned)" << frg::endlog;
 }
 
 const MemoryLayout &getMemoryLayout() { return memoryLayout; }
@@ -58,7 +82,6 @@ uint64_t getKernelStackPtr() { return kernelStack + kernelStackSize; }
 
 namespace {
 
-#ifndef __aarch64__
 initgraph::Task setupKernelStackHeap{
     &globalInitEngine,
     "generic.setup-kernel-stack-heap",
@@ -73,7 +96,6 @@ initgraph::Task setupKernelStackHeap{
 	    mapKasanShadow(memoryLayout.kernelVirtual, memoryLayout.kernelVirtualSize);
     }
 };
-#endif
 
 } // namespace
 
