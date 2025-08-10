@@ -13,8 +13,7 @@ namespace thor {
 
 template <typename T>
 concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
-		PhysicalAddr pa, PageFlags flags, CachingMode cachingMode,
-		PageSpace *space, void (*fn)(void *),void *ctxt) {
+		PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 	// Maximum possible number of table levels.
 	{ T::maxLevels } -> std::convertible_to<size_t>;
 	// Amount of levels currently in use.
@@ -24,6 +23,8 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 
 	// Check whether the given PTE say the page is present.
 	{ T::ptePagePresent(pte) } -> std::same_as<bool>;
+	// Check whether the given PTE can be accessed with the given flags.
+	{ T::ptePageCanAccess(pte, flags) } -> std::same_as<bool>;
 	// Get the page address from the given PTE.
 	{ T::ptePageAddress(pte) } -> std::same_as<PhysicalAddr>;
 	// Get the status (present, dirty) from the given PTE.

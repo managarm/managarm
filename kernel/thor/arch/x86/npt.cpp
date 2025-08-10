@@ -21,6 +21,19 @@ struct NptCursorPolicy {
 		return pte & nptPresent;
 	}
 
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if (!(pte & nptPresent))
+			return false;
+
+		if (flags & page_access::write && !(pte & nptWrite))
+			return false;
+
+		if (flags & page_access::execute && (pte & nptXd))
+			return false;
+
+		return true;
+	}
+
 	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
 		return pte & nptAddress;
 	}

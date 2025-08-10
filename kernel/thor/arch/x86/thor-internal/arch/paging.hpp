@@ -39,6 +39,24 @@ struct X86CursorPolicy {
 		return pte & ptePresent;
 	}
 
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if (!(pte & ptePresent))
+			return false;
+
+		if constexpr (!Kernel) {
+			if (!(pte & pteUser))
+				return false;
+		}
+
+		if (flags & page_access::execute && (pte & pteXd))
+			return false;
+
+		if (flags & page_access::write && !(pte & pteWrite))
+			return false;
+
+		return true;
+	}
+
 	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
 		return pte & pteAddress;
 	}

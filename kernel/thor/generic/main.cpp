@@ -5,6 +5,7 @@
 #include <initgraph.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
+#include <thor-internal/arch/paging.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
@@ -376,11 +377,6 @@ extern "C" void thorMain() {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
-	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
-	auto address_space = this_thread->getAddressSpace();
-
-	assert(!(errorCode & kPfBadTable));
-
 	auto logFault = [&] {
 		auto msg = infoLogger();
 		msg << "thor: Page fault at " << (void *)address
@@ -405,6 +401,39 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		}
 		msg << frg::endlog;
 	};
+
+	if (!(errorCode & kPfUser) && inHigherHalf(address)) {
+		KernelPageSpace::Cursor cursor{&KernelPageSpace::global(), address};
+
+		auto ptePtr = cursor.getPtePtr();
+		if (!ptePtr) {
+			logFault();
+			panicLogger() << "thor: Attempt to access unmapped kernel memory at "
+					<< (void *)address << frg::endlog;
+		}
+
+		auto pte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+
+		PageFlags flags = page_access::read;
+		if (errorCode & kPfWrite)
+			flags |= page_access::write;
+		if (errorCode & kPfInstruction)
+			flags |= page_access::execute;
+
+		if (!KernelCursorPolicy::ptePageCanAccess(pte, flags)) {
+			logFault();
+			panicLogger() << "thor: Attempt to access kernel memory at "
+					<< (void *)address << frg::endlog;
+		}
+
+		return;
+	}
+
+	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
+	assert(this_thread.get());
+
+	auto address_space = this_thread->getAddressSpace();
+	assert(!(errorCode & kPfBadTable));
 
 	if(logEveryPageFault)
 		logFault();

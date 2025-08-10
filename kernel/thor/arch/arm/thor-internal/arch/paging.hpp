@@ -47,6 +47,27 @@ struct ARMCursorPolicy {
 		return pte & kPageValid;
 	}
 
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if (!(pte & kPageValid))
+			return false;
+
+		if constexpr (!Kernel) {
+			if (!(pte & kPageUser))
+				return false;
+
+			if (flags & page_access::execute && (pte & kPagePXN))
+				return false;
+		} else {
+			if (flags & page_access::execute && (pte & kPageXN))
+				return false;
+		}
+
+		if (flags & page_access::write && !(pte & kPageShouldBeWritable))
+			return false;
+
+		return true;
+	}
+
 	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
 		return pte & kPageAddress;
 	}
