@@ -113,6 +113,9 @@ struct DeviceTreeNode {
 	auto addressCells() const {
 		return addressCells_;
 	}
+	bool hasAddressCells() const {
+		return hasAddressCells_;
+	}
 	auto sizeCells() const {
 		return sizeCells_;
 	}
@@ -345,7 +348,10 @@ template<typename Fn>
 					<< frg::endlog;
 			return false;
 		}
-		auto parentAddressCells = parentNode->addressCells();
+		// NOTE: This behavior is not documented in the DT specification (the spec says the node
+		// should explicitly set #address-cells to 0 if it needs to). This behavior is copied from
+		// Linux, and is at least needed to correctly parse interrupt-map of the PCIe node on the RPi4.
+		auto parentAddressCells = parentNode->hasAddressCells() ? parentNode->addressCells() : 0;
 		auto parentInterruptCells = parentNode->interruptCells();
 
 		dtb::Cells parentAddress;
