@@ -25,8 +25,8 @@ void publishNodes();
 struct DeviceTreeNode {
 	DeviceTreeNode(::DeviceTreeNode dtNode, DeviceTreeNode *parent)
 	: dtNode_{dtNode}, parent_{parent}, children_{{}, *kernelAlloc}, name_{}, path_{*kernelAlloc},
-	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{parent ? parent->addressCells_ : 2}, hasAddressCells_{false},
-	sizeCells_{parent ? parent->sizeCells_ : 1}, hasSizeCells_{false}, interruptCells_{parent ? parent->interruptCells_ : 0}, hasInterruptCells_{false},
+	model_{}, phandle_{}, compatible_{*kernelAlloc}, addressCells_{2}, hasAddressCells_{false},
+	sizeCells_{1}, hasSizeCells_{false}, interruptCells_{0}, hasInterruptCells_{false},
 	reg_{*kernelAlloc}, ranges_{*kernelAlloc}, interruptController_{false},
 	interruptParentId_{0}, interruptParent_{}, busRange_{0, 0xFF} { }
 
