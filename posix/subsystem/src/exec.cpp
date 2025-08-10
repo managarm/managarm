@@ -26,6 +26,7 @@ struct ImageInfo {
 	void *phdrPtr;
 	size_t phdrEntrySize;
 	size_t phdrCount;
+	std::string interpreter;
 };
 
 async::result<frg::expected<Error, ImagePreamble>>
@@ -158,8 +159,14 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			}
 		}else if(phdr->p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
-		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_INTERP
-				|| phdr->p_type == PT_TLS
+		}else if(phdr->p_type == PT_INTERP) {
+			info.interpreter.resize(phdr->p_filesz);
+			FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
+			FRG_CO_TRY(co_await file->readExactly(nullptr,
+					info.interpreter.data(), phdr->p_filesz));
+			if(size_t n = info.interpreter.find('\0'); n != size_t(-1))
+				info.interpreter.resize(n);
+		}else if(phdr->p_type == PT_DYNAMIC || phdr->p_type == PT_TLS
 				|| phdr->p_type == PT_GNU_EH_FRAME || phdr->p_type == PT_GNU_STACK
 				|| phdr->p_type == PT_GNU_RELRO || phdr->p_type == PT_NOTE) {
 			// Ignore this PHDR here.
@@ -265,7 +272,7 @@ execute(ViewPath root, ViewPath workdir,
 	}
 
 	// TODO: Should we really look up the dynamic linker in the current working dir?
-	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, "/usr/lib/ld-init.so", self));
+	auto ldsoFile = FRG_CO_TRY(co_await open(root, workdir, execInfo.interpreter, self));
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
 	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), 0x40000000));
 
