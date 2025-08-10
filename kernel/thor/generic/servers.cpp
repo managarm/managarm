@@ -270,8 +270,9 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
 
-	// FIXME: use actual interpreter name here
-	auto rtdl_module = resolveModule("usr/lib/ld-init.so");
+	if(size_t n = frg::string_view(exec_info.interpreter).find_first('\0'); n != size_t(-1))
+		exec_info.interpreter.resize(n);
+	auto rtdl_module = resolveModule(exec_info.interpreter);
 	assert(rtdl_module && rtdl_module->type == MfsType::regular);
 	ImageInfo interp_info = co_await loadModuleImage(space, 0x40000000,
 			static_cast<MfsRegular *>(rtdl_module)->getMemory());
