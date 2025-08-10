@@ -19,6 +19,7 @@
     - [LSP setup](contributing/lsp.md)
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
+    - [Wireshark analysis](contributing/wireshark.md)
 
 - [System Architecture](sys-arch/index.md)
     - [Components](sys-arch/index.md)
