@@ -24,7 +24,6 @@ inline constexpr uint64_t kPageAccess = (1 << 10);
 inline constexpr uint64_t kPageRO = (1 << 7);
 inline constexpr uint64_t kPageUser = (1 << 6);
 inline constexpr uint64_t kPageInnerSh = (3 << 8);
-inline constexpr uint64_t kPageOuterSh = (2 << 8);
 inline constexpr uint64_t kPageWb = (0 << 2);
 inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 inline constexpr uint64_t kPagenGnRE = (3 << 2);
@@ -68,7 +67,7 @@ struct ARMCursorPolicy {
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
-		uint64_t pte = physical | kPageValid | kPageL3Page | kPageAccess;
+		uint64_t pte = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
 
 		if constexpr(!Kernel) {
 			pte |= kPageUser | kPageNotGlobal | kPageRO;
@@ -81,16 +80,16 @@ struct ARMCursorPolicy {
 		if (!(flags & page_access::execute))
 			pte |= kPageXN | kPagePXN;
 		if (cachingMode == CachingMode::writeCombine)
-			pte |= kPageUc | kPageOuterSh;
+			pte |= kPageUc;
 		else if (cachingMode == CachingMode::uncached)
-			pte |= kPagenGnRnE | kPageOuterSh;
+			pte |= kPagenGnRnE;
 		else if (cachingMode == CachingMode::mmio)
-			pte |= kPagenGnRE | kPageOuterSh;
+			pte |= kPagenGnRE;
 		else if (cachingMode == CachingMode::mmioNonPosted)
-			pte |= kPagenGnRnE | kPageOuterSh;
+			pte |= kPagenGnRnE;
 		else {
 			assert(cachingMode == CachingMode::null || cachingMode == CachingMode::writeBack);
-			pte |= kPageWb | kPageInnerSh;
+			pte |= kPageWb;
 		}
 
 		return pte;
