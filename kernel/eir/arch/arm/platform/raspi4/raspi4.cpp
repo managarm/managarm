@@ -20,7 +20,7 @@
 #include <arch/variable.hpp>
 
 // #define RASPI3
-// #define LOW_PERIPH
+#define LOW_PERIPH
 
 namespace eir {
 
