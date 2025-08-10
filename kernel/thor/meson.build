@@ -181,7 +181,7 @@ link_with += static_library('cralgo', cralgo_sources,
 	pic : false
 )
 
-deps = [ libgcc, frigg, libsmarter, bragi_dep, libasync_dep, libarch, hel_dep ]
+deps = [ libgcc, frigg, libsmarter, bragi_dep, libasync_dep, libarch_base, hel_dep ]
 
 link_script = meson.get_compiler('cpp').preprocess(
 	'link.x',

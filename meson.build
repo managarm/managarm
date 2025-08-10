@@ -143,18 +143,8 @@ freestnd_cxx_hdrs_dep = dependency(
 # declare dependencies that subdirs are going to use
 bragi_dep = subproject('bragi', default_options: ['install_headers=false']).get_variable('bragi_dep')
 
-# If we are building the kernel, we need the freestanding subset of libarch.
-if flavor == 'kernel' or flavor == 'none'
-	libarch_opts = [ 'install_headers=false', 'header_only=true' ]
-elif flavor == 'userspace'
-	libarch_opts = [ 'install_headers=false' ]
-endif
-
 if build_kernel or build_drivers
-	libarch = subproject('libarch',
-		default_options : libarch_opts
-	).get_variable('libarch_dep')
-
+	libarch_base = dependency('libarch', method: 'pkg-config')
 	libasync_dep = dependency('libasync', method: 'pkg-config')
 	libsmarter = dependency('libsmarter', method : 'pkg-config')
 endif
@@ -168,6 +158,7 @@ if build_kernel
 	uacpi_includes = uacpi.get_variable('includes')
 
 	subdir('hel')
+	subdir('core/arch')
 	subdir('kernel/eir')
 	subdir('kernel/thor')
 
@@ -202,6 +193,7 @@ if build_drivers or provide_deps
 	subdir('protocols/clock')
 
 	if build_drivers
+		subdir('core/arch')
 		subdir('core')
 	endif
 

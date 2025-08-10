@@ -245,7 +245,7 @@ struct Controller final : proto::BaseController {
 	async::result<frg::expected<proto::UsbError>>
 	enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) override;
 
-	arch::os::contiguous_pool *memoryPool() {
+	arch::contiguous_pool *memoryPool() {
 		return &_memoryPool;
 	}
 
@@ -386,7 +386,7 @@ private:
 
 	void _processExtendedCapabilities();
 
-	arch::os::contiguous_pool _memoryPool;
+	arch::contiguous_pool _memoryPool;
 
 	arch::dma_array<uint64_t> _dcbaa;
 	arch::dma_array<uint64_t> _scratchpadBufArray;

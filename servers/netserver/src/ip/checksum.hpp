@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include <arch/dma_structs.hpp>
 
 // 16-bit one's compliment sum checksum, as described in RFC791, amongst others
