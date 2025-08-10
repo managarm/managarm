@@ -55,6 +55,8 @@ struct EptCursorPolicy {
 		return pte;
 	}
 
+	static constexpr void pteWriteBarrier() { }
+
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & eptRead;

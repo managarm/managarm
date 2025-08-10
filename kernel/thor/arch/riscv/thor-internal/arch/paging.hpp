@@ -76,6 +76,8 @@ struct RiscvCursorPolicy {
 		return pte;
 	}
 
+	static constexpr void pteWriteBarrier() { }
+
 	static constexpr bool pteTablePresent(uint64_t pte) { return pte & pteValid; }
 
 	static constexpr PhysicalAddr pteTableAddress(uint64_t pte) { return (pte & ptePpnMask) << 2; }
