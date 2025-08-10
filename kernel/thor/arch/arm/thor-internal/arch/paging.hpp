@@ -71,7 +71,7 @@ struct ARMCursorPolicy {
 		uint64_t pte = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
 
 		if constexpr(!Kernel) {
-			pte |= kPageUser | kPageNotGlobal | kPageRO;
+			pte |= kPageUser | kPageNotGlobal | kPageRO | kPagePXN;
 			if (flags & page_access::write)
 				pte |= kPageShouldBeWritable;
 		} else {
