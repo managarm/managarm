@@ -506,7 +506,7 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 
 		if (component == "..") {
 			if (parent == self)
-				co_return std::make_tuple(nodes, protocols::fs::FileType::unknown, 0);
+				co_return std::make_tuple(nodes, protocols::fs::FileType::directory, processedComponents);
 
 			parent = self->fs.accessInode(FRG_CO_TRY(co_await parent->findEntry(".."))->inode);
 			nodes.pop_back();

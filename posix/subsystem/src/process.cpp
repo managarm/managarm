@@ -1,6 +1,7 @@
 
 #include <signal.h>
 #include <string.h>
+#include <print>
 
 #include "common.hpp"
 #include <core/clock.hpp>
@@ -501,6 +502,15 @@ void CompileSignalInfo::operator() (const TimerSignal &info) const {
 	si->si_timerid = info.timerId;
 }
 
+void CompileSignalInfo::operator() (const ChildSignal &info) const {
+	si->si_code = info.code;
+	si->si_pid = info.pid;
+	si->si_uid = info.uid;
+	si->si_status = info.status;
+	si->si_utime = info.utime;
+	si->si_stime = info.stime;
+}
+
 SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 
@@ -693,6 +703,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGABRT:
 			case SIGILL:
 			case SIGSEGV:
+				co_await process->coredump(TerminationBySignal{item->signalNumber});
 				if(debugFaults) {
 					std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
 					<< item->signalNumber << std::endl;
@@ -1370,8 +1381,20 @@ async::result<void> Process::terminate(TerminationState state) {
 	_state = std::move(state);
 	notifyTypeChange_.raise();
 
-	UserSignal info;
+	// Compile SIGCHLD info.
+	ChildSignal info;
 	info.pid = pid();
+	info.utime = _generationUsage.userTime;
+
+	if(std::get_if<TerminationByExit>(&_state)) {
+		info.status = std::get<TerminationByExit>(_state).code;
+		info.code = CLD_EXITED;
+	} else if(std::get_if<TerminationBySignal>(&_state)) {
+		info.status = std::get<TerminationBySignal>(_state).signo;
+		info.code = dumpable_ ? CLD_DUMPED : CLD_KILLED;
+	} else {
+		std::println("posix: unhandled SIGCHLD reason");
+	}
 
 	auto sigchldHandling = parent->signalContext()->getHandler(SIGCHLD);
 	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait))

@@ -821,3 +821,15 @@ message SetResourceLimitResponse 132 {
 head(128):
 	Errors error;
 }
+
+message ProcessDumpableRequest 133 {
+head(128):
+	byte set;
+	int64 new_value;
+}
+
+message ProcessDumpableResponse 134 {
+head(128):
+	Errors error;
+	byte value;
+}
