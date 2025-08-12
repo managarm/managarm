@@ -34,6 +34,29 @@ inline int getLowerHalfBits() {
 	return 48;
 }
 
+
+inline size_t icacheLineSize() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return (ctr & 0b1111) << 4;
+}
+
+inline size_t dcacheLineSize() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return ((ctr >> 16) & 0b1111) << 4;
+}
+
+inline size_t isICachePIPT() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return ((ctr >> 14) & 0b11) == 0b11;
+}
+
+
 template <bool Kernel>
 struct ARMCursorPolicy {
 	static inline constexpr size_t maxLevels = 4;
@@ -101,6 +124,27 @@ struct ARMCursorPolicy {
 		// by letting them potentially (rarely) taking an extra no-op page fault.
 		// Investigate whether it's worth doing this as well.
 		asm volatile ("dsb ishst; isb" ::: "memory");
+	}
+
+	static constexpr void pteSyncICache(uintptr_t pa) {
+		auto dsz = dcacheLineSize(), isz = icacheLineSize();
+
+		PageAccessor accessor{pa};
+		auto va = reinterpret_cast<uintptr_t>(accessor.get());
+
+		for (auto addr = va & ~(dsz - 1); addr < va + kPageSize; addr += dsz) {
+			asm volatile ("dc cvau, %0" :: "r"(addr) : "memory");
+		}
+		asm volatile ("dsb ish");
+
+		if (isICachePIPT()) {
+			for (auto addr = va & ~(isz - 1); addr < va + kPageSize; addr += isz) {
+				asm volatile ("ic ivau, %0" :: "r"(addr) : "memory");
+			}
+		} else {
+			asm volatile ("ic ialluis" ::: "memory");
+		}
+		asm volatile ("dsb ish; isb");
 	}
 
 

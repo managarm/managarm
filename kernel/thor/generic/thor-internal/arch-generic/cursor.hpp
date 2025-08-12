@@ -13,8 +13,7 @@ namespace thor {
 
 template <typename T>
 concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
-		PhysicalAddr pa, PageFlags flags, CachingMode cachingMode,
-		PageSpace *space, void (*fn)(void *),void *ctxt) {
+		PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 	// Maximum possible number of table levels.
 	{ T::maxLevels } -> std::convertible_to<size_t>;
 	// Amount of levels currently in use.
@@ -34,6 +33,8 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
 	{ T::pteWriteBarrier() } -> std::same_as<void>;
+	// Synchronize the I-Cache for a page that is about to become executable.
+	{ T::pteSyncICache(pa) } -> std::same_as<void>;
 
 	// Check whether the given PTE say the table is present.
 	{ T::pteTablePresent(pte) } -> std::same_as<bool>;
@@ -138,6 +139,9 @@ public:
 
 		ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 
+		if (flags & page_access::execute)
+			Policy::pteSyncICache(pa);
+
 		__atomic_store_n(currentPtePtr_(), ptEnt, __ATOMIC_RELAXED);
 		Policy::pteWriteBarrier();
 	}
@@ -145,6 +149,9 @@ public:
 	PageStatus remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 		if(!accessors_[lastLevel])
 			realizePts_();
+
+		if (flags & page_access::execute)
+			Policy::pteSyncICache(pa);
 
 		auto ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 		ptEnt = exchangeCurrentPte_(ptEnt);
