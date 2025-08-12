@@ -337,9 +337,12 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 			auto file = File::constructHandle(std::move(dev_file));
 
 			auto fd = process->fileContext()->attachFile(file);
-
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd);
+			if (fd) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_fd(fd.value());
+			} else {
+				resp.set_error(fd.error() | toPosixProtoError);
+			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})

@@ -174,9 +174,9 @@ public:
 		return _fileTableMemory;
 	}
 
-	int attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false, int start_at = 0);
+	std::expected<int, Error> attachFile(smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false, int start_at = 0);
 
-	void attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
+	std::expected<void, Error> attachFile(int fd, smarter::shared_ptr<File, FileHandle> file, bool close_on_exec = false);
 
 	std::optional<FileDescriptor> getDescriptor(int fd);
 
@@ -196,6 +196,11 @@ public:
 		return _fileTable;
 	}
 
+	void setFdLimit(uint64_t limit) {
+		// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
+		fdLimit_ = std::min(limit, 0x1000 / sizeof(HelHandle));
+	}
+
 private:
 	helix::UniqueDescriptor _universe;
 
@@ -205,6 +210,9 @@ private:
 	helix::UniqueDescriptor _fileTableMemory;
 
 	HelHandle *_fileTableWindow;
+
+	// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
+	uint64_t fdLimit_ = 0x1000 / sizeof(HelHandle);
 
 	HelHandle _clientMbusLane;
 };

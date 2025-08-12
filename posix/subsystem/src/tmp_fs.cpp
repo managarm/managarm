@@ -299,7 +299,7 @@ private:
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-			std::cout << "\e[31mposix: open() received illegal arguments:"
+			std::cout << "\e[31mposix: DirectoryNode open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;
@@ -484,7 +484,7 @@ struct MemoryNode final : Node {
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-			std::cout << "\e[31mposix: open() received illegal arguments:"
+			std::cout << "\e[31mposix: MemoryNode open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
 				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 				<< std::endl;

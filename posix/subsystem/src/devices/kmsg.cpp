@@ -128,7 +128,8 @@ private:
 	}
 
 	void handleClose() override {
-		lane_ = helix::UniqueLane{};
+		cancelServe_.cancel();
+		passthrough_ = {};
 	}
 
 	helix::UniqueLane passthrough_;

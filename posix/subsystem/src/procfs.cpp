@@ -252,7 +252,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: procfs RegularNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;
@@ -415,7 +415,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: procfs DirectoryNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;
@@ -797,7 +797,7 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
 	stream << "Uid: " << p->uid() << "\n";
 	stream << "Gid: " << p->gid() << "\n";
-	stream << "FDSize: 256\n"; // Pick a sane default, I don't believe we have a real maximum here.
+	stream << "FDSize: 512\n"; // TODO: adjust once we're not limited to one page worth of handles
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
 	stream << "NStgid: N/A\n";
@@ -953,7 +953,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: procfs FdDirectoryNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;
@@ -1120,7 +1120,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 FdInfoDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-		std::cout << "\e[31mposix: open() received illegal arguments:"
+		std::cout << "\e[31mposix: procfs FdInfoDirectoryNode open() received illegal arguments:"
 			<< std::bitset<32>(semantic_flags)
 			<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
 			<< std::endl;

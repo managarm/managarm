@@ -32,7 +32,9 @@ enum Errors {
 	ALREADY_CONNECTED = 29,
 	NOT_A_SOCKET = 30,
 	INTERRUPTED = 31,
-	NO_SUCH_PROCESS = 32
+	NO_SUCH_PROCESS = 32,
+	NAME_TOO_LONG = 33,
+	NO_FILE_DESCRIPTORS_AVAILABLE = 34
 }
 
 consts FileType int64 {
@@ -74,15 +76,9 @@ enum CntReqType {
 
 	// File node API.
 	NODE_GET_STATS = 5,
-	NODE_GET_LINK = 12,
-	NODE_LINK = 28,
-	NODE_MKDIR = 35,
 	NODE_SYMLINK = 39,
-	NODE_UNLINK = 29,
 	NODE_OPEN = 13,
 	NODE_READ_SYMLINK = 15,
-	NODE_OBSTRUCT_LINK = 43,
-	NODE_TRAVERSE_LINKS = 44,
 
 	// Primary file API.
 	FILE_POLL_WAIT = 45,
@@ -91,7 +87,6 @@ enum CntReqType {
 	// File passthrough API.
 	// TODO: Add a PT_ prefix to those requests.
 	READ = 2,
-	PT_READ_ENTRIES = 16,
 	PT_TRUNCATE = 20,
 	PT_FALLOCATE = 19,
 	PT_BIND = 21,
@@ -100,8 +95,6 @@ enum CntReqType {
 	PT_SOCKNAME = 24,
 	PT_GET_FILE_FLAGS = 30,
 	PT_SET_FILE_FLAGS = 31,
-	PT_RECVMSG = 33,
-	PT_SENDMSG = 34,
 	PT_PEERNAME = 42,
 
 	WRITE = 3,
@@ -113,18 +106,13 @@ enum CntReqType {
 	CREATE_SOCKET = 32,
 
 	// Legacy API.
-	OPEN = 1,
-	CONNECT = 10,
 	MMAP = 9,
-	CLOSE = 4,
 
 	FLOCK = 73,
 
 	PT_PREAD = 37,
 
 	NODE_CHMOD = 38,
-
-	NODE_RMDIR = 40,
 
 	OPEN_FD_LANE = 47,
 	PT_GET_SEALS = 48,
@@ -145,9 +133,6 @@ head(128):
 	CntReqType req_type;
 
 	tags {
-		// used by OPEN_ENTRY
-		tag(2) string path;
-
 		// used by SOCKET_CREATE
 		tag(49) int64 type;
 		tag(50) int64 protocol;
@@ -161,14 +146,10 @@ head(128):
 
 		// used by READ and WRITE
 		tag(5) int32 size;
-		tag(6) byte[] buffer;
 
 		// used by RECVMSG
 		tag(51) uint64 addr_size;
 		tag(52) uint64 ctrl_size;
-
-		// used by SENDMSG
-		tag(53) uint32[] fds;
 
 		// used by NODE_SYMLINK
 		tag(61) uint32 name_length;
@@ -251,12 +232,6 @@ head(128):
 
 		tag(60) int32 mode;
 
-		// used by NODE_OBSTRUCT_LINK
-		tag(67) string link_name;
-
-		// used by NODE_TRAVERSE_LINKS
-		tag(68) string[] path_segments;
-
 		// used by PT_IOCTL for TIOCSPGRP
 		tag(69) int64 pgid;
 
@@ -275,9 +250,6 @@ head(128):
 	Errors error;
 
 	tags {
-		// used by PT_READ_ENTRIES
-		tag(19) string path;
-
 		// returned by FSTAT and OPEN
 		tag(5) FileType file_type;
 
@@ -330,9 +302,6 @@ head(128):
 
 		// returned by PT_SENDMSG
 		tag(76) int64 size;
-
-		// returned by PT_RECVMSG
-		tag(78) int64 addr_size;
 
 		// PTS and TTY ioctls.
 		tag(63) int32 pts_index;
@@ -420,10 +389,6 @@ head(128):
 
 		tag(77) int32 flags;
 
-		// used by NODE_TRAVERSE_LINKS
-		tag(79) uint64 links_traversed;
-		tag(80) int64[] ids;
-
 		// returned by FIONREAD
 		tag(94) uint32 fionread_count;
 
@@ -446,7 +411,16 @@ tail:
 	string[] path_segments;
 }
 
-message RecvMsgRequest 5 {
+message NodeTraverseLinksResponse 5 {
+head(128):
+	Errors error;
+	uint64 links_traversed;
+	FileType file_type;
+tail:
+	int64[] ids;
+}
+
+message RecvMsgRequest 6 {
 head(128):
 	int32 size;
 	uint32 flags;
@@ -454,7 +428,7 @@ head(128):
 	uint64 addr_size;
 }
 
-message RecvMsgReply 6 {
+message RecvMsgReply 7 {
 head(128):
 	Errors error;
 	int64 addr_size;
@@ -462,7 +436,7 @@ head(128):
 	uint32 flags;
 }
 
-message SendMsgRequest 7 {
+message SendMsgRequest 8 {
 head(128):
 	int32 size;
 	uint32 flags;
@@ -475,17 +449,17 @@ tail:
 	uint32[] fds;
 }
 
-message SendMsgReply 8 {
+message SendMsgReply 9 {
 head(128):
 	Errors error;
 	uint64 size;
 }
 
-message IoctlRequest 9 {
+message IoctlRequest 10 {
 head(128):
 }
 
-message GenericIoctlRequest 10 {
+message GenericIoctlRequest 11 {
 head(128):
 	tags {
 		tag(1) int32 size;
@@ -562,7 +536,7 @@ head(128):
 	}
 }
 
-message GenericIoctlReply 11 {
+message GenericIoctlReply 12 {
 head(128):
 	Errors error;
 
@@ -672,39 +646,39 @@ head(128):
 	}
 }
 
-message DrmIoctlGemCloseRequest 12 {
+message DrmIoctlGemCloseRequest 13 {
 head(128):
 	uint32 handle;
 }
 
-message DrmIoctlGemCloseReply 13 {
+message DrmIoctlGemCloseReply 14 {
 head(128):
 	Errors error;
 }
 
-message InitializePosixLane 14 {
+message InitializePosixLane 15 {
 head(128):
 }
 
-message ResolveCredentialsToPidReq 15 {
+message ResolveCredentialsToPidReq 16 {
 head(128):
 	uint8[16] credentials;
 }
 
-message ResolveCredentialsToPidReply 16 {
+message ResolveCredentialsToPidReply 17 {
 head(128):
 	Errors error;
 	int64 pid;
 }
 
-message SetSockOpt 17 {
+message SetSockOpt 18 {
 head(128):
 	int32 layer;
 	int32 number;
 	uint64 optlen;
 }
 
-message IfreqRequest 18 {
+message IfreqRequest 19 {
 head(128):
 	int32 command;
 	int32 index;
@@ -717,7 +691,7 @@ struct Ifconf {
 	@format(ipv4) int32 ip4;
 }
 
-message IfreqReply 19 {
+message IfreqReply 20 {
 head(128):
 	Errors error;
 	int32 mtu;
@@ -731,29 +705,29 @@ tail:
 	string name;
 }
 
-message IfconfReply 20 {
+message IfconfReply 21 {
 head(128):
 	Errors error;
 tail:
 	Ifconf[] ifconf;
 }
 
-message EvioGetNameRequest 21 {
+message EvioGetNameRequest 22 {
 head(128):
 }
 
-message EvioGetNameReply 22 {
+message EvioGetNameReply 23 {
 head(128):
 	Errors error;
 tail:
 	string name;
 }
 
-message EvioGetIdRequest 23 {
+message EvioGetIdRequest 24 {
 head(128):
 }
 
-message EvioGetIdReply 24 {
+message EvioGetIdReply 25 {
 head(128):
 	Errors error;
 	uint16 bustype;
@@ -762,26 +736,26 @@ head(128):
 	uint16 version;
 }
 
-message EvioGetMultitouchSlotsRequest 25 {
+message EvioGetMultitouchSlotsRequest 26 {
 head(128):
 	uint32 code;
 }
 
-message EvioGetMultitouchSlotsReply 26 {
+message EvioGetMultitouchSlotsReply 27 {
 head(128):
 	Errors error;
 tail:
 	uint32[] values;
 }
 
-message GetSockOpt 27 {
+message GetSockOpt 28 {
 head(128):
 	int32 layer;
 	int32 number;
 	uint64 optlen;
 }
 
-message UtimensatRequest 28 {
+message UtimensatRequest 29 {
 head(128):
 	byte atime_update;
 	uint64 atime_sec;
@@ -793,12 +767,12 @@ head(128):
 	uint64 ctime_nsec;
 }
 
-message ShutdownSocket 29 {
+message ShutdownSocket 30 {
 head(128):
 	int32 how;
 }
 
-message GetLinkOrCreateRequest 30 {
+message GetLinkOrCreateRequest 31 {
 head(128):
 	int32 mode;
 	byte exclusive;
@@ -808,9 +782,58 @@ tail:
 	string name;
 }
 
-message GetLinkOrCreateResponse 31 {
+message GetLinkOrCreateResponse 32 {
 head(128):
 	Errors error;
 	FileType file_type;
 	int64 id;
+}
+
+message MkdirRequest 33 {
+head(128):
+tail:
+	string path;
+}
+
+message GetLinkRequest 34 {
+head(128):
+tail:
+	string path;
+}
+
+message LinkRequest 35 {
+head(128):
+	int32 fd;
+tail:
+	string path;
+}
+
+message UnlinkRequest 36 {
+head(128):
+tail:
+	string path;
+}
+
+message RmdirRequest 37 {
+head(128):
+tail:
+	string path;
+}
+
+message ReadEntriesRequest 38 {
+head(128):
+}
+
+message ReadEntriesResponse 39 {
+head(128):
+	Errors error;
+	FileType file_type;
+tail:
+	string path;
+}
+
+message ObstructLinkRequest 40 {
+head(128):
+tail:
+	string link_name;
 }
