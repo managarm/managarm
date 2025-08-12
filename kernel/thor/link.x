@@ -3,6 +3,14 @@ ENTRY(thorRtEntry)
 SECTIONS {
 	. = 0xFFFFFFFF80000000;
 
+#if defined(__x86_64__)
+	stubsPtr = .;
+	.text.stubs : {
+		*(.text.stubs)
+	}
+	stubsLimit = .;
+#endif
+
 	.text : { *(.text .text.*) }
 
 	/* R data segment. */
@@ -19,6 +27,7 @@ SECTIONS {
 
 	.eh_frame_hdr : { *(.eh_frame_hdr) }
 	.eh_frame : { *(.eh_frame) }
+	.note.gnu.build-id : { *(.note.gnu.build-id) }
 
 	/* RW data segment. */
 	. += CONSTANT(COMMONPAGESIZE);
@@ -31,12 +40,15 @@ SECTIONS {
 		PROVIDE_HIDDEN (__init_array_end = .);
 	}
 
-	.data : { *(.data) }
+	.data : { *(.data .data.*) }
+#if defined(__riscv)
+	/* RISC-V requires a GOT. */
 	.got : { *(.got.plt) *(.got) }
+#endif
 	.note.managarm : { *(.note.managarm) }
 
 	/* BSS segment. */
-	.bss : { *(.bss) *(.bss.*) }
+	.bss : { *(.bss .bss.*) }
 
 	/* Extra space to make a separate PHDR (so that .bss does not
 	get turned into PROGBITS) */
@@ -90,6 +102,13 @@ SECTIONS {
 
 	.comment 0 : { *(.comment) }
 
+#if !defined(__riscv)
+	.got : {
+		*(.got) *(.got.*) *(.igot) *(.igot.*)
+	}
+	ASSERT(SIZEOF(.got) == 0, "Unexpected GOT entries detected!")
+#endif
+
 	.plt : {
 		*(.plt) *(.plt.*) *(.iplt)
 	}
@@ -106,7 +125,9 @@ SECTIONS {
 	ASSERT(SIZEOF(.rela.dyn) == 0, "Unexpected run-time relocations (.rela) detected!")
 
 	/DISCARD/ : {
+#if defined(__riscv)
 		*(.riscv.attributes)
+#endif
 		*(.note.GNU-stack)
 	}
 }

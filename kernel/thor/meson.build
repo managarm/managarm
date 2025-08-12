@@ -169,6 +169,15 @@ link_with += static_library('cralgo', cralgo_sources,
 
 deps = [ libgcc, frigg, libsmarter, bragi_dep, libasync_dep, libarch, hel_dep ]
 
+link_script = meson.get_compiler('cpp').preprocess(
+	'link.x',
+	compile_args : cpp_args + args,
+	include_directories : inc,
+)[0]
+
+link_args += [ '-Wl,-T,' + link_script.full_path() ]
+link_depends += link_script
+
 executable('thor', src,
 	include_directories : inc,
 	dependencies : deps,
