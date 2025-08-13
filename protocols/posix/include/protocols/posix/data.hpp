@@ -4,7 +4,8 @@
 
 namespace posix {
 
-struct ManagarmRequestCancellationData {
+struct ThreadPage {
+	unsigned int globalSignalFlag;
 	uint64_t cancellationId;
 	HelHandle lane;
 	int fd;
@@ -13,12 +14,9 @@ struct ManagarmRequestCancellationData {
 struct ManagarmProcessData {
 	HelHandle posixLane;
 	HelHandle mbusLane;
-	void *threadPage;
+	ThreadPage *threadPage;
 	HelHandle *fileTable;
 	void *clockTrackerPage;
-	// Shared memory page to hold the event to trigger
-	// cancellation of current outstanding request.
-	ManagarmRequestCancellationData *cancelRequestEvent;
 };
 
 struct ManagarmServerData {
