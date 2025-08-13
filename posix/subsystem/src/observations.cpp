@@ -166,7 +166,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				self->clientThreadPage(),
 				static_cast<HelHandle *>(self->clientFileTable()),
 				self->clientClkTrackerPage(),
-				static_cast<HelHandle*>(self->clientCancelEvent())
+				static_cast<posix::ManagarmRequestCancellationData *>(self->clientCancelEvent())
 			};
 
 			if(logRequests)
@@ -342,7 +342,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					if (handling.ignored) {
 						co_await self->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
-						self->cancelEvent();
+						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
 							co_await self->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)
@@ -451,7 +451,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					if (handling.ignored) {
 						co_await self->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
-						self->cancelEvent();
+						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
 							co_await self->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)
@@ -632,7 +632,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 					if (handling.ignored) {
 						co_await self->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
-						self->cancelEvent();
+						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
 							co_await self->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)

@@ -441,9 +441,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			HEL_CHECK(sendResp.error());
 			logBragiReply(resp);
 		}else if(req.request_type() == managarm::posix::CntReqType::WAIT) {
-			auto [cancel_event] = co_await exchangeMsgs(conversation, helix_ng::pullDescriptor());
-			HEL_CHECK(cancel_event.error());
-
 			if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
 				std::cout << "posix: WAIT invalid flags: " << req.flags() << std::endl;
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -463,17 +460,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT", "pid={}", req.pid());
 
-			auto event = cancel_event.descriptor();
-			frg::expected<Error, Process::WaitResult> waitResult{Error::ioError};
+			auto ct = self->cancelEventRegistry().registerEvent(self->credentials(), req.cancellation_id());
+			if (!ct) {
+				std::print("posix: possibly duplicate cancellation ID registered");
+				sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
 
-			co_await async::race_and_cancel(
-				async::lambda([&](async::cancellation_token c) -> async::result<void> {
-					co_await helix_ng::awaitEvent(event, 1, c);
-				}),
-				async::lambda([&](async::cancellation_token c) -> async::result<void> {
-					waitResult = co_await self->wait(req.pid(), flags, c);
-				})
-			);
+			auto waitResult = co_await self->wait(req.pid(), flags, ct.value());
+			self->cancelEventRegistry().removeEvent(self->credentials(), req.cancellation_id());
 
 			managarm::posix::SvrResponse resp;
 			if(waitResult) {

@@ -7,6 +7,7 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
+#include <core/cancel-events.hpp>
 #include <boost/intrusive/list.hpp>
 #include <frg/expected.hpp>
 #include <sys/time.h>
@@ -583,7 +584,7 @@ public:
 		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
 	}
 
-	void cancelEvent();
+	async::result<void> cancelEvent();
 
 	// Like checkOrRequestSignalRaise() but only check if raising is possible.
 	bool checkSignalRaise();
@@ -663,6 +664,14 @@ public:
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
 
 	async::result<void> coredump(TerminationState state);
+
+	CancelEventRegistry &cancelEventRegistry() {
+		return cancelEventRegistry_;
+	}
+
+	helix_ng::CredentialsView credentials() const {
+		return {credentials_};
+	}
 
 	struct IntervalTimer : posix::IntervalTimer {
 		IntervalTimer(std::weak_ptr<Process> process, uint64_t initial, uint64_t interval)
@@ -805,6 +814,9 @@ private:
 	std::optional<int> parentDeathSignal_ = std::nullopt;
 	// equivalent to PR_[SG]ET_DUMPABLE
 	bool dumpable_ = true;
+
+	CancelEventRegistry cancelEventRegistry_;
+	std::array<char, 16> credentials_{};
 };
 
 std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);

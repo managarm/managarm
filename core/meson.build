@@ -3,6 +3,7 @@ inc = [ 'include' ]
 headers = [
 	'include/core/align.hpp',
 	'include/core/bpf.hpp',
+	'include/core/cancel-events.hpp',
 	'include/core/clock.hpp',
 	'include/core/cmdline.hpp',
 	'include/core/device-path.hpp',

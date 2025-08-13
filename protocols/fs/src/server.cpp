@@ -3,10 +3,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <iostream>
+#include <print>
 #include <vector>
 
 #include <helix/ipc.hpp>
 
+#include <core/cancel-events.hpp>
 #include <core/clock.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/ostrace/ostrace.hpp>
@@ -53,6 +55,8 @@ protocols::ostrace::Context ostContext{ostVocabulary};
 async::result<void> initOstrace() {
 	co_await ostContext.create();
 }
+
+CancelEventRegistry cancellationEvents;
 
 async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		const FileOperations *file_ops,
@@ -172,12 +176,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::READ) {
-		auto [cancel_event, extract_creds] = co_await helix_ng::exchangeMsgs(
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
 			conversation,
-			helix_ng::pullDescriptor(),
 			helix_ng::extractCredentials()
 		);
-		HEL_CHECK(cancel_event.error());
 		HEL_CHECK(extract_creds.error());
 
 		if(!file_ops->read) {
@@ -194,25 +196,33 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		auto event = cancel_event.descriptor();
+		auto ct = cancellationEvents.registerEvent(extract_creds.credentials(), req.cancellation_id());
+		if (!ct) {
+			std::print("protocols/fs: possibly duplicate cancellation ID registered");
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
+			co_return;
+		}
+
 		std::string data;
 		data.resize(req.size());
-		ReadResult res = std::unexpected{Error::internalError};
-
-		co_await async::race_and_cancel(
-			async::lambda([&](async::cancellation_token c) -> async::result<void> {
-				co_await helix_ng::awaitEvent(event, 1, c);
-			}),
-			async::lambda([&](async::cancellation_token c) -> async::result<void> {
-				res = co_await file_ops->read(
-					file.get(),
-					extract_creds.credentials(),
-					data.data(),
-					req.size(),
-					c
-				);
-			})
+		auto res = co_await file_ops->read(
+			file.get(),
+			extract_creds.credentials(),
+			data.data(),
+			req.size(),
+			ct.value()
 		);
+
+		cancellationEvents.removeEvent(extract_creds.credentials(), req.cancellation_id());
 
 		managarm::fs::SvrResponse resp;
 		size_t size = 0;
@@ -1318,6 +1328,18 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_tail.error());
 		logBragiReply(resp);
+	} else if(preamble.id() == managarm::fs::CancelOperation::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::CancelOperation>(recv_req);
+		auto cancellationId = req->cancellation_id();
+		recv_req.reset();
+
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
+		cancellationEvents.cancel(extract_creds.credentials(), cancellationId);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");

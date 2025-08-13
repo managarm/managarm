@@ -178,6 +178,8 @@ head(128):
 
 		tag(33) uint64 sigset;
 		tag(35) char[16] passthrough_credentials;
+
+		tag(36) uint64 cancellation_id;
 	}
 }
 

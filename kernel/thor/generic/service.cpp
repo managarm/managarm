@@ -57,6 +57,18 @@ namespace stdio {
 				co_return;
 			}
 
+			auto preamble = bragi::read_preamble(reqBuffer);
+			if (preamble.error()) {
+				infoLogger() << "thor: failed to decode preamble" << frg::endlog;
+				co_return;
+			}
+
+			if (preamble.id() != managarm::fs::CntRequest<KernelAlloc>::message_id) {
+				co_await DismissSender{conversation};
+				infoLogger() << "thor: unexpected request ID " << preamble.id() << frg::endlog;
+				co_return;
+			}
+
 			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
@@ -158,15 +170,6 @@ namespace initrd {
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::READ) {
-				//TODO(geert): Maybe use this event to cancel
-				// stuff as well?
-				auto [eventError, event] = co_await PullDescriptorSender{conversation};
-				if (eventError != Error::success) {
-					infoLogger() << "thor: Could not receive read event"
-							<< frg::endlog;
-					co_return;
-				}
-
 				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"

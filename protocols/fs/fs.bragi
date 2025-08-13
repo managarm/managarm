@@ -242,6 +242,8 @@ head(128):
 		// used by SB_CREATE_REGULAR
 		tag(86) int64 uid;
 		tag(87) int64 gid;
+
+		tag(88) uint64 cancellation_id;
 	}
 }
 
@@ -836,4 +838,9 @@ message ObstructLinkRequest 40 {
 head(128):
 tail:
 	string link_name;
+}
+
+message CancelOperation 41 {
+head(128):
+	uint64 cancellation_id;
 }
