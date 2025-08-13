@@ -50,6 +50,8 @@ struct File {
 
 private:
 	helix::UniqueDescriptor _lane;
+	HelHandle credsToken_;
+	uint64_t cancellationId_ = 1;
 };
 
 } // namespace _detail

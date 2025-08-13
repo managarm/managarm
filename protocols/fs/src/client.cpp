@@ -9,7 +9,9 @@ namespace protocols {
 namespace fs {
 
 File::File(helix::UniqueDescriptor lane)
-: _lane(std::move(lane)) { }
+: _lane(std::move(lane)) {
+	helCreateToken(&credsToken_);
+}
 
 async::result<void> File::seekAbsolute(int64_t offset) {
 	managarm::fs::CntRequest req;
@@ -88,43 +90,64 @@ async::result<int64_t> File::seekEof(int64_t offset) {
 }
 
 async::result<ReadResult>
-File::readSome(void *data, size_t max_length, async::cancellation_token ce) {
+File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
+	auto cancelId = cancellationId_++;
+
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::READ);
 	req.set_size(max_length);
-
-	HelHandle cancel_handle;
-	HEL_CHECK(helCreateOneshotEvent(&cancel_handle));
-	helix::UniqueDescriptor cancel_event{cancel_handle};
-
-	async::cancellation_callback cancel_cb{ce, [&cancel_event] {
-		HEL_CHECK(helRaiseEvent(cancel_event.getHandle()));
-	}};
+	req.set_cancellation_id(cancelId);
 
 	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
-
-	auto [offer, push_req, send_req, imbue_creds, recv_resp, recv_data] =
-	    co_await helix_ng::exchangeMsgs(
-	        _lane,
-	        helix_ng::offer(
-	            helix_ng::sendBuffer(ser.data(), ser.size()),
-	            helix_ng::pushDescriptor(cancel_event),
-	            helix_ng::imbueCredentials(),
-	            helix_ng::recvBuffer(buffer, 128),
-	            helix_ng::recvBuffer(data, max_length)
-	        )
-	    );
-
-	HEL_CHECK(offer.error());
-	HEL_CHECK(push_req.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(imbue_creds.error());
-	HEL_CHECK(recv_resp.error());
-	HEL_CHECK(recv_data.error());
-
 	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+	size_t actualLength = 0;
+
+	co_await async::race_and_cancel(
+		async::lambda([&](auto) -> async::result<void> {
+			auto [offer, send_req, imbue_creds, recv_resp, recv_data] =
+				co_await helix_ng::exchangeMsgs(
+					_lane,
+					helix_ng::offer(
+						helix_ng::sendBuffer(ser.data(), ser.size()),
+						helix_ng::imbueCredentials(credsToken_),
+						helix_ng::recvBuffer(buffer, 128),
+						helix_ng::recvBuffer(data, max_length)
+					)
+				);
+
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(imbue_creds.error());
+			HEL_CHECK(recv_resp.error());
+			HEL_CHECK(recv_data.error());
+
+			resp.ParseFromArray(buffer, recv_resp.actualLength());
+			actualLength = recv_data.actualLength();
+		}),
+		async::lambda([&, ct, this](auto c) -> async::result<void> {
+			co_await async::suspend_indefinitely(c, ct);
+
+			if (!ct.is_cancellation_requested())
+				co_return;
+
+			managarm::fs::CancelOperation req;
+			req.set_cancellation_id(cancelId);
+
+			auto [offer, send_req, imbue_creds] =
+			co_await helix_ng::exchangeMsgs(
+				_lane,
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::imbueCredentials(credsToken_)
+				)
+			);
+
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+		})
+	);
+
 	if(resp.error() == managarm::fs::Errors::END_OF_FILE)
 		co_return std::unexpected{Error::endOfFile};
 
@@ -132,7 +155,7 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ce) {
 		co_return std::unexpected{Error::interrupted};
 
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
-	co_return recv_data.actualLength();
+	co_return actualLength;
 }
 
 async::result<size_t> File::writeSome(const void *data, size_t maxLength) {

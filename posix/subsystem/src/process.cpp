@@ -956,16 +956,32 @@ Process::~Process() {
 	_pgPointer->dropProcess(this);
 }
 
-void Process::cancelEvent() {
-	auto cancelEventPtr = reinterpret_cast<HelHandle *>(_cancelEventMapping.get());
-	auto cancelEvent = __atomic_load_n(cancelEventPtr, __ATOMIC_ACQUIRE);
-	if (cancelEvent != kHelNullHandle) {
-		HelHandle posixCancelEvent;
-		HEL_CHECK(helTransferDescriptor(
-		    cancelEvent, _fileContext->getUniverse().getHandle(), kHelTransferDescriptorIn, &posixCancelEvent
-		));
-		HEL_CHECK(helRaiseEvent(posixCancelEvent));
-		*cancelEventPtr = kHelNullHandle;
+async::result<void> Process::cancelEvent() {
+	auto cancelEventPtr = static_cast<posix::ManagarmRequestCancellationData *>(_cancelEventMapping.get());
+	auto cancelId = __atomic_load_n(&cancelEventPtr->cancellationId, __ATOMIC_ACQUIRE);
+	if (cancelId != 0) {
+		HelHandle handle;
+		HEL_CHECK(helTransferDescriptor(cancelEventPtr->lane, _fileContext->getUniverse().getHandle(), kHelTransferDescriptorIn, &handle));
+		int fd = cancelEventPtr->fd;
+
+		if (fd == -1) {
+			cancelEventRegistry_.cancel(helix_ng::CredentialsView{credentials_}, cancelId);
+		} else {
+			managarm::fs::CancelOperation req;
+			req.set_cancellation_id(cancelId);
+
+			auto [offer, send_req, imbue_creds] =
+			co_await helix_ng::exchangeMsgs(
+				helix::BorrowedDescriptor{handle},
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::imbueCredentials(_threadDescriptor.getHandle())
+				)
+			);
+
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+		}
 	}
 }
 
@@ -1014,7 +1030,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
 	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
 	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
-	new (process->_cancelEventMapping.get()) HelHandle{};
+	new (process->_cancelEventMapping.get()) posix::ManagarmRequestCancellationData{};
 
 	// The initial signal mask allows all signals.
 	process->_signalMask = 0;
@@ -1068,6 +1084,8 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_posixLane = std::move(server_lane);
 	process->_didExecute = true;
 
+	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
+
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
 	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
 
@@ -1100,7 +1118,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
 	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
 	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
-	new (process->_cancelEventMapping.get()) HelHandle{};
+	new (process->_cancelEventMapping.get()) posix::ManagarmRequestCancellationData{};
 
 	// Signal masks are copied on fork().
 	process->_signalMask = original->_signalMask;
@@ -1150,6 +1168,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 			nullptr, nullptr, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 	process->_posixLane = std::move(server_lane);
+	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -1180,7 +1199,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &cancel_event_memory));
 	process->_cancelEventMemory = helix::UniqueDescriptor{cancel_event_memory};
 	process->_cancelEventMapping = helix::Mapping{process->_cancelEventMemory, 0, 0x1000};
-	new (process->_cancelEventMapping.get()) HelHandle{};
+	new (process->_cancelEventMapping.get()) posix::ManagarmRequestCancellationData{};
 
 	// Signal masks are copied on clone().
 	process->_signalMask = original->_signalMask;
@@ -1225,6 +1244,7 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 			ip, sp, kHelThreadStopped, &new_thread));
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 	process->_posixLane = std::move(server_lane);
+	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
@@ -1307,6 +1327,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_clientAuxBegin = execResult.auxBegin;
 	process->_clientAuxEnd = execResult.auxEnd;
 	process->_didExecute = true;
+	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
