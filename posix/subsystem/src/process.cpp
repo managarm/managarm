@@ -1432,8 +1432,10 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 			break;
 		}
 
-		if(result || (flags & waitNonBlocking))
-			co_return result.value_or(WaitResult{});
+		if(result)
+			co_return result.value();
+		else if(flags & waitNonBlocking)
+			co_return Error::wouldBlock;
 
 		if (!co_await _notifyBell.async_wait(ct))
 			co_return Error::interrupted;
