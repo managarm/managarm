@@ -240,7 +240,7 @@ struct DeviceTreeProperty {
 
 	dtb::Accessor access() { return dtb::Accessor{data_, 0}; }
 
-	uint32_t asU32(size_t offset = 0) {
+	uint32_t asU32(size_t offset = 0) const {
 		assert(offset + 4 <= data_.size());
 
 		arch::scalar_storage<uint32_t, arch::big_endian> v;
@@ -249,7 +249,7 @@ struct DeviceTreeProperty {
 		return v.load();
 	}
 
-	uint64_t asU64(size_t offset = 0) {
+	uint64_t asU64(size_t offset = 0) const {
 		assert(offset + 8 <= data_.size());
 
 		arch::scalar_storage<uint64_t, arch::big_endian> v;
@@ -258,7 +258,7 @@ struct DeviceTreeProperty {
 		return v.load();
 	}
 
-	frg::optional<frg::string_view> asString(size_t index = 0) {
+	frg::optional<frg::string_view> asString(size_t index = 0) const {
 		size_t total = 0;
 		const char *off = reinterpret_cast<const char *>(data_.data());
 		for (size_t i = 0; i < index; i++) {
@@ -269,7 +269,7 @@ struct DeviceTreeProperty {
 		return frg::string_view{off + total, strnlen(off + total, data_.size() - total)};
 	}
 
-	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) {
+	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) const {
 		if (nCells == 0)
 			return 0;
 		else if (nCells == 1)
@@ -279,6 +279,10 @@ struct DeviceTreeProperty {
 
 		assert(!"Invalid amount of cells");
 		return -1;
+	}
+
+	DeviceTreeProperty subProperty(size_t offset) {
+		return {name_, data_.subspan(offset)};
 	}
 
 private:
@@ -405,9 +409,9 @@ struct DeviceTreeNode {
 		}
 	}
 
-	frg::optional<DeviceTreeProperty> findProperty(const char *name) const {
+	frg::optional<DeviceTreeProperty> findProperty(frg::string_view name) const {
 		for (auto prop : properties_)
-			if (frg::string_view{name} == prop.name())
+			if (name == prop.name())
 				return prop;
 
 		return frg::null_opt;

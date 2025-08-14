@@ -1,6 +1,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/iommu.hpp>
 #include <thor-internal/mbus.hpp>
 
 #include <hw.frigg_bragi.hpp>
@@ -222,6 +223,33 @@ struct MbusNode final : private KernelBusObject {
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableDmaRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableDmaRequest>(reqBuffer, *kernelAlloc);
+
+			if(!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			auto &referencedIommus = node->referencedIommus();
+			for(auto &ref : referencedIommus) {
+				auto iommu = ref.node->getAssociatedIommu();
+				if(iommu) {
+					iommu->enableDevice(node, ref.prop);
+				}else {
+					infoLogger() << "thor: No associated iommu in node \"" << ref.node->path() << "\"" << frg::endlog;
+					resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+				}
+			}
+
+			if(referencedIommus.empty()) {
+				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
+			}
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else{
