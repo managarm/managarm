@@ -579,18 +579,6 @@ initgraph::Task setupInitrdInfo{
     initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getEirDoneStage()},
     [] {
-	    auto initrd_module = bootAlloc<EirModule>(1);
-	    initrd_module->physicalBase = reinterpret_cast<EirPtr>(initrd);
-	    initrd_module->length = initrdSize;
-	    const char *initrd_mod_name = "initrd.cpio";
-	    size_t name_length = strlen(initrd_mod_name);
-	    char *name_ptr = bootAlloc<char>(name_length);
-	    memcpy(name_ptr, initrd_mod_name, name_length);
-	    initrd_module->namePtr = mapBootstrapData(name_ptr);
-	    initrd_module->nameLength = name_length;
-
-	    info_ptr->moduleInfo = mapBootstrapData(initrd_module);
-
 	    EirAllocator alloc{};
 
 	    frg::string<EirAllocator> cmdline_extras{alloc, cmdline};

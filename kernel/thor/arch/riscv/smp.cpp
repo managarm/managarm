@@ -66,6 +66,9 @@ void setUpTrampoline() {
 }
 
 void smpMain(StatusBlock *statusBlock) {
+	// Synchronize with the other HART.
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
+
 	writeToTp(statusBlock->smpCpu);
 
 	initializeThisProcessor();
@@ -105,6 +108,8 @@ void bootAp(DeviceTreeNode *node) {
 	auto [smpCpu, cpuNr] = extendPerCpuData();
 	prepareCpuDataFor(smpCpu, cpuNr);
 	smpCpu->hartId = hartId;
+	// Ensure that the CPU data is visible to the HART.
+	__atomic_thread_fence(__ATOMIC_SEQ_CST);
 
 	smpCpu->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 

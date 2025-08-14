@@ -35,6 +35,24 @@ struct RiscvCursorPolicy {
 		return (pte & pteValid) && (pte & pteRead);
 	}
 
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if (!(pte & pteValid))
+			return false;
+
+		if constexpr (!Kernel) {
+			if (!(pte & pteUser))
+				return false;
+		}
+
+		if (flags & page_access::execute && !(pte & pteExecute))
+			return false;
+
+		if (flags & page_access::write && !(pte & pteWrite))
+			return false;
+
+		return true;
+	}
+
 	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) { return (pte & ptePpnMask) << 2; }
 
 	static constexpr PageStatus ptePageStatus(uint64_t pte) {

@@ -77,46 +77,6 @@ initgraph::Task setupMemoryRegions{
     }
 };
 
-initgraph::Task setupInitrdInfo{
-    &globalInitEngine,
-    "mb2.setup-initrd-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    auto initrd_module = bootAlloc<EirModule>(1);
-	    size_t add_size = 0;
-
-	    for (size_t i = 8 /* Skip size and reserved fields*/; i < mbInfo->size; i += add_size) {
-		    Mb2Tag *tag = (Mb2Tag *)((uint8_t *)mbInfo + i);
-
-		    if (tag->type == kMb2TagEnd)
-			    break;
-
-		    add_size = tag->size;
-		    if ((add_size % 8) != 0)
-			    add_size += (8 - add_size % 8); // Align 8byte
-
-		    switch (tag->type) {
-			    case kMb2TagModule: {
-				    auto *module = reinterpret_cast<Mb2TagModule *>(tag);
-
-				    initrd_module->physicalBase = (EirPtr)module->start;
-				    initrd_module->length = (EirPtr)module->end - (EirPtr)module->start;
-
-				    size_t name_length = strlen(module->string);
-				    char *name_ptr = bootAlloc<char>(name_length);
-				    memcpy(name_ptr, module->string, name_length);
-				    initrd_module->namePtr = mapBootstrapData(name_ptr);
-				    initrd_module->nameLength = name_length;
-				    break;
-			    }
-		    }
-	    }
-
-	    info_ptr->moduleInfo = mapBootstrapData(initrd_module);
-    }
-};
-
 } // namespace
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {

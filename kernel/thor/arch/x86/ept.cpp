@@ -24,6 +24,19 @@ struct EptCursorPolicy {
 		return pte & eptRead;
 	}
 
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if(flags & page_access::read && !(pte & eptRead))
+			return false;
+
+		if (flags & page_access::write && !(pte & eptWrite))
+			return false;
+
+		if (flags & page_access::execute && !(pte & eptExecute))
+			return false;
+
+		return true;
+	}
+
 	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
 		return pte & eptAddress;
 	}

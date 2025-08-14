@@ -616,6 +616,18 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 	memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
 	info_ptr->commandLine = mapBootstrapData(cmd_buffer);
 
+	auto initrd_module = bootAlloc<EirModule>(1);
+	initrd_module->physicalBase = virtToPhys(initrd);
+	initrd_module->length = initrd_image.size();
+	const char *initrd_mod_name = "initrd.cpio";
+	size_t name_length = strlen(initrd_mod_name);
+	char *name_ptr = bootAlloc<char>(name_length);
+	memcpy(name_ptr, initrd_mod_name, name_length);
+	initrd_module->namePtr = mapBootstrapData(name_ptr);
+	initrd_module->nameLength = name_length;
+
+	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
+
 	return info_ptr;
 }
 
