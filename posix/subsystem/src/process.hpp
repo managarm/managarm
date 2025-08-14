@@ -9,6 +9,7 @@
 #include <async/recurring-event.hpp>
 #include <core/cancel-events.hpp>
 #include <boost/intrusive/list.hpp>
+#include <protocols/posix/data.hpp>
 #include <frg/expected.hpp>
 #include <sys/time.h>
 
@@ -385,10 +386,6 @@ struct Generation {
 	async::oneshot_event requestsDone;
 };
 
-struct ThreadPage {
-	int globalSignalFlag;
-};
-
 // --------------------------------------------------------------------------------------
 // The 'Process' class.
 // --------------------------------------------------------------------------------------
@@ -573,15 +570,14 @@ public:
 	}
 
 	HelHandle clientPosixLane() { return _clientPosixLane; }
-	void *clientThreadPage() { return _clientThreadPage; }
+	posix::ThreadPage *clientThreadPage() { return _clientThreadPage; }
 	void *clientFileTable() { return _clientFileTable; }
 	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
 	void *clientAuxBegin() { return _clientAuxBegin; }
 	void *clientAuxEnd() { return _clientAuxEnd; }
-	void *clientCancelEvent() { return _clientCancelEvent; }
 
-	ThreadPage *accessThreadPage() {
-		return reinterpret_cast<ThreadPage *>(_threadPageMapping.get());
+	posix::ThreadPage *accessThreadPage() {
+		return reinterpret_cast<posix::ThreadPage *>(_threadPageMapping.get());
 	}
 
 	async::result<void> cancelEvent();
@@ -765,14 +761,10 @@ private:
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
-	helix::UniqueDescriptor _cancelEventMemory;
-	helix::Mapping _cancelEventMapping;
-
 	HelHandle _clientPosixLane;
-	void *_clientThreadPage;
+	posix::ThreadPage *_clientThreadPage;
 	void *_clientFileTable;
 	void *_clientClkTrackerPage;
-	void *_clientCancelEvent;
 	// Pointers to the aux vector in the client.
 	void *_clientAuxBegin = nullptr;
 	void *_clientAuxEnd = nullptr;
