@@ -429,6 +429,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					resp.set_sig_code(0);
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
+			} else if (wait_result.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(wait_result.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
@@ -488,6 +491,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_mode(mode);
 			} else if (waitResult.error() == Error::interrupted) {
 				resp.set_error(managarm::posix::Errors::INTERRUPTED);
+			} else if (waitResult.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(waitResult.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
