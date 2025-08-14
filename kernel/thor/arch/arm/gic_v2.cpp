@@ -267,9 +267,8 @@ uint8_t GicDistributorV2::getCurrentCpuIfaceNo_() {
 		return __builtin_ctz(mask);
 	}
 
-	infoLogger() << "thor: Unable to determine CPU interface number" << frg::endlog;
-
-	return 0;
+	panicLogger() << "thor: Unable to determine CPU interface number" << frg::endlog;
+	__builtin_unreachable();
 }
 
 // ---------------------------------------------------------------------

@@ -27,7 +27,6 @@ static inline constexpr uint64_t kPageNotGlobal = (1 << 11);
 static inline constexpr uint64_t kPageAccess = (1 << 10);
 static inline constexpr uint64_t kPageRO = (1 << 7);
 static inline constexpr uint64_t kPageInnerSh = (3 << 8);
-static inline constexpr uint64_t kPageOuterSh = (2 << 8);
 static inline constexpr uint64_t kPageWb = (0 << 2);
 static inline constexpr uint64_t kPageGRE = (1 << 2);
 static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
@@ -85,7 +84,7 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 		eir::panicLogger() << "eir: Trying to map 0x" << frg::hex_fmt{address} << " twice!"
 		                   << frg::endlog;
 
-	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess;
+	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
 
 	if (!(flags & PageFlags::write))
 		new_entry |= kPageRO;
@@ -95,12 +94,12 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 		new_entry |= kPageNotGlobal;
 
 	if (caching_mode == CachingMode::writeCombine) {
-		new_entry |= kPageGRE | kPageOuterSh;
+		new_entry |= kPageGRE;
 	} else if (caching_mode == CachingMode::mmio) {
-		new_entry |= kPagenGnRnE | kPageOuterSh;
+		new_entry |= kPagenGnRnE;
 	} else {
 		assert(caching_mode == CachingMode::null);
-		new_entry |= kPageWb | kPageInnerSh;
+		new_entry |= kPageWb;
 	}
 
 	if (new_entry & (0b111ULL << 48)) {
@@ -153,14 +152,9 @@ void initProcessorEarly() {
 	uint64_t aa64mmfr0;
 	asm volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(aa64mmfr0));
 
-	if (aa64mmfr0 & (0xF << 28))
+	if (aa64mmfr0 & (uint64_t(0xF) << 28))
 		eir::panicLogger() << "PANIC! This CPU doesn't support 4K memory translation granules"
 		                   << frg::endlog;
-
-	if ((aa64mmfr0 & 0xF) < 1)
-		eir::panicLogger(
-		) << "PANIC! This CPU doesn't support at least 48 bit physical addresses (max "
-		  << (aa64mmfr0 & 0xF) << ")" << frg::endlog;
 
 	auto pa = frg::min(uint64_t(5), aa64mmfr0 & 0xF);
 

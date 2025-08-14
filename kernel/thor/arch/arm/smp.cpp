@@ -156,6 +156,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 	ClientPageSpace lowMapping;
 	ClientPageSpace::Cursor cursor{&lowMapping, codePhysPtr};
 	cursor.map4k(codePhysPtr, page_access::execute, CachingMode::null);
+	*cursor.getPtePtr() &= ~kPagePXN; // Workaround: clear PXN so the AP can execute code from the page.
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;

@@ -24,7 +24,6 @@ inline constexpr uint64_t kPageAccess = (1 << 10);
 inline constexpr uint64_t kPageRO = (1 << 7);
 inline constexpr uint64_t kPageUser = (1 << 6);
 inline constexpr uint64_t kPageInnerSh = (3 << 8);
-inline constexpr uint64_t kPageOuterSh = (2 << 8);
 inline constexpr uint64_t kPageWb = (0 << 2);
 inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 inline constexpr uint64_t kPagenGnRE = (3 << 2);
@@ -34,6 +33,29 @@ inline constexpr uint64_t kPageAddress = 0xFFFFFFFFF000;
 inline int getLowerHalfBits() {
 	return 48;
 }
+
+
+inline size_t icacheLineSize() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return (ctr & 0b1111) << 4;
+}
+
+inline size_t dcacheLineSize() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return ((ctr >> 16) & 0b1111) << 4;
+}
+
+inline size_t isICachePIPT() {
+	uint64_t ctr;
+	asm ("mrs %0, ctr_el0" : "=r"(ctr));
+
+	return ((ctr >> 14) & 0b11) == 0b11;
+}
+
 
 template <bool Kernel>
 struct ARMCursorPolicy {
@@ -85,14 +107,15 @@ struct ARMCursorPolicy {
 
 	static PageStatus pteClean(uint64_t *ptePtr) {
 		uint64_t pte = __atomic_fetch_or(ptePtr, kPageRO, __ATOMIC_RELAXED);
+		pteWriteBarrier();
 		return ptePageStatus(pte);
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
-		uint64_t pte = physical | kPageValid | kPageL3Page | kPageAccess;
+		uint64_t pte = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
 
 		if constexpr(!Kernel) {
-			pte |= kPageUser | kPageNotGlobal | kPageRO;
+			pte |= kPageUser | kPageNotGlobal | kPageRO | kPagePXN;
 			if (flags & page_access::write)
 				pte |= kPageShouldBeWritable;
 		} else {
@@ -102,19 +125,47 @@ struct ARMCursorPolicy {
 		if (!(flags & page_access::execute))
 			pte |= kPageXN | kPagePXN;
 		if (cachingMode == CachingMode::writeCombine)
-			pte |= kPageUc | kPageOuterSh;
+			pte |= kPageUc;
 		else if (cachingMode == CachingMode::uncached)
-			pte |= kPagenGnRnE | kPageOuterSh;
+			pte |= kPagenGnRnE;
 		else if (cachingMode == CachingMode::mmio)
-			pte |= kPagenGnRE | kPageOuterSh;
+			pte |= kPagenGnRE;
 		else if (cachingMode == CachingMode::mmioNonPosted)
-			pte |= kPagenGnRnE | kPageOuterSh;
+			pte |= kPagenGnRnE;
 		else {
 			assert(cachingMode == CachingMode::null || cachingMode == CachingMode::writeBack);
-			pte |= kPageWb | kPageInnerSh;
+			pte |= kPageWb;
 		}
 
 		return pte;
+	}
+
+	static constexpr void pteWriteBarrier() {
+		// TODO(qookie): Linux avoids the barrier for the innermost level user pages,
+		// by letting them potentially (rarely) taking an extra no-op page fault.
+		// Investigate whether it's worth doing this as well.
+		asm volatile ("dsb ishst; isb" ::: "memory");
+	}
+
+	static constexpr void pteSyncICache(uintptr_t pa) {
+		auto dsz = dcacheLineSize(), isz = icacheLineSize();
+
+		PageAccessor accessor{pa};
+		auto va = reinterpret_cast<uintptr_t>(accessor.get());
+
+		for (auto addr = va & ~(dsz - 1); addr < va + kPageSize; addr += dsz) {
+			asm volatile ("dc cvau, %0" :: "r"(addr) : "memory");
+		}
+		asm volatile ("dsb ish");
+
+		if (isICachePIPT()) {
+			for (auto addr = va & ~(isz - 1); addr < va + kPageSize; addr += isz) {
+				asm volatile ("ic ivau, %0" :: "r"(addr) : "memory");
+			}
+		} else {
+			asm volatile ("ic ialluis" ::: "memory");
+		}
+		asm volatile ("dsb ish; isb");
 	}
 
 

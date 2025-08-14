@@ -64,6 +64,9 @@ struct NptCursorPolicy {
 		return pte;
 	}
 
+	static constexpr void pteWriteBarrier() { }
+	static constexpr void pteSyncICache(uintptr_t) { }
+
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & nptPresent;

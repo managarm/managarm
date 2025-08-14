@@ -33,6 +33,10 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	{ T::pteClean(ptePtr) } -> std::same_as<PageStatus>;
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
+	// Synchronize the page table write with the page table walker.
+	{ T::pteWriteBarrier() } -> std::same_as<void>;
+	// Synchronize the I-Cache for a page that is about to become executable.
+	{ T::pteSyncICache(pa) } -> std::same_as<void>;
 
 	// Check whether the given PTE say the table is present.
 	{ T::pteTablePresent(pte) } -> std::same_as<bool>;
@@ -137,15 +141,23 @@ public:
 
 		ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 
+		if (flags & page_access::execute)
+			Policy::pteSyncICache(pa);
+
 		__atomic_store_n(currentPtePtr_(), ptEnt, __ATOMIC_RELAXED);
+		Policy::pteWriteBarrier();
 	}
 
 	PageStatus remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 		if(!accessors_[lastLevel])
 			realizePts_();
 
+		if (flags & page_access::execute)
+			Policy::pteSyncICache(pa);
+
 		auto ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 		ptEnt = exchangeCurrentPte_(ptEnt);
+		Policy::pteWriteBarrier();
 
 		return Policy::ptePageStatus(ptEnt);
 	}
@@ -162,6 +174,7 @@ public:
 			return {0, 0};
 
 		auto ptEnt = exchangeCurrentPte_(0);
+		Policy::pteWriteBarrier();
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
@@ -213,6 +226,7 @@ private:
 		subPt = PageAccessor{subPtPtr};
 
 		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
+		Policy::pteWriteBarrier();
 	}
 
 	void realizeLevel_(size_t level) {

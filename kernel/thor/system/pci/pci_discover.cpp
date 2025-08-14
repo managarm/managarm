@@ -1389,19 +1389,17 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		// Try to look up the host base address in our parent's resources
 		for (auto &res : bridge->parentBus->resources) {
-			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)
+					&& res.flags() == PciBusResource::io) {
 				isHostMmio = res.isHostMmio();
 				hostBase = res.hostBase() + (addr - res.base());
 				break;
 			}
 		}
 
-		// If not found, assume PCIe and host address space are the same
-		if (!hostBase) {
-			hostBase = addr;
-		}
-
-		if (size) {
+		// If the window is not found in the parent's resources, assume it's
+		// garbage/empty and ignore it.
+		if (hostBase && size) {
 			infoLogger() << "thor: Discovered existing I/O window of bridge "
 					<< frg::hex_fmt{bridge->seg} << ":"
 					<< frg::hex_fmt{bridge->bus} << ":"
@@ -1428,18 +1426,16 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		// Try to look up the host base address in our parent's resources
 		for (auto &res : bridge->parentBus->resources) {
-			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)
+					&& res.flags() == PciBusResource::memory) {
 				hostBase = res.hostBase() + (addr - res.base());
 				break;
 			}
 		}
 
-		// If not found, assume PCIe and host address space are the same
-		if (!hostBase) {
-			hostBase = addr;
-		}
-
-		if (size) {
+		// If the window is not found in the parent's resources, assume it's
+		// garbage/empty and ignore it.
+		if (hostBase && size) {
 			infoLogger() << "thor: Discovered existing memory window of bridge "
 					<< frg::hex_fmt{bridge->seg} << ":"
 					<< frg::hex_fmt{bridge->bus} << ":"
@@ -1470,18 +1466,16 @@ void checkForBridgeResources(PciBridge *bridge) {
 
 		// Try to look up the host base address in our parent's resources
 		for (auto &res : bridge->parentBus->resources) {
-			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)) {
+			if (res.base() <= addr && (res.base() + res.size()) >= (addr + size)
+					&& res.flags() == PciBusResource::prefMemory) {
 				hostBase = res.hostBase() + (addr - res.base());
 				break;
 			}
 		}
 
-		// If not found, assume PCIe and host address space are the same
-		if (!hostBase) {
-			hostBase = addr;
-		}
-
-		if (size) {
+		// If the window is not found in the parent's resources, assume it's
+		// garbage/empty and ignore it.
+		if (hostBase && size) {
 			infoLogger() << "thor: Discovered existing prefetch memory window of bridge "
 					<< frg::hex_fmt{bridge->seg} << ":"
 					<< frg::hex_fmt{bridge->bus} << ":"
