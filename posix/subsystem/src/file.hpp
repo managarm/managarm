@@ -231,6 +231,48 @@ inline Error operator|(managarm::fs::Errors e, ToPosixError) {
 	}
 }
 
+struct ToHelError {
+	template<typename E>
+	auto operator() (E e) const { return e | *this; }
+};
+constexpr ToHelError toHelError;
+
+inline HelError operator|(Error e, ToHelError) {
+	switch(e) {
+		case Error::success: return kHelErrNone;
+		case Error::illegalArguments: return kHelErrIllegalArgs;
+		case Error::interrupted: return kHelErrCancelled;
+		case Error::noSuchFile:
+		case Error::eof:
+		case Error::brokenPipe:
+		case Error::notDirectory:
+		case Error::insufficientPermissions:
+		case Error::alreadyExists:
+		case Error::notTerminal:
+		case Error::noBackingDevice:
+		case Error::isDirectory:
+		case Error::directoryNotEmpty:
+		case Error::noMemory:
+		case Error::ioError:
+		case Error::noChildProcesses:
+		case Error::alreadyConnected:
+		case Error::unsupportedSocketType:
+		case Error::noSuchProcess:
+		case Error::illegalOperationTarget:
+		case Error::accessDenied:
+		case Error::noFileDescriptorsAvailable:
+		case Error::wouldBlock:
+		case Error::fileClosed:
+		case Error::badExecutable:
+		case Error::seekOnPipe:
+		case Error::notConnected:
+		case Error::noSpaceLeft:
+		case Error::notSocket:
+			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
+			return kHelErrUnsupportedOperation;
+	}
+}
+
 std::ostream& operator<<(std::ostream& os, const Error& err);
 
 // TODO: Rename this enum as is not part of the VFS.
