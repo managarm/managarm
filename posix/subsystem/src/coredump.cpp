@@ -224,7 +224,7 @@ async::result<void> Process::coredump(TerminationState state) {
 		}
 
 		prstatus.pr_pid = pid();
-		prstatus.pr_ppid = _parent ? _parent->pid() : 0;
+		prstatus.pr_ppid = getParent() ? getParent()->pid() : 0;
 
 		uintptr_t pcrs[2];
 		uintptr_t threadrs[2];
@@ -280,7 +280,7 @@ async::result<void> Process::coredump(TerminationState state) {
 		memset(&info, 0, sizeof(info));
 		info.pr_sname = 'R';
 		info.pr_pid = pid();
-		info.pr_ppid = _parent ? _parent->pid() : 0;
+		info.pr_ppid = getParent() ? getParent()->pid() : 0;
 		info.pr_uid = uid();
 		info.pr_gid = gid();
 		info.pr_flag = 0x600;
