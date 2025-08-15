@@ -16,7 +16,7 @@ void OpenFile::serve(smarter::shared_ptr<OpenFile> file) {
 			smarter::shared_ptr<File>{file}, &File::fileOperations, file->cancelServe_));
 }
 
-OpenFile::OpenFile(std::weak_ptr<Process> proc, bool nonBlock)
+OpenFile::OpenFile(std::weak_ptr<ThreadGroup> proc, bool nonBlock)
 : File{FileKind::pidfd,  StructName::get("pidfd"), nullptr,
 	SpecialLink::makeSpecialLink(VfsType::regular, 0777), defaultPipeLikeSeek},
 	nonBlock_{nonBlock}, process_{std::move(proc)} { }
@@ -86,7 +86,7 @@ int OpenFile::pid() const {
 
 } // namespace pidfd
 
-smarter::shared_ptr<File, FileHandle> createPidfdFile(std::weak_ptr<Process> proc, bool nonBlock) {
+smarter::shared_ptr<File, FileHandle> createPidfdFile(std::weak_ptr<ThreadGroup> proc, bool nonBlock) {
 	auto file = smarter::make_shared<pidfd::OpenFile>(proc, nonBlock);
 	file->setupWeakFile(file);
 	pidfd::OpenFile::serve(file);

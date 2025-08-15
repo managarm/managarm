@@ -11,7 +11,7 @@ struct OpenFile : File {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file);
 
-	OpenFile(std::weak_ptr<Process> proc, bool nonBlock);
+	OpenFile(std::weak_ptr<ThreadGroup> proc, bool nonBlock);
 
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *process, void *data, size_t maxLength, async::cancellation_token ct) override;
@@ -40,9 +40,9 @@ private:
 	helix::UniqueLane passthrough_;
 	async::cancellation_event cancelServe_;
 	bool nonBlock_;
-	std::weak_ptr<Process> process_;
+	std::weak_ptr<ThreadGroup> process_;
 };
 
 } // namespace pidfd
 
-smarter::shared_ptr<File, FileHandle> createPidfdFile(std::weak_ptr<Process> proc, bool nonBlock);
+smarter::shared_ptr<File, FileHandle> createPidfdFile(std::weak_ptr<ThreadGroup> proc, bool nonBlock);

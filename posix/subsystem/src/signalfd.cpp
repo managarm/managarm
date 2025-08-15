@@ -29,7 +29,7 @@ OpenFile::readSome(Process *process, void *data, size_t maxLength, async::cancel
 	if(maxLength < sizeof(struct signalfd_siginfo))
 		co_return std::unexpected{Error::illegalArguments};
 
-	auto active = co_await process->signalContext()->fetchSignal(_mask, _nonBlock, ce);
+	auto active = co_await process->threadGroup()->signalContext()->fetchSignal(_mask, _nonBlock, ce);
 	if (!active && _nonBlock)
 		co_return std::unexpected{Error::wouldBlock};
 	if (!active && !_nonBlock)
@@ -46,7 +46,7 @@ async::result<frg::expected<Error, PollWaitResult>>
 OpenFile::pollWait(Process *process, uint64_t inSeq, int pollMask,
 		async::cancellation_token cancellation) {
 	(void)pollMask; // TODO: utilize mask.
-	auto result = co_await process->signalContext()->pollSignal(inSeq,
+	auto result = co_await process->threadGroup()->signalContext()->pollSignal(inSeq,
 			_mask, cancellation);
 	co_return PollWaitResult{std::get<0>(result),
 			(std::get<1>(result) & _mask) ? EPOLLIN : 0};
@@ -54,7 +54,7 @@ OpenFile::pollWait(Process *process, uint64_t inSeq, int pollMask,
 
 async::result<frg::expected<Error, PollStatusResult>>
 OpenFile::pollStatus(Process *process) {
-	auto result = process->signalContext()->checkSignal();
+	auto result = process->threadGroup()->signalContext()->checkSignal();
 	co_return PollStatusResult{std::get<0>(result),
 			(std::get<1>(result) & _mask) ? EPOLLIN : 0};
 }

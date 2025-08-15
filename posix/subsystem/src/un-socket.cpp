@@ -225,7 +225,7 @@ public:
 		if(_currentState != State::connected)
 			co_return Error::notConnected;
 		if(shutdownFlags_ & shutdownWrite) {
-			process->signalContext()->issueSignal(SIGPIPE, {});
+			process->threadGroup()->signalContext()->issueSignal(SIGPIPE, {});
 			co_return Error::brokenPipe;
 		}
 
@@ -364,7 +364,7 @@ public:
 
 		if(shutdownFlags_ & shutdownWrite) {
 			if(!(flags & MSG_NOSIGNAL))
-				process->signalContext()->issueSignal(SIGPIPE, {});
+				process->threadGroup()->signalContext()->issueSignal(SIGPIPE, {});
 			co_return protocols::fs::Error::brokenPipe;
 		}
 
@@ -426,7 +426,7 @@ public:
 		if(logSockets)
 			std::cout << "posix: Send to socket \e[1;34m" << structName() << "\e[0m" << std::endl;
 
-		protocols::fs::utils::handleSoPasscred(remote->_passCreds, ucreds, process->pid(), process->uid(), process->gid());
+		protocols::fs::utils::handleSoPasscred(remote->_passCreds, ucreds, process->pid(), process->threadGroup()->uid(), process->threadGroup()->gid());
 
 		// We ignore MSG_DONTWAIT here as we never block anyway.
 
@@ -782,7 +782,7 @@ public:
 				auto remoteProc = Process::findProcess(pid);
 
 				if(remoteProc) {
-					auto pidfd = createPidfdFile(remoteProc, false);
+					auto pidfd = createPidfdFile(remoteProc->threadGroup()->weak_from_this(), false);
 					result = process->fileContext()->attachFile(pidfd).value_or(-EMFILE);
 				} else {
 					result = -ENODATA;

@@ -57,7 +57,7 @@ async::result<void> serveSignals(std::shared_ptr<Process> self,
 		if(cancellation.is_cancellation_requested())
 			break;
 		//std::cout << "Waiting for raise in " << self->pid() << std::endl;
-		auto result = co_await self->signalContext()->pollSignal(sequence,
+		auto result = co_await self->threadGroup()->signalContext()->pollSignal(sequence,
 				UINT64_C(-1), cancellation);
 		sequence = std::get<0>(result);
 		//std::cout << "Calling helInterruptThread on " << self->pid() << std::endl;

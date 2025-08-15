@@ -83,7 +83,7 @@ async::result<void> Process::coredump(TerminationState state) {
 	co_return;
 #endif
 
-	if(!dumpable_)
+	if(!threadGroup()->dumpable_)
 		co_return;
 
 	std::println("posix: writing coredump for process {}", pid());
@@ -223,7 +223,7 @@ async::result<void> Process::coredump(TerminationState state) {
 		}
 
 		prstatus.pr_pid = pid();
-		prstatus.pr_ppid = _parent ? _parent->pid() : 0;
+		prstatus.pr_ppid = getParent() ? getParent()->pid() : 0;
 
 		uintptr_t pcrs[2];
 		uintptr_t threadrs[2];
@@ -279,9 +279,9 @@ async::result<void> Process::coredump(TerminationState state) {
 		memset(&info, 0, sizeof(info));
 		info.pr_sname = 'R';
 		info.pr_pid = pid();
-		info.pr_ppid = _parent ? _parent->pid() : 0;
-		info.pr_uid = uid();
-		info.pr_gid = gid();
+		info.pr_ppid = getParent() ? getParent()->pid() : 0;
+		info.pr_uid = threadGroup()->uid();
+		info.pr_gid = threadGroup()->gid();
 		info.pr_flag = 0x600;
 		strncpy(info.pr_fname, _name.c_str(), sizeof(info.pr_fname));
 		strncpy(info.pr_psargs, _path.c_str(), sizeof(info.pr_psargs));
