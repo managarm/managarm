@@ -212,16 +212,30 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			void *ip = reinterpret_cast<void *>(gprs[kHelRegArg0]);
 			void *sp = reinterpret_cast<void *>(gprs[kHelRegArg1]);
 
-			auto child = Process::clone(self, ip, sp);
+			posix::superCloneArgs args{};
+			if (gprs[kHelRegArg2]) {
+				auto loadArgs = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+						gprs[kHelRegArg2], sizeof(args), &args);
+				HEL_CHECK(loadArgs.error());
+			}
 
-			auto new_thread = child->threadDescriptor().getHandle();
+			auto cloneResult = Process::clone(self, ip, sp, &args);
+			HelHandle newThread = kHelNullHandle;
 
 			gprs[kHelRegError] = kHelErrNone;
-			gprs[kHelRegOut0] = child->pid();
+
+			if (cloneResult) {
+				newThread = cloneResult.value()->threadDescriptor().getHandle();
+				gprs[kHelRegOut0] = static_cast<uintptr_t>(managarm::posix::Errors::SUCCESS);
+				gprs[kHelRegOut1] = cloneResult.value()->tid();
+			} else {
+				gprs[kHelRegOut0] = static_cast<uintptr_t>(cloneResult.error() | toPosixProtoError);
+			}
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			HEL_CHECK(helResume(thread.getHandle()));
-			HEL_CHECK(helResume(new_thread));
+			if (newThread != kHelNullHandle)
+				HEL_CHECK(helResume(newThread));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superExecve) {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
@@ -305,7 +319,16 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto code = gprs[kHelRegArg0];
 
-			co_await self->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
+			co_await self->threadGroup()->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
+		}else if(observe.observation() == kHelObserveSuperCall + posix::superThreadExit) {
+			if(logRequests)
+				std::cout << "posix: THREAD_EXIT supercall" << std::endl;
+
+			uintptr_t gprs[kHelNumGprs];
+			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+			auto code = gprs[kHelRegArg0];
+
+			co_await self->threadGroup()->handleThreadExit(self.get(), code & 0xFF);
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -333,17 +356,17 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			if (!delayedSignal) {
 				auto active =
-					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
 				if (active) {
-					auto handling = self->signalContext()->determineHandling(active, self.get());
+					auto handling = self->threadGroup()->signalContext()->determineHandling(active, self.get());
 
 					if (handling.ignored) {
-						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+						co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
 						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
-							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)
 								break;
 						} else {
@@ -372,7 +395,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			if(delayedSignal) {
 				killed = delayedSignalHandling->killed;
-				co_await self->signalContext()->raiseContext(delayedSignal, self.get(), *delayedSignalHandling);
+				co_await self->threadGroup()->signalContext()->raiseContext(delayedSignal, self.get(), *delayedSignalHandling);
 				delayedSignal = nullptr;
 				delayedSignalHandling = std::nullopt;
 			} else {
@@ -386,7 +409,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
-			co_await self->signalContext()->restoreContext(thread, self.get());
+			co_await self->threadGroup()->signalContext()->restoreContext(thread, self.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
 			if(logRequests || logSignals)
@@ -435,24 +458,24 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				if(targetGroup) {
 					targetGroup->issueSignalToGroup(sn, info);
 				} else {
-					target->signalContext()->issueSignal(sn, info);
+					target->threadGroup()->signalContext()->issueSignal(sn, info);
 				}
 			}
 
 			// If the process signalled itself, we should process the signal before resuming.
 			if (!delayedSignal) {
 				auto active =
-					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
 				if (active) {
-					auto handling = self->signalContext()->determineHandling(active, self.get());
+					auto handling = self->threadGroup()->signalContext()->determineHandling(active, self.get());
 
 					if (handling.ignored) {
-						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+						co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
 						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
-							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)
 								break;
 						} else {
@@ -524,10 +547,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto seq = gprs[kHelRegArg0];
 
 			if (seq == self->enteredSignalSeq()) {
-				auto check = self->signalContext()->checkSignal();
+				auto check = self->threadGroup()->signalContext()->checkSignal();
 
 				if (!std::get<1>(check))
-					co_await self->signalContext()->pollSignal(std::get<0>(check), UINT64_C(-1));
+					co_await self->threadGroup()->signalContext()->pollSignal(std::get<0>(check), UINT64_C(-1));
 			}
 
 			gprs[kHelRegError] = 0;
@@ -552,7 +575,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			gprs[kHelRegError] = 0;
-			gprs[kHelRegOut0] = std::get<1>(self->signalContext()->checkSignal());
+			gprs[kHelRegOut0] = std::get<1>(self->threadGroup()->signalContext()->checkSignal());
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigTimedWait) {
@@ -570,7 +593,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = EAGAIN;
 			gprs[kHelRegOut1] = 0;
 
-			auto check = co_await self->signalContext()->fetchSignal(mask, true);
+			auto check = co_await self->threadGroup()->signalContext()->fetchSignal(mask, true);
 			if(check) {
 				if(infoPtr) {
 					siginfo_t siginfo{};
@@ -595,7 +618,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						}
 					}),
 					async::lambda([&](async::cancellation_token c) -> async::result<void> {
-						item = co_await self->signalContext()->fetchSignal(mask, false, c);
+						item = co_await self->threadGroup()->signalContext()->fetchSignal(mask, false, c);
 					}),
 					async::lambda([&](async::cancellation_token c) -> async::result<void> {
 						co_await async::suspend_indefinitely(c, generation->cancelServe);
@@ -623,17 +646,17 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			if (!delayedSignal) {
 				auto active =
-					co_await self->signalContext()->fetchSignal(~self->signalMask(), true);
+					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
 				if (active) {
-					auto handling = self->signalContext()->determineHandling(active, self.get());
+					auto handling = self->threadGroup()->signalContext()->determineHandling(active, self.get());
 
 					if (handling.ignored) {
-						co_await self->signalContext()->raiseContext(active, self.get(), handling);
+						co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 					} else {
 						co_await self->cancelEvent();
 						if (self->checkOrRequestSignalRaise()) {
-							co_await self->signalContext()->raiseContext(active, self.get(), handling);
+							co_await self->threadGroup()->signalContext()->raiseContext(active, self.get(), handling);
 							if (handling.killed)
 								break;
 						} else {
@@ -656,7 +679,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous user space panic" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				co_await self->coredump({});
 
@@ -691,7 +714,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(!logPageFaults) {
 					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
@@ -719,7 +742,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
@@ -740,7 +763,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
@@ -761,7 +784,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());
@@ -782,7 +805,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "\e[33m" "posix: Ignoring global signal flag "
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
-			co_await self->signalContext()->determineAndRaiseContext(item, self.get(), killed);
+			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
 			if(killed) {
 				if(debugFaults) {
 					launchGdbServer(self.get());

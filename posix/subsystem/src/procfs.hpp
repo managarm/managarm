@@ -6,6 +6,7 @@
 #include "vfs.hpp"
 
 struct Process;
+struct ThreadGroup;
 struct FileDescriptor;
 
 namespace procfs {
@@ -114,7 +115,7 @@ protected:
 	virtual async::result<std::expected<std::string, Error>> show(Process *) = 0;
 	virtual async::result<void> store(std::string buffer) = 0;
 
-	async::result<frg::expected<Error, FileStats>> getStatsInternal(Process *);
+	async::result<frg::expected<Error, FileStats>> getStatsInternal(ThreadGroup *);
 };
 
 struct SuperBlock final : FsSuperblock {
@@ -159,7 +160,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	std::shared_ptr<Link> directMknode(std::string name,
 			std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
-	std::shared_ptr<Link> createProcDirectory(std::string name, Process *process);
+
+	std::shared_ptr<Link> createProcTaskDirectory(Process *process);
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
@@ -177,6 +179,8 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 	Error directUnlink(std::string name);
 
 private:
+	std::shared_ptr<Link> createProcDirectory(Process *process);
+
 	Link *_treeLink;
 	std::set<std::shared_ptr<Link>, LinkCompare> _entries;
 };
@@ -325,6 +329,19 @@ struct StatmNode final : RegularNode {
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
 	std::weak_ptr<Process> _process;
+};
+
+struct ProcessStatusNode final : RegularNode {
+	ProcessStatusNode(std::weak_ptr<ThreadGroup> tg)
+	: _tg(tg)
+	{ }
+
+	async::result<std::expected<std::string, Error>> show(Process *) override;
+	async::result<void> store(std::string) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
+private:
+	std::weak_ptr<ThreadGroup> _tg;
 };
 
 struct StatusNode final : RegularNode {

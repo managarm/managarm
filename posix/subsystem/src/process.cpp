@@ -18,6 +18,8 @@ static bool logCleanup_ = false;
 
 async::result<void> serve(std::shared_ptr<Process> self, std::shared_ptr<Generation> generation);
 
+std::shared_ptr<ThreadGroup> initThreadGroup = nullptr;
+
 // ----------------------------------------------------------------------------
 // VmContext.
 // ----------------------------------------------------------------------------
@@ -705,14 +707,14 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGSEGV:
 				co_await process->coredump(TerminationBySignal{item->signalNumber});
 				if(debugFaults) {
-					std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
+					std::cout << "posix: Thread " << process->tid() << " killed as the result of signal "
 					<< item->signalNumber << std::endl;
 					launchGdbServer(process);
 					co_await async::suspend_indefinitely(async::cancellation_token{});
 				}
 				break;
 			default:
-				std::cout << "posix: Thread " << process->pid() << " killed as the result of signal "
+				std::cout << "posix: Thread " << process->tid() << " killed as the result of signal "
 					<< item->signalNumber << std::endl;
 				assert(handling.killed);
 				break;
@@ -720,7 +722,7 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	if (handling.killed) {
-		co_await process->terminate(TerminationBySignal{item->signalNumber});
+		co_await process->threadGroup()->terminate(TerminationBySignal{item->signalNumber});
 		delete item;
 		co_return;
 	}
@@ -946,14 +948,44 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 	return it->second->getProcess();
 }
 
-Process::Process(std::shared_ptr<PidHull> hull, Process *parent)
-: _parent{parent}, _hull{std::move(hull)},
-		_clientPosixLane{kHelNullHandle}, _clientFileTable{nullptr},
-		notifyType_{NotifyType::null} { }
+Process::Process(ThreadGroup *threadGroup, std::shared_ptr<PidHull> tidHull)
+: hull_{std::move(tidHull)}, tgPointer_{threadGroup} {
+
+}
 
 Process::~Process() {
-	std::cout << std::format("\e[33mposix: Process {} is destructed\e[39m", pid()) << std::endl;
+	std::cout << std::format("\e[33mposix: Process {} is destructed\e[39m", tid()) << std::endl;
+
+	// Unlink /proc/[pid]/task/[tid] here, as we want to keep it around even if we're a zombie.
+	if(procfsTaskLink_) {
+		procfsTaskLink_->unlinkSelf();
+		procfsTaskLink_ = nullptr;
+	}
+
+	assert(!tgPointer_);
 	_pgPointer->dropProcess(this);
+}
+
+ThreadGroup *Process::getParent() {
+	return tgPointer_->parent_;
+}
+
+PidHull *Process::getPidHull() {
+	return tgPointer_->hull_.get();
+}
+
+PidHull *Process::getTidHull() {
+	return hull_.get();
+}
+
+int Process::pid() {
+	assert(tgPointer_->hull_);
+	return tgPointer_->hull_->getPid();
+}
+
+int Process::tid() {
+	assert(hull_);
+	return hull_->getPid();
 }
 
 async::result<void> Process::cancelEvent() {
@@ -1007,9 +1039,16 @@ bool Process::checkOrRequestSignalRaise() {
 	return false;
 }
 
-async::result<std::shared_ptr<Process>> Process::init(std::string path) {
+async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	auto hull = std::make_shared<PidHull>(1);
-	auto process = std::make_shared<Process>(std::move(hull), nullptr);
+	auto threadGroup = ThreadGroup::init(hull);
+	threadGroup->_uid = 0;
+	threadGroup->_euid = 0;
+	threadGroup->_gid = 0;
+	threadGroup->_egid = 0;
+
+	auto process = std::make_shared<Process>(threadGroup.get(), std::move(hull));
+	process->threadGroup()->associateProcess(process);
 	size_t pos = path.rfind('/');
 	assert(pos != std::string::npos);
 	process->_path = path;
@@ -1017,7 +1056,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	process->_vmContext = VmContext::create();
 	process->_fsContext = FsContext::create();
 	process->_fileContext = FileContext::create();
-	process->_signalContext = SignalContext::create();
+	process->threadGroup()->_signalContext = SignalContext::create();
 
 	TerminalSession::initializeNewSession(process.get());
 
@@ -1052,11 +1091,7 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 			nullptr, 0, 0x1000, kHelMapProtRead,
 			&process->_clientClkTrackerPage));
 
-	process->_uid = 0;
-	process->_euid = 0;
-	process->_gid = 0;
-	process->_egid = 0;
-	process->_hull->initializeProcess(process.get());
+	process->getTidHull()->initializeProcess(process.get());
 
 	// TODO: Do not pass an empty argument vector?
 	auto execOutcome = co_await execute(process->_fsContext->getRoot(),
@@ -1078,25 +1113,27 @@ async::result<std::shared_ptr<Process>> Process::init(std::string path) {
 	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
+	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
 	helResume(process->_threadDescriptor.getHandle());
 	async::detach(serve(process, std::move(generation)));
 
-	co_return process;
+	co_return threadGroup;
 }
 
 std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	auto hull = std::make_shared<PidHull>(nextPid++);
-	auto process = std::make_shared<Process>(std::move(hull), original.get());
+	auto threadGroup = ThreadGroup::create(hull, original->threadGroup());
+	auto process = std::make_shared<Process>(threadGroup, std::move(hull));
+	process->threadGroup()->associateProcess(process);
 	process->_path = original->path();
 	process->_name = original->name();
 	process->_vmContext = VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
-	process->_signalContext = SignalContext::clone(original->_signalContext);
+	process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
 
 	original->_pgPointer->reassociateProcess(process.get());
 
@@ -1133,16 +1170,15 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 
 	process->_clientAuxBegin = original->_clientAuxBegin;
 	process->_clientAuxEnd = original->_clientAuxEnd;
-	process->_uid = original->_uid;
-	process->_euid = original->_euid;
-	process->_gid = original->_gid;
-	process->_egid = original->_egid;
-	original->_children.push_back(process);
-	process->_hull->initializeProcess(process.get());
+	process->threadGroup()->_uid = original->threadGroup()->_uid;
+	process->threadGroup()->_euid = original->threadGroup()->_euid;
+	process->threadGroup()->_gid = original->threadGroup()->_gid;
+	process->threadGroup()->_egid = original->threadGroup()->_egid;
+	process->getTidHull()->initializeProcess(process.get());
 	process->_didExecute = false;
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
+	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
@@ -1159,15 +1195,75 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	return process;
 }
 
-std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void *ip, void *sp) {
-	auto hull = std::make_shared<PidHull>(nextPid++);
-	auto process = std::make_shared<Process>(std::move(hull), original.get());
+constexpr uint64_t supportedCloneFlags = (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
+	CLONE_THREAD | CLONE_PARENT | CLONE_CLEAR_SIGHAND);
+
+std::expected<std::shared_ptr<Process>, Error>
+Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::superCloneArgs *args) {
+	if (args->flags & ~supportedCloneFlags) {
+		std::println("posix: unexpected clone flags {:#x}", args->flags & ~supportedCloneFlags);
+		return std::unexpected{Error::illegalArguments};
+	}
+
+	if ((args->flags & CLONE_PARENT) && original->pid() == 1) {
+		std::println("posix: attempted clone with CLONE_PARENT from init!");
+		return std::unexpected{Error::illegalArguments};
+	}
+
+	if ((args->flags & CLONE_SIGHAND) && (args->flags & CLONE_CLEAR_SIGHAND)) {
+		return std::unexpected{Error::illegalArguments};
+	}
+
+	ThreadGroup *parentPtr = original->threadGroup();
+	if (args->flags & CLONE_PARENT) {
+		parentPtr = original->getParent();
+	}
+
+	ThreadGroup *threadGroup;
+
+	if (args->flags & CLONE_THREAD) {
+		threadGroup = original->tgPointer_;
+	} else {
+		auto pidHull = std::make_shared<PidHull>(nextPid++);
+		threadGroup = ThreadGroup::create(pidHull, parentPtr);
+	}
+
+	auto tidHull = std::make_shared<PidHull>(nextPid++);
+	auto process = std::make_shared<Process>(threadGroup, std::move(tidHull));
 	process->_path = original->path();
 	process->_name = original->name();
-	process->_vmContext = original->_vmContext;
-	process->_fsContext = original->_fsContext;
-	process->_fileContext = original->_fileContext;
-	process->_signalContext = original->_signalContext;
+
+	if (args->flags & CLONE_VM)
+		process->_vmContext = original->_vmContext;
+	else
+		process->_vmContext = VmContext::clone(original->_vmContext);
+
+	if (args->flags & CLONE_FS)
+		process->_fsContext = original->_fsContext;
+	else
+		process->_fsContext = FsContext::clone(original->_fsContext);
+
+	if (args->flags & CLONE_FILES)
+		process->_fileContext = original->_fileContext;
+	else
+		process->_fileContext = FileContext::clone(original->_fileContext);
+
+	if (args->flags & CLONE_SIGHAND) {
+		process->threadGroup()->_signalContext = original->threadGroup()->_signalContext;
+	} else {
+		process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
+		if (args->flags & CLONE_CLEAR_SIGHAND)
+			process->threadGroup()->_signalContext->resetHandlers();
+	}
+
+	if ((args->flags & CLONE_VM) && !(args->flags & CLONE_VFORK)) {
+		// if CLONE_VM and !CLONE_VFORK, then sigaltstack is cleared
+		process->setAltStackEnabled(false);
+	} else {
+		process->setAltStackEnabled(original->isAltStackEnabled());
+		if (original->isAltStackEnabled())
+			process->setAltStackSp(original->altStackSp(), original->altStackSize());
+	}
 
 	// TODO: ProcessGroups should probably store ThreadGroups and not processes.
 	original->_pgPointer->reassociateProcess(process.get());
@@ -1200,16 +1296,21 @@ std::shared_ptr<Process> Process::clone(std::shared_ptr<Process> original, void 
 
 	process->_clientAuxBegin = original->_clientAuxBegin;
 	process->_clientAuxEnd = original->_clientAuxEnd;
-	process->_uid = original->_uid;
-	process->_euid = original->_euid;
-	process->_gid = original->_gid;
-	process->_egid = original->_egid;
-	original->_children.push_back(process);
-	process->_hull->initializeProcess(process.get());
+
+	if (!(args->flags & CLONE_THREAD)) {
+		process->threadGroup()->_uid = original->threadGroup()->_uid;
+		process->threadGroup()->_euid = original->threadGroup()->_euid;
+		process->threadGroup()->_gid = original->threadGroup()->_gid;
+		process->threadGroup()->_egid = original->threadGroup()->_egid;
+	}
+
+	process->getTidHull()->initializeProcess(process.get());
+	process->threadGroup()->associateProcess(process);
+
 	process->_didExecute = false;
 
 	auto procfs_root = std::static_pointer_cast<procfs::DirectoryNode>(getProcfs()->getTarget());
-	process->_procfs_dir = procfs_root->createProcDirectory(std::to_string(process->_hull->getPid()), process.get());
+	process->procfsTaskLink_ = procfs_root->createProcTaskDirectory(process.get());
 
 	HelHandle new_thread;
 	HEL_CHECK(helCreateThread(process->fileContext()->getUniverse().getHandle(),
@@ -1286,7 +1387,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_posixLane = std::move(server_lane);
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
-	process->_signalContext->resetHandlers();
+	process->threadGroup()->_signalContext->resetHandlers();
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
@@ -1304,19 +1405,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	co_return Error::success;
 }
 
-void Process::retire(Process *process) {
-	if(process->_procfs_dir)
-		process->_procfs_dir->unlinkSelf();
-
-	assert(process->_parent);
-	process->_parent->_childrenUsage.userTime += process->_generationUsage.userTime;
-
-	std::erase_if(process->_parent->_children, [process](auto e) {
-		return e.get() == process;
-	});
-}
-
-async::result<void> Process::terminate(TerminationState state) {
+async::result<void> Process::destruct() {
 	auto parent = getParent();
 	assert(parent);
 
@@ -1331,10 +1420,7 @@ async::result<void> Process::terminate(TerminationState state) {
 	// TODO: Do the accumulation + _currentGeneration reset after the thread has really terminated?
 	HelThreadStats stats;
 	HEL_CHECK(helQueryThreadStats(_threadDescriptor.getHandle(), &stats));
-	_generationUsage.userTime += stats.userTime;
-
-	if(realTimer)
-		realTimer->cancel();
+	threadGroup()->_generationUsage.userTime += stats.userTime;
 
 	_posixLane = {};
 	_threadDescriptor = {};
@@ -1344,35 +1430,138 @@ async::result<void> Process::terminate(TerminationState state) {
 	//_signalContext = nullptr; // TODO: Migrate the notifications to PID 1.
 	_currentGeneration = nullptr;
 
-	auto reparent_to = parent;
+	parent->_childrenUsage.userTime += threadGroup()->_generationUsage.userTime;
+}
+
+async::result<frg::expected<Error, Process::WaitResult>>
+Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
+	assert(pid == -1 || pid > 0);
+	assert(flags & waitExited);
+	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
+
+	if((threadGroup()->_children.empty() && threadGroup()->_notifyQueue.empty()) || (pid > 0 && !hasChild(pid)))
+		co_return Error::noChildProcesses;
+
+	std::optional<WaitResult> result{};
+	while(true) {
+		for(auto it = threadGroup()->_notifyQueue.begin(); it != threadGroup()->_notifyQueue.end(); ++it) {
+			if(pid > 0 && pid != (*it)->pid())
+				continue;
+			if(std::holds_alternative<TerminationByExit>((*it)->_state) && !(flags & (waitExited)))
+				continue;
+			if(std::holds_alternative<TerminationBySignal>((*it)->_state) && !(flags & (waitExited)))
+				continue;
+
+			result = WaitResult{
+				.pid = (*it)->pid(),
+				.uid = (*it)->uid(),
+				.state = (*it)->terminationState(),
+				.stats = (*it)->selfUsage(),
+			};
+
+			if(!(flags & waitLeaveZombie)) {
+				// erasing from the queue invalidates the iterator, so we take a pointer before
+				auto tg = *it;
+				threadGroup()->_notifyQueue.erase(it);
+				ThreadGroup::retire(tg);
+			}
+
+			break;
+		}
+
+		if(result)
+			co_return result.value();
+		else if(flags & waitNonBlocking)
+			co_return Error::wouldBlock;
+
+		if (!co_await threadGroup()->_notifyBell.async_wait(ct))
+			co_return Error::interrupted;
+
+		if (threadGroup()->_children.empty() && threadGroup()->_notifyQueue.empty())
+			co_return Error::noChildProcesses;
+	}
+}
+
+bool Process::hasChild(int pid) {
+	return std::ranges::find_if(threadGroup()->_children, [pid](auto e) {
+		return e->pid() == pid;
+	}) != threadGroup()->_children.end();
+}
+
+async::result<bool> ThreadGroup::awaitNotifyTypeChange(async::cancellation_token token) {
+	co_return co_await notifyTypeChange_.async_wait(token);
+}
+
+ThreadGroup::ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent)
+: parent_{parent}, hull_{std::move(hull)} {
+
+}
+
+std::shared_ptr<ThreadGroup> ThreadGroup::init(std::shared_ptr<PidHull> hull) {
+	initThreadGroup = std::make_shared<ThreadGroup>(std::move(hull), nullptr);
+	return initThreadGroup;
+}
+
+ThreadGroup *ThreadGroup::create(std::shared_ptr<PidHull> hull, ThreadGroup *parent) {
+	auto tg = std::make_shared<ThreadGroup>(std::move(hull), parent);
+	parent->_children.push_back(tg);
+	return tg.get();
+}
+
+async::result<void> ThreadGroup::terminate(TerminationState state) {
+	_state = std::move(state);
+
+	// do this to avoid iterator invalidation issues
+	while (!threads_.empty()) {
+		auto t = threads_.back();
+		threads_.pop_back();
+		co_await t->destruct();
+		if (leader_ != t)
+			t->tgPointer_ = nullptr;
+	}
+
+	if(realTimer)
+		realTimer->cancel();
+
+	auto reparent_to = parent_;
 	// walk up the chain until we hit a process that has no parent
-	while(reparent_to->getParent())
-		reparent_to = reparent_to->getParent();
+	while(reparent_to->parent_)
+		reparent_to = reparent_to->parent_;
+
+	auto reparentSigchldHandling = reparent_to->signalContext()->getHandler(SIGCHLD);
+	bool ringReparent = false;
+	for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); it++) {
+		ringReparent = true;
+		if (reparentSigchldHandling.disposition != SignalDisposition::ignore && !(reparentSigchldHandling.flags & signalNoChildWait))
+			reparent_to->_notifyQueue.push_back(_notifyQueue.erase(it));
+	}
 
 	for(auto it = _children.begin(); it != _children.end();) {
-		(*it)->_parent = reparent_to;
+		(*it)->parent_ = reparent_to;
 		reparent_to->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
-		if((*it)->parentDeathSignal_) {
+		if((*it)->parentDeathSignal_ && !(*it)->threads_.empty()) {
 			UserSignal info;
-			info.pid = pid();
+			info.pid = hull_->getPid();
 			(*it)->signalContext()->issueSignal((*it)->parentDeathSignal_.value(), info);
 		}
 
 		it = _children.erase(it);
 	}
 
-	// Notify the parent of our status change.
-	assert(notifyType_ == NotifyType::null);
-	notifyType_ = NotifyType::terminated;
-	_state = std::move(state);
-	notifyTypeChange_.raise();
+	if(ringReparent)
+		reparent_to->_notifyBell.raise();
 
 	// Compile SIGCHLD info.
 	ChildSignal info;
-	info.pid = pid();
+	info.pid = hull_->getPid();
 	info.utime = _generationUsage.userTime;
+
+	// Notify the parent of our status change.
+	assert(notifyType_ == NotifyType::null);
+	notifyType_ = NotifyType::terminated;
+	notifyTypeChange_.raise();
 
 	if(std::get_if<TerminationByExit>(&_state)) {
 		info.status = std::get<TerminationByExit>(_state).code;
@@ -1384,75 +1573,68 @@ async::result<void> Process::terminate(TerminationState state) {
 		std::println("posix: unhandled SIGCHLD reason");
 	}
 
-	auto sigchldHandling = parent->signalContext()->getHandler(SIGCHLD);
-	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait))
-		parent->_notifyQueue.push_back(*this);
-	else
-		Process::retire(this);
+	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
+	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait)) {
+		parent_->_notifyQueue.push_back(this);
+	} else {
+		ThreadGroup::retire(this);
+	}
 
-	parent->_notifyBell.raise();
+	parent_->_notifyBell.raise();
 
 	// Send SIGCHLD to the parent.
-	parent->signalContext()->issueSignal(SIGCHLD, info);
+	assert(!parent_->threads_.empty());
+	parent_->signalContext()->issueSignal(SIGCHLD, info);
 }
 
-async::result<frg::expected<Error, Process::WaitResult>>
-Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
-	assert(pid == -1 || pid > 0);
-	assert(flags & waitExited);
-	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
+void ThreadGroup::retire(ThreadGroup *tg) {
+	if (tg->leader_)
+		tg->leader_->tgPointer_ = nullptr;
+	tg->leader_ = nullptr;
 
-	if(_children.empty() || (pid > 0 && !hasChild(pid)))
-		co_return Error::noChildProcesses;
-
-	std::optional<WaitResult> result{};
-	while(true) {
-		for(auto it = _notifyQueue.begin(); it != _notifyQueue.end(); ++it) {
-			if(pid > 0 && pid != it->pid())
-				continue;
-			if(std::holds_alternative<TerminationByExit>(it->_state) && !(flags & (waitExited)))
-				continue;
-			if(std::holds_alternative<TerminationBySignal>(it->_state) && !(flags & (waitExited)))
-				continue;
-
-			result = WaitResult{
-				.pid = it->pid(),
-				.uid = it->uid(),
-				.state = it->_state,
-				.stats = it->_generationUsage,
-			};
-
-			if(!(flags & waitLeaveZombie)) {
-				// erasing from the queue invalidates the iterator, so we take a pointer before
-				auto proc = &(*it);
-				_notifyQueue.erase(it);
-				Process::retire(proc);
-			}
-
-			break;
-		}
-
-		if(result)
-			co_return result.value();
-		else if(flags & waitNonBlocking)
-			co_return Error::wouldBlock;
-
-		if (!co_await _notifyBell.async_wait(ct))
-			co_return Error::interrupted;
-
-		if (_children.empty())
-			co_return Error::noChildProcesses;
+	if (tg->procfsLink_) {
+		tg->procfsLink_->unlinkSelf();
+		tg->procfsLink_ = nullptr;
 	}
+
+	tg->parent_->_children.erase(
+	    std::ranges::find_if(tg->parent_->_children, [pid = tg->pid()](auto e) {
+		    return e->pid() == pid;
+	    })
+	);
 }
 
-bool Process::hasChild(int pid) {
-	return std::ranges::find_if(_children, [pid](auto e) {
-		return e->pid() == pid;
-	}) != _children.end();
+async::result<void> ThreadGroup::handleThreadExit(Process *process, uint8_t code) {
+	assert(process->tgPointer_);
+
+	std::erase_if(threads_, [&](auto e) {
+		return e.get() == process;
+	});
+	co_await process->destruct();
+	if (leader_.get() != process)
+		process->tgPointer_ = nullptr;
+
+	if (threads_.empty())
+		co_await terminate(TerminationByExit(code));
+
 }
 
-async::result<bool> Process::awaitNotifyTypeChange(async::cancellation_token token) {
-	co_return co_await notifyTypeChange_.async_wait(token);
+void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {
+	process->tgPointer_ = this;
+
+	threads_.push_back(process);
+
+	if (!leader_)
+		leader_ = process;
+}
+
+std::shared_ptr<Process> ThreadGroup::findThread(pid_t tid) {
+	for(auto t : threads_) {
+		if (t->tid() == tid)
+			return t->shared_from_this();
+	}
+
+	return {};
 }
 
 // --------------------------------------------------------------------------------------
@@ -1491,7 +1673,7 @@ void ProcessGroup::dropProcess(Process *process) {
 
 void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
 	for(auto &processRef : members_)
-		processRef.signalContext()->issueSignal(sn, info);
+		processRef.threadGroup()->signalContext()->issueSignal(sn, info);
 }
 
 TerminalSession::TerminalSession(std::shared_ptr<PidHull> hull)
@@ -1507,7 +1689,7 @@ pid_t TerminalSession::getSessionId() {
 }
 
 std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *sessionLeader) {
-	auto session = std::make_shared<TerminalSession>(sessionLeader->getHull()->shared_from_this());
+	auto session = std::make_shared<TerminalSession>(sessionLeader->getPidHull()->shared_from_this());
 	auto group = session->spawnProcessGroup(sessionLeader);
 	session->foregroundGroup_ = group.get();
 	session->hull_->initializeTerminalSession(session.get());
@@ -1515,7 +1697,7 @@ std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *
 }
 
 std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupLeader) {
-	auto group = std::make_shared<ProcessGroup>(groupLeader->getHull()->shared_from_this());
+	auto group = std::make_shared<ProcessGroup>(groupLeader->getPidHull()->shared_from_this());
 	group->reassociateProcess(groupLeader);
 	group->sessionPointer_ = shared_from_this();
 	groups_.push_back(*group);
@@ -1551,7 +1733,7 @@ Error TerminalSession::setForegroundGroup(ProcessGroup *group) {
 Error ControllingTerminalState::assignSessionOf(Process *process) {
 	auto group = process->_pgPointer.get();
 	auto session = group->sessionPointer_.get();
-	if(process->getHull() != session->hull_.get())
+	if(process->getPidHull() != session->hull_.get())
 		return Error::illegalArguments; // Process is not a session leader.
 	if(associatedSession_)
 		return Error::insufficientPermissions;
