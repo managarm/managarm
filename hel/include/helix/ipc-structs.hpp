@@ -206,6 +206,8 @@ private:
 struct CredentialsView : std::span<const char, 16> {};
 
 struct Credentials {
+	Credentials() : data_{{}} {}
+
 	Credentials(CredentialsView data) : data_{
 		data[0], data[1], data[2], data[3],
 		data[4], data[5], data[6], data[7],
@@ -235,7 +237,7 @@ struct Credentials {
 	}
 
 private:
-	std::array<const char, 16> data_;
+	std::array<char, 16> data_;
 };
 
 struct ExtractCredentialsResult {
