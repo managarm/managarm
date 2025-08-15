@@ -1299,6 +1299,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	}
 
 	process->getTidHull()->initializeProcess(process.get());
+	process->threadGroup()->associateProcess(process);
 
 	process->_didExecute = false;
 
@@ -1312,8 +1313,6 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	process->_threadDescriptor = helix::UniqueDescriptor{new_thread};
 	process->_posixLane = std::move(server_lane);
 	HEL_CHECK(helGetCredentials(process->_threadDescriptor.getHandle(), 0, process->credentials_.data()));
-
-	process->threadGroup()->associateProcess(process);
 
 	auto generation = std::make_shared<Generation>();
 	process->_currentGeneration = generation;
