@@ -95,7 +95,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			posix::ostContext.emitWithTimestamp(
 				posix::ostEvtRequest,
 				(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
-				posix::ostAttrPid(self->pid()),
+				posix::ostAttrPid(self->tid()),
 				posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
 				posix::ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_head.data()), recv_head.size()}, tail)
 			);
@@ -121,7 +121,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
 				posix::ostAttrRequest(preamble.id()),
 				posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
-				posix::ostAttrPid(self->pid()),
+				posix::ostAttrPid(self->tid()),
 				posix::ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
 			);
 		};
@@ -429,6 +429,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					resp.set_sig_code(0);
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
+			} else if (wait_result.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(wait_result.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
@@ -488,6 +491,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_mode(mode);
 			} else if (waitResult.error() == Error::interrupted) {
 				resp.set_error(managarm::posix::Errors::INTERRUPTED);
+			} else if (waitResult.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(waitResult.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
@@ -3027,8 +3033,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			struct epoll_event events[16];
 			size_t k;
+
+			auto ct = self->cancelEventRegistry().registerEvent(self->credentials(), req.cancellation_id());
+			if (!ct) {
+				std::print("posix: possibly duplicate cancellation ID registered");
+				sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
+
 			if(req.timeout() < 0) {
-				k = co_await epoll::wait(epfile.get(), events, 16);
+				k = co_await epoll::wait(epfile.get(), events, 16, ct.value());
 			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
@@ -3036,11 +3050,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else{
 				assert(req.timeout() > 0);
-				async::cancellation_event cancel_wait;
-				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
-				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-				co_await timer.retire();
+				co_await async::race_and_cancel(
+					async::lambda([&](auto c) -> async::result<void> {
+						co_await helix::sleepFor(static_cast<uint64_t>(req.timeout()), c);
+					}),
+					async::lambda([cancellation = ct.value()](auto c) -> async::result<void> {
+						co_await async::suspend_indefinitely(c, cancellation);
+					}),
+					async::lambda([&](auto c) -> async::result<void> {
+						k = co_await epoll::wait(epfile.get(), events, 16, c);
+					})
+				);
 			}
+			self->cancelEventRegistry().removeEvent(self->credentials(), req.cancellation_id());
 
 			// Assigned the returned events to each FD.
 			for(size_t j = 0; j < k; ++j) {
@@ -4104,20 +4126,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				uint64_t value = 0;
 				uint64_t interval = 0;
-				if(self->realTimer)
-					self->realTimer->getTime(value, interval);
+				if(self->threadGroup()->realTimer)
+					self->threadGroup()->realTimer->getTime(value, interval);
 
 				resp.set_value_sec(value / 1'000'000'000);
 				resp.set_value_usec((value % 1'000'000'000) / 1'000);
 				resp.set_interval_sec(interval / 1'000'000'000);
 				resp.set_interval_usec((interval % 1'000'000'000) / 1'000);
 
-				if(self->realTimer)
-					self->realTimer->cancel();
-				self->realTimer = std::make_shared<Process::IntervalTimer>(self,
+				if(self->threadGroup()->realTimer)
+					self->threadGroup()->realTimer->cancel();
+				self->threadGroup()->realTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
 						req->value_sec() * 1'000'000'000 + req->value_usec() * 1'000,
 						req->interval_sec() * 1'000'000'000 + req->interval_usec() * 1'000);
-				self->realTimer->arm(self->realTimer);
+				self->threadGroup()->realTimer->arm(self->threadGroup()->realTimer);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {
@@ -4160,10 +4182,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::TimerCreateResponse resp;
 			if(req->clockid() == CLOCK_MONOTONIC || req->clockid() == CLOCK_REALTIME) {
-				auto id = self->timerIdAllocator.allocate();
-				assert(!self->timers.contains(id));
+				auto id = self->threadGroup()->timerIdAllocator.allocate();
+				assert(!self->threadGroup()->timers.contains(id));
 
-				self->timers[id] = std::make_shared<Process::PosixTimerContext>(
+				self->threadGroup()->timers[id] = std::make_shared<ThreadGroup::PosixTimerContext>(
 					req->clockid(),
 					nullptr,
 					req->sigev_tid() ? std::optional{req->sigev_tid()} : std::nullopt,
@@ -4197,8 +4219,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::TimerSetResponse resp;
 			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-			if(self->timers.contains(req->timer())) {
-				auto timerContext = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto timerContext = self->threadGroup()->timers[req->timer()];
 
 				uint64_t value = 0;
 				uint64_t interval = 0;
@@ -4213,11 +4235,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(timerContext->timer)
 					timerContext->timer->cancel();
 
-				auto targetProcess = self;
-				if(timerContext->tid && targetProcess->tid() != *timerContext->tid)
-					targetProcess = Process::findProcess(*timerContext->tid);
+				auto targetThread = self;
+				if(timerContext->tid && targetThread->tid() != *timerContext->tid)
+					targetThread = self->threadGroup()->findThread(*timerContext->tid);
 
-				if(targetProcess) {
+				if(targetThread) {
 					uint64_t valueNanos = 0;
 					uint64_t intervalNanos = 0;
 
@@ -4230,7 +4252,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 							CLOCK_MONOTONIC);
 					}
 
-					timerContext->timer = std::make_shared<Process::PosixTimer>(targetProcess,
+					timerContext->timer = std::make_shared<ThreadGroup::PosixTimer>(targetThread,
 						timerContext->tid, timerContext->signo, req->timer(), valueNanos, intervalNanos);
 					timerContext->timer->arm(timerContext->timer);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -4255,8 +4277,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logRequest(logRequests, "TIMER_GET", "timer={}", req->timer());
 
 			managarm::posix::TimerGetResponse resp;
-			if(self->timers.contains(req->timer())) {
-				auto timerContext = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto timerContext = self->threadGroup()->timers[req->timer()];
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				uint64_t value = 0;
@@ -4290,14 +4312,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logRequest(logRequests, "TIMER_DELETE", "timer={}", req->timer());
 
 			managarm::posix::TimerDeleteResponse resp;
-			if(self->timers.contains(req->timer())) {
-				auto ctx = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto ctx = self->threadGroup()->timers[req->timer()];
 				if(ctx->timer) {
 					ctx->timer->cancel();
 					ctx->timer = nullptr;
 				}
-				self->timers.erase(req->timer());
-				self->timerIdAllocator.free(req->timer());
+				self->threadGroup()->timers.erase(req->timer());
+				self->threadGroup()->timerIdAllocator.free(req->timer());
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);

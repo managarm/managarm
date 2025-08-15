@@ -7,9 +7,11 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/intrusive.hpp>
 #include <core/cancel-events.hpp>
 #include <boost/intrusive/list.hpp>
 #include <protocols/posix/data.hpp>
+#include <protocols/posix/supercalls.hpp>
 #include <frg/expected.hpp>
 #include <sys/time.h>
 
@@ -19,6 +21,7 @@
 
 struct Generation;
 struct Process;
+struct ThreadGroup;
 struct ProcessGroup;
 struct TerminalSession;
 struct ControllingTerminalState;
@@ -421,6 +424,7 @@ private:
 };
 
 struct Process : std::enable_shared_from_this<Process> {
+	friend struct ThreadGroup;
 	friend struct ProcessGroup;
 	friend struct TerminalSession;
 	friend struct ControllingTerminalState;
@@ -430,7 +434,8 @@ struct Process : std::enable_shared_from_this<Process> {
 	static async::result<std::shared_ptr<Process>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
-	static std::shared_ptr<Process> clone(std::shared_ptr<Process> parent, void *ip, void *sp);
+	static std::expected<std::shared_ptr<Process>, Error>
+	clone(std::shared_ptr<Process> parent, void *ip, void *sp, posix::superCloneArgs *args);
 
 	static async::result<Error> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
@@ -439,26 +444,16 @@ struct Process : std::enable_shared_from_this<Process> {
 	static void retire(Process *process);
 
 public:
-	Process(std::shared_ptr<PidHull> hull, Process *parent);
+	Process(std::shared_ptr<ThreadGroup> threadGroup);
 
 	~Process();
 
-	Process *getParent() {
-		return _parent;
-	}
-
-	PidHull *getHull() {
-		return _hull.get();
-	}
-
-	int pid() {
-		assert(_hull);
-		return _hull->getPid();
-	}
+	Process *getParent();
+	PidHull *getHull();
+	int pid();
 
 	int tid() {
-		assert(_hull);
-		return _hull->getPid();
+		return tid_;
 	}
 
 	Error setUid(int uid) {
@@ -558,6 +553,7 @@ public:
 	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
+	std::shared_ptr<ThreadGroup> threadGroup() { return tgPointer_; }
 	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
 	SignalContext *signalContext() { return _signalContext.get(); }
 
@@ -669,6 +665,89 @@ public:
 		return {credentials_};
 	}
 
+private:
+	pid_t tid_;
+	int _uid;
+	int _euid;
+	int _gid;
+	int _egid;
+	bool _didExecute;
+	std::string _path;
+	std::string _name;
+	helix::UniqueLane _posixLane;
+	helix::UniqueDescriptor _threadDescriptor;
+	std::shared_ptr<Generation> _currentGeneration;
+	std::shared_ptr<VmContext> _vmContext;
+	std::shared_ptr<FsContext> _fsContext;
+	std::shared_ptr<FileContext> _fileContext;
+	std::shared_ptr<SignalContext> _signalContext;
+
+	std::shared_ptr<procfs::Link> procfsTaskLink_;
+
+	std::shared_ptr<ThreadGroup> tgPointer_;
+	frg::default_list_hook<Process> tgHook_;
+
+	std::shared_ptr<ProcessGroup> _pgPointer;
+	boost::intrusive::list_member_hook<> _pgHook;
+
+	helix::UniqueDescriptor _threadPageMemory;
+	helix::Mapping _threadPageMapping;
+
+	HelHandle _clientPosixLane = kHelNullHandle;
+	posix::ThreadPage *_clientThreadPage;
+	void *_clientFileTable = nullptr;
+	void *_clientClkTrackerPage;
+	// Pointers to the aux vector in the client.
+	void *_clientAuxBegin = nullptr;
+	void *_clientAuxEnd = nullptr;
+
+	uint64_t _signalMask;
+
+	// The following intrusive queue stores notifications for wait().
+	NotifyType notifyType_ = NotifyType::null;
+	async::recurring_event notifyTypeChange_;
+	TerminationState _state;
+
+	boost::intrusive::list_member_hook<> _notifyHook;
+
+	// Resource usage accumulated from previous generations.
+	ResourceUsage _generationUsage = {};
+	// Resource usage accumulated from children.
+	ResourceUsage _childrenUsage = {};
+
+	bool _altStackEnabled = false;
+	uint64_t _altStackSp = 0;
+	size_t _altStackSize = 0;
+
+	// Used for tracking signals that happened between sigprocmask and
+	// a call that resumes on a signal.
+	uint64_t _enteredSignalSeq = 0;
+
+	std::optional<int> parentDeathSignal_ = std::nullopt;
+	// equivalent to PR_[SG]ET_DUMPABLE
+	bool dumpable_ = true;
+
+	CancelEventRegistry cancelEventRegistry_;
+	std::array<char, 16> credentials_{};
+};
+
+std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
+
+struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
+	friend struct Process;
+
+	ThreadGroup(std::shared_ptr<PidHull> hull, Process *parent);
+	~ThreadGroup();
+
+	void reassociateProcess(Process *process);
+	void dropProcess(Process *process);
+
+	std::shared_ptr<Process> findThread(pid_t tid);
+
+	std::shared_ptr<procfs::Link> procfsLink() const {
+		return procfsLink_;
+	}
+
 	struct IntervalTimer : posix::IntervalTimer {
 		IntervalTimer(std::weak_ptr<Process> process, uint64_t initial, uint64_t interval)
 			: posix::IntervalTimer(initial, interval), process_{process} {}
@@ -736,49 +815,10 @@ public:
 	id_allocator<int> timerIdAllocator{};
 
 private:
-	Process *_parent;
+	Process *parent_;
+	std::shared_ptr<PidHull> hull_;
 
-	std::shared_ptr<PidHull> _hull;
-	int _uid;
-	int _euid;
-	int _gid;
-	int _egid;
-	bool _didExecute;
-	std::string _path;
-	std::string _name;
-	helix::UniqueLane _posixLane;
-	helix::UniqueDescriptor _threadDescriptor;
-	std::shared_ptr<Generation> _currentGeneration;
-	std::shared_ptr<VmContext> _vmContext;
-	std::shared_ptr<FsContext> _fsContext;
-	std::shared_ptr<FileContext> _fileContext;
-	std::shared_ptr<SignalContext> _signalContext;
-	std::shared_ptr<procfs::Link> _procfs_dir;
-
-	std::shared_ptr<ProcessGroup> _pgPointer;
-	boost::intrusive::list_member_hook<> _pgHook;
-
-	helix::UniqueDescriptor _threadPageMemory;
-	helix::Mapping _threadPageMapping;
-
-	HelHandle _clientPosixLane;
-	posix::ThreadPage *_clientThreadPage;
-	void *_clientFileTable;
-	void *_clientClkTrackerPage;
-	// Pointers to the aux vector in the client.
-	void *_clientAuxBegin = nullptr;
-	void *_clientAuxEnd = nullptr;
-
-	uint64_t _signalMask;
 	std::vector<std::shared_ptr<Process>> _children;
-
-	// The following intrusive queue stores notifications for wait().
-	NotifyType notifyType_;
-	async::recurring_event notifyTypeChange_;
-	TerminationState _state;
-
-	boost::intrusive::list_member_hook<> _notifyHook;
-
 	boost::intrusive::list<
 		Process,
 		boost::intrusive::member_hook<
@@ -787,31 +827,13 @@ private:
 			&Process::_notifyHook
 		>
 	> _notifyQueue;
-
 	async::recurring_event _notifyBell;
 
-	// Resource usage accumulated from previous generations.
-	ResourceUsage _generationUsage = {};
-	// Resource usage accumulated from children.
-	ResourceUsage _childrenUsage = {};
+	std::shared_ptr<procfs::Link> procfsLink_;
 
-	bool _altStackEnabled = false;
-	uint64_t _altStackSp = 0;
-	size_t _altStackSize = 0;
-
-	// Used for tracking signals that happened between sigprocmask and
-	// a call that resumes on a signal.
-	uint64_t _enteredSignalSeq = 0;
-
-	std::optional<int> parentDeathSignal_ = std::nullopt;
-	// equivalent to PR_[SG]ET_DUMPABLE
-	bool dumpable_ = true;
-
-	CancelEventRegistry cancelEventRegistry_;
-	std::array<char, 16> credentials_{};
+	frg::intrusive_list<Process,
+		frg::locate_member<Process, frg::default_list_hook<Process>, &Process::tgHook_>> threads_;
 };
-
-std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
 
 // --------------------------------------------------------------------------------------
 // Process groups and sessions.
