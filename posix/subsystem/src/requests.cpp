@@ -3033,8 +3033,16 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			struct epoll_event events[16];
 			size_t k;
+
+			auto ct = self->cancelEventRegistry().registerEvent(self->credentials(), req.cancellation_id());
+			if (!ct) {
+				std::print("posix: possibly duplicate cancellation ID registered");
+				sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+				continue;
+			}
+
 			if(req.timeout() < 0) {
-				k = co_await epoll::wait(epfile.get(), events, 16);
+				k = co_await epoll::wait(epfile.get(), events, 16, ct.value());
 			}else if(!req.timeout()) {
 				// Do not bother to set up a timer for zero timeouts.
 				async::cancellation_event cancel_wait;
@@ -3042,11 +3050,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 			}else{
 				assert(req.timeout() > 0);
-				async::cancellation_event cancel_wait;
-				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
-				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-				co_await timer.retire();
+				co_await async::race_and_cancel(
+					async::lambda([&](auto c) -> async::result<void> {
+						co_await helix::sleepFor(static_cast<uint64_t>(req.timeout()), c);
+					}),
+					async::lambda([cancellation = ct.value()](auto c) -> async::result<void> {
+						co_await async::suspend_indefinitely(c, cancellation);
+					}),
+					async::lambda([&](auto c) -> async::result<void> {
+						k = co_await epoll::wait(epfile.get(), events, 16, c);
+					})
+				);
 			}
+			self->cancelEventRegistry().removeEvent(self->credentials(), req.cancellation_id());
 
 			// Assigned the returned events to each FD.
 			for(size_t j = 0; j < k; ++j) {
