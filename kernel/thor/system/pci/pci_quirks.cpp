@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <frg/optional.hpp>
 
 #include <thor-internal/debug.hpp>
@@ -8,12 +7,12 @@ namespace thor::pci {
 
 namespace {
 
-void uhciSmiDisable(smarter::shared_ptr<pci::PciDevice> dev) {
+void uhciSmiDisable(PciDevice *dev) {
 	debugLogger() << "            Disabling UHCI SMI generation!" << frg::endlog;
 	dev->parentBus->io->writeConfigHalf(dev->parentBus, dev->slot, dev->function, 0xC0, 0x2000);
 }
 
-void switchUsbPortsToXhci(smarter::shared_ptr<pci::PciDevice> dev) {
+void switchUsbPortsToXhci(PciDevice *dev) {
 	debugLogger() << "            Switching USB ports to XHCI!" << frg::endlog;
 	auto io = dev->parentBus->io;
 
@@ -29,7 +28,7 @@ struct {
 	int pci_subclass;
 	int pci_interface;
 	int pci_vendor;
-	void (*func)(smarter::shared_ptr<pci::PciDevice> dev);
+	void (*func)(PciDevice *dev);
 } quirks[] = {
 	{0x0C, 0x03, 0x00, -1, uhciSmiDisable},
 	{0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
@@ -37,7 +36,7 @@ struct {
 
 } // namespace
 
-void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev) {
+void applyPciDeviceQuirks(PciDevice *dev) {
 	for(auto [class_id, subclass, interface, vendor, handler] : quirks) {
 		if(class_id >= 0 && dev->classCode != class_id)
 			continue;

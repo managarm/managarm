@@ -1230,8 +1230,6 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		allDevices->push_back(device);
 		bus->childDevices.push_back(device.get());
-
-		applyPciDeviceQuirks(device);
 	} else if ((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
@@ -1929,6 +1927,15 @@ void configureDevice(PciDevice *device) {
 
 		io->writeConfigHalf(bus, device->slot, device->function, offset + 2, msgControl);
 	}
+
+	infoLogger()
+		<< frg::fmt("thor: Applying quirks for PCI device {:04x}:{:02x}:{:02x}.{:x}",
+				device->seg,
+				device->bus,
+				device->slot,
+				device->function)
+		<< frg::endlog;
+	applyPciDeviceQuirks(device);
 }
 
 void enumerateAll() {

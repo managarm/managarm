@@ -460,7 +460,7 @@ void addToEnumerationQueue(PciBus *bus);
 void addRootBus(PciBus *bus);
 void enumerateAll();
 
-void applyPciDeviceQuirks(smarter::shared_ptr<pci::PciDevice> dev);
+void applyPciDeviceQuirks(PciDevice *dev);
 
 struct PciConfigIo {
 	uint8_t readConfigByte(PciBus *bus, uint32_t slot, uint32_t function, uint16_t offset) {
