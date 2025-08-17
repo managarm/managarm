@@ -1,5 +1,6 @@
 #include <arch/mem_space.hpp>
 #include <arch/dma_pool.hpp>
+#include <arch/barrier.hpp>
 #include <async/recurring-event.hpp>
 #include <async/sequenced-event.hpp>
 #include <async/mutex.hpp>
@@ -193,7 +194,7 @@ private:
 	ProducerRing _transferRing;
 
 	async::result<frg::expected<proto::UsbError, size_t>>
-	_bulkOrInterruptXfer(arch::dma_buffer_view buffer);
+	_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost);
 
 	async::result<frg::expected<proto::UsbError>>
 	_resetAfterError(size_t nextDequeue, bool nextCycle);
@@ -267,6 +268,7 @@ struct Controller final : proto::BaseController {
 
 	void setDeviceContext(size_t slot, DeviceContext &ctx) {
 		_dcbaa[slot] = helix::ptrToPhysical(ctx.rawData());
+		barrier.writeback(_dcbaa.view_buffer());
 	}
 
 	std::string_view name() const {
@@ -280,6 +282,16 @@ struct Controller final : proto::BaseController {
 	friend std::ostream &operator<<(std::ostream &os, Controller &controller) {
 		return os << &controller;
 	}
+
+	arch::dma_barrier barrier{
+		// TODO(qookie): This can be found out properly via device tree properties
+		// (either of the PCIe RC, or device itself, depending on how it's found).
+#if defined(__x86_64__)
+		true
+#else
+		false
+#endif
+	};
 
 private:
 	struct SupportedProtocol;
