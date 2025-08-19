@@ -5,6 +5,8 @@
 
 namespace thor::pci {
 
+void uploadRaspberryPi4Vl805Firmware(PciDevice *dev);
+
 namespace {
 
 void uhciSmiDisable(PciDevice *dev) {
@@ -32,6 +34,7 @@ struct {
 } quirks[] = {
 	{0x0C, 0x03, 0x00, -1, uhciSmiDisable},
 	{0x0C, 0x03, 0x30, 0x8086, switchUsbPortsToXhci},
+	{0x0C, 0x03, 0x30, 0x1106, uploadRaspberryPi4Vl805Firmware},
 };
 
 } // namespace

@@ -68,6 +68,7 @@ src = files(
 	'system/pci/pci_discover.cpp',
 	'system/pci/pci_legacy.cpp',
 	'system/pci/pci_quirks.cpp',
+	'system/pci/pci_quirks_rpi4.cpp',
 	'system/pci/pcie_ecam.cpp',
 	'system/pci/pcie_brcmstb.cpp',
 	'system/smbios/smbios3.cpp'
