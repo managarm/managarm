@@ -18,6 +18,7 @@ link_depends = []
 inc = [ cralgo_includes ]
 link_with = []
 want_acpi = false
+want_dtb = false
 
 src = files(
 	'../common/libc.cpp',
@@ -149,6 +150,8 @@ if want_acpi
 		'system/pci/pci_acpi.cpp'
 	)
 
+	args += [ '-DTHOR_HAS_ACPI_SUPPORT=1' ]
+
 	uacpi_args = [ '-DUACPI_OVERRIDE_LIBC' ]
 
 	uacpi_lib = static_library('uacpi', uacpi_sources,
@@ -159,6 +162,16 @@ if want_acpi
 
 	inc += uacpi_includes
 	link_with += uacpi_lib
+endif
+
+if want_dtb
+	src += files(
+		'system/dtb/dtb.cpp',
+		'system/dtb/dtb_discover.cpp',
+		'system/pci/pci_dtb.cpp'
+	)
+
+	args += [ '-DTHOR_HAS_DTB_SUPPORT=1' ]
 endif
 
 link_with += static_library('cralgo', cralgo_sources,

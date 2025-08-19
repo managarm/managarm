@@ -1,6 +1,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/mbus.hpp>
 
 #include <hw.frigg_bragi.hpp>

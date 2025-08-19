@@ -13,9 +13,6 @@ src += files(
 	'system.cpp',
 	'smp.cpp',
 	'timer.cpp',
-	'../../system/dtb/dtb.cpp',
-	'../../system/dtb/dtb_discover.cpp',
-	'../../system/pci/pci_dtb.cpp'
 )
 
 trampoline = custom_target('trampoline',
@@ -50,3 +47,5 @@ inc += include_directories('.')
 link_args += [ '-z', 'max-page-size=0x1000' ]
 
 args += [ '-mgeneral-regs-only', '-mno-red-zone' ]
+
+want_dtb = true
