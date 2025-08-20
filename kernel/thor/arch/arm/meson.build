@@ -21,13 +21,13 @@ trampoline = custom_target('trampoline',
 		'-nostdlib', '-Wl,-Ttext,0', '@INPUT@',
 		get_option('cpp_args')
 	],
-	input : 'trampoline.S',
+	input : files('trampoline.S'),
 	output : 'trampoline.elf'
 )
 
 trampoline_binary = custom_target('trampoline-binary',
 	command : [
-		'aarch64-managarm-objcopy', '@INPUT@', '--dump-section', '.text=@OUTPUT@'
+		'aarch64-managarm-objcopy', '-O', 'binary', '-j', '.text', '@INPUT@', '@OUTPUT@'
 	],
 	input : trampoline,
 	output : 'trampoline.bin'
