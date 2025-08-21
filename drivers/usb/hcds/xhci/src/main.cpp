@@ -149,13 +149,17 @@ async::detached Controller::initialize() {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
 					pageSize));
 
+
+		barrier.writeback(_scratchpadBufs.back());
 		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
 	}
+	barrier.writeback(_scratchpadBufArray.view_buffer());
 
 	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
 	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
+	barrier.writeback(_dcbaa.view_buffer());
 
 	// Tell the controller about our device context pointer array
 	operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
@@ -710,6 +714,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	// initialize slot
 
 	_devCtx = DeviceContext{_controller->largeCtx(), _controller->memoryPool()};
+	_controller->barrier.writeback(_devCtx.rawData(), _devCtx.rawSize());
 
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 	auto &slotCtx = inputCtx.get(inputCtxSlot);
@@ -746,6 +751,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 
 	_controller->setDeviceContext(_slotId, _devCtx);
 
+	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
 	event = co_await _controller->submitCommand(
 			Command::addressDevice(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
@@ -811,11 +817,14 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
+
+	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 	inputCtx.get(inputCtxSlot) |= SlotFields::ctxEntries(31);
 
 	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
 
+	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
 	auto event = co_await _controller->submitCommand(
 			Command::configureEndpoint(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
@@ -836,6 +845,8 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
+
+	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 
 	inputCtx.get(inputCtxSlot) |= SlotFields::hub(true);
@@ -845,6 +856,7 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 		inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
 				hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
+	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
 	auto event = co_await _controller->submitCommand(
 			Command::evaluateContext(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
@@ -901,6 +913,8 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
 
 	auto &epCtx = inputCtx.get(inputCtxEp0 + endpointId - 1);
+
+	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
 	epCtx = _devCtx.get(deviceCtxEp0 + endpointId - 1);
 
 	epCtx &= ~EpFields::maxPacketSize(0xFFFF);
@@ -913,6 +927,7 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 
 	_endpoints[endpointId - 1]->_maxPacketSize = maxPacketSize;
 
+	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
 	auto event = co_await _controller->submitCommand(
 		Command::evaluateContext(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
@@ -968,9 +983,17 @@ EndpointState::transfer(proto::ControlTransfer info) {
 	size_t nextDequeue = _transferRing.enqueuePtr();
 	bool nextCycle = _transferRing.producerCycle();
 
+	if (info.flags == proto::kXferToHost)
+		_device->controller()->barrier.clean_or_invalidate(info.buffer);
+	else
+		_device->controller()->barrier.writeback(info.buffer);
+
 	_device->submit(_endpointId);
 
 	auto maybeResidue = co_await tx.control(info.buffer.size() != 0);
+
+	if (info.flags == proto::kXferToHost)
+		_device->controller()->barrier.invalidate(info.buffer);
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
 		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
@@ -984,7 +1007,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
+EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
 	ProducerRing::Transaction tx;
 
 	Transfer::buildNormalChain([&] (RawTrb trb) {
@@ -994,9 +1017,17 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 	size_t nextDequeue = _transferRing.enqueuePtr();
 	bool nextCycle = _transferRing.producerCycle();
 
+	if (toHost)
+		_device->controller()->barrier.clean_or_invalidate(buffer);
+	else
+		_device->controller()->barrier.writeback(buffer);
+
 	_device->submit(_endpointId);
 
 	auto maybeResidue = co_await tx.normal();
+
+	if (toHost)
+		_device->controller()->barrier.invalidate(buffer);
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
 		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
@@ -1011,12 +1042,12 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::InterruptTransfer info) {
-	co_return co_await _bulkOrInterruptXfer(info.buffer);
+	co_return co_await _bulkOrInterruptXfer(info.buffer, info.flags == proto::kXferToHost);
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::BulkTransfer info) {
-	co_return co_await _bulkOrInterruptXfer(info.buffer);
+	co_return co_await _bulkOrInterruptXfer(info.buffer, info.flags == proto::kXferToHost);
 }
 
 async::result<frg::expected<proto::UsbError>>

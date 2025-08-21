@@ -154,6 +154,9 @@ EventRing::EventRing(Controller *controller)
 	_erst[0].ringSegmentBaseHi = getEventRingPtr() >> 32;
 	_erst[0].ringSegmentSize = eventRingSize;
 	_erst[0].reserved = 0;
+
+	_controller->barrier.writeback(_eventRing.view_buffer());
+	_controller->barrier.writeback(_erst.view_buffer());
 }
 
 uintptr_t EventRing::getErstPtr() {
@@ -169,6 +172,7 @@ size_t EventRing::getErstSize() {
 }
 
 void EventRing::processRing() {
+	_controller->barrier.invalidate(_eventRing.view_buffer());
 	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
 		RawTrb rawEv = _eventRing->ent[_dequeuePtr];
 
@@ -199,6 +203,7 @@ ProducerRing::ProducerRing(Controller *controller)
 	}
 
 	updateLink();
+	_controller->barrier.writeback(_ring.view_buffer());
 }
 
 uintptr_t ProducerRing::getPtr() {
@@ -222,6 +227,8 @@ void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
 		_pcs = !_pcs;
 		_enqueuePtr = 0;
 	}
+
+	_controller->barrier.writeback(_ring.view_buffer());
 }
 
 void ProducerRing::processEvent(Event ev) {

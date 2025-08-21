@@ -914,19 +914,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 		if((bar & 1) != 0) {
 			uintptr_t address = bar & 0xFFFFFFFC;
 
-			// disable I/O and memory decode while reading BARs
-			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
-
 			// write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFFC;
 			io->writeConfigWord(bus, slot, function, offset, bar);
-
-			// restore the original command byte value
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask)
@@ -986,19 +977,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 		}else if(((bar >> 1) & 3) == 0) {
 			uint32_t address = bar & 0xFFFFFFF0;
 
-			// disable I/O and memory decode while reading BARs
-			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
-
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			uint32_t mask = io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0;
 			io->writeConfigWord(bus, slot, function, offset, bar);
-
-			// restore the original command byte value
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask)
@@ -1037,11 +1019,6 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			auto high = io->readConfigWord(bus, slot, function, offset + 4);;
 			auto address = (uint64_t{high} << 32) | (bar & 0xFFFFFFF0);
 
-			// disable I/O and memory decode while reading BARs
-			auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command & ~(0x03));
-
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
@@ -1049,10 +1026,6 @@ void readEntityBars(PciEntity *entity, int nBars) {
 					| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
 			io->writeConfigWord(bus, slot, function, offset, bar);
 			io->writeConfigWord(bus, slot, function, offset + 4, high);
-
-			// restore the original command byte value
-			if(command & 0x03)
-				io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 			// Device doesn't decode any address bits from this BAR
 			if (!mask) {
@@ -1195,18 +1168,12 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 		log << "        Function " << function
 				<< ": Unexpected PCI header type " << (header_type & 0x7F);
 	}
+	log << frg::endlog;
 
 	auto command = io->readConfigHalf(bus, slot, function, kPciCommand);
-	if(command & 0x01)
-		log << " (Decodes IO)";
-	if(command & 0x02)
-		log << " (Decodes Memory)";
-	if(command & 0x04)
-		log << " (Busmaster)";
-	if(command & 0x400)
-		log << " (IRQs masked)";
-	log << frg::endlog;
-	io->writeConfigHalf(bus, slot, function, kPciCommand, command | 0x400);
+	command &= ~0x0007; // Clear IO and memory decode, and busmastering
+	command |= 0x400; // Mask IRQs
+	io->writeConfigHalf(bus, slot, function, kPciCommand, command);
 
 	auto device_id = io->readConfigHalf(bus, slot, function, kPciDevice);
 	auto revision = io->readConfigByte(bus, slot, function, kPciRevision);
@@ -1263,8 +1230,6 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 
 		allDevices->push_back(device);
 		bus->childDevices.push_back(device.get());
-
-		applyPciDeviceQuirks(device);
 	} else if ((header_type & 0x7F) == 1) {
 		auto bridge = frg::construct<PciBridge>(*kernelAlloc, bus, bus->segId, bus->busId, slot, function,
 				vendor, device_id, revision, class_code, sub_class, interface);
@@ -1873,6 +1838,19 @@ uint32_t findHighestId(PciBus *bus) {
 	return id;
 }
 
+void enableDecodesInChain(uint16_t decodeBits, PciEntity *entity) {
+	while (entity) {
+		auto *bus = entity->parentBus;
+		auto *io = bus->io;
+
+		auto cmd = io->readConfigHalf(bus, entity->slot, entity->function, kPciCommand);
+		cmd |= decodeBits;
+		io->writeConfigHalf(bus, entity->slot, entity->function, kPciCommand, cmd);
+
+		entity = bus->associatedBridge;
+	}
+}
+
 void configureDevice(PciDevice *device) {
 	auto *bus = device->parentBus;
 	auto *io = bus->io;
@@ -1886,13 +1864,13 @@ void configureDevice(PciDevice *device) {
 		if (bar.type == PciBar::kBarMemory)
 			hasMemoryBar = true;
 	}
-	auto cmd = io->readConfigHalf(bus, device->slot, device->function, kPciCommand);
-	cmd &= ~uint16_t{3};
+
+	uint16_t decodeBits = 0;
 	if (hasIoBar)
-		cmd |= 0x01;
+		decodeBits |= 0x01;
 	if (hasMemoryBar)
-		cmd |= 0x02;
-	io->writeConfigHalf(bus, device->slot, device->function, kPciCommand, cmd);
+		decodeBits |= 0x02;
+	enableDecodesInChain(decodeBits, device);
 
 	// Setup MSI / MSI-X. This needs to happen after BARs are already allocated.
 	if(device->msixIndex >= 0) {
@@ -1949,6 +1927,15 @@ void configureDevice(PciDevice *device) {
 
 		io->writeConfigHalf(bus, device->slot, device->function, offset + 2, msgControl);
 	}
+
+	infoLogger()
+		<< frg::fmt("thor: Applying quirks for PCI device {:04x}:{:02x}:{:02x}.{:x}",
+				device->seg,
+				device->bus,
+				device->slot,
+				device->function)
+		<< frg::endlog;
+	applyPciDeviceQuirks(device);
 }
 
 void enumerateAll() {

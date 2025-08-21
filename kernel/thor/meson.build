@@ -18,6 +18,7 @@ link_depends = []
 inc = [ cralgo_includes ]
 link_with = []
 want_acpi = false
+want_dtb = false
 
 src = files(
 	'../common/libc.cpp',
@@ -67,6 +68,7 @@ src = files(
 	'system/pci/pci_discover.cpp',
 	'system/pci/pci_legacy.cpp',
 	'system/pci/pci_quirks.cpp',
+	'system/pci/pci_quirks_rpi4.cpp',
 	'system/pci/pcie_ecam.cpp',
 	'system/pci/pcie_brcmstb.cpp',
 	'system/smbios/smbios3.cpp'
@@ -149,6 +151,8 @@ if want_acpi
 		'system/pci/pci_acpi.cpp'
 	)
 
+	args += [ '-DTHOR_HAS_ACPI_SUPPORT=1' ]
+
 	uacpi_args = [ '-DUACPI_OVERRIDE_LIBC' ]
 
 	uacpi_lib = static_library('uacpi', uacpi_sources,
@@ -161,6 +165,16 @@ if want_acpi
 	link_with += uacpi_lib
 endif
 
+if want_dtb
+	src += files(
+		'system/dtb/dtb.cpp',
+		'system/dtb/dtb_discover.cpp',
+		'system/pci/pci_dtb.cpp'
+	)
+
+	args += [ '-DTHOR_HAS_DTB_SUPPORT=1' ]
+endif
+
 link_with += static_library('cralgo', cralgo_sources,
 	include_directories : [klibc_inc, cralgo_includes],
 	cpp_args : cpp_args + args,
@@ -168,6 +182,15 @@ link_with += static_library('cralgo', cralgo_sources,
 )
 
 deps = [ libgcc, frigg, libsmarter, bragi_dep, libasync_dep, libarch, hel_dep ]
+
+link_script = meson.get_compiler('cpp').preprocess(
+	'link.x',
+	compile_args : cpp_args + args,
+	include_directories : inc,
+)[0]
+
+link_args += [ '-Wl,-T,' + link_script.full_path() ]
+link_depends += link_script
 
 executable('thor', src,
 	include_directories : inc,

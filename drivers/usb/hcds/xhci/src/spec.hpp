@@ -42,9 +42,9 @@ namespace hcsparams1 {
 namespace hcsparams2 {
 	inline constexpr arch::field<uint32_t, uint8_t> ist(0, 4);
 	inline constexpr arch::field<uint32_t, uint8_t> erstMax(4, 4);
-	inline constexpr arch::field<uint32_t, uint8_t> maxScratchpadBufsHi(21, 4);
+	inline constexpr arch::field<uint32_t, uint8_t> maxScratchpadBufsHi(21, 5);
 	inline constexpr arch::field<uint32_t, bool> scratchpadRestore(26, 1);
-	inline constexpr arch::field<uint32_t, uint8_t> maxScratchpadBufsLow(27, 4);
+	inline constexpr arch::field<uint32_t, uint8_t> maxScratchpadBufsLow(27, 5);
 }
 
 namespace hccparams1 {
