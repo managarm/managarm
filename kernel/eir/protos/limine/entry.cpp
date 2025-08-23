@@ -114,9 +114,8 @@ initgraph::Task setupMemoryRegions{
 } // namespace
 
 extern "C" void eirLimineMain(void) {
-	if (initPlatform) {
-		initPlatform();
-	}
+	initPlatform();
+
 	eir::infoLogger() << "Booting Eir from Limine" << frg::endlog;
 	eirRunConstructors();
 

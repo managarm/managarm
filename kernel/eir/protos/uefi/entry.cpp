@@ -706,9 +706,7 @@ initgraph::Task setupFramebufferInfo{
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
-	if (initPlatform) {
-		initPlatform();
-	}
+	initPlatform();
 
 	eirRunConstructors();
 

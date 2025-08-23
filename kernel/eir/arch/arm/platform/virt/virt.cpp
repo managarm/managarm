@@ -18,9 +18,7 @@ void initPlatform() {
 }
 
 extern "C" [[noreturn]] void eirVirtMain() {
-	if (initPlatform) {
-		initPlatform();
-	}
+	initPlatform();
 	eirRunConstructors();
 
 	GenericInfo info{.cmdline = nullptr, .fb{}, .debugFlags = eirDebugSerial, .hasFb = false};

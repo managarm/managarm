@@ -16,4 +16,6 @@ void sbiCall1(int ext, int func, SbiWord arg0) {
 
 void debugPrintChar(char c) { sbiCall1(1, 0, c); }
 
+void initPlatform() {}
+
 } // namespace eir

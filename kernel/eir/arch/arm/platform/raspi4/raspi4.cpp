@@ -236,6 +236,8 @@ frg::manual_box<PL011> debugUart;
 
 void debugPrintChar(char c) { debugUart->send(c); }
 
+void initPlatform() {}
+
 extern "C" [[noreturn]] void eirRaspi4Main() {
 	debugUart.initialize(mmioBase + 0x201000, 4000000);
 	debugUart->disable();

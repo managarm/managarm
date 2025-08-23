@@ -80,9 +80,8 @@ initgraph::Task setupMemoryRegions{
 } // namespace
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
-	if (initPlatform) {
-		initPlatform();
-	}
+	initPlatform();
+
 	if (magic != MB2_MAGIC)
 		eir::panicLogger() << "eir: Invalid multiboot2 signature, halting..." << frg::endlog;
 
