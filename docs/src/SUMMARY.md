@@ -8,12 +8,12 @@
         - [Supported Packages](getting-started/supported/package-index.md)
 
 - [Building](building/index.md)
-	- [With `cbuildrt` (recommended)](building/index.md)
+	- [With `cbuildrt` (recommended)](building/cbuildrt.md)
 	- [With Docker](building/with-docker.md)
 	- [Without Containers](building/without-containers.md)
 	- [Updating Packages](building/updating.md)
 
-- [Contributing](contributing/overview.md)
+- [Contributing](contributing/index.md)
     - [Overview](contributing/overview.md)
     - [xbstrap-Workflow](contributing/xbstrap.md)
     - [LSP setup](contributing/lsp.md)
@@ -22,8 +22,8 @@
     - [Wireshark analysis](contributing/wireshark.md)
 
 - [System Architecture](sys-arch/index.md)
-    - [Components](sys-arch/index.md)
-        - [managarm](sys-arch/index.md)
+    - [Components](sys-arch/components.md)
+        - [managarm](sys-arch/managarm.md)
         - [hel and helix](sys-arch/hel/index.md)
         - [thor and eir](sys-arch/thoreir/index.md)
         - [frigg](sys-arch/frigg/index.md)
