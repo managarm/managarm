@@ -97,7 +97,8 @@ def main():
     if args.verbose:
         verbose = True
 
-    paths = walk_regular(args.path)
+    # Eagerly expand walk_regular() since we create files while iterating.
+    paths = list(walk_regular(args.path))
     for p in paths:
         with open(p, "rb") as f:
             # Read the ELF header.
