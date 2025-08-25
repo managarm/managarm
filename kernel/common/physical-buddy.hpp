@@ -16,13 +16,44 @@ struct BuddyAccessor {
 	static inline constexpr AddressType illegalAddress = static_cast<AddressType>(-1);
 
 private:
-	static AddressType
-	findAllocatableChunk(int8_t *slice, AddressType base, AddressType limit, int target) {
-		for (AddressType i = 0; i < limit; i++) {
-			if (slice[base + i] >= target)
-				return base + i;
+	AddressType findAllocatableChunk(
+	    int8_t *slice, AddressType base, AddressType limit, int current, int target, int addressBits
+	) {
+		// Find the first allocatable chunk.
+		AddressType index = 0;
+		while (index < limit) {
+			if (slice[base + index] >= target) {
+				break;
+			}
+
+			index++;
 		}
-		return illegalAddress;
+
+		// If none of the chunks are big enough, bail.
+		if (index == limit) {
+			return illegalAddress;
+		}
+
+		// Make sure we can allocate this chunk without violating address restrictions.
+		//
+		// If current order is equal to the target order, we need the entire chunk to be
+		// below the address limit. Otherwise we just need the start of the chunk
+		// to be below the address limit.
+		if (addressBits != 64) {
+			auto chunkSize = AddressType(1) << (current + _sizeShift);
+			auto address = _baseAddress + (base + index) * chunkSize;
+			auto addressLimit = AddressType(1) << addressBits;
+
+			if (current == target) {
+				if ((address + chunkSize) > addressLimit) {
+					return illegalAddress;
+				}
+			} else if (address >= addressLimit) {
+				return illegalAddress;
+			}
+		}
+
+		return base + index;
 	}
 
 	// Determines the largest free chunk in the given range.
@@ -152,41 +183,17 @@ public:
 		int currentOrder = tableOrder_;
 		int8_t *slice = buddyPointer_;
 
-		// Note: the calculations here need to carefully take overflows into account!
-		//       Hence, first exclude the case that the entire buddy tree is accessible.
-		AddressType eligibleRoots = numRoots_;
-		if (addressBits < static_cast<int>(sizeof(AddressType) * 8)) {
-			if (_baseAddress >= (AddressType{1} << addressBits))
-				return illegalAddress;
-
-			// Range of memory that can be addressed;
-			// starts at _baseAddress but is not necessarily fully contained in the buddy.
-			AddressType addressableRange = (AddressType{1} << addressBits) - _baseAddress;
-			if (addressableRange < (AddressType{1} << (order + _sizeShift)))
-				return illegalAddress;
-
-			// Descend until some constant number (i.e., 4) of roots are fully addressable,
-			// i.e., are addressable with addressBits-many bits.
-			while (currentOrder > order && (addressableRange >> (currentOrder + _sizeShift)) > 4) {
-				slice += size_t(numRoots_) << (tableOrder_ - currentOrder);
-				currentOrder--;
-			}
-			eligibleRoots = std::min(
-			    addressableRange >> (currentOrder + _sizeShift),
-			    AddressType(numRoots_) << (tableOrder_ - currentOrder)
-			);
-			assert(eligibleRoots);
-		}
-
 		// First phase: Descent to the target order.
 		// In this phase find a free element.
-		AddressType allocIndex = findAllocatableChunk(slice, 0, eligibleRoots, order);
+		AddressType allocIndex =
+		    findAllocatableChunk(slice, 0, numRoots_, currentOrder, order, addressBits);
 		if (allocIndex == illegalAddress)
 			return illegalAddress;
 		while (currentOrder > order) {
 			slice += size_t(numRoots_) << (tableOrder_ - currentOrder);
 			currentOrder--;
-			allocIndex = findAllocatableChunk(slice, 2 * allocIndex, 2, order);
+			allocIndex =
+			    findAllocatableChunk(slice, 2 * allocIndex, 2, currentOrder, order, addressBits);
 			if (allocIndex == illegalAddress)
 				return illegalAddress;
 		}
