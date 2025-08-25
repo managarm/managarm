@@ -184,12 +184,6 @@ private:
 struct LinkNode : FsNode, std::enable_shared_from_this<LinkNode> {
 	LinkNode();
 
-	async::result<frg::expected<Error, FileStats>> getStats() override {
-		std::cout << "\e[31mposix: Fix procfs LinkNode::getStats()\e[39m" << std::endl;
-		co_return FileStats{};
-	}
-
-
 	VfsType getType() override {
 		return VfsType::symlink;
 	}
@@ -202,67 +196,65 @@ struct SelfLink final : LinkNode, std::enable_shared_from_this<SelfLink> {
 	SelfLink() = default;
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 };
 
 struct SelfThreadLink final : LinkNode, std::enable_shared_from_this<SelfThreadLink> {
 	SelfThreadLink() = default;
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 };
 
 struct ExeLink final : LinkNode, std::enable_shared_from_this<ExeLink> {
-	ExeLink(Process *process)
-	: _process(process)
-	{ }
+	ExeLink(Process *process);
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct RootLink final : LinkNode, std::enable_shared_from_this<RootLink> {
-	RootLink(Process *process)
-	: _process(process)
-	{ }
+	RootLink(Process *process);
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct CwdLink final : LinkNode, std::enable_shared_from_this<CwdLink> {
-	CwdLink(Process *process)
-	: _process(process)
-	{ }
+	CwdLink(Process *process);
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct MountsLink final : LinkNode, std::enable_shared_from_this<MountsLink> {
 	MountsLink() = default;
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
+
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 };
 
 struct MapNode final : RegularNode {
-	MapNode(Process *process)
-	: _process(process)
-	{ }
+	MapNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct UptimeNode final : RegularNode {
@@ -303,42 +295,36 @@ private:
 };
 
 struct CommNode final : RegularNode {
-	CommNode(Process *process)
-	: _process(process)
-	{ }
+	CommNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct StatNode final : RegularNode {
-	StatNode(Process *process)
-	: _process(process)
-	{ }
+	StatNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct StatmNode final : RegularNode {
-	StatmNode(Process *process)
-	: _process(process)
-	{ }
+	StatmNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct StatusNode final : RegularNode {
@@ -366,7 +352,7 @@ public:
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
@@ -376,16 +362,14 @@ private:
 };
 
 struct CgroupNode final : RegularNode {
-	CgroupNode(Process *process)
-	: _process(process)
-	{ }
+	CgroupNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
 
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct FdDirectoryNode final : FsNode, std::enable_shared_from_this<FdDirectoryNode> {
@@ -402,24 +386,24 @@ public:
 	std::shared_ptr<FsLink> treeLink() override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 	Link *_treeLink;
 };
 
 struct SymlinkNode final : LinkNode, std::enable_shared_from_this<SymlinkNode> {
-	SymlinkNode(std::shared_ptr<MountView>, std::weak_ptr<FsLink>);
+	SymlinkNode(Process *, std::shared_ptr<MountView>, std::weak_ptr<FsLink>);
 
 	expected<std::string> readSymlink(FsLink *link, Process *process) override;
 
+	async::result<frg::expected<Error, FileStats>> getStats() override;
 private:
+	std::weak_ptr<Process> _process;
 	std::shared_ptr<MountView> _mount;
 	std::weak_ptr<FsLink> _link;
 };
 
 struct MountsNode final : RegularNode {
-	MountsNode(Process *process)
-	: _process(process)
-	{ }
+	MountsNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
@@ -427,13 +411,11 @@ struct MountsNode final : RegularNode {
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct MountInfoNode final : RegularNode {
-	MountInfoNode(Process *process)
-	: _process(process)
-	{ }
+	MountInfoNode(Process *process);
 
 	async::result<std::expected<std::string, Error>> show(Process *) override;
 	async::result<void> store(std::string) override;
@@ -441,7 +423,7 @@ struct MountInfoNode final : RegularNode {
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 };
 
 struct FdInfoDirectoryNode final : FsNode, std::enable_shared_from_this<FdInfoDirectoryNode> {
@@ -458,7 +440,7 @@ public:
 	std::shared_ptr<FsLink> treeLink() override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 	Link *_treeLink;
 };
 
@@ -466,7 +448,7 @@ struct FdInfoDirectoryFile final : File {
 public:
 	static void serve(smarter::shared_ptr<FdInfoDirectoryFile> file);
 
-	explicit FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process);
+	explicit FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process* process);
 
 	void handleClose() override;
 
@@ -474,7 +456,7 @@ public:
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
-	Process *_process;
+	std::weak_ptr<Process> _process;
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
