@@ -360,8 +360,7 @@ std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
-		Process *process) {
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name, Process* process) {
 	auto link = directMkdir(name);
 	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
@@ -580,20 +579,54 @@ expected<std::string> SelfLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid());
 }
 
+async::result<frg::expected<Error, FileStats>> SelfLink::getStats() {
+	FileStats stats = {};
+	stats.numLinks = 1;
+	stats.mode = 0777;
+	co_return stats;
+}
+
 expected<std::string> SelfThreadLink::readSymlink(FsLink *, Process *process) {
 	co_return "/proc/" + std::to_string(process->pid()) + "/task/" + std::to_string(process->tid());
 }
 
+async::result<frg::expected<Error, FileStats>> SelfThreadLink::getStats() {
+	FileStats stats = {};
+	stats.numLinks = 1;
+	stats.mode = 0777;
+	co_return stats;
+}
+
+ExeLink::ExeLink(Process *process)
+	: _process(process->weak_from_this())
+	{ }
+
 expected<std::string> ExeLink::readSymlink(FsLink *, Process *) {
-	co_return _process->path();
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return p->path();
 }
 
 async::result<frg::expected<Error, FileStats>> ExeLink::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
+MapNode::MapNode(Process* process)
+	: _process(process->weak_from_this())
+	{ }
+
 async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
-	auto vmContext = _process->vmContext();
+	auto p = _process.lock();
+	if (!p)
+		co_return std::unexpected(Error::noSuchProcess);
+
+	auto vmContext = p->vmContext();
 	std::stringstream stream;
 	for (auto area : *vmContext) {
 		stream << std::hex << area.baseAddress();
@@ -621,7 +654,7 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 			stream << " ";
 			stream << std::setw(0) << fileStats.value().inodeNumber;
 			stream << "    ";
-			stream << viewPath.getPath(_process->fsContext()->getRoot());
+			stream << viewPath.getPath(p->fsContext()->getRoot());
 		} else {
 			// TODO: In the case of memfd files, show the name here.
 			stream << "00000000 00:00 0";
@@ -638,51 +671,89 @@ async::result<void> MapNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> MapNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
+CommNode::CommNode(Process* process)
+	: _process(process->weak_from_this())
+	{ }
+
 async::result<std::expected<std::string, Error>> CommNode::show(Process *) {
+	auto p = _process.lock();
+	if (!p)
+		co_return std::unexpected(Error::noSuchProcess);
+
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << _process->name() << "\n";
+	stream << p->name() << "\n";
 	co_return stream.str();
 }
 
 async::result<void> CommNode::store(std::string name) {
+	auto p = _process.lock();
+	if (!p)
+		co_return; // TODO: Proper error reporting
+
 	// silently truncate to TASK_COMM_LEN (16), including the null terminator
-	_process->setName(name.substr(0, 15));
+	p->setName(name.substr(0, 15));
 	co_return;
 }
 
 async::result<frg::expected<Error, FileStats>> CommNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
+RootLink::RootLink(Process* process)
+	: _process(process->weak_from_this())
+	{ }
+
 expected<std::string> RootLink::readSymlink(FsLink *, Process *) {
-	co_return _process->fsContext()->getRoot().getPath(_process->fsContext()->getRoot());
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return p->fsContext()->getRoot().getPath(p->fsContext()->getRoot());
 }
 
 async::result<frg::expected<Error, FileStats>> RootLink::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
+StatNode::StatNode(Process *process) : _process(process->weak_from_this()) {}
+
 async::result<std::expected<std::string, Error>> StatNode::show(Process *) {
+	auto p = _process.lock();
+	if (!p)
+		co_return std::unexpected(Error::noSuchProcess);
+
 	// Everything that has a value of 0 is likely not implemented yet.
 	// See man 5 proc for more details.
 	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
 	std::stringstream stream;
-	stream << _process->pid(); // Pid
-	stream << " (" << _process->name() << ") "; // Name
+	stream << p->pid(); // Pid
+	stream << " (" << p->name() << ") "; // Name
 	stream << "R "; // State
 	// This avoids a crash when asking for the parent of init.
-	if(_process->getParent()) {
-		stream << _process->getParent()->pid() << " ";
+	if(p->getParent()) {
+		stream << p->getParent()->pid() << " ";
 	} else {
 		stream << "0 ";
 	}
-	stream << _process->pgPointer()->getHull()->getPid() << " "; // Pgrp
-	stream << _process->pgPointer()->getSession()->getSessionId() << " "; // SID
+	stream << p->pgPointer()->getHull()->getPid() << " "; // Pgrp
+	stream << p->pgPointer()->getSession()->getSessionId() << " "; // SID
 	stream << "0 "; // tty_nr
 	stream << "0 "; // tpgid
 	stream << "0 "; // flags
@@ -690,7 +761,7 @@ async::result<std::expected<std::string, Error>> StatNode::show(Process *) {
 	stream << "0 "; // cminflt
 	stream << "0 "; // majflt
 	stream << "0 "; // cmajflt
-	stream << _process->accumulatedUsage().userTime << " "; // utime
+	stream << p->accumulatedUsage().userTime << " "; // utime
 	stream << "0 "; // stime
 	stream << "0 "; // cutime
 	stream << "0 "; // cstime
@@ -739,8 +810,14 @@ async::result<void> StatNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
+
+StatmNode::StatmNode(Process *process) : _process(process->weak_from_this()) {}
 
 async::result<std::expected<std::string, Error>> StatmNode::show(Process *) {
 	(void)_process;
@@ -765,7 +842,11 @@ async::result<void> StatmNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
 async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
@@ -872,17 +953,42 @@ async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
 	co_return co_await getStatsInternal(p.get());
 }
 
+CwdLink::CwdLink(Process *process)
+	: _process(process->weak_from_this())
+	{ }
+
 expected<std::string> CwdLink::readSymlink(FsLink *, Process *) {
-	co_return _process->fsContext()->getWorkingDirectory().getPath(_process->fsContext()->getWorkingDirectory());
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return p->fsContext()->getWorkingDirectory().getPath(p->fsContext()->getWorkingDirectory());
 }
 
 async::result<frg::expected<Error, FileStats>> CwdLink::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
 expected<std::string> MountsLink::readSymlink(FsLink *, Process *) {
 	co_return "self/mounts";
 }
+
+async::result<frg::expected<Error, FileStats>> MountsLink::getStats() {
+	FileStats stats = {};
+
+	stats.fileSize = sizeof("self/mounts") - 1;
+	stats.mode = 0777;
+
+	co_return stats;
+}
+
+CgroupNode::CgroupNode(Process *process)
+	: _process(process->weak_from_this())
+	{ }
 
 // MASSIVE STUBS
 async::result<std::expected<std::string, Error>> CgroupNode::show(Process *) {
@@ -900,7 +1006,11 @@ async::result<void> CgroupNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> CgroupNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
@@ -912,7 +1022,7 @@ void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
 
 FdDirectoryFile::FdDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
 : File{FileKind::unknown,  StructName::get("procfs.fddir"), std::move(mount), std::move(link)},
-		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
 void FdDirectoryFile::handleClose() {
 	_cancelServe.cancel();
@@ -931,7 +1041,7 @@ helix::BorrowedDescriptor FdDirectoryFile::getPassthroughLane() {
 }
 
 FdDirectoryNode::FdDirectoryNode(Process *process)
-: FsNode(&procfsSuperblock), _process{process} {}
+: FsNode(&procfsSuperblock), _process{process->weak_from_this()} {}
 
 VfsType FdDirectoryNode::getType() {
 	return VfsType::directory;
@@ -960,24 +1070,32 @@ FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> 
 		co_return Error::illegalArguments;
 	}
 
-	auto file = smarter::make_shared<FdDirectoryFile>(std::move(mount), std::move(link), _process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	auto file = smarter::make_shared<FdDirectoryFile>(std::move(mount), std::move(link), p.get());
 	file->setupWeakFile(file);
 	FdDirectoryFile::serve(file);
 	co_return File::constructHandle(std::move(file));
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdDirectoryNode::getLink(std::string name) {
-	for(const auto &[fdnum, fd] : _process->fileContext()->fileTable()) {
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	for(const auto &[fdnum, fd] : p->fileContext()->fileTable()) {
 		if(name != std::to_string(fdnum))
 			continue;
-		auto pointee = std::make_shared<SymlinkNode>(fd.file->associatedMount(), fd.file->associatedLink());
+		auto pointee = std::make_shared<SymlinkNode>(p.get(), fd.file->associatedMount(), fd.file->associatedLink());
 		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
 	}
 	co_return Error::noSuchFile;
 }
 
-SymlinkNode::SymlinkNode(std::shared_ptr<MountView> mount, std::weak_ptr<FsLink> link)
-: _mount{std::move(mount)}, _link{std::move(link)} { }
+SymlinkNode::SymlinkNode(Process* proc, std::shared_ptr<MountView> mount, std::weak_ptr<FsLink> link)
+: _process{proc->weak_from_this()}, _mount{std::move(mount)}, _link{std::move(link)} { }
 
 expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
 	auto link = _link.lock();
@@ -993,6 +1111,25 @@ expected<std::string> SymlinkNode::readSymlink(FsLink *, Process *process) {
 
 	co_return path;
 }
+
+async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	FileStats stats = {};
+
+	stats.fileSize = 64; // Same as Linux.
+	stats.mode = 0777;
+	stats.uid = p->uid();
+	stats.gid = p->gid();
+
+	co_return stats;
+}
+
+MountsNode::MountsNode(Process* process)
+	: _process(process->weak_from_this())
+	{ }
 
 async::result<std::expected<std::string, Error>> MountsNode::show(Process *proc) {
 	auto root = proc->fsContext()->getRoot();
@@ -1041,8 +1178,16 @@ async::result<void> MountsNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> MountsNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
+
+MountInfoNode::MountInfoNode(Process *process)
+	: _process(process->shared_from_this())
+	{ }
 
 async::result<std::expected<std::string, Error>> MountInfoNode::show(Process *proc) {
 	auto root = proc->fsContext()->getRoot();
@@ -1094,11 +1239,15 @@ async::result<void> MountInfoNode::store(std::string) {
 }
 
 async::result<frg::expected<Error, FileStats>> MountInfoNode::getStats() {
-	co_return co_await getStatsInternal(_process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	co_return co_await getStatsInternal(p.get());
 }
 
-FdInfoDirectoryNode::FdInfoDirectoryNode(Process *process)
-: FsNode(&procfsSuperblock), _process{process} {}
+FdInfoDirectoryNode::FdInfoDirectoryNode(Process* process)
+: FsNode(&procfsSuperblock), _process{process->weak_from_this()} {}
 
 VfsType FdInfoDirectoryNode::getType() {
 	return VfsType::directory;
@@ -1127,7 +1276,11 @@ FdInfoDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLi
 		co_return Error::illegalArguments;
 	}
 
-	auto file = smarter::make_shared<FdInfoDirectoryFile>(std::move(mount), std::move(link), _process);
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
+	auto file = smarter::make_shared<FdInfoDirectoryFile>(std::move(mount), std::move(link), p.get());
 	file->setupWeakFile(file);
 	FdInfoDirectoryFile::serve(file);
 	co_return File::constructHandle(std::move(file));
@@ -1137,9 +1290,13 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FdInfoDirectoryNode
 	if(!std::all_of(name.begin(), name.end(), isdigit))
 		co_return Error::noSuchFile;
 
+	auto p = _process.lock();
+	if (!p)
+		co_return Error::noSuchProcess;
+
 	auto nameNum = std::stoi(name);
-	if(_process->fileContext()->fileTable().contains(nameNum)) {
-		auto file = _process->fileContext()->fileTable().at(nameNum).file;
+	if(p->fileContext()->fileTable().contains(nameNum)) {
+		auto file = p->fileContext()->fileTable().at(nameNum).file;
 		auto pointee = std::make_shared<FdInfoNode>(file->associatedMount(), file);
 		co_return std::make_shared<Link>(shared_from_this(), name, pointee);
 	}
@@ -1154,9 +1311,9 @@ void FdInfoDirectoryFile::serve(smarter::shared_ptr<FdInfoDirectoryFile> file) {
 			file, &File::fileOperations, file->_cancelServe));
 }
 
-FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process *process)
+FdInfoDirectoryFile::FdInfoDirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, Process* process)
 : File{FileKind::unknown,  StructName::get("procfs.fdinfodir"), std::move(mount), std::move(link)},
-		_process{process}, _fileTable{_process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
+		_process{process->weak_from_this()}, _fileTable{process->fileContext()->fileTable()}, _iter{_fileTable.begin()} {}
 
 void FdInfoDirectoryFile::handleClose() {
 	_cancelServe.cancel();
