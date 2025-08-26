@@ -342,6 +342,8 @@ execute(ViewPath root, ViewPath workdir,
 		0,
 		AT_BASE,
 		ldsoBaseAddress,
+		AT_PAGESZ,
+		0x1000,
 		AT_NULL,
 		0
 	});
