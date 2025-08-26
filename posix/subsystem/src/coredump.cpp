@@ -1,7 +1,6 @@
 #include <linux/elf.h>
 #include <numeric>
 #include <print>
-#include <sys/auxv.h>
 #include <sys/procfs.h>
 
 #include "process.hpp"
