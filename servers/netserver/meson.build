@@ -7,6 +7,7 @@ src = [
 	'src/ip/udp4.cpp',
 	'src/main.cpp',
 	'src/nic.cpp',
+	'src/phy.cpp',
 	'src/raw.cpp',
 	'src/netlink/netlink.cpp',
 	'src/netlink/packets.cpp',
@@ -16,7 +17,7 @@ src = [
 inc = [ 'include', 'src' ]
 
 dep = [ fs_proto_dep, mbus_proto_dep, svrctl_proto_dep, nic_virtio_dep,
-	nic_usb_net_dep, nic_rtl8168_dep, core_dep ]
+	nic_usb_net_dep, nic_rtl8168_dep, nic_k1x_emac_dep, core_dep ]
 
 if host_machine.cpu_family() == 'x86_64'
 	dep += nic_freebsd_e1000_dep

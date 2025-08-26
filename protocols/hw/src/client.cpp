@@ -707,6 +707,45 @@ async::result<DtInfo> Device::getDtInfo() {
 	co_return info;
 }
 
+async::result<std::optional<DtProperty>> Device::getDtProperty(std::string_view name) {
+	managarm::hw::GetDtPropertyRequest req;
+	req.set_name(std::string(name));
+
+	auto [offer, sendReq, recvHead] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvHead.error());
+
+	auto preamble = bragi::read_preamble(recvHead);
+	assert(!preamble.error());
+	recvHead.reset();
+
+	std::vector<std::byte> tailBuffer(preamble.tail_size());
+	auto [recvTail] = co_await helix_ng::exchangeMsgs(
+			offer.descriptor(),
+			helix_ng::recvBuffer(tailBuffer.data(), tailBuffer.size())
+		);
+
+	HEL_CHECK(recvTail.error());
+
+	auto resp = *bragi::parse_head_tail<managarm::hw::GetDtPropertyResponse>(recvHead, tailBuffer);
+
+	if (resp.error() == managarm::hw::Errors::SUCCESS)
+		co_return DtProperty{std::move(resp.data())};
+
+	assert(resp.error() == managarm::hw::Errors::PROPERTY_NOT_FOUND);
+
+	co_return std::nullopt;
+}
+
 async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) {
 	managarm::hw::AccessDtRegisterRequest req;
 	req.set_index(index);

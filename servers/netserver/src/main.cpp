@@ -30,6 +30,7 @@
 #include <netserver/nic.hpp>
 #include <nic/virtio/virtio.hpp>
 #include <nic/rtl8168/rtl8168.hpp>
+#include <nic/k1x-emac/k1x-emac.hpp>
 #ifdef __x86_64__
 # include <nic/freebsd-e1000/common.hpp>
 #endif
@@ -358,6 +359,24 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 	co_return protocols::svrctl::Error::success;
 }
 
+async::result<protocols::svrctl::Error> doBindDt(mbus_ng::Entity baseEntity) {
+	auto properties = (co_await baseEntity.getProperties()).unwrap();
+
+	std::shared_ptr<nic::Link> nic;
+	if (properties.contains("dt.compatible=spacemit,k1x-emac")) {
+		nic = co_await nic::k1x_emac::makeShared(baseEntity.id());
+	}
+
+	if (!nic) {
+		co_return protocols::svrctl::Error::deviceNotSupported;
+	}
+
+	baseDeviceMap.insert({baseEntity.id(), nic});
+	nic::runDevice(nic);
+
+	co_return protocols::svrctl::Error::success;
+}
+
 async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 	std::cout << "netserver: Binding to device " << base_id << std::endl;
 	auto baseEntity = co_await mbus_ng::Instance::global().getEntity(base_id);
@@ -380,6 +399,11 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 			co_return err;
 	} else if(type->value == "usb") {
 		auto err = co_await doBindUsb(std::move(baseEntity));
+
+		if(err != protocols::svrctl::Error::success)
+			co_return err;
+	} else if(type->value == "dt") {
+		auto err = co_await doBindDt(std::move(baseEntity));
 
 		if(err != protocols::svrctl::Error::success)
 			co_return err;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <dtb.hpp>
 #include <helix/ipc.hpp>
 #include <optional>
 #include <vector>
@@ -86,6 +87,60 @@ struct DtInfo {
 	uint32_t numIrqs;
 };
 
+struct DtProperty {
+	DtProperty(std::vector<uint8_t> data) : data_{std::move(data)} {}
+
+	size_t size() const { return data_.size(); }
+
+	dtb::Accessor access() {
+		return dtb::Accessor{frg::span{(const std::byte *)data_.data(), data_.size()}, 0};
+	}
+
+	uint32_t asU32(size_t offset = 0) {
+		assert(offset + 4 <= data_.size());
+
+		arch::scalar_storage<uint32_t, arch::big_endian> v;
+		memcpy(&v, data_.data() + offset, 4);
+
+		return v.load();
+	}
+
+	uint64_t asU64(size_t offset = 0) {
+		assert(offset + 8 <= data_.size());
+
+		arch::scalar_storage<uint64_t, arch::big_endian> v;
+		memcpy(&v, data_.data() + offset, 8);
+
+		return v.load();
+	}
+
+	frg::optional<frg::string_view> asString(size_t index = 0) {
+		size_t total = 0;
+		const char *off = reinterpret_cast<const char *>(data_.data());
+		for (size_t i = 0; i < index; i++) {
+			total += strnlen(off + total, data_.size() - total) + 1;
+			if (total >= data_.size())
+				return frg::null_opt;
+		}
+		return frg::string_view{off + total, strnlen(off + total, data_.size() - total)};
+	}
+
+	uint64_t asPropArrayEntry(size_t nCells, size_t offset = 0) {
+		if (nCells == 0)
+			return 0;
+		else if (nCells == 1)
+			return asU32(offset);
+		else if (nCells == 2)
+			return asU64(offset);
+
+		assert(!"Invalid amount of cells");
+		return -1;
+	}
+
+private:
+	std::vector<uint8_t> data_;
+};
+
 struct Device {
 	Device(helix::UniqueLane lane)
 	:_lane(std::move(lane)) { };
@@ -97,6 +152,7 @@ struct Device {
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 
 	async::result<DtInfo> getDtInfo();
+	async::result<std::optional<DtProperty>> getDtProperty(std::string_view name);
 	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);
 	async::result<helix::UniqueDescriptor> installDtIrq(uint32_t index);
 

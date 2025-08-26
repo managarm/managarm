@@ -1,10 +1,10 @@
 hw_bragi = cxxbragi.process('hw.bragi')
 
-incs = [ 'include' ]
+incs = [ 'include', '../../kernel/common' ]
 src = [ 'src/client.cpp', hw_bragi ]
 
 if not provide_deps
-	deps = [ helix_dep, frigg ]
+	deps = [ helix_dep, libarch, frigg ]
 
 	libhw = shared_library('hw_protocol', src,
 		dependencies : deps,

@@ -4,6 +4,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <initgraph.hpp>
+#include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/irq.hpp>
 #include <frg/optional.hpp>
 #include <frg/hash_map.hpp>

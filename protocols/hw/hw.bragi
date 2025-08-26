@@ -5,7 +5,8 @@ enum Errors {
 	OUT_OF_BOUNDS,
 	ILLEGAL_ARGUMENTS,
 	RESOURCE_EXHAUSTION,
-	DEVICE_ERROR
+	DEVICE_ERROR,
+	PROPERTY_NOT_FOUND
 }
 
 enum IoType {
@@ -214,4 +215,17 @@ message GetSmbiosTableReply 28 {
 head(128):
 	Errors error;
 	uint32 size;
+}
+
+message GetDtPropertyRequest 29 {
+head(128):
+	string name;
+}
+
+message GetDtPropertyResponse 30 {
+head(128):
+	Errors error;
+
+tail:
+	byte[] data;
 }

@@ -181,6 +181,10 @@ void initializeThisProcessor() {
 	sstatus |= riscv::sstatus::uxl64 << riscv::sstatus::uxlShift;
 	riscv::writeCsr<riscv::Csr::sstatus>(sstatus);
 
+	auto senvcfg = riscv::readCsr<riscv::Csr::senvcfg>();
+	senvcfg |= riscv::senvcfg::cbie | riscv::senvcfg::cbcfe;
+	riscv::writeCsr<riscv::Csr::senvcfg>(senvcfg);
+
 	// Read back sstatus.
 	sstatus = riscv::readCsr<riscv::Csr::sstatus>();
 	if (sstatus & riscv::sstatus::ubeBit)
