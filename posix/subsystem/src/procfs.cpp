@@ -360,9 +360,8 @@ std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
-		Process *process) {
-	auto link = directMkdir(name);
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(Process *process) {
+	auto link = directMkdir(std::to_string(process->pid()));
 	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
@@ -380,14 +379,26 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name,
 	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
 
 	auto task_link = proc_dir->directMkdir("task");
-	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
+
+	return link;
+}
+
+std::shared_ptr<Link> DirectoryNode::createProcTaskDirectory(Process *process) {
+	auto proc_dir = static_cast<DirectoryNode*>(process->threadGroup()->procfsLink()->getTarget().get());
+
+	auto taskLinkIt = std::ranges::find_if(proc_dir->_entries, [](auto e) {
+		return e->getName() == "task";
+	});
+	assert(taskLinkIt != proc_dir->_entries.end());
+	auto task_dir = static_cast<DirectoryNode*>(((*taskLinkIt)->getTarget()).get());
 
 	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
 	auto tid_dir = static_cast<DirectoryNode*>(tid_link->getTarget().get());
 
 	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
+	tid_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
 
-	return link;
+	return tid_link;
 }
 
 VfsType DirectoryNode::getType() {
@@ -787,7 +798,7 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 	stream << std::format("State: {}\n", state); // R=running, Z=zombie.
 	stream << "Tgid: " << p->pid() << "\n"; // Thread group id, same as gid for now
 	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
-	stream << "Pid: " << p->pid() << "\n";
+	stream << "Pid: " << p->tid() << "\n";
 	// This avoids a crash when asking for the parent of init.
 	if(p->getParent()) {
 		stream << "PPid: " << p->getParent()->pid() << "\n";

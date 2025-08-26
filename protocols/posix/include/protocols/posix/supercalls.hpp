@@ -22,4 +22,8 @@ inline constexpr uint32_t superSigGetPending = 15;
 inline constexpr uint32_t superSigTimedWait = 16;
 inline constexpr uint32_t superGetServerData = 64;
 
+struct superCloneArgs {
+	uint64_t flags = 0;
+};
+
 } // namespace posix

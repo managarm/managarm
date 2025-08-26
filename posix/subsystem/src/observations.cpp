@@ -212,16 +212,29 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			void *ip = reinterpret_cast<void *>(gprs[kHelRegArg0]);
 			void *sp = reinterpret_cast<void *>(gprs[kHelRegArg1]);
 
-			auto child = Process::clone(self, ip, sp);
+			posix::superCloneArgs args{};
+			if (gprs[kHelRegArg2]) {
+				auto loadArgs = co_await helix_ng::readMemory(self->vmContext()->getSpace(),
+						gprs[kHelRegArg2], sizeof(args), &args);
+				HEL_CHECK(loadArgs.error());
+			}
 
-			auto new_thread = child->threadDescriptor().getHandle();
+			auto cloneResult = Process::clone(self, ip, sp, &args);
+			HelHandle newThread = kHelNullHandle;
 
-			gprs[kHelRegError] = kHelErrNone;
-			gprs[kHelRegOut0] = child->pid();
+			if (cloneResult) {
+				newThread = cloneResult.value()->threadDescriptor().getHandle();
+
+				gprs[kHelRegError] = kHelErrNone;
+				gprs[kHelRegOut0] = cloneResult.value()->tid();
+			} else {
+				gprs[kHelRegError] = cloneResult.error() | toHelError;
+			}
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			HEL_CHECK(helResume(thread.getHandle()));
-			HEL_CHECK(helResume(new_thread));
+			if (newThread != kHelNullHandle)
+				HEL_CHECK(helResume(newThread));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superExecve) {
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
