@@ -246,3 +246,15 @@ head(128):
 tail:
 	DtProperty[] properties;
 }
+
+message GetDtPathRequest 33 {
+head(128):
+}
+
+message GetDtPathResponse 34 {
+head(128):
+	Errors error;
+
+tail:
+	string path;
+}
