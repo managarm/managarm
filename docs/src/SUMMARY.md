@@ -20,6 +20,7 @@
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
     - [Wireshark analysis](contributing/wireshark.md)
+    - [Hardware CI](contributing/hwci.md)
 
 - [System Architecture](sys-arch/index.md)
     - [Components](sys-arch/components.md)
