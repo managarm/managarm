@@ -13,6 +13,7 @@
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
 #include "firmware/dmi.hpp"
+#include "firmware/dt.hpp"
 #include "pts.hpp"
 #include "requests.hpp"
 #include "subsystem/acpi.hpp"
@@ -215,6 +216,10 @@ int main() {
 	usb_subsystem::run();
 
 	firmware_dmi::run();
+
+#if defined(__aarch64__) || defined(__riscv)
+	firmware_dt::run();
+#endif
 
 	runInit();
 
