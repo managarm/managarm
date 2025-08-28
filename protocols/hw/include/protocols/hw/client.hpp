@@ -92,6 +92,10 @@ struct DtProperty {
 
 	size_t size() const { return data_.size(); }
 
+	const std::vector<uint8_t> &data() const {
+		return data_;
+	}
+
 	dtb::Accessor access() {
 		return dtb::Accessor{frg::span{(const std::byte *)data_.data(), data_.size()}, 0};
 	}
@@ -152,7 +156,9 @@ struct Device {
 	async::result<helix::UniqueDescriptor> installMsi(int index);
 
 	async::result<DtInfo> getDtInfo();
+	async::result<std::string> getDtPath();
 	async::result<std::optional<DtProperty>> getDtProperty(std::string_view name);
+	async::result<std::vector<std::pair<std::string, DtProperty>>> getDtProperties();
 	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);
 	async::result<helix::UniqueDescriptor> installDtIrq(uint32_t index);
 

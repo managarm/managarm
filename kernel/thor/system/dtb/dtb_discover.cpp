@@ -258,6 +258,65 @@ struct MbusNode final : private KernelBusObject {
 			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
 			if(respTailError != Error::success)
 				co_return respTailError;
+		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPropertiesRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetDtPropertiesRequest>(reqBuffer, *kernelAlloc);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::GetDtPropertiesResponse<KernelAlloc> resp{*kernelAlloc};
+
+			for (auto prop : node->dtNode().properties()) {
+				frg::string<KernelAlloc> name{*kernelAlloc, prop.name()};
+				frg::vector<uint8_t, KernelAlloc> data{*kernelAlloc};
+				data.resize(prop.size());
+				memcpy(data.data(), prop.data(), prop.size());
+
+				managarm::hw::DtProperty<KernelAlloc> newProp{*kernelAlloc};
+				newProp.set_name(std::move(name));
+				newProp.set_data(std::move(data));
+				resp.add_properties(std::move(newProp));
+			}
+
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			if(respHeadError != Error::success)
+				co_return respHeadError;
+
+			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			if(respTailError != Error::success)
+				co_return respTailError;
+		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPathRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetDtPathRequest>(reqBuffer, *kernelAlloc);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::GetDtPathResponse<KernelAlloc> resp{*kernelAlloc};
+			frg::string<KernelAlloc> path{*kernelAlloc, node->path()};
+			resp.set_path(std::move(path));
+			resp.set_error(managarm::hw::Errors::SUCCESS);
+
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			if(respHeadError != Error::success)
+				co_return respHeadError;
+
+			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			if(respTailError != Error::success)
+				co_return respTailError;
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await DismissSender{conversation};

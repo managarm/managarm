@@ -13,6 +13,7 @@ src = [
 	'src/devices/urandom.cpp',
 	'src/devices/zero.cpp',
 	'src/firmware/dmi.cpp',
+	'src/firmware/dt.cpp',
 	'src/drvcore.cpp',
 	'src/epoll.cpp',
 	'src/eventfd.cpp',

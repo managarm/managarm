@@ -40,6 +40,11 @@ struct DtRegister {
 	uint32 offset;
 }
 
+struct DtProperty {
+	string name;
+	byte[] data;
+}
+
 message GetPciInfoRequest 1 {
 head(128):
 }
@@ -228,4 +233,28 @@ head(128):
 
 tail:
 	byte[] data;
+}
+
+message GetDtPropertiesRequest 31 {
+head(128):
+}
+
+message GetDtPropertiesResponse 32 {
+head(128):
+	Errors error;
+
+tail:
+	DtProperty[] properties;
+}
+
+message GetDtPathRequest 33 {
+head(128):
+}
+
+message GetDtPathResponse 34 {
+head(128):
+	Errors error;
+
+tail:
+	string path;
 }
