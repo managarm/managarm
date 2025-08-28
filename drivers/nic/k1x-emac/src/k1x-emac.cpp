@@ -496,7 +496,8 @@ async::result<bool> K1xEmacNic::initialize() {
 		co_return false;
 	}
 
-	_phy = co_await nic::makeEthernetPhy(_mii, 0);
+	// TODO(qookie): Read phy-mode from the DT.
+	_phy = co_await nic::makeEthernetPhy(_mii, 0, nic::PhyMode::rgmii);
 
 	if (!_phy) {
 		std::println("k1x-emac: No PHY found");

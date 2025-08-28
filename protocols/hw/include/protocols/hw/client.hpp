@@ -91,6 +91,7 @@ struct DtProperty {
 	DtProperty(std::vector<uint8_t> data) : data_{std::move(data)} {}
 
 	size_t size() const { return data_.size(); }
+	const std::vector<uint8_t> &data() const { return data_; };
 
 	const std::vector<uint8_t> &data() const {
 		return data_;
