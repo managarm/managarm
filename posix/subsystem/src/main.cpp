@@ -10,6 +10,8 @@
 #include "devices/kmsg.hpp"
 #include "devices/null.hpp"
 #include "devices/random.hpp"
+#include "devices/tty0.hpp"
+#include "devices/tty1.hpp"
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
 #include "firmware/dmi.hpp"
@@ -200,6 +202,8 @@ int main() {
 	charRegistry.install(createUrandomDevice());
 	charRegistry.install(createZeroDevice());
 	charRegistry.install(createKmsgDevice());
+	charRegistry.install(createTTY0Device());
+	charRegistry.install(createTTY1Device());
 
 	acpi_subsystem::run();
 	drm_subsystem::run();
