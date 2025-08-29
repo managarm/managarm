@@ -1045,7 +1045,7 @@ void readEntityBars(PciEntity *entity, int nBars) {
 			// Write all 1s to the BAR and read it back to determine this its length.
 			io->writeConfigWord(bus, slot, function, offset, 0xFFFFFFFF);
 			io->writeConfigWord(bus, slot, function, offset + 4, 0xFFFFFFFF);
-			uint32_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
+			uint64_t mask = (uint64_t{io->readConfigWord(bus, slot, function, offset + 4)} << 32)
 					| (io->readConfigWord(bus, slot, function, offset) & 0xFFFFFFF0);
 			io->writeConfigWord(bus, slot, function, offset, bar);
 			io->writeConfigWord(bus, slot, function, offset + 4, high);
