@@ -283,7 +283,7 @@ static initgraph::Task enumerateDmalog{&globalInitEngine, "pci.enumerate-dmalog"
 
 			bool useMsi = false;
 
-			if(pciDevice->numMsis) {
+			if(pciDevice->numMsis && pciDevice->parentBus->msiController) {
 				auto pin = pciDevice->parentBus->msiController->allocateMsiPin(
 					frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
 					+ frg::to_allocated_string(*kernelAlloc, pciDevice->bus)
