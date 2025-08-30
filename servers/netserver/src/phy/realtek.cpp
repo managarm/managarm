@@ -30,14 +30,14 @@ async::result<nic::PhyResult<void>> Rtl8211fPhy::configure() {
 	}
 
 	// Call the base class configure method.
-	co_await GenericEthernetPhy::configure();
+	FRG_CO_TRY(co_await GenericEthernetPhy::configure());
 
 	co_return {};
 }
 
 async::result<nic::PhyResult<void>> Rtl8211fPhy::startup() {
 	// Perform the PHY startup sequence.
-	co_await GenericEthernetPhy::startup();
+	FRG_CO_TRY(co_await GenericEthernetPhy::startup());
 
 	if (!linkStatus_) {
 		co_return {};
