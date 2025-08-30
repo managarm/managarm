@@ -37,6 +37,26 @@ constexpr uint16_t anegComplete = 1 << 5; // Auto-Negotiation Complete
 async::result<nic::PhyResult<void>> GenericEthernetPhy::configure() {
 	FRG_CO_TRY(co_await mdio_->write(phyAddress_, miiBmcr, bmcr::reset));
 
+	// Wait up to 500ms for reset to complete.
+	auto bmcr = FRG_CO_TRY(co_await mdio_->read(phyAddress_, miiBmcr));
+
+	uint64_t startNs;
+	HEL_CHECK(helGetClock(&startNs));
+
+	while (bmcr & bmcr::reset) {
+		uint64_t currNs;
+		HEL_CHECK(helGetClock(&currNs));
+
+		if (currNs - startNs > 500'000'000) { // 500ms
+			std::println("generic-phy: Waiting for PHY reset timed out after 500ms");
+			co_return std::unexpected{nic::PhyError::timeout};
+		}
+
+		bmcr = FRG_CO_TRY(co_await mdio_->read(phyAddress_, miiBmcr));
+
+		co_await helix::sleepFor(1'000'000); // 1ms
+	}
+
 	co_return {};
 }
 
@@ -109,7 +129,7 @@ async::result<nic::PhyResult<void>> GenericEthernetPhy::updateLink() {
 				speed_ = nic::LinkSpeed::unknown;
 				duplex_ = nic::LinkDuplex::unknown;
 
-				co_return {};
+				co_return std::unexpected{nic::PhyError::timeout};
 			}
 
 			bmsr = FRG_CO_TRY(co_await mdio_->read(phyAddress_, miiBmsr));
