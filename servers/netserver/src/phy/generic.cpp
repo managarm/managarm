@@ -37,13 +37,12 @@ constexpr uint16_t anegComplete = 1 << 5; // Auto-Negotiation Complete
 async::result<nic::PhyResult<void>> GenericEthernetPhy::configure() {
 	FRG_CO_TRY(co_await mdio_->write(phyAddress_, miiBmcr, bmcr::reset));
 
-	co_await performAutoNegotiation();
-
 	co_return {};
 }
 
 async::result<nic::PhyResult<void>> GenericEthernetPhy::startup() {
-	co_await updateLink();
+	FRG_CO_TRY(co_await performAutoNegotiation());
+	FRG_CO_TRY(co_await updateLink());
 
 	co_return {};
 }
