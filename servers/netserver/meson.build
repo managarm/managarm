@@ -10,6 +10,7 @@ src = [
 	'src/phy/phy.cpp',
 	'src/phy/generic.cpp',
 	'src/phy/realtek.cpp',
+	'src/phy/broadcom.cpp',
 	'src/raw.cpp',
 	'src/netlink/netlink.cpp',
 	'src/netlink/packets.cpp',

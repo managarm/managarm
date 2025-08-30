@@ -4,6 +4,7 @@
 
 #include "generic.hpp"
 #include "realtek.hpp"
+#include "broadcom.hpp"
 
 namespace nic {
 
@@ -28,6 +29,9 @@ makeEthernetPhy(std::shared_ptr<Mdio> mdio, uint8_t phyAddress, PhyMode mode) {
 		case 0x1cc916:
 			std::println("phy: Found RTL8211F PHY");
 			co_return std::make_shared<Rtl8211fPhy>(mdio, phyAddress, mode);
+		case 0x600d84a0 ... 0x600d84af:
+			std::println("phy: Found BCM54210E PHY (BCM5421{})", physId & 0xF);
+			co_return std::make_shared<Bcm54210EPhy>(mdio, phyAddress, mode);
 		default:
 			std::println("phy: Unknown PHY ID: {:#x}, using generic PHY driver", physId);
 			co_return std::make_shared<GenericEthernetPhy>(mdio, phyAddress, mode);
