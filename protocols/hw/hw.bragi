@@ -6,7 +6,8 @@ enum Errors {
 	ILLEGAL_ARGUMENTS,
 	RESOURCE_EXHAUSTION,
 	DEVICE_ERROR,
-	PROPERTY_NOT_FOUND
+	PROPERTY_NOT_FOUND,
+	ILLEGAL_OPERATION
 }
 
 enum IoType {
@@ -263,4 +264,47 @@ tail:
 
 message GetVbtRequest 35 {
 head(128):
+}
+
+message EnableClockRequest 36 {
+head(128):
+	uint32 id;
+}
+
+message DisableClockRequest 37 {
+head(128):
+	uint32 id;
+}
+
+message SetClockFrequencyRequest 38 {
+head(128):
+	uint32 id;
+	uint64 frequency;
+}
+
+message ClockResponse 39 {
+head(128):
+	Errors error;
+}
+
+message EnableRegulatorRequest 40 {
+head(128):
+	uint32 id;
+}
+
+message DisableRegulatorRequest 41 {
+head(128):
+	uint32 id;
+}
+
+message SetRegulatorVoltageRequest 42 {
+head(128):
+	uint32 id;
+	// in µV (microvolts)
+	uint32 voltage;
+}
+
+message RegulatorResponse 43 {
+head(128):
+	Errors error;
 }
