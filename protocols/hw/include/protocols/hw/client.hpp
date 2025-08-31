@@ -3,6 +3,7 @@
 #include <async/result.hpp>
 #include <dtb.hpp>
 #include <helix/ipc.hpp>
+#include <frg/expected.hpp>
 #include <optional>
 #include <vector>
 
@@ -25,6 +26,12 @@ enum IoType {
 	kIoTypeNone = 0,
 	kIoTypePort = 1,
 	kIoTypeMemory = 2
+};
+
+enum class Error {
+	success,
+	illegalArguments,
+	illegalOperation
 };
 
 struct BarInfo {
@@ -162,6 +169,14 @@ struct Device {
 	async::result<std::vector<std::pair<std::string, DtProperty>>> getDtProperties();
 	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);
 	async::result<helix::UniqueDescriptor> installDtIrq(uint32_t index);
+
+	async::result<frg::expected<Error>> enableClock();
+	async::result<frg::expected<Error>> disableClock();
+	async::result<frg::expected<Error>> setClockFrequency(uint64_t frequency);
+
+	async::result<frg::expected<Error>> enableRegulator();
+	async::result<frg::expected<Error>> disableRegulator();
+	async::result<frg::expected<Error>> setRegulatorVoltage(uint64_t microvolts);
 
 	async::result<void> claimDevice();
 	async::result<void> enableBusIrq();
