@@ -35,10 +35,18 @@ enum struct LinkSpeed {
 
 enum struct LinkDuplex { unknown, half, full };
 
+enum class PhyMode {
+	rgmii,
+	rgmiiRxid,
+	rgmiiTxid,
+	rgmiiId,
+};
+
 struct EthernetPhy {
-	EthernetPhy(std::shared_ptr<Mdio> mdio, uint8_t phyAddress)
+	EthernetPhy(std::shared_ptr<Mdio> mdio, uint8_t phyAddress, PhyMode mode)
 	: mdio_(std::move(mdio)),
-	  phyAddress_(phyAddress) {}
+	  phyAddress_(phyAddress),
+	  mode_{mode} {}
 
 	virtual ~EthernetPhy() = default;
 
@@ -51,6 +59,8 @@ struct EthernetPhy {
 	LinkSpeed speed() const { return speed_; }
 	LinkDuplex duplex() const { return duplex_; }
 
+	PhyMode mode() const { return mode_; }
+
 protected:
 	std::shared_ptr<Mdio> mdio_;
 	uint8_t phyAddress_;
@@ -60,9 +70,11 @@ protected:
 
 	LinkSpeed speed_ = LinkSpeed::unknown;
 	LinkDuplex duplex_ = LinkDuplex::unknown;
+
+	PhyMode mode_;
 };
 
 async::result<std::shared_ptr<EthernetPhy>>
-makeEthernetPhy(std::shared_ptr<Mdio> mdio, uint8_t phyAddress);
+makeEthernetPhy(std::shared_ptr<Mdio> mdio, uint8_t phyAddress, PhyMode mode);
 
 } // namespace nic

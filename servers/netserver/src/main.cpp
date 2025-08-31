@@ -31,6 +31,7 @@
 #include <nic/virtio/virtio.hpp>
 #include <nic/rtl8168/rtl8168.hpp>
 #include <nic/k1x-emac/k1x-emac.hpp>
+#include <nic/bcmgenet/bcmgenet.hpp>
 #ifdef __x86_64__
 # include <nic/freebsd-e1000/common.hpp>
 #endif
@@ -365,6 +366,8 @@ async::result<protocols::svrctl::Error> doBindDt(mbus_ng::Entity baseEntity) {
 	std::shared_ptr<nic::Link> nic;
 	if (properties.contains("dt.compatible=spacemit,k1x-emac")) {
 		nic = co_await nic::k1x_emac::makeShared(baseEntity.id());
+	} else if (properties.contains("dt.compatible=brcm,bcm2711-genet-v5")) {
+		nic = co_await nic::bcmgenet::makeShared(baseEntity.id());
 	}
 
 	if (!nic) {
