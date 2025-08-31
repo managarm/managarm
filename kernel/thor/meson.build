@@ -185,6 +185,8 @@ if want_dtb
 	src += files(
 		'system/dtb/dtb.cpp',
 		'system/dtb/dtb_discover.cpp',
+		'system/dtb/clock.cpp',
+		'system/dtb/regulator.cpp',
 		'system/pci/pci_dtb.cpp'
 	)
 
