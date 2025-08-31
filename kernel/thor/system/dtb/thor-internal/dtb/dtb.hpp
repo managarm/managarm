@@ -5,6 +5,8 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/dtb/irq.hpp>
+#include <thor-internal/dtb/clock.hpp>
+#include <thor-internal/dtb/regulator.hpp>
 #include <thor-internal/irq.hpp>
 #include <frg/optional.hpp>
 #include <frg/hash_map.hpp>
@@ -160,6 +162,30 @@ struct DeviceTreeNode {
 		return associatedIrqController_;
 	}
 
+	void associateClock(uint32_t id, dt::Clock *clock) {
+		associatedClocks_.insert(id, clock);
+	}
+
+	dt::Clock *getAssociatedClock(uint32_t id) {
+		auto it = associatedClocks_.find(id);
+		if (it == associatedClocks_.end())
+			return nullptr;
+
+		return it->get<1>();
+	}
+
+	void associateRegulator(uint32_t id, dt::Regulator *regulator) {
+		associatedRegulators_.insert(id, regulator);
+	}
+
+	dt::Regulator *getAssociatedRegulator(uint32_t id) {
+		auto it = associatedRegulators_.find(id);
+		if (it == associatedRegulators_.end())
+			return nullptr;
+
+		return it->get<1>();
+	}
+
 	void associateMbusNode(dt::MbusNode *node) {
 		associatedMbusNode_ = node;
 	}
@@ -207,6 +233,10 @@ private:
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
+	frg::hash_map<uint32_t, dt::Clock *, frg::hash<uint32_t>, KernelAlloc
+	> associatedClocks_{frg::hash<uint32_t>{}, *kernelAlloc};
+	frg::hash_map<uint32_t, dt::Regulator *, frg::hash<uint32_t>, KernelAlloc
+	> associatedRegulators_{frg::hash<uint32_t>{}, *kernelAlloc};
 	dt::MbusNode *associatedMbusNode_{nullptr};
 };
 
