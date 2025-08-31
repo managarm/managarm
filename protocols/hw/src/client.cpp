@@ -900,6 +900,168 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	co_return std::move(irq);
 }
 
+async::result<frg::expected<Error>> Device::enableClock(uint32_t id) {
+	managarm::hw::EnableClockRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::disableClock(uint32_t id) {
+	managarm::hw::DisableClockRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::setClockFrequency(uint32_t id, uint64_t frequency) {
+	managarm::hw::SetClockFrequencyRequest req;
+	req.set_id(id);
+	req.set_frequency(frequency);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else if (resp.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS) {
+		co_return Error::illegalArguments;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::enableRegulator(uint32_t id) {
+	managarm::hw::EnableRegulatorRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::disableRegulator(uint32_t id) {
+	managarm::hw::DisableRegulatorRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::setRegulatorVoltage(uint32_t id, uint64_t microvolts) {
+	managarm::hw::SetRegulatorVoltageRequest req;
+	req.set_id(id);
+	req.set_voltage(microvolts);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else if (resp.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS) {
+		co_return Error::illegalArguments;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
 async::result<void> Device::enableDma() {
 	managarm::hw::EnableDmaRequest req;
 
