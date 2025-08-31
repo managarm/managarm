@@ -111,8 +111,8 @@ struct MbusNode final : private KernelBusObject {
 		if(preamble.error())
 			co_return Error::protocolViolation;
 
-		auto sendResponse = [] (LaneHandle &conversation,
-				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
+		auto sendResponse = []<typename Resp> (LaneHandle &conversation,
+				Resp &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};
 
@@ -246,18 +246,7 @@ struct MbusNode final : private KernelBusObject {
 				resp.set_error(managarm::hw::Errors::PROPERTY_NOT_FOUND);
 			}
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
-
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPropertiesRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::GetDtPropertiesRequest>(reqBuffer, *kernelAlloc);
 			if (!req) {
@@ -281,18 +270,7 @@ struct MbusNode final : private KernelBusObject {
 
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
-
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPathRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::GetDtPathRequest>(reqBuffer, *kernelAlloc);
 			if (!req) {
@@ -305,18 +283,7 @@ struct MbusNode final : private KernelBusObject {
 			resp.set_path(std::move(path));
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
-
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await dismiss(conversation);
