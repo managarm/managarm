@@ -284,6 +284,25 @@ struct MbusNode final : private KernelBusObject {
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtEntityByPhandleRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::GetDtEntityByPhandleRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::GetDtEntityByPhandleResponse<KernelAlloc> resp{*kernelAlloc};
+
+			auto *node = getDeviceTreeNodeByPhandle(req->phandle());
+			if (node) {
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+				resp.set_entity(node->getAssociatedMbusNode()->mbusId);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await DismissSender{conversation};

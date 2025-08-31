@@ -741,6 +741,32 @@ async::result<std::string> Device::getDtPath() {
 	co_return resp.path();
 }
 
+async::result<std::optional<int64_t>> Device::getDtEntityByPhandle(uint32_t phandle) {
+	managarm::hw::GetDtEntityByPhandleRequest req;
+	req.set_phandle(phandle);
+
+	auto [offer, sendReq, recvHead] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvHead.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::GetDtEntityByPhandleResponse>(recvHead);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS) {
+		co_return std::nullopt;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return resp.entity();
+	}
+}
+
 async::result<std::optional<DtProperty>> Device::getDtProperty(std::string_view name) {
 	managarm::hw::GetDtPropertyRequest req;
 	req.set_name(std::string(name));

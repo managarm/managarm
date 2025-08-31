@@ -157,6 +157,7 @@ struct Device {
 
 	async::result<DtInfo> getDtInfo();
 	async::result<std::string> getDtPath();
+	async::result<std::optional<int64_t>> getDtEntityByPhandle(uint32_t phandle);
 	async::result<std::optional<DtProperty>> getDtProperty(std::string_view name);
 	async::result<std::vector<std::pair<std::string, DtProperty>>> getDtProperties();
 	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);

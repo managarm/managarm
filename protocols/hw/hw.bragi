@@ -258,3 +258,14 @@ head(128):
 tail:
 	string path;
 }
+
+message GetDtEntityByPhandleRequest 35 {
+head(128):
+	uint32 phandle;
+}
+
+message GetDtEntityByPhandleResponse 36 {
+head(128):
+	Errors error;
+	int64 entity;
+}
