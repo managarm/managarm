@@ -214,7 +214,7 @@ if build_drivers or provide_deps
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# net
-		'nic/usb_net', 'nic/rtl8168', 'nic/freebsd-e1000', 'nic/k1x-emac',
+		'nic/usb_net', 'nic/rtl8168', 'nic/freebsd-e1000', 'nic/k1x-emac', 'nic/bcmgenet',
 		# gfx
 		'gfx/bochs', 'gfx/intel', 'gfx/virtio', 'gfx/plainfb', 'gfx/vmware', 'gfx/nvidia-open',
 		# io
