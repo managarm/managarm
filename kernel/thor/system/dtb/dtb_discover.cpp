@@ -79,6 +79,7 @@ struct MbusNode final : private KernelBusObject {
 		Properties properties;
 
 		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dt"));
+		properties.decStringProperty("dt.phandle", node->phandle(), 0);
 
 		if(parent) {
 			co_await parent->mbusPublished.wait();
