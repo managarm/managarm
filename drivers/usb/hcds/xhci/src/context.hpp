@@ -21,7 +21,7 @@ template <size_t Size>
 struct ContextArray {
 	ContextArray() = default;
 
-	ContextArray(bool largeCtx, arch::os::contiguous_pool *pool)
+	ContextArray(bool largeCtx, arch::contiguous_pool *pool)
 	: largeCtx_{largeCtx} {
 		if (largeCtx) {
 			largeArr_ = arch::dma_object<LargeArr>{pool};
