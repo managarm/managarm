@@ -41,8 +41,8 @@ SECTIONS {
 	}
 
 	.data : { *(.data .data.*) }
-#if defined(__riscv)
-	/* RISC-V requires a GOT. */
+#if defined(__riscv) || defined(__aarch64__)
+	/* RISC-V and AArch64 require a GOT. */
 	.got : { *(.got.plt) *(.got) }
 #endif
 	.note.managarm : { *(.note.managarm) }
@@ -102,7 +102,7 @@ SECTIONS {
 
 	.comment 0 : { *(.comment) }
 
-#if !defined(__riscv)
+#if !defined(__riscv) && !defined(__aarch64__)
 	.got : {
 		*(.got) *(.got.*) *(.igot) *(.igot.*)
 	}
