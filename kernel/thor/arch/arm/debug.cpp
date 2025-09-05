@@ -1,7 +1,7 @@
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <eir/interface.hpp>
-#include <arch/aarch64/mem_space.hpp>
+#include <arch/mem_space.hpp>
 #include <arch/register.hpp>
 
 namespace thor {
