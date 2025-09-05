@@ -66,6 +66,7 @@ source and build directories. Here we use `~/managarm`, but it can be any direct
     define_options:
       arch: riscv64
       arch-triple: riscv64-managarm
+      rust-arch: riscv64gc
     ```
     > Note: Every build directory only builds for the one architecture specified by the options. If you want to build managarm for multiple architectures, set up a build directory for each architecture desired.
 
