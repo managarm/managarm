@@ -15,7 +15,6 @@ if native_pe_toolchain
 	eir_uefi_ld_args += [
 		'-Wl,-entry:eirUefiMain',
 		'-Wl,-subsystem:efi_application',
-		'-Wl,-lld-allow-duplicate-weak',
 		'-gdwarf'
 	]
 	eir_uefi_exe_name = 'eir-uefi'

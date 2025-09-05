@@ -21,6 +21,8 @@ void debugPrintChar(char c) {
 	}
 }
 
+void initPlatform() {}
+
 enum X86PageFlags {
 	kPagePresent = 1,
 	kPageWrite = 2,
