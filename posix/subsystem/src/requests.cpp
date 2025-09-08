@@ -486,11 +486,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
 				resp.set_mode(mode);
-			} else if (waitResult.error() == Error::interrupted) {
-				resp.set_error(managarm::posix::Errors::INTERRUPTED);
 			} else {
-				assert(waitResult.error() == Error::noChildProcesses);
-				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
+				resp.set_error(waitResult.error() | toPosixProtoError);
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
