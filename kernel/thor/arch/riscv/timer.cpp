@@ -60,9 +60,7 @@ uint64_t getRawTimestampCounter() {
 	return v;
 }
 
-uint64_t getClockNanos() {
-	return inverseFreq * getRawTimestampCounter();
-}
+uint64_t getClockNanos() { return inverseFreq * getRawTimestampCounter(); }
 
 void setTimerDeadline(frg::optional<uint64_t> deadline) {
 	assert(!intsAreEnabled());

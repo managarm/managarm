@@ -142,9 +142,7 @@ address_t getSingle4kPage(address_t address) {
 	return page_ptr;
 }
 
-int getKernelVirtualBits() {
-	return 49;
-}
+int getKernelVirtualBits() { return 49; }
 
 void initProcessorEarly() {
 	eir::infoLogger() << "Starting Eir" << frg::endlog;
@@ -201,7 +199,6 @@ void initProcessorPaging() {
 	allocLogRingBuffer();
 #endif
 }
-
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 

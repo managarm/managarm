@@ -142,8 +142,7 @@ static initgraph::Task loadKernelImageTask{
 	    // Setup the kernel image.
 	    loadKernelImage(reinterpret_cast<void *>(kernel_image.data()));
 	    eir::infoLogger() << "eir: Allocated " << (allocatedMemory >> 10)
-			      << " KiB after loading the kernel"
-			      << frg::endlog;
+	                      << " KiB after loading the kernel" << frg::endlog;
     }
 };
 

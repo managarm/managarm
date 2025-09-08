@@ -221,9 +221,9 @@ struct Aplic : dt::IrqController {
 				auto *ctx = aplic_->imsic_->bspContext;
 				// TODO: Fix this limitation by properly allocating IMSIC interrupts.
 				if (idx_ >= ctx->irqs.size())
-					panicLogger(
-					) << "thor: Cannot identity route APLIC interrupt to IMSIC interrupt "
-					  << idx_ << frg::endlog;
+					panicLogger()
+					    << "thor: Cannot identity route APLIC interrupt to IMSIC interrupt " << idx_
+					    << frg::endlog;
 				ctx->irqs[idx_] = this;
 				aplic_->space_.store(aplicTargetRegister(idx_), (ctx->hartIndex << 18) | idx_);
 			} else {

@@ -219,10 +219,9 @@ void discoverMemoryFromDtb() {
 }
 
 static initgraph::Task discoverMemory{
-    &globalInitEngine,
-    "discover-memory",
-    initgraph::Entails{getInitrdAvailableStage()},
-    [] { discoverMemoryFromDtb(); }
+    &globalInitEngine, "discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
+	    discoverMemoryFromDtb();
+    }
 };
 
 } // namespace eir

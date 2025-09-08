@@ -17,7 +17,8 @@ efi_status fsOpen(efi_file_protocol **file, char16_t *path) {
 	efi_guid simpleFsGuid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
 
 	efi_loaded_image_protocol *loadedImage = nullptr;
-	EFI_CHECK(bs->handle_protocol(handle, &loadedImageGuid, reinterpret_cast<void **>(&loadedImage))
+	EFI_CHECK(
+	    bs->handle_protocol(handle, &loadedImageGuid, reinterpret_cast<void **>(&loadedImage))
 	);
 
 	efi_simple_file_system_protocol *fileSystem = nullptr;
@@ -59,7 +60,8 @@ char16_t *asciiToUcs2(frg::string_view &s) {
 	assert(bs);
 
 	char16_t *ucs2 = nullptr;
-	EFI_CHECK(bs->allocate_pool(EfiLoaderData, (s.size() + 1) * 2, reinterpret_cast<void **>(&ucs2))
+	EFI_CHECK(
+	    bs->allocate_pool(EfiLoaderData, (s.size() + 1) * 2, reinterpret_cast<void **>(&ucs2))
 	);
 
 	for (size_t i = 0; i < s.size(); i++) {

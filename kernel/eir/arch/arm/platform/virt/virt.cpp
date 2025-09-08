@@ -2,8 +2,8 @@
 #include <eir-internal/arch/pl011.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
-#include <eir/interface.hpp>
 #include <eir-internal/memory-layout.hpp>
+#include <eir/interface.hpp>
 #include <frg/manual_box.hpp>
 
 namespace eir {
@@ -31,9 +31,7 @@ static initgraph::Task reserveBootUartMmio{
     &globalInitEngine,
     "virt.reserve-boot-uart-mmio",
     initgraph::Entails{getMemoryRegionsKnownStage()},
-    [] {
-	    reserveEarlyMmio(1);
-    }
+    [] { reserveEarlyMmio(1); }
 };
 
 static initgraph::Task setupBootUartMmio{

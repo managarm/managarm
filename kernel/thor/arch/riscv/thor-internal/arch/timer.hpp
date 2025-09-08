@@ -2,6 +2,4 @@
 
 #include <thor-internal/arch-generic/cpu.hpp>
 
-namespace thor {
-
-} // namespace thor
+namespace thor {} // namespace thor

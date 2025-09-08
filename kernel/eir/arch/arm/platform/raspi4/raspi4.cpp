@@ -5,8 +5,8 @@
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
-#include <eir/interface.hpp>
 #include <eir-internal/memory-layout.hpp>
+#include <eir/interface.hpp>
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/manual_box.hpp>
 #include <frg/tuple.hpp>
@@ -334,9 +334,7 @@ static initgraph::Task reserveBootUartMmio{
     &globalInitEngine,
     "raspi4.reserve-boot-uart-mmio",
     initgraph::Entails{getMemoryRegionsKnownStage()},
-    [] {
-	    reserveEarlyMmio(1);
-    }
+    [] { reserveEarlyMmio(1); }
 };
 
 static initgraph::Task setupBootUartMmio{

@@ -102,19 +102,19 @@ std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
 
 initgraph::Task findAcpi{
     &globalInitEngine, "uefi.find-acpi", initgraph::Entails{getBootservicesDoneStage()}, [] {
-		rsdp = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);
+	    rsdp = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);
     }
 };
 
 initgraph::Task findDtb{
     &globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
-		eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
+	    eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
     }
 };
 
 initgraph::Task findSmbios3{
     &globalInitEngine, "uefi.find-smbios3", initgraph::Entails{getBootservicesDoneStage()}, [] {
-		eirSmbios3Ptr = findConfigurationTable(SMBIOS3_TABLE_GUID).value_or(0);
+	    eirSmbios3Ptr = findConfigurationTable(SMBIOS3_TABLE_GUID).value_or(0);
     }
 };
 
@@ -137,10 +137,7 @@ uint32_t convertIp(frg::string_view ip) {
 }
 
 initgraph::Task preparePxe{
-    &globalInitEngine,
-    "uefi.pxe-setup",
-    initgraph::Entails{getBootservicesDoneStage()},
-    [] {
+    &globalInitEngine, "uefi.pxe-setup", initgraph::Entails{getBootservicesDoneStage()}, [] {
 	    efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
 	    efi_guid devpath_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
 	    efi_guid devpath2text_guid = EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID;
@@ -398,10 +395,7 @@ initgraph::Task readInitrd{
 };
 
 initgraph::Task setupGop{
-    &globalInitEngine,
-    "uefi.setup-gop",
-    initgraph::Entails{getBootservicesDoneStage()},
-    [] {
+    &globalInitEngine, "uefi.setup-gop", initgraph::Entails{getBootservicesDoneStage()}, [] {
 	    // Get the frame buffer.
 	    efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	    efi_status status =
