@@ -37,8 +37,6 @@ efi_loaded_image_protocol *loadedImage = nullptr;
 frg::string_view initrdPath = "managarm\\initrd.cpio";
 size_t initrdSize = 0;
 
-physaddr_t rsdp = 0;
-
 size_t memMapSize = 0;
 size_t mapKey = 0;
 size_t descriptorSize = 0;
@@ -100,21 +98,14 @@ std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
 	return std::nullopt;
 }
 
-initgraph::Task findAcpi{
-    &globalInitEngine, "uefi.find-acpi", initgraph::Entails{getBootservicesDoneStage()}, [] {
-	    rsdp = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);
-    }
-};
-
-initgraph::Task findDtb{
-    &globalInitEngine, "uefi.find-dtb", initgraph::Entails{getBootservicesDoneStage()}, [] {
+initgraph::Task obtainFirmwareTables{
+    &globalInitEngine,
+    "uefi.obtain-firmware-tables",
+    initgraph::Entails{getBootservicesDoneStage(), getInfoStructAvailableStage()},
+    [] {
 	    eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
-    }
-};
-
-initgraph::Task findSmbios3{
-    &globalInitEngine, "uefi.find-smbios3", initgraph::Entails{getBootservicesDoneStage()}, [] {
-	    eirSmbios3Ptr = findConfigurationTable(SMBIOS3_TABLE_GUID).value_or(0);
+	    eirRsdpAddr = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);
+	    eirSmbios3Addr = findConfigurationTable(SMBIOS3_TABLE_GUID).value_or(0);
     }
 };
 
@@ -557,14 +548,6 @@ initgraph::Task setupMemoryMap{
 		    entry = nextEntry(endAddr(lastContiguousEntry));
 	    }
     }
-};
-
-initgraph::Task setupAcpiInfo{
-    &globalInitEngine,
-    "uefi.setup-acpi-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] { info_ptr->acpiRsdp = rsdp; }
 };
 
 initgraph::Task setupInitrdInfo{

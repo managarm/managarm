@@ -95,12 +95,15 @@ static initgraph::Task setupInfoStruct{
     [] { info_ptr = generateInfo(cmdline); }
 };
 
-static initgraph::Task passDtbInfo{
+static initgraph::Task passFirmwareTables{
     &globalInitEngine,
-    "generic.pass-dtb-info",
+    "generic.pass-firmware-tables",
     initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getEirDoneStage()},
     [] {
+	    if (eirRsdpAddr) {
+		    info_ptr->acpiRsdp = eirRsdpAddr;
+	    }
 	    if (eirDtbPtr) {
 		    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 		    info_ptr->dtbPtr = eirDtbPtr;
