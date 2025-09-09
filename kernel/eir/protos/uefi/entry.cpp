@@ -2,6 +2,7 @@
 #include <arch/io_space.hpp>
 #endif
 #include <assert.h>
+#include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -101,7 +102,9 @@ std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
 initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "uefi.obtain-firmware-tables",
-    initgraph::Entails{getBootservicesDoneStage(), getInfoStructAvailableStage()},
+    initgraph::Entails{
+        getBootservicesDoneStage(), getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()
+    },
     [] {
 	    eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
 	    eirRsdpAddr = findConfigurationTable(ACPI_20_TABLE_GUID).value_or(0);

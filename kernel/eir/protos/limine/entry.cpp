@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <dtb.hpp>
+#include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -40,7 +41,7 @@ LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST, 0);
 initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "limine.obtain-firmware-tables",
-    initgraph::Entails{getInfoStructAvailableStage()},
+    initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (rsdp_request.response) {
 		    eirRsdpAddr = reinterpret_cast<uint64_t>(rsdp_request.response->address);

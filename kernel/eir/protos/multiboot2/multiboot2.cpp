@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -23,7 +24,7 @@ eir::Mb2Tag *acpiTag = nullptr;
 initgraph::Task setupAcpiInfo{
     &globalInitEngine,
     "mb2.setup-acpi-info",
-    initgraph::Entails{getInfoStructAvailableStage()},
+    initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (acpiTag) {
 		    auto *rsdpPtr = bootAlloc<uint8_t>(acpiTag->size - sizeof(Mb2TagRSDP));
