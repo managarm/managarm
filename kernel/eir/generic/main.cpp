@@ -15,7 +15,8 @@ namespace eir {
 
 // Address of the DTB.
 constinit physaddr_t eirDtbPtr{0};
-constinit physaddr_t eirSmbios3Ptr{0};
+constinit physaddr_t eirRsdpAddr{0};
+constinit physaddr_t eirSmbios3Addr{0};
 
 void *initrd = nullptr;
 
@@ -421,7 +422,7 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 	} else if (type == elf_note_type::smbiosData) {
 		if (desc.size() != sizeof(SmbiosData))
 			panicLogger() << "SmbiosData size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &eirSmbios3Ptr, sizeof(SmbiosData));
+		memcpy(desc.data(), &eirSmbios3Addr, sizeof(SmbiosData));
 		return true;
 	} else if (type == elf_note_type::bootUartConfig) {
 		if (desc.size() != sizeof(BootUartConfig))

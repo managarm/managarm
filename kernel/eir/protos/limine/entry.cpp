@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <dtb.hpp>
+#include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -37,13 +38,16 @@ LIMINE_REQUEST(dtb_request, LIMINE_DTB_REQUEST, 0);
 LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST, 0);
 [[gnu::used, gnu::section(".requestsEndMarker")]] volatile LIMINE_REQUESTS_END_MARKER;
 
-initgraph::Task setupSmbiosInfo{
+initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
-    "limine.setup-smbios-info",
-    initgraph::Entails{getInfoStructAvailableStage()},
+    "limine.obtain-firmware-tables",
+    initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
     [] {
+	    if (rsdp_request.response) {
+		    eirRsdpAddr = reinterpret_cast<uint64_t>(rsdp_request.response->address);
+	    }
 	    if (smbios_request.response) {
-		    eirSmbios3Ptr = reinterpret_cast<uint64_t>(smbios_request.response->entry_64);
+		    eirSmbios3Addr = reinterpret_cast<uint64_t>(smbios_request.response->entry_64);
 	    }
     }
 };
@@ -59,10 +63,6 @@ initgraph::Task setupMiscInfo{
 		    panicLogger() << "eir: Missing response for Limine BSP hart ID request" << frg::endlog;
 	    info_ptr->hartId = riscv_bsp_hartid_request.response->bsp_hartid;
 #endif
-
-	    if (rsdp_request.response) {
-		    info_ptr->acpiRsdp = reinterpret_cast<uint64_t>(rsdp_request.response->address);
-	    }
     }
 };
 

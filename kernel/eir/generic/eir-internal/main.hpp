@@ -7,8 +7,10 @@
 
 namespace eir {
 
+// These fields are set by the boot protocol code.
 extern "C" physaddr_t eirDtbPtr;
-extern "C" physaddr_t eirSmbios3Ptr;
+extern physaddr_t eirRsdpAddr;
+extern physaddr_t eirSmbios3Addr;
 
 struct GlobalInitEngine final : initgraph::Engine {
 	void preActivate(initgraph::Node *node) override;
