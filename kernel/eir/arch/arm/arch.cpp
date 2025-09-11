@@ -10,6 +10,41 @@ namespace eir {
 
 namespace {
 
+void enterKernelEl() {
+	uint64_t aa64mmfr1;
+	asm volatile("mrs %0, id_aa64mmfr1_el1" : "=r"(aa64mmfr1));
+
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+
+	// Enter VHE mode if it is supported.
+	if ((currentel >> 2) == 2 && ((aa64mmfr1 >> 8) & 0xF) == 1) {
+		uint64_t hcr_el2;
+		asm volatile("mrs %0, hcr_el2" : "=r"(hcr_el2) : : "memory");
+		infoLogger() << "eir: Entering VHE mode" << frg::endlog;
+		asm volatile(
+		    // clang-format off
+		    // Set the E2H bit.
+		    "msr hcr_el2, %0" "\n"
+		    "\t" "isb" "\n"
+		    // Flush the TLB since the E2H bit may be cached.
+		    "\t" "tlbi alle2" "\n"
+		    "\r" "dsb ish" "\n"
+		    "\r" "isb"
+		    // clang-format on
+		    :
+		    : "r"(hcr_el2 | (UINT64_C(1) << 34))
+		    : "memory"
+		);
+	} else {
+		// TODO: Instead of dropping to EL1 in early boot, we should drop to EL1 here
+		//       (after doing the VHE detection).
+		if ((currentel >> 2) == 2)
+			panicLogger() << "eir: We are in EL2 but VHE is unsupported" << frg::endlog;
+	}
+}
+
+// Must only be called in either EL1 or in EL2 with E2H=1 (i.e., after enterKernelEl() is done).
 void enterKernelPaging() {
 	uint64_t aa64mmfr0;
 	asm volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(aa64mmfr0));
@@ -275,7 +310,11 @@ address_t getSingle4kPage(address_t address) {
 
 int getKernelVirtualBits() { return 49; }
 
-void initProcessorEarly() { eir::infoLogger() << "Starting Eir" << frg::endlog; }
+void initProcessorEarly() {
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+	eir::infoLogger() << "Starting Eir in EL " << (currentel >> 2) << frg::endlog;
+}
 
 void initProcessorPaging() {
 	setupPaging();
@@ -302,6 +341,7 @@ void initProcessorPaging() {
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 
 [[noreturn]] void enterKernel() {
+	enterKernelEl();
 	enterKernelPaging();
 	eirEnterKernel(kernelEntry, getKernelStackPtr());
 }
