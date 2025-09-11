@@ -22,6 +22,17 @@ eirStackTop:
 .endm
 
 .section .text
+.global eirFlushDisableMmuEl2
+eirFlushDisableMmuEl2:
+	// x0, x1, x2: see FLUSH_DC
+	// x3: new sctlr_el2 (MMU bit is ignored).
+	FLUSH_DC
+	bic x3, x3, #1
+	msr sctlr_el2, x3
+	isb
+	ret
+
+.section .text
 .global eirFlushDisableMmuEl1
 eirFlushDisableMmuEl1:
 	// x0, x1, x2: see FLUSH_DC
@@ -29,6 +40,20 @@ eirFlushDisableMmuEl1:
 	FLUSH_DC
 	bic x3, x3, #1
 	msr sctlr_el1, x3
+	isb
+	ret
+
+.section .text
+.global eirEnterE2h
+eirEnterE2h:
+	// x0: new hcr_el2 (E2H bit is ignored).
+	orr x0, x0, #(1 << 34)
+	msr hcr_el2, x0
+	isb
+	// Flush the TLB since the E2H bit may be cached.
+	tlbi alle2
+	tlbi alle1
+	dsb ish
 	isb
 	ret
 

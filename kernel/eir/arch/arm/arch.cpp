@@ -7,13 +7,20 @@
 extern "C" [[noreturn]] void eirEnterKernel(uint64_t entry, uint64_t stack);
 
 extern "C" void
+eirFlushDisableMmuEl2(uint64_t flushStart, uint64_t flushEnd, uint64_t dcLineSize, uint64_t sctlr);
+extern "C" void
 eirFlushDisableMmuEl1(uint64_t flushStart, uint64_t flushEnd, uint64_t dcLineSize, uint64_t sctlr);
+
+extern "C" void eirEnterE2h(uint64_t hcr);
 
 namespace eir {
 
 namespace {
 
 void disableMmu() {
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+
 	uint64_t ctr;
 	asm("mrs %0, ctr_el0" : "=r"(ctr));
 	auto dcLineSize = 4 << ((ctr >> 16) & 0b1111);
@@ -23,10 +30,19 @@ void disableMmu() {
 	auto flushEnd = (bootCaps.imageEnd + (dcLineSize - 1)) & ~(dcLineSize - 1);
 
 	uint64_t sctlr;
-	asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
-	eirFlushDisableMmuEl1(flushStart, flushEnd, dcLineSize, sctlr);
+	if ((currentel >> 2) == 2) {
+		asm volatile("mrs %0, sctlr_el2" : "=r"(sctlr));
+		eirFlushDisableMmuEl2(flushStart, flushEnd, dcLineSize, sctlr);
+	} else {
+		if ((currentel >> 2) != 1)
+			panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
+			              << frg::endlog;
+		asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr));
+		eirFlushDisableMmuEl1(flushStart, flushEnd, dcLineSize, sctlr);
+	}
 }
 
+// Must only be called in either EL1 or in EL2 with E2H=1.
 void enterKernelPaging() {
 	uint64_t aa64mmfr0;
 	asm volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(aa64mmfr0));
@@ -244,7 +260,11 @@ address_t getSingle4kPage(address_t address) {
 
 int getKernelVirtualBits() { return 49; }
 
-void initProcessorEarly() { eir::infoLogger() << "Starting Eir" << frg::endlog; }
+void initProcessorEarly() {
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+	eir::infoLogger() << "Starting Eir in EL " << (currentel >> 2) << frg::endlog;
+}
 
 void initProcessorPaging() {
 	setupPaging();
@@ -271,13 +291,40 @@ void initProcessorPaging() {
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }
 
 [[noreturn]] void enterKernel() {
+	uint64_t aa64mmfr1;
+	asm volatile("mrs %0, id_aa64mmfr1_el1" : "=r"(aa64mmfr1));
+
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+	if ((currentel >> 2) != 1 && (currentel >> 2) != 2)
+		panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
+		              << frg::endlog;
+
 	if (!physOffset) {
 		// Running from identity mapping. Paging may or may not be enabled.
 		// Reconfigure paging.
 		infoLogger() << "eir: Will reprogram MMU before jumping to kernel" << frg::endlog;
 
 		disableMmu();
+
+		if ((currentel >> 2) == 2) {
+			// Enter E2H mode if VHE is supported.
+			if (((aa64mmfr1 >> 8) & 0xF) == 1) {
+				infoLogger() << "eir: Entering VHE mode" << frg::endlog;
+				uint64_t hcr = 0;
+				eirEnterE2h(hcr);
+			} else {
+				// TODO: Instead of dropping to EL1 in early boot, we should drop to EL1 here
+				//       (after doing the VHE detection).
+				panicLogger() << "eir: We are in EL2 but VHE is unsupported" << frg::endlog;
+			}
+		}
 	} else {
+		// TODO: We can continue here if E2H is already set.
+		if ((currentel >> 2) != 1)
+			panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
+			              << " with non-identity mapping" << frg::endlog;
+
 		// Running from non-identity mapping with paging enabled.
 		// We cannot reconfigure paging.
 		infoLogger()
