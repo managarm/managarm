@@ -145,11 +145,76 @@ address_t getSingle4kPage(address_t address) {
 int getKernelVirtualBits() { return 49; }
 
 void initProcessorEarly() {
-	eir::infoLogger() << "Starting Eir" << frg::endlog;
+	uint64_t currentel;
+	asm volatile("mrs %0, currentel" : "=r"(currentel));
+	eir::infoLogger() << "Starting Eir in EL " << (currentel >> 2) << frg::endlog;
 
+	// Enumerate supported features via id_aa64mmrX registers.
 	uint64_t aa64mmfr0;
+	uint64_t aa64mmfr1;
 	asm volatile("mrs %0, id_aa64mmfr0_el1" : "=r"(aa64mmfr0));
+	asm volatile("mrs %0, id_aa64mmfr1_el1" : "=r"(aa64mmfr1));
 
+	// Enter VHE mode if it is supported.
+	if ((currentel >> 2) == 2 && ((aa64mmfr1 >> 8) & 0xF) == 1) {
+		uint64_t hcr_el2;
+		asm volatile("mrs %0, hcr_el2" : "=r"(hcr_el2) : : "memory");
+		infoLogger() << "eir: Entering VHE mode" << frg::endlog;
+		asm volatile(
+		    // clang-format off
+			"msr hcr_el2, %0" "\n"
+			"\t" "isb"
+		    // clang-format on
+		    :
+		    : "r"(hcr_el2 | (UINT64_C(1) << 34))
+		    : "memory"
+		);
+	} else {
+		// TODO: Instead of dropping to EL1 in early boot, we should drop to EL1 here
+		//       (after doing the VHE detection).
+		if ((currentel >> 2) == 2)
+			panicLogger() << "eir: We are in EL2 but VHE is unsupported" << frg::endlog;
+	}
+
+	// Disable paging.
+	// We reprogram MAIR and HCR which could conflict with the current paging mode.
+	if (!physOffset) {
+		infoLogger() << "eir: Disabling paging" << frg::endlog;
+		uint64_t sctlr_el1;
+		asm volatile("mrs %0, sctlr_el1" : "=r"(sctlr_el1) : : "memory");
+		infoLogger() << "SCTLR_EL1 was 0x" << frg::hex_fmt{sctlr_el1} << frg::endlog;
+		sctlr_el1 &= ~UINT64_C(1);
+		asm volatile(
+		    // clang-format off
+			"msr sctlr_el1, %0" "\n"
+			"\r" "isb"
+		    // clang-format on
+		    :
+		    : "r"(sctlr_el1)
+		    : "memory"
+		);
+	} else {
+		infoLogger() << "eir: Running from non-identity mapping. Cannot disable paging."
+		             << frg::endlog;
+	}
+
+	// Flush the entire TLB:
+	// * We want to flush previous mappings to have a clean TLB
+	//   before enabling the proper mappings for Thor.
+	// * Also, the TLB might cache HCR_EL2.E2H.
+	infoLogger() << "eir: Flushing TLB" << frg::endlog;
+	asm volatile(
+	    // clang-format off
+		"tlbi vmalle1" "\n"
+		"\r" "dsb ish" "\n"
+		"\r" "isb"
+	    // clang-format on
+	    :
+	    :
+	    : "memory"
+	);
+
+	// Setup system registers for paging (MAIR and TCR).
 	if (aa64mmfr0 & (uint64_t(0xF) << 28))
 		eir::panicLogger() << "PANIC! This CPU doesn't support 4K memory translation granules"
 		                   << frg::endlog;
