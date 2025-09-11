@@ -25,6 +25,12 @@ eirEnterKernel:
 	msr SCTLR_EL1, x0
 	isb
 
+	// Invalidate TLB.
+	// This ensures that the previous mappings are flushed in case the MMU was already enabled.
+	tlbi vmalle1
+	dsb ish
+	isb
+
 	mov sp, x3
 	br x2
 
