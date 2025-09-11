@@ -4,6 +4,8 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/memory-layout.hpp>
 
+extern "C" void eirExcVectors();
+
 namespace eir {
 
 uintptr_t eirTTBR[2];
@@ -175,6 +177,10 @@ void initProcessorEarly() {
 		if ((currentel >> 2) == 2)
 			panicLogger() << "eir: We are in EL2 but VHE is unsupported" << frg::endlog;
 	}
+
+	// Install exception handlers (in case the boot protocol did not do that already).
+	auto vbar = reinterpret_cast<void *>(eirExcVectors);
+	asm volatile("msr vbar_el1, %0" : : "r"(vbar) : "memory");
 
 	// Disable paging.
 	// We reprogram MAIR and HCR which could conflict with the current paging mode.
