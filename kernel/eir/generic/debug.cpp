@@ -6,8 +6,20 @@
 
 namespace eir {
 
+namespace {
+
+using HandlerList = frg::intrusive_list<
+    LogHandler,
+    frg::locate_member<LogHandler, frg::default_list_hook<LogHandler>, &LogHandler::hook>>;
+
+HandlerList &accessHandlerList() {
+	static frg::eternal<HandlerList> singleton;
+	return *singleton;
+}
+
+} // anonymous namespace
+
 bool log_e9 = false;
-void (*logHandler)(const char c) = nullptr;
 
 constinit OutputSink infoSink;
 constinit frg::stack_buffer_logger<LogSink, 128> infoLogger;
@@ -40,9 +52,6 @@ void OutputSink::print(char c) {
 	// Also, it can log to virtual devices (like e9) when run inside VMs.
 	debugPrintChar(c);
 
-	if (logHandler)
-		logHandler(c);
-
 	if (displayFb) {
 		if (c == '\n') {
 			outputX = 0;
@@ -71,6 +80,11 @@ void OutputSink::print(char c) {
 }
 
 void OutputSink::print(const char *str) {
+	auto &handlerList = accessHandlerList();
+	for (auto *handler : handlerList) {
+		handler->emit(str);
+	}
+
 	while (*str)
 		print(*(str++));
 }
@@ -86,6 +100,25 @@ void PanicSink::finalize(bool) {
 	infoSink.print('\n');
 	while (true)
 		asm volatile("" : : : "memory");
+}
+
+void enableLogHandler(LogHandler *handler) {
+	if (handler->active)
+		return;
+
+	auto &handlerList = accessHandlerList();
+	handlerList.push_back(handler);
+	handler->active = true;
+}
+
+void disableLogHandler(LogHandler *handler) {
+	if (!handler->active)
+		return;
+
+	auto &handlerList = accessHandlerList();
+	auto it = handlerList.iterator_to(handler);
+	handlerList.erase(it);
+	handler->active = false;
 }
 
 } // namespace eir

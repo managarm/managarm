@@ -78,18 +78,25 @@ struct EirAllocator {
 	void free(void *) { return; }
 };
 
-void uefiBootServicesLogHandler(const char c) {
-	if (bs) {
-		if (c == '\n') {
-			frg::array<char16_t, 3> newline = {u"\r\n"};
-			st->con_out->output_string(st->con_out, newline.data());
-			return;
+struct ConOutLogHandler : LogHandler {
+	void emit(frg::string_view line) override {
+		assert(bs);
+		for (size_t i = 0; i < line.size(); ++i) {
+			auto c = line[i];
+			if (c == '\n') {
+				frg::array<char16_t, 3> newline = {u"\r\n"};
+				st->con_out->output_string(st->con_out, newline.data());
+			} else {
+				frg::array<char16_t, 2> converted = {static_cast<char16_t>(c), 0};
+				st->con_out->output_string(st->con_out, converted.data());
+			}
 		}
-
-		frg::array<char16_t, 2> converted = {static_cast<char16_t>(c), 0};
-		st->con_out->output_string(st->con_out, converted.data());
+		frg::array<char16_t, 3> newline = {u"\r\n"};
+		st->con_out->output_string(st->con_out, newline.data());
 	}
-}
+};
+
+constinit ConOutLogHandler conOutLogHandler;
 
 std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
 	const efi_configuration_table *t = st->configuration_table;
@@ -455,7 +462,7 @@ initgraph::Task setupGop{
 	        gop->mode->info->pixels_per_scan_line * (gopBpp / 8)
 	    );
 
-	    logHandler = nullptr;
+	    disableLogHandler(&conOutLogHandler);
     }
 };
 
@@ -465,6 +472,8 @@ initgraph::Task exitBootServices{
     initgraph::Requires{getBootservicesDoneStage()},
     initgraph::Entails{getReservedRegionsKnownStage()},
     [] {
+	    disableLogHandler(&conOutLogHandler);
+
 	    memMapSize = sizeof(efi_memory_descriptor);
 	    efi_memory_descriptor dummy;
 
@@ -706,7 +715,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	handle = h;
 
 	if (useConOut)
-		logHandler = uefiBootServicesLogHandler;
+		enableLogHandler(&conOutLogHandler);
 
 	// Reset the watchdog timer.
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));
