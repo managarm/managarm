@@ -5,10 +5,12 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <frg/array.hpp>
 #include <frg/cmdline.hpp>
+#include <frg/scope_exit.hpp>
 #include <stdbool.h>
 
 #include "efi.hpp"
@@ -32,7 +34,9 @@ namespace {
 // code, causing characters to be printed twice.
 constexpr bool useConOut = false;
 
-efi_graphics_output_protocol *gop = nullptr;
+efi_graphics_output_protocol *gop{nullptr};
+unsigned int gopBpp{0};
+
 efi_loaded_image_protocol *loadedImage = nullptr;
 
 frg::string_view initrdPath = "managarm\\initrd.cpio";
@@ -75,18 +79,25 @@ struct EirAllocator {
 	void free(void *) { return; }
 };
 
-void uefiBootServicesLogHandler(const char c) {
-	if (bs) {
-		if (c == '\n') {
-			frg::array<char16_t, 3> newline = {u"\r\n"};
-			st->con_out->output_string(st->con_out, newline.data());
-			return;
+struct ConOutLogHandler : LogHandler {
+	void emit(frg::string_view line) override {
+		assert(bs);
+		for (size_t i = 0; i < line.size(); ++i) {
+			auto c = line[i];
+			if (c == '\n') {
+				frg::array<char16_t, 3> newline = {u"\r\n"};
+				st->con_out->output_string(st->con_out, newline.data());
+			} else {
+				frg::array<char16_t, 2> converted = {static_cast<char16_t>(c), 0};
+				st->con_out->output_string(st->con_out, converted.data());
+			}
 		}
-
-		frg::array<char16_t, 2> converted = {static_cast<char16_t>(c), 0};
-		st->con_out->output_string(st->con_out, converted.data());
+		frg::array<char16_t, 3> newline = {u"\r\n"};
+		st->con_out->output_string(st->con_out, newline.data());
 	}
-}
+};
+
+constinit ConOutLogHandler conOutLogHandler;
 
 std::optional<physaddr_t> findConfigurationTable(efi_guid guid) {
 	const efi_configuration_table *t = st->configuration_table;
@@ -394,21 +405,68 @@ initgraph::Task setupGop{
 	    efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	    efi_status status =
 	        bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop));
-
-	    if (gop->mode->info->version != 0)
-		    eir::panicLogger() << "error: unsupported EFI_GRAPHICS_OUTPUT_MODE_INFORMATION version!"
-		                       << frg::endlog;
-
-	    if (status == EFI_SUCCESS) {
-		    eir::infoLogger() << "eir: framebuffer " << gop->mode->info->horizontal_resolution
-		                      << "x" << gop->mode->info->vertical_resolution << " address=0x"
-		                      << frg::hex_fmt{gop->mode->framebuffer_base} << frg::endlog;
-	    } else {
-		    // the spec claims that the `void **interface` argument will be a nullptr on
-		    // spec-listed error returns, but only lists two error codes; there are more
-		    // error codes in the wild, so best to not rely on them to return a nullptr
-		    gop = nullptr;
+	    // Clear the global gop pointer unless the whole task succeeds.
+	    frg::scope_exit clearOnFailure{[&] { gop = nullptr; }};
+	    if (status != EFI_SUCCESS) {
+		    infoLogger() << "eir: Failed to locate GOP, status: " << status << frg::endlog;
+		    return;
 	    }
+
+	    infoLogger() << "eir: framebuffer " << gop->mode->info->horizontal_resolution << "x"
+	                 << gop->mode->info->vertical_resolution << " address=0x"
+	                 << frg::hex_fmt{gop->mode->framebuffer_base} << frg::endlog;
+
+	    switch (gop->mode->info->pixel_format) {
+		    case PixelBlueGreenRedReserved8BitPerColor:
+			    gopBpp = 32;
+			    break;
+		    case PixelRedGreenBlueReserved8BitPerColor:
+			    gopBpp = 32;
+			    break;
+		    case PixelBitMask: {
+			    assert(gop->mode->info->pixel_information.red_mask);
+			    assert(gop->mode->info->pixel_information.green_mask);
+			    assert(gop->mode->info->pixel_information.blue_mask);
+
+			    size_t hbred = (sizeof(uint32_t) * 8)
+			                   - __builtin_clz(gop->mode->info->pixel_information.red_mask);
+			    size_t hbgreen = (sizeof(uint32_t) * 8)
+			                     - __builtin_clz(gop->mode->info->pixel_information.green_mask);
+			    size_t hbblue = (sizeof(uint32_t) * 8)
+			                    - __builtin_clz(gop->mode->info->pixel_information.blue_mask);
+
+			    frg::optional<size_t> hbres = {};
+			    if (gop->mode->info->pixel_information.reserved_mask)
+				    hbres = (sizeof(uint32_t) * 8)
+				            - __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
+
+			    size_t highest_bit = frg::max(hbred, hbgreen);
+			    highest_bit = frg::max(highest_bit, hbblue);
+			    if (hbres)
+				    highest_bit = frg::max(highest_bit, hbres.value());
+
+			    assert(highest_bit % 8 == 0);
+			    gopBpp = highest_bit;
+			    break;
+		    }
+		    default:
+			    infoLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
+			    return;
+	    }
+
+	    clearOnFailure.release();
+
+	    initFramebuffer(
+	        EirFramebuffer{
+	            .fbAddress = gop->mode->framebuffer_base,
+	            .fbPitch = gop->mode->info->pixels_per_scan_line * (gopBpp / 8),
+	            .fbWidth = gop->mode->info->horizontal_resolution,
+	            .fbHeight = gop->mode->info->vertical_resolution,
+	            .fbBpp = gopBpp,
+	        }
+	    );
+
+	    disableLogHandler(&conOutLogHandler);
     }
 };
 
@@ -418,6 +476,8 @@ initgraph::Task exitBootServices{
     initgraph::Requires{getBootservicesDoneStage()},
     initgraph::Entails{getReservedRegionsKnownStage()},
     [] {
+	    disableLogHandler(&conOutLogHandler);
+
 	    memMapSize = sizeof(efi_memory_descriptor);
 	    efi_memory_descriptor dummy;
 
@@ -628,61 +688,6 @@ initgraph::Task mapEirImage{
     }
 };
 
-initgraph::Task setupFramebufferInfo{
-    &globalInitEngine,
-    "uefi.setup-framebuffer-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    if (gop && gop->mode->info->pixel_format != PixelBltOnly) {
-		    fb = &info_ptr->frameBuffer;
-
-		    switch (gop->mode->info->pixel_format) {
-			    case PixelBlueGreenRedReserved8BitPerColor:
-				    fb->fbBpp = 32;
-				    break;
-			    case PixelRedGreenBlueReserved8BitPerColor:
-				    fb->fbBpp = 32;
-				    break;
-			    case PixelBitMask: {
-				    assert(gop->mode->info->pixel_information.red_mask);
-				    assert(gop->mode->info->pixel_information.green_mask);
-				    assert(gop->mode->info->pixel_information.blue_mask);
-
-				    size_t hbred = (sizeof(uint32_t) * 8)
-				                   - __builtin_clz(gop->mode->info->pixel_information.red_mask);
-				    size_t hbgreen = (sizeof(uint32_t) * 8)
-				                     - __builtin_clz(gop->mode->info->pixel_information.green_mask);
-				    size_t hbblue = (sizeof(uint32_t) * 8)
-				                    - __builtin_clz(gop->mode->info->pixel_information.blue_mask);
-
-				    frg::optional<size_t> hbres = {};
-				    if (gop->mode->info->pixel_information.reserved_mask)
-					    hbres = (sizeof(uint32_t) * 8)
-					            - __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
-
-				    size_t highest_bit = frg::max(hbred, hbgreen);
-				    highest_bit = frg::max(highest_bit, hbblue);
-				    if (hbres)
-					    highest_bit = frg::max(highest_bit, hbres.value());
-
-				    assert(highest_bit % 8 == 0);
-				    fb->fbBpp = highest_bit;
-				    break;
-			    }
-			    default:
-				    eir::panicLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
-		    }
-
-		    fb->fbAddress = gop->mode->framebuffer_base;
-		    fb->fbPitch = gop->mode->info->pixels_per_scan_line * (fb->fbBpp / 8);
-		    fb->fbWidth = gop->mode->info->horizontal_resolution;
-		    fb->fbHeight = gop->mode->info->vertical_resolution;
-		    fb->fbType = 1; // linear framebuffer
-	    }
-    }
-};
-
 } // namespace
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
@@ -696,7 +701,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	handle = h;
 
 	if (useConOut)
-		logHandler = uefiBootServicesLogHandler;
+		enableLogHandler(&conOutLogHandler);
 
 	// Reset the watchdog timer.
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));

@@ -299,7 +299,6 @@ extern "C" [[noreturn]] void eirRaspi4Main() {
 			eir::infoLogger() << "Mode setting failed..." << frg::endlog;
 		} else {
 			eir::infoLogger() << "Success!" << frg::endlog;
-			setFbInfo(ptr, actualW, actualH, pitch);
 			fb_ptr = reinterpret_cast<uintptr_t>(ptr);
 			fb_width = actualW;
 			fb_height = actualH;

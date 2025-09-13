@@ -2,6 +2,7 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/spec.hpp>
@@ -18,36 +19,18 @@ eir::Mb2Info *mbInfo = nullptr;
 uintptr_t mmapStart = 0;
 uintptr_t mmapEnd = 0;
 
-eir::Mb2TagFramebuffer *framebuffer = nullptr;
 eir::Mb2Tag *acpiTag = nullptr;
 
 initgraph::Task setupAcpiInfo{
     &globalInitEngine,
     "mb2.setup-acpi-info",
+    initgraph::Requires{getAllocationAvailableStage()},
     initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (acpiTag) {
 		    auto *rsdpPtr = bootAlloc<uint8_t>(acpiTag->size - sizeof(Mb2TagRSDP));
 		    memcpy(rsdpPtr, acpiTag->data, acpiTag->size - sizeof(Mb2TagRSDP));
 		    eirRsdpAddr = reinterpret_cast<uint64_t>(rsdpPtr);
-	    }
-    }
-};
-
-initgraph::Task setupFramebufferInfo{
-    &globalInitEngine,
-    "mb2.setup-framebuffer-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    if (framebuffer) {
-		    fb = &info_ptr->frameBuffer;
-		    fb->fbAddress = framebuffer->address;
-		    fb->fbPitch = framebuffer->pitch;
-		    fb->fbWidth = framebuffer->width;
-		    fb->fbHeight = framebuffer->height;
-		    fb->fbBpp = framebuffer->bpp;
-		    fb->fbType = framebuffer->type;
 	    }
     }
 };
@@ -107,23 +90,16 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 		switch (tag->type) {
 			case kMb2TagFramebuffer: {
 				auto *framebuffer_tag = reinterpret_cast<Mb2TagFramebuffer *>(tag);
-				if (framebuffer_tag->address + framebuffer_tag->width * framebuffer_tag->pitch
-				    >= UINTPTR_MAX) {
-					eir::infoLogger()
-					    << "eir: Framebuffer outside of addressable memory!" << frg::endlog;
-					framebuffer = framebuffer_tag;
-				} else if (framebuffer_tag->bpp != 32) {
-					eir::infoLogger() << "eir: Framebuffer does not use 32 bpp!" << frg::endlog;
-				} else {
-					setFbInfo(
-					    reinterpret_cast<void *>(framebuffer_tag->address),
-					    framebuffer_tag->width,
-					    framebuffer_tag->height,
-					    framebuffer_tag->pitch
-					);
 
-					framebuffer = framebuffer_tag;
-				}
+				initFramebuffer(
+				    EirFramebuffer{
+				        .fbAddress = framebuffer_tag->address,
+				        .fbPitch = framebuffer_tag->pitch,
+				        .fbWidth = framebuffer_tag->width,
+				        .fbHeight = framebuffer_tag->height,
+				        .fbBpp = framebuffer_tag->bpp,
+				    }
+				);
 				break;
 			}
 

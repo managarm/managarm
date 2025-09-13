@@ -20,6 +20,7 @@ SECTIONS {
 	.rodata : ALIGN(0x1000) {
 		*(.rodata*)
 	}
+	.note.gnu.build-id : { *(.note.gnu.build-id) }
 	.init_array : {
 		PROVIDE_HIDDEN (__init_array_start = .);
 		KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))

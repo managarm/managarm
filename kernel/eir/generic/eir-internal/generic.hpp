@@ -80,8 +80,6 @@ void loadKernelImage(void *image);
 
 EirInfo *generateInfo(frg::string_view cmdline);
 
-void setFbInfo(void *ptr, int width, int height, size_t pitch);
-
 template <typename T>
 T *bootAlloc(size_t n = 1) {
 	auto pointer = physToVirt<T>(bootReserve(sizeof(T) * n, alignof(T)));

@@ -3,6 +3,7 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir/interface.hpp>
@@ -74,14 +75,17 @@ initgraph::Task setupFramebufferInfo{
     [] {
 	    if (framebuffer_request.response && framebuffer_request.response->framebuffer_count > 0
 	        && framebuffer_request.response->framebuffers) {
-		    auto *limine_fb = framebuffer_request.response->framebuffers[0];
-		    fb = &info_ptr->frameBuffer;
-		    fb->fbAddress = virtToPhys(limine_fb->address);
-		    fb->fbPitch = limine_fb->pitch;
-		    fb->fbWidth = limine_fb->width;
-		    fb->fbHeight = limine_fb->height;
-		    fb->fbBpp = limine_fb->bpp;
-		    fb->fbType = limine_fb->memory_model; // TODO: Maybe inaccurate
+		    auto *limineFb = framebuffer_request.response->framebuffers[0];
+
+		    initFramebuffer(
+		        EirFramebuffer{
+		            .fbAddress = virtToPhys(limineFb->address),
+		            .fbPitch = limineFb->pitch,
+		            .fbWidth = limineFb->width,
+		            .fbHeight = limineFb->height,
+		            .fbBpp = limineFb->bpp,
+		        }
+		    );
 	    } else {
 		    infoLogger() << "eir: Got no framebuffer!" << frg::endlog;
 	    }
