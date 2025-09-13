@@ -48,7 +48,7 @@ CompileFlags:
   CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-kernel
 ---
 If:
-  PathMatch: kernel/eir/protos/uefi/.*
+  PathMatch: kernel/eir/boot/uefi/.*
 CompileFlags:
   CompilationDatabase: /var/lib/managarm-buildenv/build/pkg-builds/managarm-kernel-uefi
 
