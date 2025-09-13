@@ -9,6 +9,7 @@
 #include <eir-internal/main.hpp>
 #include <frg/array.hpp>
 #include <frg/cmdline.hpp>
+#include <frg/scope_exit.hpp>
 #include <stdbool.h>
 
 #include "efi.hpp"
@@ -32,7 +33,9 @@ namespace {
 // code, causing characters to be printed twice.
 constexpr bool useConOut = false;
 
-efi_graphics_output_protocol *gop = nullptr;
+efi_graphics_output_protocol *gop{nullptr};
+int gopBpp{0};
+
 efi_loaded_image_protocol *loadedImage = nullptr;
 
 frg::string_view initrdPath = "managarm\\initrd.cpio";
@@ -394,21 +397,65 @@ initgraph::Task setupGop{
 	    efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	    efi_status status =
 	        bs->locate_protocol(&gop_protocol, nullptr, reinterpret_cast<void **>(&gop));
-
-	    if (gop->mode->info->version != 0)
-		    eir::panicLogger() << "error: unsupported EFI_GRAPHICS_OUTPUT_MODE_INFORMATION version!"
-		                       << frg::endlog;
-
-	    if (status == EFI_SUCCESS) {
-		    eir::infoLogger() << "eir: framebuffer " << gop->mode->info->horizontal_resolution
-		                      << "x" << gop->mode->info->vertical_resolution << " address=0x"
-		                      << frg::hex_fmt{gop->mode->framebuffer_base} << frg::endlog;
-	    } else {
-		    // the spec claims that the `void **interface` argument will be a nullptr on
-		    // spec-listed error returns, but only lists two error codes; there are more
-		    // error codes in the wild, so best to not rely on them to return a nullptr
-		    gop = nullptr;
+	    // Clear the global gop pointer unless the whole task succeeds.
+	    frg::scope_exit clearOnFailure{[&] { gop = nullptr; }};
+	    if (status != EFI_SUCCESS) {
+		    infoLogger() << "eir: Failed to locate GOP, status: " << status << frg::endlog;
+		    return;
 	    }
+
+	    infoLogger() << "eir: framebuffer " << gop->mode->info->horizontal_resolution << "x"
+	                 << gop->mode->info->vertical_resolution << " address=0x"
+	                 << frg::hex_fmt{gop->mode->framebuffer_base} << frg::endlog;
+
+	    switch (gop->mode->info->pixel_format) {
+		    case PixelBlueGreenRedReserved8BitPerColor:
+			    gopBpp = 32;
+			    break;
+		    case PixelRedGreenBlueReserved8BitPerColor:
+			    gopBpp = 32;
+			    break;
+		    case PixelBitMask: {
+			    assert(gop->mode->info->pixel_information.red_mask);
+			    assert(gop->mode->info->pixel_information.green_mask);
+			    assert(gop->mode->info->pixel_information.blue_mask);
+
+			    size_t hbred = (sizeof(uint32_t) * 8)
+			                   - __builtin_clz(gop->mode->info->pixel_information.red_mask);
+			    size_t hbgreen = (sizeof(uint32_t) * 8)
+			                     - __builtin_clz(gop->mode->info->pixel_information.green_mask);
+			    size_t hbblue = (sizeof(uint32_t) * 8)
+			                    - __builtin_clz(gop->mode->info->pixel_information.blue_mask);
+
+			    frg::optional<size_t> hbres = {};
+			    if (gop->mode->info->pixel_information.reserved_mask)
+				    hbres = (sizeof(uint32_t) * 8)
+				            - __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
+
+			    size_t highest_bit = frg::max(hbred, hbgreen);
+			    highest_bit = frg::max(highest_bit, hbblue);
+			    if (hbres)
+				    highest_bit = frg::max(highest_bit, hbres.value());
+
+			    assert(highest_bit % 8 == 0);
+			    gopBpp = highest_bit;
+			    break;
+		    }
+		    default:
+			    infoLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
+			    return;
+	    }
+
+	    clearOnFailure.release();
+
+	    setFbInfo(
+	        physToVirt<void>(gop->mode->framebuffer_base),
+	        gop->mode->info->horizontal_resolution,
+	        gop->mode->info->vertical_resolution,
+	        gop->mode->info->pixels_per_scan_line * (gopBpp / 8)
+	    );
+
+	    logHandler = nullptr;
     }
 };
 
@@ -634,48 +681,11 @@ initgraph::Task setupFramebufferInfo{
     initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getEirDoneStage()},
     [] {
-	    if (gop && gop->mode->info->pixel_format != PixelBltOnly) {
+	    if (gop) {
 		    fb = &info_ptr->frameBuffer;
-
-		    switch (gop->mode->info->pixel_format) {
-			    case PixelBlueGreenRedReserved8BitPerColor:
-				    fb->fbBpp = 32;
-				    break;
-			    case PixelRedGreenBlueReserved8BitPerColor:
-				    fb->fbBpp = 32;
-				    break;
-			    case PixelBitMask: {
-				    assert(gop->mode->info->pixel_information.red_mask);
-				    assert(gop->mode->info->pixel_information.green_mask);
-				    assert(gop->mode->info->pixel_information.blue_mask);
-
-				    size_t hbred = (sizeof(uint32_t) * 8)
-				                   - __builtin_clz(gop->mode->info->pixel_information.red_mask);
-				    size_t hbgreen = (sizeof(uint32_t) * 8)
-				                     - __builtin_clz(gop->mode->info->pixel_information.green_mask);
-				    size_t hbblue = (sizeof(uint32_t) * 8)
-				                    - __builtin_clz(gop->mode->info->pixel_information.blue_mask);
-
-				    frg::optional<size_t> hbres = {};
-				    if (gop->mode->info->pixel_information.reserved_mask)
-					    hbres = (sizeof(uint32_t) * 8)
-					            - __builtin_clz(gop->mode->info->pixel_information.reserved_mask);
-
-				    size_t highest_bit = frg::max(hbred, hbgreen);
-				    highest_bit = frg::max(highest_bit, hbblue);
-				    if (hbres)
-					    highest_bit = frg::max(highest_bit, hbres.value());
-
-				    assert(highest_bit % 8 == 0);
-				    fb->fbBpp = highest_bit;
-				    break;
-			    }
-			    default:
-				    eir::panicLogger() << "eir: unhandled GOP pixel format" << frg::endlog;
-		    }
-
 		    fb->fbAddress = gop->mode->framebuffer_base;
-		    fb->fbPitch = gop->mode->info->pixels_per_scan_line * (fb->fbBpp / 8);
+		    fb->fbBpp = gopBpp;
+		    fb->fbPitch = gop->mode->info->pixels_per_scan_line * (gopBpp / 8);
 		    fb->fbWidth = gop->mode->info->horizontal_resolution;
 		    fb->fbHeight = gop->mode->info->vertical_resolution;
 		    fb->fbType = 1; // linear framebuffer
