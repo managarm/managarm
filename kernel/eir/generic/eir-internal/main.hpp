@@ -44,7 +44,6 @@ initgraph::Stage *getInfoStructAvailableStage();
 initgraph::Stage *getEirDoneStage();
 
 extern void *initrd;
-extern EirFramebuffer *fb;
 extern EirInfo *info_ptr;
 
 extern frg::array<InitialRegion, 32> reservedRegions;
