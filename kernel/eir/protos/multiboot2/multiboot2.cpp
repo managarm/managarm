@@ -24,6 +24,7 @@ eir::Mb2Tag *acpiTag = nullptr;
 initgraph::Task setupAcpiInfo{
     &globalInitEngine,
     "mb2.setup-acpi-info",
+    initgraph::Requires{getAllocationAvailableStage()},
     initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (acpiTag) {
