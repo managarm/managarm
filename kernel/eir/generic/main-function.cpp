@@ -1,6 +1,7 @@
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
@@ -8,7 +9,6 @@
 
 namespace eir {
 
-EirFramebuffer *fb = nullptr;
 EirInfo *info_ptr = nullptr;
 
 frg::array<eir::InitialRegion, 32> reservedRegions;
@@ -154,6 +154,7 @@ static initgraph::Task prepareFramebufferForThor{
     "generic.prepare-framebuffer-for-thor",
     initgraph::Requires{getEirDoneStage()},
     [] {
+	    auto *fb = getFramebuffer();
 	    if (fb) {
 		    // Map the framebuffer.
 		    assert(fb->fbAddress & ~static_cast<EirPtr>(pageSize - 1));
@@ -166,7 +167,9 @@ static initgraph::Task prepareFramebufferForThor{
 			    );
 		    mapKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
 		    unpoisonKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
-		    fb->fbEarlyWindow = getKernelFrameBuffer();
+
+		    info_ptr->frameBuffer = *fb;
+		    info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
 	    }
     }
 };

@@ -5,6 +5,7 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <frg/array.hpp>
@@ -34,7 +35,7 @@ namespace {
 constexpr bool useConOut = false;
 
 efi_graphics_output_protocol *gop{nullptr};
-int gopBpp{0};
+unsigned int gopBpp{0};
 
 efi_loaded_image_protocol *loadedImage = nullptr;
 
@@ -455,11 +456,14 @@ initgraph::Task setupGop{
 
 	    clearOnFailure.release();
 
-	    setFbInfo(
-	        physToVirt<void>(gop->mode->framebuffer_base),
-	        gop->mode->info->horizontal_resolution,
-	        gop->mode->info->vertical_resolution,
-	        gop->mode->info->pixels_per_scan_line * (gopBpp / 8)
+	    initFramebuffer(
+	        EirFramebuffer{
+	            .fbAddress = gop->mode->framebuffer_base,
+	            .fbPitch = gop->mode->info->pixels_per_scan_line * (gopBpp / 8),
+	            .fbWidth = gop->mode->info->horizontal_resolution,
+	            .fbHeight = gop->mode->info->vertical_resolution,
+	            .fbBpp = gopBpp,
+	        }
 	    );
 
 	    disableLogHandler(&conOutLogHandler);
@@ -680,24 +684,6 @@ initgraph::Task mapEirImage{
 		    mapSingle4kPage(
 		        base + (i << 12), base + (i << 12), PageFlags::write | PageFlags::execute
 		    );
-	    }
-    }
-};
-
-initgraph::Task setupFramebufferInfo{
-    &globalInitEngine,
-    "uefi.setup-framebuffer-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    if (gop) {
-		    fb = &info_ptr->frameBuffer;
-		    fb->fbAddress = gop->mode->framebuffer_base;
-		    fb->fbBpp = gopBpp;
-		    fb->fbPitch = gop->mode->info->pixels_per_scan_line * (gopBpp / 8);
-		    fb->fbWidth = gop->mode->info->horizontal_resolution;
-		    fb->fbHeight = gop->mode->info->vertical_resolution;
-		    fb->fbType = 1; // linear framebuffer
 	    }
     }
 };

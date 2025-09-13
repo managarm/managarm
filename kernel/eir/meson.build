@@ -4,6 +4,7 @@ eir_generic_sources = files(
 	'generic/main.cpp',
 	'generic/memory-layout.cpp',
 	'generic/debug.cpp',
+	'generic/framebuffer.cpp',
 	'system/acpi/acpi.cpp',
 	'system/acpi/glue.cpp',
 )
