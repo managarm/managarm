@@ -6,6 +6,7 @@ eir_generic_sources = files(
 	'generic/debug.cpp',
 	'generic/framebuffer.cpp',
 	'system/acpi/acpi.cpp',
+	'system/acpi/console.cpp',
 	'system/acpi/glue.cpp',
 	'system/uart/uart.cpp',
 	'system/uart/ns16550.cpp',
