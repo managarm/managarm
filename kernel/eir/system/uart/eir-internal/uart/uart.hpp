@@ -4,11 +4,13 @@
 
 #include <eir-internal/debug.hpp>
 #include <eir-internal/uart/ns16550.hpp>
+#include <eir-internal/uart/pl011.hpp>
 #include <uacpi/acpi.h>
 
 namespace eir::uart {
 
-using AnyUart = std::variant<std::monostate, Ns16550<arch::mem_space>, Ns16550<arch::io_space>>;
+using AnyUart =
+    std::variant<std::monostate, Ns16550<arch::mem_space>, Ns16550<arch::io_space>, PL011>;
 
 struct UartLogHandler : LogHandler {
 	UartLogHandler(AnyUart *);

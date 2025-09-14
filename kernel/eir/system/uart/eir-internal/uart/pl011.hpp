@@ -4,7 +4,7 @@
 #include <arch/register.hpp>
 #include <stdint.h>
 
-namespace eir {
+namespace eir::uart {
 
 namespace pl011_reg {
 static constexpr arch::scalar_register<uint32_t> data{0x00};
@@ -59,7 +59,7 @@ struct PL011 {
 		);
 	}
 
-	void send(uint8_t val) {
+	void write(uint8_t val) {
 		while (space_.load(pl011_reg::status) & pl011_status::tx_full)
 			;
 
@@ -71,4 +71,4 @@ private:
 	uint64_t clock_;
 };
 
-} // namespace eir
+} // namespace eir::uart

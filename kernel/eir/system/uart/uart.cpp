@@ -43,6 +43,16 @@ void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 			}
 			break;
 		}
+		case ACPI_DBG2_SUBTYPE_SERIAL_PL011:
+			if (base.address_space_id != ACPI_AS_ID_SYS_MEM) {
+				infoLogger() << "eir: Unsupported ACPI address space 0x"
+				             << frg::hex_fmt{base.address_space_id} << " for PL011" << frg::endlog;
+				return;
+			}
+			// We assume that the PL011 is already initialized (i.e., that the baud rate is set up
+			// correctly etc.). Hence, we do not need to pass a proper clock rate here.
+			uart.emplace<PL011>(base.address, 0);
+			break;
 		default:
 			infoLogger() << "eir: Unsupported ACPI UART subtype 0x" << frg::hex_fmt{subtype}
 			             << frg::endlog;
