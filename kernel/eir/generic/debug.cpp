@@ -79,6 +79,8 @@ void disableLogHandler(LogHandler *handler) {
 
 } // namespace eir
 
+extern "C" void abort() { eir::panicLogger() << "abort() was called" << frg::endlog; }
+
 extern "C" void
 __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function) {
 	eir::panicLogger() << "Assertion failed: " << assertion << "\n"
