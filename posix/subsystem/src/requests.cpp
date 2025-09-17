@@ -1905,10 +1905,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto result = co_await path.second->getTarget()->readSymlink(path.second.get(), self.get());
 			if(auto error = std::get_if<Error>(&result); error) {
-				assert(*error == Error::illegalOperationTarget);
-
 				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				resp.set_error(*error | toPosixProtoError);
 
 				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
