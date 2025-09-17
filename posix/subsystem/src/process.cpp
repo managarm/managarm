@@ -1398,9 +1398,18 @@ async::result<void> Process::terminate(TerminationState state) {
 
 async::result<frg::expected<Error, Process::WaitResult>>
 Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
-	assert(pid == -1 || pid > 0);
-	assert(flags & waitExited);
-	assert(!(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)));
+	if(pid <= 0 && pid != -1) {
+		std::cout << "posix: Invalid arguments for pid passed to process::wait" << std::endl;
+		co_return Error::illegalArguments;
+	}
+	if(!(flags & waitExited)) {
+		std::cout << "posix: Invalid arguments for flags passed to process::wait, waitExited must be set" << std::endl;
+		co_return Error::illegalArguments;
+	}
+	if(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)) {
+		std::cout << "posix: Invalid arguments for flags passed to process::wait, unknown flags are set" << std::endl;
+		co_return Error::illegalArguments;
+	}
 
 	if(_children.empty() || (pid > 0 && !hasChild(pid)))
 		co_return Error::noChildProcesses;
