@@ -2,8 +2,10 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/eventfd.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,4 +73,53 @@ DEFINE_TEST(pidfd_poll, ([] {
 	assert(info.si_status == 42);
 
 	close(pidfd);
+}));
+
+static void *thread_func(void *arg) {
+	int evfd = (int)(intptr_t)arg;
+	uint64_t val = 1;
+	ssize_t ret = write(evfd, &val, sizeof(uint64_t));
+	assert(ret == sizeof(uint64_t));
+	return nullptr;
+}
+
+DEFINE_TEST(pidfd_waitpid_multithread, ([] {
+	int evfd = eventfd(0, 0);
+	assert(evfd >= 0);
+
+	pid_t child = fork();
+
+	if(!child) {
+		pthread_t thread1, thread2;
+		pthread_create(&thread1, nullptr, thread_func, (void *)(intptr_t)evfd);
+		pthread_create(&thread2, nullptr, thread_func, (void *)(intptr_t)evfd);
+
+		pthread_join(thread1, nullptr);
+		pthread_join(thread2, nullptr);
+		exit(0);
+	}
+
+	int pidfd = pidfd_open(child, 0);
+	assert(pidfd > 0);
+
+	siginfo_t si;
+	int waited = waitid(P_PIDFD, pidfd, &si, WEXITED | WNOWAIT);
+	assert(waited == 0);
+	assert(si.si_pid == child);
+	assert(si.si_code == CLD_EXITED);
+	assert(si.si_status == 0);
+
+	int status;
+	pid_t ret = waitpid(child, &status, 0);
+	assert(ret == child);
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == 0);
+
+	uint64_t val;
+	ssize_t bytes_read = read(evfd, &val, sizeof(uint64_t));
+	assert(bytes_read == sizeof(uint64_t));
+	assert(val == 2);
+
+	close(pidfd);
+	close(evfd);
 }));
