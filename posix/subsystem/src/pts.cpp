@@ -672,8 +672,13 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
 			} else {
-				resp.set_pid(cts.getSession()->getForegroundGroup()->getHull()->getPid());
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+				auto group = cts.getSession()->getForegroundGroup();
+				if (group) {
+					resp.set_pid(group->getHull()->getPid());
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+				}
 			}
 
 			auto ser = resp.SerializeAsString();
