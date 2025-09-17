@@ -2890,10 +2890,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
-			if(req->flags() & SOCK_NONBLOCK)
-				std::cout << "\e[31mposix: socketpair(SOCK_NONBLOCK)"
-						" is not implemented correctly\e[39m" << std::endl;
-
 			if(req->domain() != AF_UNIX) {
 				std::cout << "\e[31mposix: socketpair() with domain " << req->domain() <<
 						" is not implemented correctly\e[39m" << std::endl;
