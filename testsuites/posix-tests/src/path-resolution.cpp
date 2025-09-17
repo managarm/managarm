@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#include <vector>
 
 #include "testsuite.hpp"
 
@@ -48,14 +49,21 @@ DEFINE_TEST(mkdir_trailing_dot, ([] {
 	setrlimit(RLIMIT_NOFILE, &limit);
 
 	bool gotEMFILE = false;
+	std::vector<int> fds;
+
 	for(size_t i = 0 ; i < 32; i++) {
 		ret = open("/dev/null", O_RDWR);
 		if (ret == -1 && errno == EMFILE) {
 			gotEMFILE = true;
 			break;
+		} else {
+			assert(ret >= 0);
+			fds.push_back(ret);
 		}
 	}
 	assert(gotEMFILE);
+	for(auto fd : fds)
+		close(fd);
 
 	rmdir("a");
 }))
