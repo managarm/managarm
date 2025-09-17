@@ -6,7 +6,10 @@ eir_generic_sources = files(
 	'generic/debug.cpp',
 	'generic/framebuffer.cpp',
 	'system/acpi/acpi.cpp',
+	'system/acpi/console.cpp',
 	'system/acpi/glue.cpp',
+	'system/uart/uart.cpp',
+	'system/uart/ns16550.cpp',
 )
 
 eir_generic_sources += files('generic/global-constructors.cpp')
@@ -20,6 +23,7 @@ eir_includes = [include_directories(
 	'../common',
 	'generic',
 	'system/acpi',
+	'system/uart',
 )]
 
 cxx = meson.get_compiler('cpp')

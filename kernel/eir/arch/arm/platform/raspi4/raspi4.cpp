@@ -1,11 +1,11 @@
 #include <assert.h>
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
-#include <eir-internal/arch/pl011.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
+#include <eir-internal/uart/pl011.hpp>
 #include <eir/interface.hpp>
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/manual_box.hpp>
@@ -232,9 +232,9 @@ size_t getCmdline(void *dest)
 }
 } // namespace PropertyMbox
 
-frg::manual_box<PL011> debugUart;
+frg::manual_box<uart::PL011> debugUart;
 
-void debugPrintChar(char c) { debugUart->send(c); }
+void debugPrintChar(char c) { debugUart->write(c); }
 
 void initPlatform() {}
 
