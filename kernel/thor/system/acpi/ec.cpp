@@ -341,7 +341,9 @@ static void asyncShutdown(uacpi_handle) {
 	infoLogger() << "thor: shutting down..." << frg::endlog;
 
 	auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
-	assert(ret == UACPI_STATUS_OK);
+	if(ret != UACPI_STATUS_OK) {
+		infoLogger() << "thor: shutdown preparation failed" << frg::endlog;
+	}
 
 	disableInts();
 	ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
