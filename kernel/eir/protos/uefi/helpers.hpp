@@ -8,6 +8,13 @@
 
 #include "efi.hpp"
 
+#define TRY_EFI(x)                                                                                 \
+	do {                                                                                           \
+		efi_status __try_efi_value = (x);                                                          \
+		if (__try_efi_value != EFI_SUCCESS)                                                        \
+			return std::unexpected{::eir::Error::uefiError};                                       \
+	} while (0)
+
 void EFI_CHECK(efi_status s, std::source_location loc = std::source_location::current());
 
 namespace eir {

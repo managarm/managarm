@@ -1,3 +1,5 @@
+#include <expected>
+
 #ifdef __x86_64__
 #include <arch/io_space.hpp>
 #endif
@@ -5,6 +7,7 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/error.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
@@ -38,6 +41,7 @@ efi_graphics_output_protocol *gop{nullptr};
 unsigned int gopBpp{0};
 
 efi_loaded_image_protocol *loadedImage = nullptr;
+efi_device_path_to_text_protocol *devPathToText = nullptr;
 
 frg::string_view initrdPath = "managarm\\initrd.cpio";
 size_t initrdSize = 0;
@@ -71,6 +75,44 @@ frg::string_view serverStr = "";
 initgraph::Stage *getBootservicesDoneStage() {
 	static initgraph::Stage s{&globalInitEngine, "uefi.bootservices-done"};
 	return &s;
+}
+
+struct UefiAllocator {
+	void *allocate(size_t size) {
+		void *ptr;
+		EFI_CHECK(bs->allocate_pool(EfiLoaderData, size, &ptr));
+		return ptr;
+	}
+
+	void free(void *ptr) { EFI_CHECK(bs->free_pool(ptr)); }
+};
+
+frg::string<UefiAllocator> devPathToString(efi_device_path_protocol *devPath) {
+	auto devPathUtf16 = devPathToText->convert_device_path_to_text(devPath, true, true);
+	assert(devPathUtf16);
+	frg::scope_exit freeDevPathUtf16{[&] { EFI_CHECK(bs->free_pool(devPathUtf16)); }};
+
+	auto n = frg::basic_string_view<char16_t>{devPathUtf16}.size();
+	frg::string<UefiAllocator> out{n};
+	for (size_t i = 0; i < n; ++i) {
+		auto c = devPathUtf16[i];
+		// We only use printable ASCII characters, everything else gets discarded.
+		if (c >= 0x20 && c <= 0x7E) {
+			out[i] = static_cast<char>(c);
+		} else {
+			out[i] = '?';
+		}
+	}
+
+	return out;
+}
+
+std::expected<frg::string<UefiAllocator>, Error>
+devPathOfHandle(efi_handle handle, efi_guid devPathGuid = EFI_DEVICE_PATH_PROTOCOL_GUID) {
+	efi_device_path_protocol *devPath = nullptr;
+	TRY_EFI(bs->handle_protocol(handle, &devPathGuid, reinterpret_cast<void **>(&devPath)));
+
+	return devPathToString(devPath);
 }
 
 struct EirAllocator {
@@ -707,9 +749,29 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	EFI_CHECK(bs->set_watchdog_timer(0, 0, 0, nullptr));
 	EFI_CHECK(st->con_out->clear_screen(st->con_out));
 
+	// Get some essential protocols.
+	efi_guid devPathToTextGuid = EFI_DEVICE_PATH_TO_TEXT_PROTOCOL_GUID;
+	EFI_CHECK(
+	    bs->locate_protocol(&devPathToTextGuid, nullptr, reinterpret_cast<void **>(&devPathToText))
+	);
+
 	// Get a handle to this binary in order to get the command line.
-	efi_guid protocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
-	EFI_CHECK(bs->handle_protocol(handle, &protocol, reinterpret_cast<void **>(&loadedImage)));
+	efi_guid loadedImageGuid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
+	EFI_CHECK(
+	    bs->handle_protocol(handle, &loadedImageGuid, reinterpret_cast<void **>(&loadedImage))
+	);
+
+	// Print device paths of the loaded image for debugging purposes.
+	auto loadedImageDevPath = devPathOfHandle(handle, EFI_LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID);
+	auto loadDeviceDevPath = devPathOfHandle(loadedImage->device_handle);
+	if (loadedImageDevPath)
+		infoLogger() << "eir: Device path of loaded image: " << *loadedImageDevPath << frg::endlog;
+	// Note that the device path from EFI_LOADED_IMAGE_DEVICE_PATH_PROTOCOL_GUID can differ
+	// from the EFI_DEVICE_PATH_PROTOCOL_GUID of loadedImage->device_handle.
+	if (loadDeviceDevPath)
+		infoLogger() << "eir: Device path of load device: " << *loadDeviceDevPath << frg::endlog;
+	infoLogger() << "eir: File path of loaded image: " << devPathToString(loadedImage->file_path)
+	             << frg::endlog;
 
 	// Convert the command line to ASCII.
 	char *ascii_cmdline = nullptr;
