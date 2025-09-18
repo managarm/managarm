@@ -495,8 +495,8 @@ private:
 		req.set_mode(mode);
 		req.set_exclusive(exclusive);
 		req.set_name(name);
-		req.set_uid(process->uid());
-		req.set_gid(process->gid());
+		req.set_uid(process->threadGroup()->uid());
+		req.set_gid(process->threadGroup()->gid());
 
 		auto [offer, send_head, send_tail, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
 			getLane(),
@@ -895,8 +895,8 @@ Superblock::Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> devic
 FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::SB_CREATE_REGULAR);
-	req.set_uid(process->uid());
-	req.set_gid(process->gid());
+	req.set_uid(process->threadGroup()->uid());
+	req.set_gid(process->threadGroup()->gid());
 
 	auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(
 		_lane,
