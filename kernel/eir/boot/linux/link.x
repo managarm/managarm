@@ -42,12 +42,11 @@ SECTIONS {
 		*(.igot .igot.*)
 	}
 
-	.bss : ALIGN(0x1000) {
-		eirBssStart = .;
-		*(.bss* .dynbss)
-		*(COMMON)
-		. = ALIGN(8);
-		eirBssEnd = .;
+	.bss (TYPE = SHT_PROGBITS) : {
+		*(.sbss)
+		*(.bss)
+		*(.bss.*)
+		LONG(0)
 	}
 
 	eirImageCeiling = .;

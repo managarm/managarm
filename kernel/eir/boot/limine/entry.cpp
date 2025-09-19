@@ -117,6 +117,12 @@ initgraph::Task setupMemoryRegions{
 
 } // namespace
 
+static BootCaps limineCaps = {
+    .hasMemoryMap = true,
+};
+
+BootCaps *BootCaps::get() { return &limineCaps; };
+
 extern "C" void eirLimineMain(void) {
 	initPlatform();
 

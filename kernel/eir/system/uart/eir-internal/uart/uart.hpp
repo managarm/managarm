@@ -2,6 +2,7 @@
 
 #include <variant>
 
+#include <dtb.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/uart/ns16550.hpp>
 #include <eir-internal/uart/pl011.hpp>
@@ -28,5 +29,7 @@ private:
 // For DBG2, the type (not subtype) must be serial (= 0x8000).
 // The subtype that is passed to this function is also defined by DBG2.
 void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base);
+
+void initFromDtb(AnyUart &uart, const DeviceTree &tree, const DeviceTreeNode &node);
 
 } // namespace eir::uart

@@ -68,5 +68,6 @@ if build_uefi
 	subdir('boot/uefi')
 else
 	subdir('boot/limine')
+	subdir('boot/linux')
 	subdir('boot/multiboot2')
 endif

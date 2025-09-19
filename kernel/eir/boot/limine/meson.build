@@ -14,6 +14,8 @@ eir_limine_sources += [eir_sources]
 if host_machine.cpu_family() == 'x86_64'
 	eir_limine_c_args += ['-mcmodel=kernel']
 	eir_limine_cpp_args += ['-mcmodel=kernel']
+elif host_machine.cpu_family() == 'aarch64'
+	eir_limine_sources += '../../generic/generic-platform.cpp'
 elif host_machine.cpu_family() == 'riscv64'
 	eir_limine_sources += '../../arch/riscv/platform/virt/early-log.cpp'
 endif
