@@ -4,6 +4,7 @@ exe = executable('eir-virt',
 	[
 		eir_sources,
 		'../../entry64.S',
+		'../../../../boot/linux/entry.cpp',
 		'../../../../generic/elf-relocate.cpp',
 		'../../../../system/dtb/discovery.cpp',
 		'early-log.cpp',

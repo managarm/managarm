@@ -3,4 +3,4 @@
 # Data only.
 kernel/common/font-8x16.cpp
 # Vendored file.
-kernel/eir/protos/limine/limine.h
+kernel/eir/boot/limine/limine.h

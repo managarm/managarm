@@ -65,8 +65,9 @@ elif arch == 'x86_64'
 endif
 
 if build_uefi
-	subdir('protos/uefi')
+	subdir('boot/uefi')
 else
-	subdir('protos/limine')
-	subdir('protos/multiboot2')
+	subdir('boot/limine')
+	subdir('boot/linux')
+	subdir('boot/multiboot2')
 endif

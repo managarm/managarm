@@ -1,5 +1,8 @@
 #include <assert.h>
 #include <dtb.hpp>
+#include <eir-internal/uart/uart.hpp>
+#include <frg/manual_box.hpp>
+#include <frg/slab.hpp>
 
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
@@ -23,6 +26,9 @@ size_t findSizeCells(DeviceTreeNode parent) {
 		return maybeProperty->asU32();
 	return 1;
 }
+
+// UEFI doesn't need this and doesn't provide eirImageFloor either.
+#ifndef EIR_UEFI
 
 void discoverMemoryFromDtb() {
 	DeviceTree dt{physToVirt<void>(eirDtbPtr)};
@@ -153,8 +159,9 @@ void discoverMemoryFromDtb() {
 		                  << frg::hex_fmt{ent.address + ent.size} << " (0x"
 		                  << frg::hex_fmt{ent.size} << " bytes)" << frg::endlog;
 
-		if (nReservedRegions >= 32)
-			eir::panicLogger() << "Cannot deal with > 32 DTB memory reservations" << frg::endlog;
+		if (nReservedRegions >= frg::array_size(reservedRegions))
+			eir::panicLogger() << "Cannot deal with > " << frg::array_size(reservedRegions)
+			                   << " DTB memory reservations" << frg::endlog;
 		reservedRegions[nReservedRegions++] = {ent.address, ent.size};
 	}
 
@@ -186,9 +193,10 @@ void discoverMemoryFromDtb() {
 				        << ", ends at 0x" << frg::hex_fmt{base + size} << " (0x"
 				        << frg::hex_fmt{size} << " bytes)" << frg::endlog;
 
-				    if (nReservedRegions >= 32)
+				    if (nReservedRegions >= frg::array_size(reservedRegions))
 					    eir::panicLogger()
-					        << "Cannot deal with > 32 DTB memory reservations" << frg::endlog;
+					        << "Cannot deal with > " << frg::array_size(reservedRegions)
+					        << " DTB memory reservations" << frg::endlog;
 				    reservedRegions[nReservedRegions++] = {base, size};
 			    }
 		    }
@@ -220,7 +228,42 @@ void discoverMemoryFromDtb() {
 
 static initgraph::Task discoverMemory{
     &globalInitEngine, "discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
-	    discoverMemoryFromDtb();
+	    // Some protocols like Limine and UEFI provide their own memory map.
+	    if (!BootCaps::get()->hasMemoryMap)
+		    discoverMemoryFromDtb();
+    }
+};
+
+#endif
+
+constinit uart::AnyUart dtbUart;
+constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
+
+static initgraph::Task discoverOutput{
+    &globalInitEngine, "discover-output", initgraph::Entails{getInitrdAvailableStage()}, [] {
+	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+
+	    auto chosen = dt.findNode("/chosen");
+	    if (!chosen)
+		    return;
+
+	    auto stdoutPath = chosen->findProperty("stdout-path");
+	    if (!stdoutPath)
+		    return;
+
+	    auto chosenNode = dt.findNode(*stdoutPath->asString());
+	    if (!chosenNode)
+		    return;
+
+	    uart::initFromDtb(dtbUart, dt, chosenNode.value());
+
+	    if (!std::holds_alternative<std::monostate>(dtbUart)) {
+		    dtbUartLogHandler.initialize(&dtbUart);
+		    enableLogHandler(dtbUartLogHandler.get());
+
+		    infoLogger() << "eir: Chosen output path: " << chosenNode->name() << frg::endlog;
+		    return;
+	    }
     }
 };
 

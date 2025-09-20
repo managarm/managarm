@@ -3,6 +3,7 @@ objcopy = find_program('riscv64-managarm-objcopy')
 exe = executable('eir-d1',
 	[
 		eir_sources,
+		'../../../../boot/linux/entry.cpp',
 		'../../entry64.S',
 		'early-log.cpp',
 	],

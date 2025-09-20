@@ -40,6 +40,13 @@ struct GenericInfo {
 	bool hasFb;
 };
 
+// Capabilites of a boot protocol.
+struct BootCaps {
+	bool hasMemoryMap;
+
+	static BootCaps *get();
+};
+
 void eirRelocate();
 [[noreturn]] void eirGenericMain(const GenericInfo &genericInfo);
 

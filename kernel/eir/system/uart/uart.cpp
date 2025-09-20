@@ -59,4 +59,13 @@ void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 	}
 }
 
+void initFromDtb(AnyUart &uart, const DeviceTree &tree, const DeviceTreeNode &chosen) {
+	auto compatible = chosen.findProperty("compatible")->asString();
+
+	if (*compatible == "arm,pl011") {
+		auto addr = chosen.findProperty("reg")->asU64(0);
+		uart.emplace<PL011>(addr, 0);
+	}
+}
+
 } // namespace eir::uart

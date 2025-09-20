@@ -3,6 +3,10 @@ eir_uefi_sources = [
 	'helpers.cpp',
 ]
 
+if host_machine.cpu_family() == 'aarch64'
+	eir_uefi_sources += '../../generic/generic-platform.cpp'
+endif
+
 eir_uefi_cpp_args = ['-DEIR_UEFI', '-ffreestanding', '-fshort-wchar', '-fno-stack-protector']
 eir_uefi_ld_args = ['-nostdlib']
 eir_uefi_link_depends = []

@@ -150,6 +150,8 @@ struct DeviceTree {
 
 	DeviceTreeNode rootNode();
 
+	frg::optional<DeviceTreeNode> findNode(frg::string_view path);
+
 	const std::byte *stringsBlock() const { return stringsBlock_; }
 
 	template <DeviceTreeWalker T>
@@ -531,4 +533,29 @@ inline void DeviceTree::walkTree(T &&walker) {
 	walker.push(rn);
 	rn.walkChildren(static_cast<T &>(walker));
 	walker.pop();
+}
+
+inline frg::optional<DeviceTreeNode> DeviceTree::findNode(frg::string_view path) {
+	if (path.size() == 0)
+		return frg::null_opt;
+
+	size_t idx = (path[0] == '/') ? 1 : 0;
+	frg::optional<DeviceTreeNode> current = rootNode();
+	while (idx < path.size()) {
+		size_t comp_end = path.find_first('/', idx);
+		if (comp_end == size_t(-1))
+			comp_end = path.size();
+		auto comp = path.sub_string(idx, comp_end - idx);
+		idx = comp_end + 1; // Skip the component + '/'
+
+		if (!current)
+			return frg::null_opt;
+
+		current->discoverSubnodes(
+		    [&](DeviceTreeNode node) { return node.name() == comp; },
+		    [&](DeviceTreeNode node) { current = node; }
+		);
+	}
+
+	return current;
 }
