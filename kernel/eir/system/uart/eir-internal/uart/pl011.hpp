@@ -2,6 +2,8 @@
 
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
+#include <eir-internal/generic.hpp>
+#include <eir/interface.hpp>
 #include <stdint.h>
 
 namespace eir::uart {
@@ -32,7 +34,7 @@ static constexpr arch::field<uint32_t, bool> fifo_en{4, 1};
 } // namespace pl011_line_control
 
 struct PL011 {
-	PL011(uintptr_t base, uint64_t clock) : space_{base}, clock_{clock} {}
+	PL011(uintptr_t base, uint64_t clock) : base_{base}, space_{base}, clock_{clock} {}
 
 	void disable() { space_.store(pl011_reg::control, pl011_control::uart_en(false)); }
 
@@ -66,7 +68,14 @@ struct PL011 {
 		space_.store(pl011_reg::data, val);
 	}
 
+	void getBootUartConfig(BootUartConfig &out) {
+		out.type = BootUartType::pl011;
+		out.address = base_;
+		out.size = 0x1000;
+	}
+
 private:
+	address_t base_;
 	arch::mem_space space_;
 	uint64_t clock_;
 };

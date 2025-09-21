@@ -50,7 +50,7 @@ void UartLogHandler::printChar(char c) {
 	if (bootUartConfig->type != BootUartType::pl011)
 		return;
 
-	arch::mem_space space{bootUartConfig->address};
+	arch::mem_space space{bootUartConfig->window};
 
 	// We assume here that Eir has mapped the UART as device memory, and
 	// configured the UART to some sensible settings (115200 8N1).

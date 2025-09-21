@@ -5,7 +5,7 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
-#include <eir-internal/uart/pl011.hpp>
+#include <eir-internal/uart/uart.hpp>
 #include <eir/interface.hpp>
 #include <frg/eternal.hpp> // for aligned_storage
 #include <frg/manual_box.hpp>
@@ -348,9 +348,8 @@ static initgraph::Task setupBootUartMmio{
 	    mapKasanShadow(addr, 0x1000);
 	    unpoisonKasanShadow(addr, 0x1000);
 
-	    extern BootUartConfig bootUartConfig;
-	    bootUartConfig.address = addr;
-	    bootUartConfig.type = BootUartType::pl011;
+	    uart::bootUartConfig.window = addr;
+	    uart::bootUartConfig.type = BootUartType::pl011;
     }
 };
 

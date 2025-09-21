@@ -4,6 +4,7 @@
 
 #include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
+#include <eir/interface.hpp>
 
 namespace eir::uart {
 
@@ -15,6 +16,8 @@ struct Ns16550 {
 	Ns16550 &operator=(const Ns16550 &) = delete;
 
 	void write(char c);
+
+	void getBootUartConfig(BootUartConfig &) {}
 
 private:
 	Space regs_;

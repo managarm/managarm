@@ -4,6 +4,7 @@
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
+#include <eir-internal/uart/uart.hpp>
 
 #include <elf.h>
 #include <frg/array.hpp>
@@ -404,8 +405,6 @@ void parseInitrd(void *initrd) {
 		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
 }
 
-BootUartConfig bootUartConfig;
-
 namespace {
 
 bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
@@ -427,7 +426,7 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 	} else if (type == elf_note_type::bootUartConfig) {
 		if (desc.size() != sizeof(BootUartConfig))
 			panicLogger() << "BootUartConfig size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &bootUartConfig, sizeof(BootUartConfig));
+		memcpy(desc.data(), &uart::bootUartConfig, sizeof(BootUartConfig));
 		return true;
 	}
 	return false;
