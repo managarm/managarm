@@ -219,5 +219,7 @@ enum class BootUartType {
 
 struct BootUartConfig {
 	uint64_t address = 0;
+	uint64_t size = 0;
+	uint64_t window = 0;
 	BootUartType type = BootUartType::none;
 };

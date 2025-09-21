@@ -9,6 +9,7 @@
 #include <eir-internal/dtb/discovery.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
+#include <eir-internal/uart/uart.hpp>
 #include <frg/array.hpp>
 
 namespace eir {
@@ -227,7 +228,7 @@ void discoverMemoryFromDtb() {
 }
 
 static initgraph::Task discoverMemory{
-    &globalInitEngine, "discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
+    &globalInitEngine, "dt.discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
 	    // Some protocols like Limine and UEFI provide their own memory map.
 	    if (!BootCaps::get()->hasMemoryMap)
 		    discoverMemoryFromDtb();
@@ -240,7 +241,12 @@ constinit uart::AnyUart dtbUart;
 constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
 
 static initgraph::Task discoverOutput{
-    &globalInitEngine, "discover-output", initgraph::Entails{getInitrdAvailableStage()}, [] {
+    &globalInitEngine,
+    "dt.discover-output",
+    initgraph::Entails{uart::getBootUartDeterminedStage()},
+    [] {
+	    if (!eirDtbPtr)
+		    return;
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
 	    auto chosen = dt.findNode("/chosen");
@@ -260,6 +266,7 @@ static initgraph::Task discoverOutput{
 	    if (!std::holds_alternative<std::monostate>(dtbUart)) {
 		    dtbUartLogHandler.initialize(&dtbUart);
 		    enableLogHandler(dtbUartLogHandler.get());
+		    setBootUart(&dtbUart);
 
 		    infoLogger() << "eir: Chosen output path: " << chosenNode->name() << frg::endlog;
 		    return;

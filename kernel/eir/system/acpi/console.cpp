@@ -13,7 +13,11 @@ constinit uart::AnyUart acpiUart;
 constinit frg::manual_box<uart::UartLogHandler> acpiUartLogHandler;
 
 initgraph::Task parseSpcrDbg2{
-    &globalInitEngine, "acpi.parse-spcr-dbg2", initgraph::Requires{getTablesAvailableStage()}, [] {
+    &globalInitEngine,
+    "acpi.parse-spcr-dbg2",
+    initgraph::Requires{getTablesAvailableStage()},
+    initgraph::Entails{uart::getBootUartDeterminedStage()},
+    [] {
 	    if (!haveTables())
 		    return;
 
@@ -48,6 +52,7 @@ initgraph::Task parseSpcrDbg2{
 		    if (!std::holds_alternative<std::monostate>(acpiUart)) {
 			    acpiUartLogHandler.initialize(&acpiUart);
 			    enableLogHandler(acpiUartLogHandler.get());
+			    setBootUart(&acpiUart);
 			    return;
 		    }
 	    }
@@ -84,6 +89,7 @@ initgraph::Task parseSpcrDbg2{
 			    if (!std::holds_alternative<std::monostate>(acpiUart)) {
 				    acpiUartLogHandler.initialize(&acpiUart);
 				    enableLogHandler(acpiUartLogHandler.get());
+				    setBootUart(&acpiUart);
 				    return;
 			    }
 		    }
