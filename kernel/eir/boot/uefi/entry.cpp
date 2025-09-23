@@ -3,6 +3,7 @@
 #endif
 #include <assert.h>
 #include <eir-internal/acpi/acpi.hpp>
+#include <eir-internal/arch-generic/stack.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
@@ -688,7 +689,13 @@ initgraph::Task mapEirImage{
     }
 };
 
+constinit BootCaps uefiCaps = {
+    .hasMemoryMap = true,
+};
+
 } // namespace
+
+const BootCaps &BootCaps::get() { return uefiCaps; };
 
 extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *system_table) {
 	initPlatform();
@@ -710,6 +717,9 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	// Get a handle to this binary in order to get the command line.
 	efi_guid protocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 	EFI_CHECK(bs->handle_protocol(handle, &protocol, reinterpret_cast<void **>(&loadedImage)));
+	uefiCaps.imageStart = reinterpret_cast<uintptr_t>(loadedImage->image_base);
+	uefiCaps.imageEnd =
+	    reinterpret_cast<uintptr_t>(loadedImage->image_base) + loadedImage->image_size;
 
 	// Convert the command line to ASCII.
 	char *ascii_cmdline = nullptr;
@@ -754,6 +764,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 	overrideSubnet = subnetStr.size() != 0;
 	overrideServer = serverStr.size() != 0;
 
+	eir::infoLogger() << "eir: image base address " << frg::hex_fmt{loadedImage->image_base}
+	                  << frg::endlog;
 	eir::infoLogger() << "eir: command line='" << ascii_cmdline << "'" << frg::endlog;
 
 	// this needs to be volatile as GDB sets this to true on attach
@@ -771,15 +783,15 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 		}
 #endif
 
-		eir::infoLogger() << "eir: image base address " << frg::hex_fmt{loadedImage->image_base}
-		                  << frg::endlog;
 		eir::infoLogger() << "eir: Waiting for GDB to attach" << frg::endlog;
 	}
 
 	while (!eir_gdb_ready)
 		;
 
-	eirMain();
+	// Enter a stack that is part of Eir's image.
+	// This ensures that we can still access the stack when paging in enabled.
+	runOnStack([] { eirMain(); }, eirStackTop);
 
 	return EFI_SUCCESS;
 }

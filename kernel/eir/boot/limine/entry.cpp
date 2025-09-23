@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <dtb.hpp>
 #include <eir-internal/acpi/acpi.hpp>
+#include <eir-internal/arch-generic/stack.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
@@ -115,19 +116,22 @@ initgraph::Task setupMemoryRegions{
     }
 };
 
-} // namespace
-
-static BootCaps limineCaps = {
+constinit BootCaps limineCaps = {
     .hasMemoryMap = true,
 };
 
-BootCaps *BootCaps::get() { return &limineCaps; };
+} // namespace
+
+const BootCaps &BootCaps::get() { return limineCaps; };
 
 extern "C" void eirLimineMain(void) {
 	initPlatform();
 
 	eir::infoLogger() << "Booting Eir from Limine" << frg::endlog;
 	eirRunConstructors();
+
+	limineCaps.imageStart = reinterpret_cast<uintptr_t>(&eirImageFloor);
+	limineCaps.imageEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
 
 	if (!LIMINE_BASE_REVISION_SUPPORTED)
 		panicLogger() << "eir-limine was not booted with correct base revision" << frg::endlog;
@@ -158,7 +162,9 @@ extern "C" void eirLimineMain(void) {
 	initrd = initrd_file->address;
 	kernel_physical = kernel_address_request.response->physical_base;
 
-	eirMain();
+	// Enter a stack that is part of Eir's image.
+	// This ensures that we can still access the stack when paging in enabled.
+	runOnStack([] { eirMain(); }, eirStackTop);
 }
 
 } // namespace eir

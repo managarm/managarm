@@ -230,7 +230,7 @@ void discoverMemoryFromDtb() {
 static initgraph::Task discoverMemory{
     &globalInitEngine, "dt.discover-memory", initgraph::Entails{getInitrdAvailableStage()}, [] {
 	    // Some protocols like Limine and UEFI provide their own memory map.
-	    if (!BootCaps::get()->hasMemoryMap)
+	    if (!BootCaps::get().hasMemoryMap)
 		    discoverMemoryFromDtb();
     }
 };
