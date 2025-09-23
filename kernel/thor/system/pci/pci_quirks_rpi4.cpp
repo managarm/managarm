@@ -104,7 +104,9 @@ private:
 	PhysicalAddr buf_;
 };
 
+#ifdef THOR_HAS_DTB_SUPPORT
 static frg::manual_box<Bcm2835Mbox> globalMbox;
+#endif
 
 } // namespace anonymous
 
