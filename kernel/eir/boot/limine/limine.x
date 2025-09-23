@@ -41,6 +41,8 @@ SECTIONS {
 
 	eirImageCeiling = .;
 
+	.note.gnu.build-id  : { *(.note.gnu.build-id) }
+
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }
 	.stab.excl 0 : { *(.stab.excl) }
