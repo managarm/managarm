@@ -228,7 +228,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStats() {
 	co_return stats;
 }
 
-async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Process *proc) {
+async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(ThreadGroup *tg) {
 	// TODO: Store a file creation time.
 	auto now = clk::getRealtime();
 
@@ -237,8 +237,8 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Pro
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
 	stats.mode = 0666; // TODO: Some files can be written.
-	stats.uid = proc->uid();
-	stats.gid = proc->gid();
+	stats.uid = tg->uid();
+	stats.gid = tg->gid();
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
 	stats.mtimeSecs = now.tv_sec;
@@ -360,8 +360,8 @@ std::shared_ptr<Link> DirectoryNode::directMknode(std::string name, std::shared_
 	return link;
 }
 
-std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name, Process* process) {
-	auto link = directMkdir(name);
+std::shared_ptr<Link> DirectoryNode::createProcDirectory(Process *process) {
+	auto link = directMkdir(std::to_string(process->pid()));
 	auto proc_dir = static_cast<DirectoryNode*>(link->getTarget().get());
 
 	proc_dir->directMknode("exe", std::make_shared<ExeLink>(process));
@@ -373,20 +373,40 @@ std::shared_ptr<Link> DirectoryNode::createProcDirectory(std::string name, Proce
 	proc_dir->directMkregular("comm", std::make_shared<CommNode>(process));
 	proc_dir->directMkregular("stat", std::make_shared<StatNode>(process));
 	proc_dir->directMkregular("statm", std::make_shared<StatmNode>(process));
-	proc_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
+	proc_dir->directMkregular("status", std::make_shared<ProcessStatusNode>(process->threadGroup()->weak_from_this()));
 	proc_dir->directMkregular("cgroup", std::make_shared<CgroupNode>(process));
 	proc_dir->directMkregular("mounts", std::make_shared<MountsNode>(process));
 	proc_dir->directMkregular("mountinfo", std::make_shared<MountInfoNode>(process));
 
-	auto task_link = proc_dir->directMkdir("task");
-	auto task_dir = static_cast<DirectoryNode*>(task_link->getTarget().get());
-
-	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
-	auto tid_dir = static_cast<DirectoryNode*>(tid_link->getTarget().get());
-
-	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
+	proc_dir->directMkdir("task");
 
 	return link;
+}
+
+std::shared_ptr<Link> DirectoryNode::createProcTaskDirectory(Process *process) {
+	auto pidProcfsLink = process->threadGroup()->procfsLink();
+	// Create /proc/[pid] on demand to minimize observable states of /proc/[pid] being visible
+	// without any /proc/[pid]/task/[tid] attached.
+	if (!pidProcfsLink) {
+		pidProcfsLink = createProcDirectory(process);
+		process->threadGroup()->setProcfsLink(pidProcfsLink);
+	}
+
+	auto proc_dir = static_cast<DirectoryNode *>(pidProcfsLink->getTarget().get());
+
+	auto taskLinkIt = std::ranges::find_if(proc_dir->_entries, [](auto e) {
+		return e->getName() == "task";
+	});
+	assert(taskLinkIt != proc_dir->_entries.end());
+	auto task_dir = static_cast<DirectoryNode *>(((*taskLinkIt)->getTarget()).get());
+
+	auto tid_link = task_dir->directMkdir(std::to_string(process->tid()));
+	auto tid_dir = static_cast<DirectoryNode *>(tid_link->getTarget().get());
+
+	tid_dir->directMkregular("comm", std::make_shared<CommNode>(process));
+	tid_dir->directMkregular("status", std::make_shared<StatusNode>(process->weak_from_this()));
+
+	return tid_link;
 }
 
 VfsType DirectoryNode::getType() {
@@ -462,8 +482,8 @@ async::result<frg::expected<Error, FileStats>> LinkNode::getStatsInternal(Proces
 	stats.numLinks = 1;
 	stats.fileSize = 4096; // Same as in Linux.
 	stats.mode = 0666; // TODO: Some files can be written.
-	stats.uid = proc->uid();
-	stats.gid = proc->gid();
+	stats.uid = proc->threadGroup()->uid();
+	stats.gid = proc->threadGroup()->gid();
 	stats.atimeSecs = now.tv_sec;
 	stats.atimeNanos = now.tv_nsec;
 	stats.mtimeSecs = now.tv_sec;
@@ -675,7 +695,7 @@ async::result<frg::expected<Error, FileStats>> MapNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 CommNode::CommNode(Process* process)
@@ -709,7 +729,7 @@ async::result<frg::expected<Error, FileStats>> CommNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 RootLink::RootLink(Process* process)
@@ -761,7 +781,7 @@ async::result<std::expected<std::string, Error>> StatNode::show(Process *) {
 	stream << "0 "; // cminflt
 	stream << "0 "; // majflt
 	stream << "0 "; // cmajflt
-	stream << p->accumulatedUsage().userTime << " "; // utime
+	stream << p->threadGroup()->accumulatedUsage().userTime << " "; // utime
 	stream << "0 "; // stime
 	stream << "0 "; // cutime
 	stream << "0 "; // cstime
@@ -814,7 +834,7 @@ async::result<frg::expected<Error, FileStats>> StatNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 StatmNode::StatmNode(Process *process) : _process(process->weak_from_this()) {}
@@ -846,7 +866,108 @@ async::result<frg::expected<Error, FileStats>> StatmNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
+}
+
+async::result<std::expected<std::string, Error>> ProcessStatusNode::show(Process *) {
+	auto tg = _tg.lock();
+	if (!tg)
+		co_return std::unexpected{Error::noSuchProcess};
+
+	std::string state = "R (running)";
+	if(tg->notifyType() == NotifyType::terminated)
+		state = "Z (zombie)";
+
+	// Everything that has a value of N/A is not implemented yet.
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << std::format("State:\t{}\n", state);
+	stream << "Tgid: " << tg->pid() << "\n"; // Thread group id, same as gid for now
+	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
+	stream << "Pid: " << tg->pid() << "\n";
+	// This avoids a crash when asking for the parent of init.
+	if(tg->getParent()) {
+		stream << "PPid: " << tg->getParent()->pid() << "\n";
+	} else {
+		stream << "PPid: 0\n";
+	}
+	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
+	stream << "Uid: " << tg->uid() << "\n";
+	stream << "Gid: " << tg->gid() << "\n";
+	stream << "FDSize: 512\n"; // TODO: adjust once we're not limited to one page worth of handles
+	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
+	// Namespace information, unimplemented.
+	stream << "NStgid: N/A\n";
+	stream << "NSpid: N/A\n";
+	stream << "NSpgid: N/A\n";
+	stream << "NSsid: N/A\n";
+	// End namespace information.
+	// VM information, not exposed yet.
+	stream << "VmPeak: N/A kB\n";
+	stream << "VmSize: N/A kB\n";
+	stream << "VmLck: 0 kB\n"; // We don't lock memory.
+	stream << "VmPin: 0 kB\n"; // We don't pin memory.
+	stream << "VmHWM: N/A kB\n";
+	stream << "VmRSS: N/A kB\n";
+	stream << "RssAnon: N/A kB\n";
+	stream << "RssFile: N/A kB\n";
+	stream << "RssShmem: N/A kB\n";
+	stream << "VmData: N/A kB\n";
+	stream << "VmStk: N/A kB\n";
+	stream << "VmExe: N/A kB\n";
+	stream << "VmLib: N/A kB\n";
+	stream << "VmPTE: N/A kB\n";
+	stream << "VmSwap: 0 kB\n"; // We don't have swap yet.
+	stream << "HugetlbPages: N/A kB\n";
+	// End of VM information.
+	stream << "CoreDumping: 0\n"; // We don't implement coredumps, so 0 is correct here.
+	// Documentation doesn't mention THP_enabled.
+	stream << "THP_enabled: N/A\n";
+	stream << "Threads: 1\n"; // Number of threads in this process, hardcode to 1 for now.
+	// Signal related information, we should fill this out properly eventually.
+	stream << "SigQ: N/A\n";
+	// Masks of pending, blocked, ignored and caught signals, zero them all.
+	stream << "SigPnd: 0000000000000000\n";
+	stream << "ShdPnd: 0000000000000000\n";
+	stream << "SigBlk: 0000000000000000\n";
+	stream << "SigIgn: 0000000000000000\n";
+	stream << "SigCgt: 0000000000000000\n";
+	// End of signal related information.
+	// We don't implement capabilities, so 0 is good for all of them.
+	stream << "CapInh: 0000000000000000\n";
+	stream << "CapPrm: 0000000000000000\n";
+	stream << "CapEff: 0000000000000000\n";
+	stream << "CapBnd: 0000000000000000\n";
+	stream << "CapAmb: 0000000000000000\n";
+	// We don't implement this bit, nor seccomp, nor spectre/meltdown mitigations.
+	stream << "NoNewPrivs: 0\n";
+	stream << "Seccomp: 0\n";
+	stream << "Seccomp_filters: 0\n";
+	stream << "Speculation_Store_Bypass: thread vulnerable\n";
+	stream << "SpeculationIndirectBranch: thread vulnerable\n";
+	// Other stuff we don't implement yet.
+	stream << "Cpus_allowed: N/A\n";
+	stream << "Cpus_allowed_list: N/A\n";
+	stream << "Mems_allowed: N/A\n";
+	stream << "Mems_allowed_list: N/A\n";
+	stream << "voluntary_ctxt_switches: N/A\n";
+	stream << "nonvoluntary_ctxt_switches: N/A\n";
+	co_return stream.str();
+}
+
+async::result<void> ProcessStatusNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::println("Can't store to a /proc/status file!");
+	co_return;
+}
+
+async::result<frg::expected<Error, FileStats>> ProcessStatusNode::getStats() {
+	auto tg = _tg.lock();
+	if (!tg)
+		co_return Error::noSuchFile;
+
+	co_return co_await getStatsInternal(tg.get());
 }
 
 async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
@@ -854,9 +975,9 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 	if (!p)
 		co_return std::unexpected{Error::noSuchProcess};
 
-	char state = 'R';
-	if(p->notifyType() == NotifyType::terminated)
-		state = 'Z';
+	std::string state = "R (running)";
+	if(p->threadGroup()->notifyType() == NotifyType::terminated)
+		state = "Z (zombie)";
 
 	// Everything that has a value of N/A is not implemented yet.
 	// See man 5 proc for more details.
@@ -865,10 +986,10 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 	stream << "Name: " << p->name() << "\n"; // Name is hardcoded to be the last part of the path
 	if (p->fsContext())
 		stream << std::format("Umask: 0{:03o}\n", p->fsContext()->getUmask());
-	stream << std::format("State: {}\n", state); // R=running, Z=zombie.
+	stream << std::format("State:\t{}\n", state);
 	stream << "Tgid: " << p->pid() << "\n"; // Thread group id, same as gid for now
 	stream << "NGid: 0\n"; // NUMA Group ID, 0 if none.
-	stream << "Pid: " << p->pid() << "\n";
+	stream << "Pid: " << p->tid() << "\n";
 	// This avoids a crash when asking for the parent of init.
 	if(p->getParent()) {
 		stream << "PPid: " << p->getParent()->pid() << "\n";
@@ -876,8 +997,8 @@ async::result<std::expected<std::string, Error>> StatusNode::show(Process *) {
 		stream << "PPid: 0\n";
 	}
 	stream << "TracerPid: 0\n"; // We're not being traced, so 0 is fine.
-	stream << "Uid: " << p->uid() << "\n";
-	stream << "Gid: " << p->gid() << "\n";
+	stream << "Uid: " << p->threadGroup()->uid() << "\n";
+	stream << "Gid: " << p->threadGroup()->gid() << "\n";
 	stream << "FDSize: 512\n"; // TODO: adjust once we're not limited to one page worth of handles
 	stream << "Groups: 0\n"; // We don't implement groups yet, so 0 is fine.
 	// Namespace information, unimplemented.
@@ -950,7 +1071,7 @@ async::result<frg::expected<Error, FileStats>> StatusNode::getStats() {
 	if (!p)
 		co_return Error::noSuchFile;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 CwdLink::CwdLink(Process *process)
@@ -1010,7 +1131,7 @@ async::result<frg::expected<Error, FileStats>> CgroupNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 void FdDirectoryFile::serve(smarter::shared_ptr<FdDirectoryFile> file) {
@@ -1121,8 +1242,8 @@ async::result<frg::expected<Error, FileStats>> SymlinkNode::getStats() {
 
 	stats.fileSize = 64; // Same as Linux.
 	stats.mode = 0777;
-	stats.uid = p->uid();
-	stats.gid = p->gid();
+	stats.uid = p->threadGroup()->uid();
+	stats.gid = p->threadGroup()->gid();
 
 	co_return stats;
 }
@@ -1182,7 +1303,7 @@ async::result<frg::expected<Error, FileStats>> MountsNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 MountInfoNode::MountInfoNode(Process *process)
@@ -1243,7 +1364,7 @@ async::result<frg::expected<Error, FileStats>> MountInfoNode::getStats() {
 	if (!p)
 		co_return Error::noSuchProcess;
 
-	co_return co_await getStatsInternal(p.get());
+	co_return co_await getStatsInternal(p->threadGroup());
 }
 
 FdInfoDirectoryNode::FdInfoDirectoryNode(Process* process)

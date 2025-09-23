@@ -22,6 +22,8 @@ src = [
 	'src/pty.cpp',
 	'src/procfs.cpp',
 	'src/path-resolution.cpp',
+	'src/pthread-fork-wait.cpp',
+	'src/thread.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep], install : true)

@@ -196,33 +196,35 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		auto ct = cancellationEvents.registerEvent(extract_creds.credentials(), req.cancellation_id());
-		if (!ct) {
-			std::print("protocols/fs: possibly duplicate cancellation ID registered");
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-			co_return;
-		}
-
 		std::string data;
 		data.resize(req.size());
-		auto res = co_await file_ops->read(
-			file.get(),
-			extract_creds.credentials(),
-			data.data(),
-			req.size(),
-			ct.value()
-		);
+		ReadResult res = std::unexpected{Error::internalError};
 
-		cancellationEvents.removeEvent(extract_creds.credentials(), req.cancellation_id());
+		{
+			auto cancelEvent = cancellationEvents.event(extract_creds.credentials(), req.cancellation_id());
+			if (!cancelEvent) {
+				std::println("protocols/fs: possibly duplicate cancellation ID registered");
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
+				co_return;
+			}
+
+			res = co_await file_ops->read(
+				file.get(),
+				extract_creds.credentials(),
+				data.data(),
+				req.size(),
+				cancelEvent
+			);
+		}
 
 		managarm::fs::SvrResponse resp;
 		size_t size = 0;

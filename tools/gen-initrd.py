@@ -28,10 +28,9 @@ file_dict = dict()
 def add_dir(rel_path):
 	file_dict[rel_path] = Entry(is_dir=True)
 
-def add_file(src_prefix, tree_prefix, filename, rename_to=None):
-	dest_filename = filename if rename_to is None else rename_to
+def add_file(src_prefix, tree_prefix, filename):
 	src_path = os.path.join(src_prefix, filename)
-	rel_path = os.path.join(tree_prefix, dest_filename)
+	rel_path = os.path.join(tree_prefix, filename)
 	file_dict[rel_path] = Entry(source=src_path)
 
 # Add all the files.
@@ -40,6 +39,8 @@ add_dir('lib')
 add_dir('usr')
 add_dir('usr/bin')
 add_dir('usr/lib')
+if args.arch != 'riscv64-managarm':
+	add_dir('usr/lib64')
 add_dir('usr/lib/managarm')
 add_dir('usr/lib/managarm/server')
 
@@ -66,8 +67,8 @@ if args.arch == 'riscv64-managarm':
 	add_file('usr/lib', 'usr/lib', 'libgcc_s.so.1')
 	add_file('usr/lib', 'usr/lib', 'libstdc++.so.6')
 else:
-	add_file('usr/lib64', 'usr/lib', 'libgcc_s.so.1')
-	add_file('usr/lib64', 'usr/lib', 'libstdc++.so.6')
+	add_file('usr/lib64', 'usr/lib64', 'libgcc_s.so.1')
+	add_file('usr/lib64', 'usr/lib64', 'libstdc++.so.6')
 
 # User-space core components.
 add_file('usr/bin', 'usr/bin', 'mbus')

@@ -95,7 +95,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			posix::ostContext.emitWithTimestamp(
 				posix::ostEvtRequest,
 				(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
-				posix::ostAttrPid(self->pid()),
+				posix::ostAttrPid(self->tid()),
 				posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
 				posix::ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_head.data()), recv_head.size()}, tail)
 			);
@@ -121,7 +121,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
 				posix::ostAttrRequest(preamble.id()),
 				posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
-				posix::ostAttrPid(self->pid()),
+				posix::ostAttrPid(self->tid()),
 				posix::ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
 			);
 		};
@@ -201,11 +201,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			logRequest(logRequests, "GET_UID", "uid={}", self->uid());
+			logRequest(logRequests, "GET_UID", "uid={}", self->threadGroup()->uid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_uid(self->uid());
+			resp.set_uid(self->threadGroup()->uid());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -224,7 +224,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "SET_UID", "uid={}", req->uid());
 
-			Error err = self->setUid(req->uid());
+			Error err = self->threadGroup()->setUid(req->uid());
 			if(err == Error::accessDenied) {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 			} else if(err == Error::illegalArguments) {
@@ -240,11 +240,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			logRequest(logRequests, "GET_EUID", "euid={}", self->euid());
+			logRequest(logRequests, "GET_EUID", "euid={}", self->threadGroup()->euid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_uid(self->euid());
+			resp.set_uid(self->threadGroup()->euid());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -263,7 +263,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "SET_EUID", "euid={}", req->uid());
 
-			Error err = self->setEuid(req->uid());
+			Error err = self->threadGroup()->setEuid(req->uid());
 			if(err == Error::accessDenied) {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 			} else if(err == Error::illegalArguments) {
@@ -279,11 +279,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			logRequest(logRequests, "GET_GID", "gid={}", self->gid());
+			logRequest(logRequests, "GET_GID", "gid={}", self->threadGroup()->gid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_uid(self->gid());
+			resp.set_uid(self->threadGroup()->gid());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -300,11 +300,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			logRequest(logRequests, "GET_EGID", "egid={}", self->egid());
+			logRequest(logRequests, "GET_EGID", "egid={}", self->threadGroup()->egid());
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_uid(self->egid());
+			resp.set_uid(self->threadGroup()->egid());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 					conversation,
@@ -323,7 +323,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "SET_GID");
 
-			Error err = self->setGid(req->uid());
+			Error err = self->threadGroup()->setGid(req->uid());
 			if(err == Error::accessDenied) {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 			} else if(err == Error::illegalArguments) {
@@ -341,7 +341,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "SET_EGID");
 
-			Error err = self->setEgid(req->uid());
+			Error err = self->threadGroup()->setEgid(req->uid());
 			if(err == Error::accessDenied) {
 				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 			} else if(err == Error::illegalArguments) {
@@ -423,12 +423,15 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					resp.set_sig_code(CLD_EXITED);
 				}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
 					resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
-					resp.set_sig_code(self->getDumpable() ? CLD_DUMPED : CLD_KILLED);
+					resp.set_sig_code(self->threadGroup()->getDumpable() ? CLD_DUMPED : CLD_KILLED);
 				}else{
 					resp.set_sig_status(0);
 					resp.set_sig_code(0);
 					assert(std::holds_alternative<std::monostate>(proc_state.state));
 				}
+			} else if (wait_result.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(wait_result.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
@@ -460,15 +463,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "WAIT", "pid={}", req.pid());
 
-			auto ct = self->cancelEventRegistry().registerEvent(self->credentials(), req.cancellation_id());
-			if (!ct) {
-				std::print("posix: possibly duplicate cancellation ID registered");
-				sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
-				continue;
-			}
+			frg::expected<Error, Process::WaitResult> waitResult = Error::ioError;
 
-			auto waitResult = co_await self->wait(req.pid(), flags, ct.value());
-			self->cancelEventRegistry().removeEvent(self->credentials(), req.cancellation_id());
+			{
+				auto cancelEvent = self->cancelEventRegistry().event(self->credentials(), req.cancellation_id());
+				if (!cancelEvent) {
+					std::println("posix: possibly duplicate cancellation ID registered");
+					sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+					continue;
+				}
+
+				waitResult = co_await self->wait(req.pid(), flags, cancelEvent);
+			}
 
 			managarm::posix::SvrResponse resp;
 			if(waitResult) {
@@ -488,6 +494,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_mode(mode);
 			} else if (waitResult.error() == Error::interrupted) {
 				resp.set_error(managarm::posix::Errors::INTERRUPTED);
+			} else if (waitResult.error() == Error::wouldBlock) {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+				resp.set_pid(0);
 			} else {
 				assert(waitResult.error() == Error::noChildProcesses);
 				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
@@ -508,7 +517,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "REBOOT", "command={}", req->cmd());
 
-			if(self->uid() != 0) {
+			if(self->threadGroup()->uid() != 0) {
 				sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 				continue;
 			}
@@ -547,7 +556,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(mode == RUSAGE_SELF) {
 				user_time = stats.userTime;
 			}else if(mode == RUSAGE_CHILDREN) {
-				user_time = self->accumulatedUsage().userTime;
+				user_time = self->threadGroup()->accumulatedUsage().userTime;
 			}else{
 				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported\e[39m"
 						<< std::endl;
@@ -1896,10 +1905,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto result = co_await path.second->getTarget()->readSymlink(path.second.get(), self.get());
 			if(auto error = std::get_if<Error>(&result); error) {
-				assert(*error == Error::illegalOperationTarget);
-
 				managarm::posix::SvrResponse resp;
-				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				resp.set_error(*error | toPosixProtoError);
 
 				auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
@@ -2621,9 +2628,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(req.flags() & SA_NOCLDWAIT)
 					handler.flags |= signalNoChildWait;
 
-				saved_handler = self->signalContext()->changeHandler(req.sig_number(), handler);
+				saved_handler = self->threadGroup()->signalContext()->changeHandler(req.sig_number(), handler);
 			}else{
-				saved_handler = self->signalContext()->getHandler(req.sig_number());
+				saved_handler = self->threadGroup()->signalContext()->getHandler(req.sig_number());
 			}
 
 			int saved_flags = 0;
@@ -2883,10 +2890,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			assert(!(req->flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)));
 
-			if(req->flags() & SOCK_NONBLOCK)
-				std::cout << "\e[31mposix: socketpair(SOCK_NONBLOCK)"
-						" is not implemented correctly\e[39m" << std::endl;
-
 			if(req->domain() != AF_UNIX) {
 				std::cout << "\e[31mposix: socketpair() with domain " << req->domain() <<
 						" is not implemented correctly\e[39m" << std::endl;
@@ -3027,19 +3030,36 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			struct epoll_event events[16];
 			size_t k;
-			if(req.timeout() < 0) {
-				k = co_await epoll::wait(epfile.get(), events, 16);
-			}else if(!req.timeout()) {
-				// Do not bother to set up a timer for zero timeouts.
-				async::cancellation_event cancel_wait;
-				cancel_wait.cancel();
-				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-			}else{
-				assert(req.timeout() > 0);
-				async::cancellation_event cancel_wait;
-				helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
-				k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-				co_await timer.retire();
+
+			{
+				auto cancelEvent = self->cancelEventRegistry().event(self->credentials(), req.cancellation_id());
+				if (!cancelEvent) {
+					std::println("posix: possibly duplicate cancellation ID registered");
+					sendErrorResponse(managarm::posix::Errors::INTERNAL_ERROR);
+					continue;
+				}
+
+				if(req.timeout() < 0) {
+					k = co_await epoll::wait(epfile.get(), events, 16, cancelEvent);
+				}else if(!req.timeout()) {
+					// Do not bother to set up a timer for zero timeouts.
+					async::cancellation_event cancel_wait;
+					cancel_wait.cancel();
+					k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
+				}else{
+					assert(req.timeout() > 0);
+					co_await async::race_and_cancel(
+						async::lambda([&](auto c) -> async::result<void> {
+							co_await helix::sleepFor(static_cast<uint64_t>(req.timeout()), c);
+						}),
+						async::lambda([&](auto c) -> async::result<void> {
+							co_await async::suspend_indefinitely(c, cancelEvent);
+						}),
+						async::lambda([&](auto c) -> async::result<void> {
+							k = co_await epoll::wait(epfile.get(), events, 16, c);
+						})
+					);
+				}
 			}
 
 			// Assigned the returned events to each FD.
@@ -4053,7 +4073,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				break;
 			}
 
-			self->setParentDeathSignal(req->signal() ? std::optional{req->signal()} : std::nullopt);
+			self->threadGroup()->setParentDeathSignal(req->signal() ? std::optional{req->signal()} : std::nullopt);
 
 			managarm::posix::ParentDeathSignalResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -4077,10 +4097,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
 			if(req->set()) {
-				self->setDumpable(req->new_value());
+				self->threadGroup()->setDumpable(req->new_value());
 			}
 
-			resp.set_value(self->getDumpable());
+			resp.set_value(self->threadGroup()->getDumpable());
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -4104,20 +4124,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				uint64_t value = 0;
 				uint64_t interval = 0;
-				if(self->realTimer)
-					self->realTimer->getTime(value, interval);
+				if(self->threadGroup()->realTimer)
+					self->threadGroup()->realTimer->getTime(value, interval);
 
 				resp.set_value_sec(value / 1'000'000'000);
 				resp.set_value_usec((value % 1'000'000'000) / 1'000);
 				resp.set_interval_sec(interval / 1'000'000'000);
 				resp.set_interval_usec((interval % 1'000'000'000) / 1'000);
 
-				if(self->realTimer)
-					self->realTimer->cancel();
-				self->realTimer = std::make_shared<Process::IntervalTimer>(self,
+				if(self->threadGroup()->realTimer)
+					self->threadGroup()->realTimer->cancel();
+				self->threadGroup()->realTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
 						req->value_sec() * 1'000'000'000 + req->value_usec() * 1'000,
 						req->interval_sec() * 1'000'000'000 + req->interval_usec() * 1'000);
-				self->realTimer->arm(self->realTimer);
+				self->threadGroup()->realTimer->arm(self->threadGroup()->realTimer);
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {
@@ -4160,10 +4180,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::TimerCreateResponse resp;
 			if(req->clockid() == CLOCK_MONOTONIC || req->clockid() == CLOCK_REALTIME) {
-				auto id = self->timerIdAllocator.allocate();
-				assert(!self->timers.contains(id));
+				auto id = self->threadGroup()->timerIdAllocator.allocate();
+				assert(!self->threadGroup()->timers.contains(id));
 
-				self->timers[id] = std::make_shared<Process::PosixTimerContext>(
+				self->threadGroup()->timers[id] = std::make_shared<ThreadGroup::PosixTimerContext>(
 					req->clockid(),
 					nullptr,
 					req->sigev_tid() ? std::optional{req->sigev_tid()} : std::nullopt,
@@ -4197,8 +4217,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::TimerSetResponse resp;
 			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
-			if(self->timers.contains(req->timer())) {
-				auto timerContext = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto timerContext = self->threadGroup()->timers[req->timer()];
 
 				uint64_t value = 0;
 				uint64_t interval = 0;
@@ -4213,11 +4233,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(timerContext->timer)
 					timerContext->timer->cancel();
 
-				auto targetProcess = self;
-				if(timerContext->tid && targetProcess->tid() != *timerContext->tid)
-					targetProcess = Process::findProcess(*timerContext->tid);
+				auto targetThread = self;
+				if(timerContext->tid && targetThread->tid() != *timerContext->tid)
+					targetThread = self->threadGroup()->findThread(*timerContext->tid);
 
-				if(targetProcess) {
+				if(targetThread) {
 					uint64_t valueNanos = 0;
 					uint64_t intervalNanos = 0;
 
@@ -4230,7 +4250,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 							CLOCK_MONOTONIC);
 					}
 
-					timerContext->timer = std::make_shared<Process::PosixTimer>(targetProcess,
+					timerContext->timer = std::make_shared<ThreadGroup::PosixTimer>(targetThread,
 						timerContext->tid, timerContext->signo, req->timer(), valueNanos, intervalNanos);
 					timerContext->timer->arm(timerContext->timer);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -4255,8 +4275,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logRequest(logRequests, "TIMER_GET", "timer={}", req->timer());
 
 			managarm::posix::TimerGetResponse resp;
-			if(self->timers.contains(req->timer())) {
-				auto timerContext = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto timerContext = self->threadGroup()->timers[req->timer()];
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				uint64_t value = 0;
@@ -4290,14 +4310,14 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logRequest(logRequests, "TIMER_DELETE", "timer={}", req->timer());
 
 			managarm::posix::TimerDeleteResponse resp;
-			if(self->timers.contains(req->timer())) {
-				auto ctx = self->timers[req->timer()];
+			if(self->threadGroup()->timers.contains(req->timer())) {
+				auto ctx = self->threadGroup()->timers[req->timer()];
 				if(ctx->timer) {
 					ctx->timer->cancel();
 					ctx->timer = nullptr;
 				}
-				self->timers.erase(req->timer());
-				self->timerIdAllocator.free(req->timer());
+				self->threadGroup()->timers.erase(req->timer());
+				self->threadGroup()->timerIdAllocator.free(req->timer());
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {
 				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
@@ -4325,7 +4345,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto pidfd = createPidfdFile(proc, req->flags() & PIDFD_NONBLOCK);
+			auto pidfd = createPidfdFile(proc->threadGroup()->weak_from_this(), req->flags() & PIDFD_NONBLOCK);
 			auto fd = self->fileContext()->attachFile(pidfd, req->flags() & PIDFD_NONBLOCK);
 
 			managarm::posix::PidfdOpenResponse resp;
@@ -4375,7 +4395,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			UserSignal info;
 			info.pid = self->pid();
 			info.uid = 0;
-			target->signalContext()->issueSignal(req->signal(), info);
+			target->threadGroup()->signalContext()->issueSignal(req->signal(), info);
 
 			managarm::posix::PidfdSendSignalResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);

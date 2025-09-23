@@ -7,9 +7,11 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/intrusive.hpp>
 #include <core/cancel-events.hpp>
 #include <boost/intrusive/list.hpp>
 #include <protocols/posix/data.hpp>
+#include <protocols/posix/supercalls.hpp>
 #include <frg/expected.hpp>
 #include <sys/time.h>
 
@@ -19,6 +21,7 @@
 
 struct Generation;
 struct Process;
+struct ThreadGroup;
 struct ProcessGroup;
 struct TerminalSession;
 struct ControllingTerminalState;
@@ -421,45 +424,223 @@ private:
 };
 
 struct Process : std::enable_shared_from_this<Process> {
+	friend struct ThreadGroup;
 	friend struct ProcessGroup;
 	friend struct TerminalSession;
 	friend struct ControllingTerminalState;
 
 	static std::shared_ptr<Process> findProcess(ProcessId pid);
 
-	static async::result<std::shared_ptr<Process>> init(std::string path);
+	static async::result<std::shared_ptr<ThreadGroup>> init(std::string path);
 
 	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
-	static std::shared_ptr<Process> clone(std::shared_ptr<Process> parent, void *ip, void *sp);
+	static std::expected<std::shared_ptr<Process>, Error>
+	clone(std::shared_ptr<Process> parent, void *ip, void *sp, posix::superCloneArgs *args);
 
 	static async::result<Error> exec(std::shared_ptr<Process> process,
 			std::string path, std::vector<std::string> args, std::vector<std::string> env);
 
-	// Called when the PID is released (by waitpid()).
-	static void retire(Process *process);
-
 public:
-	Process(std::shared_ptr<PidHull> hull, Process *parent);
+	Process(ThreadGroup *threadGroup, std::shared_ptr<PidHull> tidHull);
 
 	~Process();
 
-	Process *getParent() {
-		return _parent;
+	ThreadGroup *getParent();
+	PidHull *getPidHull();
+	PidHull *getTidHull();
+	int pid();
+	int tid();
+
+	bool didExecute() {
+		return _didExecute;
 	}
 
-	PidHull *getHull() {
-		return _hull.get();
+	std::string path() {
+		return _path;
 	}
 
-	int pid() {
-		assert(_hull);
-		return _hull->getPid();
+	std::string name() {
+		return _name;
 	}
 
-	int tid() {
-		assert(_hull);
-		return _hull->getPid();
+	void setName(std::string name) {
+		_name = name;
 	}
+
+	helix::BorrowedLane posixLane() {
+		return _posixLane;
+	}
+
+	helix::BorrowedDescriptor threadDescriptor() {
+		return _threadDescriptor;
+	}
+
+	// As the contexts associated with a process can change (e.g. when unshare() is implemented),
+	// those functions return refcounted pointers.
+	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
+	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
+	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
+	ThreadGroup *threadGroup() { return tgPointer_; }
+	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
+
+	void setSignalMask(uint64_t mask) {
+		_signalMask = mask;
+	}
+
+	uint64_t signalMask() {
+		return _signalMask;
+	}
+
+	HelHandle clientPosixLane() { return _clientPosixLane; }
+	posix::ThreadPage *clientThreadPage() { return _clientThreadPage; }
+	void *clientFileTable() { return _clientFileTable; }
+	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
+	void *clientAuxBegin() { return _clientAuxBegin; }
+	void *clientAuxEnd() { return _clientAuxEnd; }
+
+	posix::ThreadPage *accessThreadPage() {
+		return reinterpret_cast<posix::ThreadPage *>(_threadPageMapping.get());
+	}
+
+	async::result<void> cancelEvent();
+
+	// Like checkOrRequestSignalRaise() but only check if raising is possible.
+	bool checkSignalRaise();
+
+	// Check if signals can currently be raised (via the thread page).
+	// If not, request the thread to raise its signals.
+	// Preconditon: the thread has to be stopped!
+	bool checkOrRequestSignalRaise();
+
+	async::result<void> destruct();
+
+	struct WaitResult {
+		int pid = 0;
+		int uid = 0;
+		TerminationState state = std::monostate{};
+		ResourceUsage stats = {};
+	};
+
+	async::result<frg::expected<Error, WaitResult>>
+	wait(int pid, WaitFlags flags, async::cancellation_token ct);
+
+	bool hasChild(int pid);
+
+	bool isOnAltStack(uint64_t sp) {
+		return sp >= _altStackSp && sp <= (_altStackSp + _altStackSize);
+	}
+
+	uint64_t altStackSp() {
+		return _altStackSp;
+	}
+
+	size_t altStackSize() {
+		return _altStackSize;
+	}
+
+	void setAltStackSp(uint64_t ptr, size_t size) {
+		_altStackSp = ptr;
+		_altStackSize = size;
+	}
+
+	bool isAltStackEnabled() {
+		return _altStackEnabled;
+	}
+
+	void setAltStackEnabled(bool en) {
+		_altStackEnabled = en;
+	}
+
+	uint64_t enteredSignalSeq() {
+		return _enteredSignalSeq;
+	}
+
+	void enterSignal() {
+		_enteredSignalSeq++;
+	}
+
+	async::result<void> coredump(TerminationState state);
+
+	CancelEventRegistry &cancelEventRegistry() {
+		return cancelEventRegistry_;
+	}
+
+	helix_ng::CredentialsView credentials() const {
+		return {credentials_};
+	}
+
+private:
+	std::shared_ptr<PidHull> hull_;
+	bool _didExecute;
+	std::string _path;
+	std::string _name;
+	helix::UniqueLane _posixLane;
+	helix::UniqueDescriptor _threadDescriptor;
+	std::shared_ptr<Generation> _currentGeneration;
+	std::shared_ptr<VmContext> _vmContext;
+	std::shared_ptr<FsContext> _fsContext;
+	std::shared_ptr<FileContext> _fileContext;
+
+	std::shared_ptr<procfs::Link> procfsTaskLink_;
+
+	ThreadGroup *tgPointer_;
+	frg::default_list_hook<Process> tgHook_;
+
+	std::shared_ptr<ProcessGroup> _pgPointer;
+	boost::intrusive::list_member_hook<> _pgHook;
+
+	helix::UniqueDescriptor _threadPageMemory;
+	helix::Mapping _threadPageMapping;
+
+	HelHandle _clientPosixLane = kHelNullHandle;
+	posix::ThreadPage *_clientThreadPage;
+	void *_clientFileTable = nullptr;
+	void *_clientClkTrackerPage;
+	// Pointers to the aux vector in the client.
+	void *_clientAuxBegin = nullptr;
+	void *_clientAuxEnd = nullptr;
+
+	uint64_t _signalMask;
+
+	bool _altStackEnabled = false;
+	uint64_t _altStackSp = 0;
+	size_t _altStackSize = 0;
+
+	// Used for tracking signals that happened between sigprocmask and
+	// a call that resumes on a signal.
+	uint64_t _enteredSignalSeq = 0;
+
+	CancelEventRegistry cancelEventRegistry_;
+	std::array<char, 16> credentials_{};
+};
+
+std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
+
+struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
+	friend struct Process;
+
+	ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent);
+
+	static std::shared_ptr<ThreadGroup> init(std::shared_ptr<PidHull> hull);
+	static ThreadGroup *create(std::shared_ptr<PidHull> hull, ThreadGroup *parent);
+
+	pid_t pid() const {
+		return hull_->getPid();
+	}
+
+	ThreadGroup *getParent() {
+		return parent_;
+	}
+
+	void associateProcess(std::shared_ptr<Process> process);
+	async::result<void> handleThreadExit(Process *process, uint8_t code);
+
+	async::result<void> terminate(TerminationState state);
+	static void retire(ThreadGroup *group);
+
+	SignalContext *signalContext() { return _signalContext.get(); }
+
+	std::shared_ptr<Process> findThread(pid_t tid);
 
 	Error setUid(int uid) {
 		if(uid < 0) {
@@ -529,127 +710,27 @@ public:
 		return _egid;
 	}
 
-	bool didExecute() {
-		return _didExecute;
+	ResourceUsage selfUsage() const {
+		return _generationUsage;
 	}
 
-	std::string path() {
-		return _path;
-	}
-
-	std::string name() {
-		return _name;
-	}
-
-	void setName(std::string name) {
-		_name = name;
-	}
-
-	helix::BorrowedLane posixLane() {
-		return _posixLane;
-	}
-
-	helix::BorrowedDescriptor threadDescriptor() {
-		return _threadDescriptor;
-	}
-
-	// As the contexts associated with a process can change (e.g. when unshare() is implemented),
-	// those functions return refcounted pointers.
-	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
-	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
-	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
-	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
-	SignalContext *signalContext() { return _signalContext.get(); }
-
-	void setSignalMask(uint64_t mask) {
-		_signalMask = mask;
-	}
-
-	uint64_t signalMask() {
-		return _signalMask;
-	}
-
-	HelHandle clientPosixLane() { return _clientPosixLane; }
-	posix::ThreadPage *clientThreadPage() { return _clientThreadPage; }
-	void *clientFileTable() { return _clientFileTable; }
-	void *clientClkTrackerPage() { return _clientClkTrackerPage; }
-	void *clientAuxBegin() { return _clientAuxBegin; }
-	void *clientAuxEnd() { return _clientAuxEnd; }
-
-	posix::ThreadPage *accessThreadPage() {
-		return reinterpret_cast<posix::ThreadPage *>(_threadPageMapping.get());
-	}
-
-	async::result<void> cancelEvent();
-
-	// Like checkOrRequestSignalRaise() but only check if raising is possible.
-	bool checkSignalRaise();
-
-	// Check if signals can currently be raised (via the thread page).
-	// If not, request the thread to raise its signals.
-	// Preconditon: the thread has to be stopped!
-	bool checkOrRequestSignalRaise();
-
-	async::result<void> terminate(TerminationState state);
-
-	struct WaitResult {
-		int pid = 0;
-		int uid = 0;
-		TerminationState state = std::monostate{};
-		ResourceUsage stats = {};
-	};
-
-	async::result<frg::expected<Error, WaitResult>>
-	wait(int pid, WaitFlags flags, async::cancellation_token ct);
-
-	bool hasChild(int pid);
-
-	ResourceUsage accumulatedUsage() {
+	ResourceUsage accumulatedUsage() const {
 		return _childrenUsage;
 	}
 
-	bool isOnAltStack(uint64_t sp) {
-		return sp >= _altStackSp && sp <= (_altStackSp + _altStackSize);
+	void setProcfsLink(std::shared_ptr<procfs::Link> link) {
+		procfsLink_ = link;
 	}
 
-	uint64_t altStackSp() {
-		return _altStackSp;
-	}
-
-	size_t altStackSize() {
-		return _altStackSize;
-	}
-
-	void setAltStackSp(uint64_t ptr, size_t size) {
-		_altStackSp = ptr;
-		_altStackSize = size;
-	}
-
-	bool isAltStackEnabled() {
-		return _altStackEnabled;
-	}
-
-	void setAltStackEnabled(bool en) {
-		_altStackEnabled = en;
-	}
-
-	uint64_t enteredSignalSeq() {
-		return _enteredSignalSeq;
-	}
-
-	void enterSignal() {
-		_enteredSignalSeq++;
-	}
-
-	void setParentDeathSignal(std::optional<int> sig) {
-		parentDeathSignal_ = sig;
+	std::shared_ptr<procfs::Link> procfsLink() const {
+		return procfsLink_;
 	}
 
 	void setDumpable(bool dumpable) {
 		dumpable_ = dumpable;
 	}
 
-	bool getDumpable() {
+	bool getDumpable() const {
 		return dumpable_;
 	}
 
@@ -657,17 +738,15 @@ public:
 		return notifyType_;
 	}
 
+	TerminationState terminationState() const {
+		return _state;
+	}
+
+	void setParentDeathSignal(std::optional<int> sig) {
+		parentDeathSignal_ = sig;
+	}
+
 	async::result<bool> awaitNotifyTypeChange(async::cancellation_token token = {});
-
-	async::result<void> coredump(TerminationState state);
-
-	CancelEventRegistry &cancelEventRegistry() {
-		return cancelEventRegistry_;
-	}
-
-	helix_ng::CredentialsView credentials() const {
-		return {credentials_};
-	}
 
 	struct IntervalTimer : posix::IntervalTimer {
 		IntervalTimer(std::weak_ptr<Process> process, uint64_t initial, uint64_t interval)
@@ -679,7 +758,7 @@ public:
 
 			auto proc_lock = process_.lock();
 			if(proc_lock)
-				proc_lock->signalContext()->issueSignal(SIGALRM, {});
+				proc_lock->threadGroup()->signalContext()->issueSignal(SIGALRM, {});
 		}
 
 		void expired() override {
@@ -715,7 +794,7 @@ public:
 					expired();
 					return;
 				}
-				proc->signalContext()->issueSignal(signo, TimerSignal{static_cast<int>(timerId)});
+				proc->threadGroup()->signalContext()->issueSignal(signo, TimerSignal{static_cast<int>(timerId)});
 			}
 		}
 
@@ -736,82 +815,48 @@ public:
 	id_allocator<int> timerIdAllocator{};
 
 private:
-	Process *_parent;
+	ThreadGroup *parent_;
+	// The leading thread is kept alive until the thread group is terminated, as we need to expose
+	// it via /proc/[pid]/task/[tid].
+	std::shared_ptr<Process> leader_;
 
-	std::shared_ptr<PidHull> _hull;
+	std::shared_ptr<PidHull> hull_;
+
+	std::shared_ptr<SignalContext> _signalContext;
+
 	int _uid;
 	int _euid;
 	int _gid;
 	int _egid;
-	bool _didExecute;
-	std::string _path;
-	std::string _name;
-	helix::UniqueLane _posixLane;
-	helix::UniqueDescriptor _threadDescriptor;
-	std::shared_ptr<Generation> _currentGeneration;
-	std::shared_ptr<VmContext> _vmContext;
-	std::shared_ptr<FsContext> _fsContext;
-	std::shared_ptr<FileContext> _fileContext;
-	std::shared_ptr<SignalContext> _signalContext;
-	std::shared_ptr<procfs::Link> _procfs_dir;
-
-	std::shared_ptr<ProcessGroup> _pgPointer;
-	boost::intrusive::list_member_hook<> _pgHook;
-
-	helix::UniqueDescriptor _threadPageMemory;
-	helix::Mapping _threadPageMapping;
-
-	HelHandle _clientPosixLane;
-	posix::ThreadPage *_clientThreadPage;
-	void *_clientFileTable;
-	void *_clientClkTrackerPage;
-	// Pointers to the aux vector in the client.
-	void *_clientAuxBegin = nullptr;
-	void *_clientAuxEnd = nullptr;
-
-	uint64_t _signalMask;
-	std::vector<std::shared_ptr<Process>> _children;
-
-	// The following intrusive queue stores notifications for wait().
-	NotifyType notifyType_;
-	async::recurring_event notifyTypeChange_;
-	TerminationState _state;
-
-	boost::intrusive::list_member_hook<> _notifyHook;
-
-	boost::intrusive::list<
-		Process,
-		boost::intrusive::member_hook<
-			Process,
-			boost::intrusive::list_member_hook<>,
-			&Process::_notifyHook
-		>
-	> _notifyQueue;
-
-	async::recurring_event _notifyBell;
 
 	// Resource usage accumulated from previous generations.
 	ResourceUsage _generationUsage = {};
 	// Resource usage accumulated from children.
 	ResourceUsage _childrenUsage = {};
 
-	bool _altStackEnabled = false;
-	uint64_t _altStackSp = 0;
-	size_t _altStackSize = 0;
+	// The following intrusive queue stores notifications for wait().
+	NotifyType notifyType_ = NotifyType::null;
+	async::recurring_event notifyTypeChange_;
+	TerminationState _state;
 
-	// Used for tracking signals that happened between sigprocmask and
-	// a call that resumes on a signal.
-	uint64_t _enteredSignalSeq = 0;
+	std::vector<std::shared_ptr<ThreadGroup>> _children;
+
+	frg::default_list_hook<ThreadGroup> notifyHook_;
+	frg::intrusive_list<
+		ThreadGroup,
+		frg::locate_member<ThreadGroup, frg::default_list_hook<ThreadGroup>, &ThreadGroup::notifyHook_>
+	> _notifyQueue;
+	async::recurring_event _notifyBell;
+
+	std::shared_ptr<procfs::Link> procfsLink_;
 
 	std::optional<int> parentDeathSignal_ = std::nullopt;
+
 	// equivalent to PR_[SG]ET_DUMPABLE
 	bool dumpable_ = true;
 
-	CancelEventRegistry cancelEventRegistry_;
-	std::array<char, 16> credentials_{};
+	std::vector<std::shared_ptr<Process>> threads_;
 };
-
-std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
 
 // --------------------------------------------------------------------------------------
 // Process groups and sessions.
