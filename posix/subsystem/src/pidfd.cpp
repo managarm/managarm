@@ -40,11 +40,12 @@ OpenFile::pollWait(Process *, uint64_t inSeq, int pollMask,
 	} else if(inSeq == 1) {
 		co_await async::suspend_indefinitely(cancellation);
 	} else {
-		while(p->notifyType() != NotifyType::terminated && !cancellation.is_cancellation_requested()) {
+		while(p->notifyType() != NotifyType::terminated) {
 			if(!isOpen())
 				co_return Error::fileClosed;
 
-			co_await p->awaitNotifyTypeChange(cancellation);
+			if (!co_await p->awaitNotifyTypeChange(cancellation))
+				co_return Error::interrupted;
 		}
 	}
 
