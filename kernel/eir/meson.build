@@ -33,7 +33,7 @@ eir_c_args = []
 eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
 eir_link_args = ['-nostdlib']
 eir_linker_script = files()
-eir_dependencies = [libgcc, frigg, libarch]
+eir_dependencies = [libgcc, frigg, libarch_base]
 
 # Use uACPI in barebones (= table only mode).
 eir_c_args += ['-DUACPI_BAREBONES_MODE', '-DUACPI_OVERRIDE_LIBC']
