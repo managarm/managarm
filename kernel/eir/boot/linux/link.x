@@ -50,6 +50,7 @@ SECTIONS {
 	}
 
 	eirImageCeiling = .;
+	eirImageSize = eirImageCeiling - eirImageFloor;
 
 	.stab 0 : { *(.stab) }
 	.stabstr 0 : { *(.stabstr) }

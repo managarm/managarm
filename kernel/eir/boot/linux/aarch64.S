@@ -4,7 +4,10 @@ eirEntry:
 	b .L1
 	nop
 	.quad 0 // Image offset
-	.quad 0 // Image size (0 = unbounded)
+	// Image size (0 = unbounded)
+	// Emit as two .long to avoid issues with relocations.
+	.long eirImageSize
+	.long 0
 	.quad 2 // 4K pages
 	.quad 0 // Reserved
 	.quad 0 // Reserved
