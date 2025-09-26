@@ -1,3 +1,4 @@
+#include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <frg/manual_box.hpp>
@@ -63,7 +64,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	general()->elr = abi.ip;
 	general()->sp = (uintptr_t)context->stack.basePtr();
 	general()->x[0] = abi.argument;
-	general()->spsr = 5;
+	general()->spsr = isKernelInEl2() ? 9 : 5;
 	general()->domain = Domain::fiber;
 }
 
@@ -131,7 +132,7 @@ void workOnExecutor(Executor *executor) {
 	executor->general()->domain = Domain::fault;
 	executor->general()->elr = reinterpret_cast<uintptr_t>(stub);
 	executor->general()->sp = reinterpret_cast<uintptr_t>(sp);
-	executor->general()->spsr = 0x3c5;
+	executor->general()->spsr = 0x3c0 | (isKernelInEl2() ? 9 : 5);
 }
 
 void scrubStack(FaultImageAccessor accessor, Continuation cont) {
@@ -222,6 +223,12 @@ static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-p
 	initgraph::Entails{getBootProcessorReadyStage()},
 	[] {
 		infoLogger() << "Booting on CPU #0" << frg::endlog;
+
+		if (isKernelInEl2()) {
+			infoLogger() << "Booting in EL2" << frg::endlog;
+		} else {
+			infoLogger() << "Booting in EL1" << frg::endlog;
+		}
 
 		initializeThisProcessor();
 	}
