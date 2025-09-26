@@ -1,6 +1,9 @@
 eir_generic_sources = files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
+	'../common/uart/ns16550.cpp',
+	'../common/uart/pl011.cpp',
+	'../common/uart/samsung.cpp',
 	'generic/main.cpp',
 	'generic/memory-layout.cpp',
 	'generic/debug.cpp',
@@ -9,7 +12,6 @@ eir_generic_sources = files(
 	'system/acpi/console.cpp',
 	'system/acpi/glue.cpp',
 	'system/uart/uart.cpp',
-	'system/uart/ns16550.cpp',
 )
 
 eir_generic_sources += files('generic/global-constructors.cpp')
