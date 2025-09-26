@@ -1,12 +1,9 @@
 #pragma once
 
-#include <variant>
-
 #include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
-#include <eir/interface.hpp>
 
-namespace eir::uart {
+namespace common::uart {
 
 template <typename Space>
 struct Ns16550 {
@@ -17,8 +14,6 @@ struct Ns16550 {
 
 	void write(char c);
 
-	void getBootUartConfig(BootUartConfig &) {}
-
 private:
 	Space regs_;
 };
@@ -26,4 +21,4 @@ private:
 extern template struct Ns16550<arch::mem_space>;
 extern template struct Ns16550<arch::io_space>;
 
-} // namespace eir::uart
+} // namespace common::uart

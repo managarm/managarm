@@ -1,8 +1,8 @@
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
-#include <eir-internal/uart/ns16550.hpp>
+#include <uart/ns16550.hpp>
 
-namespace eir::uart {
+namespace common::uart {
 
 namespace {
 
@@ -62,4 +62,4 @@ void Ns16550<Space>::write(char c) {
 template struct Ns16550<arch::io_space>;
 template struct Ns16550<arch::mem_space>;
 
-} // namespace eir::uart
+} // namespace common::uart

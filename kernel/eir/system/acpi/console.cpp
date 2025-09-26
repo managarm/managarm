@@ -9,7 +9,7 @@ namespace eir::acpi {
 
 namespace {
 
-constinit uart::AnyUart acpiUart;
+constinit common::uart::AnyUart acpiUart;
 constinit frg::manual_box<uart::UartLogHandler> acpiUartLogHandler;
 
 initgraph::Task parseSpcrDbg2{
@@ -52,7 +52,7 @@ initgraph::Task parseSpcrDbg2{
 		    if (!std::holds_alternative<std::monostate>(acpiUart)) {
 			    acpiUartLogHandler.initialize(&acpiUart);
 			    enableLogHandler(acpiUartLogHandler.get());
-			    setBootUart(&acpiUart);
+			    uart::setBootUart(&acpiUart);
 			    return;
 		    }
 	    }
@@ -89,7 +89,7 @@ initgraph::Task parseSpcrDbg2{
 			    if (!std::holds_alternative<std::monostate>(acpiUart)) {
 				    acpiUartLogHandler.initialize(&acpiUart);
 				    enableLogHandler(acpiUartLogHandler.get());
-				    setBootUart(&acpiUart);
+				    uart::setBootUart(&acpiUart);
 				    return;
 			    }
 		    }

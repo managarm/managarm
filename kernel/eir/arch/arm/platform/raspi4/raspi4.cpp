@@ -232,7 +232,7 @@ size_t getCmdline(void *dest)
 }
 } // namespace PropertyMbox
 
-frg::manual_box<uart::PL011> debugUart;
+frg::manual_box<common::uart::PL011> debugUart;
 
 void debugPrintChar(char c) { debugUart->write(c); }
 

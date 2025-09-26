@@ -237,7 +237,7 @@ static initgraph::Task discoverMemory{
 
 #endif
 
-constinit uart::AnyUart dtbUart;
+constinit common::uart::AnyUart dtbUart;
 constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
 
 static initgraph::Task discoverOutput{
@@ -266,7 +266,7 @@ static initgraph::Task discoverOutput{
 	    if (!std::holds_alternative<std::monostate>(dtbUart)) {
 		    dtbUartLogHandler.initialize(&dtbUart);
 		    enableLogHandler(dtbUartLogHandler.get());
-		    setBootUart(&dtbUart);
+		    uart::setBootUart(&dtbUart);
 
 		    infoLogger() << "eir: Chosen output path: " << chosenNode->name() << frg::endlog;
 		    return;

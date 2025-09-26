@@ -8,15 +8,31 @@ namespace eir::uart {
 
 namespace {
 
-constinit AnyUart *bootUartPtr{nullptr};
+constinit common::uart::AnyUart *bootUartPtr{nullptr};
 
 bool isMmio(BootUartType type) {
 	switch (type) {
 		case BootUartType::pl011:
+		case BootUartType::samsung:
 			return true;
 		default:
 			return false;
 	}
+}
+
+template <typename Space>
+void getBootUartConfig(common::uart::Ns16550<Space> &, BootUartConfig &) {}
+
+void getBootUartConfig(common::uart::PL011 &uart, BootUartConfig &config) {
+	config.type = BootUartType::pl011;
+	config.address = uart.base();
+	config.size = 0x1000;
+}
+
+void getBootUartConfig(common::uart::Samsung &uart, BootUartConfig &config) {
+	config.type = BootUartType::samsung;
+	config.address = uart.base();
+	config.size = 0x1000;
 }
 
 static initgraph::Task reserveBootUartMmio{
@@ -31,12 +47,14 @@ static initgraph::Task reserveBootUartMmio{
 	    std::visit(
 	        frg::overloaded{
 	            [](std::monostate) { __builtin_trap(); },
-	            [](auto &inner) { inner.getBootUartConfig(bootUartConfig); }
+	            [](auto &inner) { getBootUartConfig(inner, bootUartConfig); }
 	        },
 	        *bootUartPtr
 	    );
 
-	    reserveEarlyMmio(1);
+	    size_t extent = bootUartConfig.size + (bootUartConfig.address & (pageSize - 1));
+	    // Round up to the next multiple of page size.
+	    reserveEarlyMmio(((extent + pageSize - 1) & ~(pageSize - 1)) >> pageShift);
     }
 };
 
@@ -50,10 +68,23 @@ static initgraph::Task setupBootUartMmio{
 		    return;
 
 	    if (isMmio(bootUartConfig.type)) {
-		    auto window = allocateEarlyMmio(1);
-		    mapSingle4kPage(window, bootUartConfig.address, PageFlags::write, CachingMode::mmio);
-		    mapKasanShadow(window, 0x1000);
-		    unpoisonKasanShadow(window, 0x1000);
+		    size_t extent = bootUartConfig.size + (bootUartConfig.address & (pageSize - 1));
+		    // Round up to the next multiple of page size.
+		    size_t pages = ((extent + pageSize - 1) & ~(pageSize - 1)) >> pageShift;
+
+		    auto window = allocateEarlyMmio(pages);
+		    for (size_t i = 0; i < pages; ++i) {
+			    mapSingle4kPage(
+			        window + i * pageSize,
+			        bootUartConfig.address + i * pageSize,
+			        PageFlags::write,
+			        CachingMode::mmio
+			    );
+		    }
+
+		    mapKasanShadow(window, pages * pageSize);
+		    unpoisonKasanShadow(window, pages * pageSize);
+
 		    bootUartConfig.window = window;
 	    }
     }
@@ -63,7 +94,7 @@ static initgraph::Task setupBootUartMmio{
 
 BootUartConfig bootUartConfig;
 
-UartLogHandler::UartLogHandler(AnyUart *uart) : uart_{uart} {}
+UartLogHandler::UartLogHandler(common::uart::AnyUart *uart) : uart_{uart} {}
 
 void UartLogHandler::emit(frg::string_view line) {
 	std::visit(
@@ -87,17 +118,21 @@ void UartLogHandler::emit(frg::string_view line) {
 	);
 }
 
-void setBootUart(AnyUart *uartPtr) { bootUartPtr = uartPtr; }
+void setBootUart(common::uart::AnyUart *uartPtr) { bootUartPtr = uartPtr; }
 
-void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
+void initFromAcpi(common::uart::AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 	switch (subtype) {
 		case ACPI_DBG2_SUBTYPE_SERIAL_NS16550:
 			[[fallthrough]];
 		case ACPI_DBG2_SUBTYPE_SERIAL_NS16550_DBGP1: {
 			if (base.address_space_id == ACPI_AS_ID_SYS_MEM) {
-				uart.emplace<Ns16550<arch::mem_space>>(arch::global_mem.subspace(base.address));
+				uart.emplace<common::uart::Ns16550<arch::mem_space>>(
+				    arch::global_mem.subspace(base.address)
+				);
 			} else if (base.address_space_id == ACPI_AS_ID_SYS_IO) {
-				uart.emplace<Ns16550<arch::io_space>>(arch::global_io.subspace(base.address));
+				uart.emplace<common::uart::Ns16550<arch::io_space>>(
+				    arch::global_io.subspace(base.address)
+				);
 			} else {
 				infoLogger() << "eir: Unsupported ACPI address space 0x"
 				             << frg::hex_fmt{base.address_space_id} << " for NS16550"
@@ -113,7 +148,7 @@ void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 			}
 			// We assume that the PL011 is already initialized (i.e., that the baud rate is set up
 			// correctly etc.). Hence, we do not need to pass a proper clock rate here.
-			uart.emplace<PL011>(base.address, 0);
+			uart.emplace<common::uart::PL011>(base.address, 0);
 			break;
 		default:
 			infoLogger() << "eir: Unsupported ACPI UART subtype 0x" << frg::hex_fmt{subtype}
@@ -121,12 +156,15 @@ void initFromAcpi(AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 	}
 }
 
-void initFromDtb(AnyUart &uart, const DeviceTree &, const DeviceTreeNode &chosen) {
+void initFromDtb(common::uart::AnyUart &uart, const DeviceTree &, const DeviceTreeNode &chosen) {
 	auto compatible = chosen.findProperty("compatible")->asString();
 
 	if (*compatible == "arm,pl011") {
 		auto addr = chosen.findProperty("reg")->asU64(0);
-		uart.emplace<PL011>(addr, 0);
+		uart.emplace<common::uart::PL011>(addr, 0);
+	} else if (*compatible == "apple,s5l-uart") {
+		auto addr = chosen.findProperty("reg")->asU64(0);
+		uart.emplace<common::uart::Samsung>(addr);
 	}
 }
 
