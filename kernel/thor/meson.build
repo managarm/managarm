@@ -23,6 +23,9 @@ want_dtb = false
 src = files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
+	'../common/uart/ns16550.cpp',
+	'../common/uart/pl011.cpp',
+	'../common/uart/samsung.cpp',
 	'generic/address-space.cpp',
 	'generic/cancel.cpp',
 	'generic/credentials.cpp',
