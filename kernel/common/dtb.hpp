@@ -150,6 +150,7 @@ struct DeviceTree {
 
 	DeviceTreeNode rootNode();
 
+	frg::optional<DeviceTreeNode> resolveAlias(frg::string_view alias);
 	frg::optional<DeviceTreeNode> findNode(frg::string_view path);
 
 	const std::byte *stringsBlock() const { return stringsBlock_; }
@@ -407,9 +408,9 @@ struct DeviceTreeNode {
 		}
 	}
 
-	frg::optional<DeviceTreeProperty> findProperty(const char *name) const {
+	frg::optional<DeviceTreeProperty> findProperty(frg::string_view name) const {
 		for (auto prop : properties_)
-			if (frg::string_view{name} == prop.name())
+			if (prop.name() == name)
 				return prop;
 
 		return frg::null_opt;
@@ -535,12 +536,46 @@ inline void DeviceTree::walkTree(T &&walker) {
 	walker.pop();
 }
 
+inline frg::optional<DeviceTreeNode> DeviceTree::resolveAlias(frg::string_view alias) {
+	frg::optional<DeviceTreeNode> aliases;
+	rootNode().discoverSubnodes(
+	    [](DeviceTreeNode &node) { return frg::string_view{node.name()} == "aliases"; },
+	    [&](DeviceTreeNode node) { aliases = node; }
+	);
+	if (!aliases)
+		return frg::null_opt;
+
+	auto prop = aliases->findProperty(alias);
+	if (!prop)
+		return frg::null_opt;
+
+	auto path = prop->asString();
+	if (!path)
+		return frg::null_opt;
+
+	return findNode(*path);
+}
+
 inline frg::optional<DeviceTreeNode> DeviceTree::findNode(frg::string_view path) {
 	if (path.size() == 0)
 		return frg::null_opt;
 
-	size_t idx = (path[0] == '/') ? 1 : 0;
+	auto isAbsolute = path[0] == '/';
+	size_t idx = isAbsolute ? 1 : 0;
 	frg::optional<DeviceTreeNode> current = rootNode();
+
+	if (!isAbsolute) {
+		// If the path is relative, the first component is treated as an alias.
+		auto aliasEnd = path.find_first('/');
+		if (aliasEnd == size_t(-1))
+			aliasEnd = path.size();
+		auto alias = path.sub_string(0, aliasEnd);
+		current = resolveAlias(alias);
+		if (!current)
+			return frg::null_opt;
+		idx = aliasEnd + 1; // Skip the alias + '/'
+	}
+
 	while (idx < path.size()) {
 		size_t comp_end = path.find_first('/', idx);
 		if (comp_end == size_t(-1))
