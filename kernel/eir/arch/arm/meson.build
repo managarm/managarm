@@ -6,14 +6,12 @@ eir_sources = [
 		'fault.S',
 		'fault.cpp',
 		'generic.cpp',
-		'../../system/dtb/discovery.cpp',
 	),
 	eir_generic_sources
 ]
 
 eir_includes += include_directories(
 	'.',
-	'../../system/dtb'
 )
 
 eir_cpp_args += ['-mgeneral-regs-only', '-mno-unaligned-access']

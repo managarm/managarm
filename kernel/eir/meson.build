@@ -11,6 +11,7 @@ eir_generic_sources = files(
 	'system/acpi/acpi.cpp',
 	'system/acpi/console.cpp',
 	'system/acpi/glue.cpp',
+	'system/dtb/discovery.cpp',
 	'system/uart/uart.cpp',
 )
 
@@ -25,6 +26,7 @@ eir_includes = [include_directories(
 	'../common',
 	'generic',
 	'system/acpi',
+	'system/dtb',
 	'system/uart',
 )]
 

@@ -17,7 +17,7 @@ if host_machine.cpu_family() == 'x86_64'
 elif host_machine.cpu_family() == 'aarch64'
 	eir_limine_sources += '../../generic/generic-platform.cpp'
 elif host_machine.cpu_family() == 'riscv64'
-	eir_limine_sources += '../../arch/riscv/platform/virt/early-log.cpp'
+	eir_limine_sources += '../../arch/riscv/sbi-platform.cpp'
 endif
 
 executable(

@@ -14,6 +14,15 @@ namespace eir {
 
 namespace {
 
+static constinit BootCaps mb2Caps = {
+    .hasMemoryMap = false,
+};
+
+[[gnu::constructor]] void initBootCaps() {
+	mb2Caps.imageStart = reinterpret_cast<uintptr_t>(&eirImageFloor);
+	mb2Caps.imageEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
+}
+
 eir::Mb2Info *mbInfo = nullptr;
 
 uintptr_t mmapStart = 0;
@@ -61,6 +70,8 @@ initgraph::Task setupMemoryRegions{
 };
 
 } // namespace
+
+const BootCaps &BootCaps::get() { return mb2Caps; };
 
 extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 	initPlatform();

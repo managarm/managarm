@@ -1,21 +1,24 @@
-if host_machine.cpu_family() not in ['aarch64']
+if host_machine.cpu_family() not in ['aarch64', 'riscv64']
 	subdir_done()
 endif
 
 eir_linux_sources = files(
 	host_machine.cpu_family() + '.S',
 	'entry.cpp',
+	'../../generic/elf-relocate.cpp',
 )
 
 if host_machine.cpu_family() == 'aarch64'
 	eir_linux_sources += '../../generic/generic-platform.cpp'
+elif host_machine.cpu_family() == 'riscv64'
+	eir_linux_sources += '../../arch/riscv/sbi-platform.cpp'
 endif
 
-objcopy = find_program('aarch64-managarm-objcopy')
+objcopy = find_program(host_machine.cpu_family() + '-managarm-objcopy')
 
 exe = executable('eir-linux', eir_sources, eir_linux_sources,
-	'../../generic/elf-relocate.cpp',
 	include_directories : eir_includes,
+	c_args : ['-DEIR_PIE'], # Assembly is treated as C.
 	cpp_args : [eir_cpp_args, '-DEIR_PIE'],
 	link_args : [eir_link_args, '-Wl,-T,' + meson.current_source_dir() + '/link.x', '-static-pie'],
 	dependencies : eir_dependencies,
