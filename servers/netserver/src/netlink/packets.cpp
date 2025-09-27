@@ -83,14 +83,16 @@ void NetlinkSocket::sendAddrPacket(const struct nlmsghdr *hdr, const struct ifad
 	b.header(RTM_NEWADDR, NLM_F_MULTI | NLM_F_DUMP_FILTERED, hdr->nlmsg_seq, 0);
 	b.message<struct ifaddrmsg>({
 		.ifa_family = AF_INET,
-		.ifa_prefixlen = addr.prefix,
+		.ifa_prefixlen = addr.addr.prefix,
 		.ifa_flags = msg->ifa_flags,
 		.ifa_scope = RT_SCOPE_UNIVERSE,
 		.ifa_index = static_cast<uint32_t>(nic->index()),
 	});
 
-	b.rtattr(IFA_ADDRESS, htonl(addr.ip));
-	b.rtattr(IFA_LOCAL, htonl(addr.ip));
+	b.rtattr(IFA_ADDRESS, htonl(addr.addr.ip));
+	b.rtattr(IFA_LOCAL, htonl(addr.addr.ip));
+	if(addr.broadcast)
+		b.rtattr(IFA_BROADCAST, htonl(*addr.broadcast));
 	b.rtattr(IFA_LABEL, nic->name());
 
 	deliver(b.packet());
