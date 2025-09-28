@@ -512,6 +512,8 @@ public:
 	// Preconditon: the thread has to be stopped!
 	bool checkOrRequestSignalRaise();
 
+	void dumpRegisters();
+
 	async::result<void> destruct();
 
 	struct WaitResult {
