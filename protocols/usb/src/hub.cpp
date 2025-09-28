@@ -38,7 +38,7 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
 
-	DeviceSpeed speed; 
+	DeviceSpeed speed;
 
 	if (auto v = co_await hub->issueReset(port); !v) {
 		std::cout << "usb: Device on port " << port << " failed to reset: "
@@ -151,13 +151,13 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	walkConfiguration(cfgDescriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == descriptor_type::configuration) {
 			assert(!cfgNumber);
-			cfgNumber = info.configNumber.value();
+			cfgNumber = info.configNumber;
 		}else if(type == descriptor_type::interface) {
 			assert(!intfNumber);
-			intfNumber = info.interfaceNumber.value();
+			intfNumber = info.interfaceNumber;
 		}else if(type == descriptor_type::endpoint) {
 			assert(!endNumber);
-			endNumber = info.endpointNumber.value();
+			endNumber = info.endpointNumber;
 		}
 	});
 

@@ -101,7 +101,7 @@ uacpi_status uacpi_kernel_raw_io_write(uacpi_io_addr, T) {
 template <typename T>
 uacpi_status uacpi_kernel_raw_pci_read(uacpi_handle handle, uacpi_size offset, T *value) {
 	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
 
 	switch (sizeof(T)) {
 		case 1: {
@@ -132,7 +132,7 @@ uacpi_status uacpi_kernel_raw_pci_read(uacpi_handle handle, uacpi_size offset, T
 template <typename T>
 uacpi_status uacpi_kernel_raw_pci_write(uacpi_handle handle, uacpi_size offset, T value) {
 	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
 
 	switch (sizeof(T)) {
 		case 1: {
@@ -319,7 +319,7 @@ uacpi_status uacpi_kernel_io_write32(uacpi_handle handle, uacpi_size offset, uac
 static_assert(sizeof(uacpi_handle) >= sizeof(uacpi_pci_address));
 
 uacpi_status uacpi_kernel_pci_device_open(uacpi_pci_address address, uacpi_handle *out_handle) {
-	memcpy(out_handle, &address, sizeof(uacpi_pci_address));
+	memcpy(static_cast<void *>(out_handle), &address, sizeof(uacpi_pci_address));
 	return UACPI_STATUS_OK;
 }
 
@@ -469,6 +469,10 @@ uacpi_status uacpi_kernel_handle_firmware_request(uacpi_firmware_request *req) {
 			infoLogger() << "thor: fatal firmware error:"
 			             << " type: " << (int)req->fatal.type << " code: " << req->fatal.code
 			             << " arg: " << req->fatal.arg << frg::endlog;
+			break;
+		default:
+			infoLogger() << "thor: unknown ACPI firmware request type " << frg::hex_fmt{req->type}
+			             << frg::endlog;
 			break;
 	}
 

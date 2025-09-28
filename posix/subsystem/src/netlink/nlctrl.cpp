@@ -159,9 +159,9 @@ async::result<protocols::fs::Error> nlctrl::sendMsg(nl_socket::OpenFile *f, core
 
 			break;
 		}
+		default:
+			co_return protocols::fs::Error::illegalArguments;
 	}
-
-	co_return protocols::fs::Error::illegalArguments;
 }
 
 } // namespace netlink

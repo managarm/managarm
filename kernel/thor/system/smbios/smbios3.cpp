@@ -56,7 +56,7 @@ struct Smbios3 final : KernelBusObject {
 	  tableData_{tableData} {}
 
 	static bool validateHeader(smbios::Smbios3Header &header) {
-		if (memcmp(&header.anchor, "_SM3_", 5)) {
+		if (memcmp(&header.anchor, "_SM3_", 5) != 0) {
 			infoLogger() << "thor: Invalid SMBIOS3 anchor" << frg::endlog;
 			return false;
 		}

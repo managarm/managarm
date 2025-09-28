@@ -663,7 +663,7 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 			auto desc = static_cast<proto::EndpointDescriptor *>(p);
 			assert(!in_endp_number);
 
-			in_endp_number = info.endpointNumber.value();
+			in_endp_number = info.endpointNumber;
 			in_endp_pktsize = desc->maxPacketSize;
 		}
 	});
@@ -852,7 +852,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
 		if(type == proto::descriptor_type::configuration) {
 			assert(!config_number);
-			config_number = info.configNumber.value();
+			config_number = info.configNumber;
 		}else if(type == proto::descriptor_type::interface) {
 			auto desc = reinterpret_cast<proto::InterfaceDescriptor *>(p);
 			if(desc->interfaceClass != protocols::usb::usb_class::hid)
@@ -865,8 +865,8 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 				return;
 			}
 
-			intf_number = info.interfaceNumber.value();
-			intf_alternative = info.interfaceAlternative.value();
+			intf_number = info.interfaceNumber;
+			intf_alternative = info.interfaceAlternative;
 		}
 	});
 

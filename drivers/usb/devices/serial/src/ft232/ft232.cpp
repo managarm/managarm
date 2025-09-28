@@ -39,16 +39,16 @@ async::result<void> Ft232::initialize() {
 	protocols::usb::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *descriptor, const auto &info) {
 		if(type == protocols::usb::descriptor_type::configuration) {
 			assert(!config_number);
-			config_number = info.configNumber.value();
+			config_number = info.configNumber;
 		} else if(type == protocols::usb::descriptor_type::interface) {
 			intfNumber_ = info.interfaceNumber.value();
 		} else if(type == protocols::usb::descriptor_type::endpoint) {
 			auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
 
 			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber.value();
+				in_endp_number = info.endpointNumber;
 			} else {
-				out_endp_number = info.endpointNumber.value();
+				out_endp_number = info.endpointNumber;
 				outMaxPacketSize_ = desc->maxPacketSize;
 			}
 		}
@@ -116,21 +116,21 @@ async::result<void> Ft232::setConfiguration(struct termios &new_config) {
 	}
 
 	switch (new_config.c_cflag & CSIZE) {
-	case CS5:
-		lcr |= 5;
-		break;
-
-	case CS6:
-		lcr |= 6;
-		break;
-
-	case CS7:
-		lcr |= 7;
-		break;
-
-	case CS8:
-		lcr |= 8;
-		break;
+		case CS5:
+			lcr |= 5;
+			break;
+		case CS6:
+			lcr |= 6;
+			break;
+		case CS7:
+			lcr |= 7;
+			break;
+		case CS8:
+			lcr |= 8;
+			break;
+		default:
+			// the switch above is exhaustive
+			abort();
 	}
 
 	if (new_config.c_cflag & CRTSCTS) {

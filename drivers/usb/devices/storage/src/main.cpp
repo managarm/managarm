@@ -34,9 +34,9 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	proto::walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
 		if(type == proto::descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber.value();
+				in_endp_number = info.endpointNumber;
 			}else if(!info.endpointIn.value()) {
-				out_endp_number = info.endpointNumber.value();
+				out_endp_number = info.endpointNumber;
 			}else {
 				throw std::runtime_error("Illegal endpoint!\n");
 			}
@@ -138,7 +138,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
 		if(type == proto::descriptor_type::configuration) {
 			assert(!config_number);
-			config_number = info.configNumber.value();
+			config_number = info.configNumber;
 		}else if(type == proto::descriptor_type::interface) {
 			if(intf_number) {
 				std::cout << "block-usb: Ignoring interface "
@@ -148,7 +148,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 			if(logEnumeration)
 				std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
 						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
-			intf_number = info.interfaceNumber.value();
+			intf_number = info.interfaceNumber;
 
 			assert(!intf_class);
 			assert(!intf_subclass);

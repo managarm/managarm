@@ -75,7 +75,7 @@ bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
 
 template<typename T>
 bool readUserObject(const T *pointer, T &object) {
-	return readUserMemory(&object, pointer, sizeof(T));
+	return readUserMemory(static_cast<void *>(&object), static_cast<const void *>(pointer), sizeof(T));
 }
 
 template<typename T>
