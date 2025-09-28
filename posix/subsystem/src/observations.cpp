@@ -11,93 +11,6 @@
 
 #include "debug-options.hpp"
 
-void dumpRegisters(std::shared_ptr<Process> proc) {
-	auto thread = proc->threadDescriptor();
-
-	uintptr_t pcrs[2];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, pcrs));
-
-	uintptr_t gprs[kHelNumGprs];
-	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, gprs));
-
-	auto ip = pcrs[0];
-	auto sp = pcrs[1];
-
-#if defined(__x86_64__)
-	printf("rax: %.16lx, rbx: %.16lx, rcx: %.16lx\n", gprs[0], gprs[1], gprs[2]);
-	printf("rdx: %.16lx, rdi: %.16lx, rsi: %.16lx\n", gprs[3], gprs[4], gprs[5]);
-	printf(" r8: %.16lx,  r9: %.16lx, r10: %.16lx\n", gprs[6], gprs[7], gprs[8]);
-	printf("r11: %.16lx, r12: %.16lx, r13: %.16lx\n", gprs[9], gprs[10], gprs[11]);
-	printf("r14: %.16lx, r15: %.16lx, rbp: %.16lx\n", gprs[12], gprs[13], gprs[14]);
-	printf("rip: %.16lx, rsp: %.16lx\n", pcrs[0], pcrs[1]);
-#elif defined(__aarch64__)
-	// Registers X0-X30 have indices 0-30
-	for (int i = 0; i < 31; i += 3) {
-		if (i != 30) {
-			printf("x%02d: %.16lx, x%02d: %.16lx, x%02d: %.16lx\n", i, gprs[i], i + 1, gprs[i + 1], i + 2, gprs[i + 2]);
-		} else {
-			printf("x%d: %.16lx,  ip: %.16lx,  sp: %.16lx\n", i, gprs[i], pcrs[kHelRegIp], pcrs[kHelRegSp]);
-		}
-	}
-#endif
-
-	printf("Mappings:\n");
-	for (auto mapping : *(proc->vmContext())) {
-		uintptr_t start = mapping.baseAddress();
-		uintptr_t end = start + mapping.size();
-
-		std::string path;
-		if(mapping.backingFile().get()) {
-			// TODO: store the ViewPath inside the mapping.
-			ViewPath vp{proc->fsContext()->getRoot().first,
-					mapping.backingFile()->associatedLink()};
-
-			// TODO: This code is copied from GETCWD, factor it out into a function.
-			path = "";
-			while(true) {
-				if(vp == proc->fsContext()->getRoot())
-					break;
-
-				// If we are at the origin of a mount point, traverse that mount point.
-				ViewPath traversed;
-				if(vp.second == vp.first->getOrigin()) {
-					if(!vp.first->getParent())
-						break;
-					auto anchor = vp.first->getAnchor();
-					assert(anchor); // Non-root mounts must have anchors in their parents.
-					traversed = ViewPath{vp.first->getParent(), vp.second};
-				}else{
-					traversed = vp;
-				}
-
-				auto owner = traversed.second->getOwner();
-				if(!owner) { // We did not reach the root.
-					// TODO: Can we get rid of this case?
-					path = "?" + path;
-					break;
-				}
-
-				path = "/" + traversed.second->getName() + path;
-				vp = ViewPath{traversed.first, owner->treeLink()};
-			}
-		}else{
-			path = "anon";
-		}
-
-		printf("%016lx - %016lx %s %s%s%s %s + 0x%lx\n", start, end,
-				mapping.isPrivate() ? "P" : "S",
-				mapping.isExecutable() ? "x" : "-",
-				mapping.isReadable() ? "r" : "-",
-				mapping.isWritable() ? "w" : "-",
-				path.c_str(),
-				mapping.backingFileOffset());
-		if(ip >= start && ip < end)
-			printf("               ^ IP is 0x%lx bytes into this mapping\n", ip - start);
-		if(sp >= start && sp < end)
-			printf("               ^ Stack is 0x%lx bytes into this mapping\n", sp - start);
-	}
-}
-
 async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
@@ -668,9 +581,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
-			printf("\e[35mposix: User space panic in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
+			printf("\e[35mposix: User space panic in process %s\e[39m\n", self->path().c_str());
 			fflush(stdout);
 
 			auto item = new SignalItem;
@@ -680,19 +591,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous user space panic" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
-			if(killed) {
-				co_await self->coredump({});
-
-				if(debugFaults) {
-					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely(async::cancellation_token{});
-				}
+			if(killed)
 				break;
-			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveBreakpoint) {
 			printf("\e[35mposix: Breakpoint in process %s\n", self->path().c_str());
-			dumpRegisters(self);
+			self->dumpRegisters();
 			printf("\e[39m");
 			fflush(stdout);
 
@@ -703,7 +607,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObservePageFault) {
 			if(logPageFaults) {
 				printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
-				dumpRegisters(self);
+				self->dumpRegisters();
 				printf("\e[39m");
 				fflush(stdout);
 			}
@@ -715,25 +619,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
-			if(killed) {
-				if(!logPageFaults) {
-					printf("\e[31mposix: Page fault in process %s\n", self->path().c_str());
-					dumpRegisters(self);
-					printf("\e[39m");
-					fflush(stdout);
-				}
-
-				if(debugFaults) {
-					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely(async::cancellation_token{});
-				}
+			if(killed)
 				break;
-			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveGeneralFault) {
-			printf("\e[31mposix: General fault in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
+			printf("\e[31mposix: General fault in process %s\e[39m\n", self->path().c_str());
 			fflush(stdout);
 
 			auto item = new SignalItem;
@@ -743,18 +633,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGSEGV" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
-			if(killed) {
-				if(debugFaults) {
-					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely(async::cancellation_token{});
-				}
+			if(killed)
 				break;
-			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveIllegalInstruction) {
-			printf("\e[31mposix: Illegal instruction in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
+			printf("\e[31mposix: Illegal instruction in process %s\e[39m\n", self->path().c_str());
 			fflush(stdout);
 
 			auto item = new SignalItem;
@@ -773,9 +656,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveDivByZero) {
-			printf("\e[31mposix: Divide by zero in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
+			printf("\e[31mposix: Divide by zero in process %s\e[39m\n", self->path().c_str());
 			fflush(stdout);
 
 			auto item = new SignalItem;
@@ -785,18 +666,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGFPE" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
-			if(killed) {
-				if(debugFaults) {
-					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely(async::cancellation_token{});
-				}
+			if(killed)
 				break;
-			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else{
-			printf("\e[31mposix: Unexpected observation in process %s\n", self->path().c_str());
-			dumpRegisters(self);
-			printf("\e[39m");
+			printf("\e[31mposix: Unexpected observation in process %s\e[39m\n", self->path().c_str());
 			fflush(stdout);
 
 			auto item = new SignalItem;
@@ -806,13 +680,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"during synchronous SIGILL" "\e[39m" << std::endl;
 			bool killed;
 			co_await self->threadGroup()->signalContext()->determineAndRaiseContext(item, self.get(), killed);
-			if(killed) {
-				if(debugFaults) {
-					launchGdbServer(self.get());
-					co_await async::suspend_indefinitely(async::cancellation_token{});
-				}
+			if(killed)
 				break;
-			}
 			HEL_CHECK(helResume(thread.getHandle()));
 		}
 	}
