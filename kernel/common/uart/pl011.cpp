@@ -13,7 +13,7 @@ static constexpr arch::scalar_register<uint32_t> i_baud{0x24};
 static constexpr arch::scalar_register<uint32_t> f_baud{0x28};
 static constexpr arch::bit_register<uint32_t> control{0x30};
 static constexpr arch::bit_register<uint32_t> line_control{0x2c};
-static constexpr arch::scalar_register<uint32_t> int_clear{0x44};
+[[maybe_unused]] static constexpr arch::scalar_register<uint32_t> int_clear{0x44};
 } // namespace pl011_reg
 
 namespace pl011_status {
