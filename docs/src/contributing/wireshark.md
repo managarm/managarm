@@ -17,8 +17,10 @@ This command is the currently recommended way, as other protocols are currently 
 Dumps are collected over ostrace if it has been enabled with the `ostrace` kernel cmdline. This will generate a `ostrace.bin` in your build directory. A Wireshark-usable pcap file can then be generated with the following command:
 
 ```sh
-xbstrap runtool host-managarm-tools -- tools/host-managarm-tools/bin/extract-ostrace ostrace.bin --pcap
+xbstrap run generate-pcap
 ```
+
+This will result in a `bragi.pcap` file that can be opened with Wireshark.
 
 ## Analyzing the dump with Wireshark
 
