@@ -18,7 +18,7 @@ objcopy = find_program(host_machine.cpu_family() + '-managarm-objcopy')
 
 exe = executable('eir-linux', eir_sources, eir_linux_sources,
 	include_directories : eir_includes,
-	c_args : ['-DEIR_PIE'], # Assembly is treated as C.
+	c_args : [eir_c_args, '-DEIR_PIE'], # Assembly is treated as C.
 	cpp_args : [eir_cpp_args, '-DEIR_PIE'],
 	link_args : [eir_link_args, '-Wl,-T,' + meson.current_source_dir() + '/link.x', '-static-pie'],
 	dependencies : eir_dependencies,
