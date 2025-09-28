@@ -112,10 +112,10 @@ void e1000_io_write(struct e1000_hw *hw, u16 reg, u32 data);
 #define E1000_WRITE_FLUSH(a) E1000_READ_REG(a, E1000_STATUS)
 
 /* Read from an absolute offset in the adapter's memory space */
-#define E1000_READ_OFFSET(hw, offset) readl((const volatile void*)(uintptr_t)(hw2membase(hw) + (offset)))
+#define E1000_READ_OFFSET(hw, offset) readl((hw2membase(hw) + (offset)))
 
 /* Write to an absolute offset in the adapter's memory space */
-#define E1000_WRITE_OFFSET(hw, offset, value) writel((value), (volatile void*)(uintptr_t)(hw2membase(hw) + (offset)))
+#define E1000_WRITE_OFFSET(hw, offset, value) writel((value), (hw2membase(hw) + (offset)))
 
 /* Register READ/WRITE macros */
 #define E1000_READ_REG(hw, reg) E1000_READ_OFFSET((hw), E1000_REGISTER((hw), (reg)))

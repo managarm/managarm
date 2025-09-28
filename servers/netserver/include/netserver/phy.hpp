@@ -9,6 +9,7 @@ namespace nic {
 enum class PhyError {
 	none,
 	timeout,
+	hardwareError,
 };
 
 template <typename T>
