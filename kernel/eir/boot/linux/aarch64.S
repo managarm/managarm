@@ -1,6 +1,6 @@
-.section .text.init
-.global eirEntry
-eirEntry:
+.section .text.start
+.global _start
+_start:
 	b .L1
 	nop
 	.quad 0 // Image offset

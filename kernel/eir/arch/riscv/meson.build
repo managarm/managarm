@@ -11,15 +11,9 @@ eir_sources = [
 ]
 
 if build_uefi
-	eir_sources += files('platform/virt/early-log.cpp')
+	eir_sources += files('sbi-platform.cpp')
 endif
 
 eir_includes += include_directories(
 	'.',
-	'../../system/dtb'
 )
-
-if not build_uefi
-	subdir('platform/allwinner-d1')
-	subdir('platform/virt')
-endif

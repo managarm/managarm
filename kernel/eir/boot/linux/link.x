@@ -1,11 +1,11 @@
-ENTRY(eirEntry)
+ENTRY(_start)
 
 SECTIONS {
 	. = 0;
 	eirImageFloor = .;
 
 	.text : ALIGN(0x1000) {
-		*(.text.init)
+		*(.text.start)
 		*(.text*)
 	}
 
@@ -108,5 +108,6 @@ SECTIONS {
 		*(.dynstr)
 		*(.hash .gnu.hash)
 		*(.gnu.version*)
+		*(.riscv.attributes)
 	}
 }

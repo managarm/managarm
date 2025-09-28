@@ -1,5 +1,5 @@
-.global _start
 .section .text.start
+.global _start
 _start:
 	# Note: We can only use "lla", not "la" before eirRelocate!
 
