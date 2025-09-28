@@ -7,6 +7,7 @@ objcopy = find_program('aarch64-managarm-objcopy')
 
 exe = executable('eir-raspi4', eir_sources, raspi4_sources,
 	include_directories : eir_includes,
+	c_args: eir_c_args,
 	cpp_args : eir_cpp_args,
 	link_args : [eir_link_args, '-Wl,-T,' + meson.current_source_dir() + '/link.x'],
 	dependencies : eir_dependencies,
