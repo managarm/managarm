@@ -2,6 +2,7 @@
 #include <arch/io_space.hpp>
 #endif
 #include <assert.h>
+#include <dtb.hpp>
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch-generic/stack.hpp>
 #include <eir-internal/arch.hpp>
@@ -539,6 +540,12 @@ initgraph::Task setupMemoryMap{
 	        reinterpret_cast<uintptr_t>(loadedImage->image_base), loadedImage->image_size
 	    };
 	    reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(initrd), initrdSize};
+
+		if (eirDtbPtr) {
+			DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+
+			reservedRegions[nReservedRegions++] = {eirDtbPtr, dt.size()};
+		}
 
 	    auto entries = memMapSize / descriptorSize;
 
