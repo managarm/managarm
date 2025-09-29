@@ -2,6 +2,7 @@
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
@@ -252,79 +253,9 @@ extern "C" [[noreturn]] void eirRaspi4Main() {
 	frg::string_view cmd_sv{cmd_buf, cmd_len};
 	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
 
-	eir::infoLogger() << "Attempting to set up a framebuffer:" << frg::endlog;
-	unsigned int fb_width = 0, fb_height = 0;
+	cmdline = cmd_buf;
 
-	// Parse the command line.
-	{
-		const char *l = cmd_buf;
-		while (true) {
-			while (*l && *l == ' ')
-				l++;
-			if (!(*l))
-				break;
-
-			const char *s = l;
-			while (*s && *s != ' ')
-				s++;
-
-			frg::string_view token{l, static_cast<size_t>(s - l)};
-
-			if (auto equals = token.find_first('='); equals != size_t(-1)) {
-				auto key = token.sub_string(0, equals);
-				auto value = token.sub_string(equals + 1, token.size() - equals - 1);
-
-				if (key == "bcm2708_fb.fbwidth") {
-					if (auto width = value.to_number<unsigned int>(); width)
-						fb_width = *width;
-				} else if (key == "bcm2708_fb.fbheight") {
-					if (auto height = value.to_number<unsigned int>(); height)
-						fb_height = *height;
-				}
-			}
-
-			l = s;
-		}
-	}
-
-	uintptr_t fb_ptr = 0;
-	size_t fb_pitch = 0;
-	bool have_fb = false;
-	if (!fb_width || !fb_height) {
-		eir::infoLogger() << "No display attached" << frg::endlog;
-	} else {
-		auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(fb_width, fb_height, 32);
-
-		if (!ptr || !pitch) {
-			eir::infoLogger() << "Mode setting failed..." << frg::endlog;
-		} else {
-			eir::infoLogger() << "Success!" << frg::endlog;
-			fb_ptr = reinterpret_cast<uintptr_t>(ptr);
-			fb_width = actualW;
-			fb_height = actualH;
-			fb_pitch = pitch;
-			have_fb = true;
-			eir::infoLogger() << "Framebuffer pointer: " << ptr << frg::endlog;
-			eir::infoLogger() << "Framebuffer pitch: " << pitch << frg::endlog;
-			eir::infoLogger() << "Framebuffer width: " << actualW << frg::endlog;
-			eir::infoLogger() << "Framebuffer height: " << actualH << frg::endlog;
-		}
-	}
-
-	GenericInfo info{.cmdline = cmd_buf, .fb{}, .debugFlags = eirDebugSerial, .hasFb = have_fb};
-
-	if (have_fb) {
-		info.fb = {
-		    .fbAddress = fb_ptr,
-		    .fbPitch = fb_pitch,
-		    .fbWidth = static_cast<EirSize>(fb_width),
-		    .fbHeight = static_cast<EirSize>(fb_height),
-		    .fbBpp = 32,
-		    .fbType = 0
-		};
-	}
-
-	eirGenericMain(info);
+	eirMain();
 }
 
 // UART setup for Thor
@@ -352,5 +283,97 @@ static initgraph::Task setupBootUartMmio{
 	    uart::bootUartConfig.type = BootUartType::pl011;
     }
 };
+
+namespace {
+
+static initgraph::Task setupFramebuffer{
+    &globalInitEngine,
+    "raspi4.setup-framebuffer",
+    initgraph::Requires{getCmdlineAvailableStage()},
+    initgraph::Entails{getEirDoneStage()},
+    [] {
+	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+	    auto rootNode = dt.rootNode();
+
+	    bool isRaspi4 = false;
+	    if (auto compatibleProperty = rootNode.findProperty("compatible"); compatibleProperty) {
+		    size_t i = 0;
+		    while (true) {
+			    auto compatibleStr = compatibleProperty->asString(i);
+			    if (!compatibleStr)
+				    break;
+			    ++i;
+			    if (*compatibleStr == "raspberrypi,4-model-b")
+				    isRaspi4 = true;
+		    }
+	    }
+
+	    if (!isRaspi4)
+		    return;
+
+	    infoLogger() << "Attempting to set up a framebuffer:" << frg::endlog;
+	    unsigned int fb_width = 0, fb_height = 0;
+
+	    // Parse the command line.
+	    {
+		    const char *l = cmdline.data();
+		    while (true) {
+			    while (*l && *l == ' ')
+				    l++;
+			    if (!(*l))
+				    break;
+
+			    const char *s = l;
+			    while (*s && *s != ' ')
+				    s++;
+
+			    frg::string_view token{l, static_cast<size_t>(s - l)};
+
+			    if (auto equals = token.find_first('='); equals != size_t(-1)) {
+				    auto key = token.sub_string(0, equals);
+				    auto value = token.sub_string(equals + 1, token.size() - equals - 1);
+
+				    if (key == "bcm2708_fb.fbwidth") {
+					    if (auto width = value.to_number<unsigned int>(); width)
+						    fb_width = *width;
+				    } else if (key == "bcm2708_fb.fbheight") {
+					    if (auto height = value.to_number<unsigned int>(); height)
+						    fb_height = *height;
+				    }
+			    }
+
+			    l = s;
+		    }
+	    }
+
+	    if (!fb_width || !fb_height) {
+		    infoLogger() << "No display attached" << frg::endlog;
+		    return;
+	    }
+
+	    auto [actualW, actualH, ptr, pitch] = PropertyMbox::setupFb(fb_width, fb_height, 32);
+	    if (!ptr || !pitch) {
+		    infoLogger() << "Mode setting failed..." << frg::endlog;
+		    return;
+	    }
+	    infoLogger() << "Success!" << frg::endlog;
+
+	    EirFramebuffer fb;
+	    fb.fbAddress = reinterpret_cast<uintptr_t>(ptr);
+	    fb.fbWidth = actualW;
+	    fb.fbHeight = actualH;
+	    fb.fbPitch = pitch;
+	    fb.fbBpp = 32;
+	    fb.fbType = 0;
+	    initFramebuffer(fb);
+
+	    infoLogger() << "Framebuffer pointer: " << ptr << frg::endlog;
+	    infoLogger() << "Framebuffer pitch: " << pitch << frg::endlog;
+	    infoLogger() << "Framebuffer width: " << actualW << frg::endlog;
+	    infoLogger() << "Framebuffer height: " << actualH << frg::endlog;
+    }
+};
+
+} // namespace
 
 } // namespace eir
