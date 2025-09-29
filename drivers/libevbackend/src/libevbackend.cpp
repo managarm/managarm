@@ -9,7 +9,6 @@
 
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
-#include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <libevbackend.hpp>
 #include <protocols/fs/server.hpp>
@@ -363,7 +362,7 @@ File::File(EventDevice *device, bool non_block)
 
 File::~File() {
 	// TODO: This should probably be done in an explicit handleClose().
-	_device->_files.erase(_device->_files.iterator_to(*this));
+	_device->files_.erase(_device->files_.iterator_to(this));
 }
 
 // ----------------------------------------------------------------------------
@@ -390,7 +389,7 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			auto file = smarter::make_shared<File>(device.get(),
 					req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK);
-			device->_files.push_back(*file.get());
+			device->files_.push_back(file.get());
 			auto remote_lane = File::serve(file);
 
 			managarm::fs::SvrResponse resp;
@@ -531,16 +530,16 @@ void EventDevice::notify() {
 	if(_staged.empty())
 		return;
 
-	for(auto &file : _files) {
-		if(file._overflow)
+	for(auto file : files_) {
+		if(file->_overflow)
 			continue;
 
 		struct timespec now;
-		if(clock_gettime(file._clockId, &now))
+		if(clock_gettime(file->_clockId, &now))
 			throw std::runtime_error("clock_gettime() failed");
 
-		if(file._pending.size() > 1024) {
-			file._overflow = true;
+		if(file->_pending.size() > 1024) {
+			file->_overflow = true;
 			continue;
 		}
 
@@ -551,10 +550,10 @@ void EventDevice::notify() {
 						<< ", value: " << evt.value << std::endl;
 
 		for(StagedEvent evt : _staged)
-			file._pending.push_back(PendingEvent{evt.type, evt.code, evt.value, now});
-		file._currentSeq++;
-		file._statusPage.update(file._currentSeq, EPOLLIN);
-		file._statusBell.raise();
+			file->_pending.push_back(PendingEvent{evt.type, evt.code, evt.value, now});
+		file->_currentSeq++;
+		file->_statusPage.update(file->_currentSeq, EPOLLIN);
+		file->_statusBell.raise();
 	}
 	_staged.clear();
 }
