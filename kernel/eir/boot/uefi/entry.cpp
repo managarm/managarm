@@ -544,11 +544,11 @@ initgraph::Task setupMemoryMap{
 	    };
 	    reservedRegions[nReservedRegions++] = {reinterpret_cast<uintptr_t>(initrd), initrdSize};
 
-		if (eirDtbPtr) {
-			DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+	    if (eirDtbPtr) {
+		    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
-			reservedRegions[nReservedRegions++] = {eirDtbPtr, dt.size()};
-		}
+		    reservedRegions[nReservedRegions++] = {eirDtbPtr, dt.size()};
+	    }
 
 	    auto entries = memMapSize / descriptorSize;
 
