@@ -6,7 +6,6 @@
 #include <unordered_map>
 
 #include <async/result.hpp>
-#include <boost/intrusive/rbtree.hpp>
 #include <core/id-allocator.hpp>
 #include <frg/container_of.hpp>
 #include <hel.h>

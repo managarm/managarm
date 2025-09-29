@@ -559,7 +559,7 @@ void SignalContext::issueSignal(int sn, SignalInfo info) {
 	item->info = info;
 
 	_slots[sn - 1].raiseSeq = ++_currentSeq;
-	_slots[sn - 1].asyncQueue.push_back(*item);
+	_slots[sn - 1].asyncQueue.push_back(item);
 	_activeSet |= (UINT64_C(1) << (sn - 1));
 	_signalBell.raise();
 }
@@ -606,7 +606,7 @@ async::result<SignalItem *> SignalContext::fetchSignal(uint64_t mask, bool nonBl
 	}
 
 	assert(!_slots[sn - 1].asyncQueue.empty());
-	auto item = &_slots[sn - 1].asyncQueue.front();
+	auto item = _slots[sn - 1].asyncQueue.front();
 	_slots[sn - 1].asyncQueue.pop_front();
 	if(_slots[sn - 1].asyncQueue.empty())
 		_activeSet &= ~(UINT64_C(1) << (sn - 1));
@@ -1750,22 +1750,22 @@ ProcessGroup::~ProcessGroup() {
 void ProcessGroup::reassociateProcess(Process *process) {
 	if(process->_pgPointer) {
 		auto oldGroup = process->_pgPointer.get();
-		oldGroup->members_.erase(oldGroup->members_.iterator_to(*process));
+		oldGroup->members_.erase(oldGroup->members_.iterator_to(process));
 	}
 	process->_pgPointer = shared_from_this();
-	members_.push_back(*process);
+	members_.push_back(process);
 }
 
 void ProcessGroup::dropProcess(Process *process) {
 	assert(process->_pgPointer.get() == this);
-	members_.erase(members_.iterator_to(*process));
+	members_.erase(members_.iterator_to(process));
 	// Note: this assignment can destruct 'this'.
 	process->_pgPointer = nullptr;
 }
 
 void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
-	for(auto &processRef : members_)
-		processRef.threadGroup()->signalContext()->issueSignal(sn, info);
+	for(auto processRef : members_)
+		processRef->threadGroup()->signalContext()->issueSignal(sn, info);
 }
 
 TerminalSession::TerminalSession(std::shared_ptr<PidHull> hull)
@@ -1792,15 +1792,15 @@ std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupL
 	auto group = std::make_shared<ProcessGroup>(groupLeader->getPidHull()->shared_from_this());
 	group->reassociateProcess(groupLeader);
 	group->sessionPointer_ = shared_from_this();
-	groups_.push_back(*group);
+	groups_.push_back(group.get());
 	group->hull_->initializeProcessGroup(group.get());
 	return group;
 }
 
 std::shared_ptr<ProcessGroup> TerminalSession::getProcessGroupById(pid_t id) {
-	for(auto &i : groups_) {
-		if(i.getHull()->getPid() == id)
-			return i.getHull()->getProcessGroup()->shared_from_this();
+	for(auto i : groups_) {
+		if(i->getHull()->getPid() == id)
+			return i->getHull()->getProcessGroup()->shared_from_this();
 	}
 	return nullptr;
 }
@@ -1809,7 +1809,7 @@ void TerminalSession::dropGroup(ProcessGroup *group) {
 	assert(group->sessionPointer_.get() == this);
 	if(foregroundGroup_ == group)
 		foregroundGroup_ = nullptr;
-	groups_.erase(groups_.iterator_to(*group));
+	groups_.erase(groups_.iterator_to(group));
 	// Note: this assignment can destruct 'this'.
 	group->sessionPointer_ = nullptr;
 }

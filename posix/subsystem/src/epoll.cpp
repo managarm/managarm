@@ -4,7 +4,7 @@
 #include <print>
 
 #include <async/recurring-event.hpp>
-#include <boost/intrusive/list.hpp>
+#include <frg/intrusive.hpp>
 #include <frg/manual_box.hpp>
 #include <helix/ipc.hpp>
 #include "common.hpp"
@@ -49,7 +49,7 @@ private:
 		smarter::shared_ptr<Item> item;
 	};
 
-	struct Item : boost::intrusive::list_base_hook<> {
+	struct Item {
 		Item(smarter::shared_ptr<OpenFile> epoll, Process *process,
 				smarter::shared_ptr<File> file, int mask, uint64_t cookie)
 		: epoll{epoll}, state{stateAlive}, process{process},
@@ -76,6 +76,8 @@ private:
 		std::optional<frg::expected<Error, PollWaitResult>> pollOutcome;
 
 		smarter::borrowed_ptr<Item> self;
+
+		frg::default_list_hook<Item> hook_;
 	};
 
 	static void _awaitPoll(Item *item) {
@@ -117,7 +119,7 @@ private:
 				item->state |= statePending;
 
 				item->self.lock().ctr()->increment();
-				self->_pendingQueue.push_back(*item);
+				self->_pendingQueue.push_back(item);
 				self->_currentSeq++;
 				self->_statusBell.raise();
 			}
@@ -169,7 +171,7 @@ public:
 		_fileMap.insert({{item->file.get(), fd}, item});
 
 		item.ctr()->increment();
-		_pendingQueue.push_back(*item);
+		_pendingQueue.push_back(item.get());
 		_currentSeq++;
 		_statusBell.raise();
 		return Error::success;
@@ -197,7 +199,7 @@ public:
 			item->state |= statePending | stateActive;
 
 			item.ctr()->increment();
-			_pendingQueue.push_back(*item);
+			_pendingQueue.push_back(item.get());
 			_currentSeq++;
 			_statusBell.raise();
 		}
@@ -227,19 +229,22 @@ public:
 		assert(max_events);
 		if(logEpoll) {
 			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
-					" There are " << _pendingQueue.size() << " pending items; cancellation is "
+					" There are " << (_pendingQueue.empty() ? "no " : "") << "pending items; cancellation is "
 					<< (cancellation.is_cancellation_requested() ? "active" : "inactive")
 					<< std::endl;
 		}
 
 		size_t k = 0;
-		boost::intrusive::list<Item> repoll_queue;
+		frg::intrusive_list<
+			Item,
+			frg::locate_member<Item, frg::default_list_hook<Item>, &Item::hook_>
+		> repoll_queue;
 		while(true) {
 			// TODO: Stop waiting in this case.
 			assert(isOpen());
 
 			while(!_pendingQueue.empty()) {
-				auto item = _pendingQueue.front().self.lock();
+				auto item = _pendingQueue.front()->self.lock();
 				_pendingQueue.pop_front();
 				item.ctr()->decrement();
 				assert(item->state & statePending);
@@ -314,7 +319,7 @@ public:
 					}
 				} else {
 					item.ctr()->increment();
-					repoll_queue.push_back(*item);
+					repoll_queue.push_back(item.get());
 				}
 
 				if(k == max_events)
@@ -364,7 +369,7 @@ public:
 		}
 
 		while(!_pendingQueue.empty()) {
-			auto item = _pendingQueue.front().self.lock();
+			auto item = _pendingQueue.front()->self.lock();
 			_pendingQueue.pop_front();
 			item.ctr()->decrement();
 			assert(item->state & statePending);
@@ -429,7 +434,10 @@ private:
 
 	std::unordered_map<Key, smarter::shared_ptr<Item>, KeyHash> _fileMap;
 
-	boost::intrusive::list<Item> _pendingQueue;
+	frg::intrusive_list<
+		Item,
+		frg::locate_member<Item, frg::default_list_hook<Item>, &Item::hook_>
+	> _pendingQueue;
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 };

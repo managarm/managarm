@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <async/result.hpp>
-#include <boost/intrusive/rbtree.hpp>
 #include <frg/expected.hpp>
 #include <hel.h>
 #include <protocols/fs/server.hpp>
