@@ -239,12 +239,13 @@ struct Udp4Socket {
 			uint32_t flags, void *data, size_t len,
 			void *addr_buf, size_t addr_size, size_t max_ctrl_len) {
 		(void) creds;
-		(void) flags;
 
 		using arch::convert_endian;
 		using arch::endian;
 
 		auto self = static_cast<Udp4Socket *>(obj);
+		if(self->queue_.empty() && flags & MSG_DONTWAIT)
+			co_return Error::wouldBlock;
 
 		auto element = co_await self->queue_.async_get();
 		auto packet = element->payload();

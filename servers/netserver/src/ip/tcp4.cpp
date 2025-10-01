@@ -377,7 +377,7 @@ struct Tcp4Socket {
 			if(!available) {
 				if(progress)
 					break;
-				if(self->nonBlock_)
+				if(self->nonBlock_ || flags & MSG_DONTWAIT)
 					co_return protocols::fs::Error::wouldBlock;
 				co_await self->inEvent_.async_wait();
 				continue;
