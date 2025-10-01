@@ -8,7 +8,7 @@ A list of packages is available on our [repo](https://builds.managarm.org/projec
 ## Hardware
 ### Real Hardware
 - General: USB (UHCI, EHCI, XHCI)
-- Graphics: Generic VBE graphics, Intel G45
+- Graphics: Generic VBE graphics, Intel G45, nVidia (Turing and later)
 - Input: USB human interface devices, PS/2 keyboard and mouse
 - Storage: USB mass storage devices, NVMe, AHCI, ATA
 - Network: USB CDC ECM/NCM ethernet devices, USB MBIM cellular modems, RTL8168 family, Intel Gigabit Ethernet devices

@@ -1,7 +1,7 @@
 # The managarm Operating System
 
 ![CI](https://github.com/managarm/managarm/workflows/CI/badge.svg)
-![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)
+[![Documentation](https://github.com/managarm/managarm/workflows/Documentation/badge.svg)](https://docs.managarm.org/handbook/)
 [![x86_64](https://builds.managarm.org/projects/managarm/badge)](https://builds.managarm.org/projects/managarm)
 [![aarch64](https://builds.managarm.org/projects/managarm_aarch64/badge)](https://builds.managarm.org/projects/managarm_aarch64)
 [![riscv](https://builds.managarm.org/projects/managarm_riscv64/badge)](https://builds.managarm.org/projects/managarm_riscv64)
@@ -53,8 +53,9 @@ To run the (uncompressed) image using qemu, we recommend the following flags:
 Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/wayland/weston/) (the Wayland reference compositor), [kmscon](https://www.freedesktop.org/wiki/Software/kmscon/) (a system console), GNU Coreutils, Bash, nano and others.
 
 ## Supported Hardware
+
 **General** USB (UHCI, EHCI, XHCI)\
-**Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface, VMWare SVGA\
+**Graphics** Generic VBE graphics, Intel G45, virtio GPU, Bochs VBE interface, VMWare SVGA, nVidia (Turing+)\
 **Input** USB human interface devices, PS/2 keyboard and mouse\
 **Storage** USB mass storage devices, NVMe, AHCI, ATA, virtio block\
 **Network** USB CDC ECM/NCM ethernet devices, USB MBIM cellular modems, RTL8168 family, Intel Gigabit Ethernet devices\
