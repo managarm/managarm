@@ -45,8 +45,7 @@ auto handleXferReq(auto req, auto &endpoint, auto &&...xferArgs) {
 		std::forward<decltype(xferArgs)>(xferArgs)...
 	};
 
-	if (req->dir() == managarm::usb::XferDirection::TO_DEVICE)
-		xfer.allowShortPackets = req->allow_short_packets();
+	xfer.allowShortPackets = req->allow_short_packets();
 	xfer.lazyNotification = req->lazy_notification();
 
 	return endpoint.transfer(xfer);

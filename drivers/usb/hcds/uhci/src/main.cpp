@@ -1070,6 +1070,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 	auto legsup = co_await device.loadPciSpace(kPciLegacySupport, 2);
 	std::cout << "uhci: Legacy support register: " << legsup << std::endl;
 
+	co_await device.enableBusmaster();
 	HEL_CHECK(helEnableIo(bar.getHandle()));
 
 	arch::io_space base = arch::global_io.subspace(info.barInfo[4].address);
