@@ -517,8 +517,15 @@ private:
 		if(resp.error() == managarm::fs::Errors::SUCCESS) {
 			HEL_CHECK(pull_node.error());
 
-			auto node = _sb->internalizePeripheralNode(resp.file_type(), resp.id(), pull_node.descriptor());
-			co_return _sb->internalizePeripheralLink(this, name, std::move(node));
+			if (resp.file_type() == managarm::fs::FileType::DIRECTORY) {
+				auto child = _sb->internalizeStructural(this, name,
+						resp.id(), pull_node.descriptor());
+				co_return child->treeLink();
+			}else{
+				auto child = _sb->internalizePeripheralNode(resp.file_type(), resp.id(),
+						pull_node.descriptor());
+				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
+			}
 		} else {
 			co_return std::unexpected{resp.error() | toPosixError};
 		}
