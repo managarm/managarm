@@ -425,7 +425,7 @@ tail:
 message RecvMsgRequest 6 {
 head(128):
 	int32 size;
-	uint32 flags;
+	@format(hex) uint32 flags;
 	uint64 ctrl_size;
 	uint64 addr_size;
 }
