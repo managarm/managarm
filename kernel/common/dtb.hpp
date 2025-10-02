@@ -76,6 +76,22 @@ struct Accessor {
 
 	size_t offset() { return offset_; }
 
+	template <typename T>
+	[[nodiscard]] bool read(T &v) {
+		Cells cells;
+		if (!intoCells(cells))
+			return false;
+		return cells.read(v);
+	}
+
+	[[nodiscard]] bool intoCells(Cells &cells) {
+		auto numBytes = data_.size() - offset_;
+		if (numBytes & (sizeof(uint32_t) - 1))
+			return false;
+		auto numCells = numBytes / sizeof(uint32_t);
+		return intoCells(cells, numCells);
+	}
+
 	[[nodiscard]] bool intoCells(Cells &cells, size_t numCells) {
 		if (offset_ + sizeof(uint32_t) * numCells > data_.size())
 			return false; // Fail if out-of-bounds.
@@ -249,6 +265,11 @@ struct DeviceTreeProperty {
 	size_t size() const { return data_.size(); }
 
 	dtb::Accessor access() { return dtb::Accessor{data_, 0}; }
+
+	template <typename T>
+	bool read(T &v) {
+		return access().read(v);
+	}
 
 	uint32_t asU32(size_t offset = 0) {
 		assert(offset + 4 <= data_.size());
