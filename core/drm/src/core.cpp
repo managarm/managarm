@@ -174,20 +174,28 @@ drm_core::File::accessMemory(void *object) {
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 drm_core::File::pollWait(void *object, uint64_t sequence, int mask,
-		async::cancellation_token) {
-	(void) mask;
-
+		async::cancellation_token c) {
 	auto self = static_cast<drm_core::File *>(object);
 
 	if(sequence > self->_eventSequence)
 		co_return protocols::fs::Error::illegalArguments;
 
-	// Wait until we surpass the input sequence.
-	while(sequence == self->_eventSequence)
-		co_await self->_eventBell.async_wait();
+	int edges = 0;
 
-	co_return protocols::fs::PollWaitResult{self->_eventSequence,
-			self->_eventSequence > 0 ? EPOLLIN : 0};
+	// Wait until we surpass the input sequence.
+	while (true) {
+		edges = 0;
+		if (self->_eventSequence > sequence)
+			edges |= EPOLLIN;
+
+		if (edges & mask)
+			break;
+
+		if (!co_await self->_eventBell.async_wait(c))
+			break;
+	}
+
+	co_return protocols::fs::PollWaitResult{self->_eventSequence, edges & mask};
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>

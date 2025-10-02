@@ -110,18 +110,28 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t in_seq, int mask,
 			async::cancellation_token cancellation) override {
-		(void)mask; // TODO: utilize mask.
 		if(logTimerfd)
 			std::cout << "posix: timerfd::pollWait(" << in_seq << ")" << std::endl;
+
 		assert(in_seq <= _theSeq);
-		while(in_seq == _theSeq && !cancellation.is_cancellation_requested()) {
+
+		int edges = 0;
+		while(true) {
 			if(!isOpen())
 				co_return Error::fileClosed;
 
-			co_await _seqBell.async_wait(cancellation);
+			edges = 0;
+			if (_theSeq > in_seq)
+				edges |= EPOLLIN;
+
+			if (edges & mask)
+				break;
+
+			if (!co_await _seqBell.async_wait(cancellation))
+				break;
 		}
 
-		co_return PollWaitResult(_theSeq, _theSeq ? EPOLLIN : 0);
+		co_return PollWaitResult(_theSeq, edges & mask);
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>
