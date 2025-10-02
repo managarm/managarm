@@ -150,6 +150,13 @@ struct DeviceTree {
 
 	DeviceTreeNode rootNode();
 
+	template <typename F>
+	bool walkPath(frg::string_view path, F f);
+
+	template <typename F>
+	bool walkPathNodes(frg::string_view path, F f);
+
+	frg::optional<frg::string_view> lookupAlias(frg::string_view alias);
 	frg::optional<DeviceTreeNode> resolveAlias(frg::string_view alias);
 	frg::optional<DeviceTreeNode> findNode(frg::string_view path);
 
@@ -536,7 +543,63 @@ inline void DeviceTree::walkTree(T &&walker) {
 	walker.pop();
 }
 
-inline frg::optional<DeviceTreeNode> DeviceTree::resolveAlias(frg::string_view alias) {
+template <typename F>
+inline bool DeviceTree::walkPath(frg::string_view path, F f) {
+	if (path.size() == 0)
+		return true;
+
+	auto isAbsolute = path[0] == '/';
+	size_t idx = isAbsolute ? 1 : 0;
+
+	if (!isAbsolute) {
+		// If the path is relative, the first component is treated as an alias.
+		auto aliasEnd = path.find_first('/');
+		if (aliasEnd == size_t(-1))
+			aliasEnd = path.size();
+		auto alias = path.sub_string(0, aliasEnd);
+		auto target = lookupAlias(alias);
+		if (!target)
+			return false;
+		if (!walkPath(*target, f))
+			return false;
+		idx = aliasEnd + 1; // Skip the alias + '/'
+	}
+
+	while (idx < path.size()) {
+		size_t comp_end = path.find_first('/', idx);
+		if (comp_end == size_t(-1))
+			comp_end = path.size();
+		auto comp = path.sub_string(idx, comp_end - idx);
+		idx = comp_end + 1; // Skip the component + '/'
+
+		f(comp);
+	}
+
+	return true;
+}
+
+template <typename F>
+inline bool DeviceTree::walkPathNodes(frg::string_view path, F f) {
+	frg::optional<DeviceTreeNode> current = rootNode();
+	f(*current);
+	auto success = walkPath(path, [&](frg::string_view comp) {
+		if (current) {
+			current->discoverSubnodes(
+			    [&](DeviceTreeNode node) { return node.name() == comp; },
+			    [&](DeviceTreeNode node) { current = node; }
+			);
+			if (current)
+				f(*current);
+		}
+	});
+	if (!success)
+		return false;
+	if (!current)
+		return false;
+	return true;
+}
+
+inline frg::optional<frg::string_view> DeviceTree::lookupAlias(frg::string_view alias) {
 	frg::optional<DeviceTreeNode> aliases;
 	rootNode().discoverSubnodes(
 	    [](DeviceTreeNode &node) { return frg::string_view{node.name()} == "aliases"; },
@@ -549,48 +612,27 @@ inline frg::optional<DeviceTreeNode> DeviceTree::resolveAlias(frg::string_view a
 	if (!prop)
 		return frg::null_opt;
 
-	auto path = prop->asString();
-	if (!path)
-		return frg::null_opt;
+	return prop->asString();
+}
 
-	return findNode(*path);
+inline frg::optional<DeviceTreeNode> DeviceTree::resolveAlias(frg::string_view alias) {
+	frg::optional<frg::string_view> maybePath = lookupAlias(alias);
+	if (!maybePath)
+		return frg::null_opt;
+	return findNode(*maybePath);
 }
 
 inline frg::optional<DeviceTreeNode> DeviceTree::findNode(frg::string_view path) {
-	if (path.size() == 0)
-		return frg::null_opt;
-
-	auto isAbsolute = path[0] == '/';
-	size_t idx = isAbsolute ? 1 : 0;
 	frg::optional<DeviceTreeNode> current = rootNode();
-
-	if (!isAbsolute) {
-		// If the path is relative, the first component is treated as an alias.
-		auto aliasEnd = path.find_first('/');
-		if (aliasEnd == size_t(-1))
-			aliasEnd = path.size();
-		auto alias = path.sub_string(0, aliasEnd);
-		current = resolveAlias(alias);
-		if (!current)
-			return frg::null_opt;
-		idx = aliasEnd + 1; // Skip the alias + '/'
-	}
-
-	while (idx < path.size()) {
-		size_t comp_end = path.find_first('/', idx);
-		if (comp_end == size_t(-1))
-			comp_end = path.size();
-		auto comp = path.sub_string(idx, comp_end - idx);
-		idx = comp_end + 1; // Skip the component + '/'
-
-		if (!current)
-			return frg::null_opt;
-
-		current->discoverSubnodes(
-		    [&](DeviceTreeNode node) { return node.name() == comp; },
-		    [&](DeviceTreeNode node) { current = node; }
-		);
-	}
-
+	auto success = walkPath(path, [&](frg::string_view comp) {
+		if (current) {
+			current->discoverSubnodes(
+			    [&](DeviceTreeNode node) { return node.name() == comp; },
+			    [&](DeviceTreeNode node) { current = node; }
+			);
+		}
+	});
+	if (!success)
+		return frg::null_opt;
 	return current;
 }
