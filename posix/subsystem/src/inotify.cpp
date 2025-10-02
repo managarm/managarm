@@ -155,19 +155,18 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t sequence, int mask,
 	async::cancellation_token cancellation) override {
-		(void)mask; // TODO: utilize mask.
 		// TODO: Return Error::fileClosed as appropriate.
 
 		assert(sequence <= _currentSeq);
-		while(sequence == _currentSeq
-				&& !cancellation.is_cancellation_requested())
-			co_await _statusBell.async_wait(cancellation);
+		while(sequence == _currentSeq)
+			if (!co_await _statusBell.async_wait(cancellation))
+				break;
 
 		int edges = 0;
 		if(_inSeq > sequence)
 			edges |= EPOLLIN;
 
-		co_return PollWaitResult(_currentSeq, edges);
+		co_return PollWaitResult(_currentSeq, edges & mask);
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>

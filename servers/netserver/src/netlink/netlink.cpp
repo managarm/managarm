@@ -225,24 +225,32 @@ async::result<int> NetlinkSocket::getFileFlags(void *object) {
 	co_return flags;
 }
 
-async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> NetlinkSocket::pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+NetlinkSocket::pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token ct) {
 	auto self = static_cast<NetlinkSocket *>(obj);
-	(void)mask; // TODO: utilize mask.
-
 	assert(past_seq <= self->_currentSeq);
-	while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
-		co_await self->_statusBell.async_wait(cancellation);
+	int edges = 0;
 
-	// For now making sockets always writable is sufficient.
-	int edges = EPOLLOUT;
-	if(self->_inSeq > past_seq)
-		edges |= EPOLLIN;
+	while (true) {
+		if(self->_isClosed)
+			co_return protocols::fs::Error::internalError;
 
-	std::cout << "posix: pollWait(" << past_seq << ")"
-			<< " returns (" << self->_currentSeq
-			<< ", " << edges << ")" << std::endl;
+		// For now making sockets always writable is sufficient.
+		edges = EPOLLOUT;
+		if(self->_inSeq > past_seq)
+			edges |= EPOLLIN;
 
-	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
+		if (edges & mask)
+			break;
+
+		if (!co_await self->_statusBell.async_wait(ct))
+			break;
+	}
+
+	// std::println("posix: pollWait({}, {}) on \e[1;34mnetserver.nl-socket\e[0m returns ({}, {})",
+	// 	past_seq, mask, self->_currentSeq, edges & mask);
+
+	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges & mask);
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>> NetlinkSocket::pollStatus(void *obj) {

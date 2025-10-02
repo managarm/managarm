@@ -146,18 +146,17 @@ File::read(void *object, helix_ng::CredentialsView, void *buffer, size_t max_siz
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 File::pollWait(void *object, uint64_t past_seq, int mask,
-		async::cancellation_token) {
-	(void) mask;
-
+		async::cancellation_token c) {
 	auto self = static_cast<File *>(object);
 
 	assert(past_seq <= self->_currentSeq);
 	while(self->_currentSeq == past_seq)
-		co_await self->_statusBell.async_wait();
+		if (!co_await self->_statusBell.async_wait(c))
+			break;
 
 	co_return protocols::fs::PollWaitResult{
 		self->_currentSeq,
-		self->_currentSeq > 0 ? EPOLLIN : 0
+		(self->_currentSeq > past_seq ? EPOLLIN : 0) & mask
 	};
 }
 
