@@ -1,4 +1,5 @@
 #include <eir-internal/arch.hpp>
+#include <eir-internal/dtb/helpers.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 #include <eir-internal/uart/uart.hpp>
@@ -156,15 +157,57 @@ void initFromAcpi(common::uart::AnyUart &uart, unsigned int subtype, const acpi_
 	}
 }
 
-void initFromDtb(common::uart::AnyUart &uart, const DeviceTree &, const DeviceTreeNode &chosen) {
-	auto compatible = chosen.findProperty("compatible")->asString();
+void initFromDtb(common::uart::AnyUart &uart, std::span<DeviceTreeNode> path) {
+	assert(path.size() > 0);
+	auto uartNode = path.back();
 
-	if (*compatible == "arm,pl011") {
-		auto addr = chosen.findProperty("reg")->asU64(0);
-		uart.emplace<common::uart::PL011>(addr, 0);
-	} else if (*compatible == "apple,s5l-uart") {
-		auto addr = chosen.findProperty("reg")->asU64(0);
-		uart.emplace<common::uart::Samsung>(addr);
+	auto parentPath = path.subspan(0, path.size() - 1);
+	if (parentPath.empty()) {
+		infoLogger() << "eir: Cannot initialize UART from DT root node" << frg::endlog;
+		return;
+	}
+	auto parentNode = parentPath.back();
+	auto addressCells = dtb::addressCells(parentNode);
+
+	auto compatibleProperty = uartNode.findProperty("compatible");
+	if (!compatibleProperty) {
+		infoLogger() << "eir: No compatible string" << frg::endlog;
+		return;
+	}
+
+	size_t i = 0;
+	while (true) {
+		auto compatibleStr = compatibleProperty->asString(i);
+		if (!compatibleStr)
+			break;
+		++i;
+		infoLogger() << *compatibleStr << frg::endlog;
+
+		auto regProperty = uartNode.findProperty("reg");
+		if (!regProperty) {
+			infoLogger() << "eir: UART has no reg property" << frg::endlog;
+			continue;
+		}
+
+		auto reg = regProperty->access();
+		uint64_t address;
+		if (!reg.readCells(address, addressCells)) {
+			infoLogger() << "eir: Failed to read UART address" << frg::endlog;
+			continue;
+		}
+		auto translated = eir::dtb::translateAddress(address, parentPath);
+		if (!translated) {
+			infoLogger() << "eir: Failed to translate UART address" << frg::endlog;
+			continue;
+		}
+
+		if (*compatibleStr == "arm,pl011") {
+			uart.emplace<common::uart::PL011>(*translated, 0);
+			return;
+		} else if (*compatibleStr == "apple,s5l-uart") {
+			uart.emplace<common::uart::Samsung>(*translated);
+			return;
+		}
 	}
 }
 

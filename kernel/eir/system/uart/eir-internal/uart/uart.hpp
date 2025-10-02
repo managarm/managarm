@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include <dtb.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
@@ -30,7 +32,7 @@ void setBootUart(common::uart::AnyUart *uartPtr);
 // The subtype that is passed to this function is also defined by DBG2.
 void initFromAcpi(common::uart::AnyUart &uart, unsigned int subtype, const acpi_gas &base);
 
-void initFromDtb(common::uart::AnyUart &uart, const DeviceTree &tree, const DeviceTreeNode &node);
+void initFromDtb(common::uart::AnyUart &uart, std::span<DeviceTreeNode> path);
 
 // The boot UART must be determined before this stage.
 initgraph::Stage *getBootUartDeterminedStage();

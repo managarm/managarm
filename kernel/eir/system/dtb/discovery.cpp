@@ -11,6 +11,7 @@
 #include <eir-internal/main.hpp>
 #include <eir-internal/uart/uart.hpp>
 #include <frg/array.hpp>
+#include <frg/small_vector.hpp>
 
 namespace eir {
 
@@ -245,7 +246,7 @@ constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
 
 static initgraph::Task discoverOutput{
     &globalInitEngine,
-    "dt.discover-output",
+    "dt.discover-stdout",
     initgraph::Entails{uart::getBootUartDeterminedStage()},
     [] {
 	    if (!eirDtbPtr)
@@ -260,18 +261,39 @@ static initgraph::Task discoverOutput{
 	    if (!stdoutPath)
 		    return;
 
-	    auto chosenNode = dt.findNode(*stdoutPath->asString());
-	    if (!chosenNode)
-		    return;
+	    // If there is a colon in the path, everything that comes after it is the UART config.
+	    frg::string_view path = *stdoutPath->asString();
+	    if (auto p = path.find_first(':'); p != static_cast<size_t>(-1))
+		    path = path.sub_string(0, p);
+	    infoLogger() << "eir: stdout-path points to " << path << frg::endlog;
 
-	    uart::initFromDtb(dtbUart, dt, chosenNode.value());
+	    frg::static_vector<DeviceTreeNode, 16> pathNodes;
+	    bool overflow = false;
+	    auto pathFound = dt.walkPathNodes(path, [&](DeviceTreeNode node) {
+		    if (pathNodes.size() < 16) {
+			    pathNodes.push_back(node);
+		    } else {
+			    overflow = true;
+		    }
+	    });
+	    if (!pathFound) {
+		    infoLogger() << "eir: Could not find DT path " << path << frg::endlog;
+		    return;
+	    }
+	    if (overflow) {
+		    infoLogger() << "eir: DT path " << path << " exceeds maximum depth" << frg::endlog;
+		    return;
+	    }
+	    assert(pathNodes.size() > 0);
+
+	    uart::initFromDtb(dtbUart, pathNodes);
 
 	    if (!std::holds_alternative<std::monostate>(dtbUart)) {
 		    dtbUartLogHandler.initialize(&dtbUart);
 		    enableLogHandler(dtbUartLogHandler.get());
 		    uart::setBootUart(&dtbUart);
 
-		    infoLogger() << "eir: Chosen output path: " << chosenNode->name() << frg::endlog;
+		    infoLogger() << "eir: Chosen output path: " << path << frg::endlog;
 		    return;
 	    }
     }
