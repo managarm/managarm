@@ -270,7 +270,7 @@ if build_testsuite
 	testsuites = ['posix-tests']
 
 	if host_machine.system() == 'managarm'
-		testsuites += ['kernel-bench', 'kernel-tests', 'posix-torture', 'virt-test']
+		testsuites += ['kernel-bench', 'kernel-tests', 'posix-torture', 'kernel-torture', 'virt-test']
 	endif
 
 	foreach dir : testsuites
