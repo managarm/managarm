@@ -138,7 +138,7 @@ private:
 			item->pollOperation.construct_with([&] {
 				return async::execution::connect(
 					item->file->pollWait(item->process, std::get<0>(result),
-							item->eventMask | EPOLLERR | EPOLLHUP, item->cancelPoll),
+							(item->eventMask & epollEvents) | EPOLLERR | EPOLLHUP, item->cancelPoll),
 					Receiver{item->self.lock()}
 				);
 			});
