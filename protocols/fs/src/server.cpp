@@ -519,58 +519,6 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
-	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_WAIT) {
-		auto [pull_cancel] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::pullDescriptor()
-		);
-		HEL_CHECK(pull_cancel.error());
-
-		if(!file_ops->pollWait) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-			co_return;
-		}
-
-		auto resultOrError = co_await file_ops->pollWait(file.get(),
-				req.sequence(), req.event_mask(),
-				async::cancellation_token{});
-		if(!resultOrError) {
-			managarm::fs::SvrResponse resp;
-			resp.set_error(resultOrError.error() | toFsError);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiSerializedReply(ser);
-			co_return;
-		}
-
-		auto result = resultOrError.value();
-
-		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
-		resp.set_sequence(std::get<0>(result));
-		resp.set_edges(std::get<1>(result));
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			conversation,
-			helix_ng::sendBuffer(ser.data(), ser.size())
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiSerializedReply(ser);
 	}else if(req.req_type() == managarm::fs::CntReqType::FILE_POLL_STATUS) {
 		if(!file_ops->pollStatus) {
 			managarm::fs::SvrResponse resp;
@@ -1342,6 +1290,84 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		HEL_CHECK(extract_creds.error());
 
 		cancellationEvents.cancel(extract_creds.credentials(), cancellationId);
+	}else if(preamble.id() == managarm::fs::FilePollRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::FilePollRequest>(recv_req);
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		auto [extract_creds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extract_creds.error());
+
+		if(!file_ops->pollWait) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
+			co_return;
+		}
+
+		frg::expected<Error, PollWaitResult> resultOrError = Error::internalError;
+
+		{
+			auto cancelEvent = cancellationEvents.event(extract_creds.credentials(), req->cancellation_id());
+			if (!cancelEvent) {
+				std::println("protocols/fs: possibly duplicate cancellation ID registered");
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+				);
+				HEL_CHECK(send_resp.error());
+				logBragiSerializedReply(ser);
+				co_return;
+			}
+
+			resultOrError = co_await file_ops->pollWait(file.get(),
+				req->sequence(), req->event_mask(), cancelEvent);
+		}
+
+		if(!resultOrError) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(resultOrError.error() | toFsError);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			logBragiSerializedReply(ser);
+			co_return;
+		}
+
+		auto result = resultOrError.value();
+
+		managarm::fs::FilePollResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_sequence(std::get<0>(result));
+		resp.set_edges(std::get<1>(result));
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+		logBragiSerializedReply(ser);
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");

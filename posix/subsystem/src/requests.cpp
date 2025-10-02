@@ -2984,16 +2984,24 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			auto epfile = epoll::createFile();
 			assert(req.fds_size() == req.events_size());
 
+			auto timeout = req.timeout();
 			bool errorOut = false;
+			size_t epollAddedItems = 0;
+
 			for(size_t i = 0; i < req.fds_size(); i++) {
 				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), 0});
 				if(!inserted)
+					continue;
+
+				// if fd is < 0, `events` shall be ignored and revents set to 0
+				if (req.fds(i) < 0)
 					continue;
 
 				auto file = self->fileContext()->getFile(req.fds(i));
 				if(!file) {
 					// poll() is supposed to fail on a per-FD basis.
 					mapIt->second = POLLNVAL;
+					timeout = 0;
 					continue;
 				}
 				auto locked = file->weakFile().lock();
@@ -3021,16 +3029,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				// addItem() can fail with EEXIST but we check for duplicate FDs above
 				// so that cannot happen here.
 				Error ret = epoll::addItem(epfile.get(), self.get(),
-						std::move(locked), req.fds(i), mask, req.fds(i));
+					std::move(locked), req.fds(i), mask, req.fds(i));
 				assert(ret == Error::success);
+				epollAddedItems++;
 			}
 			if(errorOut)
 				continue;
 
-			struct epoll_event events[16];
-			size_t k;
+			struct epoll_event events[16] = {};
+			size_t k = 0;
+			bool interrupted = false;
 
-			{
+			if (epollAddedItems) {
 				auto cancelEvent = self->cancelEventRegistry().event(self->credentials(), req.cancellation_id());
 				if (!cancelEvent) {
 					std::println("posix: possibly duplicate cancellation ID registered");
@@ -3038,21 +3048,57 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					continue;
 				}
 
-				if(req.timeout() < 0) {
-					k = co_await epoll::wait(epfile.get(), events, 16, cancelEvent);
-				}else if(!req.timeout()) {
+				if(timeout < 0) {
+					co_await async::race_and_cancel(
+						async::lambda([&](auto c) -> async::result<void> {
+							co_await async::suspend_indefinitely(c, cancelEvent);
+							// if the cancelEvent was raised, we consider this wait to have been
+							// interrupted.
+							if (async::cancellation_token{cancelEvent}.is_cancellation_requested())
+								interrupted = true;
+						}),
+						async::lambda([&](auto c) -> async::result<void> {
+							if (req.has_signal_seq() && self->enteredSignalSeq() != req.signal_seq()) {
+								// a signal was already raised since the request's
+								// signal seqnum
+								interrupted = true;
+								co_return;
+							}
+							co_await async::suspend_indefinitely(c);
+						}),
+						async::lambda([&](auto c) -> async::result<void> {
+							k = co_await epoll::wait(epfile.get(), events, 16, c);
+						})
+					);
+				}else if(!timeout) {
 					// Do not bother to set up a timer for zero timeouts.
 					async::cancellation_event cancel_wait;
 					cancel_wait.cancel();
 					k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
 				}else{
-					assert(req.timeout() > 0);
+					assert(timeout > 0);
 					co_await async::race_and_cancel(
 						async::lambda([&](auto c) -> async::result<void> {
-							co_await helix::sleepFor(static_cast<uint64_t>(req.timeout()), c);
+							// if the timeout runs to completion, i.e. the sleep does not return
+							// false to signal cancellation, we DO NOT consider the call to have
+							// been interrupted.
+							co_await helix::sleepFor(static_cast<uint64_t>(timeout), c);
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
 							co_await async::suspend_indefinitely(c, cancelEvent);
+							// if the cancelEvent was raised, we consider this wait to have been
+							// interrupted.
+							if (async::cancellation_token{cancelEvent}.is_cancellation_requested())
+								interrupted = true;
+						}),
+						async::lambda([&](auto c) -> async::result<void> {
+							if (req.has_signal_seq() && self->enteredSignalSeq() != req.signal_seq()) {
+								// a signal was already raised since the request's
+								// signal seqnum
+								interrupted = true;
+								co_return;
+							}
+							co_await async::suspend_indefinitely(c);
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
 							k = co_await epoll::wait(epfile.get(), events, 16, c);
@@ -3077,12 +3123,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			}
 
 			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::SUCCESS);
+			bool hasEvents = false;
 
 			for(size_t i = 0; i < req.fds_size(); ++i) {
 				auto it = fdsToEvents.find(req.fds(i));
 				assert(it != fdsToEvents.end());
 				resp.add_events(it->second);
+				if (!hasEvents && it->second)
+					hasEvents = true;
+			}
+
+			if (!hasEvents && interrupted) {
+				resp.set_error(managarm::posix::Errors::INTERRUPTED);
+			} else {
+				resp.set_error(managarm::posix::Errors::SUCCESS);
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

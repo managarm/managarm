@@ -81,7 +81,6 @@ enum CntReqType {
 	NODE_READ_SYMLINK = 15,
 
 	// Primary file API.
-	FILE_POLL_WAIT = 45,
 	FILE_POLL_STATUS = 46,
 
 	// File passthrough API.
@@ -297,7 +296,6 @@ head(128):
 		tag(60) uint64 sequence;
 
 		// Event edges / current events for FILE_POLL_WAIT / FILE_POLL_STATUS.
-		tag(61) int32 edges;
 		tag(62) int32 status;
 
 		tag(71) int64 pid;
@@ -843,4 +841,18 @@ tail:
 message CancelOperation 41 {
 head(128):
 	uint64 cancellation_id;
+}
+
+message FilePollRequest 42 {
+head(128):
+	uint64 cancellation_id;
+	uint64 sequence;
+	@format(hex) uint32 event_mask;
+}
+
+message FilePollResponse 43 {
+head(128):
+	Errors error;
+	@format(hex) int32 edges;
+	uint64 sequence;
 }
