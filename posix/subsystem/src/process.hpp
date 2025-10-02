@@ -207,14 +207,17 @@ public:
 	}
 
 private:
+	HelHandle *fileTableWindow() {
+		return reinterpret_cast<HelHandle *>(fileTableWindow_.get());
+	}
+
 	helix::UniqueDescriptor _universe;
 
 	// TODO: replace this by a tree that remembers gaps between keys.
 	std::unordered_map<int, FileDescriptor> _fileTable;
 
 	helix::UniqueDescriptor _fileTableMemory;
-
-	HelHandle *_fileTableWindow;
+	helix::Mapping fileTableWindow_;
 
 	// TODO: increase the limit once we allow more than one shared fd -> HelHandle mapping page
 	uint64_t fdLimit_ = 0x1000 / sizeof(HelHandle);
