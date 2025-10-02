@@ -1,6 +1,5 @@
 
 #include <string.h>
-#include <iostream>
 #include <print>
 
 #include <async/recurring-event.hpp>
@@ -106,11 +105,15 @@ private:
 		// This is the correct behavior for edge-triggered items.
 		// Level-triggered items stay pending until the event disappears.
 		auto result = resultOrError.value();
+		if ((std::get<1>(result) & ~(item->eventMask | EPOLLERR | EPOLLHUP)) != 0)
+			if(logEpoll)
+				std::println("\e[1;31mposix.epoll {}: Item {} returned result {:#x} that is not contained in mask {:#x}\e[0m",
+					item->epoll->structName(), item->file->structName(), std::get<1>(result), (item->eventMask | EPOLLERR | EPOLLHUP));
+
 		if(std::get<1>(result) & (item->eventMask | EPOLLERR | EPOLLHUP)) {
 			if(logEpoll)
-				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
-						<< ": Item \e[1;34m" << item->file->structName()
-						<< "\e[0m becomes pending" << std::endl;
+				std::println("posix.epoll \e[1;34m{}\e[0m: Item \e[1;34m{}\e[0m becomes pending",
+					item->epoll->structName(), item->file->structName());
 
 			// Note that we stop watching once an item becomes pending.
 			// We do this as we have to pollStatus() again anyway before we report the item.
@@ -127,11 +130,10 @@ private:
 			// Here, we assume that the lambda does not execute on the current stack.
 			// TODO: Use some callback queueing mechanism to ensure this.
 			if(logEpoll)
-				std::cout << "posix.epoll \e[1;34m" << item->epoll->structName() << "\e[0m"
-						<< ": Item \e[1;34m" << item->file->structName()
-						<< "\e[0m still not pending after pollWait()."
-						<< " Mask is " << item->eventMask << ", while edges are "
-						<< std::get<1>(result) << std::endl;
+				std::println("posix.epoll \e[1;34m{}\e[0m: Item \e[1;34m{}\e[0m still not pending after pollWait(). "
+					"Mask is {:#x}, while edges are {:#x}",
+					item->epoll->structName(), item->file->structName(), item->eventMask, std::get<1>(result));
+
 			item->cancelPoll.reset();
 			item->pollOperation.construct_with([&] {
 				return async::execution::connect(
@@ -155,8 +157,9 @@ public:
 	Error addItem(Process *process, smarter::shared_ptr<File> file, int fd,
 			int mask, uint64_t cookie) {
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Adding item \e[1;34m"
-					<< file->structName() << "\e[0m. Mask is " << mask << std::endl;
+			std::println("posix.epoll \e[1;34m{}\e[0m: Adding item \e[1;34m{}\e[0m. Mask is {:#x}",
+				structName(), file->structName(), mask);
+
 		// TODO: Fix the memory-leak.
 		if(_fileMap.find({file.get(), fd}) != _fileMap.end()) {
 			return Error::alreadyExists;
@@ -179,8 +182,9 @@ public:
 
 	Error modifyItem(File *file, int fd, int mask, uint64_t cookie) {
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Modifying item \e[1;34m"
-					<< file->structName() << "\e[0m. New mask is " << mask << std::endl;
+			std::println("posix.epoll \e[1;34m{}\e[0m: Modifying item \e[1;34m{}\e[0m. New mask is {:#x}",
+				structName(), file->structName(), mask);
+
 		auto it = _fileMap.find({file, fd});
 		if(it == _fileMap.end()) {
 			return Error::noSuchFile;
@@ -208,8 +212,9 @@ public:
 
 	Error deleteItem(File *file, int fd) {
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Deleting item \e[1;34m"
-					<< file->structName() << "\e[0m" << std::endl;
+			std::println("posix.epoll \e[1;34m{}\e[0m: Deleting item \e[1;34m{}\e[0m",
+				structName(), file->structName());
+
 		auto it = _fileMap.find({file, fd});
 		if(it == _fileMap.end()) {
 			return Error::noSuchFile;
@@ -227,12 +232,9 @@ public:
 	waitForEvents(struct epoll_event *events, size_t max_events,
 			async::cancellation_token cancellation) {
 		assert(max_events);
-		if(logEpoll) {
-			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Entering wait."
-					" There are " << (_pendingQueue.empty() ? "no " : "") << "pending items; cancellation is "
-					<< (cancellation.is_cancellation_requested() ? "active" : "inactive")
-					<< std::endl;
-		}
+		if(logEpoll)
+			std::println("posix.epoll \e[1;34m{}\e[0m: Entering wait. There are {} pending items; cancellation is {}",
+				structName(), (_pendingQueue.empty() ? "no " : ""), cancellation.is_cancellation_requested() ? "active" : "inactive");
 
 		size_t k = 0;
 		frg::intrusive_list<
@@ -254,41 +256,38 @@ public:
 				// Discard dead or inactive items without returning them.
 				if(!(item->state & stateAlive) || !(item->state & stateActive)) {
 					if(logEpoll)
-						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
-								" dead or inactive item \e[1;34m" << item->file->structName() << "\e[0m"
-								<< std::endl;
+						std::println("posix.epoll \e[1;34m{}\e[0m: Discarding dead or inactive item \e[1;34m{}\e[0m",
+							structName(), item->file->structName());
 					item->state &= ~statePending;
 					continue;
 				}
 
 				if(logEpoll)
-					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Checking item "
-							<< "\e[1;34m" << item->file->structName() << "\e[0m" << std::endl;
+					std::println("posix.epoll \e[1;34m{}\e[0m: Checking item \e[1;34m{}\e[0m",
+						structName(), item->file->structName());
 				auto result_or_error = co_await item->file->pollStatus(item->process);
 
 				// Discard closed items.
 				if(!result_or_error) {
 					assert(result_or_error.error() == Error::fileClosed);
 					if(logEpoll)
-						std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Discarding"
-								" closed item \e[1;34m" << item->file->structName() << "\e[0m"
-								<< std::endl;
+						std::println("posix.epoll \e[1;34m{}\e[0m: Discarding closed item \e[1;34m{}\e[0m",
+							structName(), item->file->structName());
 					item->state &= ~statePending;
 					continue;
 				}
 
 				auto result = result_or_error.value();
 				if(logEpoll)
-					std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m:"
-							" Item \e[1;34m" << item->file->structName() << "\e[0m"
-							" mask is " << item->eventMask << ", while " << std::get<1>(result)
-							<< " is active" << std::endl;
+					std::println("posix.epoll \e[1;34m{}\e[0m: Item \e[1;34m{}\e[0m mask is {:#x}, while {:#x} is active",
+						structName(), item->file->structName(), itemEvents, std::get<1>(result));
 
 				// Return pending items to the caller.
 				auto status = std::get<1>(result) & (itemEvents | EPOLLERR | EPOLLHUP);
 				if(status) {
 					if(item->eventMask & (EPOLLWAKEUP | EPOLLEXCLUSIVE))
-						std::println("posix.epoll \e[1;34m{}\e[0m: unhandled epoll flag {:#x}", structName(), item->eventMask & (EPOLLWAKEUP | EPOLLEXCLUSIVE));
+						std::println("posix.epoll \e[1;34m{}\e[0m: unhandled epoll flag {:#x}",
+							structName(), item->eventMask & (EPOLLWAKEUP | EPOLLEXCLUSIVE));
 
 					assert(k < max_events);
 					memset(events + k, 0, sizeof(struct epoll_event));
@@ -345,8 +344,8 @@ public:
 		}
 
 		if(logEpoll)
-			std::cout << "posix.epoll \e[1;34m" << structName() << "\e[0m: Return from wait"
-					" with " << k << " items" << std::endl;
+			std::println("posix.epoll \e[1;34m{}\e[0m: Return from wait with {} items",
+				structName(), k);
 
 		co_return k;
 	}
