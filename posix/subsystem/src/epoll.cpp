@@ -329,9 +329,8 @@ public:
 				break;
 
 			// Block and re-check if there are pending events.
-			if(cancellation.is_cancellation_requested())
+			if (!co_await _statusBell.async_wait(cancellation))
 				break;
-			co_await _statusBell.async_wait(cancellation);
 		}
 
 		// Before returning, we have to reinsert the level-triggered events that we report.
