@@ -249,27 +249,29 @@ OpenFile::sendMsg(Process *process, uint32_t flags, const void *data, size_t max
 async::result<frg::expected<Error, PollWaitResult>>
 OpenFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
-	(void)mask; // TODO: utilize mask.
-	if(_isClosed)
-		co_return Error::fileClosed;
-
 	assert(past_seq <= _currentSeq);
-	while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
-		co_await _statusBell.async_wait(cancellation);
+	int edges = 0;
 
-	if(_isClosed)
-		co_return Error::fileClosed;
+	while (true) {
+		if(_isClosed)
+			co_return Error::fileClosed;
 
-	// For now making sockets always writable is sufficient.
-	int edges = EPOLLOUT;
-	if(_inSeq > past_seq)
-		edges |= EPOLLIN;
+		// For now making sockets always writable is sufficient.
+		edges = EPOLLOUT;
+		if(_inSeq > past_seq)
+			edges |= EPOLLIN;
 
-//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _currentSeq
-//				<< ", " << edges << ")" << std::endl;
+		if (edges & mask)
+			break;
 
-	co_return PollWaitResult(_currentSeq, edges);
+		if (!co_await _statusBell.async_wait(cancellation))
+			break;
+	}
+
+	// std::println("posix: pollWait({}, {}) on \e[1;34m{}\e[0m returns ({}, {})",
+	// 	past_seq, mask, structName(), _currentSeq, edges & mask);
+
+	co_return PollWaitResult(_currentSeq, edges & mask);
 }
 
 async::result<frg::expected<Error, PollStatusResult>> OpenFile::pollStatus(Process *) {

@@ -437,8 +437,8 @@ struct Tcp4Socket {
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 	pollWait(void *object, uint64_t pastSeq, int mask, async::cancellation_token cancellation) {
-		(void)mask; // TODO: utilize mask.
 		auto self = static_cast<Tcp4Socket *>(object);
+		int edges = 0;
 
 		// TODO: Return an error in this case.
 		if(pastSeq > self->currentSeq_) {
@@ -446,18 +446,23 @@ struct Tcp4Socket {
 			pastSeq = self->currentSeq_;
 		}
 
-		while(pastSeq == self->currentSeq_ && !cancellation.is_cancellation_requested())
-			co_await self->pollEvent_.async_wait(cancellation);
+		while(true) {
+			edges = 0;
+			if(self->inSeq_ > pastSeq)
+				edges |= EPOLLIN;
+			if(self->outSeq_ > pastSeq)
+				edges |= EPOLLOUT;
+			if(self->hupSeq_ > pastSeq)
+				edges |= EPOLLHUP;
 
-		int edges = 0;
-		if(self->inSeq_ > pastSeq)
-			edges |= EPOLLIN;
-		if(self->outSeq_ > pastSeq)
-			edges |= EPOLLOUT;
-		if(self->hupSeq_ > pastSeq)
-			edges |= EPOLLHUP;
+			if (edges & mask)
+				break;
 
-		co_return protocols::fs::PollWaitResult{self->currentSeq_, edges};
+			if (!co_await self->pollEvent_.async_wait(cancellation))
+				break;
+		}
+
+		co_return protocols::fs::PollWaitResult{self->currentSeq_, edges & mask};
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
