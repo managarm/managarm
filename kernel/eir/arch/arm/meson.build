@@ -5,7 +5,6 @@ eir_sources = [
 		'arch.cpp',
 		'fault.S',
 		'fault.cpp',
-		'generic.cpp',
 	),
 	eir_generic_sources
 ]

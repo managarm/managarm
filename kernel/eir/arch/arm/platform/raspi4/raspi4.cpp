@@ -233,56 +233,14 @@ size_t getCmdline(void *dest)
 }
 } // namespace PropertyMbox
 
-frg::manual_box<common::uart::PL011> debugUart;
-
-void debugPrintChar(char c) { debugUart->write(c); }
+void debugPrintChar(char) { }
 
 void initPlatform() {}
 
 extern "C" [[noreturn]] void eirRaspi4Main() {
-	debugUart.initialize(mmioBase + 0x201000, 4000000);
-	debugUart->disable();
-	Gpio::configUart0Gpio();
-	PropertyMbox::setClockFreq(PropertyMbox::Clock::uart, 4000000);
-	debugUart->init(115200);
 	eirRunConstructors();
-
-	char cmd_buf[1024];
-	size_t cmd_len = PropertyMbox::getCmdline<1024>(cmd_buf);
-
-	frg::string_view cmd_sv{cmd_buf, cmd_len};
-	eir::infoLogger() << "Got cmdline: " << cmd_sv << frg::endlog;
-
-	cmdline = cmd_buf;
-
 	eirMain();
 }
-
-// UART setup for Thor
-
-static initgraph::Task reserveBootUartMmio{
-    &globalInitEngine,
-    "raspi4.reserve-boot-uart-mmio",
-    initgraph::Entails{getMemoryRegionsKnownStage()},
-    [] { reserveEarlyMmio(1); }
-};
-
-static initgraph::Task setupBootUartMmio{
-    &globalInitEngine,
-    "raspi4.setup-boot-uart-mmio",
-    initgraph::Requires{getAllocationAvailableStage()},
-    initgraph::Entails{getKernelLoadableStage()},
-    [] {
-	    auto addr = allocateEarlyMmio(1);
-
-	    mapSingle4kPage(addr, mmioBase + 0x201000, PageFlags::write, CachingMode::mmio);
-	    mapKasanShadow(addr, 0x1000);
-	    unpoisonKasanShadow(addr, 0x1000);
-
-	    uart::bootUartConfig.window = addr;
-	    uart::bootUartConfig.type = BootUartType::pl011;
-    }
-};
 
 namespace {
 
