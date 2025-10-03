@@ -17,6 +17,7 @@
 
 #include "efi.hpp"
 #include "helpers.hpp"
+#include "pe.hpp"
 
 static_assert(
     sizeof(char16_t) == sizeof(wchar_t),
@@ -386,6 +387,8 @@ initgraph::Task readInitrd{
 	    if (initrd)
 		    return;
 
+	    infoLogger() << "eir: Trying to read initrd from simple filesystem" << frg::endlog;
+
 	    efi_file_protocol *initrdFile = nullptr;
 	    EFI_CHECK(fsOpen(&initrdFile, asciiToUcs2(initrdPath)));
 	    initrdSize = fsGetSize(initrdFile);
@@ -679,6 +682,51 @@ initgraph::Task setupInitrdInfo{
     }
 };
 
+void handleUki() {
+	auto base = reinterpret_cast<const char *>(loadedImage->image_base);
+
+	// From the DOS header we only check the magic and the PE signature offset at 0x3c.
+	uint16_t dosMagic;
+	uint32_t ntOffset;
+	memcpy(&dosMagic, base, sizeof(uint16_t));
+	if (dosMagic != 0x5a4d) {
+		infoLogger() << "eir: Bad DOS stub magic of PE file" << frg::endlog;
+		return;
+	}
+	memcpy(&ntOffset, base + 0x3c, sizeof(uint32_t));
+
+	// The PE signature is referenced by the DOS header.
+	uint32_t peSignature;
+	memcpy(&peSignature, base + ntOffset, sizeof(uint32_t));
+	if (peSignature != 0x4550) {
+		infoLogger() << "eir: Bad PE signature" << frg::endlog;
+		return;
+	}
+
+	// The file header follows the PE signature.
+	auto fileHeaderOffset = ntOffset + sizeof(uint32_t);
+	auto fileHeader = reinterpret_cast<const PeFileHeader *>(base + fileHeaderOffset);
+
+	// The optional header follows the file header.
+	auto optionalHeaderOffset = fileHeaderOffset + sizeof(PeFileHeader);
+
+	// Section headers follow the optional header.
+	auto sectionHeadersOffset = optionalHeaderOffset + fileHeader->SizeOfOptionalHeader;
+	auto sectionHeaders = reinterpret_cast<const PeSectionHeader *>(base + sectionHeadersOffset);
+	for (size_t i = 0; i < fileHeader->NumberOfSections; ++i) {
+		auto sectionHeader = &sectionHeaders[i];
+		auto name = frg::string_view{sectionHeader->Name, 8};
+		if (auto n = name.find_first('\0'); n != static_cast<size_t>(-1))
+			name = name.sub_string(0, n);
+
+		if (name == ".initrd") {
+			infoLogger() << "eir: Found .initrd in UKI at offset 0x"
+			             << frg::hex_fmt{sectionHeader->VirtualAddress} << frg::endlog;
+			initrd = const_cast<char *>(base + sectionHeader->VirtualAddress);
+		}
+	}
+}
+
 initgraph::Task mapEirImage{
     &globalInitEngine,
     "uefi.map-eir-image",
@@ -795,6 +843,8 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 
 	while (!eir_gdb_ready)
 		;
+
+	handleUki();
 
 	// Enter a stack that is part of Eir's image.
 	// This ensures that we can still access the stack when paging in enabled.
