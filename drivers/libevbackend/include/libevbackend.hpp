@@ -6,7 +6,7 @@
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
 #include <async/cancellation.hpp>
-#include <boost/intrusive/list.hpp>
+#include <frg/intrusive.hpp>
 #include <helix/ipc.hpp>
 #include <linux/input.h>
 #include <protocols/fs/server.hpp>
@@ -79,7 +79,7 @@ struct File {
 
 private:
 	EventDevice *_device;
-	boost::intrusive::list_member_hook<> hook;
+	frg::default_list_hook<File> hook_;
 	protocols::fs::StatusPageProvider _statusPage;
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
@@ -144,14 +144,7 @@ private:
 	// current multitouch state, keyed by slot ID
 	std::map<int, multitouchInfo> _mtState;
 
-	boost::intrusive::list<
-		File,
-		boost::intrusive::member_hook<
-			File,
-			boost::intrusive::list_member_hook<>,
-			&File::hook
-		>
-	> _files;
+	frg::intrusive_list<File, frg::locate_member<File, frg::default_list_hook<File>, &File::hook_>> files_;
 
 	std::vector<StagedEvent> _staged;
 

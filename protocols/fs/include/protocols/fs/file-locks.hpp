@@ -1,8 +1,8 @@
 #pragma once
 
-#include <protocols/fs/server.hpp>
-#include <boost/intrusive/list.hpp>
 #include <async/recurring-event.hpp>
+#include <frg/intrusive.hpp>
+#include <protocols/fs/server.hpp>
 
 namespace protocols::fs {
 
@@ -13,8 +13,7 @@ namespace protocols::fs {
 
 	struct FlockManager;
 
-	typedef boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink> > auto_unlink_hook;
-	struct Flock : public boost::intrusive::list_base_hook<> {
+	struct Flock {
 		friend struct FlockManager;
 		Flock(FLockState t, FlockManager* m) : manager(m), type(t) {}
 		Flock() : manager(nullptr), type(FLockState::LOCKED_EXCLUSIVE) {}
@@ -23,14 +22,17 @@ namespace protocols::fs {
 private:
 		FlockManager* manager = nullptr;
 		FLockState type;
-
+		frg::default_list_hook<Flock> hook_;
 	};
 
 	struct FlockManager {
 		friend struct Flock;
 		async::result<protocols::fs::Error> lock(Flock* newFlock, int flags);
 private:
-		boost::intrusive::list<Flock> flocks;
+		frg::intrusive_list<
+			Flock,
+			frg::locate_member<Flock, frg::default_list_hook<Flock>, &Flock::hook_>
+		> flocks;
 		async::recurring_event flockNotify;
 		static bool validateFlockFlags(int flags);
 	};

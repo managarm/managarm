@@ -8,7 +8,6 @@
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
-#include <boost/intrusive/list.hpp>
 #include <fafnir/dsl.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -914,15 +913,15 @@ void Controller::_linkAsync(QueueEntity *entity) {
 				| usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	}else{
 		entity->head->horizontalPtr.store(
-				qh_horizontal::horizontalPtr(schedulePointer(_asyncSchedule.front().head.data()))
+				qh_horizontal::horizontalPtr(schedulePointer(_asyncSchedule.front()->head.data()))
 				| qh_horizontal::typeSelect(1));
-		_asyncSchedule.back().head->horizontalPtr.store(
+		_asyncSchedule.back()->head->horizontalPtr.store(
 				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data()))
 				| qh_horizontal::typeSelect(1));
-		assert(_asyncSchedule.back().getReclaim());
-		_asyncSchedule.back().setReclaim(false);
+		assert(_asyncSchedule.back()->getReclaim());
+		_asyncSchedule.back()->setReclaim(false);
 	}
-	_asyncSchedule.push_back(*entity);
+	_asyncSchedule.push_back(entity);
 }
 
 void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) {
@@ -953,13 +952,13 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 		}
 	}
 
-	queue->transactions.push_back(*transaction);
+	queue->transactions.push_back(transaction);
 }
 
 void Controller::_progressSchedule() {
 	auto it = _asyncSchedule.begin();
 	while(it != _asyncSchedule.end()) {
-		_progressQueue(&(*it));
+		_progressQueue((*it));
 		++it;
 	}
 }
@@ -968,7 +967,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	if(entity->transactions.empty())
 		return;
 
-	auto active = &entity->transactions.front();
+	auto active = entity->transactions.front();
 	while(active->numComplete < active->transfers.size()) {
 		auto transfer = &active->transfers[active->numComplete];
 		if((transfer->status.load() & td_status::active)
@@ -1002,7 +1001,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 		if(!entity->transactions.empty()) {
 			if(logSubmits)
 				std::cout << "ehci: Linking in _progressQueue" << std::endl;
-			auto front = &entity->transactions.front();
+			auto front = entity->transactions.front();
 			entity->head->nextTd.store(qh_nextTd::nextTd(schedulePointer(&front->transfers[0])));
 		}
 	}else if((active->transfers[current].status.load() & td_status::halted)
@@ -1102,7 +1101,7 @@ void Controller::_dump(QueueEntity *entity) {
 	std::cout << "    dataToggle: " << (int)(entity->head->status.load()
 			& qh_status::dataToggle) << std::endl;
 
-	auto active = &entity->transactions.front();
+	auto active = entity->transactions.front();
 	for(size_t i = 0; i < active->transfers.size(); i++) {
 		auto &transfer = active->transfers[i];
 		std::cout << "transfer " << i << ": " << std::endl;

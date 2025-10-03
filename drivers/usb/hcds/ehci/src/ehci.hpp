@@ -7,9 +7,9 @@
 #include <async/promise.hpp>
 #include <async/mutex.hpp>
 #include <async/result.hpp>
-#include <boost/intrusive/list.hpp>
 #include <helix/memory.hpp>
 #include <frg/expected.hpp>
+#include <frg/intrusive.hpp>
 #include <frg/std_compat.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
@@ -45,11 +45,7 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 	// Schedule classes.
 	// ------------------------------------------------------------------------
 
-	struct AsyncItem : boost::intrusive::list_base_hook<> {
-
-	};
-
-	struct Transaction : AsyncItem {
+	struct Transaction {
 		explicit Transaction(arch::dma_array<TransferDescriptor> transfers, size_t size)
 		: transfers{std::move(transfers)}, fullSize{size},
 				numComplete{0}, lostSize{0} { }
@@ -59,9 +55,10 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 		size_t numComplete;
 		size_t lostSize; // Size lost in short packets.
 		async::promise<frg::expected<proto::UsbError, size_t>, frg::stl_allocator> promise;
+		frg::default_list_hook<Transaction> hook_;
 	};
 
-	struct QueueEntity : AsyncItem {
+	struct QueueEntity {
 		QueueEntity(arch::dma_object<QueueHead> the_head, int address,
 				int pipe, proto::PipeType type, size_t packet_size);
 
@@ -69,7 +66,11 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 		void setReclaim(bool reclaim);
 		void setAddress(int address);
 		arch::dma_object<QueueHead> head;
-		boost::intrusive::list<Transaction> transactions;
+		frg::default_list_hook<QueueEntity> hook_;
+		frg::intrusive_list<
+			Transaction,
+			frg::locate_member<Transaction, frg::default_list_hook<Transaction>, &Transaction::hook_>
+		> transactions;
 	};
 
 
@@ -171,7 +172,10 @@ private:
 	void _progressSchedule();
 	void _progressQueue(QueueEntity *entity);
 
-	boost::intrusive::list<QueueEntity> _asyncSchedule;
+	frg::intrusive_list<
+			QueueEntity,
+			frg::locate_member<QueueEntity, frg::default_list_hook<QueueEntity>, &QueueEntity::hook_>
+	> _asyncSchedule;
 	arch::dma_object<QueueHead> _asyncQh;
 
 	// ----------------------------------------------------------------------------

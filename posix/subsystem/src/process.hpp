@@ -9,10 +9,10 @@
 #include <async/recurring-event.hpp>
 #include <frg/intrusive.hpp>
 #include <core/cancel-events.hpp>
-#include <boost/intrusive/list.hpp>
+#include <frg/expected.hpp>
+#include <frg/intrusive.hpp>
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
-#include <frg/expected.hpp>
 #include <sys/time.h>
 
 #include "interval-timer.hpp"
@@ -271,7 +271,7 @@ struct SignalHandler {
 struct SignalItem {
 	int signalNumber;
 	SignalInfo info;
-	boost::intrusive::list_member_hook<> queueHook;
+	frg::default_list_hook<SignalItem> hook_;
 };
 
 using PollSignalResult = std::tuple<uint64_t, uint64_t>;
@@ -290,12 +290,12 @@ private:
 	struct SignalSlot {
 		uint64_t raiseSeq = 0;
 
-		boost::intrusive::list<
+		frg::intrusive_list<
 			SignalItem,
-			boost::intrusive::member_hook<
+			frg::locate_member<
 				SignalItem,
-				boost::intrusive::list_member_hook<>,
-				&SignalItem::queueHook>
+				frg::default_list_hook<SignalItem>,
+				&SignalItem::hook_>
 		> asyncQueue;
 	};
 
@@ -589,7 +589,7 @@ private:
 	frg::default_list_hook<Process> tgHook_;
 
 	std::shared_ptr<ProcessGroup> _pgPointer;
-	boost::intrusive::list_member_hook<> _pgHook;
+	frg::default_list_hook<Process> hook_;
 
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
@@ -889,17 +889,17 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 private:
 	std::shared_ptr<PidHull> hull_;
 
-	boost::intrusive::list<
+	frg::intrusive_list<
 		Process,
-		boost::intrusive::member_hook<
+		frg::locate_member<
 			Process,
-			boost::intrusive::list_member_hook<>,
-			&Process::_pgHook
+			frg::default_list_hook<Process>,
+			&Process::hook_
 		>
 	> members_;
 
 	std::shared_ptr<TerminalSession> sessionPointer_;
-	boost::intrusive::list_member_hook<> sessionHook_;
+	frg::default_list_hook<ProcessGroup> sessionHook_;
 };
 
 struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
@@ -928,11 +928,11 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 private:
 	std::shared_ptr<PidHull> hull_;
 
-	boost::intrusive::list<
+	frg::intrusive_list<
 		ProcessGroup,
-		boost::intrusive::member_hook<
+		frg::locate_member<
 			ProcessGroup,
-			boost::intrusive::list_member_hook<>,
+			frg::default_list_hook<ProcessGroup>,
 			&ProcessGroup::sessionHook_
 		>
 	> groups_;

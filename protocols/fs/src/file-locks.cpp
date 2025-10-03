@@ -1,15 +1,13 @@
 #include <protocols/fs/file-locks.hpp>
 #include <protocols/fs/server.hpp>
-#include <iostream>
 #include <fs.bragi.hpp>
 
 namespace protocols::fs {
 	Flock::~Flock() {
 		if(manager != nullptr) {
-			if(this->is_linked()) {
-				auto iter = boost::intrusive::list<Flock>::s_iterator_to(*this);
-				manager->flocks.erase(iter);
-				if(manager->flocks.size() == 0) {
+			if(this->hook_.in_list) {
+				manager->flocks.erase(manager->flocks.iterator_to(this));
+				if(manager->flocks.empty()) {
 					manager->flockNotify.raise();
 				}
 			}
@@ -24,7 +22,7 @@ namespace protocols::fs {
 		}
 
 		if(flags & managarm::fs::FlockFlags::LOCK_UN) {
-			if(newFlock->is_linked()) {
+			if(newFlock->hook_.in_list) {
 				flocks.clear();
 				flockNotify.raise();
 			}
@@ -32,13 +30,13 @@ namespace protocols::fs {
 		}
 
 		for(auto it = flocks.begin(); it != flocks.end();){
-			if((*it).type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
+			if((*it)->type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
 				if(nonblock) {
 					co_return protocols::fs::Error::wouldBlock;
 				}
 				co_await flockNotify.async_wait();
 
-				flocks.push_back(*newFlock);
+				flocks.push_back(newFlock);
 				newFlock->manager = this;
 				co_return protocols::fs::Error::none;
 			} else {
@@ -48,17 +46,17 @@ namespace protocols::fs {
 					}
 					co_await flockNotify.async_wait();
 
-					flocks.push_back(*newFlock);
+					flocks.push_back(newFlock);
 					newFlock->manager = this;
 					co_return protocols::fs::Error::none;
 				} else {
-					flocks.push_back(*newFlock);
+					flocks.push_back(newFlock);
 					newFlock->manager = this;
 					co_return protocols::fs::Error::none;
 				}
 			}
 		}
-		flocks.push_back(*newFlock);
+		flocks.push_back(newFlock);
 		newFlock->manager = this;
 		co_return protocols::fs::Error::none;
 	}

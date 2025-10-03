@@ -11,9 +11,9 @@
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
-#include <boost/intrusive/list.hpp>
 #include <core/cmdline.hpp>
 #include <core/kernel-logs.hpp>
+#include <frg/intrusive.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/mbus/client.hpp>
@@ -35,15 +35,15 @@ struct ReadRequest {
 	size_t maxLength;
 	size_t progress = 0;
 	async::oneshot_event event;
-	boost::intrusive::list_member_hook<> hook;
+	frg::default_list_hook<ReadRequest> hook_;
 };
 
-boost::intrusive::list<
+frg::intrusive_list<
 	ReadRequest,
-	boost::intrusive::member_hook<
+	frg::locate_member<
 		ReadRequest,
-		boost::intrusive::list_member_hook<>,
-		&ReadRequest::hook
+		frg::default_list_hook<ReadRequest>,
+		&ReadRequest::hook_
 	>
 > recvRequests;
 
@@ -53,17 +53,17 @@ void completeRecvs() {
 	assert(!recvRequests.empty());
 	assert(!recvBuffer.empty());
 
-	boost::intrusive::list<
+	frg::intrusive_list<
 		ReadRequest,
-		boost::intrusive::member_hook<
+		frg::locate_member<
 			ReadRequest,
-			boost::intrusive::list_member_hook<>,
-			&ReadRequest::hook
+			frg::default_list_hook<ReadRequest>,
+			&ReadRequest::hook_
 		>
 	> pending;
 
 	while(!recvRequests.empty() && !recvBuffer.empty()) {
-		auto req = &recvRequests.front();
+		auto req = recvRequests.front();
 
 		size_t chunk = std::min(req->maxLength, recvBuffer.size());
 		assert(chunk);
@@ -78,11 +78,11 @@ void completeRecvs() {
 		// We always complete the request here,
 		// even if we did not read req->maxLength bytes yet.
 		recvRequests.pop_front();
-		pending.push_back(*req);
+		pending.push_back(req);
 	}
 
 	while(!pending.empty()) {
-		auto req = &pending.front();
+		auto req = pending.front();
 		pending.pop_front();
 		req->event.raise();
 	}
@@ -96,15 +96,15 @@ struct WriteRequest {
 	size_t length;
 	size_t progress;
 	async::oneshot_event event;
-	boost::intrusive::list_member_hook<> hook;
+	frg::default_list_hook<WriteRequest> hook_;
 };
 
-boost::intrusive::list<
+frg::intrusive_list<
 	WriteRequest,
-	boost::intrusive::member_hook<
+	frg::locate_member<
 		WriteRequest,
-		boost::intrusive::list_member_hook<>,
-		&WriteRequest::hook
+		frg::default_list_hook<WriteRequest>,
+		&WriteRequest::hook_
 	>
 > sendRequests;
 
@@ -120,18 +120,18 @@ void flushSends() {
 	if(logTx)
 		std::cout << "uart: Flushing TX" << std::endl;
 
-	boost::intrusive::list<
+	frg::intrusive_list<
 		WriteRequest,
-		boost::intrusive::member_hook<
+		frg::locate_member<
 			WriteRequest,
-			boost::intrusive::list_member_hook<>,
-			&WriteRequest::hook
+			frg::default_list_hook<WriteRequest>,
+			&WriteRequest::hook_
 		>
 	> pending;
 
 	size_t fifoAvailable = txFifoSize;
 	while(!sendRequests.empty() && fifoAvailable) {
-		auto req = &sendRequests.front();
+		auto req = sendRequests.front();
 		assert(req->progress < req->length);
 
 		size_t chunk = std::min(req->length - req->progress, fifoAvailable);
@@ -147,7 +147,7 @@ void flushSends() {
 		// this avoids unnecessary round trips between the UART driver and the application.
 		if(req->progress == req->length) {
 			sendRequests.pop_front();
-			pending.push_back(*req);
+			pending.push_back(req);
 		}else{
 			assert(!fifoAvailable); // In other words: we will exit the loop.
 		}
@@ -159,7 +159,7 @@ void flushSends() {
 
 	// Make sure that we set txInFlight before continuing asynchronous code.
 	while(!pending.empty()) {
-		auto req = &pending.front();
+		auto req = pending.front();
 		pending.pop_front();
 		req->event.raise();
 	}
@@ -229,13 +229,13 @@ read(void *, helix_ng::CredentialsView, void *buffer, size_t length, async::canc
 		co_return size_t{0};
 
 	ReadRequest req{buffer, length};
-	recvRequests.push_back(req);
+	recvRequests.push_back(&req);
 
 	if(!recvBuffer.empty())
 		completeRecvs();
 
 	if (!co_await req.event.wait(ce)) {
-		recvRequests.erase(recvRequests.s_iterator_to(req));
+		recvRequests.erase(recvRequests.iterator_to(&req));
 		if(!req.progress)
 			co_return std::unexpected{protocols::fs::Error::interrupted};
 		co_return req.progress;
@@ -252,7 +252,7 @@ write(void *, helix_ng::CredentialsView , const void *buffer, size_t length) {
 		std::cout << "uart: New TX request" << std::endl;
 
 	WriteRequest req{buffer, length};
-	sendRequests.push_back(req);
+	sendRequests.push_back(&req);
 
 	if(!txInFlight)
 		flushSends();
@@ -322,7 +322,7 @@ async::result<void> dumpKernelMessages() {
 		auto res = co_await logs.getMessage({buffer});
 
 		WriteRequest req{buffer.data(), res};
-		sendRequests.push_back(req);
+		sendRequests.push_back(&req);
 
 		flushSends();
 		co_await req.event.wait();

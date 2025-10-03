@@ -10,7 +10,6 @@
 #include <arch/register.hpp>
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
-#include <boost/intrusive/list.hpp>
 #include <helix/ipc.hpp>
 #include <libevbackend.hpp>
 #include <protocols/mbus/client.hpp>

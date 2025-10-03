@@ -3,7 +3,8 @@
 #include <async/result.hpp>
 #include <blockfs.hpp>
 #include <scsi.hpp>
-#include <boost/intrusive/list.hpp>
+
+#include <protocols/usb/server.hpp>
 
 enum Signatures {
 	kSignCbw = 0x43425355,

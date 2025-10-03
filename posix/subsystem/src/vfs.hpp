@@ -6,7 +6,6 @@
 #include <deque>
 
 #include <async/result.hpp>
-#include <boost/intrusive/rbtree.hpp>
 #include <hel.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
