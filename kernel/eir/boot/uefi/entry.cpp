@@ -583,7 +583,9 @@ initgraph::Task setupMemoryMap{
 		    switch (e->type) {
 			    case EfiConventionalMemory:
 			    case EfiBootServicesCode:
-			    case EfiBootServicesData:
+				    // TODO: It would be nice to make EfiBootServicesData as usable;
+				    //       however, we cannot do that right now since it also contains
+				    //       the UEFI page tables (that we still use for some time after boot).
 				    return true;
 			    default:
 				    return false;
