@@ -44,6 +44,42 @@ void disableMmu() {
 	}
 }
 
+void dropToEl1() {
+	uint64_t sctlr = 0;
+	sctlr |= UINT64_C(1) << 29; // LSMAOE
+	sctlr |= UINT64_C(1) << 28; // nTLSMD
+	sctlr |= UINT64_C(1) << 23; // SPAN
+	sctlr |= UINT64_C(1) << 22; // EIS
+	sctlr |= UINT64_C(1) << 20; // TSCXT
+	sctlr |= UINT64_C(1) << 12; // I
+	sctlr |= UINT64_C(1) << 11; // EOS
+	sctlr |= UINT64_C(1) << 2;  // C
+	asm volatile("msr sctlr_el1, %0" : : "r"(sctlr));
+
+	uint64_t hcr = 0;
+	hcr |= UINT64_C(1) << 1;  // SWIO
+	hcr |= UINT64_C(1) << 31; // RW
+	asm volatile("msr hcr_el2, %0" : : "r"(hcr));
+
+	// TODO: We keep using the EL2 stack in EL1 here.
+	//       We may want to re-evaluate that in the future.
+	uint64_t spsr = 0x3c5;
+	asm volatile(
+	    // clang-format off
+	         "adr x0, 1f" "\n"
+	    "\t" "msr spsr_el2, %0" "\n"
+	    "\t" "msr elr_el2, x0" "\n"
+	    "\t" "mov x0, sp" "\n"
+	    "\t" "eret" "\n"
+	    "1:" "\n"
+	    "\t" "mov sp, x0"
+	    // clang-format on
+	    :
+	    : "r"(spsr)
+	    : "x0", "memory"
+	);
+}
+
 // Must only be called in either EL1 or in EL2 with E2H=1.
 void enterKernelPaging() {
 	uint64_t aa64mmfr0;
@@ -311,6 +347,23 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 		panicLogger() << "eir: Unexpected exception level: in EL" << (currentel >> 2)
 		              << frg::endlog;
 
+	if ((currentel >> 2) == 2) {
+		// Do not trap EL0 access to counters.
+		uint64_t cnthctl;
+		asm volatile("mrs %0, cnthctl_el2" : "=r"(cnthctl));
+		cnthctl |= UINT64_C(1) << 0; // EL0PCTEN
+		cnthctl |= UINT64_C(1) << 1; // EL0VCTEN.
+		asm volatile("msr cnthctl_el2, %0" : : "r"(cnthctl));
+
+		// Set virtual offset zero.
+		asm volatile("msr cntvoff_el2, %0" : : "r"(UINT64_C(0)));
+
+		// Do not trap FP and SIMD to EL2.
+		asm volatile("msr cptr_el2, %0" : : "r"(UINT64_C(0x33ff)));
+		// TODO: Our previous raspi4 entry code cleared hstr_el2 but it is not clear why.
+		asm volatile("msr hstr_el2, %0" : : "r"(UINT64_C(0)));
+	}
+
 	if (!physOffset) {
 		// Running from identity mapping. Paging may or may not be enabled.
 		// Reconfigure paging.
@@ -320,14 +373,14 @@ bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return fa
 
 		if ((currentel >> 2) == 2) {
 			// Enter E2H mode if VHE is supported.
+			// Otherwise, drop to EL1.
 			if (((aa64mmfr1 >> 8) & 0xF) == 1) {
 				infoLogger() << "eir: Entering VHE mode" << frg::endlog;
 				uint64_t hcr = 0;
 				eirEnterE2h(hcr);
 			} else {
-				// TODO: Instead of dropping to EL1 in early boot, we should drop to EL1 here
-				//       (after doing the VHE detection).
-				panicLogger() << "eir: We are in EL2 but VHE is unsupported" << frg::endlog;
+				infoLogger() << "eir: Dropping to EL1 (VHE is unsupported)" << frg::endlog;
+				dropToEl1();
 			}
 		}
 	} else {

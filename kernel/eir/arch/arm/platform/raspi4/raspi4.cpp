@@ -233,15 +233,6 @@ size_t getCmdline(void *dest)
 }
 } // namespace PropertyMbox
 
-void debugPrintChar(char) { }
-
-void initPlatform() {}
-
-extern "C" [[noreturn]] void eirRaspi4Main() {
-	eirRunConstructors();
-	eirMain();
-}
-
 namespace {
 
 static initgraph::Task setupFramebuffer{
