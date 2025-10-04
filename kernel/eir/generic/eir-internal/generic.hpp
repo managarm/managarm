@@ -33,13 +33,6 @@ extern Region regions[numRegions];
 extern address_t allocatedMemory;
 extern address_t physOffset;
 
-struct GenericInfo {
-	const char *cmdline;
-	EirFramebuffer fb;
-	uint32_t debugFlags;
-	bool hasFb;
-};
-
 // Capabilites of a boot protocol.
 struct BootCaps {
 	uintptr_t imageStart{0};
@@ -50,7 +43,6 @@ struct BootCaps {
 };
 
 void eirRelocate();
-[[noreturn]] void eirGenericMain(const GenericInfo &genericInfo);
 
 physaddr_t bootReserve(size_t length, size_t alignment);
 physaddr_t allocPage();

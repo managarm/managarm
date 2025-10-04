@@ -44,6 +44,11 @@ initgraph::Stage *getInitrdAvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getCmdlineAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.cmdline-available"};
+	return &s;
+}
+
 initgraph::Stage *getKernelLoadableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.kernel-loadable"};
 	return &s;
