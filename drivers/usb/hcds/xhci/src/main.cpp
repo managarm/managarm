@@ -533,12 +533,15 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 		case 6:
 		case 7:
 			speed = proto::DeviceSpeed::superSpeed;
+			break;
+		default:
+			break;
 	}
 
 	if (speed) {
 		co_return speed.value();
 	} else {
-		std::cout << _controller << "Port " << _id << " has invalid speed ID " << speedId << std::endl;
+		std::cout << _controller << "Port " << _id << " has invalid speed ID " << static_cast<unsigned>(speedId) << std::endl;
 		co_return proto::UsbError::unsupported;
 	}
 }

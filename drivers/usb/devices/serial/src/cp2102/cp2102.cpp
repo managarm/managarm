@@ -70,14 +70,14 @@ async::result<void> Cp2102::initialize() {
 	protocols::usb::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *, const auto &info) {
 		if(type == protocols::usb::descriptor_type::configuration) {
 			assert(!config_number);
-			config_number = info.configNumber.value();
+			config_number = info.configNumber;
 		} else if(type == protocols::usb::descriptor_type::interface) {
 			intfNumber_ = info.interfaceNumber.value();
 		} else if(type == protocols::usb::descriptor_type::endpoint) {
 			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber.value();
+				in_endp_number = info.endpointNumber;
 			} else {
-				out_endp_number = info.endpointNumber.value();
+				out_endp_number = info.endpointNumber;
 			}
 		}
 	});
@@ -91,7 +91,7 @@ async::result<void> Cp2102::initialize() {
 	(co_await transferControl(hw(), pool_, true, uint8_t(cp2102::Request::VENDOR_SPECIFIC),
 		uint16_t(cp2102::VendorRequest::GET_PARTNUM), intfNumber_, buf)).unwrap();
 
-	std::cout << "usb-serial: CP2102 partnum " << uint8_t(partnum_) << std::endl;
+	std::cout << "usb-serial: CP2102 partnum " << static_cast<unsigned>(partnum_) << std::endl;
 
 	switch(partnum_) {
 		case Partnum::CP2102:

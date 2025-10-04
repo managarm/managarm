@@ -231,9 +231,8 @@ async::result<frg::expected<Error, std::string>> EpTypeAttribute::show(sysfs::Ob
 		case 1: co_return "Isochronous";
 		case 2: co_return "Bulk";
 		case 3: co_return "Interrupt";
+		default: __builtin_unreachable();
 	}
-
-	__builtin_unreachable();
 }
 
 } // namespace usb_subsystem

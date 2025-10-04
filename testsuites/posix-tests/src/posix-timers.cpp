@@ -77,7 +77,7 @@ DEFINE_TEST(posix_timers_sigev_thread, ([] {
 	timer_t timer;
 	struct sigevent sev{
 		.sigev_value = {
-			.sival_ptr = &timer,
+			.sival_ptr = reinterpret_cast<void *>(&timer),
 		},
 		.sigev_notify = SIGEV_THREAD,
 	};

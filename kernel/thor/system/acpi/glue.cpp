@@ -109,7 +109,7 @@ uacpi_status uacpi_kernel_raw_pci_read(
 	T *value
 ) {
 	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
 
 	switch (sizeof(T)) {
 	case 1: {
@@ -146,7 +146,7 @@ uacpi_status uacpi_kernel_raw_pci_write(
 	T value
 ) {
 	uacpi_pci_address address;
-	memcpy(&address, &handle, sizeof(uacpi_pci_address));
+	memcpy(&address, static_cast<void *>(&handle), sizeof(uacpi_pci_address));
 
 	switch (sizeof(T)) {
 	case 1: {
@@ -365,7 +365,7 @@ static_assert(sizeof(uacpi_handle) >= sizeof(uacpi_pci_address));
 uacpi_status uacpi_kernel_pci_device_open(
 	uacpi_pci_address address, uacpi_handle *out_handle
 ) {
-	memcpy(out_handle, &address, sizeof(uacpi_pci_address));
+	memcpy(static_cast<void *>(out_handle), &address, sizeof(uacpi_pci_address));
 	return UACPI_STATUS_OK;
 }
 
