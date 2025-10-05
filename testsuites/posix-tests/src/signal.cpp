@@ -252,3 +252,9 @@ DEFINE_TEST(sigchld_nocldwait_after_zombie, ([] {
 	ret = sigaction(SIGCHLD, &old, nullptr);
 	assert(!ret);
 }))
+
+DEFINE_TEST(alarm_cancellation, ([] {
+	alarm(10);
+	int remaining = alarm(0);
+	assert(remaining > 0 && remaining <= 10);
+}))
