@@ -842,6 +842,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Signal frame register setup code is missing for architecture
 #endif
 
+	process->setInSignalHandler(true);
+
 	delete item;
 }
 
@@ -853,6 +855,7 @@ async::result<void> SignalContext::determineAndRaiseContext(SignalItem *item, Pr
 }
 
 async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thread, Process *process) {
+	assert(process->inSignalHandler());
 	uintptr_t pcrs[2];
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsProgram, &pcrs));
 	auto frame = pcrs[kHelRegSp] - stackCallMisalign;
@@ -883,6 +886,7 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 #endif
 
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
+	process->setInSignalHandler(false);
 }
 
 // ----------------------------------------------------------------------------
@@ -1479,6 +1483,12 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
 	process->threadGroup()->_signalContext->resetHandlers();
+	process->setAltStackEnabled(false);
+	process->setAltStackSp(0, 0);
+
+	if (process->inSignalHandler())
+		process->threadGroup()->signalContext()->restoreContext(process->threadDescriptor(), process.get());
+
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
