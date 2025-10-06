@@ -11,6 +11,7 @@
 #include <frg/array.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/utility.hpp>
+#include <limits.h>
 #include <physical-buddy.hpp>
 
 namespace eir {
@@ -195,7 +196,7 @@ physaddr_t bootReserve(size_t length, size_t alignment) {
 		BuddyAccessor accessor{
 		    regions[i].address, pageShift, table, regions[i].numRoots, regions[i].order
 		};
-		auto physical = accessor.allocate(0, 32);
+		auto physical = accessor.allocate(0, sizeof(uintptr_t) * CHAR_BIT);
 		if (physical == BuddyAccessor::illegalAddress)
 			continue;
 		return physical;
@@ -214,7 +215,7 @@ physaddr_t allocPage() {
 		BuddyAccessor accessor{
 		    regions[i].address, pageShift, table, regions[i].numRoots, regions[i].order
 		};
-		auto physical = accessor.allocate(0, 32);
+		auto physical = accessor.allocate(0, sizeof(uintptr_t) * CHAR_BIT);
 		if (physical == BuddyAccessor::illegalAddress)
 			continue;
 		allocatedMemory += pageSize;
