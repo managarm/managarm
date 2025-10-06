@@ -574,6 +574,9 @@ public:
 		return {credentials_};
 	}
 
+	SignalItem *delayedSignal = nullptr;
+	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
+
 private:
 	std::shared_ptr<PidHull> hull_;
 	bool _didExecute;

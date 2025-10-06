@@ -15,9 +15,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 
-	SignalItem *delayedSignal = nullptr;
-	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
-
 	uint64_t sequence = 1;
 	while(true) {
 		if(generation->inTermination)
@@ -267,7 +264,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut1] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			if (!delayedSignal) {
+			if (!self->delayedSignal) {
 				auto active =
 					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
@@ -283,8 +280,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 							if (handling.killed)
 								break;
 						} else {
-							delayedSignal = active;
-							delayedSignalHandling = handling;
+							self->delayedSignal = active;
+							self->delayedSignalHandling = handling;
 						}
 					}
 				}
@@ -306,11 +303,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 						"in SIG_RAISE supercall" "\e[39m" << std::endl;
 			bool killed = false;
 
-			if(delayedSignal) {
-				killed = delayedSignalHandling->killed;
-				co_await self->threadGroup()->signalContext()->raiseContext(delayedSignal, self.get(), *delayedSignalHandling);
-				delayedSignal = nullptr;
-				delayedSignalHandling = std::nullopt;
+			if(self->delayedSignal) {
+				killed = self->delayedSignalHandling->killed;
+				co_await self->threadGroup()->signalContext()->raiseContext(self->delayedSignal, self.get(), *self->delayedSignalHandling);
+				self->delayedSignal = nullptr;
+				self->delayedSignalHandling = std::nullopt;
 			} else {
 				std::println("posix: userspace misbehavior, superSigRaise called without available signal");
 			}
@@ -376,7 +373,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}
 
 			// If the process signalled itself, we should process the signal before resuming.
-			if (!delayedSignal) {
+			if (!self->delayedSignal) {
 				auto active =
 					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
@@ -392,8 +389,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 							if (handling.killed)
 								break;
 						} else {
-							delayedSignal = active;
-							delayedSignalHandling = handling;
+							self->delayedSignal = active;
+							self->delayedSignalHandling = handling;
 						}
 					}
 				}
@@ -557,7 +554,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
-			if (!delayedSignal) {
+			if (!self->delayedSignal) {
 				auto active =
 					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
 
@@ -573,8 +570,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 							if (handling.killed)
 								break;
 						} else {
-							delayedSignal = active;
-							delayedSignalHandling = handling;
+							self->delayedSignal = active;
+							self->delayedSignalHandling = handling;
 						}
 					}
 				}
