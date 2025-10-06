@@ -4,7 +4,6 @@
 #include <memory>
 #include <sys/epoll.h>
 
-extern std::unordered_map<int64_t, std::shared_ptr<nic::Link>> baseDeviceMap;
 extern std::optional<helix::UniqueDescriptor> posixLane;
 
 using core::netlink::Group;
