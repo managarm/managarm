@@ -719,7 +719,13 @@ void handleUki() {
 		if (auto n = name.find_first('\0'); n != static_cast<size_t>(-1))
 			name = name.sub_string(0, n);
 
-		if (name == ".initrd") {
+		if (name == ".cmdline") {
+			infoLogger() << "eir: Found .cmdline in UKI at offset 0x"
+			             << frg::hex_fmt{sectionHeader->VirtualAddress} << frg::endlog;
+			extendCmdline(
+			    frg::string_view{base + sectionHeader->VirtualAddress, sectionHeader->VirtualSize}
+			);
+		} else if (name == ".initrd") {
 			infoLogger() << "eir: Found .initrd in UKI at offset 0x"
 			             << frg::hex_fmt{sectionHeader->VirtualAddress} << frg::endlog;
 			initrd = const_cast<char *>(base + sectionHeader->VirtualAddress);
