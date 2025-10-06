@@ -3,12 +3,12 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch-generic/stack.hpp>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir/interface.hpp>
-#include <frg/cmdline.hpp>
 #include <stdint.h>
 #include <uacpi/acpi.h>
 
@@ -147,13 +147,7 @@ extern "C" void eirLimineMain(void) {
 	}
 
 	assert(kernel_file_request.response);
-	cmdline = frg::string_view{kernel_file_request.response->kernel_file->cmdline};
-	eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
-
-	frg::array args = {
-	    frg::option{"bochs", frg::store_true(log_e9)},
-	};
-	frg::parse_arguments(cmdline, args);
+	extendCmdline(frg::string_view{kernel_file_request.response->kernel_file->cmdline});
 
 	assert(module_request.response);
 	assert(module_request.response->module_count > 0);

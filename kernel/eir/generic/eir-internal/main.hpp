@@ -50,6 +50,4 @@ extern EirInfo *info_ptr;
 extern frg::array<InitialRegion, 32> reservedRegions;
 extern size_t nReservedRegions;
 
-extern frg::string_view cmdline;
-
 } // namespace eir

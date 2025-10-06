@@ -79,8 +79,6 @@ extern uint64_t kernelEntry;
 void parseInitrd(void *initrd);
 void loadKernelImage(void *image);
 
-EirInfo *generateInfo(frg::string_view cmdline);
-
 template <typename T>
 T *bootAlloc(size_t n = 1) {
 	auto pointer = physToVirt<T>(bootReserve(sizeof(T) * n, alignof(T)));

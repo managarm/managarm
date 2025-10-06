@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <dtb.hpp>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
@@ -261,39 +262,15 @@ static initgraph::Task setupFramebuffer{
 		    return;
 
 	    infoLogger() << "Attempting to set up a framebuffer:" << frg::endlog;
-	    unsigned int fb_width = 0, fb_height = 0;
+	    unsigned int fb_width = 0;
+	    unsigned int fb_height = 0;
 
 	    // Parse the command line.
-	    {
-		    const char *l = cmdline.data();
-		    while (true) {
-			    while (*l && *l == ' ')
-				    l++;
-			    if (!(*l))
-				    break;
-
-			    const char *s = l;
-			    while (*s && *s != ' ')
-				    s++;
-
-			    frg::string_view token{l, static_cast<size_t>(s - l)};
-
-			    if (auto equals = token.find_first('='); equals != size_t(-1)) {
-				    auto key = token.sub_string(0, equals);
-				    auto value = token.sub_string(equals + 1, token.size() - equals - 1);
-
-				    if (key == "bcm2708_fb.fbwidth") {
-					    if (auto width = value.to_number<unsigned int>(); width)
-						    fb_width = *width;
-				    } else if (key == "bcm2708_fb.fbheight") {
-					    if (auto height = value.to_number<unsigned int>(); height)
-						    fb_height = *height;
-				    }
-			    }
-
-			    l = s;
-		    }
-	    }
+	    frg::array options = {
+	        frg::option{"bcm2708_fb.fbwidth", frg::as_number(fb_width)},
+	        frg::option{"bcm2708_fb.fbheight", frg::as_number(fb_height)},
+	    };
+	    parseCmdline(options);
 
 	    if (!fb_width || !fb_height) {
 		    infoLogger() << "No display attached" << frg::endlog;

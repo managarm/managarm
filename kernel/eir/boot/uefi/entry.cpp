@@ -6,12 +6,12 @@
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch-generic/stack.hpp>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <frg/array.hpp>
-#include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
 #include <stdbool.h>
 
@@ -634,7 +634,7 @@ initgraph::Task setupInitrdInfo{
     [] {
 	    EirAllocator alloc{};
 
-	    frg::string<EirAllocator> cmdline_extras{alloc, cmdline};
+	    frg::string<EirAllocator> cmdline_extras{alloc};
 
 	    auto format_ip = [&](efi_ip_address *addr) {
 		    auto ip = frg::to_allocated_string(alloc, addr->v4.addr[0]);
@@ -674,13 +674,11 @@ initgraph::Task setupInitrdInfo{
 		    }
 	    }
 
-	    cmdline = cmdline_extras;
-
-	    auto cmd_length = cmdline.size();
+	    auto cmd_length = cmdline_extras.size();
 	    assert(cmd_length <= pageSize);
 	    auto cmd_buffer = bootAlloc<char>(cmd_length);
-	    memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
-	    info_ptr->commandLine = mapBootstrapData(cmd_buffer);
+	    memcpy(cmd_buffer, cmdline_extras.data(), cmd_length + 1);
+	    extendCmdline(cmd_buffer);
     }
 };
 
@@ -800,7 +798,7 @@ extern "C" efi_status eirUefiMain(const efi_handle h, const efi_system_table *sy
 		ascii_cmdline[i] = '\0';
 	}
 	assert(ascii_cmdline);
-	cmdline = {ascii_cmdline, strlen(ascii_cmdline)};
+	extendCmdline(ascii_cmdline);
 
 	bool eir_gdb_ready_val = true;
 
