@@ -1,4 +1,5 @@
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/cpio.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
@@ -554,7 +555,9 @@ void loadKernelImage(void *imagePtr) {
 	kernelEntry = ehdr.e_entry;
 }
 
-EirInfo *generateInfo(frg::string_view cmdline) {
+namespace {
+
+EirInfo *generateInfo() {
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
@@ -586,35 +589,49 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 	}
 
 	// Parse the kernel command line.
-	if (!cmdline.data())
-		cmdline = "";
-	const char *l = cmdline.data();
-	while (true) {
-		while (*l && *l == ' ')
-			l++;
-		if (!(*l))
-			break;
+	bool serial{false};
+	bool bochs{false};
+	bool kernelProfile{false};
+	frg::array options = {
+	    frg::option{"serial", frg::store_true(serial)},
+	    frg::option{"bochs", frg::store_true(bochs)},
+	    frg::option{"kernel-profile", frg::store_true(kernelProfile)},
+	};
+	parseCmdline(options);
 
-		const char *s = l;
-		while (*s && *s != ' ')
-			s++;
+	if (serial)
+		info_ptr->debugFlags |= eirDebugSerial;
+	if (bochs)
+		info_ptr->debugFlags |= eirDebugBochs;
+	if (kernelProfile)
+		info_ptr->debugFlags |= eirDebugKernelProfile;
 
-		frg::string_view token{l, static_cast<size_t>(s - l)};
-		if (token == "serial") {
-			info_ptr->debugFlags |= eirDebugSerial;
-		} else if (token == "bochs") {
-			info_ptr->debugFlags |= eirDebugBochs;
-		} else if (token == "kernel-profile") {
-			info_ptr->debugFlags |= eirDebugKernelProfile;
-		}
-		l = s;
+	// Pass the command line to Thor.
+	auto cmdlineChunks = getCmdline();
+
+	// For each chunk: we either have a trailing space or null terminator.
+	auto cmdlineLength = cmdlineChunks.size();
+	for (auto chunk : cmdlineChunks)
+		cmdlineLength += chunk.size();
+
+	if (cmdlineLength > pageSize)
+		panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
+	auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
+
+	char *cmdlinePtr = cmdlineBuffer;
+	for (auto chunk : cmdlineChunks) {
+		if (!chunk.size())
+			continue;
+		if (cmdlinePtr != cmdlineBuffer)
+			*(cmdlinePtr++) = ' ';
+		memcpy(cmdlinePtr, chunk.data(), chunk.size());
+		cmdlinePtr += chunk.size();
 	}
+	*cmdlinePtr = '\0';
 
-	auto cmd_length = cmdline.size();
-	assert(cmd_length <= pageSize);
-	auto cmd_buffer = bootAlloc<char>(cmd_length);
-	memcpy(cmd_buffer, cmdline.data(), cmd_length + 1);
-	info_ptr->commandLine = mapBootstrapData(cmd_buffer);
+	infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
+
+	info_ptr->commandLine = mapBootstrapData(cmdlineBuffer);
 
 	auto initrd_module = bootAlloc<EirModule>(1);
 	initrd_module->physicalBase = virtToPhys(initrd);
@@ -630,5 +647,17 @@ EirInfo *generateInfo(frg::string_view cmdline) {
 
 	return info_ptr;
 }
+
+static initgraph::Task generateInfoStruct{
+    &globalInitEngine,
+    "generic.generate-thor-info-struct",
+    initgraph::Requires{
+        getInitrdAvailableStage(), getCmdlineAvailableStage(), getAllocationAvailableStage()
+    },
+    initgraph::Entails{getInfoStructAvailableStage()},
+    [] { info_ptr = generateInfo(); }
+};
+
+} // namespace
 
 } // namespace eir

@@ -14,8 +14,6 @@ EirInfo *info_ptr = nullptr;
 frg::array<eir::InitialRegion, 32> reservedRegions;
 size_t nReservedRegions = 0;
 
-frg::string_view cmdline;
-
 void GlobalInitEngine::preActivate(initgraph::Node *node) {
 	infoLogger() << "eir: Running " << node->displayName() << frg::endlog;
 }
@@ -90,14 +88,6 @@ static initgraph::Task earlyProcessorInit{
     initgraph::Requires{getReservedRegionsKnownStage()},
     initgraph::Entails{getMemoryRegionsKnownStage()},
     [] { initProcessorEarly(); }
-};
-
-static initgraph::Task setupInfoStruct{
-    &globalInitEngine,
-    "generic.setup-thor-info-struct",
-    initgraph::Requires{getAllocationAvailableStage()},
-    initgraph::Entails{getInfoStructAvailableStage()},
-    [] { info_ptr = generateInfo(cmdline); }
 };
 
 static initgraph::Task passFirmwareTables{

@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <eir-internal/acpi/acpi.hpp>
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
@@ -52,9 +53,6 @@ initgraph::Task setupMemoryRegions{
     [] {
 	    assert(mmapStart);
 	    assert(mmapEnd > mmapStart);
-	    assert(cmdline.data()); // Make sure it at least exists
-
-	    eir::infoLogger() << "Command line: " << cmdline << frg::endlog;
 
 	    eir::infoLogger() << "Memory map:" << frg::endlog;
 	    for (Mb2MmapEntry *map = (Mb2MmapEntry *)mmapStart; map < (Mb2MmapEntry *)mmapEnd; map++) {
@@ -139,7 +137,7 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 			case kMb2TagCmdline: {
 				auto *cmdline_tag = reinterpret_cast<Mb2TagCmdline *>(tag);
 
-				cmdline = {cmdline_tag->string};
+				extendCmdline({cmdline_tag->string});
 
 				break;
 			}

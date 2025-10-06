@@ -5,6 +5,7 @@
 #include <frg/slab.hpp>
 
 #include <eir-internal/arch.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/dtb/discovery.hpp>
 #include <eir-internal/generic.hpp>
@@ -137,10 +138,8 @@ void discoverMemoryFromDtb() {
 
 	initrd = physToVirt<void>(initrdStart);
 
-	if (cmdline.size() == 0) {
-		if (auto p = chosenNode.findProperty("bootargs")) {
-			cmdline = static_cast<const char *>(p->data());
-		}
+	if (auto p = chosenNode.findProperty("bootargs")) {
+		extendCmdline(static_cast<const char *>(p->data()));
 	}
 
 	// Determine all reserved memory areas.
