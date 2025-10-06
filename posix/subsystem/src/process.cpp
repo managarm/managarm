@@ -536,7 +536,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 void SignalContext::resetHandlers() {
 	for(int sn = 1; sn <= 64; sn++)
 		if(_handlers[sn - 1].disposition == SignalDisposition::handle)
-			_handlers[sn - 1].disposition = SignalDisposition::none;
+			_handlers[sn - 1] = SignalHandler{SignalDisposition::none};
 }
 
 SignalHandler SignalContext::getHandler(int sn) {
