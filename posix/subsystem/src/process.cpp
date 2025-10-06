@@ -1479,6 +1479,9 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
 	process->threadGroup()->_signalContext->resetHandlers();
+	process->setAltStackEnabled(false);
+	process->setAltStackSp(0, 0);
+
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;
