@@ -566,6 +566,10 @@ EirInfo *generateInfo() {
 	assert(info_vaddr == getMemoryLayout().eirInfo);
 	info_ptr->signature = eirSignatureValue;
 
+#ifdef __riscv
+	info_ptr->hartId = eirBootHartId;
+#endif
+
 	// Pass all memory regions to thor.
 	int n = 0;
 	for (size_t i = 0; i < numRegions; ++i) {

@@ -7,6 +7,10 @@
 
 namespace eir {
 
+#ifdef __riscv
+extern "C" uint64_t eirBootHartId;
+#endif
+
 void debugPrintChar(char c);
 
 // read and privileged/supervisor is implied

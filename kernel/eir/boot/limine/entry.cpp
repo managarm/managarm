@@ -63,7 +63,7 @@ initgraph::Task setupMiscInfo{
 #ifdef __riscv
 	    if (!riscv_bsp_hartid_request.response)
 		    panicLogger() << "eir: Missing response for Limine BSP hart ID request" << frg::endlog;
-	    info_ptr->hartId = riscv_bsp_hartid_request.response->bsp_hartid;
+	    eirBootHartId = riscv_bsp_hartid_request.response->bsp_hartid;
 #endif
     }
 };

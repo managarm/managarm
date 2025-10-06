@@ -374,7 +374,7 @@ initgraph::Task setupBootHartId{
     "uefi.setup-riscv-boot-hard-info",
     initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getEirDoneStage()},
-    [] { info_ptr->hartId = boot_hart; }
+    [] { eirBootHartId = boot_hart; }
 };
 #endif
 
