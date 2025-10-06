@@ -556,6 +556,14 @@ public:
 		_altStackEnabled = en;
 	}
 
+	void setInSignalHandler(bool inHandler) {
+		inSignalHandler_ = inHandler;
+	}
+
+	bool inSignalHandler() {
+		return inSignalHandler_;
+	}
+
 	uint64_t enteredSignalSeq() {
 		return _enteredSignalSeq;
 	}
@@ -609,6 +617,7 @@ private:
 	void *_clientAuxEnd = nullptr;
 
 	uint64_t _signalMask;
+	bool inSignalHandler_ = false;
 
 	bool _altStackEnabled = false;
 	uint64_t _altStackSp = 0;
