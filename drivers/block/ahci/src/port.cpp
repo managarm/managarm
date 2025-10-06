@@ -62,7 +62,7 @@ async::result<bool> Port::init() {
 	auto status = regs_.load(regs::status);
 	auto ipm = (status >> 8) & 0xF;
 	auto det = status & 0xF;
-	if (ipm != 1 && det != 3)
+	if (ipm != 1 || det != 3)
 		co_return false;
 
 	// 10.1.2, part 3:
