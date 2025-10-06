@@ -4134,10 +4134,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				if(self->threadGroup()->realTimer)
 					self->threadGroup()->realTimer->cancel();
-				self->threadGroup()->realTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
-						req->value_sec() * 1'000'000'000 + req->value_usec() * 1'000,
-						req->interval_sec() * 1'000'000'000 + req->interval_usec() * 1'000);
-				self->threadGroup()->realTimer->arm(self->threadGroup()->realTimer);
+
+				if (req->value_sec() || req->value_usec()) {
+					auto valueNanos = posix::convertToNanos(
+						timespec{static_cast<time_t>(req->value_sec()), static_cast<long>(req->value_usec() * 1000)},
+						CLOCK_REALTIME, true);
+					auto intervalNanos = posix::convertToNanos(
+						timespec{static_cast<time_t>(req->interval_sec()), static_cast<long>(req->interval_usec() * 1000)},
+						CLOCK_MONOTONIC);
+
+					self->threadGroup()->realTimer = std::make_shared<ThreadGroup::IntervalTimer>(self,
+							valueNanos, intervalNanos);
+					self->threadGroup()->realTimer->arm(self->threadGroup()->realTimer);
+				}
 
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 			} else {

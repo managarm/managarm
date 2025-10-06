@@ -344,12 +344,9 @@ std::shared_ptr<FileContext> FileContext::create() {
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	void *window;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
-	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
+	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
 	HEL_CHECK(helTransferDescriptor(
 	    posixMbusClient, context->_universe.getHandle(), kHelTransferDescriptorOut, &context->_clientMbusLane
@@ -366,12 +363,9 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 	context->_universe = helix::UniqueDescriptor(universe);
 
 	HelHandle memory;
-	void *window;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-			0, 0x1000, kHelMapProtRead | kHelMapProtWrite, &window));
 	context->_fileTableMemory = helix::UniqueDescriptor(memory);
-	context->_fileTableWindow = reinterpret_cast<HelHandle *>(window);
+	context->fileTableWindow_ = helix::Mapping{context->_fileTableMemory, 0, 0x1000};
 
 	for(auto entry : original->_fileTable) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
@@ -408,7 +402,7 @@ std::expected<int, Error> FileContext::attachFile(smarter::shared_ptr<File, File
 			std::cout << "posix: Attaching FD " << fd << std::endl;
 
 		_fileTable.insert({fd, {std::move(file), closeOnExec}});
-		_fileTableWindow[fd] = handle;
+		fileTableWindow()[fd] = handle;
 		return fd;
 	}
 }
@@ -432,7 +426,7 @@ std::expected<void, Error> FileContext::attachFile(int fd, smarter::shared_ptr<F
 	}else{
 		_fileTable.insert({fd, {std::move(file), close_on_exec}});
 	}
-	_fileTableWindow[fd] = handle;
+	fileTableWindow()[fd] = handle;
 
 	return {};
 }
@@ -468,9 +462,9 @@ Error FileContext::closeFile(int fd) {
 		return Error::noSuchFile;
 	}
 
-	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), _fileTableWindow[fd]));
+	HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[fd]));
 
-	_fileTableWindow[fd] = 0;
+	fileTableWindow()[fd] = 0;
 	_fileTable.erase(it);
 	return Error::success;
 }
@@ -479,9 +473,9 @@ void FileContext::closeOnExec() {
 	auto it = _fileTable.begin();
 	while(it != _fileTable.end()) {
 		if(it->second.closeOnExec) {
-			HEL_CHECK(helCloseDescriptor(_universe.getHandle(), _fileTableWindow[it->first]));
+			HEL_CHECK(helCloseDescriptor(_universe.getHandle(), fileTableWindow()[it->first]));
 
-			_fileTableWindow[it->first] = 0;
+			fileTableWindow()[it->first] = 0;
 			it = _fileTable.erase(it);
 		}else{
 			it++;

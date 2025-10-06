@@ -1,6 +1,7 @@
 #pragma once
 
 #include <frg/optional.hpp>
+#include <stdint.h>
 
 namespace thor {
 

@@ -1,3 +1,7 @@
+if host_machine.cpu_family() != 'riscv64'
+	subdir_done()
+endif
+
 inc = [ 'include' ]
 
 nic_k1x_emac_lib = static_library('nic-k1x-emac', 'src/k1x-emac.cpp',
