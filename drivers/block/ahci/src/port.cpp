@@ -23,25 +23,25 @@ namespace regs {
 
 namespace flags {
 	namespace cmd {
-		constexpr int cmdListRunning    = 1 << 15;
-		constexpr int fisReceiveRunning = 1 << 14;
-		constexpr int fisReceiveEnable  = 1 << 4;
-		constexpr int spinUpDevice      = 1 << 1;
-		constexpr int start             = 1;
+		constexpr uint32_t cmdListRunning    = 1u << 15;
+		constexpr uint32_t fisReceiveRunning = 1u << 14;
+		constexpr uint32_t fisReceiveEnable  = 1u << 4;
+		constexpr uint32_t spinUpDevice      = 1u << 1;
+		constexpr uint32_t start             = 1u << 0;
 	}
 
 	namespace is {
-		constexpr int taskFileError   = 1 << 30;
-		constexpr int hostFatalError  = 1 << 29;
-		constexpr int hostDataError   = 1 << 28;
-		constexpr int ifFatalError    = 1 << 27;
-		constexpr int ifNonFatalError = 1 << 26;
-		constexpr int d2hFis          = 1;
+		constexpr uint32_t taskFileError   = 1u << 30;
+		constexpr uint32_t hostFatalError  = 1u << 29;
+		constexpr uint32_t hostDataError   = 1u << 28;
+		constexpr uint32_t ifFatalError    = 1u << 27;
+		constexpr uint32_t ifNonFatalError = 1u << 26;
+		constexpr uint32_t d2hFis          = 1u << 0;
 	}
 
 	namespace tfd {
-		constexpr int bsy = 1 << 7;
-		constexpr int drq = 1 << 3;
+		constexpr uint32_t bsy = 1u << 7;
+		constexpr uint32_t drq = 1u << 3;
 	}
 }
 
@@ -62,7 +62,7 @@ async::result<bool> Port::init() {
 	auto status = regs_.load(regs::status);
 	auto ipm = (status >> 8) & 0xF;
 	auto det = status & 0xF;
-	if (ipm != 1 && det != 3)
+	if (ipm != 1 || det != 3)
 		co_return false;
 
 	// 10.1.2, part 3:
