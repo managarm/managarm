@@ -498,8 +498,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_pid(0);
 			} else {
-				assert(waitResult.error() == Error::noChildProcesses);
-				resp.set_error(managarm::posix::Errors::NO_CHILD_PROCESSES);
+				resp.set_error(waitResult.error() | toPosixProtoError);
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
