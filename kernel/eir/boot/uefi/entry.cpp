@@ -373,7 +373,6 @@ initgraph::Task setupBootHartId{
     &globalInitEngine,
     "uefi.setup-riscv-boot-hard-info",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
     [] { eirBootHartId = boot_hart; }
 };
 #endif
@@ -630,7 +629,6 @@ initgraph::Task setupInitrdInfo{
     &globalInitEngine,
     "uefi.setup-initrd-info",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
     [] {
 	    EirAllocator alloc{};
 
@@ -737,7 +735,6 @@ initgraph::Task mapEirImage{
     &globalInitEngine,
     "uefi.map-eir-image",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
     [] {
 	    auto base = reinterpret_cast<uintptr_t>(loadedImage->image_base);
 	    auto pages = (loadedImage->image_size >> 12) + 1;

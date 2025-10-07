@@ -58,7 +58,6 @@ initgraph::Task setupMiscInfo{
     &globalInitEngine,
     "limine.setup-misc-info",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
     [] {
 #ifdef __riscv
 	    if (!riscv_bsp_hartid_request.response)
@@ -72,7 +71,7 @@ initgraph::Task setupFramebufferInfo{
     &globalInitEngine,
     "limine.setup-framebuffer-info",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
+    initgraph::Entails{getFramebufferAvailableStage()},
     [] {
 	    if (framebuffer_request.response && framebuffer_request.response->framebuffer_count > 0
 	        && framebuffer_request.response->framebuffers) {

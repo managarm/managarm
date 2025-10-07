@@ -62,11 +62,6 @@ initgraph::Stage *getInfoStructAvailableStage() {
 	return &s;
 }
 
-initgraph::Stage *getEirDoneStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.eir-done"};
-	return &s;
-}
-
 struct GlobalCtorTest {
 	GlobalCtorTest() { infoLogger() << "Hello world from global ctor" << frg::endlog; }
 };
@@ -94,7 +89,6 @@ static initgraph::Task passFirmwareTables{
     &globalInitEngine,
     "generic.pass-firmware-tables",
     initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
     [] {
 	    if (eirRsdpAddr) {
 		    info_ptr->acpiRsdp = eirRsdpAddr;
@@ -147,7 +141,7 @@ static initgraph::Task loadKernelImageTask{
 static initgraph::Task prepareFramebufferForThor{
     &globalInitEngine,
     "generic.prepare-framebuffer-for-thor",
-    initgraph::Requires{getEirDoneStage()},
+    initgraph::Requires{getAllocationAvailableStage(), getFramebufferAvailableStage()},
     [] {
 	    auto *fb = getFramebuffer();
 	    if (fb) {

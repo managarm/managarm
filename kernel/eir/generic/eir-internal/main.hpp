@@ -41,9 +41,6 @@ initgraph::Stage *getKernelLoadableStage();
 // the handoff information struct can be filled from here on
 initgraph::Stage *getInfoStructAvailableStage();
 
-// right before jumping to thor
-initgraph::Stage *getEirDoneStage();
-
 extern void *initrd;
 extern EirInfo *info_ptr;
 

@@ -89,4 +89,10 @@ const EirFramebuffer *getFramebuffer() {
 		return nullptr;
 	return &(*globalFb);
 }
+
+initgraph::Stage *getFramebufferAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.framebuffer-available"};
+	return &s;
+}
+
 } // namespace eir
