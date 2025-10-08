@@ -94,24 +94,6 @@ void initProcessorPaging() {
 	                  << " KiB"
 	                     " after setting up paging"
 	                  << frg::endlog;
-
-	// PE doesn't support linker scripts, this needs to be worked around by UEFI
-	// see the `uefi.map-eir-image` task
-#if !defined(EIR_UEFI)
-	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
-	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
-
-	for (address_t addr = floor; addr < ceiling; addr += 0x1000)
-		if (kernel_physical != SIZE_MAX) {
-			mapSingle4kPage(
-			    addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute
-			);
-		} else {
-			mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
-		}
-#endif
-
-	mapRegionsAndStructs();
 }
 
 } // namespace eir

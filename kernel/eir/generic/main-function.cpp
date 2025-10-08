@@ -89,11 +89,11 @@ static initgraph::Task earlyProcessorInit{
     [] { initProcessorEarly(); }
 };
 
-static initgraph::Task setupRegionsAndPaging{
+static initgraph::Task setupRegions{
     &globalInitEngine,
-    "generic.setup-regions-and-page-tables",
+    "generic.setup-regions",
     initgraph::Requires{getMemoryRegionsKnownStage()},
-    initgraph::Entails{getAllocationAvailableStage(), getKernelMappableStage()},
+    initgraph::Entails{getAllocationAvailableStage()},
     [] {
 	    setupRegionStructs();
 
@@ -109,8 +109,42 @@ static initgraph::Task setupRegionsAndPaging{
 			                      << frg::hex_fmt{regions[i].buddyTree} << ", overhead: 0x"
 			                      << frg::hex_fmt{regions[i].buddyOverhead} << frg::endlog;
 	    }
+    }
+};
 
-	    initProcessorPaging();
+static initgraph::Task setupPageTables{
+    &globalInitEngine,
+    "generic.setup-page-tables",
+    initgraph::Requires{getAllocationAvailableStage()},
+    initgraph::Entails{getKernelMappableStage()},
+    [] { initProcessorPaging(); }
+};
+
+static initgraph::Task mapRegions{
+    &globalInitEngine, "generic.map-regions", initgraph::Requires{getKernelMappableStage()}, [] {
+	    mapRegionsAndStructs();
+#ifdef KERNEL_LOG_ALLOCATIONS
+	    allocLogRingBuffer();
+#endif
+    }
+};
+
+static initgraph::Task mapEirImage{
+    &globalInitEngine, "generic.map-eir-image", initgraph::Requires{getKernelMappableStage()}, [] {
+#if !defined(EIR_UEFI)
+	    auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
+	    auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
+
+	    for (address_t addr = floor; addr < ceiling; addr += 0x1000) {
+		    if (kernel_physical != SIZE_MAX) {
+			    mapSingle4kPage(
+			        addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute
+			    );
+		    } else {
+			    mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+		    }
+	    }
+#endif
     }
 };
 
