@@ -131,9 +131,9 @@ static initgraph::Task mapRegions{
 
 static initgraph::Task mapEirImage{
     &globalInitEngine, "generic.map-eir-image", initgraph::Requires{getKernelMappableStage()}, [] {
-#if !defined(EIR_UEFI)
-	    auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
-	    auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
+	    const auto &bootCaps = BootCaps::get();
+	    auto floor = static_cast<address_t>(bootCaps.imageStart) & ~address_t{0xFFF};
+	    auto ceiling = (static_cast<address_t>(bootCaps.imageEnd) + 0xFFF) & ~address_t{0xFFF};
 
 	    for (address_t addr = floor; addr < ceiling; addr += 0x1000) {
 		    if (kernel_physical != SIZE_MAX) {
@@ -144,7 +144,6 @@ static initgraph::Task mapEirImage{
 			    mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
 		    }
 	    }
-#endif
     }
 };
 

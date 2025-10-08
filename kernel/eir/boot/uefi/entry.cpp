@@ -732,19 +732,6 @@ void handleUki() {
 	}
 }
 
-initgraph::Task mapEirImage{
-    &globalInitEngine, "uefi.map-eir-image", initgraph::Requires{getKernelMappableStage()}, [] {
-	    auto base = reinterpret_cast<uintptr_t>(loadedImage->image_base);
-	    auto pages = (loadedImage->image_size >> 12) + 1;
-
-	    for (size_t i = 0; i < pages; i++) {
-		    mapSingle4kPage(
-		        base + (i << 12), base + (i << 12), PageFlags::write | PageFlags::execute
-		    );
-	    }
-    }
-};
-
 constinit BootCaps uefiCaps = {
     .hasMemoryMap = true,
 };
