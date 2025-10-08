@@ -99,10 +99,6 @@ struct Gic : dt::IrqController {
 	}
 };
 
-initgraph::Stage *getIrqControllerReadyStage();
-
 void initGicOnThisCpu();
-
-extern Gic *gic;
 
 }

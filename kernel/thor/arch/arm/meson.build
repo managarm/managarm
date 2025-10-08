@@ -13,6 +13,7 @@ src += files(
 	'system.cpp',
 	'smp.cpp',
 	'timer.cpp',
+	'trap.cpp',
 )
 
 trampoline = custom_target('trampoline',
