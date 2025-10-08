@@ -1,4 +1,5 @@
 #include <thor-internal/arch/gic_v3.hpp>
+#include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/arch/system.hpp>
@@ -285,11 +286,12 @@ bool initGicV3() {
 	dist->init();
 
 	gicV3.initialize();
-	gic = gicV3.get();
+	
+	externalIrq = gicV3.get();
 
 	initGicOnThisCpuV3();
 
-	gicNode->associateIrqController(gic);
+	gicNode->associateIrqController(gicV3.get());
 
 	return true;
 }

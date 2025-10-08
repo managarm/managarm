@@ -1,5 +1,6 @@
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/timer.hpp>
+#include <thor-internal/arch/trap.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/main.hpp>
 #include <initgraph.hpp>

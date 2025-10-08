@@ -2,6 +2,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/system.hpp>
+#include <thor-internal/arch/trap.hpp>
 #include <arch/bits.hpp>
 #include <arch/mem_space.hpp>
 #include <arch/register.hpp>
@@ -384,9 +385,10 @@ bool initGicV2() {
 
 	cpuInterfaceAddr = gicNode->reg()[1].addr;
 	cpuInterfaceSize = gicNode->reg()[1].size;
-	gic = &gicV2;
 
-	gicNode->associateIrqController(gic);
+	externalIrq = &gicV2;
+
+	gicNode->associateIrqController(&gicV2);
 
 	return true;
 }
