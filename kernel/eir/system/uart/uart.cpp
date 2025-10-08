@@ -62,7 +62,7 @@ static initgraph::Task reserveBootUartMmio{
 static initgraph::Task setupBootUartMmio{
     &globalInitEngine,
     "uart.setup-boot-uart-mmio",
-    initgraph::Requires{getBootUartDeterminedStage(), getAllocationAvailableStage()},
+    initgraph::Requires{getBootUartDeterminedStage(), getKernelMappableStage()},
     initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    if (!bootUartPtr)

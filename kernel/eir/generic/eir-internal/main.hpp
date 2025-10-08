@@ -14,6 +14,7 @@ extern physaddr_t eirSmbios3Addr;
 
 struct GlobalInitEngine final : initgraph::Engine {
 	void preActivate(initgraph::Node *node) override;
+	void postActivate(initgraph::Node *node) override;
 	void onUnreached() override;
 };
 
@@ -26,20 +27,24 @@ extern "C" void eirRunConstructors();
 initgraph::Stage *getInitrdAvailableStage();
 initgraph::Stage *getCmdlineAvailableStage();
 
-// achieved by parsing boot protocol-specific data to allow for setting up the CPU and memory
+// Before this stage, all reserved regions must be available.
 initgraph::Stage *getReservedRegionsKnownStage();
 
-// memory regions and reserved regions have been set up
+// Before this stage, all memory regions must be available.
 initgraph::Stage *getMemoryRegionsKnownStage();
 
-// everything needed to construct handoff information for thor is done
+// After this stage, physical memory can be allocated.
+// Ordered after getReservedRegionsKnownStage() and getMemoryRegionsKnownStage().
 initgraph::Stage *getAllocationAvailableStage();
 
-// everything needed to fill out ELF notes and load the kernel image is done
-initgraph::Stage *getKernelLoadableStage();
+// After this stage, memory can be mapped into Thor's address space.
+// Ordered after getAllocationAvailableStage().
+initgraph::Stage *getKernelMappableStage();
 
-// the handoff information struct can be filled from here on
-initgraph::Stage *getInfoStructAvailableStage();
+// Before this stage, everything needed to fill out ELF notes but be available.
+// After this stage, the kernel image is loaded and the boot information is finalized.
+// Ordered after getkernelMappableStage().
+initgraph::Stage *getKernelLoadableStage();
 
 extern void *initrd;
 

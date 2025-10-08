@@ -43,7 +43,7 @@ LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST, 0);
 initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "limine.obtain-firmware-tables",
-    initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (rsdp_request.response) {
 		    eirRsdpAddr = reinterpret_cast<uint64_t>(rsdp_request.response->address);
@@ -55,10 +55,7 @@ initgraph::Task obtainFirmwareTables{
 };
 
 initgraph::Task setupMiscInfo{
-    &globalInitEngine,
-    "limine.setup-misc-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    [] {
+    &globalInitEngine, "limine.setup-misc-info", initgraph::Entails{getKernelLoadableStage()}, [] {
 #ifdef __riscv
 	    if (!riscv_bsp_hartid_request.response)
 		    panicLogger() << "eir: Missing response for Limine BSP hart ID request" << frg::endlog;
@@ -70,7 +67,6 @@ initgraph::Task setupMiscInfo{
 initgraph::Task setupFramebufferInfo{
     &globalInitEngine,
     "limine.setup-framebuffer-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
     initgraph::Entails{getFramebufferAvailableStage()},
     [] {
 	    if (framebuffer_request.response && framebuffer_request.response->framebuffer_count > 0

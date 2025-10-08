@@ -13,7 +13,13 @@ frg::array<eir::InitialRegion, 32> reservedRegions;
 size_t nReservedRegions = 0;
 
 void GlobalInitEngine::preActivate(initgraph::Node *node) {
-	infoLogger() << "eir: Running " << node->displayName() << frg::endlog;
+	if (node->type() == initgraph::NodeType::task)
+		infoLogger() << "eir: Running task " << node->displayName() << frg::endlog;
+}
+
+void GlobalInitEngine::postActivate(initgraph::Node *node) {
+	if (node->type() == initgraph::NodeType::stage)
+		infoLogger() << "eir: Reached stage " << node->displayName() << frg::endlog;
 }
 
 void GlobalInitEngine::onUnreached() {
@@ -45,6 +51,11 @@ initgraph::Stage *getCmdlineAvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getKernelMappableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.kernel-mappable"};
+	return &s;
+}
+
 initgraph::Stage *getKernelLoadableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.kernel-loadable"};
 	return &s;
@@ -52,11 +63,6 @@ initgraph::Stage *getKernelLoadableStage() {
 
 initgraph::Stage *getAllocationAvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.allocation-available"};
-	return &s;
-}
-
-initgraph::Stage *getInfoStructAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.info-struct-available"};
 	return &s;
 }
 
@@ -87,7 +93,7 @@ static initgraph::Task setupRegionsAndPaging{
     &globalInitEngine,
     "generic.setup-regions-and-page-tables",
     initgraph::Requires{getMemoryRegionsKnownStage()},
-    initgraph::Entails{getAllocationAvailableStage()},
+    initgraph::Entails{getAllocationAvailableStage(), getKernelMappableStage()},
     [] {
 	    setupRegionStructs();
 
@@ -111,7 +117,7 @@ static initgraph::Task setupRegionsAndPaging{
 static initgraph::Task loadKernelImageTask{
     &globalInitEngine,
     "generic.load-kernel-image",
-    initgraph::Requires{getAllocationAvailableStage(), getKernelLoadableStage()},
+    initgraph::Requires{getKernelMappableStage(), getKernelLoadableStage()},
     [] {
 	    // Setup the kernel image.
 	    loadKernelImage(reinterpret_cast<void *>(kernel_image.data()));
@@ -123,7 +129,7 @@ static initgraph::Task loadKernelImageTask{
 static initgraph::Task prepareFramebufferForThor{
     &globalInitEngine,
     "generic.prepare-framebuffer-for-thor",
-    initgraph::Requires{getAllocationAvailableStage(), getFramebufferAvailableStage()},
+    initgraph::Requires{getKernelMappableStage(), getFramebufferAvailableStage()},
     initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    auto *fb = getFramebuffer();

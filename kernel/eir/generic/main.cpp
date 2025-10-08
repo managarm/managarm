@@ -673,12 +673,8 @@ static initgraph::Task generateInfoStruct{
     &globalInitEngine,
     "generic.generate-thor-info-struct",
     initgraph::Requires{
-        getInitrdAvailableStage(),
-        getCmdlineAvailableStage(),
-        getAllocationAvailableStage(),
-        getKernelLoadableStage()
+        getInitrdAvailableStage(), getCmdlineAvailableStage(), getKernelLoadableStage()
     },
-    initgraph::Entails{getInfoStructAvailableStage()},
     [] { generateInfo(); }
 };
 
