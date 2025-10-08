@@ -42,7 +42,6 @@ initgraph::Stage *getKernelLoadableStage();
 initgraph::Stage *getInfoStructAvailableStage();
 
 extern void *initrd;
-extern EirInfo *info_ptr;
 
 extern frg::array<InitialRegion, 32> reservedRegions;
 extern size_t nReservedRegions;

@@ -9,8 +9,6 @@
 
 namespace eir {
 
-EirInfo *info_ptr = nullptr;
-
 frg::array<eir::InitialRegion, 32> reservedRegions;
 size_t nReservedRegions = 0;
 
@@ -85,22 +83,6 @@ static initgraph::Task earlyProcessorInit{
     [] { initProcessorEarly(); }
 };
 
-static initgraph::Task passFirmwareTables{
-    &globalInitEngine,
-    "generic.pass-firmware-tables",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    [] {
-	    if (eirRsdpAddr) {
-		    info_ptr->acpiRsdp = eirRsdpAddr;
-	    }
-	    if (eirDtbPtr) {
-		    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
-		    info_ptr->dtbPtr = eirDtbPtr;
-		    info_ptr->dtbSize = dt.size();
-	    }
-    }
-};
-
 static initgraph::Task setupRegionsAndPaging{
     &globalInitEngine,
     "generic.setup-regions-and-page-tables",
@@ -142,6 +124,7 @@ static initgraph::Task prepareFramebufferForThor{
     &globalInitEngine,
     "generic.prepare-framebuffer-for-thor",
     initgraph::Requires{getAllocationAvailableStage(), getFramebufferAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    auto *fb = getFramebuffer();
 	    if (fb) {
@@ -156,9 +139,6 @@ static initgraph::Task prepareFramebufferForThor{
 			    );
 		    mapKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
 		    unpoisonKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
-
-		    info_ptr->frameBuffer = *fb;
-		    info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
 	    }
     }
 };
