@@ -117,7 +117,7 @@ initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "uefi.obtain-firmware-tables",
     initgraph::Entails{
-        getBootservicesDoneStage(), getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()
+        getBootservicesDoneStage(), getKernelLoadableStage(), acpi::getRsdpAvailableStage()
     },
     [] {
 	    eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);
@@ -372,9 +372,8 @@ initgraph::Task findRiscVBootHart{
 initgraph::Task setupBootHartId{
     &globalInitEngine,
     "uefi.setup-riscv-boot-hard-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] { info_ptr->hartId = boot_hart; }
+    initgraph::Entails{getKernelLoadableStage()},
+    [] { eirBootHartId = boot_hart; }
 };
 #endif
 
@@ -626,11 +625,11 @@ initgraph::Task setupMemoryMap{
     }
 };
 
-initgraph::Task setupInitrdInfo{
+initgraph::Task passPxeCmdline{
     &globalInitEngine,
-    "uefi.setup-initrd-info",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
+    "uefi.pass-pxe-cmdline",
+    initgraph::Requires{&preparePxe, getAllocationAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    EirAllocator alloc{};
 
@@ -732,23 +731,6 @@ void handleUki() {
 		}
 	}
 }
-
-initgraph::Task mapEirImage{
-    &globalInitEngine,
-    "uefi.map-eir-image",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    auto base = reinterpret_cast<uintptr_t>(loadedImage->image_base);
-	    auto pages = (loadedImage->image_size >> 12) + 1;
-
-	    for (size_t i = 0; i < pages; i++) {
-		    mapSingle4kPage(
-		        base + (i << 12), base + (i << 12), PageFlags::write | PageFlags::execute
-		    );
-	    }
-    }
-};
 
 constinit BootCaps uefiCaps = {
     .hasMemoryMap = true,

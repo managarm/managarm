@@ -5,6 +5,9 @@ _start:
 
 	lla sp, eirStackTop
 
+	lla t0, eirBootHartId
+	sd a0, (t0)
+
 	lla t0, eirDtbPtr
 	sd a1, (t0)
 

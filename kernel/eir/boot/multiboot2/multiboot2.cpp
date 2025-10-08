@@ -35,7 +35,7 @@ initgraph::Task setupAcpiInfo{
     &globalInitEngine,
     "mb2.setup-acpi-info",
     initgraph::Requires{getAllocationAvailableStage()},
-    initgraph::Entails{getInfoStructAvailableStage(), acpi::getRsdpAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (acpiTag) {
 		    auto *rsdpPtr = bootAlloc<uint8_t>(acpiTag->size - sizeof(Mb2TagRSDP));

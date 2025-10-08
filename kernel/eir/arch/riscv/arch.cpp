@@ -8,6 +8,8 @@ extern "C" [[noreturn]] void eirEnterKernel(uintptr_t satp, uint64_t entryPtr, u
 
 namespace eir {
 
+extern "C" constinit uint64_t eirBootHartId{0};
+
 extern uint64_t pml4;
 constinit RiscvConfig riscvConfig;
 

@@ -240,7 +240,7 @@ static initgraph::Task setupFramebuffer{
     &globalInitEngine,
     "raspi4.setup-framebuffer",
     initgraph::Requires{getCmdlineAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
+    initgraph::Entails{getFramebufferAvailableStage()},
     [] {
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 	    auto rootNode = dt.rootNode();

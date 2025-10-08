@@ -85,7 +85,7 @@ namespace {
 initgraph::Task setupKernelStackHeap{
     &globalInitEngine,
     "generic.setup-kernel-stack-heap",
-    initgraph::Requires{getAllocationAvailableStage()},
+    initgraph::Requires{getKernelMappableStage()},
     [] {
 	    // Setup the kernel stack.
 	    for (address_t page = 0; page < kernelStackSize; page += pageSize)

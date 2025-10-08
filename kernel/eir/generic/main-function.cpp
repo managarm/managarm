@@ -9,13 +9,17 @@
 
 namespace eir {
 
-EirInfo *info_ptr = nullptr;
-
 frg::array<eir::InitialRegion, 32> reservedRegions;
 size_t nReservedRegions = 0;
 
 void GlobalInitEngine::preActivate(initgraph::Node *node) {
-	infoLogger() << "eir: Running " << node->displayName() << frg::endlog;
+	if (node->type() == initgraph::NodeType::task)
+		infoLogger() << "eir: Running task " << node->displayName() << frg::endlog;
+}
+
+void GlobalInitEngine::postActivate(initgraph::Node *node) {
+	if (node->type() == initgraph::NodeType::stage)
+		infoLogger() << "eir: Reached stage " << node->displayName() << frg::endlog;
 }
 
 void GlobalInitEngine::onUnreached() {
@@ -47,6 +51,11 @@ initgraph::Stage *getCmdlineAvailableStage() {
 	return &s;
 }
 
+initgraph::Stage *getKernelMappableStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.kernel-mappable"};
+	return &s;
+}
+
 initgraph::Stage *getKernelLoadableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.kernel-loadable"};
 	return &s;
@@ -54,16 +63,6 @@ initgraph::Stage *getKernelLoadableStage() {
 
 initgraph::Stage *getAllocationAvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "generic.allocation-available"};
-	return &s;
-}
-
-initgraph::Stage *getInfoStructAvailableStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.info-struct-available"};
-	return &s;
-}
-
-initgraph::Stage *getEirDoneStage() {
-	static initgraph::Stage s{&globalInitEngine, "generic.eir-done"};
 	return &s;
 }
 
@@ -90,26 +89,9 @@ static initgraph::Task earlyProcessorInit{
     [] { initProcessorEarly(); }
 };
 
-static initgraph::Task passFirmwareTables{
+static initgraph::Task setupRegions{
     &globalInitEngine,
-    "generic.pass-firmware-tables",
-    initgraph::Requires{getInfoStructAvailableStage()},
-    initgraph::Entails{getEirDoneStage()},
-    [] {
-	    if (eirRsdpAddr) {
-		    info_ptr->acpiRsdp = eirRsdpAddr;
-	    }
-	    if (eirDtbPtr) {
-		    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
-		    info_ptr->dtbPtr = eirDtbPtr;
-		    info_ptr->dtbSize = dt.size();
-	    }
-    }
-};
-
-static initgraph::Task setupRegionsAndPaging{
-    &globalInitEngine,
-    "generic.setup-regions-and-page-tables",
+    "generic.setup-regions",
     initgraph::Requires{getMemoryRegionsKnownStage()},
     initgraph::Entails{getAllocationAvailableStage()},
     [] {
@@ -127,15 +109,48 @@ static initgraph::Task setupRegionsAndPaging{
 			                      << frg::hex_fmt{regions[i].buddyTree} << ", overhead: 0x"
 			                      << frg::hex_fmt{regions[i].buddyOverhead} << frg::endlog;
 	    }
+    }
+};
 
-	    initProcessorPaging();
+static initgraph::Task setupPageTables{
+    &globalInitEngine,
+    "generic.setup-page-tables",
+    initgraph::Requires{getAllocationAvailableStage()},
+    initgraph::Entails{getKernelMappableStage()},
+    [] { initProcessorPaging(); }
+};
+
+static initgraph::Task mapRegions{
+    &globalInitEngine, "generic.map-regions", initgraph::Requires{getKernelMappableStage()}, [] {
+	    mapRegionsAndStructs();
+#ifdef KERNEL_LOG_ALLOCATIONS
+	    allocLogRingBuffer();
+#endif
+    }
+};
+
+static initgraph::Task mapEirImage{
+    &globalInitEngine, "generic.map-eir-image", initgraph::Requires{getKernelMappableStage()}, [] {
+	    const auto &bootCaps = BootCaps::get();
+	    auto floor = static_cast<address_t>(bootCaps.imageStart) & ~address_t{0xFFF};
+	    auto ceiling = (static_cast<address_t>(bootCaps.imageEnd) + 0xFFF) & ~address_t{0xFFF};
+
+	    for (address_t addr = floor; addr < ceiling; addr += 0x1000) {
+		    if (kernel_physical != SIZE_MAX) {
+			    mapSingle4kPage(
+			        addr, addr - floor + kernel_physical, PageFlags::write | PageFlags::execute
+			    );
+		    } else {
+			    mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
+		    }
+	    }
     }
 };
 
 static initgraph::Task loadKernelImageTask{
     &globalInitEngine,
     "generic.load-kernel-image",
-    initgraph::Requires{getAllocationAvailableStage(), getKernelLoadableStage()},
+    initgraph::Requires{getKernelMappableStage(), getKernelLoadableStage()},
     [] {
 	    // Setup the kernel image.
 	    loadKernelImage(reinterpret_cast<void *>(kernel_image.data()));
@@ -147,7 +162,8 @@ static initgraph::Task loadKernelImageTask{
 static initgraph::Task prepareFramebufferForThor{
     &globalInitEngine,
     "generic.prepare-framebuffer-for-thor",
-    initgraph::Requires{getEirDoneStage()},
+    initgraph::Requires{getKernelMappableStage(), getFramebufferAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    auto *fb = getFramebuffer();
 	    if (fb) {
@@ -162,9 +178,6 @@ static initgraph::Task prepareFramebufferForThor{
 			    );
 		    mapKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
 		    unpoisonKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
-
-		    info_ptr->frameBuffer = *fb;
-		    info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
 	    }
     }
 };

@@ -319,20 +319,6 @@ void initProcessorPaging() {
 	                  << " KiB"
 	                     " after setting up paging"
 	                  << frg::endlog;
-
-	// Identically map the first 128 MiB so that we can activate paging
-	// without causing a page fault.
-#if !defined(EIR_UEFI)
-	auto floor = reinterpret_cast<address_t>(&eirImageFloor) & ~address_t{0xFFF};
-	auto ceiling = (reinterpret_cast<address_t>(&eirImageCeiling) + 0xFFF) & ~address_t{0xFFF};
-	for (address_t addr = floor; addr < ceiling; addr += 0x1000)
-		mapSingle4kPage(addr, addr, PageFlags::write | PageFlags::execute);
-#endif
-
-	mapRegionsAndStructs();
-#ifdef KERNEL_LOG_ALLOCATIONS
-	allocLogRingBuffer();
-#endif
 }
 
 bool patchArchSpecificManagarmElfNote(unsigned int, frg::span<char>) { return false; }

@@ -2,6 +2,7 @@
 #include <eir-internal/cmdline.hpp>
 #include <eir-internal/cpio.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
@@ -558,13 +559,27 @@ void loadKernelImage(void *imagePtr) {
 
 namespace {
 
-EirInfo *generateInfo() {
+void generateInfo() {
 	// Setup the eir interface struct.
 	auto info_ptr = bootAlloc<EirInfo>();
 	memset(info_ptr, 0, sizeof(EirInfo));
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == getMemoryLayout().eirInfo);
 	info_ptr->signature = eirSignatureValue;
+
+	// Pass firmware tables.
+	if (eirRsdpAddr) {
+		info_ptr->acpiRsdp = eirRsdpAddr;
+	}
+	if (eirDtbPtr) {
+		DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+		info_ptr->dtbPtr = eirDtbPtr;
+		info_ptr->dtbSize = dt.size();
+	}
+
+#ifdef __riscv
+	info_ptr->hartId = eirBootHartId;
+#endif
 
 	// Pass all memory regions to thor.
 	int n = 0;
@@ -646,17 +661,21 @@ EirInfo *generateInfo() {
 
 	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 
-	return info_ptr;
+	// Pass the framebuffer to thor.
+	auto *fb = getFramebuffer();
+	if (fb) {
+		info_ptr->frameBuffer = *fb;
+		info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
+	}
 }
 
 static initgraph::Task generateInfoStruct{
     &globalInitEngine,
     "generic.generate-thor-info-struct",
     initgraph::Requires{
-        getInitrdAvailableStage(), getCmdlineAvailableStage(), getAllocationAvailableStage()
+        getInitrdAvailableStage(), getCmdlineAvailableStage(), getKernelLoadableStage()
     },
-    initgraph::Entails{getInfoStructAvailableStage()},
-    [] { info_ptr = generateInfo(); }
+    [] { generateInfo(); }
 };
 
 } // namespace
