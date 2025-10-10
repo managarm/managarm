@@ -85,7 +85,7 @@ static initgraph::Task earlyProcessorInit{
     &globalInitEngine,
     "generic.early-processor-init",
     initgraph::Requires{getReservedRegionsKnownStage()},
-    initgraph::Entails{getMemoryRegionsKnownStage()},
+    initgraph::Entails{getMemoryLayoutReservedStage()},
     [] { initProcessorEarly(); }
 };
 

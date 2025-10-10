@@ -232,6 +232,9 @@ static initgraph::Task discoverMemory{
     "dt.discover-memory",
     initgraph::Entails{getInitrdAvailableStage(), getCmdlineAvailableStage()},
     [] {
+	    if (!eirDtbPtr)
+		    return;
+
 	    // Some protocols like Limine and UEFI provide their own memory map.
 	    if (!BootCaps::get().hasMemoryMap)
 		    discoverMemoryFromDtb();

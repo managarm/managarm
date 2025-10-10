@@ -178,9 +178,6 @@ void setupRegionStructs() {
 		auto tablePtr = physToVirt<int8_t>(regions[i].buddyTree);
 		BuddyAccessor::initialize(tablePtr, numRoots, order);
 	}
-
-	// TODO: Move this into its own initgraph task once aarch64 supports initgraph.
-	determineMemoryLayout();
 }
 
 // ----------------------------------------------------------------------------

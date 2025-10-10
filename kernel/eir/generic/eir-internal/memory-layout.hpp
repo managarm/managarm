@@ -1,6 +1,7 @@
 #pragma once
 
 #include <eir/interface.hpp>
+#include <initgraph.hpp>
 
 namespace eir {
 
@@ -17,13 +18,13 @@ void reserveEarlyMmio(uint64_t nPages);
 // Must be called after determineMemoryLayout.
 uint64_t allocateEarlyMmio(uint64_t nPages);
 
-// Compute the members of memoryLayout.
-// Also determine the kernel stack pointer.
-void determineMemoryLayout();
-
 const MemoryLayout &getMemoryLayout();
 
 uint64_t getKernelFrameBuffer();
 uint64_t getKernelStackPtr();
+
+// Before this stage: reserveEarlyMmio() must be finished.
+// Ordered before getKernelMappableStage().
+initgraph::Stage *getMemoryLayoutReservedStage();
 
 } // namespace eir

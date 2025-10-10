@@ -40,7 +40,7 @@ static initgraph::Task reserveBootUartMmio{
     &globalInitEngine,
     "uart.reserve-boot-uart-mmio",
     initgraph::Requires{getBootUartDeterminedStage()},
-    initgraph::Entails{getMemoryRegionsKnownStage()},
+    initgraph::Entails{getMemoryLayoutReservedStage()},
     [] {
 	    if (!bootUartPtr)
 		    return;

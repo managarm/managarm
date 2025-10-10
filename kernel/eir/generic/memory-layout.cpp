@@ -34,7 +34,9 @@ uint64_t allocateEarlyMmio(uint64_t nPages) {
 uint64_t kernelStack;
 uint64_t kernelStackSize;
 
-void determineMemoryLayout() {
+namespace {
+
+void doDetermineMemoryLayout() {
 	auto s = getKernelVirtualBits();
 	auto &ml = memoryLayout;
 
@@ -75,12 +77,22 @@ void determineMemoryLayout() {
 		infoLogger() << "    Early MMIO      : (not assigned)" << frg::endlog;
 }
 
+} // namespace
+
 const MemoryLayout &getMemoryLayout() { return memoryLayout; }
 
 uint64_t getKernelFrameBuffer() { return kernelFrameBuffer; }
 uint64_t getKernelStackPtr() { return kernelStack + kernelStackSize; }
 
 namespace {
+
+initgraph::Task determineMemoryLayout{
+    &globalInitEngine,
+    "generic.determine-memory-layout",
+    initgraph::Requires{getMemoryLayoutReservedStage()},
+    initgraph::Entails{getKernelMappableStage()},
+    [] { doDetermineMemoryLayout(); }
+};
 
 initgraph::Task setupKernelStackHeap{
     &globalInitEngine,
@@ -98,5 +110,10 @@ initgraph::Task setupKernelStackHeap{
 };
 
 } // namespace
+
+initgraph::Stage *getMemoryLayoutReservedStage() {
+	static initgraph::Stage s{&globalInitEngine, "generic.memory-layout-reserved-stage"};
+	return &s;
+}
 
 } // namespace eir
