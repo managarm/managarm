@@ -1,0 +1,7 @@
+[Unit]
+Description=CI Boot
+Documentation=https://docs.managarm.org/
+Requires=basic.target
+Conflicts=rescue.service rescue.target
+After=basic.target rescue.service rescue.target
+AllowIsolate=yes

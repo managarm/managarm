@@ -217,7 +217,7 @@ if build_drivers or provide_deps
 		# misc
 		'kernletcc'
 	]
-	utils = [ 'runsvr', 'lsmbus', 'wait-for-devices' ]
+	utils = [ 'ci-boot', 'runsvr', 'lsmbus', 'wait-for-devices' ]
 
 	# delay these dirs until last as they require other libs
 	# to already be built
@@ -261,6 +261,8 @@ if build_drivers
 	units = [
 		'drivers/kbd/runsvr-atkbd.service',
 		'drivers/usb/runsvr-usbhid.service',
+		'utils/ci-boot/ci-boot.service',
+		'utils/ci-boot/ci-boot.target',
 	]
 
 	install_data(units, install_dir : 'lib/systemd/system')

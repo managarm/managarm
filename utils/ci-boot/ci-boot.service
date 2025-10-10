@@ -1,0 +1,10 @@
+[Unit]
+Description=CI Boot
+Documentation=https://docs.managarm.org/
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ci-boot.py
+
+[Install]
+WantedBy=ci-boot.target
