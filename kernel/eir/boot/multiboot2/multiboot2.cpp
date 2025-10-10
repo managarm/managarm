@@ -16,7 +16,7 @@ namespace eir {
 namespace {
 
 static constinit BootCaps mb2Caps = {
-    .hasMemoryMap = false,
+    .hasMemoryMap = true,
 };
 
 [[gnu::constructor]] void initBootCaps() {
