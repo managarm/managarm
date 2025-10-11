@@ -178,11 +178,11 @@ async::result<bool> Port::run() {
 	Command cmd = Command(identify.data(), CommandType::identify);
 	cmd.prepare(commandTables_[slot], commandList_->slots[slot]);
 
-	regs_.store(regs::commandIssue, 1 << slot);
+	regs_.store(regs::commandIssue, 1u << slot);
 
 	// For simplicity, poll for completion (500ms)
 	success = co_await helix::kindaBusyWait(500'000'000,
-			[&](){ return !(regs_.load(regs::commandIssue) & (1 << slot)); });
+			[&](){ return !(regs_.load(regs::commandIssue) & (1u << slot)); });
 	if (!success) {
 		printf("\e[31mblock/ahci: Port %d identify failed\n", portIndex_);
 		dumpState();
@@ -276,7 +276,7 @@ void Port::handleIrq() {
 	// Notify all completed commands
 	auto cmdActiveMask = regs_.load(regs::commandIssue);
 	for (size_t i = 0; i < numCommandSlots_; i++) {
-		if (submittedCmds_[i] && !(cmdActiveMask & (1 << i))) {
+		if (submittedCmds_[i] && !(cmdActiveMask & (1u << i))) {
 			completed.push_back(std::exchange(submittedCmds_[i], nullptr));
 		}
 	}
@@ -306,7 +306,7 @@ async::detached Port::submitPendingLoop_() {
 
 async::result<void> Port::submitCommand_(Command *cmd) {
 	auto slot = co_await findFreeSlot_();
-	assert(!(regs_.load(regs::commandIssue) & (1 << slot)));
+	assert(!(regs_.load(regs::commandIssue) & (1u << slot)));
 	assert(!submittedCmds_[slot]);
 
 	// Setup command table and FIS
@@ -320,7 +320,7 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	while (regs_.load(regs::tfd) & (flags::tfd::bsy | flags::tfd::drq))
 		;
 
-	regs_.store(regs::commandIssue, 1 << slot);
+	regs_.store(regs::commandIssue, 1u << slot);
 	co_return;
 }
 
