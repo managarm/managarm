@@ -29,11 +29,11 @@ OpenFile::readSome(Process *, void *, size_t, async::cancellation_token) {
 async::result<frg::expected<Error, PollWaitResult>>
 OpenFile::pollWait(Process *, uint64_t inSeq, int pollMask,
 		async::cancellation_token cancellation) {
-	(void)pollMask; // TODO: utilize mask.
-
 	auto p = process_.lock();
 	if(!p)
-		co_return PollWaitResult(1, EPOLLIN);
+		co_return PollWaitResult(1, EPOLLIN & pollMask);
+	if(!isOpen())
+		co_return Error::fileClosed;
 
 	if(inSeq > 1) {
 		co_return Error::illegalArguments;
@@ -45,11 +45,11 @@ OpenFile::pollWait(Process *, uint64_t inSeq, int pollMask,
 				co_return Error::fileClosed;
 
 			if (!co_await p->awaitNotifyTypeChange(cancellation))
-				co_return Error::interrupted;
+				break;
 		}
 	}
 
-	co_return PollWaitResult(1, p->notifyType() == NotifyType::terminated ? EPOLLIN : 0);
+	co_return PollWaitResult(1, (p->notifyType() == NotifyType::terminated ? EPOLLIN : 0) & pollMask);
 }
 
 async::result<frg::expected<Error, PollStatusResult>>

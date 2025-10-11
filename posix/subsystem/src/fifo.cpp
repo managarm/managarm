@@ -151,34 +151,37 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t pastSeq, int mask,
 			async::cancellation_token cancellation) override {
-		(void)mask; // TODO: utilize mask.
-		// TODO: Return Error::fileClosed as appropriate.
 		assert(pastSeq <= _channel->currentSeq);
-		while(_channel && !cancellation.is_cancellation_requested()
-				&& pastSeq == _channel->currentSeq)
-			co_await _channel->statusBell.async_wait(cancellation);
-
-		if(!_channel) {
-			co_return Error::fileClosed;
-		}
-
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: fifo::pollWait() cancellation is untested\e[39m" << std::endl;
-
 		int edges = 0;
-		if (isReader_) {
-			if(_channel->noWriterSeq > pastSeq)
-				edges |= EPOLLHUP;
-			if(_channel->inSeq > pastSeq)
-				edges |= EPOLLIN;
-		}
-		if (isWriter_) {
-			edges |= EPOLLOUT;
-			if(_channel->noReaderSeq > pastSeq)
-				edges |= EPOLLERR;
+
+		while (true) {
+			if(!_channel)
+				co_return Error::fileClosed;
+
+			edges = 0;
+			if (isReader_) {
+				if(_channel->noWriterSeq > pastSeq)
+					edges |= EPOLLHUP;
+				if(_channel->inSeq > pastSeq)
+					edges |= EPOLLIN;
+			}
+			if (isWriter_) {
+				edges |= EPOLLOUT;
+				if(_channel->noReaderSeq > pastSeq)
+					edges |= EPOLLERR;
+			}
+
+			if (edges & mask)
+				break;
+
+			if (!co_await _channel->statusBell.async_wait(cancellation))
+				break;
 		}
 
-		co_return PollWaitResult(_channel->currentSeq, edges);
+		// std::println("posix: pollWait({}, {}) on \e[1;34m{}\e[0m returns ({}, {})",
+		// 	pastSeq, mask, structName(), _channel->currentSeq, edges & mask);
+
+		co_return PollWaitResult(_channel->currentSeq, edges & mask);
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>

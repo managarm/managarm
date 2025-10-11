@@ -489,34 +489,37 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
-		(void)mask; // TODO: utilize mask.
-		if(_currentState == State::closed)
-			co_return Error::fileClosed;
-
 		assert(past_seq <= _currentSeq);
-		while(past_seq == _currentSeq && !cancellation.is_cancellation_requested())
-			co_await _statusBell.async_wait(cancellation);
+		int edges = 0;
 
-		if(_currentState == State::closed)
-			co_return Error::fileClosed;
+		while(true) {
+			if (_currentState == State::closed)
+				co_return Error::fileClosed;
 
-		// For now making sockets always writable is sufficient.
-		int edges = EPOLLOUT;
-		if(socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
-			if(_hupSeq > past_seq)
-				edges |= EPOLLHUP | EPOLLIN;
+			// For now making sockets always writable is sufficient.
+			edges = EPOLLOUT;
+			if (socktype_ == SOCK_STREAM || socktype_ == SOCK_SEQPACKET) {
+				if (_hupSeq > past_seq)
+					edges |= EPOLLHUP | EPOLLIN;
+			}
+
+			if (_inSeq > past_seq)
+				edges |= EPOLLIN;
+
+			if (shutdownFlags_ & shutdownRead)
+				edges |= EPOLLRDHUP;
+
+			if (edges & mask)
+				break;
+
+			if (!co_await _statusBell.async_wait(cancellation))
+				break;
 		}
-		if(_inSeq > past_seq)
-			edges |= EPOLLIN;
 
-		if(shutdownFlags_ & shutdownRead)
-			edges |= EPOLLRDHUP;
+		// std::println("posix: pollWait({}, {}) on \e[1;34m{}\e[0m returns ({}, {})",
+		// 	past_seq, mask, structName(), _currentSeq, edges & mask);
 
-//		std::cout << "posix: pollWait(" << past_seq << ") on \e[1;34m" << structName() << "\e[0m"
-//				<< " returns (" << _currentSeq
-//				<< ", " << edges << ")" << std::endl;
-
-		co_return PollWaitResult{_currentSeq, edges};
+		co_return PollWaitResult(_currentSeq, edges & mask);
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>
