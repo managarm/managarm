@@ -532,9 +532,9 @@ initgraph::Task exitBootServices{
     }
 };
 
-initgraph::Task setupMemoryMap{
+initgraph::Task setupReservedRegions{
     &globalInitEngine,
-    "uefi.setup-memory-map",
+    "uefi.setup-reserved-regions",
     initgraph::Requires{&exitBootServices},
     initgraph::Entails{getReservedRegionsKnownStage()},
     [] {
@@ -548,7 +548,15 @@ initgraph::Task setupMemoryMap{
 
 		    reservedRegions[nReservedRegions++] = {eirDtbPtr, dt.size()};
 	    }
+    }
+};
 
+initgraph::Task setupMemoryMap{
+    &globalInitEngine,
+    "uefi.setup-memory-map",
+    initgraph::Requires{&exitBootServices, getReservedRegionsKnownStage()},
+    initgraph::Entails{getMemoryRegionsKnownStage()},
+    [] {
 	    auto entries = memMapSize / descriptorSize;
 
 	    auto endAddr = [](const efi_memory_descriptor *e) -> efi_physical_addr {
