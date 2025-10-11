@@ -48,7 +48,6 @@ async::result<helix::UniqueDescriptor> upload(const void *elf, size_t size,
 		req.add_bind_types(proto);
 	}
 
-	auto ser = req.SerializeAsString();
 	auto [offer, sendHead, sendTail, sendData, recvResp, pullKernlet] = co_await helix_ng::exchangeMsgs(
 		kernletCtlLane,
 		helix_ng::offer(

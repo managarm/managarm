@@ -88,7 +88,7 @@ void BoundKernlet::setupMemoryViewBinding(size_t index, void *p) {
 	if(logBinding)
 		infoLogger() << "thor: Binding memory view " << p
 				<< " to instance offset " << defn.offset << frg::endlog;
-	memcpy(_instance + defn.offset, &p, sizeof(void *));
+	memcpy(_instance + defn.offset, static_cast<void *>(&p), sizeof(void *));
 }
 
 void BoundKernlet::setupBitsetEventBinding(size_t index, smarter::shared_ptr<BitsetEvent> event) {
@@ -98,7 +98,7 @@ void BoundKernlet::setupBitsetEventBinding(size_t index, smarter::shared_ptr<Bit
 		infoLogger() << "thor: Binding bitset event " << (void *)event.get()
 				<< " to instance offset " << defn.offset << frg::endlog;
 	auto p = event.get();
-	memcpy(_instance + defn.offset, &p, sizeof(void *));
+	memcpy(_instance + defn.offset, static_cast<void *>(&p), sizeof(void *));
 }
 
 int BoundKernlet::invokeIrqAutomation() {
