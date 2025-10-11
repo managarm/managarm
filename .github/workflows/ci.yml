@@ -349,3 +349,9 @@ jobs:
             run: |
                 xbstrap run test-image
             working-directory: build/
+          - name: Upload log files
+            uses: actions/upload-artifact@v4
+            if: ${{ always() }}
+            with:
+                name: "logfiles-${{ matrix.arch }}"
+                path: "build/ci-*.txt"
