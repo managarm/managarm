@@ -89,6 +89,7 @@ jobs:
                 xbstrap init ../src
                 xbstrap pull-pack -c --deps-of managarm-system
                 xbstrap pull-pack -c --deps-of managarm-kernel
+                xbstrap pull-pack -c --deps-of weston-desktop
                 rm xbps-repo/managarm-system*.xbps
                 rm xbps-repo/managarm-kernel*.xbps
             working-directory: build/
@@ -266,13 +267,25 @@ jobs:
           - build-package
         runs-on: ubuntu-24.04
         steps:
+          - name: Permit unprivileged user namespaces
+            run: |
+                set -x
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           - name: Install prerequisites
             run: |
                 set -x
                 sudo apt-get update
                 sudo apt-get install qemu-system-x86
                 pip3 install xbstrap y4
-                xbstrap prereqs xbps
+                xbstrap prereqs cbuildrt xbps
+          - name: Restore rootfs cache
+            uses: actions/cache/restore@v4
+            with:
+                key: "rootfs-${{ needs.cache-generic.outputs.caching-key }}"
+                # Note: must be kept in sync with the cache action (effectively part of the key).
+                path: rootfs/
+                fail-on-cache-miss: true
           - name: Restore xbps cache
             uses: actions/cache/restore@v4
             with:
@@ -284,6 +297,11 @@ jobs:
             uses: actions/download-artifact@v4
             with:
                 name: "${{ matrix.arch }}-managarm-kernel"
+                path: build/xbps-repo/
+          - name: Download managarm-kernel-uefi
+            uses: actions/download-artifact@v4
+            with:
+                name: "${{ matrix.arch }}-managarm-kernel-uefi"
                 path: build/xbps-repo/
           - name: Download managarm-system
             uses: actions/download-artifact@v4
@@ -311,26 +329,16 @@ jobs:
             with:
                 path: src/managarm/
                 fetch-depth: 0
-          - name: Generate image
-            run: |
-                set -x
-                curl -o image.xz https://builds.managarm.org/projects/managarm/success/repo/files/x86_64/image.xz
-                unxz image.xz
-                ~/.xbstrap/bin/xbps-rindex -fa xbps-repo/*.xbps
-                ../src/scripts/update-image.py -m loopback mount
-                # For now we need root because the mount point is owned by root
-                # and xbps uses access(mountpoint/, W_OK) to test if it can write.
-                sudo --preserve-env=XBPS_ARCH ~/.xbstrap/bin/xbps-install -fy -R xbps-repo/ -r mountpoint/ managarm-kernel managarm-system
-                ../src/scripts/update-image.py unmount
-            env:
-                XBPS_ARCH: ${{ matrix.arch }}
-            working-directory: build/
-          - name: Set up xbstrap
+          - name: Set up xbstrap and generate image
             run: |
                 set -x
                 xbstrap init ../src
                 cp ../src/managarm/ci/bootstrap-site-$CI_ARCH.yml bootstrap-site.yml
+                ~/.xbstrap/bin/xbps-rindex -fa xbps-repo/*.xbps
+                xbstrap install --only-wanted --deps-of weston-desktop
+                xbstrap run initialize-empty-image remake-image
             env:
+                XBPS_ARCH: ${{ matrix.arch }}
                 CI_ARCH: ${{ matrix.arch }}
             working-directory: build/
           - name: Run ci-all
