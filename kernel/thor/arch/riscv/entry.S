@@ -5,9 +5,10 @@ thorRtEntry:
 	.extern thorInitialize
 	.extern thorRunConstructors
 	.extern thorMain
-	jal thorInitialize
-	jal thorRunConstructors
-	j thorMain
+	call thorInitialize
+	call thorRunConstructors
+	call thorMain
+	unimp
 
 .text
 .p2align 2
