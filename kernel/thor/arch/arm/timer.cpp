@@ -1,4 +1,5 @@
 #include <thor-internal/arch/timer.hpp>
+#include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/cpu-data.hpp>

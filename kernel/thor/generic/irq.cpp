@@ -418,7 +418,7 @@ void IrqPin::_doService() {
 		if(anyAck) {
 			if(logService)
 				infoLogger() << "thor: IRQ pin " << name()
-						<< " is acked (asynchronously)" << frg::endlog;
+						<< " is acked (synchronously)" << frg::endlog;
 
 			if(_unstallExponent > 0)
 				--_unstallExponent;
