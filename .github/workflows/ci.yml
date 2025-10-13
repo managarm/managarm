@@ -168,7 +168,11 @@ jobs:
                 XBPS_ARCH: ${{ matrix.arch }}
             working-directory: build/
           - name: Run clang-tidy on ${{ matrix.pkg }} on ${{ matrix.arch }}
+            # Note that we do need to build the package to run clang-tidy (otherwise generated files are missing).
+            # Build without optimizations to reduce the build time.
             run: |
+                xbstrap configure $CI_BUILD_PKG
+                xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dbuildtype=debug -Ddebug=false -Db_lto=false
                 xbstrap run --pkg $CI_BUILD_PKG clang-tidy
             working-directory: build/
             env:
