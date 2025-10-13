@@ -24,6 +24,11 @@ static_assert(
     "Strings are not UTF-16-ish, are you missing -fshort-wchar?"
 );
 
+extern "C" int _purecall() {
+    eir::panicLogger() << "eir: Pure virtual function called" << frg::endlog;
+    __builtin_trap();
+}
+
 namespace eir {
 
 const efi_system_table *st = nullptr;
