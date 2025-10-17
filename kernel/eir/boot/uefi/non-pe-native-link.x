@@ -6,6 +6,7 @@ SECTIONS {
 	.text : ALIGN(0x1000) {
 		*(.text .text.*)
 		*(.rodata .rodata.*)
+		*(.note.gnu.build-id)
 		*(.got .got.*)
 	}
 
