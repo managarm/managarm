@@ -3,14 +3,18 @@
 #if !defined(EIR_NATIVE_PE)
 
 using InitializerPtr = void (*)();
-extern "C" InitializerPtr __init_array_start[];
-extern "C" InitializerPtr __init_array_end[];
+// EDK2's GenFw seems to break if these symbols are referenced by GOT relocations on RISC-V.
+// Avoid GOT relocations by setting visibility to hidden.
+extern "C" [[gnu::visibility("hidden")]] InitializerPtr __init_array_start[];
+extern "C" [[gnu::visibility("hidden")]] InitializerPtr __init_array_end[];
 
 extern "C" void eirRunConstructors() {
-	eir::infoLogger() << "There are " << (__init_array_end - __init_array_start) << " constructors"
-	                  << frg::endlog;
-	for (InitializerPtr *p = __init_array_start; p != __init_array_end; ++p)
-		(*p)();
+	auto begin = reinterpret_cast<uintptr_t>(__init_array_start);
+	auto end = reinterpret_cast<uintptr_t>(__init_array_end);
+	auto count = (end - begin) / sizeof(InitializerPtr);
+	eir::infoLogger() << "There are " << count << " constructors" << frg::endlog;
+	for (size_t i = 0; i < count; ++i)
+		__init_array_start[i]();
 }
 
 #else

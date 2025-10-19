@@ -25,8 +25,8 @@ static_assert(
 );
 
 extern "C" int _purecall() {
-    eir::panicLogger() << "eir: Pure virtual function called" << frg::endlog;
-    __builtin_trap();
+	eir::panicLogger() << "eir: Pure virtual function called" << frg::endlog;
+	__builtin_trap();
 }
 
 namespace eir {
