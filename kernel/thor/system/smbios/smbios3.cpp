@@ -154,7 +154,8 @@ private:
 	frg::vector<uint8_t, KernelAlloc> tableData_{*kernelAlloc};
 };
 
-frg::manual_box<Smbios3> smbios3;
+constinit frg::manual_box<Smbios3> smbios3;
+constinit frg::manual_box<NoSmbios> noSmbios;
 
 } // namespace
 
@@ -193,7 +194,8 @@ void publish() {
 	if (smbios3) {
 		KernelFiber::run([=] { async::detach_with_allocator(*kernelAlloc, smbios3->run()); });
 	} else {
-		KernelFiber::run([=] { async::detach_with_allocator(*kernelAlloc, NoSmbios{}.run()); });
+		noSmbios.initialize();
+		KernelFiber::run([=] { async::detach_with_allocator(*kernelAlloc, noSmbios->run()); });
 	}
 }
 
