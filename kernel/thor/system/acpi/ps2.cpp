@@ -46,6 +46,7 @@ private:
 	frg::string<thor::KernelAlloc> status_;
 };
 
+constinit frg::manual_box<AcpiStatus> acpiStatus;
 
 } // namespace
 
@@ -87,8 +88,8 @@ void initializePS2() {
 		// This object is published to notify listeners about the fact that ACPI parsing
 		// and publishing of PS/2 objects from there has finished, so as to avoid running mbus
 		// filters indefinitely.
-		AcpiStatus status{"ps2.init-complete"};
-		co_await status.run();
+		acpiStatus.initialize("ps2.init-complete");
+		co_await acpiStatus->run();
 	}());
 }
 
