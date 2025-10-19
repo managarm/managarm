@@ -159,7 +159,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 
 	_connector->setModeList(supported_modes);
 
-	setupMinDimensions(640, 480);
+	setupMinDimensions(32, 32);
 	setupMaxDimensions(current_w, current_h);
 
 	_connector->setupPhysicalDimensions(306, 230);
@@ -478,18 +478,22 @@ async::result<void> GfxDevice::DeviceFifo::updateRectangle(int x, int y, int w, 
 // ----------------------------------------------------------------
 
 bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignment, std::unique_ptr<drm_core::AtomicState> & state) {
-	drm_mode_modeinfo current_mode;
-	memset(&current_mode, 0, sizeof(drm_mode_modeinfo));
-
-	if (_device->_crtc->drmState()->mode != nullptr) {
-		memcpy(&current_mode, _device->_crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
-	}
-
-	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
-
 	for (auto &assign : assignment) {
 		assert(assign.property->validate(assign));
 		assign.property->writeToState(assign, state);
+	}
+
+	auto primary_plane_state = state->plane(_device->_primaryPlane->id());
+	auto crtc_state = state->crtc(_device->_crtc->id());
+
+	if(crtc_state->mode != nullptr) {
+		if (primary_plane_state->src_w <= 0 || primary_plane_state->src_h <= 0 ||
+			primary_plane_state->src_w > 1024 || primary_plane_state->src_h > 768) {
+			return false;
+		}
+	}
+
+	for (auto &assign : assignment) {
 		using namespace drm_core;
 
 		switch(assign.property->id()) {
@@ -523,28 +527,10 @@ bool GfxDevice::Configuration::capture(std::vector<drm_core::Assignment> assignm
 				}
 				break;
 			}
-			case modeId: {
-				if(assign.blobValue) {
-					drm_mode_modeinfo new_mode;
-					memcpy(&new_mode, assign.blobValue->data(), sizeof(drm_mode_modeinfo));
-					primary_plane_state->src_w = new_mode.hdisplay;
-					primary_plane_state->src_h = new_mode.vdisplay;
-				}
-				break;
-			}
 			// Ignore any property that is unsupported by this driver
 			default: {
 				break;
 			}
-		}
-	}
-
-	auto crtc_state = state->crtc(_device->_crtc->id());
-
-	if(crtc_state->mode != nullptr) {
-		if (primary_plane_state->src_w <= 0 || primary_plane_state->src_h <= 0 ||
-			primary_plane_state->src_w > 1024 || primary_plane_state->src_h > 768) {
-			return false;
 		}
 	}
 
@@ -568,15 +554,6 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 	auto cursor_plane_state = state->plane(_device->_cursorPlane->id());
 	auto crtc_state = state->crtc(_device->_crtc->id());
 
-	drm_mode_modeinfo last_mode;
-	memset(&last_mode, 0, sizeof(drm_mode_modeinfo));
-	if (_device->_crtc->drmState()->mode != nullptr)
-		memcpy(&last_mode, _device->_crtc->drmState()->mode->data(), sizeof(drm_mode_modeinfo));
-
-	auto switch_mode = last_mode.hdisplay != primary_plane_state->src_w || last_mode.vdisplay != primary_plane_state->src_h;
-
-	_device->_primaryPlane->setCurrentFrameBuffer(primary_plane_state->fb.get());
-
 	if(crtc_state->mode != nullptr) {
 		if (!_device->_isClaimed) {
 			co_await _device->_hwDev.claimDevice();
@@ -584,7 +561,7 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 			_device->writeRegister(register_index::enable, 1); // lazy init
 		}
 
-		if (switch_mode) {
+		if (crtc_state->modeChanged) {
 			_device->writeRegister(register_index::enable, 0); // prevent weird inbetween modes
 			_device->writeRegister(register_index::width, primary_plane_state->src_w);
 			_device->writeRegister(register_index::height, primary_plane_state->src_h);
