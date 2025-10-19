@@ -129,6 +129,13 @@ void __asan_set_shadow_00(void *pointer, size_t size) {
 		p[n] = 0;
 }
 
+extern "C" [[gnu::no_sanitize_address]]
+void __asan_set_shadow_f8(void *pointer, size_t size) {
+	auto p = reinterpret_cast<int8_t *>(pointer);
+	for(size_t n = 0; n < size; ++n)
+		p[n] = 0xf8;
+}
+
 namespace {
 	[[gnu::no_sanitize_address]]
 	void doReport(bool write, uintptr_t address, size_t size, void *ip) {

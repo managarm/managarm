@@ -87,6 +87,10 @@ extern "C" void thorInitialize() {
 		panicLogger() << "thor: Bootstrap information signature mismatch!" << frg::endlog;
 	}
 
+#ifdef THOR_KASAN
+	infoLogger() << "thor: Using KASAN" << frg::endlog;
+#endif
+
 	KernelPageSpace::initialize();
 
 	physicalAllocator.initialize();
