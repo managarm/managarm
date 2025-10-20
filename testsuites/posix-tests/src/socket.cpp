@@ -91,7 +91,7 @@ DEFINE_TEST(socket_shutdown_wr, ([] {
 	assert(ret == 1);
 	assert(pfd.revents == (POLLOUT));
 
-	int discard;
+	int discard = 0;
 	ret = send(fds[1], &discard, sizeof(discard), MSG_NOSIGNAL);
 	ret = send(fds[1], &discard, sizeof(discard), MSG_NOSIGNAL);
 	assert(ret == -1);
