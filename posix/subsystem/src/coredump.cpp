@@ -81,8 +81,7 @@ async::result<void> Process::coredump(TerminationState state) {
 #if !defined(__x86_64__)
 	std::println("posix: coredump is not supported on this architecture yet");
 	co_return;
-#endif
-
+#else
 	if(!threadGroup()->dumpable_)
 		co_return;
 
@@ -405,4 +404,5 @@ async::result<void> Process::coredump(TerminationState state) {
 	assert(fileOffset == (memoryDumpOffset + memoryDumpSize));
 
 	co_return;
+#endif
 }
