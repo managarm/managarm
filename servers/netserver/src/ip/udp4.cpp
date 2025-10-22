@@ -414,7 +414,23 @@ struct Udp4Socket {
 
 			self->ipPacketInfo_ = (val != 0);
 		} else {
-			printf("netserver: unhandled setsockopt layer %d number %d\n", layer, number);
+			printf("netserver: unhandled UDP socket setsockopt layer %d number %d\n", layer, number);
+			co_return protocols::fs::Error::invalidProtocolOption;
+		}
+
+		co_return {};
+	}
+
+	static async::result<frg::expected<protocols::fs::Error>> getSocketOption(void *object,
+	helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
+		(void)object;
+		if(layer == SOL_SOCKET && number == SO_TYPE) {
+			auto type_ = SOCK_DGRAM;
+			optbuf.resize(std::min(optbuf.size(), sizeof(type_)));
+			memcpy(optbuf.data(), &type_, optbuf.size());
+		} else {
+			std::cout << std::format("netserver: unhandled UDP socket getsockopt layer {} number {}\n",
+				layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
 		}
 
@@ -430,6 +446,7 @@ struct Udp4Socket {
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
 		.setSocketOption = &setSocketOption,
+		.getSocketOption = &getSocketOption,
 	};
 
 	bool bindAvailable(uint32_t addr = INADDR_ANY) {
