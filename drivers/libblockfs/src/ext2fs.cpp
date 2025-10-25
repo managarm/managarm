@@ -559,9 +559,9 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 		assert(block);
 
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
-				&& "TODO: propery support multi-page blocks");
+				&& "TODO: properly support multi-page blocks");
 		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: propery support multi-page blocks");
+				&& "TODO: properly support multi-page blocks");
 
 		if(manage.type() == kHelManageInitialize) {
 			helix::Mapping bitmap_map{memory,
