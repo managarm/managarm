@@ -24,3 +24,4 @@ inc += include_directories('.')
 link_args += [ '-z', 'max-page-size=0x1000' ]
 
 want_dtb = true
+want_acpi = true

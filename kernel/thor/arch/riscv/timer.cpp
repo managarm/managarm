@@ -1,4 +1,5 @@
 #include <riscv/sbi.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/arch/system.hpp>
@@ -9,6 +10,8 @@
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/util.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -21,20 +24,29 @@ constinit FreqFraction inverseFreq;
 initgraph::Task initTimer{
     &globalInitEngine,
     "riscv.init-timer",
-    initgraph::Requires{getDeviceTreeParsedStage()},
+    initgraph::Requires{getDeviceTreeParsedStage(), acpi::getTablesDiscoveredStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
-	    // Get the timebase-frequency property in /cpus.
-	    auto *dtCpus = getDeviceTreeNodeByPath("/cpus");
-	    if (!dtCpus)
-		    panicLogger() << "Device tree node /cpus is not available" << frg::endlog;
-	    auto maybeFreqProp = dtCpus->dtNode().findProperty("timebase-frequency");
-	    if (!maybeFreqProp)
-		    panicLogger() << "Device tree property timebase-frequency is missing from /cpus"
-		                  << frg::endlog;
-	    if (maybeFreqProp->size() != 4)
-		    panicLogger() << "Expected exactly one u32 in timebase-frequency" << frg::endlog;
-	    auto freqSeconds = maybeFreqProp->asU32();
+	    uint32_t freqSeconds;
+	    if (getDeviceTreeRoot()) {
+
+		    // Get the timebase-frequency property in /cpus.
+		    auto *dtCpus = getDeviceTreeNodeByPath("/cpus");
+		    if (!dtCpus)
+			    panicLogger() << "Device tree node /cpus is not available" << frg::endlog;
+		    auto maybeFreqProp = dtCpus->dtNode().findProperty("timebase-frequency");
+		    if (!maybeFreqProp)
+			    panicLogger() << "Device tree property timebase-frequency is missing from /cpus"
+			                  << frg::endlog;
+		    if (maybeFreqProp->size() != 4)
+			    panicLogger() << "Expected exactly one u32 in timebase-frequency" << frg::endlog;
+		    freqSeconds = maybeFreqProp->asU32();
+	    } else {
+		    uacpi_table rhct;
+		    uacpi_table_find_by_signature("RHCT", &rhct);
+		    auto ptr = reinterpret_cast<acpi_rhct *>(rhct.ptr);
+		    freqSeconds = ptr->timebase_frequency;
+	    }
 
 	    const char *impl;
 	    if (riscvHartCapsNote->hasExtension(RiscvExtension::sstc)) {

@@ -17,7 +17,10 @@
 #include <async/recurring-event.hpp>
 #include <async/mutex.hpp>
 #include <stdlib.h>
+
+#ifdef __x86_64__
 #include <thor-internal/arch/pic.hpp>
+#endif
 
 #include <uacpi/kernel_api.h>
 
@@ -94,7 +97,7 @@ uacpi_status uacpi_kernel_raw_io_read(
 	return UACPI_STATUS_UNIMPLEMENTED;
 }
 
-uacpi_kernel_raw_io_write
+template<typename T>
 uacpi_status uacpi_kernel_raw_io_write(
 	uacpi_io_addr, T
 ) {
@@ -453,7 +456,7 @@ uacpi_status uacpi_kernel_install_interrupt_handler(
 	sciDevice->ctx = ctx;
 
 #ifdef __x86_64__
-	IrqPin::attachSink(getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
+	IrqPin::attachSink(acpi::getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
 #endif
 
 	*out_irq_handle = &sciDevice;

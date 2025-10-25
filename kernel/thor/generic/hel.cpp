@@ -20,6 +20,7 @@
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
 #ifdef __x86_64__
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/debug.hpp>
 #include <thor-internal/arch/ept.hpp>
 #include <thor-internal/arch/vmx.hpp>
@@ -3165,7 +3166,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	auto irq = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
-	IrqPin::attachSink(getGlobalSystemIrq(number), irq.get());
+	IrqPin::attachSink(acpi::getGlobalSystemIrq(number), irq.get());
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
