@@ -3271,7 +3271,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				resp.set_error(fd.error() | toPosixProtoError);
 			}
 
-			auto ser = resp.SerializeAsString();
 			auto [sendResp] = co_await helix_ng::exchangeMsgs(conversation,
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}));
 			HEL_CHECK(sendResp.error());
