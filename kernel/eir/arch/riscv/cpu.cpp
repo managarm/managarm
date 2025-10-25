@@ -5,6 +5,8 @@
 #include <eir-internal/debug.hpp>
 #include <eir-internal/main.hpp>
 #include <riscv/csr.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace eir {
 
@@ -33,15 +35,10 @@ void handleException() {
 		;
 }
 
-// Handle "riscv,isa".
-bool checkIsa(DeviceTreeNode cpuNode) {
-	auto isa = cpuNode.findProperty("riscv,isa");
-	if (!isa.has_value())
-		return false;
-	auto s = *isa->asString();
-
+void checkIsaFromString(frg::string_view s) {
+	infoLogger() << "eir: Checking RISC-V ISA string \"" << s << "\"" << frg::endlog;
 	if (!s.starts_with("rv64"))
-		panicLogger() << "eir: riscv,isa does not match rv64" << frg::endlog;
+		panicLogger() << "eir: RISC-V ISA string does not match rv64" << frg::endlog;
 
 	size_t n = 4; // Skip rv64.
 	while (n < s.size()) {
@@ -82,10 +79,19 @@ bool checkIsa(DeviceTreeNode cpuNode) {
 				riscvHartCaps.setExtension(RiscvExtension::zihpm);
 			}
 		} else {
-			infoLogger() << "eir: riscv,isa reports unknown extension " << extStr << frg::endlog;
+			infoLogger() << "eir: RISC-V ISA string reports unknown extension " << extStr
+			             << frg::endlog;
 		}
 	}
+}
 
+// Handle "riscv,isa".
+bool checkIsa(DeviceTreeNode cpuNode) {
+	auto isa = cpuNode.findProperty("riscv,isa");
+	if (!isa.has_value())
+		return false;
+	auto s = *isa->asString();
+	checkIsaFromString(s);
 	return true;
 }
 
@@ -173,11 +179,63 @@ void initProcessorEarly() {
 			panicLogger() << "Processor does not support either Sv39, Sv48 or Sv57!" << frg::endlog;
 		}
 		infoLogger() << "eir: Supported mmu-type is " << *mmuTypeStr << frg::endlog;
-		infoLogger() << "eir: Using " << riscvConfig.numPtLevels << " levels of page tables"
-		             << frg::endlog;
 	} else {
-		panicLogger() << "Unable to boot without a device tree!" << frg::endlog;
+		uacpi_table rhct_table;
+		if (uacpi_table_find_by_signature("RHCT", &rhct_table) != UACPI_STATUS_OK)
+			panicLogger() << "Unable to get RHCT" << frg::endlog;
+
+		auto rhct = static_cast<acpi_rhct *>(rhct_table.ptr);
+
+		frg::optional<acpi_rhct_mmu_type> mmuType = frg::null_opt;
+		size_t off = rhct->nodes_offset;
+
+		// TODO(marv7000): Some RHCT nodes are referenced by the HART nodes.
+		//                 We assumed that the ISA string and MMU type are the same on all HARTs.
+		for (size_t i = 0; i < rhct->node_count; i++) {
+			auto entryPtr = reinterpret_cast<acpi_rhct_hdr *>(rhct_table.virt_addr + off);
+			if (entryPtr->type == ACPI_RHCT_ENTRY_TYPE_MMU) {
+				acpi_rhct_mmu mmu;
+				memcpy(&mmu, entryPtr, sizeof(acpi_rhct_mmu));
+				if (!mmuType.has_value())
+					mmuType.emplace(static_cast<acpi_rhct_mmu_type>(mmu.type));
+			} else if (entryPtr->type == ACPI_RHCT_ENTRY_TYPE_ISA_STRING) {
+				auto isa = reinterpret_cast<acpi_rhct_isa_string *>(entryPtr);
+				auto isaString = frg::string_view(reinterpret_cast<char *>(isa->isa), isa->length - 1);
+				checkIsaFromString(isaString);
+			}
+			off += entryPtr->length;
+		}
+
+		if (!mmuType.has_value())
+			panicLogger()
+			    << "Unable to determine MMU type because the RHCT does not contain an MMU node"
+			    << frg::endlog;
+
+		const char *mmuString = nullptr;
+		switch (mmuType.value()) {
+			case ACPI_RHCT_MMU_TYPE_SV39:
+				mmuString = "Sv39";
+				riscvConfig.numPtLevels = 3;
+				break;
+			case ACPI_RHCT_MMU_TYPE_SV48:
+				mmuString = "Sv48";
+				riscvConfig.numPtLevels = 4;
+				break;
+			case ACPI_RHCT_MMU_TYPE_SV57:
+				mmuString = "Sv57";
+				riscvConfig.numPtLevels = 4; // Use Sv48 in both cases.
+				break;
+			default:
+				panicLogger() << "Unknown MMU type " << *mmuType << " in RHCT" << frg::endlog;
+		}
+
+		infoLogger() << "eir: RHCT: Highest supported MMU type is " << mmuString << frg::endlog;
+
+		uacpi_table_unref(&rhct_table);
 	}
+
+	infoLogger() << "eir: Using " << riscvConfig.numPtLevels << " levels of page tables"
+	             << frg::endlog;
 }
 
 } // namespace eir
