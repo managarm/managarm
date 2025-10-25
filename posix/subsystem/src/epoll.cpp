@@ -329,9 +329,8 @@ public:
 				break;
 
 			// Block and re-check if there are pending events.
-			if(cancellation.is_cancellation_requested())
+			if (!co_await _statusBell.async_wait(cancellation))
 				break;
-			co_await _statusBell.async_wait(cancellation);
 		}
 
 		// Before returning, we have to reinsert the level-triggered events that we report.
@@ -382,16 +381,15 @@ public:
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t past_seq, int mask,
 			async::cancellation_token cancellation) override {
-		(void)mask; // TODO: utilize mask.
 		assert(past_seq <= _currentSeq);
-		while(_currentSeq == past_seq && !cancellation.is_cancellation_requested()) {
-			assert(isOpen()); // TODO: Return a poll error here.
-			co_await _statusBell.async_wait(cancellation);
-		}
-		if(cancellation.is_cancellation_requested())
-			std::cout << "\e[33mposix: epoll::poll() cancellation is untested\e[39m" << std::endl;
 
-		co_return PollWaitResult{_currentSeq, _currentSeq ? EPOLLIN : 0};
+		while(_currentSeq == past_seq) {
+			assert(isOpen()); // TODO: Return a poll error here.
+			if (!co_await _statusBell.async_wait(cancellation))
+				break;
+		}
+
+		co_return PollWaitResult{_currentSeq, (_currentSeq ? EPOLLIN : 0) & mask};
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>

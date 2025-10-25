@@ -192,41 +192,56 @@ async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
 }
 
 async::result<frg::expected<Error, PollWaitResult>> File::pollWait(uint64_t sequence, int mask,
-		async::cancellation_token cancellation) {
-	HelHandle cancel_handle;
-	HEL_CHECK(helCreateOneshotEvent(&cancel_handle));
-	helix::UniqueDescriptor cancel_event{cancel_handle};
+		async::cancellation_token ct) {
+	auto cancelId = cancellationId_++;
 
-	async::cancellation_callback cancel_cb{cancellation, [&] {
-		std::cerr << "\e[33mprotocols/fs: poll() was cancelled on client-side\e[39m" << std::endl;
-		HEL_CHECK(helRaiseEvent(cancel_event.getHandle()));
-	}};
-
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::FILE_POLL_WAIT);
+	managarm::fs::FilePollRequest req;
 	req.set_sequence(sequence);
 	req.set_event_mask(mask);
+	req.set_cancellation_id(cancelId);
 
-	auto ser = req.SerializeAsString();
-	uint8_t buffer[128];
+	managarm::fs::FilePollResponse resp;
 
-	auto [offer, send_req, push_cancel, recv_resp] =
-		co_await helix_ng::exchangeMsgs(
-			_lane,
-			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(cancel_event),
-				helix_ng::recvBuffer(buffer, 128)
-			)
-		);
+	co_await async::race_and_cancel(
+		async::lambda([&](auto) -> async::result<void> {
+			auto [offer, send_req, imbue_creds, recv_resp] = co_await helix_ng::exchangeMsgs(
+				_lane,
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::imbueCredentials(credsToken_),
+					helix_ng::recvInline()
+				)
+			);
 
-	HEL_CHECK(offer.error());
-	HEL_CHECK(send_req.error());
-	HEL_CHECK(push_cancel.error());
-	HEL_CHECK(recv_resp.error());
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+			HEL_CHECK(imbue_creds.error());
+			HEL_CHECK(recv_resp.error());
 
-	managarm::fs::SvrResponse resp;
-	resp.ParseFromArray(buffer, recv_resp.actualLength());
+			resp.ParseFromArray(recv_resp.data(), recv_resp.size());
+		}),
+		async::lambda([&, ct, this](auto c) -> async::result<void> {
+			co_await async::suspend_indefinitely(c, ct);
+
+			if (!ct.is_cancellation_requested())
+				co_return;
+
+			managarm::fs::CancelOperation req;
+			req.set_cancellation_id(cancelId);
+
+			auto [offer, send_req, imbue_creds] =
+			co_await helix_ng::exchangeMsgs(
+				_lane,
+				helix_ng::offer(
+					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+					helix_ng::imbueCredentials(credsToken_)
+				)
+			);
+
+			HEL_CHECK(offer.error());
+			HEL_CHECK(send_req.error());
+		})
+	);
 
 	if(resp.error() != managarm::fs::Errors::SUCCESS)
 		co_return static_cast<Error>(resp.error());
