@@ -137,7 +137,7 @@ private:
 					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
-			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
+			IrqPin::attachSink(acpi::getGlobalSystemIrq(irqOverride.gsi), object.get());
 #endif
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));

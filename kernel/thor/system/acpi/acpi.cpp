@@ -7,7 +7,6 @@
 #include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
 #include <uacpi/resources.h>
-#include <thor-internal/arch/pic.hpp>
 
 namespace thor::acpi {
 
@@ -252,6 +251,8 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(interrupt_info.irq.value());
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
+#elif defined(__riscv) && (__riscv_xlen == 64)
+			assert(false);
 #else
 			#error "unimplemented"
 #endif

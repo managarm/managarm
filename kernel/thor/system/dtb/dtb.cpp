@@ -329,6 +329,9 @@ DeviceTreeNode *getDeviceTreeRoot() {
 static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 	initgraph::Entails{getDeviceTreeParsedStage()},
 	[] {
+		if (!getEirInfo()->dtbPtr)
+			return;
+
 		size_t dtbPageOff = getEirInfo()->dtbPtr & (kPageSize - 1);
 		size_t dtbSize = (getEirInfo()->dtbSize + dtbPageOff + kPageSize - 1) & ~(kPageSize - 1);
 

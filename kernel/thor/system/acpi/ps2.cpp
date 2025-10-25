@@ -96,6 +96,9 @@ void initializePS2() {
 static initgraph::Task initPS2Task{&globalInitEngine, "acpi.init-ps2",
 	initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
 	[] {
+		if (!getEirInfo()->acpiRsdp)
+			return;
+
 		initializePS2();
 	}
 };

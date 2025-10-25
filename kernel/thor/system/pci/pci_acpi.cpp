@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
@@ -9,6 +8,10 @@
 #include <thor-internal/pci/pci_legacy.hpp>
 #include <thor-internal/pci/pcie_ecam.hpp>
 #include <thor-internal/main.hpp>
+
+#ifdef __x86_64__
+#include <thor-internal/arch/pic.hpp>
+#endif
 
 #include <uacpi/acpi.h>
 #include <uacpi/uacpi.h>
@@ -129,7 +132,7 @@ AcpiPciIrqRouter::AcpiPciIrqRouter(PciIrqRouter *parent_, PciBus *associatedBus_
 				<< "GSI " << gsi << frg::endlog;
 
 		configureIrq(GlobalIrqInfo{gsi, { triggering, polarity}});
-		auto pin = getGlobalSystemIrq(gsi);
+		auto pin = acpi::getGlobalSystemIrq(gsi);
 		routingTable.push({slot, index, pin});
 	}
 
@@ -189,6 +192,9 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
 	[] {
+		if (!getEirInfo()->acpiRsdp)
+			return;
+
 		uacpi_table mcfgTbl;
 
 		auto ret = uacpi_table_find_by_signature("MCFG", &mcfgTbl);
@@ -228,6 +234,9 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
 	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
+		if (!getEirInfo()->acpiRsdp)
+			return;
+
 		static const char *pciRootIds[] = {
 			acpi::ACPI_HID_PCI,
 			acpi::ACPI_HID_PCIE,

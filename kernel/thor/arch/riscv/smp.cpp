@@ -9,6 +9,8 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -94,12 +96,7 @@ void smpMain(StatusBlock *statusBlock) {
 	);
 }
 
-void bootAp(DeviceTreeNode *node) {
-	const auto &reg = node->reg();
-	if (reg.size() != 1)
-		panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs" << frg::endlog;
-	auto hartId = reg.front().addr;
-
+void bootAp(uint64_t hartId) {
 	// Skip the BSP.
 	if (hartId == getCpuData()->hartId)
 		return;
@@ -138,6 +135,13 @@ void bootAp(DeviceTreeNode *node) {
 		panicLogger() << "SBI HSM hart start failed with error " << sbiError << frg::endlog;
 }
 
+void bootApFromDt(DeviceTreeNode *node) {
+	const auto &reg = node->reg();
+	if (reg.size() != 1)
+		panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs" << frg::endlog;
+	bootAp(reg.front().addr);
+}
+
 initgraph::Task initAPs{
     &globalInitEngine,
     "riscv.init-aps",
@@ -145,11 +149,38 @@ initgraph::Task initAPs{
     [] {
 	    setUpTrampoline();
 
-	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-		    if (node->isCompatible(cpuCompatible))
-			    bootAp(node);
-		    return false;
-	    });
+	    auto root = getDeviceTreeRoot();
+	    if (root) {
+		    root->forEach([&](DeviceTreeNode *node) -> bool {
+			    if (node->isCompatible(cpuCompatible))
+				    bootApFromDt(node);
+			    return false;
+		    });
+	    } else {
+		    uacpi_table madtTbl;
+
+		    auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
+		    assert(ret == UACPI_STATUS_OK);
+		    auto *madt = madtTbl.hdr;
+
+		    infoLogger() << "thor: Booting APs." << frg::endlog;
+
+		    size_t offset = sizeof(acpi_madt);
+		    while (offset < madt->length) {
+			    acpi_entry_hdr generic;
+			    auto genericPtr = (void *)(madtTbl.virt_addr + offset);
+			    memcpy(&generic, genericPtr, sizeof(generic));
+			    switch (generic.type) {
+				    case 0x18: {
+					    acpi_madt_rintc entry;
+					    memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
+					    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
+					    bootAp(entry.hart_id);
+				    } break;
+			    }
+			    offset += generic.length;
+		    }
+	    }
     }
 };
 
