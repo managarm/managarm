@@ -3,13 +3,13 @@
 #include <arch/io_space.hpp>
 #include <thor-internal/arch/hpet.hpp>
 #endif
+#include <hw.frigg_bragi.hpp>
+#include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/kernel_heap.hpp>
-#include <thor-internal/stream.hpp>
-#include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/mbus.hpp>
-#include <hw.frigg_bragi.hpp>
+#include <thor-internal/stream.hpp>
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
@@ -44,11 +44,11 @@ struct PmInterfaceBusObject : private KernelBusObject {
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
 		auto [acceptError, conversation] = co_await AcceptSender{lane};
-		if(acceptError != Error::success)
+		if (acceptError != Error::success)
 			co_return acceptError;
 
 		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
-		if(reqError != Error::success)
+		if (reqError != Error::success)
 			co_return reqError;
 
 		auto preamble = bragi::read_preamble(reqBuffer);
@@ -56,27 +56,30 @@ private:
 		if (preamble.error())
 			co_return Error::protocolViolation;
 
-		if(preamble.id() == bragi::message_id<managarm::hw::RebootRequest>) {
+		if (preamble.id() == bragi::message_id<managarm::hw::RebootRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::RebootRequest>(reqBuffer, *kernelAlloc);
 
-			if(!req) {
+			if (!req) {
 				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
 				co_return Error::protocolViolation;
 			}
 
-			switch(req->cmd()) {
+			switch (req->cmd()) {
 				case RB_POWER_OFF: {
 #ifdef __x86_64__
 					auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
-					if(uacpi_unlikely_error(ret))
-						infoLogger() << "thor: Preparing to enter sleep state S5 failed: " << uacpi_status_to_string(ret) << frg::endlog;
+					if (uacpi_unlikely_error(ret))
+						infoLogger() << "thor: Preparing to enter sleep state S5 failed: "
+						             << uacpi_status_to_string(ret) << frg::endlog;
 
-					// uACPI Documentation states that you must call uacpi_enter_sleep_state with interrupts disabled.
+					// uACPI Documentation states that you must call uacpi_enter_sleep_state with
+					// interrupts disabled.
 					disableInts();
-					
+
 					ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
-					if(uacpi_unlikely_error(ret))
-						infoLogger() << "thor: Entering sleep state S5 failed: " << uacpi_status_to_string(ret) << frg::endlog;
+					if (uacpi_unlikely_error(ret))
+						infoLogger() << "thor: Entering sleep state S5 failed: "
+						             << uacpi_status_to_string(ret) << frg::endlog;
 #endif
 					// Poweroff failed, panic
 					panicLogger() << "thor: Poweroff failed" << frg::endlog;
@@ -85,14 +88,17 @@ private:
 				case RB_AUTOBOOT: {
 #ifdef __x86_64__
 					auto ret = uacpi_prepare_for_sleep_state(UACPI_SLEEP_STATE_S5);
-					if(uacpi_unlikely_error(ret))
-						infoLogger() << "thor: Preparing for reboot failed: " << uacpi_status_to_string(ret) << frg::endlog;
+					if (uacpi_unlikely_error(ret))
+						infoLogger()
+						    << "thor: Preparing for reboot failed: " << uacpi_status_to_string(ret)
+						    << frg::endlog;
 
 					disableInts();
 
 					ret = uacpi_reboot();
-					if(uacpi_unlikely_error(ret))
-						infoLogger() << "thor: ACPI reset failed: " << uacpi_status_to_string(ret) << frg::endlog;
+					if (uacpi_unlikely_error(ret))
+						infoLogger() << "thor: ACPI reset failed: " << uacpi_status_to_string(ret)
+						             << frg::endlog;
 
 					issuePs2Reset();
 					infoLogger() << "thor: Reset using PS/2 controller failed" << frg::endlog;
@@ -105,8 +111,9 @@ private:
 					co_return frg::success;
 			}
 			assert(!"We should not reach this!");
-		}else{
-			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
+		} else {
+			infoLogger() << "thor: Dismissing conversation due to illegal HW request."
+			             << frg::endlog;
 			co_await DismissSender{conversation};
 		}
 
