@@ -3,3 +3,4 @@
 kernel/common/**/*
 kernel/eir/**/*
 kernel/thor/arch/riscv/**/*
+kernel/thor/system/acpi/**/*
