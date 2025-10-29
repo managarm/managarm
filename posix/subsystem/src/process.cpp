@@ -700,7 +700,9 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 			case SIGILL:
 			case SIGSEGV:
 				process->dumpRegisters();
-				co_await process->coredump(TerminationBySignal{item->signalNumber});
+				if(dumpCores) {
+					co_await process->coredump(TerminationBySignal{item->signalNumber});
+				}
 				if(debugFaults) {
 					std::cout << "posix: Thread " << process->tid() << " killed as the result of signal "
 					<< item->signalNumber << std::endl;

@@ -8,4 +8,5 @@ namespace {
 	constexpr bool logPageFaults = false;
 
 	constexpr bool debugFaults = true;
+	constexpr bool dumpCores = false;
 }
