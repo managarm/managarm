@@ -34,6 +34,7 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 - [How to contribute](#i-want-to-contribute)
   - [Reporting Bugs](#reporting-bugs)
   - [Your First Code Contribution](#your-first-code-contribution)
+  - [Preparing a PR](#preparing-a-pr)
   - [Improving The Documentation](#improving-the-documentation)
 - [Styleguides](#styleguides)
   - [Coding Style](#coding-style)
@@ -73,10 +74,34 @@ We use GitHub issues to track bugs and errors. If you run into an issue with the
 > This section of the Guide is Work-In-Progress. Please come back later for more information.
 
 For instructions on how to setup the build environment, how to build and how to run Managarm we refer you to the bootstrap-managarm repository [here](https://github.com/managarm/bootstrap-managarm).
+
+There is also the option to [set up LSP support](lsp.md).
+
 <!-- TODO
 include Setup of env, IDE and typical getting started instructions?
-
 -->
+
+### Preparing a PR
+
+When preparing your work for a PR, keep a few things in mind:
+
+* Split your PR into reasonably small commits. Each commit should address one specific concern. Pick sensible and informative commit messages (see also ["Commit Messages"](commit-messages.md)).
+* Commits must be self-contained. Each commit must build on its own (such that `git bisect` works as expected).
+* Pick a descriptive branch name. The branch name appears in merge commits and is visible in the commit history.
+* When you apply changes after code review, do not include fixes of early commits as separate commits in your PR. Instead, amend your earlier commits to include the fixes. Force push the amended commits to your branch.
+  > `git commit --fixup <commit>` + `git rebase -i --autosquash origin/master`
+  > are excellent tools to amend commits, regardless of where they appear
+  > in a patch series.
+
+  For the purposes of adding fixes to address reviews, it is advisable to not squash the fixup commits but to simply push them to the PR branch - this allows reviewers to trivially see the changes made, and the fixups can then still be squashed before merging.
+* Do not include merge commits in your PR ("Merge branch master ..."). Managarm strives for a linear (or almost linear) commit history on all repositories.
+  > Merge commits can accidentally be created by running `git pull origin master`
+  > after `master` and `origin/master` have diverged. This can be avoided by
+  > passing the `--rebase` option to `git pull`.
+  > We strongly recommend to set `git config --global pull.rebase true` to
+  > make `--rebase` the default.
+* Signing your commits is optional, but welcome.
+* Feel free to use [`Co-authored-by:`](https://docs.github.com/en/pull-requests/committing-changes-to-your-project/creating-and-editing-commits/creating-a-commit-with-multiple-authors) lines for co-authors of the commit.
 
 ### Handling bootstrap-managarm and managarm dependencies
 
