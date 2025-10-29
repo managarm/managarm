@@ -26,6 +26,9 @@ frg::ticket_spinlock globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
 
+constinit IrqSpinlock allServersMutex;
+
+// Protected by allServersMutex.
 static frg::manual_box<
 	frg::hash_map<
 		frg::string<KernelAlloc>,
@@ -387,11 +390,16 @@ coroutine<void> runMbus() {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching mbus" << frg::endlog;
 
-	frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
-	assert(!allServers->get(nameStr));
+	frg::tuple<LaneHandle, LaneHandle> controlStream;
+	{
+		auto lock = frg::guard(&allServersMutex);
 
-	auto controlStream = createStream();
-	allServers->insert(nameStr, controlStream.get<1>());
+		frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
+		assert(!allServers->get(nameStr));
+
+		controlStream = createStream();
+		allServers->insert(nameStr, controlStream.get<1>());
+	}
 
 	auto module = resolveModule("/usr/bin/mbus");
 	assert(module && module->type == MfsType::regular);
@@ -404,21 +412,26 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching server " << name << frg::endlog;
 
-	frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
-	if(auto server = allServers->get(nameStr); server) {
-		if(debugLaunch)
-			infoLogger() << "thor: Server "
-					<< name << " is already running" << frg::endlog;
-		co_return *server;
+	frg::tuple<LaneHandle, LaneHandle> controlStream;
+	{
+		auto lock = frg::guard(&allServersMutex);
+
+		frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
+		if(auto server = allServers->get(nameStr); server) {
+			if(debugLaunch)
+				infoLogger() << "thor: Server "
+						<< name << " is already running" << frg::endlog;
+			co_return *server;
+		}
+
+		controlStream = createStream();
+		allServers->insert(nameStr, controlStream.get<1>());
 	}
 
 	auto module = resolveModule(name);
 	if(!module)
 		panicLogger() << "thor: Could not find module " << name << frg::endlog;
 	assert(module->type == MfsType::regular);
-
-	auto controlStream = createStream();
-	allServers->insert(nameStr, controlStream.get<1>());
 
 	co_await executeModule(name, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
