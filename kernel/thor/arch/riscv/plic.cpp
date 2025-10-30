@@ -1,4 +1,5 @@
 #include <frg/dyn_array.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/debug.hpp>
@@ -6,6 +7,8 @@
 #include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -145,7 +148,7 @@ private:
 	size_t bspCtx_;
 };
 
-void enumeratePlic(DeviceTreeNode *plicNode) {
+void enumeratePlicFromDt(DeviceTreeNode *plicNode) {
 	const auto &reg = plicNode->reg();
 	if (reg.size() != 1)
 		panicLogger() << "thor: Expect exactly one 'reg' entry for PLICs" << frg::endlog;
@@ -204,15 +207,106 @@ void enumeratePlic(DeviceTreeNode *plicNode) {
 	ourExternalIrq->context = bspCtx;
 }
 
+void enumeratePlicFromAcpi() {
+	uacpi_table madtTbl;
+	if (uacpi_table_find_by_signature("APIC", &madtTbl) != UACPI_STATUS_OK)
+		return;
+	auto *madt = madtTbl.hdr;
+
+	// First, iterate the MADT and find the PLIC context for this HART.
+	size_t offset = sizeof(acpi_madt);
+	size_t ctx = ~size_t(0);
+	size_t plicId = ~size_t(0);
+
+	while (offset < madt->length) {
+		acpi_entry_hdr generic;
+		auto genericPtr = (void *)(madtTbl.virt_addr + offset);
+		memcpy(&generic, genericPtr, sizeof(generic));
+		if (generic.type == ACPI_MADT_ENTRY_TYPE_RINTC) {
+			acpi_madt_rintc entry;
+			memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
+
+			if (entry.hart_id == getCpuData()->hartId) {
+				ctx = entry.ext_intc_id & 0xFFFF;
+				plicId = entry.ext_intc_id >> 24;
+			}
+		}
+		offset += generic.length;
+	}
+
+	if (ctx == ~size_t(0)) {
+		warningLogger() << "thor: Could not get the PLIC context from the MADT" << frg::endlog;
+		return;
+	}
+	if (plicId == ~size_t(0)) {
+		warningLogger() << "thor: Could not get the PLIC ID from the MADT" << frg::endlog;
+		return;
+	}
+
+	// Then do it again for the actual PLIC.
+	offset = sizeof(acpi_madt);
+	while (offset < madt->length) {
+		acpi_entry_hdr generic;
+		auto genericPtr = (void *)(madtTbl.virt_addr + offset);
+		memcpy(&generic, genericPtr, sizeof(generic));
+		if (generic.type == ACPI_MADT_ENTRY_TYPE_PLIC) {
+			acpi_madt_plic entry;
+			memcpy(&entry, genericPtr, sizeof(acpi_madt_plic));
+
+			if (entry.id != plicId) {
+				warningLogger() << "thor: Got PLIC " << entry.id
+				                << " that's not covered by the BSP!" << frg::endlog;
+				continue;
+			}
+
+			auto plic = frg::construct<Plic>(
+			    *kernelAlloc, entry.address, entry.size, entry.sources_count, ctx
+			);
+
+			auto *ourExternalIrq = &riscvExternalIrq.get();
+			ourExternalIrq->type = ExternalIrqType::plic;
+			ourExternalIrq->controller = plic;
+			ourExternalIrq->context = ctx;
+
+			infoLogger() << "thor: Installing " << entry.sources_count
+			             << " system IRQs for PLIC at " << frg::hex_fmt{entry.address}
+			             << frg::endlog;
+
+			for (size_t i = 0; i < entry.sources_count; i++) {
+				acpi::setGlobalSystemIrq(entry.gsi_base + i, plic->getIrq(i));
+			}
+		}
+		offset += generic.length;
+	}
+}
+
+initgraph::Task initPlicAcpi{
+    &globalInitEngine,
+    "riscv.init-plic-acpi",
+    initgraph::Requires{acpi::getTablesDiscoveredStage()},
+    initgraph::Entails{getTaskingAvailableStage()},
+    [] {
+	    auto rsdp = getEirInfo()->acpiRsdp;
+	    if (!rsdp)
+		    return;
+
+	    enumeratePlicFromAcpi();
+    }
+};
+
 initgraph::Task initPlic{
     &globalInitEngine,
     "riscv.init-plic",
     initgraph::Requires{getDeviceTreeParsedStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
-	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	    auto root = getDeviceTreeRoot();
+	    if (!root)
+		    return;
+
+	    root->forEach([&](DeviceTreeNode *node) -> bool {
 		    if (node->isCompatible(plicCompatible))
-			    enumeratePlic(node);
+			    enumeratePlicFromDt(node);
 		    return false;
 	    });
     }

@@ -6,11 +6,14 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
-#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel_heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
+
+#ifdef __x86_64__
+#include <thor-internal/arch/pic.hpp>
+#endif
 
 #include <uacpi/acpi.h>
 #include <uacpi/event.h>
@@ -124,11 +127,9 @@ GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired) {
 // --------------------------------------------------------
 
 void configureIrq(GlobalIrqInfo info) {
-#ifdef __x86_64__
-	auto pin = getGlobalSystemIrq(info.gsi);
+	auto pin = acpi::getGlobalSystemIrq(info.gsi);
 	assert(pin);
 	pin->configure(info.configuration);
-#endif
 }
 
 } // namespace thor
@@ -150,18 +151,25 @@ void bootOtherProcessors() {
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while (offset < madt->length) {
 		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
-		if (generic->type == 0) { // local APIC
-			auto entry = (MadtLocalEntry *)generic;
-			// TODO: Support BSPs with APIC ID != 0.
-			if ((entry->flags & local_flags::enabled)
-			    && entry->localApicId) // We ignore the BSP here.
-				bootSecondary(entry->localApicId);
-		} else if (generic->type == 9) { // local x2APIC
-			auto entry = (MadtLocalX2Entry *)generic;
-			// TODO: Support BSPs with APIC ID != 0.
-			if ((entry->flags & local_flags::enabled)
-			    && entry->localX2ApicId) // We ignore the BSP here.
-				bootSecondary(entry->localX2ApicId);
+		switch (generic->type) {
+#ifdef __x86_64__
+			// local APIC
+			case 0: {
+				auto entry = (MadtLocalEntry *)generic;
+				// TODO: Support BSPs with APIC ID != 0.
+				if ((entry->flags & local_flags::enabled)
+				    && entry->localApicId) // We ignore the BSP here.
+					bootSecondary(entry->localApicId);
+			} break;
+			// local x2APIC
+			case 9: {
+				auto entry = (MadtLocalX2Entry *)generic;
+				// TODO: Support BSPs with APIC ID != 0.
+				if ((entry->flags & local_flags::enabled)
+				    && entry->localX2ApicId) // We ignore the BSP here.
+					bootSecondary(entry->localX2ApicId);
+			} break;
+#endif
 		}
 		offset += generic->length;
 	}
@@ -184,70 +192,97 @@ void dumpMadt() {
 		auto genericPtr = (void *)(madtTbl.virt_addr + offset);
 		memcpy(&generic, genericPtr, sizeof(generic));
 		// auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
-		if (generic.type == 0) { // local APIC
-			MadtLocalEntry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtLocalEntry));
-			infoLogger() << "    Local APIC id: " << (int)entry.localApicId
-			             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
-			             << frg::endlog;
-		} else if (generic.type == 1) { // I/O APIC
-			MadtIoEntry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtIoEntry));
-			infoLogger() << "    I/O APIC id: " << (int)entry.ioApicId
-			             << ", system interrupt base: " << (int)entry.systemIntBase << frg::endlog;
-		} else if (generic.type == 2) { // interrupt source override
-			MadtIntOverrideEntry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtIntOverrideEntry));
+		switch (generic.type) {
+			case 0: { // local APIC
+				MadtLocalEntry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtLocalEntry));
+				infoLogger() << "    Local APIC id: " << (int)entry.localApicId
+				             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
+				             << frg::endlog;
+			} break;
+			case 1: { // I/O APIC
+				MadtIoEntry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtIoEntry));
+				infoLogger() << "    I/O APIC id: " << (int)entry.ioApicId
+				             << ", system interrupt base: " << (int)entry.systemIntBase
+				             << frg::endlog;
+			} break;
+			case 2: { // interrupt source override
+				MadtIntOverrideEntry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtIntOverrideEntry));
 
-			const char *bus, *polarity, *trigger;
-			if (entry.bus == 0) {
-				bus = "ISA";
-			} else {
-				panicLogger() << "Unexpected bus in MADT interrupt override" << frg::endlog;
+				const char *bus, *polarity, *trigger;
+				if (entry.bus == 0) {
+					bus = "ISA";
+				} else {
+					panicLogger() << "Unexpected bus in MADT interrupt override" << frg::endlog;
+				}
+
+				if ((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
+					polarity = "default";
+				} else if ((entry.flags & OverrideFlags::polarityMask)
+				           == OverrideFlags::polarityHigh) {
+					polarity = "high";
+				} else if ((entry.flags & OverrideFlags::polarityMask)
+				           == OverrideFlags::polarityLow) {
+					polarity = "low";
+				} else {
+					panicLogger() << "Unexpected polarity in MADT interrupt override"
+					              << frg::endlog;
+				}
+
+				if ((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
+					trigger = "default";
+				} else if ((entry.flags & OverrideFlags::triggerMask)
+				           == OverrideFlags::triggerEdge) {
+					trigger = "edge";
+				} else if ((entry.flags & OverrideFlags::triggerMask)
+				           == OverrideFlags::triggerLevel) {
+					trigger = "level";
+				} else {
+					panicLogger() << "Unexpected trigger mode in MADT interrupt override"
+					              << frg::endlog;
+				}
+
+				infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry.sourceIrq
+				             << " is mapped to GSI " << entry.systemInt
+				             << " (Polarity: " << polarity << ", trigger mode: " << trigger << ")"
+				             << frg::endlog;
+			} break;
+			case 4: { // local APIC NMI source
+				MadtLocalNmiEntry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtLocalNmiEntry));
+				infoLogger() << "    Local APIC NMI: processor " << (int)entry.processorId
+				             << ", lint: " << (int)entry.localInt << frg::endlog;
+			} break;
+			case 9: { // local x2APIC
+				MadtLocalX2Entry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtLocalX2Entry));
+				infoLogger() << "    Local x2APIC id: " << entry.localX2ApicId
+				             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
+				             << frg::endlog;
+			} break;
+			case 10: { // local x2APIC NMI source
+				MadtLocalX2NmiEntry entry;
+				memcpy(&entry, genericPtr, sizeof(MadtLocalX2NmiEntry));
+				infoLogger() << "    Local x2APIC NMI: processor " << (int)entry.processorId
+				             << ", lint: " << (int)entry.localInt << frg::endlog;
+			} break;
+			case 0x18: { // RINTC
+				acpi_madt_rintc entry;
+				memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
+				infoLogger() << "    HART " << entry.hart_id << ", Controller ID "
+				             << entry.ext_intc_id << frg::endlog;
+			} break;
+			case 0x1b: { // PLIC
+				acpi_madt_plic entry;
+				memcpy(&entry, genericPtr, sizeof(acpi_madt_plic));
+				infoLogger() << "    PLIC " << entry.id << ", GSI Base at "
+				             << frg::hex_fmt{entry.gsi_base} << frg::endlog;
+			} break;
+			default: {
+				infoLogger() << "    Unexpected MADT entry of type " << generic.type << frg::endlog;
 			}
-
-			if ((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityDefault) {
-				polarity = "default";
-			} else if ((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityHigh) {
-				polarity = "high";
-			} else if ((entry.flags & OverrideFlags::polarityMask) == OverrideFlags::polarityLow) {
-				polarity = "low";
-			} else {
-				panicLogger() << "Unexpected polarity in MADT interrupt override" << frg::endlog;
-			}
-
-			if ((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerDefault) {
-				trigger = "default";
-			} else if ((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerEdge) {
-				trigger = "edge";
-			} else if ((entry.flags & OverrideFlags::triggerMask) == OverrideFlags::triggerLevel) {
-				trigger = "level";
-			} else {
-				panicLogger() << "Unexpected trigger mode in MADT interrupt override"
-				              << frg::endlog;
-			}
-
-			infoLogger() << "    Int override: " << bus << " IRQ " << (int)entry.sourceIrq
-			             << " is mapped to GSI " << entry.systemInt << " (Polarity: " << polarity
-			             << ", trigger mode: " << trigger << ")" << frg::endlog;
-		} else if (generic.type == 4) { // local APIC NMI source
-			MadtLocalNmiEntry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtLocalNmiEntry));
-			infoLogger() << "    Local APIC NMI: processor " << (int)entry.processorId
-			             << ", lint: " << (int)entry.localInt << frg::endlog;
-		} else if (generic.type == 9) { // local x2APIC
-			MadtLocalX2Entry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtLocalX2Entry));
-			infoLogger() << "    Local x2APIC id: " << entry.localX2ApicId
-			             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
-			             << frg::endlog;
-		} else if (generic.type == 10) { // local x2APIC NMI source
-			MadtLocalX2NmiEntry entry;
-			memcpy(&entry, genericPtr, sizeof(MadtLocalX2NmiEntry));
-			infoLogger() << "    Local x2APIC NMI: processor " << (int)entry.processorId
-			             << ", lint: " << (int)entry.localInt << frg::endlog;
-		} else {
-			infoLogger() << "    Unexpected MADT entry of type " << generic.type << frg::endlog;
 		}
 		offset += generic.length;
 	}
@@ -263,10 +298,25 @@ initgraph::Stage *getNsAvailableStage() {
 	return &s;
 }
 
+frg::manual_box<frg::hash_map<uint32_t, IrqPin *, frg::hash<uint32_t>, KernelAlloc>>
+    globalSystemIrqs;
+
+IrqPin *getGlobalSystemIrq(size_t n) {
+	auto irq = globalSystemIrqs->get(static_cast<uint32_t>(n));
+	return irq ? *irq : nullptr;
+}
+
+void setGlobalSystemIrq(size_t n, IrqPin *pin) { globalSystemIrqs->insert(n, pin); }
+
 static initgraph::Task initTablesTask{
     &globalInitEngine, "acpi.initialize", initgraph::Entails{getTablesDiscoveredStage()}, [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
 	    auto ret = uacpi_initialize(0);
 	    assert(ret == UACPI_STATUS_OK);
+
+	    globalSystemIrqs.initialize(frg::hash<uint32_t>{}, *kernelAlloc);
     }
 };
 
@@ -276,6 +326,9 @@ static initgraph::Task discoverIoApicsTask{
     initgraph::Requires{getTablesDiscoveredStage(), getFibersAvailableStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
 	    dumpMadt();
 
 	    uacpi_table madtTbl;
@@ -292,8 +345,9 @@ static initgraph::Task discoverIoApicsTask{
 	    while (offset < madt->length) {
 		    auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		    if (generic->type == 1) { // I/O APIC
-			    auto entry = (MadtIoEntry *)generic;
+			// TODO: Move this to x86_64 code.
 #ifdef __x86_64__
+			    auto entry = (MadtIoEntry *)generic;
 			    setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
 #endif
 		    }
@@ -364,6 +418,9 @@ static initgraph::Task loadAcpiNamespaceTask{
     initgraph::Requires{getTaskingAvailableStage(), pci::getBus0AvailableStage()},
     initgraph::Entails{getNsAvailableStage()},
     [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
 	    initGlue();
 
 	    auto ret = uacpi_namespace_load();
@@ -377,6 +434,7 @@ static initgraph::Task loadAcpiNamespaceTask{
 	    ret = uacpi_namespace_initialize();
 	    assert(ret == UACPI_STATUS_OK);
 
+#ifdef __x86_64__
 	    // Configure the ISA IRQs.
 	    // TODO: This is a hack. We assume that HPET will use legacy replacement.
 	    infoLogger() << "thor: Configuring ISA IRQs." << frg::endlog;
@@ -385,6 +443,7 @@ static initgraph::Task loadAcpiNamespaceTask{
 	    configureIrq(resolveIsaIrq(4));
 	    configureIrq(resolveIsaIrq(12));
 	    configureIrq(resolveIsaIrq(14));
+#endif
 
 	    initEvents();
     }
@@ -392,12 +451,18 @@ static initgraph::Task loadAcpiNamespaceTask{
 
 static initgraph::Task bootApsTask{
     &globalInitEngine, "acpi.boot-aps", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
 	    bootOtherProcessors();
     }
 };
 
 static initgraph::Task initPmInterfaceTask{
     &globalInitEngine, "acpi.init-pm-interface", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
 	    initializePmInterface();
     }
 };

@@ -345,7 +345,11 @@ static initgraph::Task discoverDtNodes{&globalInitEngine, "dt.discover-nodes",
 	[] {
 		allNodes.initialize(*kernelAlloc);
 
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+		auto root = getDeviceTreeRoot();
+		if (!root)
+			return;
+
+		root->forEach([&](DeviceTreeNode *node) -> bool {
 			allNodes->emplace_back(smarter::allocate_shared<MbusNode>(*kernelAlloc, node));
 			return false;
 		});

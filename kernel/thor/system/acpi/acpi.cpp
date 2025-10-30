@@ -3,7 +3,6 @@
 #include <hw.frigg_bragi.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/battery.hpp>
-#include <thor-internal/arch/pic.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
 #include <thor-internal/main.hpp>
@@ -275,8 +274,6 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(interrupt_info.irq.value());
 			IrqPin::attachSink(getGlobalSystemIrq(irqOverride.gsi), object.get());
-#else
-#error "unimplemented"
 #endif
 		}
 

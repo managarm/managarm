@@ -112,7 +112,12 @@ static initgraph::Task initPS2Task{
     &globalInitEngine,
     "acpi.init-ps2",
     initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
-    [] { initializePS2(); }
+    [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
+	    initializePS2();
+    }
 };
 
 } // namespace thor::acpi

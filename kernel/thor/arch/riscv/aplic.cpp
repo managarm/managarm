@@ -473,14 +473,18 @@ initgraph::Task initPlic{
     initgraph::Requires{getDeviceTreeParsedStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
+	    auto root = getDeviceTreeRoot();
+	    if (!root)
+		    return;
+
 	    phandleToImsic.initialize(frg::hash<uint32_t>{}, *kernelAlloc);
 
-	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	    root->forEach([&](DeviceTreeNode *node) -> bool {
 		    if (node->isCompatible(imsciCompatible))
 			    enumerateImsic(node);
 		    return false;
 	    });
-	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	    root->forEach([&](DeviceTreeNode *node) -> bool {
 		    if (node->isCompatible(aplicCompatible))
 			    enumerateAplic(node);
 		    return false;

@@ -1,4 +1,5 @@
 #include <riscv/sbi.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
@@ -9,6 +10,8 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -94,12 +97,7 @@ void smpMain(StatusBlock *statusBlock) {
 	);
 }
 
-void bootAp(DeviceTreeNode *node) {
-	const auto &reg = node->reg();
-	if (reg.size() != 1)
-		panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs" << frg::endlog;
-	auto hartId = reg.front().addr;
-
+void bootAp(uint64_t hartId) {
 	// Skip the BSP.
 	if (hartId == getCpuData()->hartId)
 		return;
@@ -138,18 +136,66 @@ void bootAp(DeviceTreeNode *node) {
 		panicLogger() << "SBI HSM hart start failed with error " << sbiError << frg::endlog;
 }
 
+void bootApFromDt(DeviceTreeNode *node) {
+	const auto &reg = node->reg();
+	if (reg.size() != 1)
+		panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs" << frg::endlog;
+	bootAp(reg.front().addr);
+}
+
+initgraph::Task initAPsAcpi{
+    &globalInitEngine,
+    "riscv.init-aps-acpi",
+    initgraph::Requires{acpi::getTablesDiscoveredStage(), getTaskingAvailableStage()},
+    [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
+	    setUpTrampoline();
+
+	    uacpi_table madtTbl;
+	    if (uacpi_table_find_by_signature("APIC", &madtTbl) != UACPI_STATUS_OK)
+		    panicLogger() << "thor: Unable to initalize APs, no MADT found" << frg::endlog;
+	    auto *madt = madtTbl.hdr;
+
+	    infoLogger() << "thor: Booting APs." << frg::endlog;
+
+	    size_t offset = sizeof(acpi_madt);
+	    while (offset < madt->length) {
+		    acpi_entry_hdr generic;
+		    auto genericPtr = (void *)(madtTbl.virt_addr + offset);
+		    memcpy(&generic, genericPtr, sizeof(generic));
+		    switch (generic.type) {
+			    case 0x18: {
+				    acpi_madt_rintc entry;
+				    memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
+				    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
+				    bootAp(entry.hart_id);
+			    } break;
+		    }
+		    offset += generic.length;
+	    }
+    }
+};
+
 initgraph::Task initAPs{
     &globalInitEngine,
     "riscv.init-aps",
     initgraph::Requires{getDeviceTreeParsedStage(), getTaskingAvailableStage()},
     [] {
+	    auto root = getDeviceTreeRoot();
+	    if (!root)
+		    return;
+
 	    setUpTrampoline();
 
-	    getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-		    if (node->isCompatible(cpuCompatible))
-			    bootAp(node);
-		    return false;
-	    });
+	    if (root) {
+		    root->forEach([&](DeviceTreeNode *node) -> bool {
+			    if (node->isCompatible(cpuCompatible))
+				    bootApFromDt(node);
+			    return false;
+		    });
+	    }
     }
 };
 

@@ -22,10 +22,12 @@ struct GlobalIrqInfo {
 GlobalIrqInfo resolveIsaIrq(unsigned int irq);
 GlobalIrqInfo resolveIsaIrq(unsigned int irq, IrqConfiguration desired);
 void configureIrq(GlobalIrqInfo info);
-
 } // namespace thor
 
 namespace thor::acpi {
+
+IrqPin *getGlobalSystemIrq(size_t n);
+void setGlobalSystemIrq(size_t n, IrqPin *pin);
 
 constexpr std::array<const uacpi_char *, 27> ACPI_HID_PS2_KEYBOARDS = {{
     "PNP0300", "PNP0301", "PNP0302", "PNP0303", "PNP0304", "PNP0305",  "PNP0306",
