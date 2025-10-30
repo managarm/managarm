@@ -153,16 +153,14 @@ void bootOtherProcessors() {
 		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		switch (generic->type) {
 #ifdef __x86_64__
-			// local APIC
-			case 0: {
+			case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				auto entry = (MadtLocalEntry *)generic;
 				// TODO: Support BSPs with APIC ID != 0.
 				if ((entry->flags & local_flags::enabled)
 				    && entry->localApicId) // We ignore the BSP here.
 					bootSecondary(entry->localApicId);
 			} break;
-			// local x2APIC
-			case 9: {
+			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC: {
 				auto entry = (MadtLocalX2Entry *)generic;
 				// TODO: Support BSPs with APIC ID != 0.
 				if ((entry->flags & local_flags::enabled)
@@ -193,21 +191,21 @@ void dumpMadt() {
 		memcpy(&generic, genericPtr, sizeof(generic));
 		// auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		switch (generic.type) {
-			case 0: { // local APIC
+			case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				MadtLocalEntry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtLocalEntry));
 				infoLogger() << "    Local APIC id: " << (int)entry.localApicId
 				             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
 				             << frg::endlog;
 			} break;
-			case 1: { // I/O APIC
+			case ACPI_MADT_ENTRY_TYPE_IOAPIC: {
 				MadtIoEntry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtIoEntry));
 				infoLogger() << "    I/O APIC id: " << (int)entry.ioApicId
 				             << ", system interrupt base: " << (int)entry.systemIntBase
 				             << frg::endlog;
 			} break;
-			case 2: { // interrupt source override
+			case ACPI_MADT_ENTRY_TYPE_INTERRUPT_SOURCE_OVERRIDE: { // interrupt source override
 				MadtIntOverrideEntry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtIntOverrideEntry));
 
@@ -249,32 +247,32 @@ void dumpMadt() {
 				             << " (Polarity: " << polarity << ", trigger mode: " << trigger << ")"
 				             << frg::endlog;
 			} break;
-			case 4: { // local APIC NMI source
+			case ACPI_MADT_ENTRY_TYPE_LAPIC_NMI: {
 				MadtLocalNmiEntry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtLocalNmiEntry));
 				infoLogger() << "    Local APIC NMI: processor " << (int)entry.processorId
 				             << ", lint: " << (int)entry.localInt << frg::endlog;
 			} break;
-			case 9: { // local x2APIC
+			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC: {
 				MadtLocalX2Entry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtLocalX2Entry));
 				infoLogger() << "    Local x2APIC id: " << entry.localX2ApicId
 				             << ((entry.flags & local_flags::enabled) ? "" : " (disabled)")
 				             << frg::endlog;
 			} break;
-			case 10: { // local x2APIC NMI source
+			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC_NMI: {
 				MadtLocalX2NmiEntry entry;
 				memcpy(&entry, genericPtr, sizeof(MadtLocalX2NmiEntry));
 				infoLogger() << "    Local x2APIC NMI: processor " << (int)entry.processorId
 				             << ", lint: " << (int)entry.localInt << frg::endlog;
 			} break;
-			case 0x18: { // RINTC
+			case ACPI_MADT_ENTRY_TYPE_RINTC: {
 				acpi_madt_rintc entry;
 				memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
 				infoLogger() << "    HART " << entry.hart_id << ", Controller ID "
 				             << entry.ext_intc_id << frg::endlog;
 			} break;
-			case 0x1b: { // PLIC
+			case ACPI_MADT_ENTRY_TYPE_PLIC: {
 				acpi_madt_plic entry;
 				memcpy(&entry, genericPtr, sizeof(acpi_madt_plic));
 				infoLogger() << "    PLIC " << entry.id << ", GSI Base at "
@@ -344,9 +342,9 @@ static initgraph::Task discoverIoApicsTask{
 	    size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	    while (offset < madt->length) {
 		    auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
-		    if (generic->type == 1) { // I/O APIC
-			// TODO: Move this to x86_64 code.
+		    if (generic->type == ACPI_MADT_ENTRY_TYPE_IOAPIC) {
 #ifdef __x86_64__
+			    // TODO: Move this to x86_64 code.
 			    auto entry = (MadtIoEntry *)generic;
 			    setupIoApic(entry->ioApicId, entry->systemIntBase, entry->mmioAddress);
 #endif
