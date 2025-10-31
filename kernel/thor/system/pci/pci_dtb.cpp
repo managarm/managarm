@@ -190,7 +190,11 @@ initgraph::Task discoverDtbNodes{&globalInitEngine, "pci.discover-dtb-nodes",
 	[] {
 		size_t i = 0;
 
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+		auto root = getDeviceTreeRoot();
+		if (!root)
+			return;
+
+		root->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible(dtPciCompatible)) {
 				initPciNode(node);
 				i++;

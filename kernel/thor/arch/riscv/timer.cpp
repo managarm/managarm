@@ -1,4 +1,5 @@
 #include <riscv/sbi.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/arch/system.hpp>
@@ -9,6 +10,8 @@
 #include <thor-internal/schedule.hpp>
 #include <thor-internal/timer.hpp>
 #include <thor-internal/util.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -18,12 +21,49 @@ namespace {
 constinit FreqFraction freq;
 constinit FreqFraction inverseFreq;
 
+initgraph::Task initTimerAcpi{
+    &globalInitEngine,
+    "riscv.init-timer-acpi",
+    initgraph::Requires{acpi::getTablesDiscoveredStage()},
+    initgraph::Entails{getTaskingAvailableStage()},
+    [] {
+	    if (!getEirInfo()->acpiRsdp)
+		    return;
+
+	    uint32_t freqSeconds;
+	    uacpi_table rhct;
+
+	    if (uacpi_table_find_by_signature("RHCT", &rhct) != UACPI_STATUS_OK)
+		    panicLogger() << "thor: Unable to get RHCT" << frg::endlog;
+
+	    auto ptr = reinterpret_cast<acpi_rhct *>(rhct.ptr);
+	    freqSeconds = ptr->timebase_frequency;
+
+	    const char *impl;
+	    if (riscvHartCapsNote->hasExtension(RiscvExtension::sstc)) {
+		    impl = "Sstc";
+	    } else {
+		    impl = "SBI";
+	    }
+	    infoLogger() << "thor: Using " << impl << " to update S-mode timer" << frg::endlog;
+	    infoLogger() << "thor: Timer frequency is " << freqSeconds << " Hz" << frg::endlog;
+
+	    // Frequency is given in Hz. Hence, we need to divide by 10^9 to convert to nHz.
+	    uint64_t divisor = 1'000'000'000;
+	    freq = computeFreqFraction(freqSeconds, divisor);
+	    inverseFreq = computeFreqFraction(divisor, freqSeconds);
+    }
+};
+
 initgraph::Task initTimer{
     &globalInitEngine,
     "riscv.init-timer",
     initgraph::Requires{getDeviceTreeParsedStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
+	    if (!getDeviceTreeRoot())
+		    return;
+
 	    // Get the timebase-frequency property in /cpus.
 	    auto *dtCpus = getDeviceTreeNodeByPath("/cpus");
 	    if (!dtCpus)
