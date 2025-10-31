@@ -288,6 +288,7 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 	}
 
 	{
+		auto irqLock = frg::guard(&irqMutex());
 		Universe::Guard lock{srcUniverse->lock};
 
 		auto descriptorIt = srcUniverse->getDescriptor(lock, handle);
