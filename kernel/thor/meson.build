@@ -188,7 +188,10 @@ deps = [ libgcc, frigg, libsmarter, bragi_dep, libasync_dep, libarch_base, hel_d
 
 link_script = meson.get_compiler('cpp').preprocess(
 	'link.x',
-	compile_args : cpp_args + args,
+	compile_args : cpp_args + args + [
+		# Work around a Meson bug that passes -c to the preprocessor here.
+		'-Wno-error=unused-command-line-argument'
+	],
 	include_directories : inc,
 )[0]
 

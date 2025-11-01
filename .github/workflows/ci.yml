@@ -172,9 +172,13 @@ jobs:
             run: |
                 xbstrap configure $CI_BUILD_PKG
                 xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dbuildtype=debug -Ddebug=false -Db_lto=false
+                if [ "$CI_ARCH" = "x86_64" ]; then
+                    xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dwerror=true
+                fi
                 xbstrap run --pkg $CI_BUILD_PKG clang-tidy
             working-directory: build/
             env:
+                CI_ARCH: ${{ matrix.arch }}
                 CI_BUILD_PKG: ${{ matrix.pkg }}
 
     build-package:
