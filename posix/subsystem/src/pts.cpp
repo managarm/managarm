@@ -1110,7 +1110,7 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 			break;
 	}
 
-	co_return PollWaitResult{_channel->currentSeq, edges};
+	co_return PollWaitResult{_channel->currentSeq, edges & mask};
 }
 
 async::result<frg::expected<Error, PollStatusResult>>

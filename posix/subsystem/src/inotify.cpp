@@ -158,13 +158,19 @@ public:
 		// TODO: Return Error::fileClosed as appropriate.
 
 		assert(sequence <= _currentSeq);
-		while(sequence == _currentSeq)
-			if (!co_await _statusBell.async_wait(cancellation))
-				break;
 
 		int edges = 0;
-		if(_inSeq > sequence)
-			edges |= EPOLLIN;
+		while(true) {
+			edges = 0;
+			if(_inSeq > sequence)
+				edges |= EPOLLIN;
+
+			if (edges & mask)
+				break;
+
+			if (!co_await _statusBell.async_wait(cancellation))
+				break;
+		}
 
 		co_return PollWaitResult(_currentSeq, edges & mask);
 	}

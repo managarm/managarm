@@ -383,13 +383,23 @@ public:
 			async::cancellation_token cancellation) override {
 		assert(past_seq <= _currentSeq);
 
-		while(_currentSeq == past_seq) {
-			assert(isOpen()); // TODO: Return a poll error here.
+		int edges = 0;
+		while(true) {
+			if(!isOpen())
+				co_return Error::fileClosed;
+
+			edges = 0;
+			if (_currentSeq > past_seq)
+				edges |= EPOLLIN;
+
+			if (edges & mask)
+				break;
+
 			if (!co_await _statusBell.async_wait(cancellation))
 				break;
 		}
 
-		co_return PollWaitResult{_currentSeq, (_currentSeq ? EPOLLIN : 0) & mask};
+		co_return PollWaitResult{_currentSeq, edges & mask};
 	}
 
 	async::result<frg::expected<Error, PollStatusResult>>

@@ -148,15 +148,25 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>
 File::pollWait(void *object, uint64_t past_seq, int mask,
 		async::cancellation_token c) {
 	auto self = static_cast<File *>(object);
+	int edges = 0;
 
 	assert(past_seq <= self->_currentSeq);
-	while(self->_currentSeq == past_seq)
+
+	while(true) {
+		edges = 0;
+		if (!self->_pending.empty() && self->_currentSeq > past_seq)
+			edges |= EPOLLIN;
+
+		if (edges & mask)
+			break;
+
 		if (!co_await self->_statusBell.async_wait(c))
 			break;
+	}
 
 	co_return protocols::fs::PollWaitResult{
 		self->_currentSeq,
-		(self->_currentSeq > past_seq ? EPOLLIN : 0) & mask
+		edges & mask
 	};
 }
 

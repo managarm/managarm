@@ -164,7 +164,7 @@ async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>
 
 	while(true) {
 		// For now making sockets always writable is sufficient.
-		int edges = EPOLLOUT;
+		edges = EPOLLOUT;
 		if(self->_inSeq > past_seq)
 			edges |= EPOLLIN;
 

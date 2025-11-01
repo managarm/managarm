@@ -174,7 +174,7 @@ struct IcmpSocket {
 
 		while(true) {
 			// For now making sockets always writable is sufficient.
-			int edges = EPOLLOUT;
+			edges = EPOLLOUT;
 			if(self->inSeq_ > past_seq)
 				edges |= EPOLLIN;
 

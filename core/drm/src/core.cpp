@@ -180,13 +180,22 @@ drm_core::File::pollWait(void *object, uint64_t sequence, int mask,
 	if(sequence > self->_eventSequence)
 		co_return protocols::fs::Error::illegalArguments;
 
+	int edges = 0;
+
 	// Wait until we surpass the input sequence.
-	while(sequence == self->_eventSequence)
-		if (!co_await self->_eventBell.async_wait(c))
+	while (true) {
+		edges = 0;
+		if (!self->_pendingEvents.empty() && self->_eventSequence > sequence)
+			edges |= EPOLLIN;
+
+		if (edges & mask)
 			break;
 
-	co_return protocols::fs::PollWaitResult{self->_eventSequence,
-			(self->_eventSequence > 0 ? EPOLLIN : 0) & mask};
+		if (!co_await self->_eventBell.async_wait(c))
+			break;
+	}
+
+	co_return protocols::fs::PollWaitResult{self->_eventSequence, edges & mask};
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
