@@ -312,8 +312,15 @@ helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
 			reinterpret_cast<uint32_t *>(optbuf.data()), optbuf.size() / sizeof(uint32_t)
 		});
 		optbuf.resize(written * sizeof(uint32_t));
+	} else if(layer == SOL_SOCKET && number == SO_TYPE) {
+		// Netlink is datagram-oriented, and the protocol does not differentiate between
+		// SOCK_RAW and SOCK_DGRAM, so we unconditionally return SOCK_DGRAM here.
+		auto type_ = SOCK_DGRAM;
+		optbuf.resize(std::min(optbuf.size(), sizeof(type_)));
+		memcpy(optbuf.data(), &type_, optbuf.size());
 	} else {
-		printf("netserver: unhandled getsockopt layer %d number %d\n", layer, number);
+		std::cout << std::format("netserver: unhandled netlink socket getsockopt layer {} number {}\n",
+				layer, number);
 		co_return protocols::fs::Error::invalidProtocolOption;
 	}
 
