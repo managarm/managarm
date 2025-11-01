@@ -5,6 +5,8 @@
 #include <thor-internal/kernel_heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/dtb/irq.hpp>
+#include <thor-internal/dtb/clock.hpp>
+#include <thor-internal/dtb/regulator.hpp>
 #include <thor-internal/irq.hpp>
 #include <frg/optional.hpp>
 #include <frg/hash_map.hpp>
@@ -160,6 +162,22 @@ struct DeviceTreeNode {
 		return associatedIrqController_;
 	}
 
+	void associateClock(dt::Clock *clock) {
+		associatedClock_ = clock;
+	}
+
+	dt::Clock *getAssociatedClock() {
+		return associatedClock_;
+	}
+
+	void associateRegulator(dt::Regulator *regulator) {
+		associatedRegulator_ = regulator;
+	}
+
+	dt::Regulator *getAssociatedRegulator() {
+		return associatedRegulator_;
+	}
+
 	void associateMbusNode(dt::MbusNode *node) {
 		associatedMbusNode_ = node;
 	}
@@ -207,6 +225,8 @@ private:
 
 	// Kernel objects associated with this DeviceTreeNode.
 	dt::IrqController *associatedIrqController_{nullptr};
+	dt::Clock *associatedClock_{nullptr};
+	dt::Regulator *associatedRegulator_{nullptr};
 	dt::MbusNode *associatedMbusNode_{nullptr};
 };
 
