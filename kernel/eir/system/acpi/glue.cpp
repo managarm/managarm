@@ -9,7 +9,7 @@ uacpi_status uacpi_kernel_get_rsdp(uacpi_phys_addr *out_rsdp_address) {
 	return UACPI_STATUS_OK;
 }
 
-void *uacpi_kernel_map(uacpi_phys_addr addr, uacpi_size) { return reinterpret_cast<void *>(addr); }
+void *uacpi_kernel_map(uacpi_phys_addr addr, uacpi_size) { return eir::physToVirt<void *>(addr); }
 
 void uacpi_kernel_unmap(void *, uacpi_size) {
 	// No-op since we are using an identity mapping.

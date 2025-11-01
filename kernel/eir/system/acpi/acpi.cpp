@@ -19,10 +19,6 @@ initgraph::Task setupTables{
 		    infoLogger() << "eir: No RSDP available, skipping ACPI table setup" << frg::endlog;
 		    return;
 	    }
-	    if (physOffset) {
-		    infoLogger() << "eir: ACPI is broken on the Limine boot protocol" << frg::endlog;
-		    return;
-	    }
 
 	    checkOrPanic(
 	        uacpi_setup_early_table_access(earlyTableBuffer.data(), earlyTableBuffer.size())
