@@ -110,6 +110,8 @@ async::result<nic::PhyResult<void>> Bcm54210EPhy::startup() {
 			speed_ = nic::LinkSpeed::speed10;
 			duplex_ = nic::LinkDuplex::half;
 			break;
+		default:
+			co_return std::unexpected{nic::PhyError::hardwareError};
 	}
 
 	std::println(

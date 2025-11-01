@@ -1703,7 +1703,6 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 					resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 				}
 
-				auto ser = resp.SerializeAsString();
 				auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(
 					conversation,
 					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})

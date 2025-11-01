@@ -104,7 +104,7 @@ struct ParseView {
 		for(n = 0; s[n]; ++n) {
 			if(n == bs_.size())
 				return false;
-			if(bs_[n] != s[n])
+			if(bs_[n] != static_cast<uint8_t>(s[n]))
 				return false;
 		}
 		bs_ = bs_.subspan(n);
@@ -117,7 +117,7 @@ struct ParseView {
 
 	bool splitDelimiter(ParseView &out, char c) {
 		for(size_t n = 0; n < bs_.size(); ++n) {
-			if(bs_[n] != c)
+			if(bs_[n] != static_cast<uint8_t>(c))
 				continue;
 			out = frg::span<uint8_t>{bs_.data(), n};
 			bs_ = bs_.subspan(n + 1);

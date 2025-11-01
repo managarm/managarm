@@ -507,8 +507,9 @@ async::result<protocols::fs::TraverseLinksResult> traverseLinks(std::shared_ptr<
 		if (component == "..") {
 			if (parent == self)
 				co_return std::make_tuple(nodes, protocols::fs::FileType::directory, processedComponents);
-
-			parent = self->fs.accessInode(FRG_CO_TRY(co_await parent->findEntry(".."))->inode);
+			auto entry = FRG_CO_TRY(co_await parent->findEntry(".."));
+			assert(entry);
+			parent = self->fs.accessInode(entry->inode);
 			nodes.pop_back();
 		} else {
 			entry = FRG_CO_TRY(co_await parent->findEntry(component));
@@ -585,11 +586,16 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto findResult = co_await self->findEntry(name);
 
-	if (findResult && findResult.value()) {
+	if (!findResult)
+		co_return std::unexpected{findResult.error()};
+
+	auto result = findResult.value();
+
+	if (result) {
 		if (exclusive)
 			co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
-		auto e = findResult.unwrap().value();
+		auto e = *result;
 		protocols::fs::FileType type;
 		switch(e.fileType) {
 		case kTypeDirectory:
@@ -756,6 +762,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 				auto [dismiss] = co_await helix_ng::exchangeMsgs(
 					conversation, helix_ng::dismiss());
 				HEL_CHECK(dismiss.error());
+				continue;
 			}
 
 			req = *o;
@@ -981,6 +988,7 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 				auto [dismiss] = co_await helix_ng::exchangeMsgs(
 					conversation, helix_ng::dismiss());
 				HEL_CHECK(dismiss.error());
+				continue;
 			}
 
 			req = *o;

@@ -393,7 +393,6 @@ public:
 
 		auto lane = static_cast<Node *>(_owner.get())->getLane();
 
-		auto ser = req.SerializeAsString();
 		auto [offer, send_req, send_tail, recv_resp] = co_await helix_ng::exchangeMsgs(
 			lane,
 			helix_ng::offer(

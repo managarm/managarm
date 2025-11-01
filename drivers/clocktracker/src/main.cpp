@@ -34,7 +34,6 @@ async::result<void> enumerateRtc() {
 async::result<RtcTime> getRtcTime() {
 	managarm::clock::GetRtcTimeRequest req;
 
-	auto ser = req.SerializeAsString();
 	auto [offer, sendReq, recvResp] = co_await helix_ng::exchangeMsgs(
 		rtcLane,
 		helix_ng::offer(

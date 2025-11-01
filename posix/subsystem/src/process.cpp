@@ -369,7 +369,10 @@ std::shared_ptr<FileContext> FileContext::clone(std::shared_ptr<FileContext> ori
 
 	for(auto entry : original->_fileTable) {
 		//std::cout << "Clone FD " << entry.first << std::endl;
-		context->attachFile(entry.first, entry.second.file, entry.second.closeOnExec);
+
+		// the new number of fd in the file context is always <= the number of fd in the original
+		auto attachRes = context->attachFile(entry.first, entry.second.file, entry.second.closeOnExec);
+		assert(attachRes);
 	}
 
 	HEL_CHECK(helTransferDescriptor(

@@ -21,8 +21,8 @@ namespace {
 #define LIMINE_REQUEST(request, tag, rev)                                                          \
 	[[gnu::used, gnu::section(".requests")]]                                                       \
 	volatile struct limine_##request request = {                                                   \
-	    .id = tag,                                                                                 \
-	    .revision = rev,                                                                           \
+	    .id = tag, /* NOLINT(bugprone-macro-parentheses) */                                        \
+	    .revision = (rev),                                                                         \
 	    .response = nullptr,                                                                       \
 	}
 
