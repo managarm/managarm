@@ -2616,9 +2616,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				SignalHandler handler;
 				if(req.sig_handler() == uintptr_t(SIG_DFL)) {
 					handler.disposition = SignalDisposition::none;
+					// POSIX requires discarding pending signals when setting SIG_DFL for signals,
+					// if their default action is to ignore (POSIX 2024, B.2.4.3 Signal Actions)
 					if (defaultIgnoredSignals.contains(req.sig_number()))
 						co_await removePendingSignal(req.sig_number());
 				}else if(req.sig_handler() == uintptr_t(SIG_IGN)) {
+					// POSIX requires discarding pending signals when setting SIG_IGN
 					handler.disposition = SignalDisposition::ignore;
 					co_await removePendingSignal(req.sig_number());
 				}else{
