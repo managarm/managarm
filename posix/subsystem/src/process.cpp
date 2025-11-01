@@ -536,7 +536,7 @@ std::shared_ptr<SignalContext> SignalContext::clone(std::shared_ptr<SignalContex
 void SignalContext::resetHandlers() {
 	for(int sn = 1; sn <= 64; sn++)
 		if(_handlers[sn - 1].disposition == SignalDisposition::handle)
-			_handlers[sn - 1].disposition = SignalDisposition::none;
+			_handlers[sn - 1] = SignalHandler{SignalDisposition::none};
 }
 
 SignalHandler SignalContext::getHandler(int sn) {
@@ -1479,6 +1479,9 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->_threadDescriptor = std::move(execResult.thread);
 	process->_vmContext = std::move(exec_vm_context);
 	process->threadGroup()->_signalContext->resetHandlers();
+	process->setAltStackEnabled(false);
+	process->setAltStackSp(0, 0);
+
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
 	process->_clientFileTable = exec_client_table;

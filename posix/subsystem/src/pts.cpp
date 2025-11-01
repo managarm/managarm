@@ -843,21 +843,25 @@ MasterFile::getControllingTerminal() {
 async::result<frg::expected<Error, PollWaitResult>>
 MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
-	(void)mask; // TODO: utilize mask.
 	assert(past_seq <= _channel->currentSeq);
+	int edges = 0;
 
-	while(past_seq == _channel->currentSeq
-			&& !cancellation.is_cancellation_requested())
-		co_await _channel->statusBell.async_wait(cancellation);
+	while(true) {
+		// For now making pts files always writable is sufficient.
+		edges = EPOLLOUT;
+		if(_channel->slaveCount == 0)
+			edges |= EPOLLHUP;
+		if(_channel->masterInSeq > past_seq)
+			edges |= EPOLLIN;
 
-	// For now making pts files always writable is sufficient.
-	int edges = EPOLLOUT;
-	if(_channel->slaveCount == 0)
-		edges |= EPOLLHUP;
-	if(_channel->masterInSeq > past_seq)
-		edges |= EPOLLIN;
+		if (edges & mask)
+			break;
 
-	co_return PollWaitResult{_channel->currentSeq, edges};
+		if (!co_await _channel->statusBell.async_wait(cancellation))
+			break;
+	}
+
+	co_return PollWaitResult{_channel->currentSeq, edges & mask};
 }
 
 async::result<frg::expected<Error, PollStatusResult>>
@@ -1088,20 +1092,25 @@ SlaveFile::getControllingTerminal() {
 async::result<frg::expected<Error, PollWaitResult>>
 SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 		async::cancellation_token cancellation) {
-	(void)mask; // TODO: utilize mask.
 	assert(past_seq <= _channel->currentSeq);
-	while(past_seq == _channel->currentSeq
-			&& !cancellation.is_cancellation_requested())
-		co_await _channel->statusBell.async_wait(cancellation);
+	int edges = 0;
 
-	// For now making pts files always writable is sufficient.
-	int edges = EPOLLOUT;
-	if(_channel->masterCount == 0)
-		edges |= EPOLLHUP;
-	if(_channel->slaveInSeq > past_seq)
-		edges |= EPOLLIN;
+	while(true) {
+		// For now making pts files always writable is sufficient.
+		edges = EPOLLOUT;
+		if(_channel->masterCount == 0)
+			edges |= EPOLLHUP;
+		if(_channel->slaveInSeq > past_seq)
+			edges |= EPOLLIN;
 
-	co_return PollWaitResult{_channel->currentSeq, edges};
+		if (edges & mask)
+			break;
+
+		if (!co_await _channel->statusBell.async_wait(cancellation))
+			break;
+	}
+
+	co_return PollWaitResult{_channel->currentSeq, edges & mask};
 }
 
 async::result<frg::expected<Error, PollStatusResult>>

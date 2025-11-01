@@ -45,11 +45,20 @@ OpenFile::readSome(Process *process, void *data, size_t maxLength, async::cancel
 async::result<frg::expected<Error, PollWaitResult>>
 OpenFile::pollWait(Process *process, uint64_t inSeq, int pollMask,
 		async::cancellation_token cancellation) {
-	(void)pollMask; // TODO: utilize mask.
-	auto result = co_await process->threadGroup()->signalContext()->pollSignal(inSeq,
-			_mask, cancellation);
-	co_return PollWaitResult{std::get<0>(result),
-			(std::get<1>(result) & _mask) ? EPOLLIN : 0};
+	if ((EPOLLIN & pollMask) == EPOLLIN) {
+		auto [newSeq, signalEdges] = co_await process->threadGroup()->signalContext()->pollSignal(
+		    inSeq, _mask, cancellation
+		);
+		if (newSeq > inSeq && (signalEdges & _mask))
+			co_return PollWaitResult{newSeq, EPOLLIN};
+		else
+			co_return PollWaitResult{newSeq, 0};
+	} else {
+		co_await async::suspend_indefinitely(cancellation);
+		co_return PollWaitResult{
+		    std::get<0>(process->threadGroup()->signalContext()->checkSignal()), 0
+		};
+	}
 }
 
 async::result<frg::expected<Error, PollStatusResult>>
