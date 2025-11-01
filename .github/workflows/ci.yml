@@ -355,9 +355,16 @@ jobs:
             working-directory: build/
           - name: Run ci-all
             run: |
-                xbstrap run ci-all
+                if [ "$CI_VARIANT" = "vanilla" ]; then
+                    xbstrap run ci-all
+                else
+                    # KASAN does not need to run all the boot tests etc.
+                    xbstrap run ci-kernel-tests ci-posix-tests
+                fi
             working-directory: build/
             if: matrix.arch == 'x86_64'
+            env:
+                CI_VARIANT: ${{ matrix.variant }}
           - name: Run test-image
             run: |
                 xbstrap run test-image
