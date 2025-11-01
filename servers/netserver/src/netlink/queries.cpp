@@ -215,12 +215,13 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 
 	auto attrs = netlinkAttr(hdr, core::netlink::nl::packets::ifaddr{});
 
-	if(!attrs.has_value()) {
+	if(!attrs.has_value() || msg->ifa_family != AF_INET) {
 		sendError(this, hdr, EINVAL);
 		return;
 	}
 
-	uint32_t addr = 0;
+	std::optional<uint32_t> addr = std::nullopt;
+	std::optional<uint32_t> broadcastAddr = std::nullopt;
 	uint8_t prefix = msg->ifa_prefixlen;
 	auto nic = nic::Link::byIndex(msg->ifa_index);
 
@@ -239,6 +240,10 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 				addr = ntohl(attr.data<uint32_t>().value_or(0));
 				break;
 			}
+			case IFA_BROADCAST: {
+				broadcastAddr = ntohl(attr.data<uint32_t>().value_or(0));
+				break;
+			}
 			default: {
 				std::cout << "netserver: ignoring unknown rtattr type " << attr.type() << " in RTM_NEWADDR request" << std::endl;
 				if(attr.type() > RTA_MAX) {
@@ -251,18 +256,22 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 	}
 
 	if(addr)
-		ip4().setLink({addr, prefix}, nic);
+		ip4().setLink({{*addr, prefix}, broadcastAddr}, nic);
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);
 
-	core::netlink::NetlinkBuilder b;
-	b.group(RTNLGRP_IPV4_IFADDR);
-	b.header(RTM_NEWADDR, 0, _currentSeq, 0);
-	b.message<struct ifaddrmsg>(*msg);
-	b.nlattr(IFA_ADDRESS, htonl(addr));
+	if (addr) {
+		core::netlink::NetlinkBuilder b;
+		b.group(RTNLGRP_IPV4_IFADDR);
+		b.header(RTM_NEWADDR, 0, _currentSeq, 0);
+		b.message<struct ifaddrmsg>(*msg);
+		b.nlattr(IFA_ADDRESS, htonl(*addr));
+		if (broadcastAddr)
+			b.nlattr(IFA_BROADCAST, htonl(*broadcastAddr));
 
-	broadcast(b.packet());
+		broadcast(b.packet());
+	}
 
 	return;
 }
