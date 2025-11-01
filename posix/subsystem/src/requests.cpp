@@ -3071,21 +3071,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					co_await async::race_and_cancel(
 						async::lambda([&](auto c) -> async::result<void> {
 							co_await async::suspend_indefinitely(c, cancelEvent);
+							// if the cancelEvent was raised, we consider this wait to have been
+							// interrupted.
 							if (async::cancellation_token{cancelEvent}.is_cancellation_requested())
 								interrupted = true;
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
-							if (req.has_signal_seq()) {
-								if (self->enteredSignalSeq() == req.signal_seq()) {
-									auto [newSeq, active] = co_await self->threadGroup()->signalContext()->pollSignal(req.signal_seq(), ~self->signalMask(), c);
-									if (active)
-										interrupted = true;
-								} else {
-									interrupted = true;
-								}
-							} else {
-								co_await async::suspend_indefinitely(c);
+							if (req.has_signal_seq() && self->enteredSignalSeq() != req.signal_seq()) {
+								// a signal was already raised since the request's
+								// signal seqnum
+								interrupted = true;
+								co_return;
 							}
+							co_await async::suspend_indefinitely(c);
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
 							k = co_await epoll::wait(epfile.get(), events, 16, c);
@@ -3100,25 +3098,26 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 					assert(timeout > 0);
 					co_await async::race_and_cancel(
 						async::lambda([&](auto c) -> async::result<void> {
+							// if the timeout runs to completion, i.e. the sleep does not return
+							// false to signal cancellation, we DO NOT consider the call to have
+							// been interrupted.
 							co_await helix::sleepFor(static_cast<uint64_t>(timeout), c);
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
 							co_await async::suspend_indefinitely(c, cancelEvent);
+							// if the cancelEvent was raised, we consider this wait to have been
+							// interrupted.
 							if (async::cancellation_token{cancelEvent}.is_cancellation_requested())
 								interrupted = true;
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
-							if (req.has_signal_seq()) {
-								if (self->enteredSignalSeq() == req.signal_seq()) {
-									auto [newSeq, active] = co_await self->threadGroup()->signalContext()->pollSignal(req.signal_seq(), ~self->signalMask(), c);
-									if (active)
-										interrupted = true;
-								} else {
-									interrupted = true;
-								}
-							} else {
-								co_await async::suspend_indefinitely(c);
+							if (req.has_signal_seq() && self->enteredSignalSeq() != req.signal_seq()) {
+								// a signal was already raised since the request's
+								// signal seqnum
+								interrupted = true;
+								co_return;
 							}
+							co_await async::suspend_indefinitely(c);
 						}),
 						async::lambda([&](auto c) -> async::result<void> {
 							k = co_await epoll::wait(epfile.get(), events, 16, c);
