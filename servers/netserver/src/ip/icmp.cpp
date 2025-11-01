@@ -167,19 +167,25 @@ struct IcmpSocket {
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 	pollWait(void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
 		auto self = static_cast<IcmpSocket *>(obj);
-		(void)mask; // TODO: utilize mask.
+		int edges = 0;
 
 		if(past_seq > self->currentSeq_)
 			co_return protocols::fs::Error::illegalArguments;
-		while(past_seq == self->currentSeq_ && !cancellation.is_cancellation_requested())
-			co_await self->statusBell_.async_wait(cancellation);
 
-		// For now making sockets always writable is sufficient.
-		int edges = EPOLLOUT;
-		if(self->inSeq_ > past_seq)
-			edges |= EPOLLIN;
+		while(true) {
+			// For now making sockets always writable is sufficient.
+			edges = EPOLLOUT;
+			if(self->inSeq_ > past_seq)
+				edges |= EPOLLIN;
 
-		co_return protocols::fs::PollWaitResult(self->currentSeq_, edges);
+			if (edges & mask)
+				break;
+
+			if (!co_await self->statusBell_.async_wait(cancellation))
+				break;
+		}
+
+		co_return protocols::fs::PollWaitResult(self->currentSeq_, edges & mask);
 	}
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>

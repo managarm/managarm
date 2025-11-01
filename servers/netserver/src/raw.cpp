@@ -159,18 +159,23 @@ async::result<frg::expected<protocols::fs::Error>> RawSocket::setSocketOption(vo
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> RawSocket::pollWait(
 		void *obj, uint64_t past_seq, int mask, async::cancellation_token cancellation) {
 	auto self = static_cast<RawSocket *>(obj);
-	(void)mask; // TODO: utilize mask.
-
 	assert(past_seq <= self->_currentSeq);
-	while(past_seq == self->_currentSeq && !cancellation.is_cancellation_requested())
-		co_await self->_statusBell.async_wait(cancellation);
+	int edges = 0;
 
-	// For now making sockets always writable is sufficient.
-	int edges = EPOLLOUT;
-	if(self->_inSeq > past_seq)
-		edges |= EPOLLIN;
+	while(true) {
+		// For now making sockets always writable is sufficient.
+		edges = EPOLLOUT;
+		if(self->_inSeq > past_seq)
+			edges |= EPOLLIN;
 
-	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges);
+		if (edges & mask)
+			break;
+
+		if (!co_await self->_statusBell.async_wait(cancellation))
+			break;
+	}
+
+	co_return protocols::fs::PollWaitResult(self->_currentSeq, edges & mask);
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>> RawSocket::pollStatus(void *obj) {

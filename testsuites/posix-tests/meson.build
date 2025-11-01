@@ -24,6 +24,7 @@ src = [
 	'src/path-resolution.cpp',
 	'src/pthread-fork-wait.cpp',
 	'src/thread.cpp',
+	'src/poll.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep], install : true)
