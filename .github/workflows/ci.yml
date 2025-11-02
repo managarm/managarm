@@ -13,7 +13,7 @@ jobs:
             bootstrap-commit: ${{ steps.head.outputs.bootstrap-commit }}
             mlibc-commit: ${{ steps.head.outputs.mlibc-commit }}
             caching-key: ${{ steps.head.outputs.caching-key }}
-            corresponding-bootstrap: ${{ steps.head.outputs.corresponding-bootstrap }}
+            corresponding-bootstrap: ${{ steps.bootstrap-check.outputs.corresponding-bootstrap }}
         steps:
           - id: head
             name: Get HEAD of bootstrap-managarm
@@ -40,7 +40,8 @@ jobs:
                 set -x
                 curl -o rootfs.tar.gz https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz
                 tar -xzf rootfs.tar.gz
-          - name: Check for corresponding bootstrap-managarm PR
+          - id: bootstrap-check
+            name: Check for corresponding bootstrap-managarm PR
             env:
               PR_BODY: ${{ github.event.pull_request.body }}
             run: |
