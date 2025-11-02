@@ -2720,8 +2720,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 
+			// POSIX: if the calling process is already a group leader, EPERM.
 			if(self->pgPointer()->getSession()->getSessionId() == self->pid()) {
-				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 				continue;
 			}
 
