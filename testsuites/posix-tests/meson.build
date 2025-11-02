@@ -27,4 +27,4 @@ src = [
 	'src/poll.cpp',
 ]
 
-executable('posix-tests', src, dependencies: [cli11_dep], install : true)
+executable('posix-tests', src, dependencies: [cli11_dep, frigg], install : true)

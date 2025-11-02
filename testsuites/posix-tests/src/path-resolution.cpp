@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <vector>
 
+#include <frg/scope_exit.hpp>
+
 #include "testsuite.hpp"
 
 DEFINE_TEST(mkdir_trailing_dot, ([] {
@@ -45,8 +47,14 @@ DEFINE_TEST(mkdir_trailing_dot, ([] {
 	assert(ret == -1);
 	assert(errno == ENAMETOOLONG);
 
+	struct rlimit oldlimit{};
+	getrlimit(RLIMIT_NOFILE, &oldlimit);
 	struct rlimit limit{32, 32};
 	setrlimit(RLIMIT_NOFILE, &limit);
+
+	frg::scope_exit resetRlimit{[&] {
+		setrlimit(RLIMIT_NOFILE, &oldlimit);
+	}};
 
 	bool gotEMFILE = false;
 	std::vector<int> fds;

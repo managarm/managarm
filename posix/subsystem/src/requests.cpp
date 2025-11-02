@@ -2720,8 +2720,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			managarm::posix::SvrResponse resp;
 
+			// POSIX: if the calling process is already a group leader, EPERM.
 			if(self->pgPointer()->getSession()->getSessionId() == self->pid()) {
-				co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
+				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 				continue;
 			}
 
@@ -3815,32 +3816,47 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			logRequest(logRequests, "SET_PGID");
 
 			std::shared_ptr<Process> target;
-			if(req->pid()) {
+
+			if (req->pid() < 0) {
+				// POSIX: reject negative `pid` (or implementation-unsupported) values with EINVAL
+				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				continue;
+			} else if (req->pid() > 0) {
 				target = Process::findProcess(req->pid());
-				if(!target) {
+				if (!target) {
 					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+
+				auto isSelf = req->pid() == self->pid();
+				auto isChild = (!isSelf && target->getParent() && target->getParent()->pid() == self->pid());
+
+				// POSIX: if `pid` is not the PID of the calling process or its children, ESRCH.
+				if (!isSelf && !isChild) {
+					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					continue;
+				}
+
+				// POSIX: if target process is not in the same session, EPERM.
+				if (target->pgPointer()->getSession() != self->pgPointer()->getSession()) {
+					co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+					continue;
+				}
+
+				// POSIX: if `pid` matches the process ID of a child and the child has successfully
+				// executed one of the `exec*` functions, return EACCES.
+				if (isChild && target->didExecute()) {
+					co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 					continue;
 				}
 			} else {
 				target = self;
 			}
 
-			if(target->pgPointer()->getSession() != self->pgPointer()->getSession()) {
+			// POSIX: We can't change the process group ID of the session leader, EPERM
+			if (target->pid() == target->pgPointer()->getSession()->getSessionId()) {
 				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 				continue;
-			}
-
-			// We can't change the process group ID of the session leader
-			if(target->pid() == target->pgPointer()->getSession()->getSessionId()) {
-				co_await sendErrorResponse(managarm::posix::Errors::INSUFFICIENT_PERMISSION);
-				continue;
-			}
-
-			if(target->getParent()->pid() == self->pid()) {
-				if(target->didExecute()) {
-					co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
-					continue;
-				}
 			}
 
 			std::shared_ptr<ProcessGroup> group;
