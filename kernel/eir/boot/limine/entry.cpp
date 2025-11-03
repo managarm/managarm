@@ -26,19 +26,24 @@ namespace {
 	    .response = nullptr,                                                                       \
 	}
 
-[[gnu::used, gnu::section(".requestsStartMarker")]] volatile LIMINE_REQUESTS_START_MARKER;
-[[gnu::used, gnu::section(".requests")]] volatile LIMINE_BASE_REVISION(3);
-LIMINE_REQUEST(memmap_request, LIMINE_MEMMAP_REQUEST, 0);
-LIMINE_REQUEST(hhdm_request, LIMINE_HHDM_REQUEST, 0);
-LIMINE_REQUEST(riscv_bsp_hartid_request, LIMINE_RISCV_BSP_HARTID_REQUEST, 0);
-LIMINE_REQUEST(framebuffer_request, LIMINE_FRAMEBUFFER_REQUEST, 1);
-LIMINE_REQUEST(module_request, LIMINE_MODULE_REQUEST, 0);
-LIMINE_REQUEST(kernel_file_request, LIMINE_KERNEL_FILE_REQUEST, 0);
-LIMINE_REQUEST(kernel_address_request, LIMINE_KERNEL_ADDRESS_REQUEST, 0);
-LIMINE_REQUEST(rsdp_request, LIMINE_RSDP_REQUEST, 0);
-LIMINE_REQUEST(dtb_request, LIMINE_DTB_REQUEST, 0);
-LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST, 0);
-[[gnu::used, gnu::section(".requestsEndMarker")]] volatile LIMINE_REQUESTS_END_MARKER;
+[[gnu::used, gnu::section(".requestsStartMarker")]] volatile uint64_t start_marker[] =
+    LIMINE_REQUESTS_START_MARKER;
+[[gnu::used, gnu::section(".requests")]] volatile uint64_t base_revision[] =
+    LIMINE_BASE_REVISION(4);
+
+LIMINE_REQUEST(memmap_request, LIMINE_MEMMAP_REQUEST_ID, 0);
+LIMINE_REQUEST(hhdm_request, LIMINE_HHDM_REQUEST_ID, 0);
+LIMINE_REQUEST(riscv_bsp_hartid_request, LIMINE_RISCV_BSP_HARTID_REQUEST_ID, 0);
+LIMINE_REQUEST(framebuffer_request, LIMINE_FRAMEBUFFER_REQUEST_ID, 1);
+LIMINE_REQUEST(module_request, LIMINE_MODULE_REQUEST_ID, 0);
+LIMINE_REQUEST(executable_file_request, LIMINE_EXECUTABLE_FILE_REQUEST_ID, 0);
+LIMINE_REQUEST(executable_address_request, LIMINE_EXECUTABLE_ADDRESS_REQUEST_ID, 0);
+LIMINE_REQUEST(rsdp_request, LIMINE_RSDP_REQUEST_ID, 0);
+LIMINE_REQUEST(dtb_request, LIMINE_DTB_REQUEST_ID, 0);
+LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST_ID, 0);
+
+[[gnu::used, gnu::section(".requestsEndMarker")]] volatile uint64_t end_marker[] =
+    LIMINE_REQUESTS_END_MARKER;
 
 initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
@@ -46,10 +51,10 @@ initgraph::Task obtainFirmwareTables{
     initgraph::Entails{getKernelLoadableStage(), acpi::getRsdpAvailableStage()},
     [] {
 	    if (rsdp_request.response) {
-		    eirRsdpAddr = reinterpret_cast<uint64_t>(rsdp_request.response->address);
+		    eirRsdpAddr = virtToPhys(rsdp_request.response->address);
 	    }
 	    if (smbios_request.response) {
-		    eirSmbios3Addr = reinterpret_cast<uint64_t>(smbios_request.response->entry_64);
+		    eirSmbios3Addr = static_cast<address_t>(smbios_request.response->entry_64);
 	    }
     }
 };
@@ -128,7 +133,7 @@ extern "C" void eirLimineMain(void) {
 	limineCaps.imageStart = reinterpret_cast<uintptr_t>(&eirImageFloor);
 	limineCaps.imageEnd = reinterpret_cast<uintptr_t>(&eirImageCeiling);
 
-	if (!LIMINE_BASE_REVISION_SUPPORTED)
+	if (!LIMINE_BASE_REVISION_SUPPORTED(base_revision))
 		panicLogger() << "eir-limine was not booted with correct base revision" << frg::endlog;
 
 	// Must be available before we can use virtToPhys below.
@@ -141,15 +146,15 @@ extern "C" void eirLimineMain(void) {
 		eir::infoLogger() << "Limine did not pass a DTB" << frg::endlog;
 	}
 
-	assert(kernel_file_request.response);
-	extendCmdline(frg::string_view{kernel_file_request.response->kernel_file->cmdline});
+	assert(executable_file_request.response);
+	extendCmdline(frg::string_view{executable_file_request.response->executable_file->string});
 
 	assert(module_request.response);
 	assert(module_request.response->module_count > 0);
 	auto initrd_file = module_request.response->modules[0];
 
 	initrd = initrd_file->address;
-	kernel_physical = kernel_address_request.response->physical_base;
+	kernel_physical = executable_address_request.response->physical_base;
 
 	// Enter a stack that is part of Eir's image.
 	// This ensures that we can still access the stack when paging in enabled.
