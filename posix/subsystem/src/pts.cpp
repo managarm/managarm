@@ -696,11 +696,35 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
+			if (req->pgid() < 0) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
 			auto creds = extractCreds.credentials();
 			auto process = findProcessWithCredentials(creds);
+			if (!cts.getSession()
+			    || process->pgPointer()->getSession()->getSessionId()
+			           != cts.getSession()->getSessionId()
+			    || !process->pgPointer()->getSession()->getControllingTerminal()
+			    || process->pgPointer()->getSession()->getControllingTerminal() != &cts) {
+
+				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
 			auto group = process->pgPointer()->getSession()->getProcessGroupById(req->pgid());
 			if(!group) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
 			} else {
 				Error ret = cts.getSession()->setForegroundGroup(group.get());
 				if(ret == Error::insufficientPermissions) {
@@ -711,10 +735,9 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 				}
 			}
 
-			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCGSID) {
@@ -995,6 +1018,7 @@ void MasterFile::handleClose() {
 	if (--_channel->masterCount == 0) {
 		_channel->currentSeq++;
 		_channel->statusBell.raise();
+		_channel->cts.issueSignalToForegroundGroup(SIGHUP, {});
 	}
 }
 
@@ -1035,7 +1059,7 @@ async::result<std::expected<size_t, Error>>
 SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
-	if(!maxLength)
+	if(!maxLength || _channel->masterCount == 0)
 		co_return size_t{0};
 
 	while(_channel->slaveQueue.empty()){
@@ -1067,6 +1091,8 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << std::format("posix: Write to tty {}\n", structName());
 
+	if(_channel->masterCount == 0)
+		co_return Error::ioError;
 	if(!length)
 		co_return {};
 
@@ -1099,7 +1125,7 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 		// For now making pts files always writable is sufficient.
 		edges = EPOLLOUT;
 		if(_channel->masterCount == 0)
-			edges |= EPOLLHUP;
+			edges |= EPOLLHUP | EPOLLERR | EPOLLIN;
 		if(_channel->slaveInSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -1118,7 +1144,7 @@ SlaveFile::pollStatus(Process *) {
 	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
 	if(_channel->masterCount == 0)
-		events |= EPOLLHUP;
+		events |= EPOLLHUP | EPOLLERR | EPOLLIN;
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 

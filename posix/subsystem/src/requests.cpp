@@ -3817,8 +3817,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			std::shared_ptr<Process> target;
 
-			if (req->pid() < 0) {
-				// POSIX: reject negative `pid` (or implementation-unsupported) values with EINVAL
+			if (req->pgid() < 0) {
+				// POSIX: reject negative `pgid` (or implementation-unsupported) values with EINVAL
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			} else if (req->pid() > 0) {
@@ -3859,13 +3859,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			std::shared_ptr<ProcessGroup> group;
 			// If pgid is 0, we're going to set it to the calling process's pid, use the target group.
-			if(req->pgid()) {
-				group = target->pgPointer()->getSession()->getProcessGroupById(req->pgid());
-			} else {
-				group = target->pgPointer();
-			}
+			auto resolvedPgid = req->pgid() ? req->pgid() : target->pid();
+			std::shared_ptr<ProcessGroup> group = target->pgPointer()->getSession()->getProcessGroupById(resolvedPgid);
 
 			if(group) {
 				// Found, do permission checking and join
@@ -3875,8 +3871,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(target->pid() == req->pgid() || !req->pgid()) {
 					target->pgPointer()->getSession()->spawnProcessGroup(target.get());
 				} else {
-					// Doesn't exists, and not requesting a make?
-					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
+					// POSIX: invalid `pgid` supplied, return EINVAL.
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 					continue;
 				}
 			}

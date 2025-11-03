@@ -1838,6 +1838,8 @@ Error ControllingTerminalState::assignSessionOf(Process *process) {
 	auto session = group->sessionPointer_.get();
 	if(process->getPidHull() != session->hull_.get())
 		return Error::illegalArguments; // Process is not a session leader.
+	if(associatedSession_ == session)
+		return Error::success;
 	if(associatedSession_)
 		return Error::insufficientPermissions;
 	if(session->ctsPointer_)
