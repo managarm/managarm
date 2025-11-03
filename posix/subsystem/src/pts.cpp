@@ -1035,7 +1035,7 @@ async::result<std::expected<size_t, Error>>
 SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) {
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
-	if(!maxLength)
+	if(!maxLength || _channel->masterCount == 0)
 		co_return size_t{0};
 
 	while(_channel->slaveQueue.empty()){
@@ -1067,6 +1067,8 @@ SlaveFile::writeAll(Process *, const void *data, size_t length) {
 	if(logReadWrite)
 		std::cout << std::format("posix: Write to tty {}\n", structName());
 
+	if(_channel->masterCount == 0)
+		co_return Error::ioError;
 	if(!length)
 		co_return {};
 
@@ -1099,7 +1101,7 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 		// For now making pts files always writable is sufficient.
 		edges = EPOLLOUT;
 		if(_channel->masterCount == 0)
-			edges |= EPOLLHUP;
+			edges |= EPOLLHUP | EPOLLERR | EPOLLIN;
 		if(_channel->slaveInSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -1118,7 +1120,7 @@ SlaveFile::pollStatus(Process *) {
 	// For now making pts files always writable is sufficient.
 	int events = EPOLLOUT;
 	if(_channel->masterCount == 0)
-		events |= EPOLLHUP;
+		events |= EPOLLHUP | EPOLLERR | EPOLLIN;
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 
