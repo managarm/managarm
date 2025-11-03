@@ -71,21 +71,8 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *o
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
 	auto process = findProcessWithCredentials(credentials);
-	auto result = co_await self->writeAll(process.get(), buffer, length);
-	if(!result) {
-		switch(result.error()) {
-		case Error::noSpaceLeft:
-			co_return protocols::fs::Error::noSpaceLeft;
-		case Error::notConnected:
-			co_return protocols::fs::Error::notConnected;
-		case Error::illegalOperationTarget:
-			co_return protocols::fs::Error::illegalOperationTarget;
-		default:
-			assert(!"Unexpected error from writeAll()");
-			__builtin_unreachable();
-		}
-	}
-	co_return result.value();
+	co_return (co_await self->writeAll(process.get(), buffer, length))
+		.map_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials,
