@@ -696,11 +696,35 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			);
 			HEL_CHECK(extractCreds.error());
 
+			if (req->pgid() < 0) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
 			auto creds = extractCreds.credentials();
 			auto process = findProcessWithCredentials(creds);
+			if (!cts.getSession()
+			    || process->pgPointer()->getSession()->getSessionId()
+			           != cts.getSession()->getSessionId()
+			    || !process->pgPointer()->getSession()->getControllingTerminal()
+			    || process->pgPointer()->getSession()->getControllingTerminal() != &cts) {
+
+				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			}
+
 			auto group = process->pgPointer()->getSession()->getProcessGroupById(req->pgid());
 			if(!group) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
 			} else {
 				Error ret = cts.getSession()->setForegroundGroup(group.get());
 				if(ret == Error::insufficientPermissions) {
@@ -711,10 +735,9 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 				}
 			}
 
-			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
 				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCGSID) {
