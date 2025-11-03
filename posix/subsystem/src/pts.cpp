@@ -1018,6 +1018,7 @@ void MasterFile::handleClose() {
 	if (--_channel->masterCount == 0) {
 		_channel->currentSeq++;
 		_channel->statusBell.raise();
+		_channel->cts.issueSignalToForegroundGroup(SIGHUP, {});
 	}
 }
 
