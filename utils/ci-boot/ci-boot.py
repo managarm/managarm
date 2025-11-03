@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import os
 
 DEBUG = False
 
@@ -22,6 +23,18 @@ class CiBoot:
                 if msg["m"] == "launch":
                     script = msg["script"]
                     await self._launch(script)
+                elif msg["m"] == "download":
+                    path = msg["path"]
+                    with open(path, "rb") as f:
+                        while True:
+                            data = f.read(4096)
+                            if data:
+                                self._emit({"m": "download-data", "data": base64.b64encode(data).decode("ascii"), "path": path})
+                            else:
+                                break
+                elif msg["m"] == "done":
+                    self._emit({"m": "done"})
+                    return
                 else:
                     raise RuntimeError("Bad message type: " + msg["m"])
             except Exception as e:
