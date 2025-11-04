@@ -484,7 +484,7 @@ public:
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
 	ThreadGroup *threadGroup() { return tgPointer_; }
-	std::shared_ptr<ProcessGroup> pgPointer() { return _pgPointer; }
+	std::shared_ptr<ProcessGroup> pgPointer();
 
 	void setSignalMask(uint64_t mask) {
 		_signalMask = mask;
@@ -594,9 +594,6 @@ private:
 	ThreadGroup *tgPointer_;
 	frg::default_list_hook<Process> tgHook_;
 
-	std::shared_ptr<ProcessGroup> _pgPointer;
-	frg::default_list_hook<Process> hook_;
-
 	helix::UniqueDescriptor _threadPageMemory;
 	helix::Mapping _threadPageMapping;
 
@@ -626,11 +623,17 @@ std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
 
 struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	friend struct Process;
+	friend struct ProcessGroup;
 
 	ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent);
+	~ThreadGroup();
 
 	static std::shared_ptr<ThreadGroup> init(std::shared_ptr<PidHull> hull);
 	static ThreadGroup *create(std::shared_ptr<PidHull> hull, ThreadGroup *parent);
+
+	PidHull *getHull() const {
+		return hull_.get();
+	}
 
 	pid_t pid() const {
 		return hull_->getPid();
@@ -639,6 +642,8 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	ThreadGroup *getParent() {
 		return parent_;
 	}
+
+	std::shared_ptr<ProcessGroup> pgPointer() { return pgPointer_; }
 
 	void associateProcess(std::shared_ptr<Process> process);
 	async::result<void> handleThreadExit(Process *process, uint8_t code);
@@ -832,6 +837,9 @@ private:
 
 	std::shared_ptr<SignalContext> _signalContext;
 
+	std::shared_ptr<ProcessGroup> pgPointer_;
+	frg::default_list_hook<ThreadGroup> pgHook_;
+
 	int _uid;
 	int _euid;
 	int _gid;
@@ -880,11 +888,13 @@ struct ProcessGroup : std::enable_shared_from_this<ProcessGroup> {
 
 	~ProcessGroup();
 
-	void reassociateProcess(Process *process);
+	void reassociateProcess(ThreadGroup *process);
 
-	void dropProcess(Process *process);
+	void dropProcess(ThreadGroup *process);
 
 	void issueSignalToGroup(int sn, SignalInfo info);
+
+	bool isOrphaned();
 
 	PidHull *getHull() {
 		return hull_.get();
@@ -896,11 +906,11 @@ private:
 	std::shared_ptr<PidHull> hull_;
 
 	frg::intrusive_list<
-		Process,
+		ThreadGroup,
 		frg::locate_member<
-			Process,
-			frg::default_list_hook<Process>,
-			&Process::hook_
+			ThreadGroup,
+			frg::default_list_hook<ThreadGroup>,
+			&ThreadGroup::pgHook_
 		>
 	> members_;
 
@@ -917,9 +927,9 @@ struct TerminalSession : std::enable_shared_from_this<TerminalSession> {
 
 	pid_t getSessionId();
 
-	static std::shared_ptr<TerminalSession> initializeNewSession(Process *sessionLeader);
+	static std::shared_ptr<TerminalSession> initializeNewSession(ThreadGroup *sessionLeader);
 
-	std::shared_ptr<ProcessGroup> spawnProcessGroup(Process *groupLeader);
+	std::shared_ptr<ProcessGroup> spawnProcessGroup(ThreadGroup *groupLeader);
 
 	std::shared_ptr<ProcessGroup> getProcessGroupById(pid_t id);
 

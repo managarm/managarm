@@ -677,7 +677,11 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 					resp.set_pid(group->getHull()->getPid());
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 				} else {
-					resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+					// If there is no foreground process group, tcgetpgrp() shall return
+					// a value greater than 1 that does not match the process group ID of any
+					// existing process group.
+					resp.set_pid(INT_MAX);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
 				}
 			}
 
@@ -726,12 +730,26 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 			if(!group) {
 				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
 			} else {
-				Error ret = cts.getSession()->setForegroundGroup(group.get());
-				if(ret == Error::insufficientPermissions) {
-					resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+				auto sigttouHandler = process->threadGroup()->signalContext()->getHandler(SIGTTOU);
+				if (process->pgPointer().get() == process->pgPointer()->getSession()->getForegroundGroup()
+				    || sigttouHandler.disposition == SignalDisposition::ignore
+				    || (process->signalMask() & (1 << (SIGTTOU - 1)))) {
+					// POSIX: If the calling thread is blocking SIGTTOU signals or the process is
+					// ignoring SIGTTOU signals, the process shall be allowed to perform
+					// the operation.
+
+					auto ret = cts.getSession()->setForegroundGroup(group.get());
+					resp.set_error(ret | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+				} else if (process->pgPointer()->isOrphaned()) {
+					resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(
+						conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+					);
+					HEL_CHECK(send_resp.error());
+					co_return;
 				} else {
-					assert(ret == Error::success);
-					resp.set_error(managarm::fs::Errors::SUCCESS);
+					// TODO: if process is in a background PG, send SIGTTOU
+					// process->pgPointer()->issueSignalToGroup(SIGTTOU, {});
 				}
 			}
 

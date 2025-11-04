@@ -2158,6 +2158,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(file->isTerminal() &&
 				!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) &&
+				self->pgPointer() &&
 				self->pgPointer()->getSession()->getSessionId() == (pid_t)self->pid() &&
 				self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
 				// POSIX 1003.1-2017 11.1.3
@@ -2757,7 +2758,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			auto session = TerminalSession::initializeNewSession(self.get());
+			auto session = TerminalSession::initializeNewSession(self->threadGroup());
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 			resp.set_sid(session->getSessionId());
@@ -3846,18 +3847,20 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			logRequest(logRequests, "SET_PGID");
 
-			std::shared_ptr<Process> target;
+			ThreadGroup *target = nullptr;
 
 			if (req->pgid() < 0) {
 				// POSIX: reject negative `pgid` (or implementation-unsupported) values with EINVAL
 				co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 				continue;
 			} else if (req->pid() > 0) {
-				target = Process::findProcess(req->pid());
-				if (!target) {
+				auto proc = Process::findProcess(req->pid());
+				if (!proc) {
 					co_await sendErrorResponse(managarm::posix::Errors::NO_SUCH_RESOURCE);
 					continue;
 				}
+
+				target = proc->threadGroup();
 
 				auto isSelf = req->pid() == self->pid();
 				auto isChild = (!isSelf && target->getParent() && target->getParent()->pid() == self->pid());
@@ -3876,12 +3879,12 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 				// POSIX: if `pid` matches the process ID of a child and the child has successfully
 				// executed one of the `exec*` functions, return EACCES.
-				if (isChild && target->didExecute()) {
+				if (isChild && proc->didExecute()) {
 					co_await sendErrorResponse(managarm::posix::Errors::ACCESS_DENIED);
 					continue;
 				}
 			} else {
-				target = self;
+				target = self->threadGroup();
 			}
 
 			// POSIX: We can't change the process group ID of the session leader, EPERM
@@ -3896,11 +3899,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			if(group) {
 				// Found, do permission checking and join
-				group->reassociateProcess(target.get());
+				group->reassociateProcess(target);
 			} else {
 				// Not found, making it if pgid and pid match, or if pgid is 0, indicating that we should make one
 				if(target->pid() == req->pgid() || !req->pgid()) {
-					target->pgPointer()->getSession()->spawnProcessGroup(target.get());
+					target->pgPointer()->getSession()->spawnProcessGroup(target);
 				} else {
 					// POSIX: invalid `pgid` supplied, return EINVAL.
 					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);

@@ -963,7 +963,6 @@ Process::~Process() {
 	}
 
 	assert(!tgPointer_);
-	_pgPointer->dropProcess(this);
 }
 
 ThreadGroup *Process::getParent() {
@@ -986,6 +985,10 @@ int Process::pid() {
 int Process::tid() {
 	assert(hull_);
 	return hull_->getPid();
+}
+
+std::shared_ptr<ProcessGroup> Process::pgPointer() {
+	return threadGroup()->pgPointer();
 }
 
 async::result<void> Process::cancelEvent() {
@@ -1149,7 +1152,7 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	process->_fileContext = FileContext::create();
 	process->threadGroup()->_signalContext = SignalContext::create();
 
-	TerminalSession::initializeNewSession(process.get());
+	TerminalSession::initializeNewSession(threadGroup.get());
 
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
@@ -1226,7 +1229,7 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
 
-	original->_pgPointer->reassociateProcess(process.get());
+	original->pgPointer()->reassociateProcess(threadGroup);
 
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
@@ -1317,6 +1320,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	} else {
 		auto pidHull = std::make_shared<PidHull>(nextPid++);
 		threadGroup = ThreadGroup::create(pidHull, parentPtr);
+		original->pgPointer()->reassociateProcess(threadGroup);
 	}
 
 	auto tidHull = std::make_shared<PidHull>(nextPid++);
@@ -1355,9 +1359,6 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 		if (original->isAltStackEnabled())
 			process->setAltStackSp(original->altStackSp(), original->altStackSize());
 	}
-
-	// TODO: ProcessGroups should probably store ThreadGroups and not processes.
-	original->_pgPointer->reassociateProcess(process.get());
 
 	HelHandle thread_memory;
 	HEL_CHECK(helAllocateMemory(0x1000, 0, nullptr, &thread_memory));
@@ -1600,6 +1601,10 @@ ThreadGroup::ThreadGroup(std::shared_ptr<PidHull> hull, ThreadGroup *parent)
 
 }
 
+ThreadGroup::~ThreadGroup() {
+	pgPointer()->dropProcess(this);
+}
+
 std::shared_ptr<ThreadGroup> ThreadGroup::init(std::shared_ptr<PidHull> hull) {
 	initThreadGroup = std::make_shared<ThreadGroup>(std::move(hull), nullptr);
 	return initThreadGroup;
@@ -1758,25 +1763,42 @@ ProcessGroup::~ProcessGroup() {
 	sessionPointer_->dropGroup(this);
 }
 
-void ProcessGroup::reassociateProcess(Process *process) {
-	if(process->_pgPointer) {
-		auto oldGroup = process->_pgPointer.get();
+void ProcessGroup::reassociateProcess(ThreadGroup *process) {
+	if(process->pgPointer()) {
+		auto oldGroup = process->pgPointer().get();
 		oldGroup->members_.erase(oldGroup->members_.iterator_to(process));
 	}
-	process->_pgPointer = shared_from_this();
+	process->pgPointer_ = shared_from_this();
 	members_.push_back(process);
 }
 
-void ProcessGroup::dropProcess(Process *process) {
-	assert(process->_pgPointer.get() == this);
+void ProcessGroup::dropProcess(ThreadGroup *process) {
+	assert(process->pgPointer().get() == this);
 	members_.erase(members_.iterator_to(process));
 	// Note: this assignment can destruct 'this'.
-	process->_pgPointer = nullptr;
+	process->pgPointer_ = nullptr;
 }
 
 void ProcessGroup::issueSignalToGroup(int sn, SignalInfo info) {
 	for(auto processRef : members_)
-		processRef->threadGroup()->signalContext()->issueSignal(sn, info);
+		processRef->signalContext()->issueSignal(sn, info);
+}
+
+bool ProcessGroup::isOrphaned() {
+	for (auto processRef : members_) {
+		// If a member process has a parent that
+		// a) is in the same session as the ProcessGroup, and
+		// b) is not a member of the process group,
+		// then the ProcessGroup is NOT orphaned
+		if (processRef->getParent()
+		    && processRef->getParent()->pgPointer()->getSession() == getSession()
+		    && processRef->pgPointer() != getHull()->getProcessGroup())
+			return false;
+	}
+
+	// If no parent-child relationships (yuck) can connect this group to the rest of the
+	// session, we are orphaned.
+	return true;
 }
 
 TerminalSession::TerminalSession(std::shared_ptr<PidHull> hull)
@@ -1791,16 +1813,16 @@ pid_t TerminalSession::getSessionId() {
 	return hull_->getPid();
 }
 
-std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(Process *sessionLeader) {
-	auto session = std::make_shared<TerminalSession>(sessionLeader->getPidHull()->shared_from_this());
+std::shared_ptr<TerminalSession> TerminalSession::initializeNewSession(ThreadGroup *sessionLeader) {
+	auto session = std::make_shared<TerminalSession>(sessionLeader->getHull()->shared_from_this());
 	auto group = session->spawnProcessGroup(sessionLeader);
 	session->foregroundGroup_ = group.get();
 	session->hull_->initializeTerminalSession(session.get());
 	return session;
 }
 
-std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(Process *groupLeader) {
-	auto group = std::make_shared<ProcessGroup>(groupLeader->getPidHull()->shared_from_this());
+std::shared_ptr<ProcessGroup> TerminalSession::spawnProcessGroup(ThreadGroup *groupLeader) {
+	auto group = std::make_shared<ProcessGroup>(groupLeader->getHull()->shared_from_this());
 	group->reassociateProcess(groupLeader);
 	group->sessionPointer_ = shared_from_this();
 	groups_.push_back(group.get());
@@ -1834,7 +1856,7 @@ Error TerminalSession::setForegroundGroup(ProcessGroup *group) {
 }
 
 Error ControllingTerminalState::assignSessionOf(Process *process) {
-	auto group = process->_pgPointer.get();
+	auto group = process->pgPointer().get();
 	auto session = group->sessionPointer_.get();
 	if(process->getPidHull() != session->hull_.get())
 		return Error::illegalArguments; // Process is not a session leader.
