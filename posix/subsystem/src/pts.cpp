@@ -657,6 +657,34 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(sendResp.error());
+		}else if(req->command() == TIOCNOTTY) {
+			managarm::fs::GenericIoctlReply resp;
+
+			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::extractCredentials()
+			);
+			HEL_CHECK(extractCreds.error());
+
+			auto creds = extractCreds.credentials();
+			auto process = findProcessWithCredentials(creds);
+
+			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
+				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+			} else {
+				auto group = cts.getSession()->getForegroundGroup();
+				if (group && process->pgPointer()->getSession()->getSessionId() == process->pid())
+					group->issueSignalToGroup(SIGHUP, {});
+
+				cts.dropSession(process->pgPointer()->getSession());
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCGPGRP) {
 			managarm::fs::GenericIoctlReply resp;
 
@@ -980,7 +1008,8 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			);
 			HEL_CHECK(send_resp.error());
 		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
-				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID) {
+				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID
+				|| req->command() == TIOCNOTTY) {
 			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
 		}else if(req->command() == TCGETS) {
 			managarm::fs::GenericIoctlReply resp;
@@ -1324,7 +1353,8 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			UserSignal info;
 			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
 		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
-				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID) {
+				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID
+				|| req->command() == TIOCNOTTY) {
 			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
 		}else if(req->command() == TIOCINQ) {
 			managarm::fs::GenericIoctlReply resp;
