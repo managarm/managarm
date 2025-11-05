@@ -1021,11 +1021,15 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 		}else{
 			std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req->command()
 					<< "\e[39m" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}else{
 		msg.reset();
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl message " << id
 				<< "\e[39m" << std::endl;
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	}
 }
 
@@ -1355,11 +1359,15 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 		}else{
 			std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req->command()
 					<< "\e[39m" << std::endl;
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}else{
 		msg.reset();
 		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl message " << id
 				<< "\e[39m" << std::endl;
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	}
 }
 
