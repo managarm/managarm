@@ -446,7 +446,7 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 			icmp.serveSocket(std::move(lane));
 			break;
 		default:
-			udp.serveSocket(std::move(lane));
+			udp.serveSocket(flags, std::move(lane));
 			break;
 		}
 		return managarm::fs::Errors::SUCCESS;

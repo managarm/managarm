@@ -142,14 +142,14 @@ auto checkAddress(const void *addr_ptr, size_t addr_len, Endpoint &e) {
 using namespace protocols::fs;
 
 struct Udp4Socket {
-	Udp4Socket(Udp4 *parent) : parent_(parent) {}
+	Udp4Socket(Udp4 *parent, bool nonBlock) : parent_(parent), nonBlock_(nonBlock) {}
 
 	~Udp4Socket() {
 		parent_->unbind(local_);
 	}
 
-	static auto make_socket(Udp4 *parent) {
-		auto s = smarter::make_shared<Udp4Socket>(parent);
+	static auto make_socket(Udp4 *parent, int flags) {
+		auto s = smarter::make_shared<Udp4Socket>(parent, flags & SOCK_NONBLOCK);
 		s->holder_ = s;
 		return s;
 	}
@@ -244,7 +244,7 @@ struct Udp4Socket {
 		using arch::endian;
 
 		auto self = static_cast<Udp4Socket *>(obj);
-		if(self->queue_.empty() && flags & MSG_DONTWAIT)
+		if(self->queue_.empty() && (flags & MSG_DONTWAIT || self->nonBlock_))
 			co_return Error::wouldBlock;
 
 		auto element = co_await self->queue_.async_get();
@@ -441,12 +441,40 @@ struct Udp4Socket {
 		co_return {};
 	}
 
+	static async::result<void> setFileFlags(void *object, int flags) {
+		auto self = static_cast<Udp4Socket *>(object);
+		std::cout << "posix: setFileFlags on udp socket only supports O_NONBLOCK" << std::endl;
+		if(flags & ~O_NONBLOCK) {
+			std::cout << "posix: setFileFlags on udp socket called with unknown flags" << std::endl;
+			co_return;
+		}
+		if(flags & O_NONBLOCK)
+			self->nonBlock_ = true;
+		else
+			self->nonBlock_ = false;
+		co_return;
+	}
+
+
+	static async::result<int> getFileFlags(void *object) {
+		auto self = static_cast<Udp4Socket *>(object);
+		int flags = O_RDWR;
+
+		if(self->nonBlock_)
+			flags |= O_NONBLOCK;
+
+		co_return flags;
+	}
+
+
 	constexpr static FileOperations ops {
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
 		.connect = &connect,
 		.sockname = &sockname,
+		.getFileFlags = &getFileFlags,
+		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
 		.setSocketOption = &setSocketOption,
@@ -492,6 +520,7 @@ private:
 	uint64_t _inSeq;
 
 	bool ipPacketInfo_ = false;
+	bool nonBlock_ = false;
 };
 
 void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
@@ -534,9 +563,9 @@ bool Udp4::unbind(Endpoint e) {
 	return binds.erase(e) != 0;
 }
 
-void Udp4::serveSocket(helix::UniqueLane lane) {
+void Udp4::serveSocket(int flags, helix::UniqueLane lane) {
 	using protocols::fs::servePassthrough;
-	auto sock = Udp4Socket::make_socket(this);
+	auto sock = Udp4Socket::make_socket(this, flags & SOCK_NONBLOCK);
 	async::detach(servePassthrough(std::move(lane), std::move(sock),
 			&Udp4Socket::ops));
 }
