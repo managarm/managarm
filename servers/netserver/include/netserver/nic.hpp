@@ -10,6 +10,7 @@
 #include <optional>
 #include <format>
 #include <ostream>
+#include <print>
 #include <protocols/mbus/client.hpp>
 #include <unordered_map>
 
@@ -106,8 +107,12 @@ protected:
 	bool broadcast_ = false;
 	bool l1_up_ = false;
 
+	int extra_iff_flags_ = 0;
+
 	bool raw_ip_ = false;
 };
+
+std::shared_ptr<Link> getLoopback();
 
 async::detached runDevice(std::shared_ptr<Link> dev);
 } // namespace nic

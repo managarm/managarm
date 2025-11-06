@@ -8,6 +8,7 @@
 #include <frg/formatting.hpp>
 #include <frg/logging.hpp>
 #include <net/if.h>
+#include <print>
 
 #include "ip/arp.hpp"
 #include "ip/ip4.hpp"
@@ -88,6 +89,8 @@ std::string Link::name() {
 		prefixedNames_.at(namePrefix_).free(nameId_);
 		nameId_ = -1;
 		namePrefix_ = {};
+	} else if (namePrefix_ == "lo") {
+		return "lo";
 	}
 
 	/* Construct the name from prefix and ID, if available */
@@ -140,7 +143,7 @@ unsigned int Link::iff_flags() {
 	if(l1_up_)
 		flags |= IFF_LOWER_UP;
 
-	return flags;
+	return flags | extra_iff_flags_;
 }
 
 async::detached runDevice(std::shared_ptr<nic::Link> dev) {
@@ -175,4 +178,49 @@ async::detached runDevice(std::shared_ptr<nic::Link> dev) {
 		}
 	}
 }
+
+namespace {
+
+constexpr bool debugLoopback = false;
+
+class Loopback : public Link {
+public:
+	Loopback()
+	: Link(1500, nullptr) {
+		namePrefix_ = "lo";
+		raw_ip_ = true;
+		extra_iff_flags_ = IFF_LOOPBACK;
+	}
+
+	async::result<size_t> receive(arch::dma_buffer_view view) override {
+		auto buf = co_await queue_.async_get();
+		assert(buf); // Since async_get() is never cancelled.
+		auto chunk = std::min(view.size(), buf->size());
+		if (debugLoopback)
+			std::println("loopback: Received packet (size {})", chunk);
+		memcpy(view.data(), buf->data(), chunk);
+		co_return chunk;
+	}
+
+	async::result<void> send(const arch::dma_buffer_view view) override {
+		std::vector<std::byte> buf;
+		buf.resize(view.size());
+		memcpy(buf.data(), view.data(), view.size());
+		if (debugLoopback)
+			std::println("loopback: Sending packet (size {})", view.size());
+		queue_.put(std::move(buf));
+		co_return;
+	}
+
+private:
+	async::queue<std::vector<std::byte>, frg::stl_allocator> queue_;
+};
+
+} // namespace
+
+std::shared_ptr<Link> getLoopback() {
+	static std::shared_ptr<Loopback> singleton = std::make_shared<Loopback>();
+	return singleton;
+}
+
 } // namespace nic

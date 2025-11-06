@@ -83,6 +83,10 @@ async::result<frg::expected<protocols::fs::Error, size_t>> RawSocket::write(void
 	auto buf = self->link->allocateFrame(length);
 	arch::dma_buffer_view view{ buf.frame };
 	memcpy(view.data(), buffer, length);
+	if (self->link->rawIp()) {
+		std::println("netserver: Cannot send from raw socket to IP-only NIC");
+		co_return length;
+	}
 	co_await self->link->send(view);
 
 	co_return length;
