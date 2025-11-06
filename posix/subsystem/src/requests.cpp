@@ -622,17 +622,29 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			if(req->flags() & MAP_ANONYMOUS) {
 				assert(!req->rel_offset());
 
+				if(req->size() == 0) {
+					std::cout << "posix: VM_MAP with size 0 is not allowed" << std::endl;
+					co_await sendErrorResponse(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					continue;
+				}
+
+				// We round up to page size
+				size_t size = req->size();
+				if(size & 0xFFF) {
+					size = (req->size() + 0xFFF) & ~0xFFF;
+				}
+
 				if(copyOnWrite) {
 					result = co_await self->vmContext()->mapFile(hint,
 							{}, nullptr,
-							0, req->size(), true, nativeFlags);
+							0, size, true, nativeFlags);
 				}else{
 					HelHandle handle;
-					HEL_CHECK(helAllocateMemory(req->size(), 0, nullptr, &handle));
+					HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
 
 					result = co_await self->vmContext()->mapFile(hint,
 							helix::UniqueDescriptor{handle}, nullptr,
-							0, req->size(), false, nativeFlags);
+							0, size, false, nativeFlags);
 				}
 			}else{
 				auto file = self->fileContext()->getFile(req->fd());
@@ -713,7 +725,26 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::VM_UNMAP) {
 			logRequest(logRequests, "VM_UNMAP", "address={:#08x} size={:#x}", req.address(), req.size());
 
-			self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), req.size());
+			size_t size = req.size();
+
+			// Fail if address is not page-aligned or if the size is zero.
+			if(req.address() & 0xFFF || size == 0) {
+				managarm::posix::SvrResponse resp;
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				logBragiReply(resp);
+				continue;
+			}
+
+			// Align size to page size.
+			if(size & 0xFFF) {
+				size = (size + 0xFFF) & ~0xFFF;
+			}
+
+			self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);
 
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::SUCCESS);
