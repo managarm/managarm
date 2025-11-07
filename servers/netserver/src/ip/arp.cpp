@@ -18,6 +18,7 @@ struct ArpHeader {
 static_assert(sizeof(ArpHeader) == 8, "ARP leader struct must be 8 bytes");
 
 namespace {
+
 async::result<void> sendArp(uint16_t op,
 		uint32_t sender,
 		nic::MacAddress targetHw, uint32_t targetProto) {
@@ -66,9 +67,14 @@ async::result<void> sendArp(uint16_t op,
 
 	appendData(targetMac);
 	appendData(targetProto);
+	if (link->rawIp()) {
+		std::println("netserver: Cannot send ARP to IP-only NIC");
+		co_return;
+	}
 	co_await link->send(std::move(buffer.frame));
 }
-}
+
+} // namespace
 
 void Neighbours::feedArp(nic::MacAddress, arch::dma_buffer_view view, std::weak_ptr<nic::Link> link) {
 	using namespace nic;

@@ -850,6 +850,16 @@ int main() {
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 3));
 
+	auto loopbackLink = nic::getLoopback();
+	baseDeviceMap.insert({-1, loopbackLink});
+	ip4().setLink({INADDR_LOOPBACK, 8}, loopbackLink);
+	Ip4Router::Route loopbackRoute{{INADDR_LOOPBACK, 8}, loopbackLink};
+	loopbackRoute.type = RTN_LOCAL;
+	loopbackRoute.protocol = RTPROT_KERNEL;
+	loopbackRoute.scope = RT_SCOPE_HOST;
+	ip4Router().addRoute(loopbackRoute);
+	nic::runDevice(loopbackLink);
+
 	async::detach(protocols::svrctl::serveControl(&controlOps));
 	advertise();
 	async::run_forever(helix::currentDispatcher);
