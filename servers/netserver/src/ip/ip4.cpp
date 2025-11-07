@@ -50,14 +50,19 @@ std::optional<Route> Ip4Router::resolveRoute(uint32_t ip, std::shared_ptr<nic::L
 }
 
 bool operator<(const CidrAddress &lhs, const CidrAddress &rhs) {
-	return std::tie(lhs.prefix, lhs.ip) < std::tie(rhs.prefix, rhs.ip);
+	// We prefer the more specific network, i.e. the higher-valued prefix
+	return std::tie(rhs.prefix, lhs.ip) < std::tie(lhs.prefix, rhs.ip);
 }
 
 auto operator<=>(const Route &lhs, const Route &rhs) {
-	// bigger MTU is better, and hence sorts lower
-	return std::tie(lhs.network, lhs.metric, lhs.scope, rhs.mtu, lhs.type, lhs.protocol,
+	// This determines route sorting, where we order by the following criteria:
+	// - more specific network
+	// - lower metric (== cost)
+	// - higher `RT_SCOPE_*` value (so that we prefer blackholes -> host -> link -> universe etc.)
+	// - bigger MTU is better, and hence sorts lower
+	return std::tie(lhs.network, lhs.metric, rhs.scope, rhs.mtu, lhs.type,
 					lhs.family, lhs.gateway, lhs.source, lhs.flags) <=>
-		std::tie(rhs.network, rhs.metric, rhs.scope, lhs.mtu, rhs.type, rhs.protocol, rhs.family,
+		std::tie(rhs.network, rhs.metric, lhs.scope, lhs.mtu, rhs.type, rhs.family,
 				rhs.gateway, rhs.source, rhs.flags);
 }
 
