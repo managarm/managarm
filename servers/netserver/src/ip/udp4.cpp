@@ -331,6 +331,8 @@ struct Udp4Socket {
 		using arch::endian;
 
 		auto self = static_cast<Udp4Socket *>(obj);
+		if(self->shutdownReadSeq_)
+			co_return RecvData{{}, 0, 0, 0};
 		if(self->queue_.empty() && (flags & MSG_DONTWAIT || self->nonBlock_))
 			co_return Error::wouldBlock;
 
@@ -376,6 +378,9 @@ struct Udp4Socket {
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
+		if(self->shutdownWriteSeq_)
+			co_return protocols::fs::Error::brokenPipe;
+
 		Endpoint target;
 		auto source = self->local_;
 		if (addr_size != 0) {
@@ -470,8 +475,12 @@ struct Udp4Socket {
 		int edges = 0;
 
 		while(true) {
-			edges = EPOLLOUT;
+			edges = 0;
+			if(!(self->shutdownWriteSeq_ > past_seq))
+				edges |= EPOLLOUT;
 			if(self->_inSeq > past_seq)
+				edges |= EPOLLIN;
+			if(self->shutdownReadSeq_ > past_seq)
 				edges |= EPOLLIN;
 
 			if (edges & mask)
@@ -487,8 +496,12 @@ struct Udp4Socket {
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 	pollStatus(void *obj) {
 		auto self = static_cast<Udp4Socket *>(obj);
-		int events = EPOLLOUT;
+		int events = 0;
+		if(!self->shutdownWriteSeq_)
+			events |= EPOLLOUT;
 		if(!self->queue_.empty())
+			events |= EPOLLIN;
+		if(self->shutdownReadSeq_)
 			events |= EPOLLIN;
 
 		co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
@@ -554,6 +567,29 @@ struct Udp4Socket {
 		co_return flags;
 	}
 
+	static async::result<Error> shutdown(void *object, int how) {
+		auto self = static_cast<Udp4Socket *>(object);
+
+		if (self->remote_.family == AF_UNSPEC)
+			co_return Error::notConnected;
+
+		if (how == SHUT_RD) {
+			self->shutdownReadSeq_ = ++self->_currentSeq;
+		} else if (how == SHUT_WR) {
+			self->shutdownWriteSeq_ = ++self->_currentSeq;
+		} else if (how == SHUT_RDWR) {
+			++self->_currentSeq;
+			self->shutdownReadSeq_ = self->_currentSeq;
+			self->shutdownWriteSeq_ = self->_currentSeq;
+		} else {
+			std::println("posix: unexpected how={} for UDP socket shutdown", how);
+			co_return protocols::fs::Error::illegalArguments;
+		}
+
+		self->_statusBell.raise();
+
+		co_return Error::none;
+	}
 
 	constexpr static FileOperations ops {
 		.pollWait = &pollWait,
@@ -570,6 +606,7 @@ struct Udp4Socket {
 		.peername = &peername,
 		.setSocketOption = &setSocketOption,
 		.getSocketOption = &getSocketOption,
+		.shutdown = &shutdown
 	};
 
 	bool bindAvailable(uint32_t addr = INADDR_ANY) {
@@ -620,6 +657,8 @@ private:
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
+	uint64_t shutdownReadSeq_ = 0;
+	uint64_t shutdownWriteSeq_ = 0;
 
 	bool ipPacketInfo_ = false;
 	bool nonBlock_ = false;
@@ -639,9 +678,13 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 			if (i->second->rejectPacket(udp))
 				continue;
 
-			i->second->queue_.emplace(std::move(udp));
-			i->second->_inSeq = ++i->second->_currentSeq;
-			i->second->_statusBell.raise();
+			if (!(i->second->shutdownReadSeq_)) {
+				std::println("netserver: received udp datagram to port {}", udp.header.dst);
+				i->second->queue_.emplace(std::move(udp));
+				i->second->_inSeq = ++i->second->_currentSeq;
+				i->second->_statusBell.raise();
+			}
+
 			break;
 		}
 	}
