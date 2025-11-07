@@ -49,6 +49,7 @@ enum class Error {
 	noSuchProcess = 32,
 	nameTooLong = 33,
 	noFileDescriptorsAvailable = 34,
+	notSupported = 35,
 };
 
 struct ToFsError {
@@ -93,6 +94,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::noSuchProcess: return managarm::fs::Errors::NO_SUCH_PROCESS;
 		case Error::nameTooLong: return managarm::fs::Errors::NAME_TOO_LONG;
 		case Error::noFileDescriptorsAvailable: return managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
+		case Error::notSupported: return managarm::fs::Errors::NOT_SUPPORTED;
 	}
 }
 
@@ -138,6 +140,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::NO_SUCH_PROCESS: return Error::noSuchProcess;
 		case managarm::fs::Errors::NAME_TOO_LONG: return Error::nameTooLong;
 		case managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE: return Error::noFileDescriptorsAvailable;
+		case managarm::fs::Errors::NOT_SUPPORTED: return Error::notSupported;
 	}
 }
 
