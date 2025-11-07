@@ -225,7 +225,7 @@ struct Udp4Socket {
 		// TODO(arsen): check other broadcast addresses too
 		if (local.addr == INADDR_BROADCAST) {
 			std::cout << "netserver: broadcast" << std::endl;
-			co_return protocols::fs::Error::accessDenied;
+			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
