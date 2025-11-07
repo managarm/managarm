@@ -267,6 +267,21 @@ struct Udp4Socket {
 		co_return protocols::fs::Error::notSupported;
 	}
 
+	static async::result<frg::expected<Error, size_t>> peername(void *object, void *addr_ptr, size_t max_addr_length) {
+		auto self = static_cast<Udp4Socket *>(object);
+
+		if (self->remote_.family == AF_UNSPEC)
+			co_return protocols::fs::Error::notConnected;
+
+		sockaddr_in sa{};
+		sa.sin_family = self->remote_.family;
+		sa.sin_port = htons(self->remote_.port);
+		sa.sin_addr.s_addr = htonl(self->remote_.addr);
+		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
+
+		co_return sizeof(sockaddr_in);
+	}
+
 	static async::result<protocols::fs::Error> bind(void* obj,
 			helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_size) {
@@ -552,6 +567,7 @@ struct Udp4Socket {
 		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
+		.peername = &peername,
 		.setSocketOption = &setSocketOption,
 		.getSocketOption = &getSocketOption,
 	};
