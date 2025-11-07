@@ -18,6 +18,9 @@
 #include <netinet/ip.h>
 
 namespace {
+
+constexpr bool dumpHeader = false;
+
 struct stl_allocator {
 	void *allocate(size_t size) {
 		return operator new(size);
@@ -354,15 +357,16 @@ struct Udp4Socket {
 		chk.update(data, len);
 		header.chk = convert_endian<endian::big>(chk.finalize());
 
-		std::cout << "netserver:" << std::endl << std::hex
-			<< std::setw(8) << psh.src << std::endl
-			<< std::setw(8) << psh.dst << std::endl
-			<< std::setw(8) << psh.len << std::endl
+		if (dumpHeader)
+			std::cout << "netserver:" << std::endl << std::hex
+				<< std::setw(8) << psh.src << std::endl
+				<< std::setw(8) << psh.dst << std::endl
+				<< std::setw(8) << psh.len << std::endl
 
-			<< std::setw(8) << header.src << std::endl
-			<< std::setw(8) << header.dst << std::endl
-			<< std::setw(8) << header.len << std::endl
-			<< std::setw(8) << header.chk << std::endl << std::dec;
+				<< std::setw(8) << header.src << std::endl
+				<< std::setw(8) << header.dst << std::endl
+				<< std::setw(8) << header.len << std::endl
+				<< std::setw(8) << header.chk << std::endl << std::dec;
 
 		if (header.chk == 0) {
 			header.chk = ~header.chk;
