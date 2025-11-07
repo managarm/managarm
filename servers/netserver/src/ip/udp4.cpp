@@ -11,6 +11,7 @@
 #include <protocols/fs/server.hpp>
 #include <cstring>
 #include <iomanip>
+#include <queue>
 #include <random>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -111,6 +112,7 @@ struct Udp {
 Endpoint &Endpoint::operator=(struct sockaddr_in sa) {
 	using arch::convert_endian;
 	using arch::endian;
+	family = sa.sin_family;
 	port = convert_endian<endian::big, endian::native>(sa.sin_port);
 	addr = convert_endian<endian::big,
 	     endian::native>(sa.sin_addr.s_addr);
@@ -134,7 +136,10 @@ auto checkAddress(const void *addr_ptr, size_t addr_len, Endpoint &e) {
 		return protocols::fs::Error::illegalArguments;
 	}
 	std::memcpy(&addr, addr_ptr, sizeof(addr));
-	if (addr.sin_family != AF_INET) {
+	if (addr.sin_family == AF_UNSPEC) {
+		e = Endpoint{};
+		return protocols::fs::Error::none;
+	} else if (addr.sin_family != AF_INET) {
 		return protocols::fs::Error::afNotSupported;
 	}
 	e = addr;
@@ -175,25 +180,77 @@ struct Udp4Socket {
 			co_return e;
 		}
 
-		if (self->local_.port == 0
-				&& !self->bindAvailable()) {
-			std::cout << "netserver: no source port" << std::endl;
-			co_return protocols::fs::Error::addressNotAvailable;
+		if (remote.family == AF_UNSPEC) {
+			self->remote_ = Endpoint{};
+			self->parent_->unbind(self->local_);
+			self->local_ = Endpoint{AF_INET, INADDR_ANY, 0};
+			co_return protocols::fs::Error::none;
 		}
+
+		assert(remote.family == AF_INET);
+		uint32_t bindAddr = remote.addr;
 
 		if (remote.addr == INADDR_BROADCAST) {
 			std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::accessDenied;
+		} else if (remote.addr == INADDR_ANY) {
+			bindAddr = INADDR_LOOPBACK;
+			// We want to get the following (sane) behavior:
+			// No matter the port that was supplied in the connect() call, we always want
+			// getsockname() to return '127.0.0.1:some-port'.
+			// If connect()ing to 0.0.0.0:0 getpeername() should return ENOTCONN.
+			// If a port was supplied, we want getpeername() to return '127.0.0.1' and that port.
+			// This matches Linux behavior and that of most *BSDs, at least where they aren't
+			// obviously wrong or broken.
+			if (remote.port)
+				remote.addr = INADDR_LOOPBACK;
+			else
+				remote = Endpoint{};
+		} else {
+			auto ti = co_await ip4().targetByRemote(remote.addr);
+			if (!ti)
+				co_return protocols::fs::Error::netUnreachable;
+
+			auto linkAddr = ip4().getCidrByIndex(ti->link->index());
+			if (!linkAddr)
+				co_return protocols::fs::Error::netUnreachable;
+
+			bindAddr = linkAddr->ip;
+		}
+
+		if (!self->local_.port && bindAddr != INADDR_ANY
+				&& !self->bindAvailable(bindAddr)) {
+			std::cout << "netserver: no source port" << std::endl;
+			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		self->remote_ = remote;
+
+		// POSIX: For non-connection-mode sockets, a `connect(3)` limits the sender for
+		// subsequent `recv(3)` calls;
+		// We implement this by filtering the packet queue here, and rejecting packets in
+		// `feedDatagram` by their source address.
+		if (self->remote_.family != AF_UNSPEC && (self->remote_.port || self->remote_.addr != INADDR_ANY)) {
+			std::queue<Udp> filteredPackets;
+
+			while (auto packet = self->queue_.maybe_get()) {
+				if (!self->rejectPacket(packet.value()))
+					filteredPackets.push(*packet);
+			}
+
+			while (!filteredPackets.empty()) {
+				self->queue_.put(filteredPackets.front());
+				filteredPackets.pop();
+			}
+		}
+
 		co_return protocols::fs::Error::none;
 	}
 
 	static async::result<size_t> sockname(void *object, void *addr_ptr, size_t max_addr_length) {
 		auto self = static_cast<Udp4Socket *>(object);
 		sockaddr_in sa{};
-		sa.sin_family = AF_INET;
+		sa.sin_family = self->local_.family;
 		sa.sin_port = htons(self->local_.port);
 		sa.sin_addr.s_addr = htonl(self->local_.addr);
 		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
@@ -239,10 +296,8 @@ struct Udp4Socket {
 		}
 
 		if (local.port == 0) {
-			if (!self->bindAvailable(local.addr)) {
+			if (!self->bindAvailable(local.addr))
 				co_return protocols::fs::Error::addressInUse;
-			}
-			std::cout << "netserver: no source port" << std::endl;
 		} else if (!self->parent_->tryBind(self->holder_.lock(), local)) {
 			std::cout << "netserver: address in use" << std::endl;
 			co_return protocols::fs::Error::addressInUse;
@@ -519,7 +574,7 @@ struct Udp4Socket {
 		// that manner
 		for (int i = 0; i < range_size; i++) {
 			uint16_t port = dist.a() + ((number + i) % range_size);
-			if (parent_->tryBind(shared_from_this, { addr, port })) {
+			if (parent_->tryBind(shared_from_this, { AF_INET, addr, port })) {
 				return true;
 			}
 		}
@@ -527,11 +582,22 @@ struct Udp4Socket {
 	}
 
 private:
+	bool rejectPacket(Udp &udp) const {
+		if (remote_.family == AF_UNSPEC)
+			return false;
+		if (remote_.port && remote_.port != udp.header.src)
+			return true;
+		if (remote_.addr != INADDR_ANY && remote_.addr != udp.packet->header.source)
+			return true;
+
+		return false;
+	}
+
 	friend struct Udp4;
 
 	async::queue<Udp, stl_allocator> queue_;
-	Endpoint remote_;
-	Endpoint local_;
+	Endpoint remote_{};
+	Endpoint local_{AF_INET, 0, 0};
 	Udp4 *parent_;
 	smarter::weak_ptr<Udp4Socket> holder_;
 
@@ -550,13 +616,13 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 		return;
 	}
 
-	std::cout << "received udp datagram to port " << udp.header.dst << std::endl;
-
-	auto i = binds.lower_bound({ 0, udp.header.dst });
+	auto i = binds.lower_bound({ 0, 0, udp.header.dst });
 	for (; i != binds.end() && i->first.port == udp.header.dst; i++) {
 		auto ep = i->first;
-		if (ep.addr == udp.packet->header.destination
-			|| ep.addr == INADDR_ANY) {
+		if (ep.addr == udp.packet->header.destination || ep.addr == INADDR_ANY) {
+			if (i->second->rejectPacket(udp))
+				continue;
+
 			i->second->queue_.emplace(std::move(udp));
 			i->second->_inSeq = ++i->second->_currentSeq;
 			i->second->_statusBell.raise();
@@ -566,7 +632,7 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 }
 
 bool Udp4::tryBind(smarter::shared_ptr<Udp4Socket> socket, Endpoint addr) {
-	auto i = binds.lower_bound(addr);
+	auto i = binds.lower_bound({addr.family, 0, addr.port});
 	for (; i != binds.end() && i->first.port == addr.port; i++) {
 		auto ep = i->first;
 		if (ep.addr == INADDR_ANY || addr.addr == INADDR_ANY
