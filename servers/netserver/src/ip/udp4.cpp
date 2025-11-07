@@ -201,6 +201,10 @@ struct Udp4Socket {
 		co_return sizeof(sockaddr_in);
 	}
 
+	static async::result<Error> listen(void *) {
+		co_return protocols::fs::Error::notSupported;
+	}
+
 	static async::result<protocols::fs::Error> bind(void* obj,
 			helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_size) {
@@ -480,6 +484,7 @@ struct Udp4Socket {
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
+		.listen = &listen,
 		.connect = &connect,
 		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
