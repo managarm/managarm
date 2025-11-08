@@ -1,5 +1,7 @@
-#include "icmp.hpp"
-#include "ip4.hpp"
+#include <cstring>
+#include <format>
+#include <mutex>
+#include <print>
 
 #include <arch/bit.hpp>
 #include <arpa/inet.h>
@@ -8,8 +10,6 @@
 #include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <core/clock.hpp>
-#include <cstring>
-#include <format>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 #include <protocols/fs/server.hpp>
@@ -17,38 +17,28 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 
-struct IcmpPacket {
-	struct Header {
-		uint8_t type;
-		uint8_t code;
-		uint16_t checksum;
-		uint32_t rest_of_header;
-	} header;
-	static_assert(sizeof(Header) == 8);
-
-	arch::dma_buffer_view payload() const {
-		return packet->payload();
-	}
-
-	bool parse(smarter::shared_ptr<const Ip4Packet> packet) {
-		if (packet->payload().size() < sizeof(header)) {
-			return false;
-		}
-
-		auto now = clk::getRealtime();
-		TIMESPEC_TO_TIMEVAL(&recvTimestamp, &now);
-
-		this->packet = std::move(packet);
-		return true;
-	}
-
-	smarter::shared_ptr<const Ip4Packet> packet;
-	struct timeval recvTimestamp;
-
-	std::weak_ptr<nic::Link> link;
-};
+#include "checksum.hpp"
+#include "icmp.hpp"
 
 using namespace protocols::fs;
+
+namespace {
+
+constexpr bool debugIcmp = false;
+
+} // namespace
+
+bool IcmpPacket::parse(smarter::shared_ptr<const Ip4Packet> packet) {
+	if (packet->payload().size() < sizeof(header)) {
+		return false;
+	}
+
+	auto now = clk::getRealtime();
+	TIMESPEC_TO_TIMEVAL(&recvTimestamp, &now);
+
+	this->packet = std::move(packet);
+	return true;
+}
 
 struct IcmpSocket {
 	IcmpSocket(Icmp *parent) : parent_(parent) {}
@@ -275,6 +265,64 @@ smarter::shared_ptr<IcmpSocket> IcmpSocket::make_socket(Icmp *parent) {
 	return s;
 }
 
+Icmp::Icmp() {
+	async::detach(dispatchIcmp_());
+}
+
+// Dispatch ICMP messages that need to be handled by the IP stack
+// (as opposed to messages that are simply forwarded to ICMP sockets).
+async::result<void> Icmp::dispatchIcmp_() {
+	while (true) {
+		auto packet = co_await queue_.async_get();
+		assert(packet); // Since async_get() is never cancelled.
+
+		auto link = packet->link.lock();
+		if (!link) {
+			std::println("netserver: Link disappeared during ICMP processing");
+			continue;
+		}
+
+		IcmpPacket::Header header;
+		// Packets in the queue were already validated.
+		assert(packet->packet->payload().size() >= sizeof(IcmpPacket::Header));
+		memcpy(&header, packet->packet->payload().data(), sizeof(IcmpPacket::Header));
+
+		if (header.type == ICMP_ECHO && header.code == 0) {
+			size_t replySize = packet->packet->payload().size();
+			arch::dma_buffer replyBuffer(link->dmaPool(), replySize);
+			memcpy(replyBuffer.data(), packet->packet->payload().data(), replySize);
+
+			auto replyHeader = new (replyBuffer.data()) IcmpPacket::Header;
+			replyHeader->type = ICMP_ECHOREPLY;
+			replyHeader->checksum = 0;
+
+			Checksum checksum;
+			checksum.update(replyBuffer);
+			replyHeader->checksum = htons(checksum.finalize());
+
+			if (debugIcmp)
+				std::println("netserver: Sending ICMP echo reply");
+			auto remoteIp = packet->packet->header.source;
+			auto targetInfo = co_await ip4().targetByRemote(remoteIp);
+			if (!targetInfo) {
+				std::println("netserver: No route for ICMP echo reply");
+				continue;
+			}
+
+			auto error = co_await ip4().sendFrame(
+				std::move(*targetInfo),
+				replyBuffer.data(),
+				replyBuffer.size(),
+				static_cast<uint16_t>(IpProto::icmp)
+			);
+			if (error != protocols::fs::Error::none) {
+				std::println("netserver: Failed to send ICMP echo reply");
+				continue;
+			}
+		}
+	}
+}
+
 void Icmp::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
 	IcmpPacket icmp{ .link = link };
 	if (!icmp.parse(std::move(packet))) {
@@ -282,10 +330,23 @@ void Icmp::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 		return;
 	}
 
+	IcmpPacket::Header header;
+	// This is checked by IcmpPacket::parse().
+	assert(icmp.packet->payload().size() >= sizeof(IcmpPacket::Header));
+	memcpy(&header, icmp.packet->payload().data(), sizeof(IcmpPacket::Header));
+
 	for(auto s : sockets) {
 		s->queue_.emplace(IcmpPacket{icmp});
 		s->inSeq_ = ++s->currentSeq_;
 		s->statusBell_.raise();
+	}
+
+	switch (header.type) {
+		case ICMP_ECHO:
+			this->queue_.emplace(icmp);
+			break;
+		default:
+			// Do nothing.
 	}
 }
 

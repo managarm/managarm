@@ -1,7 +1,9 @@
-#include "ip4.hpp"
-
 #include "arp.hpp"
 #include "checksum.hpp"
+#include "icmp.hpp"
+#include "ip4.hpp"
+#include "tcp4.hpp"
+#include "udp4.hpp"
 #include <async/recurring-event.hpp>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -232,6 +234,11 @@ async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(vo
 	co_return len;
 }
 
+Ip4::Ip4()
+: icmp{std::make_unique<Icmp>()},
+	tcp{std::make_unique<Tcp4>()},
+	udp{std::make_unique<Udp4>()} {}
+
 async::result<std::optional<Ip4TargetInfo>>
 Ip4::targetByRemote(uint32_t remote, std::shared_ptr<nic::Link> link) {
 	auto oroute = ip4Router().resolveRoute(remote, link);
@@ -358,9 +365,9 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	auto hdrs = smarter::make_shared<const Ip4Packet>(std::move(hdr));
 
 	switch (static_cast<IpProto>(proto)) {
-	case IpProto::icmp: icmp.feedDatagram(hdrs, link); break;
-	case IpProto::udp: udp.feedDatagram(hdrs, link); break;
-	case IpProto::tcp: tcp.feedDatagram(hdrs); break;
+	case IpProto::icmp: icmp->feedDatagram(hdrs, link); break;
+	case IpProto::udp: udp->feedDatagram(hdrs, link); break;
+	case IpProto::tcp: tcp->feedDatagram(hdrs); break;
 	default: break;
 	}
 
@@ -443,15 +450,15 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane lane, int type, int prot
 	case SOCK_DGRAM:
 		switch(proto) {
 		case IPPROTO_ICMP:
-			icmp.serveSocket(std::move(lane));
+			icmp->serveSocket(std::move(lane));
 			break;
 		default:
-			udp.serveSocket(flags, std::move(lane));
+			udp->serveSocket(flags, std::move(lane));
 			break;
 		}
 		return managarm::fs::Errors::SUCCESS;
 	case SOCK_STREAM:
-		tcp.serveSocket(flags, std::move(lane));
+		tcp->serveSocket(flags, std::move(lane));
 		return managarm::fs::Errors::SUCCESS;
 	default:
 		return managarm::fs::Errors::ILLEGAL_ARGUMENT;
