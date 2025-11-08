@@ -12,12 +12,12 @@
 #include <memory>
 #include <optional>
 
-#include "icmp.hpp"
-#include "udp4.hpp"
-#include "tcp4.hpp"
-
 #include <netserver/nic.hpp>
 #include "fs.bragi.hpp"
+
+struct Icmp;
+struct Tcp4;
+struct Udp4;
 
 enum class IpProto : uint16_t {
 	icmp = 1,
@@ -129,7 +129,10 @@ struct Ip4TargetInfo {
 };
 
 struct Ip4Socket;
+
 struct Ip4 {
+	Ip4();
+
 	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto, int flags);
 	// frame is a view into the owner buffer, stripping away eth bits
 	void feedPacket(nic::MacAddress dest, nic::MacAddress src,
@@ -150,9 +153,9 @@ private:
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
 
-	Udp4 udp;
-	Icmp icmp;
-	Tcp4 tcp;
+	std::unique_ptr<Icmp> icmp;
+	std::unique_ptr<Tcp4> tcp;
+	std::unique_ptr<Udp4> udp;
 };
 
 Ip4 &ip4();
