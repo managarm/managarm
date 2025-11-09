@@ -33,6 +33,9 @@ THOR_DEFINE_PERCPU(localPins);
 
 } // namespace anonymous
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+
 namespace dist_reg {
 	static constexpr uintptr_t irqGroupBase = 0x80;
 	static constexpr uintptr_t irqSetEnableBase = 0x100;
@@ -65,6 +68,8 @@ namespace dist_sgi {
 	static constexpr arch::field<uint32_t, uint8_t> cpuTargetList{16, 8};
 	static constexpr arch::field<uint32_t, uint8_t> targetListFilter{24, 2};
 } // namespace dist_sgi
+
+#pragma GCC diagnostic pop // -Wunused-const-variable
 
 GicDistributorV2::GicDistributorV2(uintptr_t addr)
 : base_{addr}, space_{}, irqPins_{*kernelAlloc} {

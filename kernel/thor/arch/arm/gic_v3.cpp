@@ -94,7 +94,7 @@ static GicRedistributorV3& getRedistForThisCpu() {
 	auto cpuData = getCpuData();
 	auto affinity = cpuData->affinity;
 
-	for(auto &redist : *redists.get()) {
+	for(auto &redist : *redists) {
 		if(redist.ownedBy(affinity))
 			return redist;
 	}

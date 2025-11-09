@@ -192,7 +192,7 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 			: "x30", "x28", "x1", "x0", "memory");
 }
 
-Error getEntropyFromCpu(void *buffer, size_t size) { return Error::noHardwareSupport; }
+Error getEntropyFromCpu(void *, size_t) { return Error::noHardwareSupport; }
 
 namespace {
 	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;

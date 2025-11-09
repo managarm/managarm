@@ -781,6 +781,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 		return kHelErrNone;
 	}
 #else
+	(void)handle;
 	return kHelErrNoHardwareSupport;
 #endif
 }
@@ -823,6 +824,8 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		return kHelErrNone;
 	}
 #else
+	(void)handle;
+	(void)out;
 	return kHelErrNoHardwareSupport;
 #endif
 }
@@ -2259,6 +2262,7 @@ HelError helWriteFsBase(void *pointer) {
 	common::x86::wrmsr(common::x86::kMsrIndexFsBase, (uintptr_t)pointer);
 	return kHelErrNone;
 #else
+	(void)pointer;
 	return kHelErrUnsupportedOperation;
 #endif
 }
@@ -2268,6 +2272,7 @@ HelError helReadFsBase(void **pointer) {
 	*pointer = (void *)common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	return kHelErrNone;
 #else
+	(void)pointer;
 	return kHelErrUnsupportedOperation;
 #endif
 }
@@ -2277,6 +2282,7 @@ HelError helWriteGsBase(void *pointer) {
 	common::x86::wrmsr(common::x86::kMsrIndexKernelGsBase, (uintptr_t)pointer);
 	return kHelErrNone;
 #else
+	(void)pointer;
 	return kHelErrUnsupportedOperation;
 #endif
 }
@@ -2286,6 +2292,7 @@ HelError helReadGsBase(void **pointer) {
 	*pointer = (void *)common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
 	return kHelErrNone;
 #else
+	(void)pointer;
 	return kHelErrUnsupportedOperation;
 #endif
 }
@@ -3179,6 +3186,8 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 
 	return kHelErrNone;
 #else
+	(void)number;
+	(void)handle;
 	return kHelErrUnsupportedOperation;
 #endif
 }
@@ -3459,6 +3468,7 @@ HelError helEnableIo(HelHandle handle) {
 
 	return kHelErrNone;
 #else
+	(void)handle;
 	return kHelErrUnsupportedOperation;
 #endif
 }

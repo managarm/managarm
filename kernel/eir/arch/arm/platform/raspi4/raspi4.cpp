@@ -65,7 +65,16 @@ static constexpr arch::bit_register<uint32_t> status{0x18};
 static constexpr arch::bit_register<uint32_t> write{0x20};
 } // namespace reg
 
-enum class Channel { pmi = 0, fb, vuart, vchiq, led, button, touch, property = 8 };
+enum class Channel {
+	pmi = 0,
+	fb = 1,
+	vuart = 2,
+	vchiq = 3,
+	led = 4,
+	button = 5,
+	touch = 6,
+	property = 8
+};
 
 namespace io {
 static constexpr arch::field<uint32_t, Channel> channel{0, 4};
@@ -85,6 +94,7 @@ void write(Channel channel, uint32_t value) {
 }
 
 uint32_t read(Channel channel) {
+	(void)channel; // TOOD: check channel?
 	while (space.load(reg::status) & status::empty)
 		;
 

@@ -58,6 +58,8 @@ extern "C" void eirExceptionHandler(
 		case 0x2c:
 			exc_type_str = "Floating point";
 			break;
+		default:
+			// Do nothing.
 	}
 
 	eir::infoLogger() << "Exception type: " << exc_type_str << " (" << (void *)exc_type << ")"
