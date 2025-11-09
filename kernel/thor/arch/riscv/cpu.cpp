@@ -203,7 +203,7 @@ void initializeThisProcessor() {
 	cpuData->irqStackPtr = cpuData->irqStack.basePtr();
 
 	// Install the exception handler after stacks are set up.
-	auto stvec = reinterpret_cast<uint64_t>(reinterpret_cast<const void *>(thorExceptionEntry));
+	auto stvec = reinterpret_cast<uint64_t>(thorExceptionEntry);
 	assert(!(stvec & 3));
 	riscv::writeCsr<riscv::Csr::stvec>(stvec);
 

@@ -273,9 +273,9 @@ struct Aplic : dt::IrqController {
 
 	Aplic(PhysicalAddr base, size_t size, size_t numIrqs, Imsic *imsic, size_t bspIdx)
 	: base_{base},
-	  size_{size},
 	  imsic_{imsic},
 	  bspIdx_{bspIdx} {
+		(void)size;
 		auto ptr = KernelVirtualMemory::global().allocate(size);
 		for (size_t i = 0; i < size; i += kPageSize) {
 			KernelPageSpace::global().mapSingle4k(
@@ -370,7 +370,6 @@ struct Aplic : dt::IrqController {
 
 private:
 	PhysicalAddr base_;
-	size_t size_;
 	arch::mem_space space_;
 	Imsic *imsic_{nullptr};
 	frg::dyn_array<Irq *, KernelAlloc> irqs_{*kernelAlloc};

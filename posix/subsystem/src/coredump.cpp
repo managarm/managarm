@@ -5,6 +5,8 @@
 
 #include "process.hpp"
 
+#if defined(__x86_64__)
+
 namespace {
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> createFile(Process *proc, std::string name) {
@@ -77,8 +79,11 @@ bool dumpArea(VmContext::AreaAccessor &area) {
 
 }
 
+#endif // defined(__x86_64__)
+
 async::result<void> Process::coredump(TerminationState state) {
 #if !defined(__x86_64__)
+	(void)state;
 	std::println("posix: coredump is not supported on this architecture yet");
 	co_return;
 #else

@@ -13,6 +13,11 @@
 #include <nic/k1x-emac/k1x-emac.hpp>
 #include <protocols/hw/client.hpp>
 
+namespace {
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+
 namespace dma {
 constexpr arch::bit_register<uint32_t> configuration{0x00};
 constexpr arch::bit_register<uint32_t> control{0x04};
@@ -171,7 +176,7 @@ constexpr arch::field<uint32_t, bool> interruptOnCompletion{31, 1};
 } // namespace txDesc2
 } // namespace regs
 
-namespace {
+#pragma GCC diagnostic pop // -Wunused-const-variable
 
 constexpr bool debugIrqs = false;
 constexpr bool debugRxTx = false;

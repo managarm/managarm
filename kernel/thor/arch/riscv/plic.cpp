@@ -72,8 +72,8 @@ struct Plic : dt::IrqController {
 
 	Plic(PhysicalAddr base, size_t size, size_t numIrqs, size_t bspCtx)
 	: base_{base},
-	  size_{size},
 	  bspCtx_{bspCtx} {
+		(void)size;
 		auto ptr = KernelVirtualMemory::global().allocate(size);
 		for (size_t i = 0; i < size; i += kPageSize) {
 			KernelPageSpace::global().mapSingle4k(
@@ -140,7 +140,6 @@ struct Plic : dt::IrqController {
 
 private:
 	PhysicalAddr base_;
-	size_t size_;
 	arch::mem_space space_;
 	frg::dyn_array<Irq *, KernelAlloc> irqs_{*kernelAlloc};
 	// TODO: The current implementation routes all IRQs to the BSP.

@@ -172,6 +172,8 @@ initgraph::Task initAPsAcpi{
 				    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
 				    bootAp(entry.hart_id);
 			    } break;
+			    default:
+				    // Do nothing.
 		    }
 		    offset += generic.length;
 	    }
