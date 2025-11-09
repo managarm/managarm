@@ -140,6 +140,7 @@ namespace thor {
 namespace acpi {
 
 void bootOtherProcessors() {
+#ifdef __x86_64__
 	uacpi_table madtTbl;
 
 	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
@@ -152,7 +153,6 @@ void bootOtherProcessors() {
 	while (offset < madt->length) {
 		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
 		switch (generic->type) {
-#ifdef __x86_64__
 			case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				auto entry = (MadtLocalEntry *)generic;
 				// TODO: Support BSPs with APIC ID != 0.
@@ -167,10 +167,12 @@ void bootOtherProcessors() {
 				    && entry->localX2ApicId) // We ignore the BSP here.
 					bootSecondary(entry->localX2ApicId);
 			} break;
-#endif
+			default:
+				// Do nothing.
 		}
 		offset += generic->length;
 	}
+#endif
 }
 
 // --------------------------------------------------------

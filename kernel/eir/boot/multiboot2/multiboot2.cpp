@@ -111,7 +111,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 				);
 				break;
 			}
-
 			case kMb2TagModule: {
 				auto *module = reinterpret_cast<Mb2TagModule *>(tag);
 
@@ -124,7 +123,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 				n_modules++;
 				break;
 			}
-
 			case kMb2TagMmap: {
 				auto *mmap = reinterpret_cast<Mb2TagMmap *>(tag);
 
@@ -133,7 +131,6 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 
 				break;
 			}
-
 			case kMb2TagCmdline: {
 				auto *cmdline_tag = reinterpret_cast<Mb2TagCmdline *>(tag);
 
@@ -141,16 +138,16 @@ extern "C" void eirMultiboot2Main(uint32_t info, uint32_t magic) {
 
 				break;
 			}
-
 			case kMb2TagAcpiOld: {
 				oldAcpiTag = tag;
 				break;
 			}
-
 			case kMb2TagAcpiNew: {
 				newAcpiTag = tag;
 				break;
 			}
+			default:
+				infoLogger() << "eir: Unknown MB2 tag " << tag->type << frg::endlog;
 		}
 	}
 

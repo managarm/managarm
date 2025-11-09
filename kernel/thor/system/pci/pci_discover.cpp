@@ -1802,6 +1802,8 @@ void allocateBars(PciBus *bus) {
 					io->writeConfigWord(entity->parentBus, entity->slot, entity->function,
 							kPciBridgePrefetchMemLimitUpper, (childBase + req.size - 0x100000) >> 32);
 					break;
+				default:
+					panicLogger() << "thor: Unhandled PCI bus resource type " << req.flags << frg::endlog;
 			}
 
 			req.associatedBridge->associatedBus->resources.push_back(
