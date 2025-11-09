@@ -37,7 +37,7 @@ initgraph::Stage *getIrqControllerReadyStage() {
 
 void initializeIrqVectors() { asm volatile("msr vbar_el1, %0" ::"r"(&thorExcVectors)); }
 
-extern "C" void onPlatformInvalidException(FaultImageAccessor image) {
+extern "C" void onPlatformInvalidException(FaultImageAccessor) {
 	thor::panicLogger() << "thor: an invalid exception has occured" << frg::endlog;
 }
 
