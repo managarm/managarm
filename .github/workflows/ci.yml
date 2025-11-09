@@ -173,9 +173,7 @@ jobs:
             run: |
                 xbstrap configure $CI_BUILD_PKG
                 xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dbuildtype=debug -Ddebug=false -Db_lto=false
-                if [ "$CI_ARCH" = "x86_64" ]; then
-                    xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dwerror=true
-                fi
+                xbstrap runtool -- meson configure pkg-builds/$CI_BUILD_PKG/ -Dwerror=true
                 xbstrap build $CI_BUILD_PKG
             working-directory: build/
             env:
