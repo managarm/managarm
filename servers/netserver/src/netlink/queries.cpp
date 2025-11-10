@@ -250,8 +250,16 @@ void NetlinkSocket::newAddr(struct nlmsghdr *hdr) {
 		}
 	}
 
-	if(addr)
+	if(addr) {
 		ip4().setLink({addr, prefix}, nic);
+
+		Ip4Router::Route localRoute{{addr, 32}, nic};
+		localRoute.type = RTN_LOCAL;
+		localRoute.protocol = RTPROT_KERNEL;
+		localRoute.scope = RT_SCOPE_HOST;
+		localRoute.source = addr;
+		ip4Router().addRoute(localRoute);
+	}
 
 	if(hdr->nlmsg_flags & NLM_F_ACK)
 		sendAck(this, hdr);

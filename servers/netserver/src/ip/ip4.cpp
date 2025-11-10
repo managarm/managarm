@@ -5,6 +5,7 @@
 #include "tcp4.hpp"
 #include "udp4.hpp"
 #include <async/recurring-event.hpp>
+#include <linux/rtnetlink.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <algorithm>
@@ -250,6 +251,8 @@ Ip4::targetByRemote(uint32_t remote, std::shared_ptr<nic::Link> link) {
 	if (!oroute) {
 		std::cout << "netserver: net unreachable" << std::endl;
 		co_return std::nullopt;
+	} else if (oroute->type == RTN_LOCAL) {
+		oroute->link = nic::getLoopback();
 	}
 
 	auto target = oroute->link.lock();

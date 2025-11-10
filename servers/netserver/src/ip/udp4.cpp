@@ -426,9 +426,11 @@ struct Udp4Socket {
 		target.ensureEndian();
 
 		auto ti = co_await ip4().targetByRemote(targetIpNe);
-		if (!ti) {
+		if (!ti)
 			co_return protocols::fs::Error::netUnreachable;
-		}
+
+		if (self->local_.addr != INADDR_ANY)
+			ti->source = self->local_.addr;
 
 		Checksum chk;
 		PseudoHeader psh {
@@ -460,8 +462,7 @@ struct Udp4Socket {
 		std::memcpy(buf.data() + sizeof(header), data, len);
 
 		auto error = co_await ip4().sendFrame(std::move(*ti),
-			buf.data(), buf.size(),
-			static_cast<uint16_t>(IpProto::udp));
+			buf.data(), buf.size(), std::to_underlying(IpProto::udp));
 		if (error != protocols::fs::Error::none) {
 			co_return error;
 		}
