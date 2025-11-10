@@ -381,6 +381,9 @@ struct Udp4Socket {
 		if(self->shutdownWriteSeq_)
 			co_return protocols::fs::Error::brokenPipe;
 
+		if (self->remote_.family != AF_UNSPEC && addr_size)
+			co_return protocols::fs::Error::alreadyConnected;
+
 		Endpoint target;
 		auto source = self->local_;
 		if (addr_size != 0) {
