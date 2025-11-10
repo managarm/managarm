@@ -205,6 +205,11 @@ struct Udp4Socket {
 		co_return protocols::fs::Error::notSupported;
 	}
 
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::AcceptResult>>
+	accept(void *) {
+		co_return protocols::fs::Error::notSupported;
+	}
+
 	static async::result<protocols::fs::Error> bind(void* obj,
 			helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_size) {
@@ -486,6 +491,7 @@ struct Udp4Socket {
 		.bind = &bind,
 		.listen = &listen,
 		.connect = &connect,
+		.accept = &accept,
 		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
 		.setFileFlags = &setFileFlags,
