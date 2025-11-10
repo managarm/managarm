@@ -226,11 +226,11 @@ struct Tcp4Socket {
 
 		// Bind the socket.
 		if (!bindEp.port) {
-			if (!self->bindAvailable(bindEp.ipAddress)) {
+			if (!self->bindAvailable(bindEp.ipAddress, true)) {
 				std::cout << "netserver: No source port" << std::endl;
 				co_return protocols::fs::Error::addressInUse;
 			}
-		} else if (!self->parent_->tryBind(self->holder_.lock(), bindEp)) {
+		} else if (!self->parent_->tryBind(self->holder_.lock(), true, bindEp)) {
 			co_return protocols::fs::Error::addressInUse;
 		}
 
@@ -326,7 +326,7 @@ struct Tcp4Socket {
 		}
 
 		// Bind the socket if necessary.
-		if (!self->localEp_.port && !self->bindAvailable()) {
+		if (!self->localEp_.port && !self->bindAvailable(INADDR_ANY, true)) {
 			std::cout << "netserver: No source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
@@ -342,6 +342,64 @@ struct Tcp4Socket {
 			co_await self->settleEvent_.async_wait();
 		}
 		co_return protocols::fs::Error::none;
+	}
+
+	static async::result<protocols::fs::Error> listen(void *object) {
+		auto self = static_cast<Tcp4Socket *>(object);
+		self->listening_ = true;
+
+		co_return protocols::fs::Error::none;
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, helix::UniqueLane>> accept(void *object) {
+		auto self = static_cast<Tcp4Socket *>(object);
+
+		if(self->pendingConnections_.empty()) {
+			if(self->nonBlock_)
+				co_return protocols::fs::Error::wouldBlock;
+
+			while(self->pendingConnections_.empty()) {
+				co_await self->pollEvent_.async_wait();
+			}
+		}
+
+		auto connection = self->pendingConnections_.front();
+		self->pendingConnections_.erase(self->pendingConnections_.begin());
+
+		auto [localLane, remoteLane] = helix::createStream();
+
+		auto sock = Tcp4Socket::makeSocket(self->parent_, 0);
+
+		sock->remoteEp_.ipAddress = connection.remoteIp;
+		sock->remoteEp_.port = connection.remotePort;
+
+		TcpEndpoint ep{
+			.ipAddress = connection.localIp,
+			.port = self->localEp_.port
+		};
+		if(!self->parent_->tryBind(sock, false, ep)) {
+			std::cout << "netserver: No source port in accept" << std::endl;
+			co_return protocols::fs::Error::addressNotAvailable;
+		}
+
+		// Connect to the remote.
+		sock->connectState_ = ConnectState::sendSynAck;
+		sock->remoteAckedSn_ = connection.sequence + 1;
+		sock->remoteKnownSn_ = connection.sequence + 1;
+
+		sock->flushEvent_.raise();
+
+		while(true) {
+			if(sock->connectState_ != ConnectState::sendSynAck)
+				break;
+			co_await sock->settleEvent_.async_wait();
+		}
+
+		async::detach(
+			protocols::fs::servePassthrough(std::move(localLane), std::move(sock), &Tcp4Socket::ops)
+		);
+
+		co_return std::move(remoteLane);
 	}
 
 	static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView creds,
@@ -375,7 +433,7 @@ struct Tcp4Socket {
 		while(progress < size) {
 			size_t available = self->recvRing_.availableToDequeue();
 			if(!available) {
-				if(progress)
+				if(progress || self->remoteClosed_)
 					break;
 				if(self->nonBlock_ || flags & MSG_DONTWAIT)
 					co_return protocols::fs::Error::wouldBlock;
@@ -448,7 +506,7 @@ struct Tcp4Socket {
 
 		while(true) {
 			edges = 0;
-			if(self->inSeq_ > pastSeq)
+			if(self->inSeq_ > pastSeq || self->listenSeq_ > pastSeq)
 				edges |= EPOLLIN;
 			if(self->outSeq_ > pastSeq)
 				edges |= EPOLLOUT;
@@ -470,7 +528,7 @@ struct Tcp4Socket {
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		int active = 0;
-		if(self->recvRing_.availableToDequeue())
+		if(self->recvRing_.availableToDequeue() || !self->pendingConnections_.empty())
 			active |= EPOLLIN;
 		if(self->sendRing_.spaceForEnqueue())
 			active |= EPOLLOUT;
@@ -550,7 +608,9 @@ struct Tcp4Socket {
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
+		.listen = &listen,
 		.connect = &connect,
+		.accept = &accept,
 		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
 		.setFileFlags = &setFileFlags,
@@ -561,7 +621,7 @@ struct Tcp4Socket {
 		.getSocketOption = &getSocketOption,
 	};
 
-	bool bindAvailable(uint32_t ipAddress = INADDR_ANY) {
+	bool bindAvailable(uint32_t ipAddress, bool unique) {
 		static std::uniform_int_distribution<uint16_t> dist {
 			32768, 60999
 		};
@@ -570,7 +630,7 @@ struct Tcp4Socket {
 		auto self = holder_.lock();
 		for (int i = 0; i < range; i++) {
 			uint16_t port = dist.a() + ((number + i) % range);
-			if (parent_->tryBind(self, { ipAddress, port }))
+			if (parent_->tryBind(self, unique, { ipAddress, port }))
 				return true;
 		}
 		return false;
@@ -591,14 +651,23 @@ private:
 		connected,
 	};
 
+	struct PendingConnection {
+		uint32_t localIp;
+		uint32_t remoteIp;
+		uint16_t remotePort;
+		uint32_t sequence;
+	};
+
 	Tcp4 *parent_;
 	bool nonBlock_;
 	TcpEndpoint remoteEp_;
 	TcpEndpoint localEp_;
 	smarter::weak_ptr<Tcp4Socket> holder_;
+	std::vector<PendingConnection> pendingConnections_;
 
 	ConnectState connectState_ = ConnectState::none;
 	bool remoteClosed_ = false;
+	bool listening_ = false;
 
 	// Out-SN corresponding to the front of sendRing_.
 	uint32_t localSettledSn_ = 0;
@@ -626,6 +695,7 @@ private:
 	uint64_t inSeq_ = 1;
 	uint64_t outSeq_ = 0;
 	uint64_t hupSeq_ = 1;
+	uint64_t listenSeq_ = 1;
 	async::recurring_event pollEvent_;
 
 	std::shared_ptr<nic::Link> boundInterface_ = {};
@@ -688,6 +758,64 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 
 			if(debugTcp)
 				std::cout << "netserver: Sending TCP SYN" << std::endl;
+			auto error = co_await ip4().sendFrame(std::move(*targetInfo),
+				buf.data(), buf.size(), static_cast<uint16_t>(IpProto::tcp));
+			if (error != protocols::fs::Error::none) {
+				// TODO: Return an error to users.
+				std::cout << "netserver: Could not send TCP packet" << std::endl;
+				co_return;
+			}
+		}else if(connectState_ == ConnectState::sendSynAck) {
+			if(localSettledSn_ != localFlushedSn_) {
+				co_await flushEvent_.async_wait();
+				continue;
+			}
+
+			// Obtain a new random sequence number.
+			auto randomSn = globalPrng();
+			localSettledSn_ = randomSn;
+			localFlushedSn_ = randomSn;
+
+			// Construct and transmit the initial SYN-ACK packet.
+			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress, boundInterface_);
+			if (!targetInfo) {
+				// TODO: Return an error to users.
+				std::cout << "netserver: Destination unreachable" << std::endl;
+				co_return;
+			}
+
+			std::vector<char> buf;
+			buf.resize(sizeof(TcpHeader));
+
+			auto header = new (buf.data()) TcpHeader {
+				.srcPort = localEp_.port,
+				.destPort = remoteEp_.port,
+				.seqNumber = localFlushedSn_,
+				.ackNumber = remoteKnownSn_,
+				.flags = {},
+				.window = 0,
+				.checksum = 0,
+				.urgentPointer = 0,
+			};
+			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
+					| TcpHeader::synFlag(true)
+					| TcpHeader::ackFlag(true));
+
+			// Fill in the checksum.
+			PseudoHeader pseudo {
+				.src = targetInfo->source,
+				.dst = remoteEp_.ipAddress,
+				.len = buf.size()
+			};
+			Checksum csum;
+			csum.update(&pseudo, sizeof(PseudoHeader));
+			csum.update(buf.data(), buf.size());
+			header->checksum = csum.finalize();
+
+			++localFlushedSn_;
+
+			if(debugTcp)
+				std::cout << "netserver: Sending TCP SYN-ACK" << std::endl;
 			auto error = co_await ip4().sendFrame(std::move(*targetInfo),
 				buf.data(), buf.size(), static_cast<uint16_t>(IpProto::tcp));
 			if (error != protocols::fs::Error::none) {
@@ -779,6 +907,36 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 	if(boundInterface_ && boundInterface_->index() != packet.packet->link.lock()->index())
 		return;
 
+	if(listening_) {
+		if(packet.header.flags.load() & TcpHeader::synFlag) {
+			auto ip = packet.packet->header.source;
+			auto localIp = packet.packet->header.destination;
+			auto port = packet.header.srcPort.load();
+
+			for(auto &pending : pendingConnections_) {
+				if(pending.remoteIp == ip && pending.remotePort == port) {
+					std::cout << "netserver: Rejecting duplicate SYN packet on listening socket"
+							<< std::endl;
+					return;
+				}
+			}
+
+			pendingConnections_.push_back({
+				.localIp = localIp,
+				.remoteIp = ip,
+				.remotePort = port,
+				.sequence = packet.header.seqNumber.load()});
+
+			listenSeq_ = ++currentSeq_;
+			pollEvent_.raise();
+		}else {
+			std::cout << "netserver: Rejecting packet on listening socket"
+					<< std::endl;
+		}
+
+		return;
+	}
+
 	if(connectState_ == ConnectState::sendSyn) {
 		if(localSettledSn_ == localFlushedSn_) {
 			std::cout << "netserver: Rejecting packet before SYN is sent [sendSyn]"
@@ -806,6 +964,36 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		localWindowSn_ = localSettledSn_ + packet.header.window.load();
 		remoteAckedSn_ = packet.header.seqNumber.load();
 		remoteKnownSn_ = packet.header.seqNumber.load() + 1; // SYN counts as one byte.
+		connectState_ = ConnectState::connected;
+		flushEvent_.raise();
+		settleEvent_.raise();
+	}else if(connectState_ == ConnectState::sendSynAck) {
+		if(localSettledSn_ == localFlushedSn_) {
+			std::cout << "netserver: Rejecting packet before SYN-ACK is sent [sendSynAck]"
+					<< std::endl;
+			return;
+		}
+
+		if(!(packet.header.flags.load() & TcpHeader::ackFlag)) {
+			std::cout << "netserver: Rejecting packet without ACK [sendSynAck]"
+					<< std::endl;
+			return;
+		}
+
+		if(packet.header.ackNumber.load() != localSettledSn_ + 1) {
+			std::cout << "netserver: Rejecting packet with bad ack-number [sendSynAck]"
+					<< std::endl;
+			return;
+		}
+
+		if(packet.header.seqNumber.load() != remoteKnownSn_) {
+			std::cout << "netserver: Rejecting packet with bad sequence [sendSynAck]"
+					<< std::endl;
+			return;
+		}
+
+		++localSettledSn_;
+		localWindowSn_ = localSettledSn_ + packet.header.window.load();
 		connectState_ = ConnectState::connected;
 		flushEvent_.raise();
 		settleEvent_.raise();
@@ -872,24 +1060,52 @@ void Tcp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet) {
 		std::cout << "netserver: Received TCP packet at port " << tcp.header.destPort.load()
 				<< " (" << tcp.payload().size() << " bytes)" << std::endl;
 
-	auto it = binds.lower_bound({ 0, tcp.header.destPort.load() });
-	for (; it != binds.end() && it->first.port == tcp.header.destPort.load(); it++) {
+	// Look for non-listening sockets.
+	for (auto it = binds.lower_bound({ 0, tcp.header.destPort.load() });
+			it != binds.end() && it->first.port == tcp.header.destPort.load(); it++) {
 		auto existingEp = it->first;
+		auto &sock = it->second;
+
+		if (sock->listening_)
+			continue;
+
+		if (tcp.packet->header.source != sock->remoteEp_.ipAddress
+				|| tcp.header.srcPort.load() != sock->remoteEp_.port)
+			continue;
+
 		if (existingEp.ipAddress == tcp.packet->header.destination
 				|| existingEp.ipAddress == INADDR_ANY) {
 			it->second->handleInPacket_(std::move(tcp));
-			break;
+			return;
+		}
+	}
+
+	// Look for listening sockets (and do not care about their remote endpoints).
+	for (auto it = binds.lower_bound({ 0, tcp.header.destPort.load() });
+			it != binds.end() && it->first.port == tcp.header.destPort.load(); it++) {
+		auto existingEp = it->first;
+		auto &sock = it->second;
+
+		if (!sock->listening_)
+			continue;
+
+		if (existingEp.ipAddress == tcp.packet->header.destination
+				|| existingEp.ipAddress == INADDR_ANY) {
+			it->second->handleInPacket_(std::move(tcp));
+			return;
 		}
 	}
 }
 
-bool Tcp4::tryBind(smarter::shared_ptr<Tcp4Socket> socket, TcpEndpoint wantedEp) {
-	auto it = binds.lower_bound(wantedEp);
-	for (; it != binds.end() && it->first.port == wantedEp.port; it++) {
-		auto existingEp = it->first;
-		if (existingEp.ipAddress == INADDR_ANY || wantedEp.ipAddress == INADDR_ANY
-				|| existingEp.ipAddress == wantedEp.ipAddress) {
-			return false;
+bool Tcp4::tryBind(smarter::shared_ptr<Tcp4Socket> socket, bool unique, TcpEndpoint wantedEp) {
+	if (unique) {
+		auto it = binds.lower_bound(wantedEp);
+		for (; it != binds.end() && it->first.port == wantedEp.port; it++) {
+			auto existingEp = it->first;
+			if (existingEp.ipAddress == INADDR_ANY || wantedEp.ipAddress == INADDR_ANY
+					|| existingEp.ipAddress == wantedEp.ipAddress) {
+				return false;
+			}
 		}
 	}
 	socket->localEp_ = wantedEp;

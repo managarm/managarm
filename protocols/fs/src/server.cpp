@@ -1368,6 +1368,53 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
+	}else if(preamble.id() == managarm::fs::AcceptRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::AcceptRequest>(recv_req);
+		if(!req) {
+			std::cout << "protocols/fs: Rejecting request due to decoding failure" << std::endl;
+			co_return;
+		}
+
+		if(!file_ops->accept) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+			auto ser = resp.SerializeAsString();
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(sendResp.error());
+			logBragiSerializedReply(ser);
+			co_return;
+		}
+
+		auto result = co_await file_ops->accept(file.get());
+
+		managarm::fs::SvrResponse resp;
+		if(result) {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto ser = resp.SerializeAsString();
+			auto [sendResp, pushLane] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::pushDescriptor(result.value())
+			);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushLane.error());
+			logBragiSerializedReply(ser);
+		} else {
+			resp.set_error(result.error() | toFsError);
+
+			auto ser = resp.SerializeAsString();
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(sendResp.error());
+			logBragiSerializedReply(ser);
+		}
 	} else {
 		std::cout << "unhandled request " << preamble.id() << std::endl;
 		throw std::runtime_error("Unknown request");

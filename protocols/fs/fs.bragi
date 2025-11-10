@@ -856,3 +856,7 @@ head(128):
 	@format(hex) int32 edges;
 	uint64 sequence;
 }
+
+message AcceptRequest 44 {
+head(128):
+}
