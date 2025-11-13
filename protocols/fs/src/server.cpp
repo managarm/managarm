@@ -1393,16 +1393,20 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 
 		managarm::fs::SvrResponse resp;
 		if(result) {
+			auto [ctrlLane, ptLane] = std::move(result.value());
+
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto [sendResp, pushLane] = co_await helix_ng::exchangeMsgs(
+			auto [sendResp, pushCtrl, pushPt] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(result.value())
+				helix_ng::pushDescriptor(ctrlLane),
+				helix_ng::pushDescriptor(ptLane)
 			);
 			HEL_CHECK(sendResp.error());
-			HEL_CHECK(pushLane.error());
+			HEL_CHECK(pushCtrl.error());
+			HEL_CHECK(pushPt.error());
 			logBragiSerializedReply(ser);
 		} else {
 			resp.set_error(result.error() | toFsError);

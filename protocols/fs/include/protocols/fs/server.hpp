@@ -52,6 +52,7 @@ using SeekResult = std::variant<Error, int64_t>;
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;
 
 using OpenResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
+using AcceptResult = std::pair<helix::UniqueLane, helix::UniqueLane>;
 
 using MkdirResult = std::pair<std::shared_ptr<void>, int64_t>;
 using SymlinkResult = std::pair<std::shared_ptr<void>, int64_t>;
@@ -136,7 +137,7 @@ struct FileOperations {
 		listen = f;
 		return *this;
 	}
-	constexpr FileOperations& withAccept(async::result<frg::expected<Error, helix::UniqueLane>> (*f)(void *object)) {
+	constexpr FileOperations& withAccept(async::result<frg::expected<Error, AcceptResult>> (*f)(void *object)) {
 		accept = f;
 		return *this;
 	}
@@ -175,7 +176,7 @@ struct FileOperations {
 	async::result<Error> (*listen)(void *object) = nullptr;
 	async::result<Error> (*connect)(void *object, helix_ng::CredentialsView credentials,
 			const void *addr_ptr, size_t addr_length) = nullptr;
-	async::result<frg::expected<Error, helix::UniqueLane>> (*accept)(void *object) = nullptr;
+	async::result<frg::expected<Error, AcceptResult>> (*accept)(void *object) = nullptr;
 	async::result<size_t> (*sockname)(void *object, void *addr_ptr, size_t max_addr_length) = nullptr;
 	async::result<int> (*getFileFlags)(void *object) = nullptr;
 	async::result<void> (*setFileFlags)(void *object, int flags) = nullptr;

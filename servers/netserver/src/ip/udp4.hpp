@@ -22,7 +22,7 @@ struct Udp4 {
 	void feedDatagram(smarter::shared_ptr<const Ip4Packet>, std::weak_ptr<nic::Link> link);
 	bool tryBind(smarter::shared_ptr<Udp4Socket> socket, Endpoint addr);
 	bool unbind(Endpoint remote);
-	void serveSocket(int flags, helix::UniqueLane lane);
+	void serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane);
 private:
 	std::map<Endpoint, smarter::shared_ptr<Udp4Socket>> binds;
 };

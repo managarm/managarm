@@ -184,12 +184,41 @@ protocols::fs::Error checkAddress(const void *addrPtr, size_t addrLength, TcpEnd
 
 } // anonymous namespace
 
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<Tcp4Socket> sock);
+
 struct Tcp4Socket {
 	Tcp4Socket(Tcp4 *parent, bool nonBlock)
 	: parent_(parent), nonBlock_{nonBlock}, recvRing_{14}, sendRing_{14} {}
 
 	~Tcp4Socket() {
 		parent_->unbind(localEp_);
+	}
+
+	async::result<void> disconnect() {
+		if(localClosed_)
+			co_return;
+
+		if (connectState_ != ConnectState::connected) {
+			// TODO: This will require some more effort in the future.
+			std::println("netserver: TCP disconnect in non-connected state");
+			co_return;
+		}
+
+		localClosed_ = true;
+
+		while (localSettledSn_ < localFlushedSn_)
+			co_await settleEvent_.async_wait();
+
+		connectState_ = ConnectState::sendFin;
+		flushEvent_.raise();
+
+		// TODO: Wait for disconnect to finish?
+		while (localSettledSn_ < localFlushedSn_)
+			co_await settleEvent_.async_wait();
+		std::println("netserver: TCP FIN was acknowledged");
 	}
 
 	static auto makeSocket(Tcp4 *parent, bool nonBlock) {
@@ -250,7 +279,8 @@ struct Tcp4Socket {
 
 	static async::result<frg::expected<protocols::fs::Error, size_t>> peername(void *object, void *addr_ptr, size_t max_addr_length) {
 		auto self = static_cast<Tcp4Socket *>(object);
-		if(self->connectState_ != ConnectState::connected) {
+		if(self->connectState_ != ConnectState::connected
+				&& self->connectState_ != ConnectState::sendFin) {
 			co_return protocols::fs::Error::notConnected;
 		}
 		sockaddr_in sa{};
@@ -275,7 +305,8 @@ struct Tcp4Socket {
 				case FIONREAD: {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-					if(self->connectState_ != ConnectState::connected) {
+					if(self->connectState_ != ConnectState::connected
+							&& self->connectState_ != ConnectState::sendFin) {
 						resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
 					}else {
 						resp.set_fionread_count(self->recvRing_.availableToDequeue());
@@ -351,7 +382,7 @@ struct Tcp4Socket {
 		co_return protocols::fs::Error::none;
 	}
 
-	static async::result<frg::expected<protocols::fs::Error, helix::UniqueLane>> accept(void *object) {
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::AcceptResult>> accept(void *object) {
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		if(self->pendingConnections_.empty()) {
@@ -366,7 +397,8 @@ struct Tcp4Socket {
 		auto connection = self->pendingConnections_.front();
 		self->pendingConnections_.erase(self->pendingConnections_.begin());
 
-		auto [localLane, remoteLane] = helix::createStream();
+		auto [localCtrl, remoteCtrl] = helix::createStream();
+		auto [localPt, remotePt] = helix::createStream();
 
 		auto sock = Tcp4Socket::makeSocket(self->parent_, 0);
 
@@ -396,10 +428,10 @@ struct Tcp4Socket {
 		}
 
 		async::detach(
-			protocols::fs::servePassthrough(std::move(localLane), std::move(sock), &Tcp4Socket::ops)
+			serveLanes(std::move(localCtrl), std::move(localPt), std::move(sock))
 		);
 
-		co_return std::move(remoteLane);
+		co_return std::make_pair(std::move(remoteCtrl), std::move(remotePt));
 	}
 
 	static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::CredentialsView creds,
@@ -424,6 +456,9 @@ struct Tcp4Socket {
 
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
+
+		if(self->remoteClosed_)
+			co_return protocols::fs::RecvData{{}, 0, sizeof(struct sockaddr_in), 0};
 
 		if(flags & ~MSG_PEEK)
 			std::cout << "\e[31m" "netserver/tcp: Encountered unexpected recvMsg() flags: "
@@ -471,6 +506,9 @@ struct Tcp4Socket {
 
 		auto self = static_cast<Tcp4Socket *>(object);
 		auto p = reinterpret_cast<char *>(data);
+
+		if(self->localClosed_)
+			co_return protocols::fs::Error::brokenPipe;
 
 		size_t progress = 0;
 		while(progress < size) {
@@ -649,6 +687,7 @@ private:
 		sendSyn, // Client-side only.
 		sendSynAck, // Server-side only.
 		connected,
+		sendFin,
 	};
 
 	struct PendingConnection {
@@ -667,6 +706,7 @@ private:
 
 	ConnectState connectState_ = ConnectState::none;
 	bool remoteClosed_ = false;
+	bool localClosed_ = false;
 	bool listening_ = false;
 
 	// Out-SN corresponding to the front of sendRing_.
@@ -824,6 +864,9 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				co_return;
 			}
 		}else{
+			assert(connectState_ == ConnectState::connected
+				|| connectState_ == ConnectState::sendFin);
+
 			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
 			if (!targetInfo) {
 				// TODO: Return an error to users.
@@ -831,31 +874,41 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				co_return;
 			}
 
-			assert(connectState_ == ConnectState::connected);
 			size_t flushPointer = localFlushedSn_ - localSettledSn_;
 			size_t windowPointer = localWindowSn_ - localSettledSn_;
 
-			size_t bytesAvailable = sendRing_.availableToDequeue();
-			assert(bytesAvailable >= flushPointer);
+			size_t chunk = 0; // Size of payload that we are going to send.
+			if (connectState_ == ConnectState::connected) {
+				size_t bytesAvailable = sendRing_.availableToDequeue();
+				assert(bytesAvailable >= flushPointer);
+
+				if (bytesAvailable > flushPointer && windowPointer > flushPointer) {
+					chunk = std::min({
+						bytesAvailable - flushPointer,
+						windowPointer - flushPointer,
+						size_t{1280} // TODO: Perform path MTU discovery.
+					});
+				}
+			}
+
+			bool sendFin = false;
+			if (connectState_ == ConnectState::sendFin) {
+				// If flushPointer != 0, we sent a FIN already.
+				if (!flushPointer)
+					sendFin = true;
+			}
 
 			// Check whether we need to send a packet.
 			// TODO: Add retransmission here.
-			bool wantData = (bytesAvailable > flushPointer && windowPointer > flushPointer);
 			bool wantAck = (remoteAckedSn_ != remoteKnownSn_);
 			bool wantWindowUpdate = (announcedWindow_ < recvRing_.spaceForEnqueue());
 
-			if(!wantData && !wantAck && !wantWindowUpdate) {
+			if(chunk == 0 && !sendFin && !wantAck && !wantWindowUpdate) {
 				co_await flushEvent_.async_wait();
 				continue;
 			}
 
 			// Construct and transmit the TCP packet.
-			auto chunk = std::min({
-				bytesAvailable - flushPointer,
-				windowPointer - flushPointer,
-				size_t{1280} // TODO: Perform path MTU discovery.
-			});
-
 			std::vector<char> buf;
 			buf.resize(sizeof(TcpHeader) + chunk);
 
@@ -870,9 +923,11 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 				.urgentPointer = 0,
 			};
 			header->flags.store(TcpHeader::headerWords(sizeof(TcpHeader) / 4)
-					| TcpHeader::ackFlag(true));
+					| TcpHeader::ackFlag(true)
+					| TcpHeader::finFlag(sendFin));
 
-			sendRing_.dequeueLookahead(flushPointer, buf.data() + sizeof(TcpHeader), chunk);
+			if (chunk)
+				sendRing_.dequeueLookahead(flushPointer, buf.data() + sizeof(TcpHeader), chunk);
 
 			// Fill in the checksum.
 			PseudoHeader pseudo {
@@ -886,6 +941,9 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 			header->checksum = csum.finalize();
 
 			localFlushedSn_ += chunk;
+			if (sendFin)
+				++localFlushedSn_;
+
 			remoteAckedSn_ = remoteKnownSn_;
 			announcedWindow_ = recvRing_.spaceForEnqueue();
 
@@ -997,7 +1055,8 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		connectState_ = ConnectState::connected;
 		flushEvent_.raise();
 		settleEvent_.raise();
-	}else if(connectState_ == ConnectState::connected) {
+	}else if(connectState_ == ConnectState::connected
+			|| connectState_ == ConnectState::sendFin) {
 		if(packet.header.seqNumber.load() == remoteKnownSn_) {
 			bool gotUpdate = false;
 
@@ -1032,18 +1091,31 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		}
 
 		if(packet.header.flags.load() & TcpHeader::ackFlag) {
-			size_t validWindow = localFlushedSn_ - localSettledSn_;
-			size_t ackPointer = packet.header.ackNumber.load() - localSettledSn_;
-			if(ackPointer <= validWindow) {
-				localSettledSn_ += ackPointer;
-				localWindowSn_ = localSettledSn_ + packet.header.window.load();
-				sendRing_.dequeueAdvance(ackPointer);
-				outSeq_ = ++currentSeq_;
-				settleEvent_.raise();
-				pollEvent_.raise();
-			}else{
-				std::cout << "netserver: Rejecting ack-number outside of valid window"
-						<< std::endl;
+			if (connectState_ == ConnectState::connected) {
+				size_t validWindow = localFlushedSn_ - localSettledSn_;
+				size_t ackPointer = packet.header.ackNumber.load() - localSettledSn_;
+				if(ackPointer <= validWindow) {
+					localSettledSn_ += ackPointer;
+					localWindowSn_ = localSettledSn_ + packet.header.window.load();
+					sendRing_.dequeueAdvance(ackPointer);
+					outSeq_ = ++currentSeq_;
+					settleEvent_.raise();
+					pollEvent_.raise();
+				}else{
+					std::cout << "netserver: Rejecting ack-number outside of valid window"
+							<< std::endl;
+				}
+			} else {
+				assert(connectState_ == ConnectState::sendFin);
+
+				if(packet.header.ackNumber.load() == localSettledSn_ + 1) {
+					++localSettledSn_;
+					localWindowSn_ = localSettledSn_ + packet.header.window.load();
+					settleEvent_.raise();
+				}else if(packet.header.ackNumber.load() != localSettledSn_) {
+					std::cout << "netserver: Rejecting packet with bad ack-number [sendFin]"
+							<< std::endl;
+				}
 			}
 		}
 	}
@@ -1117,9 +1189,24 @@ bool Tcp4::unbind(TcpEndpoint e) {
 	return binds.erase(e) != 0;
 }
 
-void Tcp4::serveSocket(int flags, helix::UniqueLane lane) {
-	using protocols::fs::servePassthrough;
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<Tcp4Socket> sock
+) {
+	// TODO: This could use race_and_cancel().
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &Tcp4Socket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &Tcp4Socket::ops, cancelPt);
+	std::println("netserver: TCP socket closed");
+	co_await sock->disconnect();
+}
+
+void Tcp4::serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane) {
 	auto sock = Tcp4Socket::makeSocket(this, flags & SOCK_NONBLOCK);
-	async::detach(servePassthrough(std::move(lane), std::move(sock),
-			&Tcp4Socket::ops));
+	async::detach(serveLanes(std::move(ctrlLane), std::move(ptLane), std::move(sock)));
 }

@@ -589,24 +589,25 @@ async::detached serve(helix::UniqueLane lane) {
 			recv_req.reset();
 
 			if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
-				auto [local_lane, remote_lane] = helix::createStream();
+				auto [localCtrl, remoteCtrl] = helix::createStream();
+				auto [localPt, remotePt] = helix::createStream();
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 
 				if(req.domain() == AF_INET) {
-					auto err = ip4().serveSocket(std::move(local_lane),
-							req.type(), req.protocol(), req.flags());
+					auto err = ip4().serveSocket(std::move(localCtrl),
+							std::move(localPt), req.type(), req.protocol(), req.flags());
 					if(err != managarm::fs::Errors::SUCCESS) {
 						co_await sendError(err);
 						continue;
 					}
 				} else if(req.domain() == AF_NETLINK) {
 					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags(), req.protocol());
-					async::detach(servePassthrough(std::move(local_lane), nl_socket,
+					async::detach(servePassthrough(std::move(localPt), nl_socket,
 							&nl::NetlinkSocket::ops));
 				} else if(req.domain() == AF_PACKET) {
-					auto err = raw().serveSocket(std::move(local_lane),
+					auto err = raw().serveSocket(std::move(localPt),
 							req.type(), req.protocol(), req.flags());
 					if(err != managarm::fs::Errors::SUCCESS) {
 						co_await sendError(err);
@@ -619,15 +620,17 @@ async::detached serve(helix::UniqueLane lane) {
 				}
 
 				auto ser = resp.SerializeAsString();
-				auto [send_resp, push_socket] =
+				auto [sendResp, pushCtrl, pushPt] =
 					co_await helix_ng::exchangeMsgs(
 						conversation,
 						helix_ng::sendBuffer(
 							ser.data(), ser.size()),
-						helix_ng::pushDescriptor(remote_lane)
+						helix_ng::pushDescriptor(remoteCtrl),
+						helix_ng::pushDescriptor(remotePt)
 					);
-				HEL_CHECK(send_resp.error());
-				HEL_CHECK(push_socket.error());
+				HEL_CHECK(sendResp.error());
+				HEL_CHECK(pushCtrl.error());
+				HEL_CHECK(pushPt.error());
 				logBragiSerializedReply(ser);
 			} else {
 				std::cout << "netserver: received unknown request type: "
