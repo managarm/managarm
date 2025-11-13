@@ -86,6 +86,8 @@ enum class Error {
 	noSuchProcess,
 
 	noFileDescriptorsAvailable,
+
+	notSupported,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -118,6 +120,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::interrupted: return protocols::fs::Error::interrupted;
 		case Error::noSuchProcess: return protocols::fs::Error::noSuchProcess;
 		case Error::noFileDescriptorsAvailable: return protocols::fs::Error::noFileDescriptorsAvailable;
+		case Error::notSupported: return protocols::fs::Error::notSupported;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -155,6 +158,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::interrupted: return managarm::posix::Errors::INTERRUPTED;
 		case Error::noSuchProcess: return managarm::posix::Errors::NO_SUCH_RESOURCE;
 		case Error::noFileDescriptorsAvailable: return managarm::posix::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
+		case Error::notSupported: return managarm::posix::Errors::NOT_SUPPORTED;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:
@@ -194,6 +198,7 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::directoryNotEmpty: return Error::directoryNotEmpty;
 		case protocols::fs::Error::internalError: return Error::fileClosed;
 		case protocols::fs::Error::noSuchProcess: return Error::noSuchProcess;
+		case protocols::fs::Error::notSupported: return Error::notSupported;
 		default:
 			std::cout << std::format("posix: unmapped protocols::fs::Error {}", static_cast<int>(e)) << std::endl;
 			return Error::ioError;
@@ -224,6 +229,7 @@ inline Error operator|(managarm::fs::Errors e, ToPosixError) {
 		case managarm::fs::Errors::ALREADY_CONNECTED: return Error::alreadyConnected;
 		case managarm::fs::Errors::NOT_A_SOCKET: return Error::notSocket;
 		case managarm::fs::Errors::INTERRUPTED: return Error::interrupted;
+		case managarm::fs::Errors::NOT_SUPPORTED: return Error::notSupported;
 		default:
 			std::println("posix: unmapped managarm::fs::Errors Error {}", static_cast<int>(e));
 			return Error::ioError;

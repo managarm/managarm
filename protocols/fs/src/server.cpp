@@ -786,10 +786,10 @@ async::detached handlePassthrough(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		co_await file_ops->listen(file.get());
+		auto res = co_await file_ops->listen(file.get());
 
 		managarm::fs::SvrResponse resp;
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_error(res | toFsError);
 
 		auto ser = resp.SerializeAsString();
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(

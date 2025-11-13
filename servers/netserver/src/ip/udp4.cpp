@@ -18,6 +18,9 @@
 #include <netinet/ip.h>
 
 namespace {
+
+constexpr bool dumpHeader = false;
+
 struct stl_allocator {
 	void *allocate(size_t size) {
 		return operator new(size);
@@ -198,6 +201,15 @@ struct Udp4Socket {
 		co_return sizeof(sockaddr_in);
 	}
 
+	static async::result<Error> listen(void *) {
+		co_return protocols::fs::Error::notSupported;
+	}
+
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::AcceptResult>>
+	accept(void *) {
+		co_return protocols::fs::Error::notSupported;
+	}
+
 	static async::result<protocols::fs::Error> bind(void* obj,
 			helix_ng::CredentialsView creds,
 			const void *addr_ptr, size_t addr_size) {
@@ -218,7 +230,7 @@ struct Udp4Socket {
 		// TODO(arsen): check other broadcast addresses too
 		if (local.addr == INADDR_BROADCAST) {
 			std::cout << "netserver: broadcast" << std::endl;
-			co_return protocols::fs::Error::accessDenied;
+			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
@@ -354,15 +366,16 @@ struct Udp4Socket {
 		chk.update(data, len);
 		header.chk = convert_endian<endian::big>(chk.finalize());
 
-		std::cout << "netserver:" << std::endl << std::hex
-			<< std::setw(8) << psh.src << std::endl
-			<< std::setw(8) << psh.dst << std::endl
-			<< std::setw(8) << psh.len << std::endl
+		if (dumpHeader)
+			std::cout << "netserver:" << std::endl << std::hex
+				<< std::setw(8) << psh.src << std::endl
+				<< std::setw(8) << psh.dst << std::endl
+				<< std::setw(8) << psh.len << std::endl
 
-			<< std::setw(8) << header.src << std::endl
-			<< std::setw(8) << header.dst << std::endl
-			<< std::setw(8) << header.len << std::endl
-			<< std::setw(8) << header.chk << std::endl << std::dec;
+				<< std::setw(8) << header.src << std::endl
+				<< std::setw(8) << header.dst << std::endl
+				<< std::setw(8) << header.len << std::endl
+				<< std::setw(8) << header.chk << std::endl << std::dec;
 
 		if (header.chk == 0) {
 			header.chk = ~header.chk;
@@ -476,7 +489,9 @@ struct Udp4Socket {
 		.pollWait = &pollWait,
 		.pollStatus = &pollStatus,
 		.bind = &bind,
+		.listen = &listen,
 		.connect = &connect,
+		.accept = &accept,
 		.sockname = &sockname,
 		.getFileFlags = &getFileFlags,
 		.setFileFlags = &setFileFlags,
