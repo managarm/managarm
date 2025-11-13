@@ -145,6 +145,11 @@ struct Udp4Socket {
 	Udp4Socket(Udp4 *parent, bool nonBlock) : parent_(parent), nonBlock_(nonBlock) {}
 
 	~Udp4Socket() {
+		std::println("netserver: UDP socket destructed");
+	}
+
+	void handleClose() {
+		std::println("netserver: UDP socket closed");
 		parent_->unbind(local_);
 	}
 
@@ -576,7 +581,7 @@ static async::result<void> serveLanes(
 	});
 
 	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &Udp4Socket::ops, cancelPt);
-	std::println("netserver: UDP socket closed");
+	sock->handleClose();
 }
 
 void Udp4::serveSocket(int flags, helix::UniqueLane ctrlLane, helix::UniqueLane ptLane) {
