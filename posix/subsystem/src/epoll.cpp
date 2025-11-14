@@ -269,7 +269,12 @@ public:
 
 				// Discard closed items.
 				if(!result_or_error) {
-					assert(result_or_error.error() == Error::fileClosed);
+					// We only expect fileClosed as an error here. For robustness: do not assert() but complain instead.
+					// This catches cases such as files that do not support pollStatus().
+					if(result_or_error.error() != Error::fileClosed) {
+						std::println("posix.epoll \e[1;34m{}\e[0m: Unexpected error {} from pollStatus() on \e[1;34m{}\e[0m",
+							structName(), std::to_underlying(result_or_error.error()), item->file->structName());
+					}
 					if(logEpoll)
 						std::println("posix.epoll \e[1;34m{}\e[0m: Discarding closed item \e[1;34m{}\e[0m",
 							structName(), item->file->structName());
