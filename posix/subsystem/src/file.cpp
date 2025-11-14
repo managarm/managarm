@@ -342,38 +342,21 @@ async::result<frg::expected<Error, off_t>> File::seek(off_t, VfsSeek) {
 	}
 }
 
-expected<PollResult> File::poll(Process *, uint64_t, async::cancellation_token) {
-	std::cout << "posix \e[1;34m" << structName()
-			<< "\e[0m: Object does not implement poll()" << std::endl;
-	co_return Error::illegalOperationTarget;
-}
-
-async::result<frg::expected<Error, PollWaitResult>> File::pollWait(Process *process,
+async::result<frg::expected<Error, PollWaitResult>> File::pollWait(Process *,
 		uint64_t sequence, int mask,
-		async::cancellation_token cancellation) {
-	while(true) {
-		auto resultOrError = co_await poll(process, sequence, cancellation);
-
-		if(auto error = std::get_if<Error>(&resultOrError); error)
-			co_return *error;
-
-		auto result = std::get<PollResult>(resultOrError);
-		if((std::get<1>(result) & mask) || cancellation.is_cancellation_requested())
-			co_return PollWaitResult{std::get<0>(result), std::get<1>(result)};
-
-		// Mask was not satisfied.
-		sequence = std::get<0>(result);
-	}
+		async::cancellation_token ct) {
+	(void)sequence;
+	(void)mask;
+	std::cout << "posix \e[1;34m" << structName()
+		<< "\e[0m: Object does not implement pollWait()" << std::endl;
+	co_await async::suspend_indefinitely(ct);
+	co_return PollWaitResult{0, 0};
 }
 
-async::result<frg::expected<Error, PollStatusResult>> File::pollStatus(Process *process) {
-	auto resultOrError = co_await poll(process, 0);
-
-	if(auto error = std::get_if<Error>(&resultOrError); error)
-		co_return *error;
-
-	auto result = std::get<PollResult>(resultOrError);
-	co_return PollStatusResult{std::get<0>(result), std::get<2>(result)};
+async::result<frg::expected<Error, PollStatusResult>> File::pollStatus(Process *) {
+	std::cout << "posix \e[1;34m" << structName()
+		<< "\e[0m: Object does not implement pollStatus()" << std::endl;
+	co_return PollStatusResult{0, 0};
 }
 
 async::result<frg::expected<Error, AcceptResult>> File::accept(Process *) {

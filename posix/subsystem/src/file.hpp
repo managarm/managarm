@@ -502,16 +502,10 @@ public:
 
 	virtual async::result<frg::expected<protocols::fs::Error>> allocate(int64_t offset, size_t size);
 
-	// poll() uses a sequence number mechansim for synchronization.
-	// Before returning, it waits until current-sequence > in-sequence.
-	// Returns (current-sequence, edges since in-sequence, current events).
-	// current-sequence is incremented each time an edge (i.e. an event bit
-	// transitions from clear to set) happens.
-	virtual expected<PollResult> poll(Process *, uint64_t sequence,
-			async::cancellation_token cancellation = {});
-
-	// Waits until the poll sequence changes *and* one of the events in the mask receivs an edge.
+	// pollWait() / pollStatus() uses a sequence number mechansim for synchronization.
+	// Waits until the poll sequence changes *and* one of the events in the mask receives an edge.
 	// Returns (current-sequence, edges since in-sequence).
+	// current-sequence is incremented each time an edge (i.e. an event bit transitions from clear to set) happens.
 	virtual async::result<frg::expected<Error, PollWaitResult>> pollWait(Process *,
 			uint64_t sequence, int mask,
 			async::cancellation_token cancellation = {});
