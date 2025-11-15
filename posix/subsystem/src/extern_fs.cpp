@@ -242,8 +242,8 @@ private:
 
 public:
 	OpenFile(helix::UniqueLane control, helix::UniqueLane lane,
-			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool append)
-	: File{FileKind::unknown, StructName::get("externfs.file"), std::move(mount), std::move(link), 0, append},
+			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
+	: File{FileKind::unknown, StructName::get("externfs.file"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)} { }
 
 	~OpenFile() override {
@@ -334,7 +334,7 @@ private:
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
-				pull_passthrough.descriptor(), std::move(mount), std::move(link), append);
+				pull_passthrough.descriptor(), std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		co_return File::constructHandle(std::move(file));
 	}
@@ -871,7 +871,7 @@ private:
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
-				pull_passthrough.descriptor(), std::move(mount), std::move(link), append);
+				pull_passthrough.descriptor(), std::move(mount), std::move(link));
 		file->setupWeakFile(file);
 		co_return File::constructHandle(std::move(file));
 	}
@@ -1049,7 +1049,7 @@ std::shared_ptr<FsLink> createRoot(helix::UniqueLane sb_lane, helix::UniqueLane 
 smarter::shared_ptr<File, FileHandle>
 createFile(helix::UniqueLane lane, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link) {
 	auto file = smarter::make_shared<OpenFile>(helix::UniqueLane{},
-			std::move(lane), std::move(mount), std::move(link), false);
+			std::move(lane), std::move(mount), std::move(link));
 	file->setupWeakFile(file);
 	return File::constructHandle(std::move(file));
 }
