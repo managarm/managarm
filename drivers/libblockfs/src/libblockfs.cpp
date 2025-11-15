@@ -79,7 +79,7 @@ async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset) {
 
 async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
-	self->offset += offset + self->inode->fileSize();
+	self->offset = offset + self->inode->fileSize();
 	co_return static_cast<ssize_t>(self->offset);
 }
 
