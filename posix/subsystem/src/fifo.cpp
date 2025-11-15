@@ -260,7 +260,6 @@ public:
 					break;
 				}
 				default: {
-					std::cout << "Invalid ioctl for fifo.read" << std::endl;
 					auto [dismiss] = co_await helix_ng::exchangeMsgs(
 						conversation, helix_ng::dismiss());
 					HEL_CHECK(dismiss.error());

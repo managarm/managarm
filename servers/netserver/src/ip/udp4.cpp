@@ -20,6 +20,7 @@
 
 namespace {
 
+constexpr bool logSockets = false;
 constexpr bool dumpHeader = false;
 
 struct stl_allocator {
@@ -153,11 +154,13 @@ struct Udp4Socket {
 	Udp4Socket(Udp4 *parent, bool nonBlock) : parent_(parent), nonBlock_(nonBlock) {}
 
 	~Udp4Socket() {
-		std::println("netserver: UDP socket destructed");
+		if (logSockets)
+			std::println("netserver: UDP socket destructed");
 	}
 
 	void handleClose() {
-		std::println("netserver: UDP socket closed");
+		if (logSockets)
+			std::println("netserver: UDP socket closed");
 		parent_->unbind(local_);
 	}
 
@@ -191,7 +194,8 @@ struct Udp4Socket {
 		uint32_t bindAddr = remote.addr;
 
 		if (remote.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::accessDenied;
 		} else if (remote.addr == INADDR_ANY) {
 			bindAddr = INADDR_LOOPBACK;
@@ -220,7 +224,8 @@ struct Udp4Socket {
 
 		if (!self->local_.port && bindAddr != INADDR_ANY
 				&& !self->bindAvailable(bindAddr)) {
-			std::cout << "netserver: no source port" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
@@ -301,12 +306,14 @@ struct Udp4Socket {
 
 		// TODO(arsen): check other broadcast addresses too
 		if (local.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
-			std::cout << "netserver: not local ip" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: not local ip" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
@@ -314,7 +321,8 @@ struct Udp4Socket {
 			if (!self->bindAvailable(local.addr))
 				co_return protocols::fs::Error::addressInUse;
 		} else if (!self->parent_->tryBind(self->holder_.lock(), local)) {
-			std::cout << "netserver: address in use" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: address in use" << std::endl;
 			co_return protocols::fs::Error::addressInUse;
 		}
 
@@ -389,7 +397,8 @@ struct Udp4Socket {
 		if (addr_size != 0) {
 			if (auto e = checkAddress(addr_ptr, addr_size, target);
 				e != protocols::fs::Error::none) {
-				std::cout << "netserver: trimmed sendmsg addr" << std::endl;
+				if (logSockets)
+					std::cout << "netserver: trimmed sendmsg addr" << std::endl;
 				co_return e;
 			}
 		} else {
@@ -397,19 +406,22 @@ struct Udp4Socket {
 		}
 
 		if (target.port == 0 || target.addr == 0) {
-			std::cout << "netserver: udp needs destination" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: udp needs destination" << std::endl;
 			co_return protocols::fs::Error::destAddrRequired;
 		}
 
 		if (source.port == 0 && !self->bindAvailable(source.addr)) {
-			std::cout << "netserver: no source port" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		source = self->local_;
 
 		if (target.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::accessDenied;
 		}
 
@@ -548,7 +560,7 @@ struct Udp4Socket {
 
 	static async::result<void> setFileFlags(void *object, int flags) {
 		auto self = static_cast<Udp4Socket *>(object);
-		std::cout << "posix: setFileFlags on udp socket only supports O_NONBLOCK" << std::endl;
+
 		if(flags & ~O_NONBLOCK) {
 			std::cout << "posix: setFileFlags on udp socket called with unknown flags" << std::endl;
 			co_return;
@@ -683,7 +695,8 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 				continue;
 
 			if (!(i->second->shutdownReadSeq_)) {
-				std::println("netserver: received udp datagram to port {}", udp.header.dst);
+				if (logSockets)
+					std::println("netserver: received udp datagram to port {}", udp.header.dst);
 				i->second->queue_.emplace(std::move(udp));
 				i->second->_inSeq = ++i->second->_currentSeq;
 				i->second->_statusBell.raise();
