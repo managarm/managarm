@@ -156,7 +156,9 @@ public:
 public:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
-		if(socktype_ == SOCK_STREAM && _currentState != State::connected)
+		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && _currentState == State::remoteShutDown)
+			co_return std::unexpected{Error::brokenPipe};
+		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown)
 			co_return std::unexpected{Error::notConnected};
 
 		if(logSockets)
