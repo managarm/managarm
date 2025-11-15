@@ -483,10 +483,10 @@ struct MemoryNode final : Node {
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
+		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite | semanticAppend)){
 			std::cout << "\e[31mposix: MemoryNode open() received illegal arguments:"
 				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
+				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2), semanticWrite(0x4) and semanticAppend(0x8) are allowed.\e[39m"
 				<< std::endl;
 			co_return Error::illegalArguments;
 		}
@@ -657,6 +657,9 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length, async::cancella
 async::result<frg::expected<Error, size_t>>
 MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
+
+	if(flags_ & semanticAppend)
+		_offset = node->_fileSize;
 
 	if(_offset + length > node->_fileSize)
 		node->_resizeFile(_offset + length);
