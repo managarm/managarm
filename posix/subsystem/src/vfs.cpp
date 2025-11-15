@@ -13,6 +13,7 @@
 #include "device.hpp"
 #include "tmp_fs.hpp"
 #include "extern_fs.hpp"
+#include "process.hpp"
 #include "sysfs.hpp"
 
 namespace {
@@ -533,7 +534,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> open(
 	}
 	ViewPath current = resolveResult.value();
 
-	auto file = co_await current.second->getTarget()->open(current.first, current.second,
+	auto file = co_await current.second->getTarget()->open(process->shared_from_this(), current.first, current.second,
 			semantic_flags);
 	co_return std::move(file);
 }

@@ -291,7 +291,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(std::shared_ptr<Process>, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;
@@ -828,7 +828,7 @@ private:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(std::shared_ptr<Process>, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		// Regular files do not support O_NONBLOCK.
 		semantic_flags &= ~semanticNonBlock;

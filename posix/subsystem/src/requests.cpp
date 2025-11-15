@@ -2081,7 +2081,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(link);
 				auto node = link->getTarget();
 
-				auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+				auto fileResult = co_await node->open(self, resolver.currentView(), std::move(link),
 									semantic_flags);
 				assert(fileResult);
 				file = fileResult.value();
@@ -2133,7 +2133,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 						continue;
 					}
 
-					auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
+					auto fileResult = co_await target->open(self, resolver.currentView(), resolver.currentLink(), semantic_flags);
 					if(!fileResult) {
 						if(fileResult.error() == Error::noBackingDevice) {
 							co_await sendErrorResponse(managarm::posix::Errors::NO_BACKING_DEVICE);
