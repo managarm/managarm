@@ -11,6 +11,8 @@
 #include <protocols/fs/server.hpp>
 #include <protocols/fs/client.hpp>
 #include <posix.bragi.hpp>
+#include <sys/socket.h>
+
 #include "common.hpp"
 
 struct File;

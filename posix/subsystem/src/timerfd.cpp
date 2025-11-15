@@ -1,3 +1,5 @@
+#include <sys/socket.h>
+
 // needed to avoid redefinitions in linux/timerfd.h
 #ifdef _GNU_SOURCE
 #undef _GNU_SOURCE

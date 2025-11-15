@@ -5,6 +5,7 @@
 #include <helix/ipc.hpp>
 #include <netserver/nic.hpp>
 #include <smarter.hpp>
+#include <sys/time.h>
 
 #include "ip4.hpp"
 

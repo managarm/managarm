@@ -14,6 +14,8 @@
 #include <protocols/fs/common.hpp>
 #include <protocols/fs/defs.hpp>
 #include <smarter.hpp>
+#include <sys/socket.h>
+
 #include <deque>
 #include <memory>
 
