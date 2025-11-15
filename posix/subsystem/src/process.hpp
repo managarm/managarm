@@ -967,6 +967,7 @@ struct ControllingTerminalState {
 
 	TerminalSession *getSession() { return associatedSession_; }
 
+	DeviceId devId;
 private:
 	TerminalSession *associatedSession_ = nullptr;
 };
