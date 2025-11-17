@@ -254,6 +254,12 @@ async::result<frg::expected<Error>> File::readExactly(Process *process,
 		// highly confusing.
 		if (!result.has_value())
 			co_return Error::eof;
+
+		if (!result.value()) {
+			std::println("posix: read returned zero unexpectedly!");
+			co_return Error::eof;
+		}
+
 		offset += result.value();
 	}
 
