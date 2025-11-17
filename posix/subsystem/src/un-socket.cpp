@@ -172,7 +172,7 @@ public:
 			}
 
 			if(shutdownFlags_ & shutdownRead)
-				co_return size_t{0};
+				co_return std::unexpected{Error::eof};
 
 			if(ct.is_cancellation_requested())
 				co_return std::unexpected{Error::interrupted};

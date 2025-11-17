@@ -148,11 +148,11 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 		})
 	);
 
-	if(resp.error() == managarm::fs::Errors::END_OF_FILE)
-		co_return std::unexpected{Error::endOfFile};
-
 	if (resp.error() == managarm::fs::Errors::INTERRUPTED)
 		co_return std::unexpected{Error::interrupted};
+
+	if (resp.error() == managarm::fs::Errors::END_OF_FILE || (max_length && actualLength == 0))
+		co_return std::unexpected{Error::endOfFile};
 
 	assert(resp.error() == managarm::fs::Errors::SUCCESS);
 	co_return actualLength;

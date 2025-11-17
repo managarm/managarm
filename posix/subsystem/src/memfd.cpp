@@ -99,7 +99,7 @@ MemoryFile::writeAll(Process *, const void *data, size_t length) {
 async::result<std::expected<size_t, Error>>
 MemoryFile::readSome(Process *, void *data, size_t max_length, async::cancellation_token) {
 	if(_offset > _fileSize)
-		co_return size_t{0};
+		co_return std::unexpected{Error::eof};
 
 	auto read_len = std::min(_fileSize - _offset, max_length);
 	memcpy(data, reinterpret_cast<std::byte *>(_mapping.get()) + _offset, read_len);
