@@ -11,7 +11,7 @@ struct NullFile final : File {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *, size_t, async::cancellation_token) override {
-		co_return size_t{0};
+		co_return std::unexpected{Error::eof};
 	}
 
 	async::result<frg::expected<Error, size_t>> writeAll(Process *, const void *, size_t length) override {

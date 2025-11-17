@@ -110,12 +110,12 @@ async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Credential
 	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
-		co_return size_t{0};
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto remaining = self->inode->fileSize() - self->offset;
 	auto chunkSize = std::min(length, remaining);
 	if(!chunkSize)
-		co_return size_t{0}; // TODO: Return an explicit end-of-file error?
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto chunk_offset = self->offset;
 	self->offset += chunkSize;
@@ -165,7 +165,7 @@ async::result<protocols::fs::ReadResult> pread(void *object, int64_t offset, hel
 	co_await self->inode->readyJump.wait();
 
 	if(self->offset >= self->inode->fileSize())
-		co_return size_t{0};
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto remaining = self->inode->fileSize() - offset;
 	auto chunk_size = std::min(length, remaining);
@@ -637,7 +637,7 @@ async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::Credent
 	auto file_size = co_await self->rawFs->device->getSize();
 
 	if(self->offset >= file_size)
-		co_return size_t{0};
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
 
 	auto remaining = file_size - self->offset;
 	auto chunkSize = std::min(length, remaining);

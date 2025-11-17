@@ -644,7 +644,7 @@ MemoryFile::readSome(Process *, void *buffer, size_t max_length, async::cancella
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(!(_offset <= node->_fileSize))
-		co_return size_t{0};
+		co_return std::unexpected{Error::eof};
 	auto chunk = std::min(node->_fileSize - _offset, max_length);
 
 	memcpy(buffer, reinterpret_cast<char *>(node->_mapping.get()) + _offset, chunk);

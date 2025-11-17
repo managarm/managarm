@@ -859,7 +859,7 @@ MasterFile::readSome(Process *, void *data, size_t maxLength, async::cancellatio
 	if(logReadWrite)
 		std::cout << std::format("posix: Read from tty {}\n", structName());
 	if(!maxLength)
-		co_return size_t{0};
+		co_return std::unexpected{Error::eof};
 
 	if (_channel->masterQueue.empty() && _nonBlocking)
 		co_return std::unexpected{Error::wouldBlock};
@@ -1111,7 +1111,7 @@ SlaveFile::readSome(Process *, void *data, size_t maxLength, async::cancellation
 	if(logReadWrite)
 		std::cout << "posix: Read from tty " << structName() << std::endl;
 	if(!maxLength || _channel->masterCount == 0)
-		co_return size_t{0};
+		co_return std::unexpected{Error::eof};
 
 	while(_channel->slaveQueue.empty()){
 		if(nonBlock_){

@@ -117,7 +117,7 @@ public:
 
 		if(_channel->packetQueue.empty()) {
 			assert(!_channel->writerCount);
-			co_return size_t{0};
+			co_return std::unexpected{Error::eof};
 		}
 
 		// TODO: Truncate packets (for SOCK_DGRAM) here.
