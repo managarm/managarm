@@ -517,7 +517,12 @@ public:
 
 	void dumpRegisters();
 
-	async::result<void> destruct();
+	// Called when a process is terminated.
+	// This kills the kernel thread that currently corresponds the process
+	// and waits for signal and request handling to exit.
+	// This MUST only be called from the Process's observation loop.
+	// Note that terminateGroup() must be called separately as needed.
+	async::result<void> terminate(bool *lastInGroup = nullptr);
 
 	struct WaitResult {
 		int pid = 0;
@@ -573,6 +578,9 @@ public:
 	helix_ng::CredentialsView credentials() const {
 		return {credentials_};
 	}
+
+	// Forces terminate() to be called on next kHelObserveInterrupt.
+	bool forceTermination = false;
 
 	SignalItem *delayedSignal = nullptr;
 	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
@@ -646,9 +654,8 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	std::shared_ptr<ProcessGroup> pgPointer() { return pgPointer_; }
 
 	void associateProcess(std::shared_ptr<Process> process);
-	async::result<void> handleThreadExit(Process *process, uint8_t code);
 
-	async::result<void> terminate(TerminationState state);
+	async::result<void> terminateGroup(TerminationState state);
 	static void retire(ThreadGroup *group);
 
 	SignalContext *signalContext() { return _signalContext.get(); }
@@ -844,6 +851,9 @@ private:
 	int _euid;
 	int _gid;
 	int _egid;
+
+	// Raised by Process::terminate().
+	async::recurring_event processTerminationEvent_;
 
 	// Resource usage accumulated from previous generations.
 	ResourceUsage _generationUsage = {};
