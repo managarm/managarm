@@ -483,7 +483,7 @@ public:
 	std::shared_ptr<VmContext> vmContext() { return _vmContext; }
 	std::shared_ptr<FsContext> fsContext() { return _fsContext; }
 	std::shared_ptr<FileContext> fileContext() { return _fileContext; }
-	ThreadGroup *threadGroup() { return tgPointer_; }
+	ThreadGroup *threadGroup() { return tgPointer_.get(); }
 	std::shared_ptr<ProcessGroup> pgPointer();
 
 	void setSignalMask(uint64_t mask) {
@@ -591,7 +591,7 @@ private:
 
 	std::shared_ptr<procfs::Link> procfsTaskLink_;
 
-	ThreadGroup *tgPointer_;
+	std::shared_ptr<ThreadGroup> tgPointer_;
 	frg::default_list_hook<Process> tgHook_;
 
 	helix::UniqueDescriptor _threadPageMemory;

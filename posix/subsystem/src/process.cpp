@@ -949,7 +949,7 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 }
 
 Process::Process(ThreadGroup *threadGroup, std::shared_ptr<PidHull> tidHull)
-: hull_{std::move(tidHull)}, tgPointer_{threadGroup} {
+: hull_{std::move(tidHull)}, tgPointer_{threadGroup->shared_from_this()} {
 
 }
 
@@ -1316,7 +1316,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	ThreadGroup *threadGroup;
 
 	if (args->flags & CLONE_THREAD) {
-		threadGroup = original->tgPointer_;
+		threadGroup = original->tgPointer_.get();
 	} else {
 		auto pidHull = std::make_shared<PidHull>(nextPid++);
 		threadGroup = ThreadGroup::create(pidHull, parentPtr);
@@ -1728,7 +1728,7 @@ async::result<void> ThreadGroup::handleThreadExit(Process *process, uint8_t code
 }
 
 void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {
-	process->tgPointer_ = this;
+	assert(process->tgPointer_.get() == this);
 
 	threads_.push_back(process);
 
