@@ -1666,7 +1666,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		reparent_to->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
-		if((*it)->parentDeathSignal_ && !(*it)->threads_.empty()) {
+		if((*it)->parentDeathSignal_) {
 			UserSignal info;
 			info.pid = hull_->getPid();
 			(*it)->signalContext()->issueSignal((*it)->parentDeathSignal_.value(), info);
@@ -1708,7 +1708,6 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	parent_->_notifyBell.raise();
 
 	// Send SIGCHLD to the parent.
-	assert(!parent_->threads_.empty());
 	parent_->signalContext()->issueSignal(SIGCHLD, info);
 }
 
