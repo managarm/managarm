@@ -1666,7 +1666,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		reparent_to->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
-		if((*it)->parentDeathSignal_ && !(*it)->threads_.empty()) {
+		if((*it)->parentDeathSignal_) {
 			UserSignal info;
 			info.pid = hull_->getPid();
 			(*it)->signalContext()->issueSignal((*it)->parentDeathSignal_.value(), info);
@@ -1678,38 +1678,36 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	if(ringReparent)
 		reparent_to->_notifyBell.raise();
 
-	// Compile SIGCHLD info.
-	ChildSignal info;
-	info.pid = hull_->getPid();
-	info.utime = _generationUsage.userTime;
-
 	// Notify the parent of our status change.
+	// We need to do that even when not sending SIGCHLD since it wakes up pidfd.
 	assert(notifyType_ == NotifyType::null);
 	notifyType_ = NotifyType::terminated;
 	notifyTypeChange_.raise();
 
-	if(std::get_if<TerminationByExit>(&_state)) {
-		info.status = std::get<TerminationByExit>(_state).code;
-		info.code = CLD_EXITED;
-	} else if(std::get_if<TerminationBySignal>(&_state)) {
-		info.status = std::get<TerminationBySignal>(_state).signo;
-		info.code = dumpable_ ? CLD_DUMPED : CLD_KILLED;
-	} else {
-		std::println("posix: unhandled SIGCHLD reason");
-	}
-
 	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
 	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait)) {
 		parent_->_notifyQueue.push_back(this);
+		parent_->_notifyBell.raise();
+
+		// Send SIGCHLD to the parent.
+		ChildSignal info;
+		info.pid = hull_->getPid();
+		info.utime = _generationUsage.userTime;
+
+		if(std::get_if<TerminationByExit>(&_state)) {
+			info.status = std::get<TerminationByExit>(_state).code;
+			info.code = CLD_EXITED;
+		} else if(std::get_if<TerminationBySignal>(&_state)) {
+			info.status = std::get<TerminationBySignal>(_state).signo;
+			info.code = dumpable_ ? CLD_DUMPED : CLD_KILLED;
+		} else {
+			std::println("posix: unhandled SIGCHLD reason");
+		}
+
+		parent_->signalContext()->issueSignal(SIGCHLD, info);
 	} else {
 		ThreadGroup::retire(this);
 	}
-
-	parent_->_notifyBell.raise();
-
-	// Send SIGCHLD to the parent.
-	assert(!parent_->threads_.empty());
-	parent_->signalContext()->issueSignal(SIGCHLD, info);
 }
 
 void ThreadGroup::retire(ThreadGroup *tg) {
@@ -1725,6 +1723,10 @@ void ThreadGroup::retire(ThreadGroup *tg) {
 		    return e->pid() == pid;
 	    })
 	);
+
+	// We need to ring _notifyBell once the process is retired
+	// since waitpid() returns an error once no children are left.
+	tg->parent_->_notifyBell.raise();
 }
 
 void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {
