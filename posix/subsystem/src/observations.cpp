@@ -229,7 +229,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto code = gprs[kHelRegArg0];
 
-			co_await self->threadGroup()->terminate(TerminationByExit{static_cast<int>(code & 0xFF)});
+			co_await self->terminate();
+			co_await self->threadGroup()->terminateGroup(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superThreadExit) {
 			if(logRequests)
 				std::cout << "posix: THREAD_EXIT supercall" << std::endl;
@@ -238,7 +239,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto code = gprs[kHelRegArg0];
 
-			co_await self->threadGroup()->handleThreadExit(self.get(), code & 0xFF);
+			bool lastInGroup;
+			co_await self->terminate(&lastInGroup);
+			if (lastInGroup)
+				co_await self->threadGroup()->terminateGroup(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
 			if(logRequests)
 				std::cout << "posix: SIG_MASK supercall" << std::endl;
@@ -554,6 +558,11 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
+			if (self->forceTermination) {
+				self->terminate();
+				break;
+			}
+
 			if (!self->delayedSignal) {
 				auto active =
 					co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);

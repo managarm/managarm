@@ -722,7 +722,8 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 	}
 
 	if (handling.killed) {
-		co_await process->threadGroup()->terminate(TerminationBySignal{item->signalNumber});
+		co_await process->terminate();
+		co_await process->threadGroup()->terminateGroup(TerminationBySignal{item->signalNumber});
 		delete item;
 		co_return;
 	}
@@ -949,7 +950,7 @@ std::shared_ptr<Process> Process::findProcess(ProcessId pid) {
 }
 
 Process::Process(ThreadGroup *threadGroup, std::shared_ptr<PidHull> tidHull)
-: hull_{std::move(tidHull)}, tgPointer_{threadGroup} {
+: hull_{std::move(tidHull)}, tgPointer_{threadGroup->shared_from_this()} {
 
 }
 
@@ -961,8 +962,6 @@ Process::~Process() {
 		procfsTaskLink_->unlinkSelf();
 		procfsTaskLink_ = nullptr;
 	}
-
-	assert(!tgPointer_);
 }
 
 ThreadGroup *Process::getParent() {
@@ -1316,7 +1315,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	ThreadGroup *threadGroup;
 
 	if (args->flags & CLONE_THREAD) {
-		threadGroup = original->tgPointer_;
+		threadGroup = original->tgPointer_.get();
 	} else {
 		auto pidHull = std::make_shared<PidHull>(nextPid++);
 		threadGroup = ThreadGroup::create(pidHull, parentPtr);
@@ -1500,7 +1499,7 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	co_return Error::success;
 }
 
-async::result<void> Process::destruct() {
+async::result<void> Process::terminate(bool *lastInGroup) {
 	auto parent = getParent();
 	assert(parent);
 
@@ -1526,6 +1525,13 @@ async::result<void> Process::destruct() {
 	_currentGeneration = nullptr;
 
 	parent->_childrenUsage.userTime += threadGroup()->_generationUsage.userTime;
+
+	std::erase_if(tgPointer_->threads_, [&](auto e) {
+		return e.get() == this;
+	});
+	if (lastInGroup)
+		*lastInGroup = tgPointer_->threads_.empty();
+	tgPointer_->processTerminationEvent_.raise();
 }
 
 async::result<frg::expected<Error, Process::WaitResult>>
@@ -1616,16 +1622,27 @@ ThreadGroup *ThreadGroup::create(std::shared_ptr<PidHull> hull, ThreadGroup *par
 	return tg.get();
 }
 
-async::result<void> ThreadGroup::terminate(TerminationState state) {
+async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
+	// Only the first terminate() call goes through.
+	if (!std::holds_alternative<std::monostate>(_state))
+		co_return;
+
 	_state = std::move(state);
 
-	// do this to avoid iterator invalidation issues
-	while (!threads_.empty()) {
-		auto t = threads_.back();
-		threads_.pop_back();
-		co_await t->destruct();
-		if (leader_ != t)
-			t->tgPointer_ = nullptr;
+	// Cause all remaining processes to terminate and wait for them.
+	// Note that the process that caused the thread group termination has already called terminate() by now,
+	// so we do not need to worry about that process deadlocking if it waits for terminateGroup().
+	while (true) {
+		for (auto &process : threads_) {
+			if (process->forceTermination)
+				continue;
+			process->forceTermination = true;
+			HEL_CHECK(helInterruptThread(process->threadDescriptor().getHandle()));
+		}
+
+		if (threads_.empty())
+			break;
+		co_await processTerminationEvent_.async_wait();
 	}
 
 	if(realTimer)
@@ -1696,8 +1713,6 @@ async::result<void> ThreadGroup::terminate(TerminationState state) {
 }
 
 void ThreadGroup::retire(ThreadGroup *tg) {
-	if (tg->leader_)
-		tg->leader_->tgPointer_ = nullptr;
 	tg->leader_ = nullptr;
 
 	if (tg->procfsLink_) {
@@ -1712,23 +1727,8 @@ void ThreadGroup::retire(ThreadGroup *tg) {
 	);
 }
 
-async::result<void> ThreadGroup::handleThreadExit(Process *process, uint8_t code) {
-	assert(process->tgPointer_);
-
-	std::erase_if(threads_, [&](auto e) {
-		return e.get() == process;
-	});
-	co_await process->destruct();
-	if (leader_.get() != process)
-		process->tgPointer_ = nullptr;
-
-	if (threads_.empty())
-		co_await terminate(TerminationByExit(code));
-
-}
-
 void ThreadGroup::associateProcess(std::shared_ptr<Process> process) {
-	process->tgPointer_ = this;
+	assert(process->tgPointer_.get() == this);
 
 	threads_.push_back(process);
 
