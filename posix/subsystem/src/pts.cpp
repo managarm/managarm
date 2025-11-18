@@ -916,10 +916,12 @@ MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 	int edges = 0;
 
 	while(true) {
-		// For now making pts files always writable is sufficient.
-		edges = EPOLLOUT;
+		edges = 0;
 		if(_channel->slaveCount == 0)
 			edges |= EPOLLHUP;
+		else
+			edges |= EPOLLOUT;
+
 		if(_channel->masterInSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -936,9 +938,12 @@ MasterFile::pollWait(Process *, uint64_t past_seq, int mask,
 async::result<frg::expected<Error, PollStatusResult>>
 MasterFile::pollStatus(Process *) {
 	// For now making pts files always writable is sufficient.
-	int events = EPOLLOUT;
+	int events = 0;
 	if(_channel->slaveCount == 0)
 		events |= EPOLLHUP;
+	else
+		events |= EPOLLOUT;
+
 	if(!_channel->masterQueue.empty())
 		events |= EPOLLIN;
 
@@ -1173,10 +1178,12 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 	int edges = 0;
 
 	while(true) {
-		// For now making pts files always writable is sufficient.
-		edges = EPOLLOUT;
+		edges = 0;
 		if(_channel->masterCount == 0)
 			edges |= EPOLLHUP | EPOLLERR | EPOLLIN;
+		else
+			edges |= EPOLLOUT;
+
 		if(_channel->slaveInSeq > past_seq)
 			edges |= EPOLLIN;
 
@@ -1192,10 +1199,12 @@ SlaveFile::pollWait(Process *, uint64_t past_seq, int mask,
 
 async::result<frg::expected<Error, PollStatusResult>>
 SlaveFile::pollStatus(Process *) {
-	// For now making pts files always writable is sufficient.
-	int events = EPOLLOUT;
+	int events = 0;
 	if(_channel->masterCount == 0)
 		events |= EPOLLHUP | EPOLLERR | EPOLLIN;
+	else
+		events |= EPOLLOUT;
+
 	if(!_channel->slaveQueue.empty())
 		events |= EPOLLIN;
 
