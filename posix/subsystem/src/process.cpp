@@ -1653,15 +1653,6 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	while(reparent_to->parent_)
 		reparent_to = reparent_to->parent_;
 
-	auto reparentSigchldHandling = reparent_to->signalContext()->getHandler(SIGCHLD);
-	bool ringReparent = false;
-	while (!_notifyQueue.empty()) {
-		auto child = _notifyQueue.pop_front();
-		ringReparent = true;
-		if (reparentSigchldHandling.disposition != SignalDisposition::ignore && !(reparentSigchldHandling.flags & signalNoChildWait))
-			reparent_to->_notifyQueue.push_back(child);
-	}
-
 	for(auto it = _children.begin(); it != _children.end();) {
 		(*it)->parent_ = reparent_to;
 		reparent_to->_children.push_back((*it));
@@ -1674,6 +1665,15 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		}
 
 		it = _children.erase(it);
+	}
+
+	auto reparentSigchldHandling = reparent_to->signalContext()->getHandler(SIGCHLD);
+	bool ringReparent = false;
+	while (!_notifyQueue.empty()) {
+		auto child = _notifyQueue.pop_front();
+		ringReparent = true;
+		if (reparentSigchldHandling.disposition != SignalDisposition::ignore && !(reparentSigchldHandling.flags & signalNoChildWait))
+			reparent_to->_notifyQueue.push_back(child);
 	}
 
 	if(ringReparent)
