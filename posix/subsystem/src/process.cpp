@@ -1648,14 +1648,18 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	if(realTimer)
 		realTimer->cancel();
 
-	auto reparent_to = parent_;
-	// walk up the chain until we hit a process that has no parent
-	while(reparent_to->parent_)
-		reparent_to = reparent_to->parent_;
+	// Walk up the chain until we hit a process that has no parent.
+	if (!parent_) {
+		std::println("posix: terminateGroup() called on init process");
+		co_return;
+	}
+	auto reparentTo = parent_;
+	while(reparentTo->parent_)
+		reparentTo = reparentTo->parent_;
 
 	for(auto it = _children.begin(); it != _children.end();) {
-		(*it)->parent_ = reparent_to;
-		reparent_to->_children.push_back((*it));
+		(*it)->parent_ = reparentTo;
+		reparentTo->_children.push_back((*it));
 
 		// send the signal if it requested one on parent death
 		if((*it)->parentDeathSignal_) {
@@ -1667,17 +1671,17 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		it = _children.erase(it);
 	}
 
-	auto reparentSigchldHandling = reparent_to->signalContext()->getHandler(SIGCHLD);
+	auto reparentSigchldHandling = reparentTo->signalContext()->getHandler(SIGCHLD);
 	bool ringReparent = false;
 	while (!_notifyQueue.empty()) {
 		auto child = _notifyQueue.pop_front();
 		ringReparent = true;
 		if (reparentSigchldHandling.disposition != SignalDisposition::ignore && !(reparentSigchldHandling.flags & signalNoChildWait))
-			reparent_to->_notifyQueue.push_back(child);
+			reparentTo->_notifyQueue.push_back(child);
 	}
 
 	if(ringReparent)
-		reparent_to->_notifyBell.raise();
+		reparentTo->_notifyBell.raise();
 
 	// Notify the parent of our status change.
 	// We need to do that even when not sending SIGCHLD since it wakes up pidfd.
