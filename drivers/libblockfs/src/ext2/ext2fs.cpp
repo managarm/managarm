@@ -977,62 +977,65 @@ async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
 
-		uint32_t element = manage.offset() >> blockPagesShift;
+		helix::Mapping outMap{memory,
+			static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 
-		uint32_t block;
-		if(order == 1) {
-			auto disk_inode = inode->diskInode();
+		// TODO(qookie): This can probably implemented in a more optimal manner.
+		for (size_t progress = 0; progress < manage.length(); progress += blockSize) {
+			auto offset = manage.offset() + progress;
+			uint32_t element = offset >> blockPagesShift;
 
-			switch(element) {
-			case 0: block = disk_inode->data.blocks.singleIndirect; break;
-			case 1: block = disk_inode->data.blocks.doubleIndirect; break;
-			case 2: block = disk_inode->data.blocks.tripleIndirect; break;
-			default:
-				assert(!"unexpected offset");
-				abort();
-			}
-		}else{
-			assert(order == 2);
+			uint32_t block;
+			if(order == 1) {
+				auto disk_inode = inode->diskInode();
 
-			auto indirect_frame = element >> (blockShift - 2);
-			auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
+				switch(element) {
+					case 0: block = disk_inode->data.blocks.singleIndirect; break;
+					case 1: block = disk_inode->data.blocks.doubleIndirect; break;
+					case 2: block = disk_inode->data.blocks.tripleIndirect; break;
+					default:
+						assert(!"unexpected offset");
+						abort();
+				}
+			}else{
+				assert(order == 2);
 
-			helix::LockMemoryView lock_indirect;
-			auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_indirect,
-					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit_indirect.async_wait();
-			HEL_CHECK(lock_indirect.error());
+				auto indirect_frame = element >> (blockShift - 2);
+				auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
 
-			helix::Mapping indirect_map{inode->indirectOrder1,
+				helix::LockMemoryView lock_indirect;
+				auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
+						&lock_indirect,
+						(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
+						helix::Dispatcher::global());
+				co_await submit_indirect.async_wait();
+				HEL_CHECK(lock_indirect.error());
+
+				helix::Mapping indirect_map{inode->indirectOrder1,
 					(1 + indirect_frame) << blockPagesShift, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
-			block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
+				block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
+			}
+
+			auto ptr = reinterpret_cast<void *>(
+				reinterpret_cast<uintptr_t>(outMap.get()) + progress);
+			if (manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+			} else {
+				assert(manage.type() == kHelManageWriteback);
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+			}
 		}
 
-		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
-				&& "TODO: propery support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: propery support multi-page blocks");
-
 		if (manage.type() == kHelManageInitialize) {
-			helix::Mapping out_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->readSectors(block * sectorsPerBlock,
-					out_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
+							manage.offset(), manage.length()));
 		} else {
 			assert(manage.type() == kHelManageWriteback);
-
-			helix::Mapping out_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->writeSectors(block * sectorsPerBlock,
-					out_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
-
+							manage.offset(), manage.length()));
 		}
 	}
 }
