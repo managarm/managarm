@@ -128,6 +128,15 @@ struct Ip4TargetInfo {
 	std::shared_ptr<nic::Link> link;
 };
 
+struct Ip4AddressInfo {
+	CidrAddress addr;
+	std::optional<uint32_t> broadcast = std::nullopt;
+
+	friend auto operator<=>(const Ip4AddressInfo &a, const Ip4AddressInfo &b) {
+		return a.addr < b.addr;
+	}
+};
+
 struct Ip4Socket;
 
 struct Ip4 {
@@ -140,9 +149,9 @@ struct Ip4 {
 
 	bool hasIp(uint32_t ip);
 	std::shared_ptr<nic::Link> getLink(uint32_t ip);
-	std::optional<CidrAddress> getCidrByIndex(int index);
-	bool deleteLink(CidrAddress addr);
-	void setLink(CidrAddress addr, std::weak_ptr<nic::Link> link);
+	std::optional<Ip4AddressInfo> getCidrByIndex(int index);
+	bool deleteLink(Ip4AddressInfo addr);
+	void setLink(Ip4AddressInfo addr, std::weak_ptr<nic::Link> link);
 	std::optional<uint32_t> findLinkIp(uint32_t ipOnNet, nic::Link *link);
 
 	async::result<std::optional<Ip4TargetInfo>> targetByRemote(uint32_t, std::shared_ptr<nic::Link> link = {});
@@ -151,7 +160,7 @@ struct Ip4 {
 		uint16_t);
 private:
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
-	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
+	std::map<Ip4AddressInfo, std::weak_ptr<nic::Link>> ips;
 
 	std::unique_ptr<Icmp> icmp;
 	std::unique_ptr<Tcp4> tcp;

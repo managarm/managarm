@@ -456,7 +456,7 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 	if(~ntohl(subnet_mask.s_addr) && station_valid && subnet_valid) {
 		auto prefix = static_cast<uint8_t>(__builtin_clz(~ntohl(subnet_mask.s_addr)));
-		ip4().setLink({ntohl(station_ip.s_addr), prefix}, device);
+		ip4().setLink({{ntohl(station_ip.s_addr), prefix}}, device);
 		ip4Router().addRoute({ {ntohl(station_ip.s_addr & subnet_mask.s_addr), prefix}, device });
 	}
 
@@ -671,7 +671,7 @@ async::detached serve(helix::UniqueLane lane) {
 
 					managarm::fs::Ifconf conf;
 					conf.set_name(link->name());
-					conf.set_ip4(addr_check->ip);
+					conf.set_ip4(addr_check->addr.ip);
 					ifconf.push_back(conf);
 				}
 
@@ -696,7 +696,7 @@ async::detached serve(helix::UniqueLane lane) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
 
 					if(addr_check) {
-						resp.set_ip4_netmask(addr_check.value().mask());
+						resp.set_ip4_netmask(addr_check.value().addr.mask());
 						resp.set_error(managarm::fs::Errors::SUCCESS);
 					}else {
 						resp.set_ip4_netmask(0);
@@ -738,7 +738,7 @@ async::detached serve(helix::UniqueLane lane) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
 
 					if(addr_check) {
-						resp.set_ip4_addr(addr_check->ip);
+						resp.set_ip4_addr(addr_check->addr.ip);
 						resp.set_error(managarm::fs::Errors::SUCCESS);
 					} else {
 						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
@@ -762,11 +762,17 @@ async::detached serve(helix::UniqueLane lane) {
 					auto addr_check = ip4().getCidrByIndex(link->index());
 
 					if(addr_check) {
-						auto addr = addr_check.value().ip;
-						auto mask = addr_check.value().mask();
-						auto wildcard_bits = ~mask;
-						addr &= mask;
-						addr |= wildcard_bits;
+						uint32_t addr = 0;
+
+						if (addr_check->broadcast) {
+							addr = *addr_check->broadcast;
+						} else {
+							addr = addr_check.value().addr.ip;
+							auto mask = addr_check.value().addr.mask();
+							auto wildcard_bits = ~mask;
+							addr &= mask;
+							addr |= wildcard_bits;
+						}
 
 						resp.set_ip4_broadcast_addr(addr);
 						resp.set_error(managarm::fs::Errors::SUCCESS);
