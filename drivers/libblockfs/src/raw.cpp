@@ -1,5 +1,10 @@
 #include "raw.hpp"
 
+#include <linux/cdrom.h>
+
+#include <bragi/helpers-std.hpp>
+#include "fs.bragi.hpp"
+
 namespace blockfs {
 namespace raw {
 
@@ -65,6 +70,108 @@ async::detached RawFs::manageMapping() {
 
 OpenFile::OpenFile(RawFs *rawFs)
 : rawFs(rawFs) { }
+
+
+namespace {
+
+async::result<protocols::fs::ReadResult> rawRead(void *object, helix_ng::CredentialsView,
+		void *buffer, size_t length, async::cancellation_token) {
+	assert(length);
+
+	uint64_t start;
+	HEL_CHECK(helGetClock(&start));
+
+	auto self = static_cast<raw::OpenFile *>(object);
+	// TODO(geert): pass cancellation token through here
+	auto file_size = co_await self->rawFs->device->getSize();
+
+	if(self->offset >= file_size)
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
+
+	auto remaining = file_size - self->offset;
+	auto chunkSize = std::min(length, remaining);
+	if(!chunkSize)
+		co_return std::unexpected{protocols::fs::Error::endOfFile};
+
+	auto chunk_offset = self->offset;
+	self->offset += chunkSize;
+
+	// TODO(geert): use cancellation token here
+	auto readMemory = co_await helix_ng::readMemory(
+			helix::BorrowedDescriptor(self->rawFs->frontalMemory),
+			chunk_offset, chunkSize, buffer);
+	HEL_CHECK(readMemory.error());
+
+	uint64_t end;
+	HEL_CHECK(helGetClock(&end));
+
+	ostContext.emit(
+		ostEvtRawRead,
+		ostAttrNumBytes(length),
+		ostAttrTime(end - start)
+	);
+
+	co_return chunkSize;
+}
+
+async::result<protocols::fs::Error> rawFlock(void *object, int flags) {
+	auto self = static_cast<raw::OpenFile*>(object);
+
+	auto result = co_await self->rawFs->flockManager.lock(&self->flock, flags);
+	co_return result;
+}
+
+async::result<protocols::fs::SeekResult> rawSeekAbs(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile*>(object);
+	self->offset = offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult> rawSeekRel(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile*>(object);
+	self->offset += offset;
+	co_return static_cast<ssize_t>(self->offset);
+}
+
+async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset) {
+	auto self = static_cast<raw::OpenFile *>(object);
+	auto size = co_await self->rawFs->device->getSize();
+	self->offset = offset + size;
+	co_return static_cast<ssize_t>(self->offset);
+}
+async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+		helix::UniqueLane conversation) {
+	auto self = static_cast<raw::OpenFile *>(object);
+
+	if(id == managarm::fs::GenericIoctlRequest::message_id) {
+		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
+		assert(req);
+		if (req->command() == CDROM_GET_CAPABILITY) {
+			managarm::fs::GenericIoctlReply rsp;
+			rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+
+			auto ser = rsp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await self->rawFs->device->handleIoctl(req.value(), std::move(conversation));
+		}
+	}
+}
+
+} // namespace anonymous
+
+constinit protocols::fs::FileOperations rawOperations {
+	.seekAbs = rawSeekAbs,
+	.seekRel = rawSeekRel,
+	.seekEof = rawSeekEof,
+	.read = rawRead,
+	.ioctl = rawIoctl,
+	.flock = rawFlock,
+};
 
 } // namespace raw
 } // namespace blockfs

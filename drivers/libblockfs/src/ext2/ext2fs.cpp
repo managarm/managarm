@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sys/stat.h>
+#include <print>
 
 #include <async/result.hpp>
 #include <core/align.hpp>
@@ -32,7 +33,7 @@ namespace {
 // --------------------------------------------------------
 
 Inode::Inode(FileSystem &fs, uint32_t number)
-: fs(fs), number(number), isReady(false) { }
+: BaseInode{fs, number}, fs{fs} { }
 
 void Inode::setFileSize(size_t size) {
 	assert(!(size & ~uint64_t(0xFFFFFFFF)));
@@ -41,7 +42,7 @@ void Inode::setFileSize(size_t size) {
 
 async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 Inode::findEntry(std::string name) {
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -96,7 +97,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	assert(fileType == kTypeDirectory);
 	assert(fileMapping.size() == fileSize());
@@ -132,8 +133,8 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		HEL_CHECK(syncDir.error());
 
 		// Increment the target's link count.
-		auto target = fs.accessInode(ino);
-		co_await target->readyJump.wait();
+		auto target = std::static_pointer_cast<Inode>(fs.accessInode(ino));
+		co_await target->readyEvent.wait();
 		target->diskInode()->linksCount++;
 
 		// Flush the target inode to disk.
@@ -220,7 +221,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
@@ -248,8 +249,8 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 				&& name.length() == disk_entry->nameLength
 				&& !memcmp(disk_entry->name, name.data(), name.length())) {
 
-			auto target = fs.accessInode(disk_entry->inode);
-			co_await target->readyJump.wait();
+			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
+			co_await target->readyEvent.wait();
 
 			if(target->fileType == kTypeDirectory) {
 				if(target->diskInode()->linksCount > 2) {
@@ -328,10 +329,10 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	auto dirNode = co_await fs.createDirectory();
-	co_await dirNode->readyJump.wait();
+	co_await dirNode->readyEvent.wait();
 
 	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
 
@@ -397,10 +398,10 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
 	assert(!name.empty() && name != "." && name != "..");
 
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	auto newNode = co_await fs.createSymlink();
-	co_await newNode->readyJump.wait();
+	co_await newNode->readyEvent.wait();
 
 	assert(target.size() <= 60); // TODO: implement this case!
 	newNode->setFileSize(target.size());
@@ -415,7 +416,7 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {
-	co_await readyJump.wait();
+	co_await readyEvent.wait();
 
 	diskInode()->mode = (diskInode()->mode & 0xFFFFF000) | mode;
 
@@ -427,14 +428,16 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 	co_return protocols::fs::Error::none;
 }
 
-async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
-	co_await readyJump.wait();
-
+async::result<protocols::fs::Error> Inode::updateTimes(
+		std::optional<timespec> atime,
+		std::optional<timespec> mtime,
+		std::optional<timespec> ctime) {
 	if(atime)
 		diskInode()->atime = atime->tv_sec;
 	if(mtime)
 		diskInode()->mtime = mtime->tv_sec;
-	diskInode()->ctime = ctime.tv_sec;
+	if(ctime)
+		diskInode()->ctime = ctime->tv_sec;
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -442,6 +445,45 @@ async::result<protocols::fs::Error> Inode::utimensat(std::optional<timespec> ati
 	HEL_CHECK(syncInode.error());
 
 	co_return protocols::fs::Error::none;
+}
+
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::ensureBackingBlocks(size_t offset, size_t length) {
+	auto [alignedOffset, alignedSize] = core::alignExtend({offset, length}, fs.blockSize);
+	size_t blockOffset = alignedOffset / fs.blockSize;
+	size_t blockCount = alignedSize / fs.blockSize;
+	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<protocols::fs::Error>>
+Inode::resizeFile(size_t newSize) {
+	auto oldSize = fileSize();
+
+	if (newSize > oldSize) {
+		// TODO(qookie): Technically we only need to assign 0
+		// blocks here, not allocate new ones. We also should
+		// zero out the new blocks.
+		FRG_CO_TRY(co_await ensureBackingBlocks(oldSize, newSize - oldSize));
+	} else if (newSize < oldSize) {
+		// TODO(qookie): Deallocate blocks if they're no longer within the file.
+		std::println("libblockfs: Shrinking an Ext2 file does not free data blocks!");
+	} else if (newSize == oldSize) {
+		// Nothing to do.
+		co_return frg::success;
+	}
+
+	HEL_CHECK(helResizeMemory(backingMemory,
+			(newSize + 0xFFF) & ~size_t(0xFFF)));
+	setFileSize(newSize);
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+		helix::BorrowedDescriptor{kHelNullHandle},
+		diskMapping.get(), fs.inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	co_return frg::success;
 }
 
 // --------------------------------------------------------
@@ -454,6 +496,18 @@ namespace {
 
 FileSystem::FileSystem(BlockDevice *device)
 : device(device) {
+}
+
+
+extern protocols::fs::FileOperations fileOperations;
+extern protocols::fs::NodeOperations nodeOperations;
+
+const protocols::fs::FileOperations *FileSystem::fileOps() {
+	return &fileOperations;
+}
+
+const protocols::fs::NodeOperations *FileSystem::nodeOps() {
+	return &nodeOperations;
 }
 
 async::result<void> FileSystem::init() {
@@ -679,11 +733,11 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 	}
 }
 
-auto FileSystem::accessRoot() -> std::shared_ptr<Inode> {
+auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
 	return accessInode(EXT2_ROOT_INO);
 }
 
-auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
+auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 	assert(number > 0);
 	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
 	std::shared_ptr<Inode> active_inode = inode_slot.lock();
@@ -697,7 +751,7 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<Inode> {
 	return new_inode;
 }
 
-async::result<std::shared_ptr<Inode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
+async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
 	auto ino = co_await allocateInode(parentIno);
 	assert(ino);
 
@@ -765,7 +819,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	bgdt[bg_idx].usedDirsCount++;
 	bdgtWriteback.raise();
 
-	co_return accessInode(ino);
+	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
 async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
@@ -797,54 +851,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
 
-	co_return accessInode(ino);
-}
-
-async::result<void> FileSystem::write(Inode *inode, uint64_t offset,
-		const void *buffer, size_t length) {
-	co_await inode->readyJump.wait();
-
-	// Make sure that data blocks are allocated.
-	auto blockOffset = (offset & ~(blockSize - 1)) >> blockShift;
-	auto blockCount = ((offset & (blockSize - 1)) + length + (blockSize - 1)) >> blockShift;
-	co_await assignDataBlocks(inode, blockOffset, blockCount);
-
-	// Resize the file if necessary.
-	if(offset + length > inode->fileSize()) {
-		HEL_CHECK(helResizeMemory(inode->backingMemory,
-				(offset + length + 0xFFF) & ~size_t(0xFFF)));
-		inode->setFileSize(offset + length);
-		auto syncInode = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				inode->diskMapping.get(), inodeSize);
-		HEL_CHECK(syncInode.error());
-	}
-
-	// TODO: If we *know* that the pages are already available,
-	//       we can also fall back to the following "old" mapping code.
-/*
-	auto mapOffset = offset & ~size_t(0xFFF);
-	auto mapSize = ((offset & size_t(0xFFF)) + length + 0xFFF) & ~size_t(0xFFF);
-
-	helix::LockMemoryView lockMemory;
-	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(inode->frontalMemory),
-			&lockMemory, mapOffset, mapSize, helix::Dispatcher::global());
-	co_await submit.async_wait();
-	HEL_CHECK(lockMemory.error());
-
-	// Map the page cache into the address space.
-	helix::Mapping fileMap{helix::BorrowedDescriptor{inode->frontalMemory},
-			static_cast<ptrdiff_t>(mapOffset), mapSize,
-			kHelMapProtWrite | kHelMapDontRequireBacking};
-
-	memcpy(reinterpret_cast<char *>(fileMap.get()) + (offset - mapOffset),
-			buffer, length);
-*/
-
-	auto writeMemory = co_await helix_ng::writeMemory(
-			helix::BorrowedDescriptor(inode->frontalMemory),
-			offset, length, buffer);
-	HEL_CHECK(writeMemory.error());
+	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
 async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
@@ -906,8 +913,7 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
 	manageFileData(inode);
 
-	inode->isReady = true;
-	inode->readyJump.raise();
+	inode->readyEvent.raise();
 }
 
 async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
@@ -938,16 +944,18 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping file_map{helix::BorrowedDescriptor{inode->backingMemory},
+			helix::Mapping fileMap{helix::BorrowedDescriptor{inode->backingMemory},
 					static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtRead};
 
 			assert(!(manage.offset() % inode->fs.blockSize));
-			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
-			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
+			size_t backedSize = std::min(manage.length(), inode->fileSize() - manage.offset());
+			auto blockOffset = manage.offset() / inode->fs.blockSize;
+			size_t numBlocks = (backedSize + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
 
-			assert(num_blocks * inode->fs.blockSize <= manage.length());
-			co_await inode->fs.writeDataBlocks(inode, manage.offset() / inode->fs.blockSize,
-					num_blocks, file_map.get());
+			assert(numBlocks * inode->fs.blockSize <= manage.length());
+
+			co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+			co_await inode->fs.writeDataBlocks(inode, blockOffset, numBlocks, fileMap.get());
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
@@ -969,62 +977,65 @@ async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
 		co_await submit_manage.async_wait();
 		HEL_CHECK(manage.error());
 
-		uint32_t element = manage.offset() >> blockPagesShift;
+		helix::Mapping outMap{memory,
+			static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 
-		uint32_t block;
-		if(order == 1) {
-			auto disk_inode = inode->diskInode();
+		// TODO(qookie): This can probably implemented in a more optimal manner.
+		for (size_t progress = 0; progress < manage.length(); progress += blockSize) {
+			auto offset = manage.offset() + progress;
+			uint32_t element = offset >> blockPagesShift;
 
-			switch(element) {
-			case 0: block = disk_inode->data.blocks.singleIndirect; break;
-			case 1: block = disk_inode->data.blocks.doubleIndirect; break;
-			case 2: block = disk_inode->data.blocks.tripleIndirect; break;
-			default:
-				assert(!"unexpected offset");
-				abort();
-			}
-		}else{
-			assert(order == 2);
+			uint32_t block;
+			if(order == 1) {
+				auto disk_inode = inode->diskInode();
 
-			auto indirect_frame = element >> (blockShift - 2);
-			auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
+				switch(element) {
+					case 0: block = disk_inode->data.blocks.singleIndirect; break;
+					case 1: block = disk_inode->data.blocks.doubleIndirect; break;
+					case 2: block = disk_inode->data.blocks.tripleIndirect; break;
+					default:
+						assert(!"unexpected offset");
+						abort();
+				}
+			}else{
+				assert(order == 2);
 
-			helix::LockMemoryView lock_indirect;
-			auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_indirect,
-					(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit_indirect.async_wait();
-			HEL_CHECK(lock_indirect.error());
+				auto indirect_frame = element >> (blockShift - 2);
+				auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
 
-			helix::Mapping indirect_map{inode->indirectOrder1,
+				helix::LockMemoryView lock_indirect;
+				auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
+						&lock_indirect,
+						(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
+						helix::Dispatcher::global());
+				co_await submit_indirect.async_wait();
+				HEL_CHECK(lock_indirect.error());
+
+				helix::Mapping indirect_map{inode->indirectOrder1,
 					(1 + indirect_frame) << blockPagesShift, size_t{1} << blockPagesShift,
 					kHelMapProtRead | kHelMapDontRequireBacking};
-			block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
+				block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
+			}
+
+			auto ptr = reinterpret_cast<void *>(
+				reinterpret_cast<uintptr_t>(outMap.get()) + progress);
+			if (manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+			} else {
+				assert(manage.type() == kHelManageWriteback);
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+			}
 		}
 
-		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
-				&& "TODO: propery support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: propery support multi-page blocks");
-
 		if (manage.type() == kHelManageInitialize) {
-			helix::Mapping out_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->readSectors(block * sectorsPerBlock,
-					out_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
+							manage.offset(), manage.length()));
 		} else {
 			assert(manage.type() == kHelManageWriteback);
-
-			helix::Mapping out_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
-			co_await device->writeSectors(block * sectorsPerBlock,
-					out_map.get(), sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
-
+							manage.offset(), manage.length()));
 		}
 	}
 }
@@ -1438,7 +1449,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
 
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
 	constexpr size_t indirectBufferSize = 8;
@@ -1559,7 +1570,7 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 	size_t s_range = i_range + per_single; // Plus the first single indirect block.
 	size_t d_range = s_range + per_double; // Plus the first double indirect block.
 
-	co_await inode->readyJump.wait();
+	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not write past the EOF.
 
 	size_t progress = 0;
@@ -1623,40 +1634,15 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 	}
 }
 
-
-async::result<void> FileSystem::truncate(Inode *inode, size_t size) {
-	auto oldsize = inode->fileSize();
-	if(size == oldsize)
-		co_return;
-
-	HEL_CHECK(helResizeMemory(inode->backingMemory,
-			(size + 0xFFF) & ~size_t(0xFFF)));
-	inode->setFileSize(size);
-
-	if(size > oldsize) {
-		size_t diff = size - oldsize;
-		auto [blockOffset, alignedSize] = core::alignExtend({oldsize, diff}, blockSize);
-		size_t blockCount = alignedSize / blockSize;
-		co_await inode->fs.assignDataBlocks(inode, blockOffset, blockCount);
-	}
-
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskMapping.get(), inodeSize);
-	HEL_CHECK(syncInode.error());
-	co_return;
-}
-
 // --------------------------------------------------------
 // OpenFile
 // --------------------------------------------------------
 
-OpenFile::OpenFile(std::shared_ptr<Inode> inode)
-: inode(inode), offset(0) { }
-
 async::result<std::optional<std::string>>
 OpenFile::readEntries() {
-	co_await inode->readyJump.wait();
+	auto inode = std::static_pointer_cast<Inode>(this->inode);
+
+	co_await inode->readyEvent.wait();
 
 	if (inode->fileType != kTypeDirectory) {
 		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
