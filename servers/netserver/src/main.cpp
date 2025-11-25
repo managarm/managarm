@@ -860,6 +860,7 @@ int main() {
 	loopbackRoute.type = RTN_LOCAL;
 	loopbackRoute.protocol = RTPROT_KERNEL;
 	loopbackRoute.scope = RT_SCOPE_HOST;
+	loopbackRoute.source = INADDR_LOOPBACK;
 	ip4Router().addRoute(loopbackRoute);
 	nic::runDevice(loopbackLink);
 

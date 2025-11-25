@@ -11,6 +11,7 @@
 #include <protocols/fs/server.hpp>
 #include <cstring>
 #include <iomanip>
+#include <queue>
 #include <random>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -19,6 +20,7 @@
 
 namespace {
 
+constexpr bool logSockets = false;
 constexpr bool dumpHeader = false;
 
 struct stl_allocator {
@@ -111,6 +113,7 @@ struct Udp {
 Endpoint &Endpoint::operator=(struct sockaddr_in sa) {
 	using arch::convert_endian;
 	using arch::endian;
+	family = sa.sin_family;
 	port = convert_endian<endian::big, endian::native>(sa.sin_port);
 	addr = convert_endian<endian::big,
 	     endian::native>(sa.sin_addr.s_addr);
@@ -134,7 +137,10 @@ auto checkAddress(const void *addr_ptr, size_t addr_len, Endpoint &e) {
 		return protocols::fs::Error::illegalArguments;
 	}
 	std::memcpy(&addr, addr_ptr, sizeof(addr));
-	if (addr.sin_family != AF_INET) {
+	if (addr.sin_family == AF_UNSPEC) {
+		e = Endpoint{};
+		return protocols::fs::Error::none;
+	} else if (addr.sin_family != AF_INET) {
 		return protocols::fs::Error::afNotSupported;
 	}
 	e = addr;
@@ -148,11 +154,13 @@ struct Udp4Socket {
 	Udp4Socket(Udp4 *parent, bool nonBlock) : parent_(parent), nonBlock_(nonBlock) {}
 
 	~Udp4Socket() {
-		std::println("netserver: UDP socket destructed");
+		if (logSockets)
+			std::println("netserver: UDP socket destructed");
 	}
 
 	void handleClose() {
-		std::println("netserver: UDP socket closed");
+		if (logSockets)
+			std::println("netserver: UDP socket closed");
 		parent_->unbind(local_);
 	}
 
@@ -175,25 +183,79 @@ struct Udp4Socket {
 			co_return e;
 		}
 
-		if (self->local_.port == 0
-				&& !self->bindAvailable()) {
-			std::cout << "netserver: no source port" << std::endl;
+		if (remote.family == AF_UNSPEC) {
+			self->remote_ = Endpoint{};
+			self->parent_->unbind(self->local_);
+			self->local_ = Endpoint{AF_INET, INADDR_ANY, 0};
+			co_return protocols::fs::Error::none;
+		}
+
+		assert(remote.family == AF_INET);
+		uint32_t bindAddr = remote.addr;
+
+		if (remote.addr == INADDR_BROADCAST) {
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
+			co_return protocols::fs::Error::accessDenied;
+		} else if (remote.addr == INADDR_ANY) {
+			bindAddr = INADDR_LOOPBACK;
+			// We want to get the following (sane) behavior:
+			// No matter the port that was supplied in the connect() call, we always want
+			// getsockname() to return '127.0.0.1:some-port'.
+			// If connect()ing to 0.0.0.0:0 getpeername() should return ENOTCONN.
+			// If a port was supplied, we want getpeername() to return '127.0.0.1' and that port.
+			// This matches Linux behavior and that of most *BSDs, at least where they aren't
+			// obviously wrong or broken.
+			if (remote.port)
+				remote.addr = INADDR_LOOPBACK;
+			else
+				remote = Endpoint{};
+		} else {
+			auto ti = co_await ip4().targetByRemote(remote.addr);
+			if (!ti)
+				co_return protocols::fs::Error::netUnreachable;
+
+			auto linkAddr = ip4().getCidrByIndex(ti->link->index());
+			if (!linkAddr)
+				co_return protocols::fs::Error::netUnreachable;
+
+			bindAddr = linkAddr->ip;
+		}
+
+		if (!self->local_.port && bindAddr != INADDR_ANY
+				&& !self->bindAvailable(bindAddr)) {
+			if (logSockets)
+				std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
-		if (remote.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
-			co_return protocols::fs::Error::accessDenied;
+		self->remote_ = remote;
+
+		// POSIX: For non-connection-mode sockets, a `connect(3)` limits the sender for
+		// subsequent `recv(3)` calls;
+		// We implement this by filtering the packet queue here, and rejecting packets in
+		// `feedDatagram` by their source address.
+		if (self->remote_.family != AF_UNSPEC && (self->remote_.port || self->remote_.addr != INADDR_ANY)) {
+			std::queue<Udp> filteredPackets;
+
+			while (auto packet = self->queue_.maybe_get()) {
+				if (!self->rejectPacket(packet.value()))
+					filteredPackets.push(*packet);
+			}
+
+			while (!filteredPackets.empty()) {
+				self->queue_.put(filteredPackets.front());
+				filteredPackets.pop();
+			}
 		}
 
-		self->remote_ = remote;
 		co_return protocols::fs::Error::none;
 	}
 
 	static async::result<size_t> sockname(void *object, void *addr_ptr, size_t max_addr_length) {
 		auto self = static_cast<Udp4Socket *>(object);
 		sockaddr_in sa{};
-		sa.sin_family = AF_INET;
+		sa.sin_family = self->local_.family;
 		sa.sin_port = htons(self->local_.port);
 		sa.sin_addr.s_addr = htonl(self->local_.addr);
 		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
@@ -208,6 +270,21 @@ struct Udp4Socket {
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::AcceptResult>>
 	accept(void *) {
 		co_return protocols::fs::Error::notSupported;
+	}
+
+	static async::result<frg::expected<Error, size_t>> peername(void *object, void *addr_ptr, size_t max_addr_length) {
+		auto self = static_cast<Udp4Socket *>(object);
+
+		if (self->remote_.family == AF_UNSPEC)
+			co_return protocols::fs::Error::notConnected;
+
+		sockaddr_in sa{};
+		sa.sin_family = self->remote_.family;
+		sa.sin_port = htons(self->remote_.port);
+		sa.sin_addr.s_addr = htonl(self->remote_.addr);
+		memcpy(addr_ptr, &sa, std::min(sizeof(sockaddr_in), max_addr_length));
+
+		co_return sizeof(sockaddr_in);
 	}
 
 	static async::result<protocols::fs::Error> bind(void* obj,
@@ -229,22 +306,23 @@ struct Udp4Socket {
 
 		// TODO(arsen): check other broadcast addresses too
 		if (local.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.addr != INADDR_ANY && !ip4().hasIp(local.addr)) {
-			std::cout << "netserver: not local ip" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: not local ip" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (local.port == 0) {
-			if (!self->bindAvailable(local.addr)) {
+			if (!self->bindAvailable(local.addr))
 				co_return protocols::fs::Error::addressInUse;
-			}
-			std::cout << "netserver: no source port" << std::endl;
 		} else if (!self->parent_->tryBind(self->holder_.lock(), local)) {
-			std::cout << "netserver: address in use" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: address in use" << std::endl;
 			co_return protocols::fs::Error::addressInUse;
 		}
 
@@ -261,6 +339,8 @@ struct Udp4Socket {
 		using arch::endian;
 
 		auto self = static_cast<Udp4Socket *>(obj);
+		if(self->shutdownReadSeq_)
+			co_return RecvData{{}, 0, 0, 0};
 		if(self->queue_.empty() && (flags & MSG_DONTWAIT || self->nonBlock_))
 			co_return Error::wouldBlock;
 
@@ -306,12 +386,19 @@ struct Udp4Socket {
 		using arch::convert_endian;
 		using arch::endian;
 		auto self = static_cast<Udp4Socket *>(obj);
+		if(self->shutdownWriteSeq_)
+			co_return protocols::fs::Error::brokenPipe;
+
+		if (self->remote_.family != AF_UNSPEC && addr_size)
+			co_return protocols::fs::Error::alreadyConnected;
+
 		Endpoint target;
 		auto source = self->local_;
 		if (addr_size != 0) {
 			if (auto e = checkAddress(addr_ptr, addr_size, target);
 				e != protocols::fs::Error::none) {
-				std::cout << "netserver: trimmed sendmsg addr" << std::endl;
+				if (logSockets)
+					std::cout << "netserver: trimmed sendmsg addr" << std::endl;
 				co_return e;
 			}
 		} else {
@@ -319,19 +406,22 @@ struct Udp4Socket {
 		}
 
 		if (target.port == 0 || target.addr == 0) {
-			std::cout << "netserver: udp needs destination" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: udp needs destination" << std::endl;
 			co_return protocols::fs::Error::destAddrRequired;
 		}
 
 		if (source.port == 0 && !self->bindAvailable(source.addr)) {
-			std::cout << "netserver: no source port" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: no source port" << std::endl;
 			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		source = self->local_;
 
 		if (target.addr == INADDR_BROADCAST) {
-			std::cout << "netserver: broadcast" << std::endl;
+			if (logSockets)
+				std::cout << "netserver: broadcast" << std::endl;
 			co_return protocols::fs::Error::accessDenied;
 		}
 
@@ -351,9 +441,11 @@ struct Udp4Socket {
 		target.ensureEndian();
 
 		auto ti = co_await ip4().targetByRemote(targetIpNe);
-		if (!ti) {
+		if (!ti)
 			co_return protocols::fs::Error::netUnreachable;
-		}
+
+		if (self->local_.addr != INADDR_ANY)
+			ti->source = self->local_.addr;
 
 		Checksum chk;
 		PseudoHeader psh {
@@ -385,8 +477,7 @@ struct Udp4Socket {
 		std::memcpy(buf.data() + sizeof(header), data, len);
 
 		auto error = co_await ip4().sendFrame(std::move(*ti),
-			buf.data(), buf.size(),
-			static_cast<uint16_t>(IpProto::udp));
+			buf.data(), buf.size(), std::to_underlying(IpProto::udp));
 		if (error != protocols::fs::Error::none) {
 			co_return error;
 		}
@@ -400,8 +491,12 @@ struct Udp4Socket {
 		int edges = 0;
 
 		while(true) {
-			edges = EPOLLOUT;
+			edges = 0;
+			if(!(self->shutdownWriteSeq_ > past_seq))
+				edges |= EPOLLOUT;
 			if(self->_inSeq > past_seq)
+				edges |= EPOLLIN;
+			if(self->shutdownReadSeq_ > past_seq)
 				edges |= EPOLLIN;
 
 			if (edges & mask)
@@ -417,8 +512,12 @@ struct Udp4Socket {
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 	pollStatus(void *obj) {
 		auto self = static_cast<Udp4Socket *>(obj);
-		int events = EPOLLOUT;
+		int events = 0;
+		if(!self->shutdownWriteSeq_)
+			events |= EPOLLOUT;
 		if(!self->queue_.empty())
+			events |= EPOLLIN;
+		if(self->shutdownReadSeq_)
 			events |= EPOLLIN;
 
 		co_return protocols::fs::PollStatusResult(self->_currentSeq, events);
@@ -461,7 +560,7 @@ struct Udp4Socket {
 
 	static async::result<void> setFileFlags(void *object, int flags) {
 		auto self = static_cast<Udp4Socket *>(object);
-		std::cout << "posix: setFileFlags on udp socket only supports O_NONBLOCK" << std::endl;
+
 		if(flags & ~O_NONBLOCK) {
 			std::cout << "posix: setFileFlags on udp socket called with unknown flags" << std::endl;
 			co_return;
@@ -484,6 +583,29 @@ struct Udp4Socket {
 		co_return flags;
 	}
 
+	static async::result<Error> shutdown(void *object, int how) {
+		auto self = static_cast<Udp4Socket *>(object);
+
+		if (self->remote_.family == AF_UNSPEC)
+			co_return Error::notConnected;
+
+		if (how == SHUT_RD) {
+			self->shutdownReadSeq_ = ++self->_currentSeq;
+		} else if (how == SHUT_WR) {
+			self->shutdownWriteSeq_ = ++self->_currentSeq;
+		} else if (how == SHUT_RDWR) {
+			++self->_currentSeq;
+			self->shutdownReadSeq_ = self->_currentSeq;
+			self->shutdownWriteSeq_ = self->_currentSeq;
+		} else {
+			std::println("posix: unexpected how={} for UDP socket shutdown", how);
+			co_return protocols::fs::Error::illegalArguments;
+		}
+
+		self->_statusBell.raise();
+
+		co_return Error::none;
+	}
 
 	constexpr static FileOperations ops {
 		.pollWait = &pollWait,
@@ -497,8 +619,10 @@ struct Udp4Socket {
 		.setFileFlags = &setFileFlags,
 		.recvMsg = &recvmsg,
 		.sendMsg = &sendmsg,
+		.peername = &peername,
 		.setSocketOption = &setSocketOption,
 		.getSocketOption = &getSocketOption,
+		.shutdown = &shutdown
 	};
 
 	bool bindAvailable(uint32_t addr = INADDR_ANY) {
@@ -519,7 +643,7 @@ struct Udp4Socket {
 		// that manner
 		for (int i = 0; i < range_size; i++) {
 			uint16_t port = dist.a() + ((number + i) % range_size);
-			if (parent_->tryBind(shared_from_this, { addr, port })) {
+			if (parent_->tryBind(shared_from_this, { AF_INET, addr, port })) {
 				return true;
 			}
 		}
@@ -527,17 +651,30 @@ struct Udp4Socket {
 	}
 
 private:
+	bool rejectPacket(Udp &udp) const {
+		if (remote_.family == AF_UNSPEC)
+			return false;
+		if (remote_.port && remote_.port != udp.header.src)
+			return true;
+		if (remote_.addr != INADDR_ANY && remote_.addr != udp.packet->header.source)
+			return true;
+
+		return false;
+	}
+
 	friend struct Udp4;
 
 	async::queue<Udp, stl_allocator> queue_;
-	Endpoint remote_;
-	Endpoint local_;
+	Endpoint remote_{};
+	Endpoint local_{AF_INET, 0, 0};
 	Udp4 *parent_;
 	smarter::weak_ptr<Udp4Socket> holder_;
 
 	async::recurring_event _statusBell;
 	uint64_t _currentSeq;
 	uint64_t _inSeq;
+	uint64_t shutdownReadSeq_ = 0;
+	uint64_t shutdownWriteSeq_ = 0;
 
 	bool ipPacketInfo_ = false;
 	bool nonBlock_ = false;
@@ -550,23 +687,28 @@ void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 		return;
 	}
 
-	std::cout << "received udp datagram to port " << udp.header.dst << std::endl;
-
-	auto i = binds.lower_bound({ 0, udp.header.dst });
+	auto i = binds.lower_bound({ 0, 0, udp.header.dst });
 	for (; i != binds.end() && i->first.port == udp.header.dst; i++) {
 		auto ep = i->first;
-		if (ep.addr == udp.packet->header.destination
-			|| ep.addr == INADDR_ANY) {
-			i->second->queue_.emplace(std::move(udp));
-			i->second->_inSeq = ++i->second->_currentSeq;
-			i->second->_statusBell.raise();
+		if (ep.addr == udp.packet->header.destination || ep.addr == INADDR_ANY) {
+			if (i->second->rejectPacket(udp))
+				continue;
+
+			if (!(i->second->shutdownReadSeq_)) {
+				if (logSockets)
+					std::println("netserver: received udp datagram to port {}", udp.header.dst);
+				i->second->queue_.emplace(std::move(udp));
+				i->second->_inSeq = ++i->second->_currentSeq;
+				i->second->_statusBell.raise();
+			}
+
 			break;
 		}
 	}
 }
 
 bool Udp4::tryBind(smarter::shared_ptr<Udp4Socket> socket, Endpoint addr) {
-	auto i = binds.lower_bound(addr);
+	auto i = binds.lower_bound({addr.family, 0, addr.port});
 	for (; i != binds.end() && i->first.port == addr.port; i++) {
 		auto ep = i->first;
 		if (ep.addr == INADDR_ANY || addr.addr == INADDR_ANY

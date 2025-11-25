@@ -4,10 +4,12 @@
 #include <smarter.hpp>
 #include <map>
 #include <netserver/nic.hpp>
+#include <sys/socket.h>
 
 class Ip4Packet;
 
 struct Endpoint {
+	int family = AF_UNSPEC;
 	uint32_t addr = 0;
 	uint16_t port = 0;
 
