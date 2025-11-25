@@ -1,5 +1,6 @@
 #include <format>
 #include <print>
+#include <limits.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
 #include <sys/resource.h>

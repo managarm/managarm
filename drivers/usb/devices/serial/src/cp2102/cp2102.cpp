@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <set>
 #include <core/tty.hpp>
 
