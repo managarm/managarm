@@ -13,11 +13,11 @@
 namespace {
 	sigjmp_buf restoreEnvFPE;
 
-	void signalHandler(int, siginfo_t *, void *) {
+	[[maybe_unused]] void signalHandler(int, siginfo_t *, void *) {
 		siglongjmp(restoreEnvFPE, 1);
 	}
 
-	bool testDivFault(int a, int b) {
+	[[maybe_unused]] bool testDivFault(int a, int b) {
 		if (sigsetjmp(restoreEnvFPE, 1)) {
 			return true;
 		}

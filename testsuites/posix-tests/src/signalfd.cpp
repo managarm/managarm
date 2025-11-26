@@ -26,7 +26,7 @@ DEFINE_TEST(signalfd_nonblock, ([] {
 
 	sz = read(fd, &si, sizeof(signalfd_siginfo));
 	assert(sz == -1);
-	assert(errno = EAGAIN);
+	assert(errno == EAGAIN);
 
 	// Raise a signal.
 	e = kill(getpid(), SIGUSR1);
