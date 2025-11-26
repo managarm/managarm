@@ -179,7 +179,7 @@ DEFINE_TEST(socket_msg_boundary, ([] {
 	if (r < 0)
 		err(EXIT_FAILURE, "recvmsg");
 
-	printf("recvmsg returned %d, should be 5; controllen is %zu\n", r,
+	printf("recvmsg returned %d, should be 5; controllen is %u\n", r,
 	    msg.msg_controllen);
 	assert(r == 5);
 
@@ -188,7 +188,7 @@ DEFINE_TEST(socket_msg_boundary, ([] {
 	if (r < 0)
 		err(EXIT_FAILURE, "recvmsg");
 
-	printf("received remaining %d bytes; controllen is %zu\n", r,
+	printf("received remaining %d bytes; controllen is %u\n", r,
 	    msg.msg_controllen);
 }));
 
@@ -238,7 +238,7 @@ DEFINE_TEST(socket_msg_partial_read, ([] {
 	if (r < 0)
 		err(EXIT_FAILURE, "recvmsg");
 
-	printf("recvmsg returned %d bytes; controllen is %zu (should be 0)\n",
+	printf("recvmsg returned %d bytes; controllen is %u (should be 0)\n",
 		r, msg.msg_controllen);
 	assert(msg.msg_controllen == 0);
 }));
