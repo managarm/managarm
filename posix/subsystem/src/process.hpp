@@ -243,10 +243,17 @@ struct ChildSignal {
 	clock_t stime = 0;
 };
 
+struct SegfaultSignal {
+	uintptr_t offendingAddress = 0;
+	bool accessError = false;
+	bool mapError = false;
+};
+
 using SignalInfo = std::variant<
 	UserSignal,
 	TimerSignal,
-	ChildSignal
+	ChildSignal,
+	SegfaultSignal
 >;
 
 using SignalFlags = uint32_t;
@@ -284,6 +291,7 @@ struct CompileSignalInfo {
 	void operator() (const UserSignal &info) const;
 	void operator() (const TimerSignal &info) const;
 	void operator() (const ChildSignal &info) const;
+	void operator() (const SegfaultSignal &info) const;
 
 	siginfo_t *si;
 };

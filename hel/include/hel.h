@@ -290,7 +290,13 @@ enum HelRegisterSets {
 	kHelRegsDebug = 4,
 	kHelRegsVirtualization = 5,
 	kHelRegsSimd = 6,
-	kHelRegsSignal = 7
+	kHelRegsSignal = 7,
+	kHelRegsPageFault = 8
+};
+
+enum HelPageFaultFlags {
+	kHelPageFaultMapError = 1,
+	kHelPageFaultAccessError = 2
 };
 
 //! Register-related information returned by helQueryRegisterInfo

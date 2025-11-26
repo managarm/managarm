@@ -25,6 +25,17 @@ enum Interrupt {
 	kIntrSuperCall = 0x80000000
 };
 
+enum class PageFaultType {
+	None,
+	NotMapped,
+	BadPermissions,
+};
+
+struct InterruptInfo {
+	uintptr_t offendingAddress = 0;
+	PageFaultType pageFaultType = PageFaultType::None;
+};
+
 struct AsyncBlockCurrentInterruptibleTag {};
 struct AsyncBlockCurrentNormalTag {};
 
@@ -231,8 +242,8 @@ public:
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
 	static void suspendCurrent(IrqImageAccessor image);
-	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image);
-	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image);
+	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info);
+	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info);
 
 	static void raiseSignals(SyscallImageAccessor image);
 
@@ -330,6 +341,8 @@ public:
 	// Non-virtual since syscalls/faults know that they are called from a thread.
 	void handlePreemption(FaultImageAccessor image);
 	void handlePreemption(SyscallImageAccessor image);
+
+	InterruptInfo interruptInfo;
 
 private:
 	template<typename ImageAccessor>
