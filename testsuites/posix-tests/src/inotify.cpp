@@ -13,7 +13,7 @@
 DEFINE_TEST(inotify_unlink_child, ([] {
 	int e;
 
-	char dirPath[64];
+	char dirPath[32];
 	strcpy(dirPath, "/tmp/posix-tests.XXXXXX");
 	if(!mkdtemp(dirPath))
 		assert(!"mkdtemp() failed");
