@@ -1,14 +1,10 @@
-#include <sys/socket.h>
-
-// needed to avoid redefinitions in linux/timerfd.h
-#ifdef _GNU_SOURCE
-#undef _GNU_SOURCE
-#endif
-
+#include <print>
+#include <stdint.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <sys/timerfd.h>
-#include <print>
 
 #include <async/result.hpp>
 #include <async/recurring-event.hpp>
@@ -24,9 +20,8 @@
 #include "protocols/fs/common.hpp"
 #include "timerfd.hpp"
 
-// avoid flock redefinition
-#define HAVE_ARCH_STRUCT_FLOCK
-#include <linux/timerfd.h>
+// Avoid <linux/timerfd.h> inclusion since that header is not compatible with libc.
+#define TFD_IOC_SET_TICKS _IOW('T', 0, uint64_t)
 
 namespace {
 
