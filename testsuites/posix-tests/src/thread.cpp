@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/eventfd.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "testsuite.hpp"
@@ -27,21 +28,31 @@ static void *thread_A_func(void *arg) {
 }
 
 DEFINE_TEST(pthread_join_on_exiting_thread, ([] {
-	int efd = eventfd(0, 0);
-	assert(efd >= 0);
+	int child = fork();
 
-	join_test_data data;
-	data.efd = efd;
-	data.mainThread = pthread_self();
+	if (!child) {
+		int efd = eventfd(0, 0);
+		assert(efd >= 0);
 
-	pthread_t thread_A;
-	int ret = pthread_create(&thread_A, nullptr, thread_A_func, &data);
-	assert(ret == 0);
+		join_test_data data;
+		data.efd = efd;
+		data.mainThread = pthread_self();
 
-	uint64_t val;
-	ssize_t read_len = read(efd, &val, sizeof(val));
-	fprintf(stderr, "read returns %ld\n", read_len);
-	assert(read_len == 8);
+		pthread_t thread_A;
+		int ret = pthread_create(&thread_A, nullptr, thread_A_func, &data);
+		assert(ret == 0);
 
-	pthread_exit((void *) 0xDEAD);
+		uint64_t val;
+		ssize_t read_len = read(efd, &val, sizeof(val));
+		fprintf(stderr, "read returns %ld\n", read_len);
+		assert(read_len == 8);
+
+		pthread_exit((void *) 0xDEAD);
+	}
+
+	int status;
+	auto ret = waitpid(child, &status, 0);
+	assert(ret == child);
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == 0);
 }));
