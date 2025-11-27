@@ -648,10 +648,10 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 	// Check access attributes.
 	if((faultFlags & VirtualSpace::kFaultWrite)
 			&& !((mapping->flags & MappingFlags::protWrite)))
-		co_return Error::fault;
+		co_return Error::badPermissions;
 	if((faultFlags & VirtualSpace::kFaultExecute)
 			&& !((mapping->flags & MappingFlags::protExecute)))
-		co_return Error::fault;
+		co_return Error::badPermissions;
 
 	// TODO: Aligning should not be necessary here.
 	auto offset = (address - mapping->address) & ~(kPageSize - 1);

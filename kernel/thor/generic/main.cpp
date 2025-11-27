@@ -463,8 +463,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		flags |= AddressSpace::kFaultExecute;
 
 	auto wq = this_thread->pagingWorkQueue();
-	if(Thread::asyncBlockCurrent(
-			address_space->handleFault(address, flags, wq->take()), wq))
+	auto handledError =
+	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags, wq->take()), wq);
+	// if the page fault was handled, return.
+	if(handledError)
 		return;
 
 	// If we get here, the page fault could not be handled.
