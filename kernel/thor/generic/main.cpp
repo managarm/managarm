@@ -463,8 +463,10 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		flags |= AddressSpace::kFaultExecute;
 
 	auto wq = this_thread->pagingWorkQueue();
-	if(Thread::asyncBlockCurrent(
-			address_space->handleFault(address, flags, wq->take()), wq))
+	auto handledError =
+	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags, wq->take()), wq);
+	// if the page fault was handled, return.
+	if(handledError)
 		return;
 
 	// If we get here, the page fault could not be handled.
@@ -495,7 +497,21 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 		urgentLogger() << "thor: Page fault in server, at " << (void *)address
 				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
-	Thread::interruptCurrent(Interrupt::kIntrPageFault, image);
+
+	InterruptInfo info {
+		address
+	};
+
+	switch(handledError.error()) {
+		case Error::fault: info.pageFaultType = PageFaultType::NotMapped; break;
+		case Error::badPermissions: info.pageFaultType = PageFaultType::BadPermissions; break;
+		default:
+			info.pageFaultType = PageFaultType::None;
+			infoLogger() << "thor: unhandled page fault error 0x" << frg::hex_fmt{std::to_underlying(handledError.error())} << frg::endlog;
+			break;
+	}
+
+	Thread::interruptCurrent(Interrupt::kIntrPageFault, image, info);
 }
 
 void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
@@ -519,9 +535,9 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 		urgentLogger() << "thor: " << name << " fault in server.\n"
 				<< "Last ip: " << (void *)*image.ip() << frg::endlog;
 		// TODO: Trigger a more-specific interrupt.
-		Thread::interruptCurrent(kIntrPanic, image);
+		Thread::interruptCurrent(kIntrPanic, image, {});
 	}else{
-		Thread::interruptCurrent(fault, image);
+		Thread::interruptCurrent(fault, image, {});
 	}
 }
 
@@ -565,7 +581,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	// TODO: The return in this code path prevents us from checking for signals!
 	if(*image.number() >= kHelCallSuper) {
 		Thread::interruptCurrent(static_cast<Interrupt>(kIntrSuperCall
-				+ (*image.number() - kHelCallSuper)), image);
+				+ (*image.number() - kHelCallSuper)), image, {});
 		return;
 	}
 
@@ -581,7 +597,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helLog((HelLogSeverity)arg0, (const char *)arg1, (size_t)arg2);
 	} break;
 	case kHelCallPanic: {
-		Thread::interruptCurrent(kIntrPanic, image);
+		Thread::interruptCurrent(kIntrPanic, image, {});
 	} break;
 
 	case kHelCallNop: {

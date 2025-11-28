@@ -188,7 +188,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
-void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
+void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -207,6 +207,8 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 
 	localScheduler.get().updateState();
 	Scheduler::suspendCurrent();
+
+	this_thread->interruptInfo = info;
 
 	runOnStack([] (Continuation cont, FaultImageAccessor image,
 			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
@@ -232,7 +234,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image) {
 	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
-void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
+void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info) {
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -248,6 +250,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image) {
 	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 	this_thread->_uninvoke();
+	this_thread->interruptInfo = info;
 
 	localScheduler.get().updateState();
 	Scheduler::suspendCurrent();

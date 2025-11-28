@@ -25,6 +25,7 @@ src = [
 	'src/pthread-fork-wait.cpp',
 	'src/thread.cpp',
 	'src/poll.cpp',
+	'src/segfault.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep, frigg], install : true)

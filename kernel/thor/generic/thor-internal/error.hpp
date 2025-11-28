@@ -24,7 +24,8 @@ enum class Error {
 	// Internal error: the remote has violated the IPC protocol.
 	protocolViolation,
 	spuriousOperation,
-	alreadyExists
+	alreadyExists,
+	badPermissions,
 };
 
 } // namespace thor

@@ -510,6 +510,18 @@ void CompileSignalInfo::operator() (const ChildSignal &info) const {
 	si->si_stime = info.stime;
 }
 
+void CompileSignalInfo::operator() (const SegfaultSignal &info) const {
+	si->si_addr = reinterpret_cast<void *>(info.offendingAddress);
+	if (info.accessError)
+		si->si_code = SEGV_ACCERR;
+	else if (info.mapError)
+		si->si_code = SEGV_MAPERR;
+	else {
+		std::println("posix: no SegfaultSignal error code given!");
+		si->si_code = 0;
+	}
+}
+
 SignalContext::SignalContext()
 : _currentSeq{1}, _activeSet{0} { }
 

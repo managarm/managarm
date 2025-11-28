@@ -2056,6 +2056,28 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 #else
 		return kHelErrUnsupportedOperation;
 #endif
+	}else if(set == kHelRegsPageFault) {
+		uintptr_t regs[2];
+		regs[0] = thread->interruptInfo.offendingAddress;
+
+		switch (thread->interruptInfo.pageFaultType) {
+			case thor::PageFaultType::NotMapped:
+				regs[1] = kHelPageFaultMapError;
+				break;
+			case thor::PageFaultType::BadPermissions:
+				regs[1] = kHelPageFaultAccessError;
+				break;
+			case thor::PageFaultType::None:
+				regs[1] = 0;
+				break;
+			default:
+				infoLogger() << "hel: unhandled page fault type " << frg::hex_fmt{std::to_underlying(thread->interruptInfo.pageFaultType)} << frg::endlog;
+				regs[1] = 0;
+				break;
+		}
+
+		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
+			return kHelErrFault;
 	}else{
 		return kHelErrIllegalArgs;
 	}
