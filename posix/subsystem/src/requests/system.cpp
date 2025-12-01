@@ -101,10 +101,12 @@ async::result<void> handleMount(RequestContext& ctx) {
 	}else if(req->fs_type() == "cgroup2") {
 		co_await target.first->mount(target.second, getCgroupfs());
 	}else{
-		if(req->fs_type() != "ext2") {
+		if(req->fs_type() != "ext2" && req->fs_type() != "btrfs") {
 			std::cout << "posix: Trying to mount unsupported FS of type: " << req->fs_type() << std::endl;
+			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_BACKING_DEVICE);
+			co_return;
 		}
-		assert(req->fs_type() == "ext2");
+
 		auto sourceResult = co_await resolve(ctx.self->fsContext()->getRoot(),
 				ctx.self->fsContext()->getWorkingDirectory(), req->path(), ctx.self.get());
 		if(!sourceResult) {
@@ -123,7 +125,7 @@ async::result<void> handleMount(RequestContext& ctx) {
 		assert(source.second);
 		assert(source.second->getTarget()->getType() == VfsType::blockDevice);
 		auto device = blockRegistry.get(source.second->getTarget()->readDevice());
-		auto link = co_await device->mount();
+		auto link = co_await device->mount(req->fs_type());
 		co_await target.first->mount(target.second, std::move(link), source);
 	}
 
