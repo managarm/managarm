@@ -104,7 +104,8 @@ public:
 	struct SleepOperation;
 
 	struct [[nodiscard]] SleepSender {
-		using value_type = void;
+		// return false if the operation was cancelled, or true if it succeeded.
+		using value_type = bool;
 
 		template<typename R>
 		friend SleepOperation<R>
@@ -137,7 +138,7 @@ public:
 		void start() {
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
-				async::execution::set_value(op->receiver_);
+				async::execution::set_value(op->receiver_, !op->node_.wasCancelled());
 			}, WorkQueue::generalQueue());
 			node_.setup(s_.deadline, &worklet_);
 			s_.self->installTimer(&node_);
@@ -150,7 +151,7 @@ public:
 		Worklet worklet_;
 	};
 
-	friend async::sender_awaiter<SleepSender>
+	friend async::sender_awaiter<SleepSender, bool>
 	operator co_await(SleepSender sender) {
 		return {std::move(sender)};
 	}
