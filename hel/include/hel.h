@@ -114,6 +114,7 @@ enum {
 	kHelErrNone = 0,
 	kHelErrBufferTooSmall = 1,
 	kHelErrBadDescriptor = 2,
+	kHelErrTimeout = 3,
 	kHelErrNoDescriptor = 4,
 	kHelErrIllegalSyscall = 5,
 	kHelErrIllegalArgs = 7,
