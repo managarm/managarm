@@ -2,6 +2,7 @@
 
 #include <async/cancellation.hpp>
 #include <helix/timer.hpp>
+#include <memory>
 #include <stdint.h>
 
 namespace posix {

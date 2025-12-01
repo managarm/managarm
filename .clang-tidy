@@ -27,7 +27,8 @@ Checks:
   - 'bugprone-incorrect-roundings'
   - 'bugprone-infinite-loop'
   - 'bugprone-lambda-function-name'
-  - 'bugprone-macro-parentheses'
+  # produces warnings even for empty files?
+  # - 'bugprone-macro-parentheses'
   - 'bugprone-macro-repeated-side-effects'
   - 'bugprone-misleading-setter-of-reference'
   - 'bugprone-misplaced-operator-in-strlen-in-alloc'

@@ -3094,6 +3094,8 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			return kHelErrCancelled;
 		}
 	}else{
+		bool timeout = false;
+
 		if (!Thread::asyncBlockCurrentInterruptible(
 		        async::lambda([&](async::cancellation_token ct) {
 			        return async::race_and_cancel(
@@ -3102,8 +3104,8 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 								std::move(futex), expected, cancellation
 							);
 						}),
-			            async::lambda([&](async::cancellation_token cancellation) {
-				            return generalTimerEngine()->sleep(deadline, cancellation);
+			            async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
+							timeout = co_await generalTimerEngine()->sleep(deadline, cancellation);
 			            }),
 			            async::lambda([ct](async::cancellation_token cancellation) {
 				            return async::suspend_indefinitely(ct, cancellation);
@@ -3113,6 +3115,9 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		    )) {
 			return kHelErrCancelled;
 		}
+
+		if (timeout)
+			return kHelErrTimeout;
 	}
 
 	return kHelErrNone;

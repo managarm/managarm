@@ -3,6 +3,7 @@
 #include <async/result.hpp>
 #include <dtb.hpp>
 #include <helix/ipc.hpp>
+#include <memory>
 #include <optional>
 #include <vector>
 

@@ -3,6 +3,7 @@
 #include <async/result.hpp>
 #include <cstdint>
 #include <expected>
+#include <memory>
 
 namespace nic {
 
