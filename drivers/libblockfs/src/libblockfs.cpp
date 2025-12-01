@@ -16,11 +16,13 @@
 
 #include <blockfs.hpp>
 #include "gpt.hpp"
-#include "ext2/ext2fs.hpp"
 #include "raw.hpp"
 #include "trace.hpp"
 #include "fs.bragi.hpp"
 #include <bragi/helpers-std.hpp>
+
+#include "ext2/ext2fs.hpp"
+#include "btrfs/btrfs.hpp"
 
 namespace blockfs {
 
@@ -73,9 +75,26 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 
 		if(req.req_type() == managarm::fs::CntReqType::DEV_MOUNT) {
 			// Mount the actual file system
-			fs = std::make_unique<ext2fs::FileSystem>(partition);
-			co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
-			printf("ext2fs is ready!\n");
+			if (req.fs_type() == "ext2") {
+				fs = std::make_unique<ext2fs::FileSystem>(partition);
+				co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
+				printf("ext2fs is ready!\n");
+			} else if (req.fs_type() == "btrfs") {
+				fs = std::make_unique<btrfs::FileSystem>(partition);
+				co_await static_cast<btrfs::FileSystem *>(fs.get())->init();
+			} else {
+				managarm::fs::SvrResponse resp;
+				resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()),
+					helix_ng::pushDescriptor({})
+				);
+				HEL_CHECK(send_resp.error());
+				HEL_CHECK(push_node.error());
+			}
 
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();

@@ -5,6 +5,8 @@ src = [
 	'src/scsi.cpp',
 	'src/ext2/ext2fs.cpp',
 	'src/ext2/ops.cpp',
+	'src/btrfs/btrfs.cpp',
+	'src/btrfs/ops.cpp',
 ]
 inc = [ 'include' ]
 deps = [ libarch, core_dep, fs_proto_dep, mbus_proto_dep, ostrace_proto_dep ]

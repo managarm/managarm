@@ -48,8 +48,8 @@ struct Device final : UnixDevice, drvcore::BlockDevice, std::enable_shared_from_
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
 
-	FutureMaybe<std::shared_ptr<FsLink>> mount() override {
-		return mountExternalDevice(_lane, shared_from_this());
+	FutureMaybe<std::shared_ptr<FsLink>> mount(std::string fs_type) override {
+		return mountExternalDevice(_lane, shared_from_this(), fs_type);
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
