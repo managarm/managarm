@@ -26,6 +26,7 @@ src = [
 	'src/thread.cpp',
 	'src/poll.cpp',
 	'src/segfault.cpp',
+	'src/pthread-timeouts.cpp',
 ]
 
 executable('posix-tests', src, dependencies: [cli11_dep, frigg], install : true)
