@@ -287,7 +287,7 @@ private:
 	void _wakeHeadFutex() {
 		auto futex = __atomic_exchange_n(&_queue->headFutex, _nextIndex, __ATOMIC_RELEASE);
 		if(futex & kHelHeadWaiters) {
-			HEL_CHECK(helFutexWake(&_queue->headFutex));
+			HEL_CHECK(helFutexWake(&_queue->headFutex, UINT32_MAX));
 			_hadWaiters = true;
 		}
 	}

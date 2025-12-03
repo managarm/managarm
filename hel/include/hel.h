@@ -1118,7 +1118,9 @@ HEL_C_LINKAGE HelError helFutexWait(int *pointer, int expected, int64_t deadline
 //! Wakes up all waiters of a futex.
 //! @param[in] pointer
 //!     Pointer that identifies the futex.
-HEL_C_LINKAGE HelError helFutexWake(int *pointer);
+//! @param[in] count
+//!     Maximum number of waiters to wake.
+HEL_C_LINKAGE HelError helFutexWake(int *pointer, unsigned int count);
 
 //! @}
 //! @name Event Handling

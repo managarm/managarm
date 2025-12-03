@@ -285,7 +285,7 @@ impl Queue {
         let old_futex = self.head_futex().swap(new_futex, Ordering::Release);
 
         if old_futex & hel_sys::kHelHeadWaiters != 0 {
-            hel_check(unsafe { hel_sys::helFutexWake(self.head_futex().as_ptr()) })?;
+            hel_check(unsafe { hel_sys::helFutexWake(self.head_futex().as_ptr(), u32::MAX) })?;
 
             self.had_waiters = true;
         }
