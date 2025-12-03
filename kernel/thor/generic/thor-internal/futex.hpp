@@ -214,7 +214,7 @@ public:
 
 	// ----------------------------------------------------------------------------------
 
-	void wake(FutexIdentity id) {
+	void wake(FutexIdentity id, uint32_t count) {
 		frg::intrusive_list<
 			Node,
 			frg::locate_member<
@@ -233,8 +233,7 @@ public:
 			// Invariant: If the slot exists then its queue is not empty.
 			assert(!sit->queue.empty());
 
-			// TODO: Enable users to only wake a certain number of waiters.
-			while(!sit->queue.empty()) {
+			while(!sit->queue.empty() && count) {
 				auto node = sit->queue.front();
 				assert(!node->result_);
 				sit->queue.pop_front();
@@ -243,6 +242,8 @@ public:
 				if(node->cobs_.try_reset()) {
 					pending.push_back(node);
 				}
+
+				count--;
 			}
 
 			if(sit->queue.empty())

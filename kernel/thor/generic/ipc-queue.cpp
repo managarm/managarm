@@ -158,7 +158,7 @@ coroutine<void> IpcQueue::_runQueue() {
 			// TODO: Shut down the queue in this case.
 			if(progressFutexWord & kProgressWaiters) {
 				auto pfOffset = chunkOffset + offsetof(ChunkStruct, progressFutex);
-				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(pfOffset));
+				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(pfOffset), UINT32_MAX);
 			}
 
 			// Update our internal state and retire the chunk.

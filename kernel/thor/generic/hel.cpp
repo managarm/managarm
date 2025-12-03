@@ -3123,14 +3123,14 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 	return kHelErrNone;
 }
 
-HelError helFutexWake(int *pointer) {
+HelError helFutexWake(int *pointer, unsigned int count) {
 	auto this_thread = getCurrentThread();
 	auto space = this_thread->getAddressSpace();
 
 	auto identityOrError = space->resolveGlobalFutex(reinterpret_cast<uintptr_t>(pointer));
 	if(!identityOrError)
 		return kHelErrFault;
-	getGlobalFutexRealm()->wake(identityOrError.value());
+	getGlobalFutexRealm()->wake(identityOrError.value(), count);
 
 	return kHelErrNone;
 }
