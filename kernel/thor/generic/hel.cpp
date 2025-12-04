@@ -579,8 +579,10 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 }
 
 HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
-	assert((physical % kPageSize) == 0);
-	assert((size % kPageSize) == 0);
+	if (physical & (kPageSize - 1))
+		return kHelErrIllegalArgs;
+	if (size & (kPageSize - 1))
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -662,9 +664,12 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 
 HelError helCreateSliceView(HelHandle memoryHandle,
 		uintptr_t offset, size_t size, uint32_t flags, HelHandle *handle) {
-	assert(!(flags & ~kHelSliceCacheWriteCombine));
-	assert((offset % kPageSize) == 0);
-	assert((size % kPageSize) == 0);
+	if (offset & (kPageSize - 1))
+		return kHelErrIllegalArgs;
+	if (size & (kPageSize - 1))
+		return kHelErrIllegalArgs;
+	if (flags & ~kHelSliceCacheWriteCombine)
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1485,7 +1490,10 @@ HelError helSubmitManageMemory(HelHandle handle, HelHandle queue_handle, uintptr
 
 HelError helUpdateMemory(HelHandle handle, int type,
 		uintptr_t offset, size_t length) {
-	assert(offset % kPageSize == 0 && length % kPageSize == 0);
+	if (offset & (kPageSize - 1))
+		return kHelErrIllegalArgs;
+	if (length & (kPageSize - 1))
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1601,7 +1609,10 @@ HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size
 }
 
 HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
-	assert(offset % kPageSize == 0 && length % kPageSize == 0);
+	if (offset & (kPageSize - 1))
+		return kHelErrIllegalArgs;
+	if (length & (kPageSize - 1))
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -3418,7 +3429,8 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 }
 
 HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_handle) {
-	assert(!flags);
+	if (flags)
+		return kHelErrIllegalArgs;
 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -3532,7 +3544,8 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	}
 
 	auto object = kernlet.get();
-	assert(num_data == object->numberOfBindParameters());
+	if (num_data != object->numberOfBindParameters())
+		return kHelErrIllegalArgs;
 
 	auto bound = smarter::allocate_shared<BoundKernlet>(*kernelAlloc,
 			std::move(kernlet));
