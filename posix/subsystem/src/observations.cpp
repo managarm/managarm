@@ -559,7 +559,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		}else if(observe.observation() == kHelObserveInterrupt) {
 			//printf("posix: Process %s was interrupted\n", self->path().c_str());
 			if (self->forceTermination) {
-				self->terminate();
+				co_await self->terminate();
 				break;
 			}
 
