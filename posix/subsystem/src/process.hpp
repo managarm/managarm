@@ -60,6 +60,7 @@ private:
 		helix::UniqueDescriptor copyView;
 		smarter::shared_ptr<File, FileHandle> file;
 		intptr_t offset;
+		intptr_t effectiveOffset = 0;
 	};
 
 	std::pair<
