@@ -756,12 +756,15 @@ async::result<void> SignalContext::raiseContext(SignalItem *item, Process *proce
 #error Signal register loading code is missing for architecture
 #endif
 
-	sf.ucontext.uc_sigmask.sig[0] = process->signalMask();
+	auto rawProcessMask = process->signalMask();
+	auto rawHandlerMask = rawProcessMask | handling.handler.mask;
 
-	sigset_t handlerMask = { process->signalMask() | handling.handler.mask };
+	memcpy(&sf.ucontext.uc_sigmask, &rawProcessMask, sizeof(rawProcessMask));
+
 	if (!(handling.handler.flags & signalReentrant))
-		sigaddset(&handlerMask, item->signalNumber);
-	process->setSignalMask(handlerMask.sig[0]);
+		rawHandlerMask |= (1 << (item->signalNumber - 1));
+
+	process->setSignalMask(rawHandlerMask);
 
 	std::vector<std::byte> simdState(simdStateSize);
 	HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsSimd, simdState.data()));
@@ -883,7 +886,9 @@ async::result<void> SignalContext::restoreContext(helix::BorrowedDescriptor thre
 	HEL_CHECK(loadFrame.error());
 	HEL_CHECK(loadSimd.error());
 
-	process->setSignalMask(sf.ucontext.uc_sigmask.sig[0]);
+	uint64_t rawSignalMask = 0;
+	memcpy(&rawSignalMask, &sf.ucontext.uc_sigmask, sizeof(rawSignalMask));
+	process->setSignalMask(rawSignalMask);
 
 #if defined(__x86_64__)
 	HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsSignal, &sf.ucontext.uc_mcontext.gregs));
