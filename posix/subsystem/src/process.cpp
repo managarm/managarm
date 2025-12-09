@@ -53,7 +53,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 			void *pointer;
 			HelError error = helMapMemory(copyView.getHandle(), context->_space.getHandle(),
 					reinterpret_cast<void *>(address),
-					0, area.areaSize, area.nativeFlags, &pointer);
+					area.effectiveOffset, area.areaSize, area.nativeFlags, &pointer);
 			if(error != kHelErrNone && error != kHelErrAlreadyExists) {
 				HEL_CHECK(error);
 			}
@@ -72,6 +72,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 		copy.copyView = std::move(copyView);
 		copy.file = area.file;
 		copy.offset = area.offset;
+		copy.effectiveOffset = area.effectiveOffset;
 		context->_areaTree.emplace(address, std::move(copy));
 	}
 
@@ -108,6 +109,7 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 			right.copyView = area.copyView.dup();
 			right.file = area.file;
 			right.offset = area.offset + (addr - base);
+			right.effectiveOffset = area.effectiveOffset + (addr - base);
 
 			_areaTree.emplace(addr, std::move(right));
 
@@ -182,6 +184,7 @@ VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 	area.copyView = std::move(copyView);
 	area.file = std::move(file);
 	area.offset = offset;
+	area.effectiveOffset = copyOnWrite ? 0 : offset;
 	_areaTree.emplace(address, std::move(area));
 
 	co_return pointer;
@@ -221,6 +224,8 @@ async::result<void *> VmContext::remapFile(void *oldPointer,
 	area.copyView = std::move(it->second.copyView);
 	area.file = std::move(it->second.file);
 	area.offset = it->second.offset;
+	// TODO: This needs to be revised when we implement remapFile() for anonymous mappings.
+	area.effectiveOffset = it->second.offset;
 	_areaTree.erase(it);
 
 	// Perform some sanity checking.
