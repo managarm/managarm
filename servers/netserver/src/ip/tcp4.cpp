@@ -396,38 +396,11 @@ struct Tcp4Socket {
 			}
 		}
 
-		auto connection = self->pendingConnections_.front();
+		auto sock = self->pendingConnections_.front();
 		self->pendingConnections_.erase(self->pendingConnections_.begin());
 
 		auto [localCtrl, remoteCtrl] = helix::createStream();
 		auto [localPt, remotePt] = helix::createStream();
-
-		auto sock = Tcp4Socket::makeSocket(self->parent_, 0);
-
-		sock->remoteEp_.ipAddress = connection.remoteIp;
-		sock->remoteEp_.port = connection.remotePort;
-
-		TcpEndpoint ep{
-			.ipAddress = connection.localIp,
-			.port = self->localEp_.port
-		};
-		if(!self->parent_->tryBind(sock, false, ep)) {
-			std::cout << "netserver: No source port in accept" << std::endl;
-			co_return protocols::fs::Error::addressNotAvailable;
-		}
-
-		// Connect to the remote.
-		sock->connectState_ = ConnectState::sendSynAck;
-		sock->remoteAckedSn_ = connection.sequence + 1;
-		sock->remoteKnownSn_ = connection.sequence + 1;
-
-		sock->flushEvent_.raise();
-
-		while(true) {
-			if(sock->connectState_ != ConnectState::sendSynAck)
-				break;
-			co_await sock->settleEvent_.async_wait();
-		}
 
 		async::detach(
 			serveLanes(std::move(localCtrl), std::move(localPt), std::move(sock))
@@ -700,12 +673,14 @@ private:
 		uint32_t sequence;
 	};
 
+	async::result<void> handleIncomingConnection(PendingConnection c);
+
 	Tcp4 *parent_;
 	bool nonBlock_;
 	TcpEndpoint remoteEp_;
 	TcpEndpoint localEp_;
 	smarter::weak_ptr<Tcp4Socket> holder_;
-	std::vector<PendingConnection> pendingConnections_;
+	std::vector<smarter::shared_ptr<Tcp4Socket>> pendingConnections_;
 
 	ConnectState connectState_ = ConnectState::none;
 	bool remoteClosed_ = false;
@@ -965,6 +940,42 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 	}
 }
 
+async::result<void> Tcp4Socket::handleIncomingConnection(PendingConnection c) {
+	auto sock = Tcp4Socket::makeSocket(this->parent_, 0);
+
+	sock->remoteEp_.ipAddress = c.remoteIp;
+	sock->remoteEp_.port = c.remotePort;
+
+	TcpEndpoint ep{
+		.ipAddress = c.localIp,
+		.port = this->localEp_.port
+	};
+
+	if(!this->parent_->tryBind(sock, false, ep)) {
+		std::println("netserver: No source port in accept");
+		co_return;
+	}
+
+	// Connect to the remote.
+	sock->connectState_ = ConnectState::sendSynAck;
+	sock->remoteAckedSn_ = c.sequence + 1;
+	sock->remoteKnownSn_ = c.sequence + 1;
+
+	sock->flushEvent_.raise();
+
+	while(true) {
+		if(sock->connectState_ != ConnectState::sendSynAck)
+			break;
+		co_await sock->settleEvent_.async_wait();
+	}
+
+	pendingConnections_.push_back(std::move(sock));
+	listenSeq_ = ++currentSeq_;
+	pollEvent_.raise();
+
+	co_return;
+}
+
 void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 	if(boundInterface_ && boundInterface_->index() != packet.packet->link.lock()->index())
 		return;
@@ -976,21 +987,19 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 			auto port = packet.header.srcPort.load();
 
 			for(auto &pending : pendingConnections_) {
-				if(pending.remoteIp == ip && pending.remotePort == port) {
+				if(pending->remoteEp_.ipAddress == ip && pending->remoteEp_.port == port) {
 					std::cout << "netserver: Rejecting duplicate SYN packet on listening socket"
 							<< std::endl;
 					return;
 				}
 			}
 
-			pendingConnections_.push_back({
+			async::detach(handleIncomingConnection({
 				.localIp = localIp,
 				.remoteIp = ip,
 				.remotePort = port,
-				.sequence = packet.header.seqNumber.load()});
-
-			listenSeq_ = ++currentSeq_;
-			pollEvent_.raise();
+				.sequence = packet.header.seqNumber.load()
+			}));
 		}else {
 			std::cout << "netserver: Rejecting packet on listening socket"
 					<< std::endl;
