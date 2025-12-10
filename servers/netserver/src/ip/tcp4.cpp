@@ -280,7 +280,8 @@ struct Tcp4Socket {
 	static async::result<frg::expected<protocols::fs::Error, size_t>> peername(void *object, void *addr_ptr, size_t max_addr_length) {
 		auto self = static_cast<Tcp4Socket *>(object);
 		if(self->connectState_ != ConnectState::connected
-				&& self->connectState_ != ConnectState::sendFin) {
+				&& self->connectState_ != ConnectState::sendFin
+				&& self->connectState_ != ConnectState::finAcked) {
 			co_return protocols::fs::Error::notConnected;
 		}
 		sockaddr_in sa{};
@@ -306,7 +307,8 @@ struct Tcp4Socket {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
 					if(self->connectState_ != ConnectState::connected
-							&& self->connectState_ != ConnectState::sendFin) {
+							&& self->connectState_ != ConnectState::sendFin
+							&& self->connectState_ != ConnectState::finAcked) {
 						resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
 					}else {
 						resp.set_fionread_count(self->recvRing_.availableToDequeue());
@@ -688,6 +690,7 @@ private:
 		sendSynAck, // Server-side only.
 		connected,
 		sendFin,
+		finAcked,
 	};
 
 	struct PendingConnection {
@@ -865,7 +868,8 @@ async::result<void> Tcp4Socket::flushOutPackets_() {
 			}
 		}else{
 			assert(connectState_ == ConnectState::connected
-				|| connectState_ == ConnectState::sendFin);
+				|| connectState_ == ConnectState::sendFin
+				|| connectState_ == ConnectState::finAcked);
 
 			auto targetInfo = co_await ip4().targetByRemote(remoteEp_.ipAddress);
 			if (!targetInfo) {
@@ -1056,7 +1060,8 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 		flushEvent_.raise();
 		settleEvent_.raise();
 	}else if(connectState_ == ConnectState::connected
-			|| connectState_ == ConnectState::sendFin) {
+			|| connectState_ == ConnectState::sendFin
+			|| connectState_ == ConnectState::finAcked) {
 		if(packet.header.seqNumber.load() == remoteKnownSn_) {
 			bool gotUpdate = false;
 
@@ -1105,10 +1110,9 @@ void Tcp4Socket::handleInPacket_(TcpPacket packet) {
 					std::cout << "netserver: Rejecting ack-number outside of valid window"
 							<< std::endl;
 				}
-			} else {
-				assert(connectState_ == ConnectState::sendFin);
-
+			} else if (connectState_ == ConnectState::sendFin) {
 				if(packet.header.ackNumber.load() == localSettledSn_ + 1) {
+					connectState_ = ConnectState::finAcked;
 					++localSettledSn_;
 					localWindowSn_ = localSettledSn_ + packet.header.window.load();
 					settleEvent_.raise();
