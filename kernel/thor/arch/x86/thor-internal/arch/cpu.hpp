@@ -287,6 +287,7 @@ struct NmiImageAccessor {
 	Word *ip() { return &_frame()->rip; }
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
+	Word *bp() { return &_frame()->rbp; }
 
 private:
 	// note: this struct is accessed from assembly.

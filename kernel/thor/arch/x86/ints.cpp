@@ -5,6 +5,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/pmc-amd.hpp>
 #include <thor-internal/arch/pmc-intel.hpp>
+#include <thor-internal/arch/stack.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/pic.hpp>
 
@@ -570,18 +571,39 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	IseqContext ownIseq;
 	cpuData->iseqPtr = &ownIseq;
 
+	// Each sample is an array of uintptr_t.
+	// Element 0 stores the number of entries.
+	// Elements >0 store the stack trace IPs.
+	auto emitProfileSample = [&] {
+		constexpr size_t maxDepth = 15;
+		uintptr_t buffer[maxDepth + 1];
+		size_t n = 0;
+		buffer[1 + n++] = *image.ip();
+#ifdef THOR_HAS_FRAME_POINTERS
+		// We can (obviously) only backtrace in the higher half.
+		// Also, we cannot backtrace if we did not make it out of the entry stubs yet
+		// since the entry stubs may still run with userspace RBP.
+		if (inHigherHalf(*image.ip()) && !inStub(*image.ip())) {
+			walkStack(reinterpret_cast<void *>(*image.bp()), [&] (uintptr_t ip) {
+				if(n < maxDepth)
+					buffer[1 + n++] = ip;
+			});
+		}
+#endif
+		buffer[0] = n;
+		cpuData->localProfileRing->enqueue(buffer, (1 + n) * sizeof(uintptr_t));
+	};
+
 	bool explained = false;
 	auto pmcMechanism = cpuData->profileMechanism.load(std::memory_order_acquire);
 	if(pmcMechanism == ProfileMechanism::intelPmc && checkIntelPmcOverflow()) {
-		uintptr_t ip = *image.ip();
-		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
+		emitProfileSample();
 		// Note: on Intel, the PMI is automatically masked on raises.
 		LocalApicContext::clearPmi();
 		setIntelPmc();
 		explained = true;
 	}else if(pmcMechanism == ProfileMechanism::amdPmc && checkAmdPmcOverflow()) {
-		uintptr_t ip = *image.ip();
-		cpuData->localProfileRing->enqueue(&ip, sizeof(uintptr_t));
+		emitProfileSample();
 		setAmdPmc();
 		explained = true;
 	}
