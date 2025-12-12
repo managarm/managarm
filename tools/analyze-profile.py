@@ -22,7 +22,7 @@ profile = dict()
 if args.aggregate_by == 'symbol':
 	nm = subprocess.check_output(
 		[
-			'nm', '-nC',
+			'llvm-nm', '-nC',
 			'pkg-builds/managarm-kernel/kernel/thor/thor'
 		],
 		encoding='ascii');
@@ -35,7 +35,7 @@ if args.aggregate_by == 'symbol':
 else:
 	addr2line = subprocess.Popen(
 		[
-			'addr2line', '-sfC',
+			'llvm-addr2line', '-sfC',
 			'-e', 'pkg-builds/managarm-kernel/kernel/thor/thor'
 		],
 		encoding='ascii',
