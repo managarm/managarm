@@ -67,10 +67,11 @@ struct KernelBusObject {
 	}
 
 private:
-	coroutine<void> handleMbusComms_(LaneHandle mgmtLane);
-	coroutine<frg::expected<Error>> handleServeRemoteLane_(LaneHandle mgmtLane);
+	coroutine<void> handleMbusComms_();
+	coroutine<frg::expected<Error>> handleServeRemoteLane_();
 
 	int64_t mbusId_;
+	LaneHandle mgmtLane_;
 };
 
 } // namespace thor

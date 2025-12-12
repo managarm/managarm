@@ -194,7 +194,6 @@ struct Entity {
 
 	async::result<Result<Properties>> getProperties() const;
 	async::result<Result<helix::UniqueLane>> getRemoteLane() const;
-	async::result<Error> updateProperties(Properties properties);
 
 private:
 	std::shared_ptr<Connection> connection_;
@@ -233,6 +232,9 @@ struct EntityManager {
 
 	// Serves the remote lane to one client. Completes only after the lane is consumed.
 	async::result<Result<void>> serveRemoteLane(helix::UniqueLane lane) const;
+
+	// Updates the properties of this entity.
+	async::result<Error> updateProperties(Properties properties);
 
 private:
 	EntityId id_;
