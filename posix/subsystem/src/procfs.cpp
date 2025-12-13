@@ -249,7 +249,7 @@ async::result<frg::expected<Error, FileStats>> RegularNode::getStatsInternal(Thr
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-RegularNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+RegularNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs RegularNode open() received illegal arguments:"
@@ -431,7 +431,7 @@ std::shared_ptr<FsLink> DirectoryNode::treeLink() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-DirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+DirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs DirectoryNode open() received illegal arguments:"
@@ -1181,7 +1181,7 @@ std::shared_ptr<FsLink> FdDirectoryNode::treeLink() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+FdDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs FdDirectoryNode open() received illegal arguments:"
@@ -1387,7 +1387,7 @@ std::shared_ptr<FsLink> FdInfoDirectoryNode::treeLink() {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FdInfoDirectoryNode::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+FdInfoDirectoryNode::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: procfs FdInfoDirectoryNode open() received illegal arguments:"

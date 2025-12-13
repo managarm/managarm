@@ -15,6 +15,7 @@
 #include <protocols/posix/supercalls.hpp>
 #include <sys/time.h>
 
+#include "device.hpp"
 #include "interval-timer.hpp"
 #include "vfs.hpp"
 #include "procfs.hpp"
@@ -986,6 +987,7 @@ struct ControllingTerminalState {
 
 	TerminalSession *getSession() { return associatedSession_; }
 
+	std::weak_ptr<UnixDevice> controllingTerminal_;
 private:
 	TerminalSession *associatedSession_ = nullptr;
 };
