@@ -1141,16 +1141,10 @@ async::result<void> handleFchmodAt(RequestContext& ctx) {
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	if(req->flags()) {
-		if(req->flags() & AT_SYMLINK_NOFOLLOW) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_SUPPORTED);
-			co_return;
-		} else if(req->flags() & AT_EMPTY_PATH) {
-			// Allowed, managarm extension
-		} else {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
-		}
+	if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
+		std::println("posix: unexpected flags {:#x} in fchmodat request", req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
+		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return;
 	}
 
 	if(req->flags() & AT_EMPTY_PATH) {
@@ -1160,7 +1154,11 @@ async::result<void> handleFchmodAt(RequestContext& ctx) {
 		resolver.setup(ctx.self->fsContext()->getRoot(),
 			relative_to, req->path(), ctx.self.get());
 
-		auto resolveResult = co_await resolver.resolve();
+		ResolveFlags resolveFlags = 0;
+		if(req->flags() & AT_SYMLINK_NOFOLLOW)
+			resolveFlags |= resolveDontFollow;
+
+		auto resolveResult = co_await resolver.resolve(resolveFlags);
 
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
