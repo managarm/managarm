@@ -343,11 +343,11 @@ struct MasterDevice final : UnixDevice {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 };
 
-struct SlaveDevice final : UnixDevice {
+struct SlaveDevice final : UnixDevice, std::enable_shared_from_this<SlaveDevice> {
 	SlaveDevice(std::shared_ptr<Channel> channel);
 
 	std::string nodePath() override {
@@ -355,7 +355,7 @@ struct SlaveDevice final : UnixDevice {
 	}
 
 	async::result<frg::expected<Error, SharedFilePtr>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
 private:
@@ -579,9 +579,9 @@ public:
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *process, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		return openDevice(_type, _id, std::move(mount), std::move(link), semantic_flags);
+		return openDevice(process, _type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
 private:
@@ -827,7 +827,7 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 //-----------------------------------------------------------------------------
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-MasterDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+MasterDevice::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: pts MasterDevice open() received illegal arguments:"
@@ -1089,7 +1089,7 @@ SlaveDevice::SlaveDevice(std::shared_ptr<Channel> channel)
 }
 
 async::result<frg::expected<Error, SharedFilePtr>>
-SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+SlaveDevice::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags) {
 	if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
 		std::cout << "\e[31mposix: pts SlaveDevice open() received illegal arguments:"
@@ -1098,6 +1098,8 @@ SlaveDevice::open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link
 			<< std::endl;
 		co_return Error::illegalArguments;
 	}
+
+	_channel->cts.controllingTerminal_ = weak_from_this();
 
 	auto file = smarter::make_shared<SlaveFile>(std::move(mount), std::move(link), _channel,
 			semantic_flags & semanticNonBlock, semantic_flags & semanticRead, semantic_flags & semanticWrite);

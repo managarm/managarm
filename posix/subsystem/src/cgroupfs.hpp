@@ -100,7 +100,7 @@ struct RegularNode : FsNode, std::enable_shared_from_this<RegularNode> {
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 
 	async::result<Error> chmod(int) override {
@@ -160,7 +160,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 			std::shared_ptr<FsNode> target) override;
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override;
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> getLink(std::string name) override;
 	async::result<frg::expected<Error>> unlink(std::string name) override;

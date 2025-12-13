@@ -163,7 +163,7 @@ struct KmsgDevice final : UnixDevice {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags flags) override {
 		bool nonblock = flags & semanticNonBlock;
 

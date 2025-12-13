@@ -55,7 +55,7 @@ struct ZeroDevice final : UnixDevice {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		if(semantic_flags & ~(semanticRead | semanticWrite)){
 			std::cout << "\e[31mposix: ZeroFile open() received illegal arguments:"

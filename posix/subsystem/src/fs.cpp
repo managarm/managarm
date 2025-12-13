@@ -153,7 +153,7 @@ async::result<frg::expected<Error>> FsNode::rmdir(std::string) {
 }
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-FsNode::open(std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
+FsNode::open(Process *, std::shared_ptr<MountView>, std::shared_ptr<FsLink>, SemanticFlags) {
 	std::cout << "posix: open() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

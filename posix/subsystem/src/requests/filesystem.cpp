@@ -1399,7 +1399,7 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 		assert(link);
 		auto node = link->getTarget();
 
-		auto fileResult = co_await node->open(resolver.currentView(), std::move(link),
+		auto fileResult = co_await node->open(ctx.self.get(), resolver.currentView(), std::move(link),
 							semantic_flags);
 		assert(fileResult);
 		file = fileResult.value();
@@ -1451,7 +1451,7 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 				co_return;
 			}
 
-			auto fileResult = co_await target->open(resolver.currentView(), resolver.currentLink(), semantic_flags);
+			auto fileResult = co_await target->open(ctx.self.get(), resolver.currentView(), resolver.currentLink(), semantic_flags);
 			if(!fileResult) {
 				if(fileResult.error() == Error::noBackingDevice) {
 					co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_BACKING_DEVICE);
