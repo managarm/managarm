@@ -740,6 +740,15 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return _egid;
 	}
 
+	const std::vector<gid_t> &supplementaryGroups() const {
+		return supplementaryGids_;
+	}
+
+	Error setSupplementaryGroups(std::vector<gid_t> list) {
+		supplementaryGids_ = std::move(list);
+		return Error::success;
+	}
+
 	ResourceUsage selfUsage() const {
 		return _generationUsage;
 	}
@@ -861,6 +870,8 @@ private:
 	int _euid;
 	int _gid;
 	int _egid;
+
+	std::vector<gid_t> supplementaryGids_;
 
 	// Raised by Process::terminate().
 	async::recurring_event processTerminationEvent_;
