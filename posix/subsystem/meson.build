@@ -10,6 +10,8 @@ src = [
 	'src/devices/kmsg.cpp',
 	'src/devices/null.cpp',
 	'src/devices/random.cpp',
+	'src/devices/tty0.cpp',
+	'src/devices/tty1.cpp',
 	'src/devices/urandom.cpp',
 	'src/devices/zero.cpp',
 	'src/firmware/dmi.cpp',
