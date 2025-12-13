@@ -100,7 +100,7 @@ private:
 		auto line_len = strlen(msg);
 		auto newline = strchr(msg, '\n');
 		if(newline) {
-			assert(newline > msg);
+			assert(newline >= msg);
 			line_len = frg::min(static_cast<size_t>(newline - msg), line_len);
 		}
 
