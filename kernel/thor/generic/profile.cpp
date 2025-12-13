@@ -75,7 +75,7 @@ void initializeProfile() {
 				continue;
 			}
 			assert(size);
-			assert(size < 128);
+			assert(size <= 128);
 
 			globalProfileRing->enqueue(buffer, size);
 		}
