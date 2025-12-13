@@ -176,9 +176,7 @@ struct FileSystem;
 struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
-	DiskInode *diskInode() {
-		return reinterpret_cast<DiskInode *>(diskMapping.get());
-	}
+	DiskInode *diskInode();
 
 	// Returns the size of the file in bytes.
 	uint64_t fileSize() {
@@ -203,7 +201,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	FileSystem &fs;
 
 	helix::UniqueDescriptor diskLock;
-	helix::Mapping diskMapping;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
@@ -299,6 +296,7 @@ struct FileSystem final : BaseFileSystem {
 	helix::UniqueDescriptor blockBitmap;
 	helix::UniqueDescriptor inodeBitmap;
 	helix::UniqueDescriptor inodeTable;
+	helix::Mapping inodeTableMapping;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
