@@ -35,6 +35,12 @@ namespace {
 Inode::Inode(FileSystem &fs, uint32_t number)
 : BaseInode{fs, number}, fs{fs} { }
 
+DiskInode *Inode::diskInode() {
+	auto inodeAddress = (number - 1) * fs.inodeSize;
+	return reinterpret_cast<DiskInode *>(
+			reinterpret_cast<std::byte *>(fs.inodeTableMapping.get()) + inodeAddress);
+}
+
 void Inode::setFileSize(size_t size) {
 	assert(!(size & ~uint64_t(0xFFFFFFFF)));
 	diskInode()->size = size;
@@ -92,8 +98,8 @@ Inode::findEntry(std::string name) {
 	co_return std::nullopt;
 }
 
-async::result<std::optional<DirEntry>>
-Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+async::result<frg::expected<protocols::fs::Error, DirEntry>>
+Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
@@ -104,7 +110,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 	// Lock the mapping into memory before calling this function.
 	auto appendDirEntry = [&](size_t offset, size_t length)
-			-> async::result<std::optional<DirEntry>> {
+			-> async::result<DirEntry> {
 		auto diskEntry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
 		memset(diskEntry, 0, sizeof(DiskDirEntry));
@@ -140,7 +146,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 		// Flush the target inode to disk.
 		auto syncInode = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle},
-				target->diskMapping.get(), fs.inodeSize);
+				target->diskInode(), fs.inodeSize);
 		HEL_CHECK(syncInode.error());
 
 		DirEntry entry;
@@ -162,7 +168,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			diskMapping.get(), fs.inodeSize);
+			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	// Space required for the new directory entry.
@@ -216,6 +222,21 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 
 		co_return co_await appendDirEntry(offset, fileSize() - offset);
 	}
+}
+
+async::result<std::expected<DirEntry, protocols::fs::Error>>
+Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+	// Check if an entry with this name already exists.
+	auto existingResult = co_await findEntry(name);
+	if(!existingResult)
+		co_return std::unexpected{existingResult.error()};
+	if(existingResult.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
+
+	auto result = co_await insertEntry(name, ino, type);
+	if(!result)
+		co_return std::unexpected{result.error()};
+	co_return result.value();
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
@@ -312,7 +333,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 
 			auto syncInode = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
-					target->diskMapping.get(), fs.inodeSize);
+					target->diskInode(), fs.inodeSize);
 			HEL_CHECK(syncInode.error());
 
 			co_return {};
@@ -326,10 +347,17 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 	co_return protocols::fs::Error::fileNotFound;
 }
 
-async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
+
+	// Check if an entry with this name already exists.
+	auto existing = co_await findEntry(name);
+	if(!existing)
+		co_return std::unexpected{existing.error()};
+	if(existing.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
 	auto dirNode = co_await fs.createDirectory();
 	co_await dirNode->readyEvent.wait();
@@ -354,10 +382,6 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	// XXX: this is a hack to make the directory accessible under
 	// OSes that respect the permissions, this means "drwxr-xr-x"
 	dirNode->diskInode()->mode = 0x41ED;
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			dirNode->diskMapping.get(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
 	auto dotEntry = reinterpret_cast<DiskDirEntry *>(dirNode->fileMapping.get());
@@ -381,24 +405,40 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	memcpy(dotDotEntry->name, "..", 3);
 
 	// Synchronize this inode to update the linksCount
-	syncInode = co_await helix_ng::synchronizeSpace(
+	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			diskMapping.get(), fs.inodeSize);
+			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
+
+	// Synchronize the new directory's inode to update its linksCount
+	auto syncNewInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			dirNode->diskInode(), fs.inodeSize);
+	HEL_CHECK(syncNewInode.error());
 
 	// Synchronize the data blocks
-	syncInode = co_await helix_ng::synchronizeSpace(
+	auto syncNewDir = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			dirNode->fileMapping.get(), dirNode->fileSize());
-	HEL_CHECK(syncInode.error());
+	HEL_CHECK(syncNewDir.error());
 
-	co_return co_await link(name, dirNode->number, kTypeDirectory);
+	auto result = co_await insertEntry(name, dirNode->number, kTypeDirectory);
+	if(!result)
+		co_return std::unexpected{result.error()};
+	co_return result.value();
 }
 
-async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std::string name, std::string target) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
+
+	// Check if an entry with this name already exists.
+	auto existing = co_await findEntry(name);
+	if(!existing)
+		co_return std::unexpected{existing.error()};
+	if(existing.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
 	auto newNode = co_await fs.createSymlink();
 	co_await newNode->readyEvent.wait();
@@ -409,10 +449,13 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			newNode->diskMapping.get(), fs.inodeSize);
+			newNode->diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
-	co_return co_await link(name, newNode->number, kTypeSymlink);
+	auto result = co_await insertEntry(name, newNode->number, kTypeSymlink);
+	if(!result)
+		co_return std::unexpected{result.error()};
+	co_return result.value();
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {
@@ -422,7 +465,7 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			diskMapping.get(), fs.inodeSize);
+			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	co_return protocols::fs::Error::none;
@@ -441,7 +484,7 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			diskMapping.get(), fs.inodeSize);
+			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	co_return protocols::fs::Error::none;
@@ -480,7 +523,7 @@ Inode::resizeFile(size_t newSize) {
 	setFileSize(newSize);
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 		helix::BorrowedDescriptor{kHelNullHandle},
-		diskMapping.get(), fs.inodeSize);
+		diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	co_return frg::success;
@@ -570,7 +613,13 @@ async::result<void> FileSystem::init() {
 	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
 			0, &inode_bitmap_backing, &inode_bitmap_frontal));
 	blockBitmap = helix::UniqueDescriptor{block_bitmap_frontal};
+	blockBitmapMapping = helix::Mapping{blockBitmap,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 	inodeBitmap = helix::UniqueDescriptor{inode_bitmap_frontal};
+	inodeBitmapMapping = helix::Mapping{inodeBitmap,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 
 	manageBlockBitmap(helix::UniqueDescriptor{block_bitmap_backing});
 	manageInodeBitmap(helix::UniqueDescriptor{inode_bitmap_backing});
@@ -582,6 +631,9 @@ async::result<void> FileSystem::init() {
 	HEL_CHECK(helCreateManagedMemory(inodesPerGroup * inodeSize * numBlockGroups,
 			0, &inode_table_backing, &inode_table_frontal));
 	inodeTable = helix::UniqueDescriptor{inode_table_frontal};
+	inodeTableMapping = helix::Mapping{inodeTable,
+			0, inodesPerGroup * inodeSize * numBlockGroups,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 
 	manageInodeTable(helix::UniqueDescriptor{inode_table_backing});
 
@@ -599,6 +651,10 @@ async::detached FileSystem::handleBgdtWriteback() {
 }
 
 async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
+	helix::Mapping bitmapMapping{memory,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit_manage = helix::submitManageMemory(memory,
@@ -617,20 +673,18 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: properly support multi-page blocks");
 
+		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->readSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->writeSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -643,6 +697,10 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 }
 
 async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
+	helix::Mapping bitmapMapping{memory,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit_manage = helix::submitManageMemory(memory,
@@ -661,20 +719,18 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: propery support multi-page blocks");
 
+		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->readSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->writeSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -687,6 +743,10 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 }
 
 async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
+	helix::Mapping tableMapping{memory,
+			0, inodesPerGroup * inodeSize * numBlockGroups,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit_manage = helix::submitManageMemory(memory,
@@ -708,20 +768,18 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		assert(bg_offset % device->sectorSize == 0);
 		assert(manage.length() % device->sectorSize == 0);
 
+		auto ptr = reinterpret_cast<std::byte *>(tableMapping.get()) + manage.offset();
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping table_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					table_map.get(), manage.length() / device->sectorSize);
+					ptr, manage.length() / device->sectorSize);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping table_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					table_map.get(), manage.length() / device->sectorSize);
+					ptr, manage.length() / device->sectorSize);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -755,22 +813,19 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	auto ino = co_await allocateInode(parentIno);
 	assert(ino);
 
-	// Lock and map the inode table.
-	auto inode_address = (ino - 1) * inodeSize;
+	// Lock the inode table.
+	auto inodeAddress = (ino - 1) * inodeSize;
 
 	helix::LockMemoryView lock_inode;
 	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
 			helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_inode.error());
 
-	helix::Mapping inode_map{inodeTable,
-				inode_address, inodeSize,
-				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
-
 	// TODO: Set the UID, GID, timestamps.
-	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto disk_inode = reinterpret_cast<DiskInode *>(
+			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFREG;
@@ -782,6 +837,11 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	disk_inode->uid = uid;
 	disk_inode->gid = gid;
 
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			disk_inode, inodeSize);
+	HEL_CHECK(syncInode.error());
+
 	co_return accessInode(ino);
 }
 
@@ -789,22 +849,19 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	auto ino = co_await allocateInode(0, true);
 	assert(ino);
 
-	// Lock and map the inode table.
-	auto inode_address = (ino - 1) * inodeSize;
+	// Lock the inode table.
+	auto inodeAddress = (ino - 1) * inodeSize;
 
 	helix::LockMemoryView lock_inode;
 	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
 			helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_inode.error());
 
-	helix::Mapping inode_map{inodeTable,
-				inode_address, inodeSize,
-				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
-
 	// TODO: Set the UID, GID, timestamps.
-	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto disk_inode = reinterpret_cast<DiskInode *>(
+			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFDIR;
@@ -819,6 +876,11 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	bgdt[bg_idx].usedDirsCount++;
 	bdgtWriteback.raise();
 
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			disk_inode, inodeSize);
+	HEL_CHECK(syncInode.error());
+
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
@@ -826,22 +888,19 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	auto ino = co_await allocateInode();
 	assert(ino);
 
-	// Lock and map the inode table.
-	auto inode_address = (ino - 1) * inodeSize;
+	// Lock the inode table.
+	auto inodeAddress = (ino - 1) * inodeSize;
 
 	helix::LockMemoryView lock_inode;
 	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
 			helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_inode.error());
 
-	helix::Mapping inode_map{inodeTable,
-				inode_address, inodeSize,
-				kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
-
 	// TODO: Set the UID, GID, timestamps.
-	auto disk_inode = reinterpret_cast<DiskInode *>(inode_map.get());
+	auto disk_inode = reinterpret_cast<DiskInode *>(
+			reinterpret_cast<std::byte *>(inodeTableMapping.get()) + inodeAddress);
 	auto generation = disk_inode->generation;
 	memset(disk_inode, 0, inodeSize);
 	disk_inode->mode = EXT2_S_IFLNK;
@@ -851,24 +910,26 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
 
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			disk_inode, inodeSize);
+	HEL_CHECK(syncInode.error());
+
 	co_return std::static_pointer_cast<Inode>(accessInode(ino));
 }
 
 async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 	// TODO: Use a shift instead of a division.
-	auto inode_address = (inode->number - 1) * inodeSize;
+	auto inodeAddress = (inode->number - 1) * inodeSize;
 
 	helix::LockMemoryView lock_inode;
 	auto &&submit = helix::submitLockMemoryView(inodeTable,
-			&lock_inode, inode_address & ~(pageSize - 1), pageSize,
+			&lock_inode, inodeAddress & ~(pageSize - 1), pageSize,
 			helix::Dispatcher::global());
 	co_await submit.async_wait();
 	HEL_CHECK(lock_inode.error());
 	inode->diskLock = lock_inode.descriptor();
 
-	inode->diskMapping = helix::Mapping{inodeTable,
-			inode_address, inodeSize,
-			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 	auto disk_inode = inode->diskInode();
 //	printf("Inode %u: file size: %u\n", inode->number, disk_inode.size);
 
@@ -1056,11 +1117,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			co_await submit_bitmap.async_wait();
 			HEL_CHECK(lock_bitmap.error());
 
-			helix::Mapping bitmap_map{blockBitmap,
-				preferred_bg << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-			auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+			auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (preferred_bg << blockPagesShift));
 
 			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 				if(words[i] == 0xFFFFFFFF)
@@ -1081,6 +1139,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					result.push_back(block);
 					if(result.size() == num) {
+						auto syncBitmap = co_await helix_ng::synchronizeSpace(
+								helix::BorrowedDescriptor{kHelNullHandle},
+								words, 1 << blockPagesShift);
+						HEL_CHECK(syncBitmap.error());
+
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
 							ostAttrTime(timer.elapsed())
@@ -1104,11 +1167,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
-		helix::Mapping bitmap_map{blockBitmap,
-				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (bg_idx << blockPagesShift));
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
@@ -1127,6 +1187,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				bgdt[bg_idx].freeBlocksCount--;
 				result.push_back(block);
 				if(result.size() == num) {
+					auto syncBitmap = co_await helix_ng::synchronizeSpace(
+							helix::BorrowedDescriptor{kHelNullHandle},
+							words, 1 << blockPagesShift);
+					HEL_CHECK(syncBitmap.error());
+
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
 						ostAttrTime(timer.elapsed())
@@ -1152,11 +1217,8 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
-		helix::Mapping bitmap_map{inodeBitmap,
-				bg << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(inodeBitmapMapping.get()) + (bg << blockPagesShift));
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
@@ -1178,6 +1240,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 					bgdt[bg].usedDirsCount++;
 
 				bdgtWriteback.raise();
+
+				auto syncBitmap = co_await helix_ng::synchronizeSpace(
+						helix::BorrowedDescriptor{kHelNullHandle},
+						words, 1 << blockPagesShift);
+				HEL_CHECK(syncBitmap.error());
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,
@@ -1417,7 +1484,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 	bdgtWriteback.raise();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
-			inode->diskMapping.get(), inodeSize);
+			inode->diskInode(), inodeSize);
 	HEL_CHECK(syncInode.error());
 
 	ostContext.emit(

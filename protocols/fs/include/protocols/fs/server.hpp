@@ -220,7 +220,7 @@ struct NodeOperations {
 	async::result<frg::expected<protocols::fs::Error, GetLinkResult>>
 	(*getLink)(std::shared_ptr<void> object, std::string name);
 
-	async::result<GetLinkResult> (*link)(std::shared_ptr<void> object,
+	async::result<std::expected<GetLinkResult, protocols::fs::Error>> (*link)(std::shared_ptr<void> object,
 			std::string name, int64_t ino);
 
 	async::result<frg::expected<protocols::fs::Error>> (*unlink)(std::shared_ptr<void> object,
@@ -230,9 +230,9 @@ struct NodeOperations {
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 
-	async::result<MkdirResult> (*mkdir)(std::shared_ptr<void> object, std::string name);
+	async::result<std::expected<MkdirResult, protocols::fs::Error>> (*mkdir)(std::shared_ptr<void> object, std::string name);
 
-	async::result<SymlinkResult> (*symlink)(std::shared_ptr<void> object, std::string name,
+	async::result<std::expected<SymlinkResult, protocols::fs::Error>> (*symlink)(std::shared_ptr<void> object, std::string name,
 			std::string path);
 
 	async::result<Error> (*chmod)(std::shared_ptr<void> object, int mode);

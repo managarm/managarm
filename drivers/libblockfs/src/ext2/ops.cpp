@@ -73,13 +73,12 @@ getLink(std::shared_ptr<void> object,
 	co_return protocols::fs::GetLinkResult{self->fs.accessInode(entry->inode), entry->inode, type};
 }
 
-async::result<protocols::fs::GetLinkResult> link(std::shared_ptr<void> object,
+async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>> link(std::shared_ptr<void> object,
 		std::string name, int64_t ino) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto entry = co_await self->link(std::move(name), ino, kTypeRegular);
 	if(!entry)
-		co_return protocols::fs::GetLinkResult{nullptr, -1,
-				protocols::fs::FileType::unknown};
+		co_return std::unexpected{entry.error()};
 
 	protocols::fs::FileType type;
 	switch(entry->fileType) {
@@ -146,25 +145,25 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	}
 }
 
-async::result<protocols::fs::MkdirResult>
+async::result<std::expected<protocols::fs::MkdirResult, protocols::fs::Error>>
 mkdir(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto entry = co_await self->mkdir(std::move(name));
 
 	if(!entry)
-		co_return protocols::fs::MkdirResult{nullptr, -1};
+		co_return std::unexpected{entry.error()};
 
 	assert(entry->inode);
 	co_return protocols::fs::MkdirResult{self->fs.accessInode(entry->inode), entry->inode};
 }
 
-async::result<protocols::fs::SymlinkResult>
+async::result<std::expected<protocols::fs::SymlinkResult, protocols::fs::Error>>
 symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	auto entry = co_await self->symlink(std::move(name), std::move(target));
 
 	if(!entry)
-		co_return protocols::fs::SymlinkResult{nullptr, -1};
+		co_return std::unexpected{entry.error()};
 
 	assert(entry->inode);
 	co_return protocols::fs::SymlinkResult{self->fs.accessInode(entry->inode), entry->inode};

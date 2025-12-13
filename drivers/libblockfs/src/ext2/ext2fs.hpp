@@ -1,4 +1,5 @@
 
+#include <expected>
 #include <functional>
 #include <string.h>
 #include <time.h>
@@ -176,9 +177,7 @@ struct FileSystem;
 struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	Inode(FileSystem &fs, uint32_t number);
 
-	DiskInode *diskInode() {
-		return reinterpret_cast<DiskInode *>(diskMapping.get());
-	}
+	DiskInode *diskInode();
 
 	// Returns the size of the file in bytes.
 	uint64_t fileSize() {
@@ -190,10 +189,12 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 	findEntry(std::string name);
 
-	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
+	async::result<frg::expected<protocols::fs::Error, DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
+
+	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
-	async::result<std::optional<DirEntry>> mkdir(std::string name);
-	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
 	async::result<protocols::fs::Error> updateTimes(
 		std::optional<timespec> atime,
@@ -203,7 +204,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	FileSystem &fs;
 
 	helix::UniqueDescriptor diskLock;
-	helix::Mapping diskMapping;
 
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
@@ -297,8 +297,11 @@ struct FileSystem final : BaseFileSystem {
 	DiskGroupDesc *bgdt;
 
 	helix::UniqueDescriptor blockBitmap;
+	helix::Mapping blockBitmapMapping;
 	helix::UniqueDescriptor inodeBitmap;
+	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
+	helix::Mapping inodeTableMapping;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 };
