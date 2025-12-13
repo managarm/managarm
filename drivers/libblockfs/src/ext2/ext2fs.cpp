@@ -98,7 +98,7 @@ Inode::findEntry(std::string name) {
 	co_return std::nullopt;
 }
 
-async::result<std::optional<DirEntry>>
+async::result<frg::expected<protocols::fs::Error, DirEntry>>
 Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
@@ -110,7 +110,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 	// Lock the mapping into memory before calling this function.
 	auto appendDirEntry = [&](size_t offset, size_t length)
-			-> async::result<std::optional<DirEntry>> {
+			-> async::result<DirEntry> {
 		auto diskEntry = reinterpret_cast<DiskDirEntry *>(
 				reinterpret_cast<char *>(fileMapping.get()) + offset);
 		memset(diskEntry, 0, sizeof(DiskDirEntry));
@@ -233,7 +233,10 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	if(existing.value())
 		co_return std::nullopt;
 
-	co_return co_await insertEntry(name, ino, type);
+	auto result = co_await insertEntry(name, ino, type);
+	if(!result)
+		co_return std::nullopt;
+	co_return result.value();
 }
 
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
@@ -419,7 +422,10 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 			dirNode->fileMapping.get(), dirNode->fileSize());
 	HEL_CHECK(syncNewDir.error());
 
-	co_return co_await insertEntry(name, dirNode->number, kTypeDirectory);
+	auto result = co_await insertEntry(name, dirNode->number, kTypeDirectory);
+	if(!result)
+		co_return std::nullopt;
+	co_return result.value();
 }
 
 async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
@@ -446,7 +452,10 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 			newNode->diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
-	co_return co_await insertEntry(name, newNode->number, kTypeSymlink);
+	auto result = co_await insertEntry(name, newNode->number, kTypeSymlink);
+	if(!result)
+		co_return std::nullopt;
+	co_return result.value();
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {

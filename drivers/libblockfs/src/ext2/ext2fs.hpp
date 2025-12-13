@@ -188,7 +188,7 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 	findEntry(std::string name);
 
-	async::result<std::optional<DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
+	async::result<frg::expected<protocols::fs::Error, DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
 
 	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
