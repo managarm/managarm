@@ -762,29 +762,40 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		// TODO: Make sure that we do not read/write past the end of the table.
 		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
 
-		// TODO: Use shifts instead of division.
-		auto bg_idx = manage.offset() / (inodesPerGroup * inodeSize);
-		auto bg_offset = manage.offset() % (inodesPerGroup * inodeSize);
-		auto block = bgdt[bg_idx].inodeTable;
-		assert(block);
+		auto sizePerGroup = inodesPerGroup * inodeSize;
 
-		assert(bg_offset % device->sectorSize == 0);
-		assert(manage.length() % device->sectorSize == 0);
+		size_t progress = 0;
+		while (progress < manage.length()) {
+			// TODO: Use shifts instead of division.
+			auto bg_idx = (manage.offset() + progress) / sizePerGroup;
+			auto bg_offset = (manage.offset() + progress) % sizePerGroup;
+			auto block = bgdt[bg_idx].inodeTable;
+			assert(block);
 
-		auto ptr = reinterpret_cast<std::byte *>(tableMapping.get()) + manage.offset();
+			// Do not cross block group boundaries.
+			auto chunk = std::min(manage.length() - progress, sizePerGroup - bg_offset);
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					ptr, manage.length() / device->sectorSize);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			assert(bg_offset % device->sectorSize == 0);
+			assert(chunk % device->sectorSize == 0);
 
-			co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					ptr, manage.length() / device->sectorSize);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			auto ptr = reinterpret_cast<std::byte *>(tableMapping.get())
+					+ manage.offset() + progress;
+
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+						ptr, chunk / device->sectorSize);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, chunk));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+						ptr, chunk / device->sectorSize);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, chunk));
+			}
+
+			progress += chunk;
 		}
 
 		ostContext.emit(
