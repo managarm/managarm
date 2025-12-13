@@ -382,6 +382,36 @@ async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> en
 					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 				);
 			HEL_CHECK(sendResp.error());
+		}else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
+			std::vector<std::byte> tail(preamble.tail_size());
+			auto [recvTail] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::recvBuffer(tail.data(), tail.size())
+				);
+			HEL_CHECK(recvTail.error());
+
+			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
+			recvHead.reset();
+
+			for(auto p : req->properties()) {
+				entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
+			}
+
+			entitySeqTree.remove(entity.get());
+			auto seq = globalSeq.next_sequence() - 1;
+			entity->updateSeq(seq);
+			entitySeqTree.insert(entity.get());
+			globalSeq.raise();
+
+			managarm::mbus::UpdatePropertiesResponse resp;
+			resp.set_error(managarm::mbus::Error::SUCCESS);
+
+			auto [sendResp] =
+				co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(sendResp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
@@ -509,41 +539,6 @@ async::detached serve(helix::UniqueLane lane) {
 				);
 			HEL_CHECK(sendResp.error());
 			HEL_CHECK(pushLane.error());
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recvTail.error());
-
-			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
-			recvHead.reset();
-			auto entity = getEntityById(req->id());
-			managarm::mbus::UpdatePropertiesResponse resp;
-
-			if(!entity) {
-				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
-			} else {
-				for(auto p : req->properties()) {
-					entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
-				}
-
-				resp.set_error(managarm::mbus::Error::SUCCESS);
-
-				entitySeqTree.remove(entity.get());
-				auto seq = globalSeq.next_sequence() - 1;
-				entity->updateSeq(seq);
-				entitySeqTree.insert(entity.get());
-				globalSeq.raise();
-			}
-
-			auto [sendResp] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-			HEL_CHECK(sendResp.error());
 		}else{
 			throw std::runtime_error("Unexpected request type");
 		}
