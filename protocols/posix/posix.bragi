@@ -838,3 +838,24 @@ head(128):
 	Errors error;
 	byte value;
 }
+
+message GetGroupsRequest 135 {
+head(128):
+	uint64 size;
+}
+
+message GetGroupsResponse 136 {
+head(128):
+	Errors error;
+	uint64 entries;
+}
+
+message SetGroupsRequest 137 {
+head(128):
+	uint64 entries;
+}
+
+message SetGroupsResponse 138 {
+head(128):
+	Errors error;
+}

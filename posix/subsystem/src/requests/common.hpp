@@ -162,6 +162,8 @@ async::result<void> handleGetGid(RequestContext& ctx);
 async::result<void> handleGetEgid(RequestContext& ctx);
 async::result<void> handleSetGid(RequestContext& ctx);
 async::result<void> handleSetEgid(RequestContext& ctx);
+async::result<void> handleGetGroups(RequestContext& ctx);
+async::result<void> handleSetGroups(RequestContext& ctx);
 
 // From process.cpp
 async::result<void> handleWaitId(RequestContext& ctx);
