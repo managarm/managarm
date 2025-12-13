@@ -183,6 +183,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		MAKE_CASE(GetEgid)
 		MAKE_CASE(SetGid)
 		MAKE_CASE(SetEgid)
+		MAKE_CASE(GetGroups)
+		MAKE_CASE(SetGroups)
 		// From process.cpp
 		MAKE_CASE(WaitId)
 		MAKE_CASE(SetAffinity)

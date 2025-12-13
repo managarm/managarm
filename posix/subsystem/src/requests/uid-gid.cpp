@@ -215,4 +215,76 @@ async::result<void> handleSetEgid(RequestContext& ctx) {
 	}
 }
 
+// GET_GROUPS handler
+async::result<void> handleGetGroups(RequestContext& ctx) {
+	auto req = bragi::parse_head_only<managarm::posix::GetGroupsRequest>(ctx.recv_head);
+	if (!req) {
+		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+		co_return;
+	}
+
+	logRequest(logRequests, ctx, "GET_GROUPS");
+
+	const auto &groups = ctx.self->threadGroup()->supplementaryGroups();
+	size_t sendEntries = groups.size();
+
+	managarm::posix::GetGroupsResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	if (req->size()) {
+		if (groups.size() > req->size()) {
+			co_await sendErrorResponse<managarm::posix::GetGroupsResponse>(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return;
+		}
+
+		resp.set_entries(groups.size());
+	} else {
+		resp.set_entries(groups.size());
+		sendEntries = 0;
+	}
+
+	auto [send_resp, send_list] = co_await helix_ng::exchangeMsgs(
+		ctx.conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+		helix_ng::sendBuffer(groups.data(), sizeof(gid_t) * sendEntries)
+	);
+	HEL_CHECK(send_resp.error());
+	HEL_CHECK(send_list.error());
+
+	logBragiReply(ctx, resp);
+}
+
+// SET_GROUPS handler
+async::result<void> handleSetGroups(RequestContext& ctx) {
+	auto req = bragi::parse_head_only<managarm::posix::SetGroupsRequest>(ctx.recv_head);
+	if (!req) {
+		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
+		co_return;
+	}
+
+	logRequest(logRequests, ctx, "SET_GROUPS");
+
+	std::vector<gid_t> list;
+	list.resize(req->entries());
+
+	auto [recv_list] = co_await helix_ng::exchangeMsgs(
+			ctx.conversation,
+			helix_ng::recvBuffer(list.data(), req->entries() * sizeof(gid_t))
+		);
+	HEL_CHECK(recv_list.error());
+
+	auto err = ctx.self->threadGroup()->setSupplementaryGroups(std::move(list));
+
+	managarm::posix::SetGroupsResponse resp;
+	resp.set_error(err | toPosixProtoError);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(
+		ctx.conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+
+	HEL_CHECK(send_resp.error());
+	logBragiReply(ctx, resp);
+}
+
 }
