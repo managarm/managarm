@@ -99,7 +99,7 @@ Inode::findEntry(std::string name) {
 }
 
 async::result<std::optional<DirEntry>>
-Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	assert(!name.empty() && name != "." && name != "..");
 	assert(ino);
 
@@ -224,6 +224,18 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	}
 }
 
+async::result<std::optional<DirEntry>>
+Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+	// Check if an entry with this name already exists.
+	auto existing = co_await findEntry(name);
+	if(!existing)
+		co_return std::nullopt;
+	if(existing.value())
+		co_return std::nullopt;
+
+	co_return co_await insertEntry(name, ino, type);
+}
+
 async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
@@ -337,6 +349,13 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 
 	co_await readyEvent.wait();
 
+	// Check if an entry with this name already exists.
+	auto existing = co_await findEntry(name);
+	if(!existing)
+		co_return std::nullopt;
+	if(existing.value())
+		co_return std::nullopt;
+
 	auto dirNode = co_await fs.createDirectory();
 	co_await dirNode->readyEvent.wait();
 
@@ -400,13 +419,20 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 			dirNode->fileMapping.get(), dirNode->fileSize());
 	HEL_CHECK(syncNewDir.error());
 
-	co_return co_await link(name, dirNode->number, kTypeDirectory);
+	co_return co_await insertEntry(name, dirNode->number, kTypeDirectory);
 }
 
 async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
+
+	// Check if an entry with this name already exists.
+	auto existing = co_await findEntry(name);
+	if(!existing)
+		co_return std::nullopt;
+	if(existing.value())
+		co_return std::nullopt;
 
 	auto newNode = co_await fs.createSymlink();
 	co_await newNode->readyEvent.wait();
@@ -420,7 +446,7 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 			newNode->diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
-	co_return co_await link(name, newNode->number, kTypeSymlink);
+	co_return co_await insertEntry(name, newNode->number, kTypeSymlink);
 }
 
 async::result<protocols::fs::Error> Inode::chmod(int mode) {
