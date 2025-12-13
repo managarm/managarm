@@ -184,48 +184,6 @@ async::result<Result<Properties>> Entity::getProperties() const {
 	co_return properties;
 }
 
-async::result<Error> Entity::updateProperties(Properties properties) {
-	managarm::mbus::UpdatePropertiesRequest req;
-	req.set_id(id_);
-	for(auto &[name, value] : properties) {
-		managarm::mbus::Property prop;
-		prop.set_name(name);
-		prop.set_item(encodeItem(value));
-		req.add_properties(prop);
-	}
-	assert(req.properties_size());
-
-	auto [offer, sendHead, sendTail, recvResp] =
-		co_await helix_ng::exchangeMsgs(
-			connection_->lane,
-			helix_ng::offer(
-				helix_ng::want_lane,
-				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
-				helix_ng::recvInline()
-			)
-		);
-
-	auto conversation = offer.descriptor();
-
-	HEL_CHECK(offer.error());
-	HEL_CHECK(sendHead.error());
-	HEL_CHECK(sendTail.error());
-	HEL_CHECK(recvResp.error());
-
-	auto maybeResp = bragi::parse_head_only<managarm::mbus::UpdatePropertiesResponse>(recvResp);
-	recvResp.reset();
-	if (!maybeResp)
-		co_return Error::protocolViolation;
-
-	auto &resp = *maybeResp;
-	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
-		co_return Error::noSuchEntity;
-
-	assert(resp.error() == managarm::mbus::Error::SUCCESS);
-
-	co_return Error::success;
-}
-
 async::result<Result<helix::UniqueLane>> Entity::getRemoteLane() const {
 	managarm::mbus::GetRemoteLaneRequest req;
 	req.set_id(id_);
@@ -297,6 +255,44 @@ async::result<Result<void>> EntityManager::serveRemoteLane(helix::UniqueLane lan
 	assert(resp.error() == managarm::mbus::Error::SUCCESS);
 
 	co_return frg::success;
+}
+
+async::result<Error> EntityManager::updateProperties(Properties properties) {
+	managarm::mbus::UpdatePropertiesRequest req;
+	for(auto &[name, value] : properties) {
+		managarm::mbus::Property prop;
+		prop.set_name(name);
+		prop.set_item(encodeItem(value));
+		req.add_properties(prop);
+	}
+	assert(req.properties_size());
+
+	auto [offer, sendHead, sendTail, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			mgmtLane_,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadTail(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendHead.error());
+	HEL_CHECK(sendTail.error());
+	HEL_CHECK(recvResp.error());
+
+	auto maybeResp = bragi::parse_head_only<managarm::mbus::UpdatePropertiesResponse>(recvResp);
+	recvResp.reset();
+	if (!maybeResp)
+		co_return Error::protocolViolation;
+
+	auto &resp = *maybeResp;
+	if (resp.error() == managarm::mbus::Error::NO_SUCH_ENTITY)
+		co_return Error::noSuchEntity;
+
+	assert(resp.error() == managarm::mbus::Error::SUCCESS);
+
+	co_return Error::success;
 }
 
 // ------------------------------------------------------------------------

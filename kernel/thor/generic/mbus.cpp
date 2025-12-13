@@ -59,21 +59,20 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (resp->error() != managarm::mbus::Error::SUCCESS)
 		co_return Error::illegalState;
 
-	async::detach_with_allocator(*kernelAlloc,
-			handleMbusComms_(descriptor.get<LaneDescriptor>().handle));
-
 	mbusId_ = resp->id();
+	mgmtLane_ = descriptor.get<LaneDescriptor>().handle;
+
+	async::detach_with_allocator(*kernelAlloc, handleMbusComms_());
 
 	co_return resp->id();
 }
 
 coroutine<Error> KernelBusObject::updateProperties(Properties &properties) {
-	auto [offerError, conversation] = co_await OfferSender{*mbusClient};
+	auto [offerError, conversation] = co_await OfferSender{mgmtLane_};
 	if (offerError != Error::success)
 		co_return offerError;
 
 	managarm::mbus::UpdatePropertiesRequest<KernelAlloc> req(*kernelAlloc);
-	req.set_id(mbusId_);
 	for(auto &[name, value] : properties.properties_) {
 		managarm::mbus::Property<KernelAlloc> prop(*kernelAlloc);
 		prop.set_name(name);
@@ -119,16 +118,16 @@ coroutine<Error> KernelBusObject::updateProperties(Properties &properties) {
 	co_return Error::success;
 }
 
-coroutine<void> KernelBusObject::handleMbusComms_(LaneHandle mgmtLane) {
+coroutine<void> KernelBusObject::handleMbusComms_() {
 	while (true) {
 		// TODO(qookie): Improve error handling here?
 		// Perhaps we should at least log a message.
-		(void)(co_await handleServeRemoteLane_(mgmtLane));
+		(void)(co_await handleServeRemoteLane_());
 	}
 }
 
-coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_(LaneHandle mgmtLane) {
-	auto [offerError, conversation] = co_await OfferSender{mgmtLane};
+coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_() {
+	auto [offerError, conversation] = co_await OfferSender{mgmtLane_};
 	if (offerError != Error::success)
 		co_return offerError;
 
