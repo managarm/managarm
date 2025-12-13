@@ -665,29 +665,30 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 
 		protocols::ostrace::Timer timer;
 
-		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto block = bgdt[bg_idx].blockBitmap;
-		assert(block);
-
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
 				&& "TODO: properly support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: properly support multi-page blocks");
 
-		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+		for(size_t progress = 0; progress < manage.length(); progress += (1 << blockPagesShift)) {
+			auto bg_idx = (manage.offset() + progress) >> blockPagesShift;
+			auto block = bgdt[bg_idx].blockBitmap;
+			assert(block);
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get())
+					+ manage.offset() + progress;
 
-			co_await device->writeSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}
 		}
 
 		ostContext.emit(
@@ -711,29 +712,30 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 
 		protocols::ostrace::Timer timer;
 
-		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto block = bgdt[bg_idx].inodeBitmap;
-		assert(block);
-
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
-				&& "TODO: propery support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: propery support multi-page blocks");
+				&& "TODO: properly support multi-page blocks");
 
-		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+		for(size_t progress = 0; progress < manage.length(); progress += (1 << blockPagesShift)) {
+			auto bg_idx = (manage.offset() + progress) >> blockPagesShift;
+			auto block = bgdt[bg_idx].inodeBitmap;
+			assert(block);
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get())
+					+ manage.offset() + progress;
 
-			co_await device->writeSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}
 		}
 
 		ostContext.emit(
