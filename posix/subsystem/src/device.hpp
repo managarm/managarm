@@ -31,7 +31,7 @@ public:
 	virtual std::string nodePath() = 0;
 
 	virtual async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) = 0;
 
 	virtual FutureMaybe<std::shared_ptr<FsLink>> mount();
@@ -73,7 +73,7 @@ extern UnixDeviceRegistry charRegistry;
 extern UnixDeviceRegistry blockRegistry;
 
 async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-openDevice(VfsType type, DeviceId id, std::shared_ptr<MountView> mont, std::shared_ptr<FsLink> link,
+openDevice(Process *, VfsType type, DeviceId id, std::shared_ptr<MountView> mont, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags);
 
 // --------------------------------------------------------

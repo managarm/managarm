@@ -23,7 +23,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> creat
 		co_return linkResult.error();
 
 	auto link = linkResult.value();
-	auto fileResult = co_await link->getTarget()->open(resolver.currentView(), std::move(link), semanticRead | semanticWrite);
+	auto fileResult = co_await link->getTarget()->open(proc, resolver.currentView(), std::move(link), semanticRead | semanticWrite);
 	co_return fileResult;
 }
 

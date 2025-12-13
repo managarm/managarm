@@ -48,7 +48,7 @@ struct EventDevice final : UnixDevice, drvcore::ClassDevice {
 	}
 
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
-	open(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
 		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
 	}
@@ -81,7 +81,7 @@ struct InputDevice final : drvcore::ClassDevice {
 
 async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs::Object *object) {
 	auto device = static_cast<EventDevice *>(object);
-	auto fileMaybe = co_await device->open(nullptr, nullptr, 0);
+	auto fileMaybe = co_await device->open(nullptr, nullptr, nullptr, 0);
 	if(!fileMaybe){
 		std::cout << "\e[31mposix: show(): open() error\e[39m" << std::endl;
 		while(true);
