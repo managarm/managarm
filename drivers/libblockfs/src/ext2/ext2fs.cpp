@@ -576,7 +576,13 @@ async::result<void> FileSystem::init() {
 	HEL_CHECK(helCreateManagedMemory(numBlockGroups << blockPagesShift,
 			0, &inode_bitmap_backing, &inode_bitmap_frontal));
 	blockBitmap = helix::UniqueDescriptor{block_bitmap_frontal};
+	blockBitmapMapping = helix::Mapping{blockBitmap,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 	inodeBitmap = helix::UniqueDescriptor{inode_bitmap_frontal};
+	inodeBitmapMapping = helix::Mapping{inodeBitmap,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
 
 	manageBlockBitmap(helix::UniqueDescriptor{block_bitmap_backing});
 	manageInodeBitmap(helix::UniqueDescriptor{inode_bitmap_backing});
@@ -608,6 +614,10 @@ async::detached FileSystem::handleBgdtWriteback() {
 }
 
 async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
+	helix::Mapping bitmapMapping{memory,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit_manage = helix::submitManageMemory(memory,
@@ -626,20 +636,18 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: properly support multi-page blocks");
 
+		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->readSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->writeSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -652,6 +660,10 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 }
 
 async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
+	helix::Mapping bitmapMapping{memory,
+			0, numBlockGroups << blockPagesShift,
+			kHelMapProtWrite | kHelMapProtRead | kHelMapDontRequireBacking};
+
 	while(true) {
 		helix::ManageMemory manage;
 		auto &&submit_manage = helix::submitManageMemory(memory,
@@ -670,20 +682,18 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 		assert(manage.length() == (1 << blockPagesShift)
 				&& "TODO: propery support multi-page blocks");
 
+		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->readSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
 					manage.offset(), manage.length()));
 		}else{
 			assert(manage.type() == kHelManageWriteback);
 
-			helix::Mapping bitmap_map{memory,
-					static_cast<ptrdiff_t>(manage.offset()), manage.length()};
 			co_await device->writeSectors(block * sectorsPerBlock,
-					bitmap_map.get(), sectorsPerBlock);
+					ptr, sectorsPerBlock);
 			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
 					manage.offset(), manage.length()));
 		}
@@ -1070,11 +1080,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			co_await submit_bitmap.async_wait();
 			HEL_CHECK(lock_bitmap.error());
 
-			helix::Mapping bitmap_map{blockBitmap,
-				preferred_bg << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-			auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+			auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (preferred_bg << blockPagesShift));
 
 			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 				if(words[i] == 0xFFFFFFFF)
@@ -1095,6 +1102,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					result.push_back(block);
 					if(result.size() == num) {
+						auto syncBitmap = co_await helix_ng::synchronizeSpace(
+								helix::BorrowedDescriptor{kHelNullHandle},
+								words, 1 << blockPagesShift);
+						HEL_CHECK(syncBitmap.error());
+
 						ostContext.emit(
 							ostEvtExt2AllocateBlocks,
 							ostAttrTime(timer.elapsed())
@@ -1118,11 +1130,8 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
-		helix::Mapping bitmap_map{blockBitmap,
-				bg_idx << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (bg_idx << blockPagesShift));
 		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
@@ -1141,6 +1150,11 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				bgdt[bg_idx].freeBlocksCount--;
 				result.push_back(block);
 				if(result.size() == num) {
+					auto syncBitmap = co_await helix_ng::synchronizeSpace(
+							helix::BorrowedDescriptor{kHelNullHandle},
+							words, 1 << blockPagesShift);
+					HEL_CHECK(syncBitmap.error());
+
 					ostContext.emit(
 						ostEvtExt2AllocateBlocks,
 						ostAttrTime(timer.elapsed())
@@ -1166,11 +1180,8 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
-		helix::Mapping bitmap_map{inodeBitmap,
-				bg << blockPagesShift, size_t{1} << blockPagesShift,
-				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-
-		auto words = reinterpret_cast<uint32_t *>(bitmap_map.get());
+		auto words = reinterpret_cast<uint32_t *>(
+				reinterpret_cast<std::byte *>(inodeBitmapMapping.get()) + (bg << blockPagesShift));
 		for(unsigned int i = 0; i < (inodesPerGroup + 31) / 32; i++) {
 			if(words[i] == 0xFFFFFFFF)
 				continue;
@@ -1192,6 +1203,11 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 					bgdt[bg].usedDirsCount++;
 
 				bdgtWriteback.raise();
+
+				auto syncBitmap = co_await helix_ng::synchronizeSpace(
+						helix::BorrowedDescriptor{kHelNullHandle},
+						words, 1 << blockPagesShift);
+				HEL_CHECK(syncBitmap.error());
 
 				ostContext.emit(
 					ostEvtExt2AllocateInode,

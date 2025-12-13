@@ -294,7 +294,9 @@ struct FileSystem final : BaseFileSystem {
 	DiskGroupDesc *bgdt;
 
 	helix::UniqueDescriptor blockBitmap;
+	helix::Mapping blockBitmapMapping;
 	helix::UniqueDescriptor inodeBitmap;
+	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
 
