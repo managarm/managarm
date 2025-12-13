@@ -360,10 +360,6 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	// XXX: this is a hack to make the directory accessible under
 	// OSes that respect the permissions, this means "drwxr-xr-x"
 	dirNode->diskInode()->mode = 0x41ED;
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			dirNode->diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
 
 	size_t offset = 0;
 	auto dotEntry = reinterpret_cast<DiskDirEntry *>(dirNode->fileMapping.get());
@@ -387,16 +383,22 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	memcpy(dotDotEntry->name, "..", 3);
 
 	// Synchronize this inode to update the linksCount
-	syncInode = co_await helix_ng::synchronizeSpace(
+	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
 
+	// Synchronize the new directory's inode to update its linksCount
+	auto syncNewInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			dirNode->diskInode(), fs.inodeSize);
+	HEL_CHECK(syncNewInode.error());
+
 	// Synchronize the data blocks
-	syncInode = co_await helix_ng::synchronizeSpace(
+	auto syncNewDir = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			dirNode->fileMapping.get(), dirNode->fileSize());
-	HEL_CHECK(syncInode.error());
+	HEL_CHECK(syncNewDir.error());
 
 	co_return co_await link(name, dirNode->number, kTypeDirectory);
 }
