@@ -316,8 +316,10 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				user_time = stats.userTime;
 			}else if(mode == RUSAGE_CHILDREN) {
 				user_time = self->threadGroup()->accumulatedUsage().userTime;
+			}else if(mode == RLIMIT_FSIZE) {
+				user_time = RLIM_INFINITY;
 			}else{
-				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported\e[39m"
+				std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported, requested mode: " << mode << "\e[39m"
 						<< std::endl;
 				user_time = 0;
 				// TODO: Return an error response.
