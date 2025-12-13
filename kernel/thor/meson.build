@@ -2,6 +2,8 @@ if build_uefi
 	subdir_done()
 endif
 
+fs = import('fs')
+
 link_args = [ '-nostdlib' ]
 
 args = [
@@ -13,7 +15,17 @@ c_args = [ ]
 cpp_args = [ ]
 
 cxx = meson.get_compiler('cpp')
-libgcc = cxx.find_library('gcc')
+cxx_link_args = get_option('cpp_link_args')
+
+libgcc_path = run_command(cxx.cmd_array(), cxx_link_args, '-print-libgcc-file-name',
+				capture: true, check: true).stdout().strip()
+
+if not fs.is_file(libgcc_path)
+	error('libgcc/compiler-rt library (' + libgcc_path + ') is missing')
+endif
+
+libgcc = declare_dependency(link_args: libgcc_path)
+
 link_depends = []
 inc = [ cralgo_includes ]
 link_with = []

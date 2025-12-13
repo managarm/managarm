@@ -1,3 +1,5 @@
+fs = import('fs')
+
 eir_generic_sources = files(
 	'../common/libc.cpp',
 	'../common/font-8x16.cpp',
@@ -31,14 +33,26 @@ eir_includes = [include_directories(
 	'system/uart',
 )]
 
-cxx = meson.get_compiler('cpp')
-libgcc = cxx.find_library('gcc', required: not build_uefi)
-
 eir_c_args = []
 eir_cpp_args = ['-fno-threadsafe-statics', '-DFRG_DONT_USE_LONG_DOUBLE']
 eir_link_args = ['-nostdlib']
 eir_linker_script = files()
-eir_dependencies = [libgcc, frigg, libarch_base]
+eir_dependencies = [frigg, libarch_base]
+
+if not build_uefi
+	cpp = meson.get_compiler('cpp')
+	cpp_link_args = get_option('cpp_link_args')
+	libgcc_path = run_command(cxx.cmd_array(), cpp_link_args, '-print-libgcc-file-name',
+					capture: true, check: true).stdout().strip()
+
+	message(libgcc_path)
+	if not fs.is_file(libgcc_path)
+		error('libgcc/compiler-rt library (' + libgcc_path + ') is missing')
+	endif
+
+	libgcc = declare_dependency(link_args: libgcc_path)
+	eir_dependencies += [libgcc]
+endif
 
 # Use uACPI in barebones (= table only mode).
 eir_c_args += ['-DUACPI_BAREBONES_MODE', '-DUACPI_OVERRIDE_LIBC']
