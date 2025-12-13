@@ -1,4 +1,5 @@
 
+#include <expected>
 #include <functional>
 #include <string.h>
 #include <time.h>
@@ -190,10 +191,10 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	async::result<frg::expected<protocols::fs::Error, DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
 
-	async::result<std::optional<DirEntry>> link(std::string name, int64_t ino, blockfs::FileType type);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<frg::expected<protocols::fs::Error>> unlink(std::string name);
-	async::result<std::optional<DirEntry>> mkdir(std::string name);
-	async::result<std::optional<DirEntry>> symlink(std::string name, std::string target);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
 	async::result<protocols::fs::Error> updateTimes(
 		std::optional<timespec> atime,

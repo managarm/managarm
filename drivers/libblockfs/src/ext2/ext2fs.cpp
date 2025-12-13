@@ -224,18 +224,18 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	}
 }
 
-async::result<std::optional<DirEntry>>
+async::result<std::expected<DirEntry, protocols::fs::Error>>
 Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	// Check if an entry with this name already exists.
-	auto existing = co_await findEntry(name);
-	if(!existing)
-		co_return std::nullopt;
-	if(existing.value())
-		co_return std::nullopt;
+	auto existingResult = co_await findEntry(name);
+	if(!existingResult)
+		co_return std::unexpected{existingResult.error()};
+	if(existingResult.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
 	auto result = co_await insertEntry(name, ino, type);
 	if(!result)
-		co_return std::nullopt;
+		co_return std::unexpected{result.error()};
 	co_return result.value();
 }
 
@@ -347,7 +347,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 	co_return protocols::fs::Error::fileNotFound;
 }
 
-async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -355,9 +355,9 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 	// Check if an entry with this name already exists.
 	auto existing = co_await findEntry(name);
 	if(!existing)
-		co_return std::nullopt;
+		co_return std::unexpected{existing.error()};
 	if(existing.value())
-		co_return std::nullopt;
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
 	auto dirNode = co_await fs.createDirectory();
 	co_await dirNode->readyEvent.wait();
@@ -424,11 +424,11 @@ async::result<std::optional<DirEntry>> Inode::mkdir(std::string name) {
 
 	auto result = co_await insertEntry(name, dirNode->number, kTypeDirectory);
 	if(!result)
-		co_return std::nullopt;
+		co_return std::unexpected{result.error()};
 	co_return result.value();
 }
 
-async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::string target) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std::string name, std::string target) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -436,9 +436,9 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 	// Check if an entry with this name already exists.
 	auto existing = co_await findEntry(name);
 	if(!existing)
-		co_return std::nullopt;
+		co_return std::unexpected{existing.error()};
 	if(existing.value())
-		co_return std::nullopt;
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
 
 	auto newNode = co_await fs.createSymlink();
 	co_await newNode->readyEvent.wait();
@@ -454,7 +454,7 @@ async::result<std::optional<DirEntry>> Inode::symlink(std::string name, std::str
 
 	auto result = co_await insertEntry(name, newNode->number, kTypeSymlink);
 	if(!result)
-		co_return std::nullopt;
+		co_return std::unexpected{result.error()};
 	co_return result.value();
 }
 
