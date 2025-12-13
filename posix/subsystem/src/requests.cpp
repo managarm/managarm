@@ -740,33 +740,25 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			// Since file descriptors may appear multiple times in a poll() call,
 			// we need to de-duplicate them here.
-			std::unordered_map<int, unsigned int> fdsToEvents;
+			struct PollEvents {
+				unsigned int events;
+				unsigned int revents;
+			};
+			std::unordered_map<int, PollEvents> fdsToEvents;
 
 			auto epfile = epoll::createFile();
 			assert(req.fds_size() == req.events_size());
 
 			auto timeout = req.timeout();
 			bool errorOut = false;
-			size_t epollAddedItems = 0;
 
+			// First pass: build the deduplication map, merging events for duplicate FDs.
 			for(size_t i = 0; i < req.fds_size(); i++) {
-				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), 0});
-				if(!inserted)
-					continue;
-
 				// if fd is < 0, `events` shall be ignored and revents set to 0
-				if (req.fds(i) < 0)
-					continue;
-
-				auto file = self->fileContext()->getFile(req.fds(i));
-				if(!file) {
-					// poll() is supposed to fail on a per-FD basis.
-					mapIt->second = POLLNVAL;
-					timeout = 0;
+				if (req.fds(i) < 0) {
+					fdsToEvents.insert({req.fds(i), {0, 0}});
 					continue;
 				}
-				auto locked = file->weakFile().lock();
-				assert(locked);
 
 				// Translate POLL events to EPOLL events.
 				if(req.events(i) & ~(POLLIN | POLLPRI | POLLOUT | POLLRDHUP | POLLERR | POLLHUP
@@ -787,15 +779,34 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				if(req.events(i) & POLLERR) mask |= EPOLLERR;
 				if(req.events(i) & POLLHUP) mask |= EPOLLHUP;
 
-				// addItem() can fail with EEXIST but we check for duplicate FDs above
-				// so that cannot happen here.
-				Error ret = epoll::addItem(epfile.get(), self.get(),
-					std::move(locked), req.fds(i), mask, req.fds(i));
-				assert(ret == Error::success);
-				epollAddedItems++;
+				auto [mapIt, inserted] = fdsToEvents.insert({req.fds(i), {mask, 0}});
+				if(!inserted)
+					mapIt->second.events |= mask; // Merge events for duplicate FDs.
 			}
 			if(errorOut)
 				continue;
+
+			// Second pass: add items to epoll and handle invalid FDs.
+			size_t epollAddedItems = 0;
+			for(auto &[fd, pollEv] : fdsToEvents) {
+				if(fd < 0)
+					continue;
+
+				auto file = self->fileContext()->getFile(fd);
+				if(!file) {
+					// poll() is supposed to fail on a per-FD basis.
+					pollEv.revents = POLLNVAL;
+					timeout = 0;
+					continue;
+				}
+				auto locked = file->weakFile().lock();
+				assert(locked);
+
+				Error ret = epoll::addItem(epfile.get(), self.get(),
+					std::move(locked), fd, pollEv.events, fd);
+				assert(ret == Error::success);
+				epollAddedItems++;
+			}
 
 			struct epoll_event events[16] = {};
 			size_t k = 0;
@@ -874,13 +885,13 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				assert(it != fdsToEvents.end());
 
 				// Translate EPOLL events back to POLL events.
-				assert(!it->second);
-				if(events[j].events & EPOLLIN) it->second |= POLLIN;
-				if(events[j].events & EPOLLOUT) it->second |= POLLOUT;
-				if(events[j].events & EPOLLPRI) it->second |= POLLPRI;
-				if(events[j].events & EPOLLRDHUP) it->second |= POLLRDHUP;
-				if(events[j].events & EPOLLERR) it->second |= POLLERR;
-				if(events[j].events & EPOLLHUP) it->second |= POLLHUP;
+				assert(!it->second.revents);
+				if(events[j].events & EPOLLIN) it->second.revents |= POLLIN;
+				if(events[j].events & EPOLLOUT) it->second.revents |= POLLOUT;
+				if(events[j].events & EPOLLPRI) it->second.revents |= POLLPRI;
+				if(events[j].events & EPOLLRDHUP) it->second.revents |= POLLRDHUP;
+				if(events[j].events & EPOLLERR) it->second.revents |= POLLERR;
+				if(events[j].events & EPOLLHUP) it->second.revents |= POLLHUP;
 			}
 
 			managarm::posix::SvrResponse resp;
@@ -889,8 +900,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			for(size_t i = 0; i < req.fds_size(); ++i) {
 				auto it = fdsToEvents.find(req.fds(i));
 				assert(it != fdsToEvents.end());
-				resp.add_events(it->second);
-				if (!hasEvents && it->second)
+				auto maskedEvents = it->second.revents & (req.events(i) | POLLHUP | POLLERR | POLLNVAL);
+				resp.add_events(maskedEvents);
+				if (!hasEvents && maskedEvents)
 					hasEvents = true;
 			}
 
