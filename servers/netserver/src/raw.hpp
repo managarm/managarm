@@ -11,7 +11,7 @@
 struct RawSocket;
 
 struct Raw {
-	managarm::fs::Errors serveSocket(helix::UniqueLane lane, int type, int proto, int flags);
+	managarm::fs::Errors serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane, int type, int proto, int flags);
 	void feedPacket(arch::dma_buffer_view frame);
 
 private:
@@ -23,6 +23,8 @@ private:
 
 struct RawSocket {
 	explicit RawSocket(Raw *parent, int proto) : parent{parent}, proto(proto) {}
+
+	void handleClose();
 
 	static async::result<protocols::fs::Error> bind(void* obj,
 			helix_ng::CredentialsView creds, const void *addr_ptr, size_t addr_size);
@@ -51,6 +53,7 @@ struct RawSocket {
 		.recvMsg = &recvmsg,
 		.setSocketOption = &setSocketOption,
 	};
+
 private:
 	friend Raw;
 

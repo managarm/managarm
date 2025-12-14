@@ -607,8 +607,8 @@ async::detached serve(helix::UniqueLane lane) {
 					async::detach(servePassthrough(std::move(localPt), nl_socket,
 							&nl::NetlinkSocket::ops));
 				} else if(req.domain() == AF_PACKET) {
-					auto err = raw().serveSocket(std::move(localPt),
-							req.type(), req.protocol(), req.flags());
+					auto err = raw().serveSocket(std::move(localCtrl),
+							std::move(localPt), req.type(), req.protocol(), req.flags());
 					if(err != managarm::fs::Errors::SUCCESS) {
 						co_await sendError(err);
 						continue;

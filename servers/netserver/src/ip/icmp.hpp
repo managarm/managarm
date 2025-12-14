@@ -37,7 +37,7 @@ struct Icmp {
 	Icmp();
 
 	void feedDatagram(smarter::shared_ptr<const Ip4Packet>, std::weak_ptr<nic::Link> link);
-	void serveSocket(helix::UniqueLane lane);
+	void serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane);
 
 private:
 	async::result<void> dispatchIcmp_();
