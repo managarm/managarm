@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <stdint.h>
 
 #include "testsuite.hpp"
 
