@@ -65,6 +65,7 @@ struct BaseFileSystem {
 	virtual std::shared_ptr<BaseInode> accessRoot() = 0;
 	virtual std::shared_ptr<BaseInode> accessInode(uint32_t inode) = 0;
 	virtual async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
+	virtual protocols::fs::FsStats getFsStats() = 0;
 
 	constexpr BaseFileSystem() = default;
 

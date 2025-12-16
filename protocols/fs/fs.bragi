@@ -861,3 +861,27 @@ head(128):
 message AcceptRequest 44 {
 head(128):
 }
+
+message GetFsStatsRequest 45 {
+head(128):
+}
+
+message GetFsStatsResponse 46 {
+head(128):
+	Errors error;
+	// Note: In struct statfs, bsize and namelen are 32 bits.
+	//       We make them 64 bits for consistency here.
+	uint32 fs_type;
+	uint64 block_size;
+	uint64 fragment_size;
+	uint64 num_blocks;
+	uint64 blocks_free;
+	uint64 blocks_free_user;
+	uint64 num_inodes;
+	uint64 inodes_free;
+	uint64 inodes_free_user;
+	uint64 max_name_length;
+	int32 fsid0;
+	int32 fsid1;
+	uint64 flags;
+}

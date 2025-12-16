@@ -1033,8 +1033,43 @@ std::shared_ptr<FsLink> Superblock::internalizePeripheralLink(Node *parent, std:
 }
 
 async::result<frg::expected<Error, FsStats>> Superblock::getFsStats() {
-	std::cout << "posix: unimplemented getFsstats for extern_fs Superblock!" << std::endl;
-	co_return Error::illegalOperationTarget;
+	managarm::fs::GetFsStatsRequest req;
+
+	auto [offer, send_req, recv_resp] = co_await helix_ng::exchangeMsgs(
+		_lane,
+		helix_ng::offer(
+			helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+			helix_ng::recvInline()
+		)
+	);
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+
+	managarm::fs::GetFsStatsResponse resp;
+	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
+	recv_resp.reset();
+
+	if(resp.error() != managarm::fs::Errors::SUCCESS) {
+		co_return Error::illegalOperationTarget;
+	}
+
+	FsStats stats{};
+	stats.fsType = resp.fs_type();
+	stats.blockSize = resp.block_size();
+	stats.fragmentSize = resp.fragment_size();
+	stats.numBlocks = resp.num_blocks();
+	stats.blocksFree = resp.blocks_free();
+	stats.blocksFreeUser = resp.blocks_free_user();
+	stats.numInodes = resp.num_inodes();
+	stats.inodesFree = resp.inodes_free();
+	stats.inodesFreeUser = resp.inodes_free_user();
+	stats.maxNameLength = resp.max_name_length();
+	stats.fsid[0] = resp.fsid0();
+	stats.fsid[1] = resp.fsid1();
+	stats.flags = resp.flags();
+
+	co_return stats;
 }
 
 } // anonymous namespace

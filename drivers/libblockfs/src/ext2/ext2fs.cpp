@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sys/stat.h>
 #include <print>
+#include <linux/magic.h>
 
 #include <async/result.hpp>
 #include <core/align.hpp>
@@ -807,6 +808,27 @@ auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 	initiateInode(new_inode);
 
 	return new_inode;
+}
+
+protocols::fs::FsStats FileSystem::getFsStats() {
+	protocols::fs::FsStats stats{};
+	stats.fsType = EXT2_SUPER_MAGIC;
+	stats.blockSize = blockSize;
+	stats.fragmentSize = blockSize;
+	stats.numBlocks = blocksCount;
+	stats.numInodes = inodesCount;
+	stats.maxNameLength = 255; // Fixed for ext2.
+	stats.flags = 0;
+
+	// Sum over all block groups.
+	for(uint32_t i = 0; i < numBlockGroups; i++) {
+		stats.blocksFree += bgdt[i].freeBlocksCount;
+		stats.inodesFree += bgdt[i].freeInodesCount;
+	}
+	stats.blocksFreeUser = stats.blocksFree;
+	stats.inodesFreeUser = stats.inodesFree;
+
+	return stats;
 }
 
 async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int gid, uint32_t parentIno) {
