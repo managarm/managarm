@@ -859,3 +859,18 @@ message SetGroupsResponse 138 {
 head(128):
 	Errors error;
 }
+
+message FchownAtRequest 139 {
+head(128):
+	int32 fd;
+	int32 flags;
+	int32 uid;
+	int32 gid;
+tail:
+	string path;
+}
+
+message FchownAtResponse 140 {
+head(128):
+	Errors error;
+}

@@ -181,6 +181,13 @@ async::result<Error> FsNode::chmod(int mode) {
 	co_return Error::accessDenied;
 }
 
+async::result<std::expected<void, Error>> FsNode::chown(std::optional<uid_t> uid, std::optional<gid_t> gid) {
+	(void) uid;
+	(void) gid;
+	std::cout << "\e[31m" "posix: chown() is not implemented for this FsNode" "\e[39m" << std::endl;
+	co_return std::unexpected{Error::insufficientPermissions};
+}
+
 async::result<Error> FsNode::utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime) {
 	(void) atime;
 	(void) mtime;

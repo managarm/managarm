@@ -154,6 +154,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		MAKE_CASE(FstatAt)
 		MAKE_CASE(Fstatfs)
 		MAKE_CASE(FchmodAt)
+		MAKE_CASE(FchownAt)
 		MAKE_CASE(UtimensAt)
 		MAKE_CASE(OpenAt)
 		MAKE_CASE(MknodAt)

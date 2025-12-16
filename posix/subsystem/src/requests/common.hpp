@@ -130,6 +130,7 @@ async::result<void> handleRmdir(RequestContext& ctx);
 async::result<void> handleFstatAt(RequestContext& ctx);
 async::result<void> handleFstatfs(RequestContext& ctx);
 async::result<void> handleFchmodAt(RequestContext& ctx);
+async::result<void> handleFchownAt(RequestContext& ctx);
 async::result<void> handleUtimensAt(RequestContext& ctx);
 async::result<void> handleOpenAt(RequestContext& ctx);
 async::result<void> handleMknodAt(RequestContext& ctx);

@@ -110,6 +110,14 @@ public:
 		co_return Error::success;
 	}
 
+	async::result<std::expected<void, Error>> chown(std::optional<uid_t> uid, std::optional<gid_t> gid) override {
+		if(uid)
+			_uid = *uid;
+		if(gid)
+			_gid = *gid;
+		co_return {};
+	}
+
 private:
 	int64_t _inodeNumber;
 	int _numLinks = 1;

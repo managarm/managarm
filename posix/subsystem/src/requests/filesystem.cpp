@@ -1181,6 +1181,80 @@ async::result<void> handleFchmodAt(RequestContext& ctx) {
 	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
 }
 
+// FCHOWNAT handler
+async::result<void> handleFchownAt(RequestContext& ctx) {
+	std::vector<uint8_t> tail(ctx.preamble.tail_size());
+	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
+		ctx.conversation,
+		helix_ng::recvBuffer(tail.data(), tail.size())
+	);
+	HEL_CHECK(recv_tail.error());
+
+	logBragiRequest(ctx, tail);
+	auto req = bragi::parse_head_tail<managarm::posix::FchownAtRequest>(ctx.recv_head, tail);
+
+	logRequest(logRequests, ctx, "FCHOWNAT");
+
+	ViewPath relativeTo;
+	smarter::shared_ptr<File, FileHandle> file;
+	std::shared_ptr<FsLink> targetLink;
+
+	if(req->fd() == AT_FDCWD) {
+		relativeTo = ctx.self->fsContext()->getWorkingDirectory();
+	} else {
+		file = ctx.self->fileContext()->getFile(req->fd());
+
+		if (!file) {
+			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::NO_SUCH_FD);
+			co_return;
+		}
+
+		relativeTo = {file->associatedMount(), file->associatedLink()};
+	}
+
+	if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
+		std::println("posix: unexpected flags {:#x} in fchownat request", req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
+		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return;
+	}
+
+	if(req->flags() & AT_EMPTY_PATH) {
+		targetLink = file->associatedLink();
+	} else {
+		PathResolver resolver;
+		resolver.setup(ctx.self->fsContext()->getRoot(),
+			relativeTo, req->path(), ctx.self.get());
+
+		ResolveFlags resolveFlags = 0;
+		if(req->flags() & AT_SYMLINK_NOFOLLOW)
+			resolveFlags |= resolveDontFollow;
+
+		auto resolveResult = co_await resolver.resolve(resolveFlags);
+
+		if(!resolveResult) {
+			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, resolveResult.error() | toPosixError | toPosixProtoError);
+			co_return;
+		}
+
+		targetLink = resolver.currentLink();
+	}
+
+	std::optional<uid_t> uid;
+	std::optional<gid_t> gid;
+	if(req->uid() != -1)
+		uid = req->uid();
+	if(req->gid() != -1)
+		gid = req->gid();
+
+	auto result = co_await targetLink->getTarget()->chown(uid, gid);
+	if(!result) {
+		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, result.error() | toPosixProtoError);
+		co_return;
+	}
+
+	co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::SUCCESS);
+}
+
 // UTIMENSAT handler
 async::result<void> handleUtimensAt(RequestContext& ctx) {
 	std::vector<uint8_t> tail(ctx.preamble.tail_size());

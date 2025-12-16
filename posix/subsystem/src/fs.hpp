@@ -191,6 +191,9 @@ public:
 	// Changes permissions on a node
 	virtual async::result<Error> chmod(int mode);
 
+	// Changes ownership of a node
+	virtual async::result<std::expected<void, Error>> chown(std::optional<uid_t> uid, std::optional<gid_t> gid);
+
 	// Changes timestamps on a node
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
