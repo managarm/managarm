@@ -1041,7 +1041,7 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 	logRequest(logRequests, ctx, "FSTATFS");
 
 	smarter::shared_ptr<File, FileHandle> file;
-	std::shared_ptr<FsLink> target_link;
+	std::shared_ptr<FsLink> targetLink;
 	managarm::posix::FstatfsResponse resp;
 
 	if(req->fd() >= 0) {
@@ -1052,25 +1052,15 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 			co_return;
 		}
 
-		target_link = file->associatedLink();
+		targetLink = file->associatedLink();
 
 		// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
 		// Instead of blowing up, return ENOENT.
 		// TODO: fstatfs can't return ENOENT, verify this is needed
-		if(target_link == nullptr) {
+		if(targetLink == nullptr) {
 			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
 			co_return;
 		}
-
-		auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
-		if(!fsstatsResult) {
-			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, fsstatsResult.error() | toPosixProtoError);
-			co_return;
-		}
-		auto fsstats = fsstatsResult.value();
-
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-		resp.set_fstype(fsstats.f_type);
 	} else {
 		PathResolver resolver;
 		resolver.setup(ctx.self->fsContext()->getRoot(), ctx.self->fsContext()->getWorkingDirectory(),
@@ -1089,17 +1079,30 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 			}
 		}
 
-		target_link = resolver.currentLink();
-		auto fsstatsResult = co_await target_link->getTarget()->superblock()->getFsstats();
-		if(!fsstatsResult) {
-			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, fsstatsResult.error() | toPosixProtoError);
-			co_return;
-		}
-		auto fsstats = fsstatsResult.value();
-
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-		resp.set_fstype(fsstats.f_type);
+		targetLink = resolver.currentLink();
 	}
+
+	auto fsStatsResult = co_await targetLink->getTarget()->superblock()->getFsStats();
+	if(!fsStatsResult) {
+		co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, fsStatsResult.error() | toPosixProtoError);
+		co_return;
+	}
+	auto fsStats = fsStatsResult.value();
+
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_fstype(fsStats.fsType);
+	resp.set_block_size(fsStats.blockSize);
+	resp.set_fragment_size(fsStats.fragmentSize);
+	resp.set_num_blocks(fsStats.numBlocks);
+	resp.set_blocks_free(fsStats.blocksFree);
+	resp.set_blocks_free_user(fsStats.blocksFreeUser);
+	resp.set_num_inodes(fsStats.numInodes);
+	resp.set_inodes_free(fsStats.inodesFree);
+	resp.set_inodes_free_user(fsStats.inodesFreeUser);
+	resp.set_max_name_length(fsStats.maxNameLength);
+	resp.set_fsid0(fsStats.fsid[0]);
+	resp.set_fsid1(fsStats.fsid[1]);
+	resp.set_flags(fsStats.flags);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			ctx.conversation,

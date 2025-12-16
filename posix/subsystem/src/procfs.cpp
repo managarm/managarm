@@ -280,9 +280,9 @@ SuperBlock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
 
-async::result<frg::expected<Error, FsFileStats>> SuperBlock::getFsstats() {
-	FsFileStats stats{};
-	stats.f_type = PROC_SUPER_MAGIC;
+async::result<frg::expected<Error, FsStats>> SuperBlock::getFsStats() {
+	FsStats stats{};
+	stats.fsType = PROC_SUPER_MAGIC;
 	co_return stats;
 }
 

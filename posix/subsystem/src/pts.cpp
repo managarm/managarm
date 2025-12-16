@@ -306,9 +306,9 @@ public:
 		co_return Error::noSuchFile;
 	}
 
-	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
-		FsFileStats stats{};
-		stats.f_type = DEVPTS_SUPER_MAGIC;
+	async::result<frg::expected<Error, FsStats>> getFsStats() override {
+		FsStats stats{};
+		stats.fsType = DEVPTS_SUPER_MAGIC;
 		co_return stats;
 	}
 

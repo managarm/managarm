@@ -34,10 +34,21 @@ struct FileStats {
 	uint64_t ctimeSecs, ctimeNanos;
 };
 
-// Internal representation of struct statfs
-struct FsFileStats {
-	unsigned long f_type;
-	// struct statfs has more members but we don't care about them yet
+// Internal representation of struct statfs.
+// Data types match the corresponding Bragi message.
+struct FsStats {
+	unsigned int fsType;
+	uint64_t blockSize;
+	uint64_t fragmentSize;
+	uint64_t numBlocks;
+	uint64_t blocksFree;
+	uint64_t blocksFreeUser;
+	uint64_t numInodes;
+	uint64_t inodesFree;
+	uint64_t inodesFreeUser;
+	uint64_t maxNameLength;
+	int fsid[2];
+	uint64_t flags;
 };
 
 
@@ -73,7 +84,7 @@ public:
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;
-	virtual async::result<frg::expected<Error, FsFileStats>> getFsstats() = 0;
+	virtual async::result<frg::expected<Error, FsStats>> getFsStats() = 0;
 	virtual std::string getFsType() = 0;
 	virtual dev_t deviceNumber() = 0;
 };

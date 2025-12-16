@@ -32,9 +32,9 @@ SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;
 };
 
-async::result<frg::expected<Error, FsFileStats>> SysfsSuperblock::getFsstats() {
-	FsFileStats stats{};
-	stats.f_type = SYSFS_MAGIC;
+async::result<frg::expected<Error, FsStats>> SysfsSuperblock::getFsStats() {
+	FsStats stats{};
+	stats.fsType = SYSFS_MAGIC;
 	co_return stats;
 }
 
