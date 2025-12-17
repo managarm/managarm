@@ -27,9 +27,9 @@ struct AnonymousSuperblock : FsSuperblock {
 		co_return Error::noSuchFile;
 	}
 
-	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
-		FsFileStats stats{
-			.f_type = ANON_INODE_FS_MAGIC,
+	async::result<frg::expected<Error, FsStats>> getFsStats() override {
+		FsStats stats{
+			.fsType = ANON_INODE_FS_MAGIC,
 		};
 		co_return stats;
 	}

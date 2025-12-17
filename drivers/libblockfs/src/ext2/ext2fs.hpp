@@ -261,6 +261,8 @@ struct FileSystem final : BaseFileSystem {
 	std::shared_ptr<BaseInode> accessRoot() override;
 	std::shared_ptr<BaseInode> accessInode(uint32_t number) override;
 	async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) override;
+	protocols::fs::FsStats getFsStats() override;
+
 	async::result<std::shared_ptr<Inode>> createDirectory();
 	async::result<std::shared_ptr<Inode>> createSymlink();
 

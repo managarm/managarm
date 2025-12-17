@@ -226,6 +226,44 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
+		}else if(preamble.id() == managarm::fs::GetFsStatsRequest::message_id) {
+			auto o = bragi::parse_head_only<managarm::fs::GetFsStatsRequest>(recv_head);
+			if(!o) {
+				std::cout << "libblockfs: error decoding GetFsStatsRequest" << std::endl;
+				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::dismiss());
+				HEL_CHECK(dismiss.error());
+				continue;
+			}
+
+			managarm::fs::GetFsStatsResponse resp;
+			if(!fs) {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			} else {
+				auto stats = fs->getFsStats();
+
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				resp.set_fs_type(stats.fsType);
+				resp.set_block_size(stats.blockSize);
+				resp.set_fragment_size(stats.fragmentSize);
+				resp.set_num_blocks(stats.numBlocks);
+				resp.set_blocks_free(stats.blocksFree);
+				resp.set_blocks_free_user(stats.blocksFreeUser);
+				resp.set_num_inodes(stats.numInodes);
+				resp.set_inodes_free(stats.inodesFree);
+				resp.set_inodes_free_user(stats.inodesFreeUser);
+				resp.set_max_name_length(stats.maxNameLength);
+				resp.set_fsid0(stats.fsid[0]);
+				resp.set_fsid1(stats.fsid[1]);
+				resp.set_flags(stats.flags);
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
 		} else if(preamble.id() == managarm::fs::GenericIoctlRequest::message_id) {
 			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(recv_head);
 

@@ -49,6 +49,23 @@ struct FileStats {
 	struct timespec anyChangeTime;
 };
 
+// Representation of struct statfs.
+// Data types match the corresponding Bragi message.
+struct FsStats {
+	unsigned int fsType;
+	uint64_t blockSize;
+	uint64_t fragmentSize;
+	uint64_t numBlocks;
+	uint64_t blocksFree;
+	uint64_t blocksFreeUser;
+	uint64_t numInodes;
+	uint64_t inodesFree;
+	uint64_t inodesFreeUser;
+	uint64_t maxNameLength;
+	int fsid[2];
+	uint64_t flags;
+};
+
 using SeekResult = std::variant<Error, int64_t>;
 
 using GetLinkResult = std::tuple<std::shared_ptr<void>, int64_t, FileType>;

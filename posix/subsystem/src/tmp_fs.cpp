@@ -587,9 +587,9 @@ struct Superblock final : FsSuperblock {
 		co_return new_link;
 	}
 
-	async::result<frg::expected<Error, FsFileStats>> getFsstats() override {
-		FsFileStats stats{
-			.f_type = TMPFS_MAGIC,
+	async::result<frg::expected<Error, FsStats>> getFsStats() override {
+		FsStats stats{
+			.fsType = TMPFS_MAGIC,
 		};
 		co_return stats;
 	}
