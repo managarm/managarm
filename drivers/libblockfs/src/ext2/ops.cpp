@@ -125,6 +125,12 @@ async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<v
 	if(entry.value()->fileType != kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::notDirectory};
 
+	// Check that the directory is empty.
+	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(entry.value()->inode));
+	auto isEmpty = FRG_CO_TRY(co_await target->isDirectoryEmpty());
+	if(!isEmpty)
+		co_return std::unexpected{protocols::fs::Error::directoryNotEmpty};
+
 	auto result = co_await self->removeEntry(std::move(name));
 	if (!result)
 		co_return std::unexpected{result.error()};

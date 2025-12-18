@@ -193,6 +193,8 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	async::result<frg::expected<protocols::fs::Error>> removeEntry(std::string name);
 
+	async::result<std::expected<bool, protocols::fs::Error>> isDirectoryEmpty();
+
 	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name);
 	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
