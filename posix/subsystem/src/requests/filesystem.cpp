@@ -748,13 +748,9 @@ async::result<void> handleUnlinkAt(RequestContext& ctx) {
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> target_link;
 
-	if(req->flags()) {
-		if(req->flags() & AT_REMOVEDIR) {
-			std::cout << "posix: UNLINKAT flag AT_REMOVEDIR handling unimplemented" << std::endl;
-		} else {
-			std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req->flags() << std::endl;
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		}
+	if(req->flags() & ~AT_REMOVEDIR) {
+		std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req->flags() << std::endl;
+		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	}
 
 	if(req->fd() == AT_FDCWD) {
@@ -803,16 +799,16 @@ async::result<void> handleUnlinkAt(RequestContext& ctx) {
 		co_await sendErrorResponse(ctx, managarm::posix::Errors::RESOURCE_IN_USE);
 		co_return;
 	}
-	auto result = co_await owner->unlink(target_link->getName());
-	if(!result) {
-		if(result.error() == Error::noSuchFile) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
+	if (req->flags() & AT_REMOVEDIR) {
+		auto result = co_await owner->rmdir(target_link->getName());
+		if(!result) {
+			co_await sendErrorResponse(ctx, result.error() | toPosixProtoError);
 			co_return;
-		}else if(result.error() == Error::directoryNotEmpty) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::DIRECTORY_NOT_EMPTY);
-			co_return;
-		}else{
-			std::cout << "posix: Unexpected failure from unlink()" << std::endl;
+		}
+	} else {
+		auto result = co_await owner->unlink(target_link->getName());
+		if(!result) {
+			co_await sendErrorResponse(ctx, result.error() | toPosixProtoError);
 			co_return;
 		}
 	}
