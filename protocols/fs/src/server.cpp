@@ -2016,9 +2016,6 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			auto result = co_await node_ops->unlink(node, req->path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
-				assert(result.error() == protocols::fs::Error::fileNotFound
-					|| result.error() == protocols::fs::Error::directoryNotEmpty);
-
 				resp.set_error(result.error() | toFsError);
 				auto ser = resp.SerializeAsString();
 				auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -2055,8 +2052,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				break;
 			}
 
-			// TODO: This should probably be it's own operation, for now, let it be
-			auto result = co_await node_ops->unlink(node, req->path());
+			auto result = co_await node_ops->rmdir(node, req->path());
 			managarm::fs::SvrResponse resp;
 			if(!result) {
 				resp.set_error(result.error() | toFsError);

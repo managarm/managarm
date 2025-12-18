@@ -225,22 +225,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	}
 }
 
-async::result<std::expected<DirEntry, protocols::fs::Error>>
-Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
-	// Check if an entry with this name already exists.
-	auto existingResult = co_await findEntry(name);
-	if(!existingResult)
-		co_return std::unexpected{existingResult.error()};
-	if(existingResult.value())
-		co_return std::unexpected{protocols::fs::Error::alreadyExists};
-
-	auto result = co_await insertEntry(name, ino, type);
-	if(!result)
-		co_return std::unexpected{result.error()};
-	co_return result.value();
-}
-
-async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
+async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -346,6 +331,21 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 	assert(offset == fileSize());
 
 	co_return protocols::fs::Error::fileNotFound;
+}
+
+async::result<std::expected<DirEntry, protocols::fs::Error>>
+Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+	// Check if an entry with this name already exists.
+	auto existingResult = co_await findEntry(name);
+	if(!existingResult)
+		co_return std::unexpected{existingResult.error()};
+	if(existingResult.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
+
+	auto result = co_await insertEntry(name, ino, type);
+	if(!result)
+		co_return std::unexpected{result.error()};
+	co_return result.value();
 }
 
 async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name) {
