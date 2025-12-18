@@ -298,8 +298,10 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 	if(fileType != kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::notDirectory};
 
-	if(diskInode()->linksCount > 2)
-		co_return false;
+	// Note: linksCount == 2 is necessary for empty directories
+	//       (since they must not have subdirectories).
+	//       However, this assumption can be broken if the FS is corrupt
+	//       so it is more robust to not exploit it.
 
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
