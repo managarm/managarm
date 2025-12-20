@@ -12,6 +12,7 @@
 #include <async/result.hpp>
 #include <core/align.hpp>
 #include <core/clock.hpp>
+#include <core/logging.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
@@ -673,29 +674,30 @@ async::detached FileSystem::manageBlockBitmap(helix::UniqueDescriptor memory) {
 
 		protocols::ostrace::Timer timer;
 
-		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto block = bgdt[bg_idx].blockBitmap;
-		assert(block);
-
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
 				&& "TODO: properly support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: properly support multi-page blocks");
 
-		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+		for(size_t progress = 0; progress < manage.length(); progress += (1 << blockPagesShift)) {
+			auto bg_idx = (manage.offset() + progress) >> blockPagesShift;
+			auto block = bgdt[bg_idx].blockBitmap;
+			assert(block);
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get())
+					+ manage.offset() + progress;
 
-			co_await device->writeSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}
 		}
 
 		ostContext.emit(
@@ -719,29 +721,30 @@ async::detached FileSystem::manageInodeBitmap(helix::UniqueDescriptor memory) {
 
 		protocols::ostrace::Timer timer;
 
-		auto bg_idx = manage.offset() >> blockPagesShift;
-		auto block = bgdt[bg_idx].inodeBitmap;
-		assert(block);
-
 		assert(!(manage.offset() & ((1 << blockPagesShift) - 1))
-				&& "TODO: propery support multi-page blocks");
-		assert(manage.length() == (1 << blockPagesShift)
-				&& "TODO: propery support multi-page blocks");
+				&& "TODO: properly support multi-page blocks");
 
-		auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get()) + manage.offset();
+		for(size_t progress = 0; progress < manage.length(); progress += (1 << blockPagesShift)) {
+			auto bg_idx = (manage.offset() + progress) >> blockPagesShift;
+			auto block = bgdt[bg_idx].inodeBitmap;
+			assert(block);
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			auto ptr = reinterpret_cast<std::byte *>(bitmapMapping.get())
+					+ manage.offset() + progress;
 
-			co_await device->writeSectors(block * sectorsPerBlock,
-					ptr, sectorsPerBlock);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock,
+						ptr, sectorsPerBlock);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, 1 << blockPagesShift));
+			}
 		}
 
 		ostContext.emit(
@@ -768,29 +771,47 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		// TODO: Make sure that we do not read/write past the end of the table.
 		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
 
-		// TODO: Use shifts instead of division.
-		auto bg_idx = manage.offset() / (inodesPerGroup * inodeSize);
-		auto bg_offset = manage.offset() % (inodesPerGroup * inodeSize);
-		auto block = bgdt[bg_idx].inodeTable;
-		assert(block);
+		auto sizePerGroup = inodesPerGroup * inodeSize;
+		// TODO: It would be possible to support this by separating
+		//       different block group inside the managed memory representing the inode table
+		//       (or by having per-block-group managed memory objects for the inode table).
+		if (sizePerGroup & (pageSize - 1))
+			logPanic("Missing support for inode table sizes that are not multiples of the page size");
 
-		assert(bg_offset % device->sectorSize == 0);
-		assert(manage.length() % device->sectorSize == 0);
+		size_t progress = 0;
+		while (progress < manage.length()) {
+			// TODO: Use shifts instead of division.
+			auto bg_idx = (manage.offset() + progress) / sizePerGroup;
+			auto bg_offset = (manage.offset() + progress) % sizePerGroup;
+			auto block = bgdt[bg_idx].inodeTable;
+			assert(block);
 
-		auto ptr = reinterpret_cast<std::byte *>(tableMapping.get()) + manage.offset();
+			// Do not cross block group boundaries.
+			auto chunk = std::min(manage.length() - progress, sizePerGroup - bg_offset);
+			assert(!(progress & (pageSize - 1))); // Guaranteed by the next assertion.
+			assert(!(chunk & (pageSize - 1))); // Otherwise, the panic above would trigger.
 
-		if(manage.type() == kHelManageInitialize) {
-			co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					ptr, manage.length() / device->sectorSize);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-					manage.offset(), manage.length()));
-		}else{
-			assert(manage.type() == kHelManageWriteback);
+			assert(bg_offset % device->sectorSize == 0);
+			assert(chunk % device->sectorSize == 0);
 
-			co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
-					ptr, manage.length() / device->sectorSize);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-					manage.offset(), manage.length()));
+			auto ptr = reinterpret_cast<std::byte *>(tableMapping.get())
+					+ manage.offset() + progress;
+
+			if(manage.type() == kHelManageInitialize) {
+				co_await device->readSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+						ptr, chunk / device->sectorSize);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
+						manage.offset() + progress, chunk));
+			}else{
+				assert(manage.type() == kHelManageWriteback);
+
+				co_await device->writeSectors(block * sectorsPerBlock + bg_offset / device->sectorSize,
+						ptr, chunk / device->sectorSize);
+				HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
+						manage.offset() + progress, chunk));
+			}
+
+			progress += chunk;
 		}
 
 		ostContext.emit(
