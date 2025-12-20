@@ -225,22 +225,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	}
 }
 
-async::result<std::expected<DirEntry, protocols::fs::Error>>
-Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
-	// Check if an entry with this name already exists.
-	auto existingResult = co_await findEntry(name);
-	if(!existingResult)
-		co_return std::unexpected{existingResult.error()};
-	if(existingResult.value())
-		co_return std::unexpected{protocols::fs::Error::alreadyExists};
-
-	auto result = co_await insertEntry(name, ino, type);
-	if(!result)
-		co_return std::unexpected{result.error()};
-	co_return result.value();
-}
-
-async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string name) {
+async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::string name) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -274,47 +259,6 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
 			co_await target->readyEvent.wait();
 
-			if(target->fileType == kTypeDirectory) {
-				if(target->diskInode()->linksCount > 2) {
-					co_return protocols::fs::Error::directoryNotEmpty;
-				}
-
-				helix::LockMemoryView target_lock_memory;
-				auto target_map_size = (target->fileSize() + 0xFFF) & ~size_t(0xFFF);
-				auto &&target_submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(target->frontalMemory),
-						&target_lock_memory,
-						0, target_map_size, helix::Dispatcher::global());
-				co_await target_submit.async_wait();
-				HEL_CHECK(target_lock_memory.error());
-
-				// Check the directory entries for anything other than "." and "..".
-				uintptr_t target_offset = 0;
-				while(target_offset < target->fileSize()) {
-					assert(!(target_offset & 3));
-					assert(target_offset + sizeof(DiskDirEntry) <= target->fileSize());
-					auto target_disk_entry = reinterpret_cast<DiskDirEntry *>(
-						reinterpret_cast<char*>(target->fileMapping.get()) + target_offset);
-					assert(target_disk_entry);
-					assert(target_disk_entry->recordLength);
-
-					if(target_disk_entry->inode
-						&& target_disk_entry->nameLength == 2
-						&& target_disk_entry->name[0] == '.'
-						&& target_disk_entry->name[1] == '.') {
-						// ".."
-					} else if(target_disk_entry->inode
-						&& target_disk_entry->nameLength == 1
-						&& target_disk_entry->name[0] == '.') {
-						// "."
-					} else {
-						// Directory has stuff in it, do not delete it.
-						co_return protocols::fs::Error::directoryNotEmpty;
-					}
-
-					target_offset += target_disk_entry->recordLength;
-				}
-			}
-
 			// The directory should start with "." and "..". As those entries are never deleted,
 			// we can assume that a previous entry exists.
 			assert(previous_entry);
@@ -346,6 +290,70 @@ async::result<frg::expected<protocols::fs::Error>> Inode::unlink(std::string nam
 	assert(offset == fileSize());
 
 	co_return protocols::fs::Error::fileNotFound;
+}
+
+async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty() {
+	co_await readyEvent.wait();
+
+	if(fileType != kTypeDirectory)
+		co_return std::unexpected{protocols::fs::Error::notDirectory};
+
+	// Note: linksCount == 2 is necessary for empty directories
+	//       (since they must not have subdirectories).
+	//       However, this assumption can be broken if the FS is corrupt
+	//       so it is more robust to not exploit it.
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	// Check the directory entries for anything other than "." and "..".
+	uintptr_t offset = 0;
+	while(offset < fileSize()) {
+		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+			reinterpret_cast<char*>(fileMapping.get()) + offset);
+		assert(disk_entry);
+		assert(disk_entry->recordLength);
+
+		if(disk_entry->inode
+			&& disk_entry->nameLength == 2
+			&& disk_entry->name[0] == '.'
+			&& disk_entry->name[1] == '.') {
+			// ".."
+		} else if(disk_entry->inode
+			&& disk_entry->nameLength == 1
+			&& disk_entry->name[0] == '.') {
+			// "."
+		} else if(disk_entry->inode) {
+			// Directory has stuff in it.
+			co_return false;
+		}
+
+		offset += disk_entry->recordLength;
+	}
+
+	co_return true;
+}
+
+async::result<std::expected<DirEntry, protocols::fs::Error>>
+Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
+	// Check if an entry with this name already exists.
+	auto existingResult = co_await findEntry(name);
+	if(!existingResult)
+		co_return std::unexpected{existingResult.error()};
+	if(existingResult.value())
+		co_return std::unexpected{protocols::fs::Error::alreadyExists};
+
+	auto result = co_await insertEntry(name, ino, type);
+	if(!result)
+		co_return std::unexpected{result.error()};
+	co_return result.value();
 }
 
 async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name) {

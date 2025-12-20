@@ -240,7 +240,10 @@ struct NodeOperations {
 	async::result<std::expected<GetLinkResult, protocols::fs::Error>> (*link)(std::shared_ptr<void> object,
 			std::string name, int64_t ino);
 
-	async::result<frg::expected<protocols::fs::Error>> (*unlink)(std::shared_ptr<void> object,
+	async::result<std::expected<void, protocols::fs::Error>> (*unlink)(std::shared_ptr<void> object,
+			std::string name);
+
+	async::result<std::expected<void, protocols::fs::Error>> (*rmdir)(std::shared_ptr<void> object,
 			std::string name);
 
 	async::result<OpenResult> (*open)(std::shared_ptr<void> object, bool append);

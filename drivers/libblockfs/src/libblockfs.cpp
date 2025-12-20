@@ -153,7 +153,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			auto old_file = old_result.value();
 			managarm::fs::SvrResponse resp;
 			if(old_file) {
-				auto result = co_await newInode->unlink(req->new_name());
+				auto result = co_await newInode->removeEntry(req->new_name());
 				if(!result) {
 					if(result.error() == protocols::fs::Error::fileNotFound) {
 						// Ignored
@@ -190,7 +190,7 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 				continue;
 			}
 
-			auto result = co_await oldInode->unlink(req->old_name());
+			auto result = co_await oldInode->removeEntry(req->old_name());
 			if(!result) {
 				assert(result.error() == protocols::fs::Error::fileNotFound);
 				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);

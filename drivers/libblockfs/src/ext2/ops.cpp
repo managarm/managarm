@@ -99,14 +99,41 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 	co_return protocols::fs::GetLinkResult{self->fs.accessInode(entry->inode), entry->inode, type};
 }
 
-async::result<frg::expected<protocols::fs::Error>> unlink(std::shared_ptr<void> object, std::string name) {
+async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
-	auto result = co_await self->unlink(std::move(name));
-	if(!result) {
-		assert(result.error() == protocols::fs::Error::fileNotFound
-			|| result.error() == protocols::fs::Error::directoryNotEmpty);
-		co_return result.error();
-	}
+	auto entry = co_await self->findEntry(name);
+	if(!entry)
+		co_return std::unexpected{entry.error()};
+	if(!entry.value())
+		co_return std::unexpected{protocols::fs::Error::fileNotFound};
+	if(entry.value()->fileType == kTypeDirectory)
+		co_return std::unexpected{protocols::fs::Error::isDirectory};
+
+	auto result = co_await self->removeEntry(std::move(name));
+	if (!result)
+		co_return std::unexpected{result.error()};
+	co_return {};
+}
+
+async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<void> object, std::string name) {
+	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+	auto entry = co_await self->findEntry(name);
+	if(!entry)
+		co_return std::unexpected{entry.error()};
+	if(!entry.value())
+		co_return std::unexpected{protocols::fs::Error::fileNotFound};
+	if(entry.value()->fileType != kTypeDirectory)
+		co_return std::unexpected{protocols::fs::Error::notDirectory};
+
+	// Check that the directory is empty.
+	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(entry.value()->inode));
+	auto isEmpty = FRG_CO_TRY(co_await target->isDirectoryEmpty());
+	if(!isEmpty)
+		co_return std::unexpected{protocols::fs::Error::directoryNotEmpty};
+
+	auto result = co_await self->removeEntry(std::move(name));
+	if (!result)
+		co_return std::unexpected{result.error()};
 	co_return {};
 }
 
@@ -324,6 +351,7 @@ constinit protocols::fs::NodeOperations nodeOperations{
 	.getLink = &getLink,
 	.link = &link,
 	.unlink = &unlink,
+	.rmdir = &rmdir,
 	.open = &doOpen<FileSystem>,
 	.readSymlink = &readSymlink,
 	.mkdir = &mkdir,
