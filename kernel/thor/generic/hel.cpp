@@ -3306,62 +3306,9 @@ private:
 
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context, uint64_t *async_id) {
-	struct IrqClosure final : CancelNode, IpcNode {
-		static void issue(smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
-			auto closure = frg::construct<IrqClosure>(*kernelAlloc, irq.get(),
-					std::move(queue), context);
-			closure->_queue->registerNode(closure);
-			*async_id = closure->asyncId();
-			irq->submitAwait(&closure->irqNode, sequence);
-		}
-
-		static void awaited(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &IrqClosure::worklet);
-			if(closure->irqNode.wasCancelled())
-				closure->result.error = kHelErrCancelled;
-			else
-				closure->result.error = translateError(closure->irqNode.error());
-			closure->_queue->unregisterNode(closure);
-			closure->result.sequence = closure->irqNode.sequence();
-			closure->_queue->submit(closure);
-		}
-
-		void handleCancellation() override {
-			cancelEvent.cancel();
-		}
-
-	public:
-		explicit IrqClosure(IrqObject *irq, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{std::move(the_queue)},
-				source{&result, sizeof(HelEventResult), nullptr} {
-			setupContext(context);
-			setupSource(&source);
-			worklet.setup(&IrqClosure::awaited, getCurrentThread()->mainWorkQueue());
-			irqNode.setup(&worklet, irq, cancelEvent);
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-	private:
-		Worklet worklet;
-		async::cancellation_event cancelEvent;
-		AwaitIrqNode irqNode;
-		smarter::shared_ptr<IpcQueue> _queue;
-		QueueSource source;
-		HelEventResult result{
-			.error = kHelErrNone,
-			.bitset = 0,
-			.sequence = 0,
-		};
-	};
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	smarter::shared_ptr<IrqObject> irq;
 	AnyDescriptor descriptor;
 	smarter::shared_ptr<IpcQueue> queue;
 	{
@@ -3386,8 +3333,28 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
-		IrqClosure::issue(std::move(irq), sequence,
-				std::move(queue), context, async_id);
+		*async_id = 0;
+
+		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
+				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+				smarter::shared_ptr<WorkQueue> wq,
+				enable_detached_coroutine = {}) -> void {
+			auto result = co_await irq->awaitIrq(sequence, wq.get());
+
+			HelEventResult helResult{
+				.error = kHelErrNone,
+				.bitset = 0,
+				.sequence = 0,
+			};
+			if(result) {
+				helResult.sequence = result.value();
+			} else {
+				helResult.error = translateError(result.error());
+			}
+			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+		}(std::move(irq), sequence, std::move(queue), context,
+				this_thread->mainWorkQueue()->take());
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
 		EventClosure<OneshotEvent>::issue(std::move(event), sequence,

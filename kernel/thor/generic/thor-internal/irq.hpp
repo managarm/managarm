@@ -16,6 +16,10 @@ struct IrqObject;
 struct AwaitIrqNode {
 	friend struct IrqObject;
 
+	void setup(Worklet *awaited) {
+		awaited_ = awaited;
+	}
+
 	void setup(Worklet *awaited, IrqObject *irq, async::cancellation_token ct) {
 		awaited_ = awaited;
 		ct_ = ct;
