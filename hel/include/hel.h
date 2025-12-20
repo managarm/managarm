@@ -466,13 +466,9 @@ enum HelSyscallArgs {
 
 struct HelQueueParameters {
 	uint32_t flags;
-	unsigned int ringShift;
 	unsigned int numChunks;
 	size_t chunkSize;
 };
-
-//! Mask to extract the current queue head.
-static const int kHelHeadMask = 0xFFFFFF;
 
 //! Set in userNotify after kernel has written progress.
 static const int kHelUserNotifyCqProgress = (1 << 0);
@@ -491,28 +487,26 @@ struct HelQueue {
 	//! Kernel clears bits using atomic AND.
 	int kernelNotify;
 
-	//! Futex for kernel/user-space head synchronization.
-	int headFutex;
-
-	//! Ensures that the buffer is 8-byte aligned.
-	char padding[4];
-
-	//! The actual queue.
-	int indexQueue[];
+	//! Index of the first chunk of the completion queue.
+	//! Written by userspace and read by the kernel.
+	int cqFirst;
 };
+
+//! Marks the next field as present.
+static const int kHelNextPresent = (1 << 24);
 
 //! Mask to extract the number of valid bytes in the chunk.
 static const int kHelProgressMask = 0xFFFFFF;
-
 //! Set by the kernel once it retires the chunk.
 static const int kHelProgressDone = (1 << 25);
 
 struct HelChunk {
+	//! Index of the next chunk.
+	//! Written by consumer, read by producer.
+	int next;
+
 	//! Futex for kernel/user-space progress synchronization.
 	int progressFutex;
-
-	//! Ensures that the buffer is 8-byte aligned.
-	char padding[4];
 
 	//! Actual contents of the chunk.
 	char buffer[];

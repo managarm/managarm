@@ -405,7 +405,7 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 		return kHelErrIllegalArgs;
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			params.ringShift, params.numChunks, params.chunkSize);
+			params.numChunks, params.chunkSize);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frg::guard(&irqMutex());

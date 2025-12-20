@@ -1,4 +1,4 @@
-use std::ffi::{c_int, c_uint};
+use std::ffi::c_uint;
 use std::marker::PhantomData;
 use std::mem::{MaybeUninit, offset_of};
 use std::ptr::NonNull;
@@ -22,6 +22,20 @@ impl<'a> Chunk<'a> {
         Self {
             _marker: PhantomData,
             chunk,
+        }
+    }
+
+    /// Returns a reference to the chunk's next field.
+    fn next(&mut self) -> &'a AtomicI32 {
+        // SAFETY: The next field is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.chunk
+                    .as_ptr()
+                    .byte_add(offset_of!(hel_sys::HelChunk, next))
+                    .cast(),
+            )
         }
     }
 
@@ -105,16 +119,17 @@ impl Drop for QueueElement<'_> {
 /// submissions.
 pub struct Queue {
     // Queue parameters
-    ring_shift: usize,
     num_chunks: usize,
     chunks_offset: usize,
     reserved_per_chunk: usize,
     // Queue state
-    active_chunks: usize,
-    retrieve_index: usize,
-    next_index: usize,
+    /// Chunk that we are currently retrieving from.
+    retrieve_chunk: usize,
+    /// Tail of the chunk list (where we append new chunks).
+    tail_chunk: usize,
+    /// Progress into the current chunk.
     last_progress: usize,
-    had_waiters: bool,
+    /// Per-chunk reference counts.
     ref_counts: Box<[usize]>,
     // Resources
     handle: Handle,
@@ -123,10 +138,9 @@ pub struct Queue {
 
 impl Queue {
     /// Creates a new queue with the given parameters.
-    pub fn new(ring_shift: usize, num_chunks: usize, chunk_size: usize) -> Result<Self> {
+    pub fn new(num_chunks: usize, chunk_size: usize) -> Result<Self> {
         let mut queue_params = hel_sys::HelQueueParameters {
             flags: 0,
-            ringShift: ring_shift as c_uint,
             numChunks: num_chunks as c_uint,
             chunkSize: chunk_size,
         };
@@ -135,8 +149,7 @@ impl Queue {
 
         hel_check(unsafe { hel_sys::helCreateQueue(&mut queue_params, &mut raw_handle) })?;
 
-        let chunks_offset = (size_of::<hel_sys::HelQueue>() + (size_of::<c_int>() << ring_shift))
-            .next_multiple_of(64);
+        let chunks_offset = size_of::<hel_sys::HelQueue>().next_multiple_of(64);
         let reserved_per_chunk = (size_of::<hel_sys::HelChunk>() + chunk_size).next_multiple_of(64);
         let handle = unsafe { Handle::from_raw(raw_handle) };
         let mapping = unsafe {
@@ -149,20 +162,37 @@ impl Queue {
             )?
         };
 
-        Ok(Self {
-            ring_shift,
+        let mut queue = Self {
             num_chunks,
             chunks_offset,
             reserved_per_chunk,
-            active_chunks: 0,
-            retrieve_index: 0,
-            next_index: 0,
+            retrieve_chunk: 0,
+            tail_chunk: 0,
             last_progress: 0,
-            had_waiters: false,
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
             handle,
             mapping,
-        })
+        };
+
+        // Reset all chunks.
+        for i in 0..num_chunks {
+            queue.reset_chunk(i);
+        }
+
+        // Set cqFirst to the initial chunk.
+        queue
+            .cq_first()
+            .store(0 | hel_sys::kHelNextPresent, Ordering::Release);
+
+        // Supply the remaining chunks.
+        queue.tail_chunk = 0;
+        for i in 1..num_chunks {
+            queue.supply_chunk(i)?;
+        }
+        queue.retrieve_chunk = 0;
+        queue.wake_kernel_futex()?;
+
+        Ok(queue)
     }
 
     /// Returns a reference to the queue's handle.
@@ -175,27 +205,20 @@ impl Queue {
     /// This function blocks until a completion is available.
     pub fn wait(&mut self) -> Result<QueueElement<'_>> {
         loop {
-            if self.retrieve_index == self.next_index {
-                self.reset_and_enqueue_chunk(self.active_chunks)?;
-                self.active_chunks += 1;
-
-                continue;
-            } else if self.had_waiters && self.active_chunks < (1 << self.ring_shift) {
-                self.reset_and_enqueue_chunk(self.active_chunks)?;
-                self.active_chunks += 1;
-                self.had_waiters = false;
-            }
-
             if self.wait_progress_futex()? {
-                self.release_chunk(self.get_index(self.retrieve_index) as usize)?;
+                // Chunk is done, move to the next one.
+                let cn = self.retrieve_chunk;
+                let next = self.get_chunk(cn).next().load(Ordering::Acquire);
+                self.surrender(cn)?;
 
                 self.last_progress = 0;
-                self.retrieve_index = (self.retrieve_index + 1) & hel_sys::kHelHeadMask as usize;
+                self.retrieve_chunk = (next & !hel_sys::kHelNextPresent) as usize;
 
                 continue;
             }
 
-            let chunk_num = self.retrieve_index & ((1 << self.ring_shift) - 1);
+            // Dequeue the next element.
+            let chunk_num = self.retrieve_chunk;
             let pointer = unsafe {
                 self.get_chunk(chunk_num)
                     .buffer()
@@ -238,22 +261,33 @@ impl Queue {
         }
     }
 
-    /// Resets the progress futex of the given chunk and marks it as
-    /// available for the kernel to use.
-    fn reset_and_enqueue_chunk(&mut self, chunk_num: usize) -> Result<()> {
-        self.get_chunk(chunk_num)
-            .progress_futex()
-            .store(0, Ordering::SeqCst);
+    /// Decrements the reference count of a chunk, and re-supplies it if it reaches zero.
+    fn surrender(&mut self, cn: usize) -> Result<()> {
+        assert!(self.ref_counts[cn] > 0);
+        self.ref_counts[cn] -= 1;
+        if self.ref_counts[cn] > 0 {
+            return Ok(());
+        }
+        self.reset_chunk(cn);
+        self.supply_chunk(cn)
+    }
 
-        self.set_index(self.next_index, chunk_num as i32);
+    /// Resets a chunk's state.
+    fn reset_chunk(&mut self, cn: usize) {
+        let mut chunk = self.get_chunk(cn);
+        chunk.next().store(0, Ordering::SeqCst);
+        chunk.progress_futex().store(0, Ordering::SeqCst);
 
-        self.next_index = (self.next_index + 1) & hel_sys::kHelHeadMask as usize;
+        self.ref_counts[cn] = 1;
+    }
 
-        self.wake_head_futex()?;
-
-        self.ref_counts[chunk_num] = 1;
-
-        Ok(())
+    /// Supplies a chunk to the kernel by linking it to the tail.
+    fn supply_chunk(&mut self, cn: usize) -> Result<()> {
+        self.get_chunk(self.tail_chunk)
+            .next()
+            .store((cn as i32) | hel_sys::kHelNextPresent, Ordering::Release);
+        self.tail_chunk = cn;
+        self.wake_kernel_futex()
     }
 
     /// Increments the reference count of the given chunk.
@@ -264,26 +298,13 @@ impl Queue {
     }
 
     /// Drops the reference count of the given chunk, and if it
-    /// reaches one it resets the chunk and marks it as available for use.
+    /// reaches zero it resets the chunk and marks it as available for use.
     fn release_chunk(&mut self, chunk_num: usize) -> Result<()> {
-        assert!(self.ref_counts[chunk_num] > 0);
-
-        let ref_count = self.ref_counts[chunk_num];
-
-        self.ref_counts[chunk_num] -= 1;
-
-        if ref_count > 1 {
-            Ok(())
-        } else {
-            self.reset_and_enqueue_chunk(chunk_num)
-        }
+        self.surrender(chunk_num)
     }
 
     /// Wakes up the kernel if needed.
-    fn wake_head_futex(&mut self) -> Result<()> {
-        let next_index = self.next_index as i32;
-        self.head_futex().store(next_index, Ordering::Release);
-
+    fn wake_kernel_futex(&mut self) -> Result<()> {
         let old_futex = self
             .kernel_notify()
             .fetch_or(hel_sys::kHelKernelNotifySupplyCqChunks, Ordering::Release);
@@ -299,7 +320,7 @@ impl Queue {
     fn wait_progress_futex(&mut self) -> Result<bool> {
         let check = |this: &mut Self| -> Option<bool> {
             let progress = this
-                .get_chunk(this.retrieve_index)
+                .get_chunk(this.retrieve_chunk)
                 .progress_futex()
                 .load(Ordering::Acquire);
 
@@ -335,16 +356,16 @@ impl Queue {
         }
     }
 
-    /// Returns a reference to the head futex of the queue.
-    fn head_futex(&mut self) -> &AtomicI32 {
-        // SAFETY: The head futex is always accessed atomically
+    /// Returns a reference to the cqFirst field of the queue.
+    fn cq_first(&mut self) -> &AtomicI32 {
+        // SAFETY: The cqFirst field is always accessed atomically
         // by the kernel, so it's safe to obtain a pointer to it.
         unsafe {
             AtomicI32::from_ptr(
                 self.mapping
                     .as_ptr()
                     .unwrap()
-                    .byte_add(offset_of!(hel_sys::HelQueue, headFutex))
+                    .byte_add(offset_of!(hel_sys::HelQueue, cqFirst))
                     .as_ptr()
                     .cast(),
             )
@@ -383,55 +404,8 @@ impl Queue {
         }
     }
 
-    /// Returns a reference to the index queue.
-    fn index_queue(&self) -> &[i32] {
-        let pointer = unsafe {
-            self.mapping
-                .as_ptr()
-                .unwrap()
-                .byte_add(offset_of!(hel_sys::HelQueue, indexQueue))
-                .cast::<i32>()
-        };
-
-        // SAFETY: The index queue is never written to by the kernel,
-        // so it's safe to obtain a slice to the it.
-        unsafe { std::slice::from_raw_parts(pointer.as_ptr(), 1 << self.ring_shift) }
-    }
-
-    /// Returns a mutable reference to the index queue.
-    fn index_queue_mut(&mut self) -> &mut [i32] {
-        let pointer = unsafe {
-            self.mapping
-                .as_ptr()
-                .unwrap()
-                .byte_add(offset_of!(hel_sys::HelQueue, indexQueue))
-                .cast::<i32>()
-        };
-
-        // SAFETY: The index queue is never written to by the kernel,
-        // so it's safe to obtain a mutable slice to it.
-        unsafe { std::slice::from_raw_parts_mut(pointer.as_ptr(), 1 << self.ring_shift) }
-    }
-
-    fn get_index(&self, index: usize) -> i32 {
-        let index_queue = self.index_queue();
-
-        index_queue[index & ((1 << self.ring_shift) - 1)]
-    }
-
-    fn set_index(&mut self, index: usize, value: i32) {
-        let ring_shift = self.ring_shift;
-        let index_queue = self.index_queue_mut();
-
-        index_queue[index & ((1 << ring_shift) - 1)] = value;
-    }
-
     /// Returns a reference to the chunk at the given index.
-    /// The index is wrapped around the number of chunks to allow
-    /// for easier indexing since the queue is circular.
     fn get_chunk(&mut self, index: usize) -> Chunk<'_> {
-        let index = index & ((1 << self.ring_shift) - 1);
-
         assert!(index < self.num_chunks);
 
         Chunk::new(unsafe {

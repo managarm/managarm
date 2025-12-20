@@ -15,25 +15,23 @@ struct IpcQueue;
 // NOTE: The following structs mirror the Hel{Queue,Element} structs.
 // They must be kept in sync!
 
-static const int kHeadMask = 0xFFFFFF;
-
 static const int kUserNotifyCqProgress = (1 << 0);
 static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
 	int userNotify;
 	int kernelNotify;
-	int headFutex;
-	char padding[4];
-	int indexQueue[];
+	int cqFirst;
 };
+
+static const int kNextPresent = (1 << 24);
 
 static const int kProgressMask = 0xFFFFFF;
 static const int kProgressDone = (1 << 25);
 
 struct ChunkStruct {
+	int next;
 	int progressFutex;
-	char padding[4];
 	char buffer[];
 };
 
@@ -97,7 +95,7 @@ private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize);
+	IpcQueue(unsigned int numChunks, size_t chunkSize);
 
 	IpcQueue(const IpcQueue &) = delete;
 
@@ -175,13 +173,12 @@ private:
 
 	smarter::shared_ptr<ImmediateMemory> _memory;
 
-	unsigned int _ringShift;
 	size_t _chunkSize;
 
 	frg::vector<size_t, KernelAlloc> _chunkOffsets;
 
-	// Index into the queue that we are currently processing.
-	int _currentIndex;
+	// Chunk that we are currently processing.
+	int _currentChunk;
 	// Progress into the current chunk.
 	int _currentProgress;
 
