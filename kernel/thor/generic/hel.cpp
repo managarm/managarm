@@ -7,6 +7,7 @@
 #include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
 #include <frg/small_vector.hpp>
+#include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/io.hpp>
@@ -2337,51 +2338,6 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
-		static void issue(uint64_t nanos, smarter::shared_ptr<IpcQueue> queue,
-				uintptr_t context, uint64_t *async_id) {
-			auto closure = frg::construct<Closure>(*kernelAlloc, nanos,
-					std::move(queue), context);
-			closure->queue->registerNode(closure);
-			*async_id = closure->asyncId();
-			generalTimerEngine()->installTimer(closure);
-		}
-
-		static void elapsed(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-			if(closure->wasCancelled())
-				closure->result.error = kHelErrCancelled;
-			closure->queue->unregisterNode(closure);
-			closure->queue->submit(closure);
-		}
-
-		explicit Closure(uint64_t nanos, smarter::shared_ptr<IpcQueue> the_queue,
-				uintptr_t context)
-		: queue{std::move(the_queue)},
-				source{&result, sizeof(HelSimpleResult), nullptr},
-				result{translateError(Error::success), 0} {
-			setupContext(context);
-			setupSource(&source);
-
-			worklet.setup(&Closure::elapsed, getCurrentThread()->mainWorkQueue());
-			PrecisionTimerNode::setup(nanos, cancelEvent, &worklet);
-		}
-
-		void handleCancellation() override {
-			cancelEvent.cancel();
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-		Worklet worklet;
-		async::cancellation_event cancelEvent;
-		smarter::shared_ptr<IpcQueue> queue;
-		QueueSource source;
-		HelSimpleResult result;
-	};
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2401,7 +2357,26 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	Closure::issue(counter, std::move(queue), context, async_id);
+	// Heap-allocate such that we can obtain the asyncId at submission time.
+	// TODO: This could be avoided by passing in the asyncId.
+	auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
+	queue->registerNode(cancelNode);
+	*async_id = cancelNode->asyncId();
+
+	[](smarter::shared_ptr<IpcQueue> queue, uint64_t counter, uintptr_t context,
+			CancelNodeWithToken *cancelNode,
+			enable_detached_coroutine = {}) -> void {
+		bool succeeded = co_await generalTimerEngine()->sleep(counter, cancelNode->token());
+
+		queue->unregisterNode(cancelNode);
+
+		HelError error = succeeded ? kHelErrNone : kHelErrCancelled;
+		HelSimpleResult helResult{.error = error, .reserved = {}};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+
+		frg::destruct(*kernelAlloc, cancelNode);
+	}(std::move(queue), counter, context, cancelNode);
 
 	return kHelErrNone;
 }
