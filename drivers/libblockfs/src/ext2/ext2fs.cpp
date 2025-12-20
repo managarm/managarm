@@ -12,6 +12,7 @@
 #include <async/result.hpp>
 #include <core/align.hpp>
 #include <core/clock.hpp>
+#include <core/logging.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
@@ -763,6 +764,11 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 		assert(!((inodesPerGroup * inodeSize) & (blockSize - 1)));
 
 		auto sizePerGroup = inodesPerGroup * inodeSize;
+		// TODO: It would be possible to support this by separating
+		//       different block group inside the managed memory representing the inode table
+		//       (or by having per-block-group managed memory objects for the inode table).
+		if (sizePerGroup & (pageSize - 1))
+			logPanic("Missing support for inode table sizes that are not multiples of the page size");
 
 		size_t progress = 0;
 		while (progress < manage.length()) {
@@ -774,6 +780,8 @@ async::detached FileSystem::manageInodeTable(helix::UniqueDescriptor memory) {
 
 			// Do not cross block group boundaries.
 			auto chunk = std::min(manage.length() - progress, sizePerGroup - bg_offset);
+			assert(!(progress & (pageSize - 1))); // Guaranteed by the next assertion.
+			assert(!(chunk & (pageSize - 1))); // Otherwise, the panic above would trigger.
 
 			assert(bg_offset % device->sectorSize == 0);
 			assert(chunk % device->sectorSize == 0);
