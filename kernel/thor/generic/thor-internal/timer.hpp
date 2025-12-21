@@ -140,7 +140,7 @@ public:
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
 				async::execution::set_value(op->receiver_, !op->node_.wasCancelled());
 			}, WorkQueue::generalQueue());
-			node_.setup(s_.deadline, &worklet_);
+			node_.setup(s_.deadline, s_.cancellation, &worklet_);
 			s_.self->installTimer(&node_);
 		}
 
