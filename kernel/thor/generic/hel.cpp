@@ -2612,165 +2612,42 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	// From this point on, the function must not fail, since we now link our items
 	// into intrusive linked lists.
 
-	struct Closure final : StreamPacket, IpcNode {
-		static void transmitted(Closure *closure) {
-			QueueSource *tail = nullptr;
-			auto link = [&] (QueueSource *source) {
-				if(tail)
-					tail->link = source;
-				tail = source;
-			};
-
-			for(size_t i = 0; i < closure->count; i++) {
-				auto item = &closure->items[i];
-				HelAction *recipe = &item->recipe;
-				auto node = &item->transmit;
-
-				if(recipe->type == kHelActionDismiss) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionOffer) {
-					HelHandle handle = kHelNullHandle;
-
-					if(node->error() == Error::success
-							&& (recipe->flags & kHelItemWantLane)) {
-						auto universe = closure->weakUniverse.lock();
-						if (!universe) {
-							item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
-							item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-							link(&item->mainSource);
-							continue;
-						}
-						assert(universe);
-
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock,
-								LaneDescriptor{node->lane()});
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionAccept) {
-					// TODO: This condition should be replaced. Just test if lane is valid.
-					HelHandle handle = kHelNullHandle;
-					if(node->error() == Error::success) {
-						auto universe = closure->weakUniverse.lock();
-						assert(universe);
-
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock,
-								LaneDescriptor{node->lane()});
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionImbueCredentials) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionExtractCredentials) {
-					item->helCredentialsResult = {.error = translateError(node->error()), .reserved = {}, .credentials = {}};
-					memcpy(item->helCredentialsResult.credentials,
-							node->credentials().data(), 16);
-					item->mainSource.setup(&item->helCredentialsResult,
-							sizeof(HelCredentialsResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionSendFromBuffer
-						|| recipe->type == kHelActionSendFromBufferSg) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionRecvInline) {
-					item->helInlineResult = {translateError(node->error()),
-							0, node->_transmitBuffer.size()};
-					item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
-					item->dataSource.setup(node->_transmitBuffer.data(),
-							node->_transmitBuffer.size());
-					link(&item->mainSource);
-					link(&item->dataSource);
-				}else if(recipe->type == kHelActionRecvToBuffer) {
-					item->helLengthResult = {translateError(node->error()),
-							0, node->actualLength()};
-					item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPushDescriptor) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPullDescriptor) {
-					// TODO: This condition should be replaced. Just test if lane is valid.
-					HelHandle handle = kHelNullHandle;
-					if(node->error() == Error::success) {
-						auto universe = closure->weakUniverse.lock();
-						assert(universe);
-
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock, node->descriptor());
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else{
-					// This cannot happen since we validate recipes at submit time.
-					__builtin_trap();
-				}
-			}
-
-			closure->setupSource(&closure->items[0].mainSource);
-			closure->ipcQueue->submit(closure);
-		}
-
-		Closure(frg::dyn_array<Item, KernelAlloc> items_)
+	struct Packet : StreamPacket {
+		Packet(frg::dyn_array<Item, KernelAlloc> items_)
 		: items{std::move(items_)} { }
 
 		void completePacket() override {
-			transmitted(this);
+			completionEvent.raise();
 		}
 
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
+		async::oneshot_event completionEvent;
 		size_t count;
 		smarter::weak_ptr<Universe> weakUniverse;
-		smarter::shared_ptr<IpcQueue> ipcQueue;
 		frg::dyn_array<Item, KernelAlloc> items;
-	} *closure = frg::construct<Closure>(*kernelAlloc, std::move(items));
+	} *packet = frg::construct<Packet>(*kernelAlloc, std::move(items));
 
-	closure->count = count;
-	closure->weakUniverse = thisUniverse.lock();
-	closure->ipcQueue = std::move(queue);
+	packet->count = count;
+	packet->weakUniverse = thisUniverse.lock();
 
-	closure->setup(count);
-	closure->setupContext(context);
+	packet->setup(count);
 
 	// Now, build up the messages that we submit to the stream.
 	StreamList rootChain;
 	for(size_t i = 0; i < count; i++) {
 		// Setup the packet pointer.
-		closure->items[i].transmit._packet = closure;
+		packet->items[i].transmit._packet = packet;
 
 		// Link the nodes together.
-		auto l = closure->items[i].link;
+		auto l = packet->items[i].link;
 		if(l == noIndex) {
-			rootChain.push_back(&closure->items[i].transmit);
+			rootChain.push_back(&packet->items[i].transmit);
 		}else{
 			// Add the item to an ancillary list of another item.
-			closure->items[l].transmit.ancillaryChain.push_back(&closure->items[i].transmit);
+			packet->items[l].transmit.ancillaryChain.push_back(&packet->items[i].transmit);
 		}
 	}
 
-	auto handleFlow = [] (Closure *closure, size_t numFlows,
+	auto handleFlow = [] (Packet *packet, size_t numFlows,
 			smarter::shared_ptr<Thread> thread,
 			enable_detached_coroutine = {}) -> void {
 		// We exit once we processed numFlows-many items.
@@ -2784,8 +2661,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		size_t i = 0;
 		size_t seenFlows = 0; // Iterates through flows.
 		while(seenFlows < numFlows) {
-			assert(i < closure->count);
-			auto item = &closure->items[i++];
+			assert(i < packet->count);
+			auto item = &packet->items[i++];
 			auto recipe = &item->recipe;
 			auto node = &item->transmit;
 
@@ -3029,7 +2906,128 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	};
 
 	if(numFlows)
-		handleFlow(closure, numFlows, thisThread.lock());
+		handleFlow(packet, numFlows, thisThread.lock());
+
+	[](Packet *packet, smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		co_await packet->completionEvent.wait();
+
+		QueueSource *tail = nullptr;
+		auto link = [&] (QueueSource *source) {
+			if(tail)
+				tail->link = source;
+			tail = source;
+		};
+
+		for(size_t i = 0; i < packet->count; i++) {
+			auto item = &packet->items[i];
+			HelAction *recipe = &item->recipe;
+			auto node = &item->transmit;
+
+			if(recipe->type == kHelActionDismiss) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionOffer) {
+				HelHandle handle = kHelNullHandle;
+
+				if(node->error() == Error::success
+						&& (recipe->flags & kHelItemWantLane)) {
+					auto universe = packet->weakUniverse.lock();
+					if (!universe) {
+						item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
+						item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+						link(&item->mainSource);
+						continue;
+					}
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock,
+							LaneDescriptor{node->lane()});
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionAccept) {
+				// TODO: This condition should be replaced. Just test if lane is valid.
+				HelHandle handle = kHelNullHandle;
+				if(node->error() == Error::success) {
+					auto universe = packet->weakUniverse.lock();
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock,
+							LaneDescriptor{node->lane()});
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionImbueCredentials) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionExtractCredentials) {
+				item->helCredentialsResult = {.error = translateError(node->error()), .reserved = {}, .credentials = {}};
+				memcpy(item->helCredentialsResult.credentials,
+						node->credentials().data(), 16);
+				item->mainSource.setup(&item->helCredentialsResult,
+						sizeof(HelCredentialsResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionSendFromBuffer
+					|| recipe->type == kHelActionSendFromBufferSg) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionRecvInline) {
+				item->helInlineResult = {translateError(node->error()),
+						0, node->_transmitBuffer.size()};
+				item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
+				item->dataSource.setup(node->_transmitBuffer.data(),
+						node->_transmitBuffer.size());
+				link(&item->mainSource);
+				link(&item->dataSource);
+			}else if(recipe->type == kHelActionRecvToBuffer) {
+				item->helLengthResult = {translateError(node->error()),
+						0, node->actualLength()};
+				item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionPushDescriptor) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionPullDescriptor) {
+				// TODO: This condition should be replaced. Just test if lane is valid.
+				HelHandle handle = kHelNullHandle;
+				if(node->error() == Error::success) {
+					auto universe = packet->weakUniverse.lock();
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock, node->descriptor());
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else{
+				// This cannot happen since we validate recipes at submit time.
+				__builtin_trap();
+			}
+		}
+
+		co_await queue->submit(&packet->items[0].mainSource, context);
+
+		frg::destruct(*kernelAlloc, packet);
+	}(packet, std::move(queue), context);
 
 	Stream::transmit(lane, rootChain);
 
