@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/mutex.hpp>
 #include <frg/list.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/arch/ints.hpp>
@@ -16,14 +17,17 @@ struct IpcQueue;
 // They must be kept in sync!
 
 static const int kUserNotifyCqProgress = (1 << 0);
+static const int kUserNotifySupplySqChunks = (1 << 1);
 static const int kUserNotifyAlert = (1 << 15);
 
+static const int kKernelNotifySqProgress = (1 << 0);
 static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
 	int userNotify;
 	int kernelNotify;
 	int cqFirst;
+	int sqFirst;
 };
 
 static const int kNextPresent = (1 << 24);
@@ -37,9 +41,17 @@ struct ChunkStruct {
 	char buffer[];
 };
 
+struct IpcQueue;
+struct ImmediateMemory;
+
+// Called from IpcQueue::processSq() to handle SQ elements.
+// Implemented in hel.cpp.
+void submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
+		ImmediateMemory *memory, size_t dataOffset, size_t length, uintptr_t context);
+
 struct ElementStruct {
 	unsigned int length;
-	unsigned int reserved;
+	unsigned int opcode;
 	void *context;
 };
 
@@ -97,11 +109,14 @@ private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	IpcQueue(unsigned int numChunks, size_t chunkSize);
+	IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
 
 	IpcQueue(const IpcQueue &) = delete;
 
 	IpcQueue &operator= (const IpcQueue &) = delete;
+
+	// Contract: must be called after construction.
+	smarter::borrowed_ptr<IpcQueue> selfPtr;
 
 	smarter::shared_ptr<MemoryView> getMemory() {
 		return _memory;
@@ -112,6 +127,9 @@ public:
 	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
 	void submit(IpcNode *node);
+
+	// Processes pending SQ elements. Called from helDriveQueue().
+	void processSq();
 
 	void raiseCqEvent() {
 		_cqEvent.raise();
@@ -230,6 +248,15 @@ private:
 	// Stores whether any nodes are in the queue.
 	// Written only when _mutex is held (but read outside of _mutex).
 	std::atomic<bool> _anyNodes;
+
+	// SQ state.
+	async::mutex _sqMutex;
+
+	unsigned int _numCqChunks{0};
+	unsigned int _numSqChunks{0};
+	int _sqCurrentChunk{0};
+	int _sqCurrentProgress{0};
+	int _sqTailChunk{0};
 };
 
 } // namespace thor

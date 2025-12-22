@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <tuple>
 #include <array>
+#include <vector>
+#include <span>
 
 #include <async/oneshot-event.hpp>
 
@@ -164,7 +166,9 @@ public:
 
 	Dispatcher()
 	: _handle{kHelNullHandle}, _queue{nullptr},
-			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0} { }
+			_numCqChunks{0}, _numSqChunks{0}, _chunkSize{0},
+			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0},
+			_sqCurrentChunk{0}, _sqProgress{0} { }
 
 	Dispatcher(const Dispatcher &) = delete;
 
@@ -172,17 +176,23 @@ public:
 
 	HelHandle acquire() {
 		if(!_handle) {
+			_numCqChunks = 8;
+			_numSqChunks = 8;
+			_chunkSize = 4096;
+
 			HelQueueParameters params {
 				.flags = 0,
-				.numChunks = 16,
-				.chunkSize = 4096,
+				.numChunks = _numCqChunks,
+				.chunkSize = _chunkSize,
+				.numSqChunks = _numSqChunks,
 			};
 			HEL_CHECK(helCreateQueue(&params, &_handle));
 			_nextAsyncId = 1;
 
+			auto totalChunks = _numCqChunks + _numSqChunks;
 			auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
-			auto reservedPerChunk = (sizeof(HelChunk) + params.chunkSize + 63) & ~size_t(63);
-			auto overallSize = chunksOffset + params.numChunks * reservedPerChunk;
+			auto reservedPerChunk = (sizeof(HelChunk) + _chunkSize + 63) & ~size_t(63);
+			auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
 
 			void *mapping;
 			HEL_CHECK(helMapMemory(_handle, kHelNullHandle, nullptr,
@@ -191,22 +201,29 @@ public:
 
 			_queue = reinterpret_cast<HelQueue *>(mapping);
 			auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
-			for(unsigned int i = 0; i < 16; ++i)
+			for(unsigned int i = 0; i < totalChunks; ++i)
 				_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
 
-			// Reset and supply all chunks to the queue.
-			for (unsigned int i = 0; i < 16; ++i)
+			// Reset all CQ chunks.
+			for (unsigned int i = 0; i < _numCqChunks; ++i)
 				_resetChunk(i);
 
-			// Set cqFirst to the initial chunk.
+			// Set up CQ: chunks 0 to numCqChunks-1.
 			__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
 
-			// Supply the remaining chunks.
+			// Supply the remaining CQ chunks.
 			_tailChunk = 0;
-			for (unsigned int i = 1; i < 16; ++i)
+			for (unsigned int i = 1; i < _numCqChunks; ++i)
 				_supplyChunk(i);
-
 			_retrieveChunk = 0;
+
+			// SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
+			if (_numSqChunks > 0) {
+				auto sqFirst = __atomic_load_n(&_queue->sqFirst, __ATOMIC_ACQUIRE);
+				_sqCurrentChunk = sqFirst & ~kHelNextPresent;
+				_sqProgress = 0;
+			}
+
 			_wakeHeadFutex();
 		}
 
@@ -272,6 +289,67 @@ private:
 		_refCounts[cn]++;
 	}
 
+public:
+	// Push an element to the SQ using a gather list.
+	void pushSq(uint32_t opcode, uintptr_t context,
+			std::span<const std::span<const std::byte>> segments) {
+		acquire();
+
+		size_t dataLength = 0;
+		for (auto seg : segments)
+			dataLength += seg.size();
+
+		auto elementSize = sizeof(HelElement) + dataLength;
+
+		// Check if we need to move to the next chunk.
+		if (_sqProgress + elementSize > _chunkSize) {
+			// Wait for next chunk to become available.
+			auto nextWord = __atomic_load_n(&_chunks[_sqCurrentChunk]->next, __ATOMIC_ACQUIRE);
+			while(!(nextWord & kHelNextPresent)) {
+				__atomic_fetch_and(&_queue->userNotify, ~kHelUserNotifySupplySqChunks, __ATOMIC_ACQUIRE);
+
+				nextWord = __atomic_load_n(&_chunks[_sqCurrentChunk]->next, __ATOMIC_ACQUIRE);
+				if(nextWord & kHelNextPresent)
+					break;
+
+				HEL_CHECK(helDriveQueue(_handle, 0));
+			}
+
+			// Mark current chunk as done.
+			__atomic_store_n(&_chunks[_sqCurrentChunk]->progressFutex,
+					_sqProgress | kHelProgressDone, __ATOMIC_RELEASE);
+
+			// Signal the kernel.
+			auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
+			if(!(futex & kHelKernelNotifySqProgress))
+				HEL_CHECK(helDriveQueue(_handle, 0));
+
+			_sqCurrentChunk = nextWord & ~kHelNextPresent;
+			_sqProgress = 0;
+		}
+
+		auto ptr = reinterpret_cast<char *>(_chunks[_sqCurrentChunk]) + sizeof(HelChunk) + _sqProgress;
+		auto element = reinterpret_cast<HelElement *>(ptr);
+		element->length = dataLength;
+		element->opcode = opcode;
+		element->context = reinterpret_cast<void *>(context);
+
+		// Copy each segment.
+		size_t offset = 0;
+		for (auto seg : segments) {
+			memcpy(ptr + sizeof(HelElement) + offset, seg.data(), seg.size());
+			offset += seg.size();
+		}
+
+		_sqProgress += elementSize;
+
+		// Update the progress futex and signal the kernel.
+		__atomic_store_n(&_chunks[_sqCurrentChunk]->progressFutex, _sqProgress, __ATOMIC_RELEASE);
+		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
+		if(!(futex & kHelKernelNotifySqProgress))
+			HEL_CHECK(helDriveQueue(_handle, 0));
+	}
+
 private:
 	void _wakeHeadFutex() {
 		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySupplyCqChunks, __ATOMIC_RELEASE);
@@ -311,18 +389,28 @@ private:
 	HelQueue *_queue;
 	HelChunk *_chunks[16];
 
+	// Queue parameters.
+	unsigned int _numCqChunks;
+	unsigned int _numSqChunks;
+	size_t _chunkSize;
+
 	uint64_t _nextAsyncId{0};
 
+	// CQ state.
 	// Chunk that we are currently retrieving from.
 	int _retrieveChunk;
-	// Tail of the chunk list (where we append new chunks).
+	// Tail of the CQ chunk list (where we append new chunks).
 	int _tailChunk;
-
-	// Progress into the current chunk.
+	// Progress into the current CQ chunk.
 	int _lastProgress;
-
 	// Per-chunk reference counts.
 	int _refCounts[16];
+
+	// SQ state.
+	// Chunk that we are currently writing to.
+	int _sqCurrentChunk;
+	// Progress into the current SQ chunk.
+	int _sqProgress;
 };
 
 inline void CurrentDispatcherToken::wait() {
@@ -620,8 +708,9 @@ struct AsyncNopOperation : private Context {
 	void start() {
 		auto context = static_cast<Context *>(this);
 
-		HEL_CHECK(helSubmitAsyncNop(Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context)));
+		std::span<const std::span<const std::byte>> segments;
+		Dispatcher::global().pushSq(kHelSubmitAsyncNop,
+				reinterpret_cast<uintptr_t>(context), segments);
 	}
 
 private:

@@ -470,18 +470,26 @@ struct HelQueueParameters {
 	uint32_t flags;
 	unsigned int numChunks;
 	size_t chunkSize;
+	unsigned int numSqChunks;
 };
 
 //! Set in userNotify after kernel has written progress.
 static const int kHelUserNotifyCqProgress = (1 << 0);
+//! Set in userNotify after kernel has supplied new SQ chunks.
+static const int kHelUserNotifySupplySqChunks = (1 << 1);
 //! Set in userNotify when the queue is alerted.
 static const int kHelUserNotifyAlert = (1 << 15);
 
+//! Set in kernelNotify after userspace has added SQ elements.
+static const int kHelKernelNotifySqProgress = (1 << 0);
 //! Set in kernelNotify after userspace has supplied new chunks.
 static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
 //! Flag for helDriveQueue: wait until completion queue has progress.
 static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
+
+//! SQ opcode: asynchronous no-op (for testing/profiling).
+static const uint32_t kHelSubmitAsyncNop = 1;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -498,6 +506,10 @@ struct HelQueue {
 	//! Index of the first chunk of the completion queue.
 	//! Written by userspace and read by the kernel.
 	int cqFirst;
+
+	//! Index of the first chunk of the submission queue.
+	//! Written by the kernel and read by userspace.
+	int sqFirst;
 };
 
 //! Marks the next field as present.
@@ -524,7 +536,8 @@ struct HelChunk {
 struct HelElement {
 	//! Length of the element in bytes.
 	unsigned int length;
-	unsigned int reserved;
+	//! Operation code (for SQ elements).
+	unsigned int opcode;
 	//! User-defined value.
 	void *context;
 };

@@ -208,6 +208,17 @@ HelError helNop() {
 	return kHelErrNone;
 }
 
+HelError doSubmitAsyncNop(smarter::shared_ptr<IpcQueue> queue, uintptr_t context) {
+	[] (smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(queue), context);
+
+	return kHelErrNone;
+}
+
 HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
@@ -225,12 +236,7 @@ HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
 		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
-	[] (smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
-		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
-		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
-		co_await queue->submit(&ipcSource, context);
-	}(std::move(queue), context);
+	doSubmitAsyncNop(std::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -406,7 +412,8 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 		return kHelErrIllegalArgs;
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			params.numChunks, params.chunkSize);
+			params.numChunks, params.chunkSize, params.numSqChunks);
+	queue->selfPtr = queue;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
@@ -462,6 +469,9 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 
 	// Always raise cqEvent to indicate that kernelNotify may have changed.
 	queue->raiseCqEvent();
+
+	// Process any pending SQ elements.
+	queue->processSq();
 
 	// If requested, wait until userNotify & kNotifyProgress is non-zero.
 	if(flags & kHelDriveWaitCqProgress) {
@@ -3756,4 +3766,31 @@ HelError helCreateToken(HelHandle *handle) {
 	}
 
 	return kHelErrNone;
+}
+
+// Called from IpcQueue::processSq() to handle SQ elements.
+void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
+		ImmediateMemory *memory, size_t dataOffset, size_t length,
+		uintptr_t context) {
+	HelError error;
+	switch(opcode) {
+	case kHelSubmitAsyncNop:
+		error = doSubmitAsyncNop(queue, context);
+		break;
+	default:
+		error = kHelErrIllegalSyscall;
+		infoLogger() << "thor: Bad opcode " << opcode << " in submission queue" << frg::endlog;
+	}
+
+	if (error) {
+		// Right now, we are emitting a CQ element with context set to ~0 on submission failures.
+		// TODO: Return the correct context but use the HelElement opcode field to distinguish
+		//       submission failures and genuine completions.
+		infoLogger() << "thor: Submission failure with error: " << error << frg::endlog;
+		[] (smarter::shared_ptr<IpcQueue> queue, HelError error, enable_detached_coroutine = {}) -> void {
+			HelSimpleResult helResult{.error = error, .reserved = {}};
+			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+			co_await queue->submit(&ipcSource, ~uintptr_t{0});
+		}(std::move(queue), error);
+	}
 }
