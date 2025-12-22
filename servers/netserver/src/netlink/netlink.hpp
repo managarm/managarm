@@ -22,6 +22,8 @@ class NetlinkSocket final : core::netlink::NetlinkFile {
 public:
 	NetlinkSocket(int flags, int protocol);
 
+	void handleClose();
+
 	static async::result<protocols::fs::RecvResult> recvMsg(void *obj,
 			helix_ng::CredentialsView creds, uint32_t flags, void *data,
 			size_t len, void *addr_buf, size_t addr_size, size_t max_ctrl_len);

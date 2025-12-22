@@ -13,14 +13,29 @@ Raw &raw() {
 	return inst;
 }
 
-managarm::fs::Errors Raw::serveSocket(helix::UniqueLane lane, int type, int proto, int flags) {
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<RawSocket> sock
+) {
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &RawSocket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await servePassthrough(std::move(ptLane), sock, &RawSocket::ops, cancelPt);
+	sock->handleClose();
+}
+
+managarm::fs::Errors Raw::serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane, int type, int proto, int flags) {
 	(void) type;
 
 	assert(proto == htons(ETH_P_ALL));
 	auto raw_socket = smarter::make_shared<RawSocket>(this, flags);
 	raw_socket->holder_ = raw_socket;
 	sockets_.push_back(raw_socket);
-	async::detach(servePassthrough(std::move(lane), raw_socket, &RawSocket::ops));
+	async::detach(serveLanes(std::move(ctrlLane), std::move(ptLane), raw_socket));
 
 	return managarm::fs::Errors::SUCCESS;
 }
@@ -43,6 +58,10 @@ void Raw::feedPacket(arch::dma_buffer_view frame) {
 		(*s)->_inSeq = ++(*s)->_currentSeq;
 		(*s)->_statusBell.raise();
 	}
+}
+
+void RawSocket::handleClose() {
+	std::erase_if(parent->sockets_, [this](const auto &s) { return s.get() == this; });
 }
 
 async::result<protocols::fs::Error> RawSocket::bind(void* obj,

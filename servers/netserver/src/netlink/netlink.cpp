@@ -24,6 +24,13 @@ NetlinkSocket::NetlinkSocket(int flags, int protocol)
 : protocol{protocol}, flags(flags)
 { }
 
+void NetlinkSocket::handleClose() {
+	core::netlink::NetlinkFile *self = this;
+	for(auto &[id, group] : globalGroupMap) {
+		std::erase(group->subscriptions, self);
+	}
+}
+
 async::result<size_t> NetlinkSocket::sockname(void *, void *addr_ptr, size_t max_addr_length) {
 	// TODO: Fill in nl_groups.
 	struct sockaddr_nl sa{};

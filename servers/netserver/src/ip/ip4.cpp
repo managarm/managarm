@@ -458,7 +458,7 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane ctrlLane, helix::UniqueL
 	case SOCK_DGRAM:
 		switch(proto) {
 		case IPPROTO_ICMP:
-			icmp->serveSocket(std::move(ptLane));
+			icmp->serveSocket(std::move(ctrlLane), std::move(ptLane));
 			break;
 		default:
 			udp->serveSocket(flags, std::move(ctrlLane), std::move(ptLane));

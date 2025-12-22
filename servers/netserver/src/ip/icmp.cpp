@@ -44,6 +44,8 @@ struct IcmpSocket {
 	IcmpSocket(Icmp *parent) : parent_(parent) {}
 	~IcmpSocket();
 
+	void handleClose();
+
 	static smarter::shared_ptr<IcmpSocket> make_socket(Icmp *parent);
 
 	static async::result<RecvResult> recvmsg(void *obj,
@@ -255,7 +257,9 @@ public:
 frg::intrusive_list<IcmpSocket, frg::locate_member<IcmpSocket,
 	frg::default_list_hook<IcmpSocket>, &IcmpSocket::listHook_>> sockets;
 
-IcmpSocket::~IcmpSocket() {
+IcmpSocket::~IcmpSocket() { }
+
+void IcmpSocket::handleClose() {
 	sockets.erase(this);
 }
 
@@ -350,9 +354,22 @@ void Icmp::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_p
 	}
 }
 
-void Icmp::serveSocket(helix::UniqueLane lane) {
-	using protocols::fs::servePassthrough;
+static async::result<void> serveLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<IcmpSocket> sock
+) {
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &IcmpSocket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &IcmpSocket::ops, cancelPt);
+	sock->handleClose();
+}
+
+void Icmp::serveSocket(helix::UniqueLane ctrlLane, helix::UniqueLane ptLane) {
 	auto sock = IcmpSocket::make_socket(this);
-	async::detach(servePassthrough(std::move(lane), std::move(sock),
-			&IcmpSocket::ops));
+	async::detach(serveLanes(std::move(ctrlLane), std::move(ptLane), std::move(sock)));
 }

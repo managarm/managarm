@@ -493,6 +493,21 @@ async::result<void> initOstrace() {
 
 }
 
+static async::result<void> serveNetlinkLanes(
+	helix::UniqueLane ctrlLane,
+	helix::UniqueLane ptLane,
+	smarter::shared_ptr<nl::NetlinkSocket> sock
+) {
+	async::cancellation_event cancelPt;
+	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
+			sock.get(), &nl::NetlinkSocket::ops), [&] {
+		cancelPt.cancel();
+	});
+
+	co_await servePassthrough(std::move(ptLane), sock, &nl::NetlinkSocket::ops, cancelPt);
+	sock->handleClose();
+}
+
 async::detached serve(helix::UniqueLane lane) {
 	if(!ostraceInit) {
 		co_await initOstrace();
@@ -604,11 +619,10 @@ async::detached serve(helix::UniqueLane lane) {
 					}
 				} else if(req.domain() == AF_NETLINK) {
 					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags(), req.protocol());
-					async::detach(servePassthrough(std::move(localPt), nl_socket,
-							&nl::NetlinkSocket::ops));
+					async::detach(serveNetlinkLanes(std::move(localCtrl), std::move(localPt), nl_socket));
 				} else if(req.domain() == AF_PACKET) {
-					auto err = raw().serveSocket(std::move(localPt),
-							req.type(), req.protocol(), req.flags());
+					auto err = raw().serveSocket(std::move(localCtrl),
+							std::move(localPt), req.type(), req.protocol(), req.flags());
 					if(err != managarm::fs::Errors::SUCCESS) {
 						co_await sendError(err);
 						continue;
