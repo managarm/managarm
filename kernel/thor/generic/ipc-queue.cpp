@@ -52,19 +52,13 @@ coroutine<void> IpcQueue::_runQueue() {
 	// Wait for the initial chunk to be supplied via cqFirst.
 	{
 		auto cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-		if(!(cqFirst & kNextPresent)) {
-			while(true) {
-				auto kernelNotify = __atomic_fetch_and(&head->kernelNotify,
-						~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
+		while(!(cqFirst & kNextPresent)) {
+			co_await _cqEvent.async_wait_if([&] () -> bool {
+				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
 
 				cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-				if(cqFirst & kNextPresent)
-					break;
-
-				auto knOffset = offsetof(QueueStruct, kernelNotify);
-				co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(knOffset),
-						kernelNotify & ~kKernelNotifySupplyCqChunks);
-			}
+				return !(cqFirst & kNextPresent);
+			});
 		}
 		_currentChunk = cqFirst & ~kNextPresent;
 	}
@@ -138,19 +132,13 @@ coroutine<void> IpcQueue::_runQueue() {
 				// Wait until the next chunk is available before setting the done bit.
 				// This simplifies lifetime handling on the userspace side.
 				nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-				if(!(nextWord & kNextPresent)) {
-					while(true) {
-						auto kernelNotify = __atomic_fetch_and(&head->kernelNotify,
-								~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
+				while (!(nextWord & kNextPresent)) {
+					co_await _cqEvent.async_wait_if([&] () -> bool {
+						__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
 
 						nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-						if(nextWord & kNextPresent)
-							break;
-
-						auto knOffset = offsetof(QueueStruct, kernelNotify);
-						co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(knOffset),
-								kernelNotify & ~kKernelNotifySupplyCqChunks);
-					}
+						return !(nextWord & kNextPresent);
+					});
 				}
 			}
 
@@ -169,8 +157,7 @@ coroutine<void> IpcQueue::_runQueue() {
 			// If user-space modifies any non-flags field, that's a contract violation.
 			// TODO: Shut down the queue in this case.
 			if(!(userNotify & kUserNotifyCqProgress)) {
-				auto unOffset = offsetof(QueueStruct, userNotify);
-				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(unOffset), UINT32_MAX);
+				_userEvent.raise();
 			}
 
 			// Update our internal state and retire the chunk.

@@ -310,8 +310,7 @@ impl Queue {
             .fetch_or(hel_sys::kHelKernelNotifySupplyCqChunks, Ordering::Release);
 
         if old_futex & hel_sys::kHelKernelNotifySupplyCqChunks == 0 {
-            let ptr = self.kernel_notify().as_ptr();
-            hel_check(unsafe { hel_sys::helFutexWake(ptr, u32::MAX) })?;
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
         }
 
         Ok(())
@@ -338,8 +337,7 @@ impl Queue {
         }
 
         loop {
-            let futex = self
-                .user_notify()
+            self.user_notify()
                 .fetch_and(!hel_sys::kHelUserNotifyCqProgress, Ordering::Acquire);
 
             if let Some(done) = check(self) {
@@ -347,11 +345,7 @@ impl Queue {
             }
 
             hel_check(unsafe {
-                hel_sys::helFutexWait(
-                    self.user_notify().as_ptr(),
-                    futex & !hel_sys::kHelUserNotifyCqProgress,
-                    -1,
-                )
+                hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
             })?;
         }
     }

@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 105,
+	kHelNumCalls = 106,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -33,6 +33,7 @@ enum {
 	kHelCallCloseDescriptor = 21,
 
 	kHelCallCreateQueue = 89,
+	kHelCallDriveQueue = 105,
 	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
@@ -475,6 +476,9 @@ static const int kHelUserNotifyCqProgress = (1 << 0);
 //! Set in kernelNotify after userspace has supplied new chunks.
 static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
+//! Flag for helDriveQueue: wait until completion queue has progress.
+static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
+
 //! In-memory kernel/user-space queue.
 struct HelQueue {
 	//! Futex that is used to wake userspace.
@@ -704,6 +708,17 @@ HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 //! @param[in] asyncId
 //!    	ID identifying the operation.
 HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
+
+//! Drives an IPC queue.
+//!
+//! This function signals the kernel that new chunks have been supplied
+//! and optionally waits for progress on the completion queue.
+//! @param[in] queueHandle
+//!    	Handle to the queue.
+//! @param[in] flags
+//!    	Flags controlling the behavior.
+//!    	If kHelDriveWaitCqProgress is set, the call blocks until progress is made.
+HEL_C_LINKAGE HelError helDriveQueue(HelHandle queueHandle, uint32_t flags);
 
 //! @}
 //! @name Memory Management

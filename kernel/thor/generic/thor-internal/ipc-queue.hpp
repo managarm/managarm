@@ -111,6 +111,24 @@ public:
 
 	void submit(IpcNode *node);
 
+	void raiseCqEvent() {
+		_cqEvent.raise();
+	}
+
+	bool checkUserNotify() {
+		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
+		return userNotify & kUserNotifyCqProgress;
+	}
+
+	auto waitUserEvent(async::cancellation_token ct) {
+		return _userEvent.async_wait_if([this] () -> bool {
+			auto head = _memory->accessImmediate<QueueStruct>(0);
+			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
+			return !(userNotify & kUserNotifyCqProgress);
+		}, ct);
+	}
+
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for submit()
 	// ----------------------------------------------------------------------------------
@@ -183,6 +201,11 @@ private:
 	int _currentProgress;
 
 	async::recurring_event _doorbell;
+
+	// Event raised when userspace supplies new CQ chunks.
+	async::recurring_event _cqEvent;
+	// Event raised when kernel makes progress (i.e., userNotify changes).
+	async::recurring_event _userEvent;
 
 	frg::intrusive_list<
 		IpcNode,
