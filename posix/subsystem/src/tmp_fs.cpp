@@ -464,6 +464,8 @@ public:
 
 	async::result<frg::expected<protocols::fs::Error>> allocate(int64_t offset, size_t size) override;
 
+	async::result<int> getFileFlags() override;
+
 	FutureMaybe<helix::UniqueDescriptor> accessMemory() override;
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
@@ -719,6 +721,24 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 		co_return {};
 	node->_resizeFile(offset + size);
 	co_return {};
+}
+
+async::result<int> MemoryFile::getFileFlags() {
+	int ret = 0;
+	if (flags_ & semanticNonBlock)
+		ret |= O_NONBLOCK;
+
+	if (flags_ & semanticWrite && flags_ & semanticRead)
+		ret |= O_RDWR;
+	else if (flags_ & semanticWrite)
+		ret |= O_WRONLY;
+	else if (flags_ & semanticRead)
+		ret |= O_RDONLY;
+
+	if (flags_ & semanticAppend)
+		ret |= O_APPEND;
+
+	co_return ret;
 }
 
 FutureMaybe<helix::UniqueDescriptor>
