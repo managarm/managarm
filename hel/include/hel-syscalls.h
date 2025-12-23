@@ -363,12 +363,9 @@ extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *c
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *async_id) {
-	HelWord async_word;
-	HelError error = helSyscall3_1(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue,
-			(HelWord)context, &async_word);
-	*async_id = (uint64_t)async_word;
-	return error;
+		HelHandle queue, uintptr_t context, uint64_t cancellationTag) {
+	return helSyscall4(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue,
+			(HelWord)context, (HelWord)cancellationTag);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHandle *lane1,
@@ -435,9 +432,9 @@ extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHa
 };
 
 extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(HelHandle handle,
-		uint64_t sequence, HelHandle queue, uintptr_t context, uint64_t *async_id) {
-	return helSyscall4_1(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
-			(HelWord)queue, (HelWord)context, (HelWord *)async_id);
+		uint64_t sequence, HelHandle queue, uintptr_t context, uint64_t cancellationTag) {
+	return helSyscall5(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
+			(HelWord)queue, (HelWord)context, (HelWord)cancellationTag);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandle handle,

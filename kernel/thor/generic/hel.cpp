@@ -407,7 +407,6 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
 			params.numChunks, params.chunkSize);
-	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
@@ -2408,7 +2407,7 @@ HelError helGetClock(uint64_t *counter) {
 }
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
-		uint64_t *async_id) {
+		uint64_t cancellationTag) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2428,26 +2427,20 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	// Heap-allocate such that we can obtain the asyncId at submission time.
-	// TODO: This could be avoided by passing in the asyncId.
-	auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
-	queue->registerNode(cancelNode);
-	*async_id = cancelNode->asyncId();
+	auto cg = queue->registerTag(cancellationTag);
 
 	[](smarter::shared_ptr<IpcQueue> queue, uint64_t counter, uintptr_t context,
-			CancelNodeWithToken *cancelNode,
+			CancelGuard cg,
 			enable_detached_coroutine = {}) -> void {
-		bool succeeded = co_await generalTimerEngine()->sleep(counter, cancelNode->token());
+		bool succeeded = co_await generalTimerEngine()->sleep(counter, cg.token());
 
-		queue->unregisterNode(cancelNode);
+		queue->unregisterTag(std::move(cg));
 
 		HelError error = succeeded ? kHelErrNone : kHelErrCancelled;
 		HelSimpleResult helResult{.error = error, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-
-		frg::destruct(*kernelAlloc, cancelNode);
-	}(std::move(queue), counter, context, cancelNode);
+	}(std::move(queue), counter, context, std::move(cg));
 
 	return kHelErrNone;
 }
@@ -3298,7 +3291,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 }
 
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue_handle, uintptr_t context, uint64_t *async_id) {
+		HelHandle queue_handle, uintptr_t context, uint64_t cancellationTag) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -3326,7 +3319,6 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
-		*async_id = 0;
 
 		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -3350,19 +3342,16 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 				this_thread->mainWorkQueue()->take());
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-
-		auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
-		queue->registerNode(cancelNode);
-		*async_id = cancelNode->asyncId();
+		auto cg = queue->registerTag(cancellationTag);
 
 		[](smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-				CancelNodeWithToken *cancelNode,
+				CancelGuard cg,
 				smarter::shared_ptr<WorkQueue> wq,
 				enable_detached_coroutine = {}) -> void {
-			auto result = co_await event->awaitEvent(sequence, cancelNode->token(), wq.get());
+			auto result = co_await event->awaitEvent(sequence, cg.token(), wq.get());
 
-			queue->unregisterNode(cancelNode);
+			queue->unregisterTag(std::move(cg));
 
 			HelEventResult helResult{
 				.error = translateError(result.error),
@@ -3371,25 +3360,20 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-
-			frg::destruct(*kernelAlloc, cancelNode);
-		}(std::move(event), sequence, std::move(queue), context, cancelNode,
+		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
 				this_thread->mainWorkQueue()->take());
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-
-		auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
-		queue->registerNode(cancelNode);
-		*async_id = cancelNode->asyncId();
+		auto cg = queue->registerTag(cancellationTag);
 
 		[](smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-				CancelNodeWithToken *cancelNode,
+				CancelGuard cg,
 				smarter::shared_ptr<WorkQueue> wq,
 				enable_detached_coroutine = {}) -> void {
-			auto result = co_await event->awaitEvent(sequence, cancelNode->token(), wq.get());
+			auto result = co_await event->awaitEvent(sequence, cg.token(), wq.get());
 
-			queue->unregisterNode(cancelNode);
+			queue->unregisterTag(std::move(cg));
 
 			HelEventResult helResult{
 				.error = translateError(result.error),
@@ -3398,9 +3382,7 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-
-			frg::destruct(*kernelAlloc, cancelNode);
-		}(std::move(event), sequence, std::move(queue), context, cancelNode,
+		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
 				this_thread->mainWorkQueue()->take());
 	}else{
 		return kHelErrBadDescriptor;

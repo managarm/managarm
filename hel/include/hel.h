@@ -1070,10 +1070,10 @@ HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 //! This is an asynchronous operation.
 //! @param[in] counter
 //!     Deadline (absolute, see ::helGetClock).
-//! @param[out] asyncId
-//!     ID to identify the asynchronous operation (absolute, see ::helCancelAsync).
+//! @param[in] cancellationTag
+//!     Tag to identify the asynchronous operation (see ::helCancelAsync).
 HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *asyncId);
+		HelHandle queue, uintptr_t context, uint64_t cancellationTag);
 
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
@@ -1186,8 +1186,10 @@ HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint6
 //!     Handle to the event that will be awaited.
 //! @param[in] sequence
 //!     Previous sequence number.
+//! @param[in] cancellationTag
+//!     Tag to identify the asynchronous operation (see ::helCancelAsync).
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue, uintptr_t context, uint64_t *asyncId);
+		HelHandle queue, uintptr_t context, uint64_t cancellationTag);
 
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
 

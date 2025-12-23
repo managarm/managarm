@@ -3,60 +3,100 @@
 
 namespace thor {
 
-CancelNode::CancelNode()
-: _registry{}, _asyncId{0}, _cancelCalled{false} { }
+CancelRegistry::CancelRegistry() { }
 
-CancelRegistry::CancelRegistry()
-: _nodeMap{frg::hash<uint64_t>{}, *kernelAlloc}, _nextAsyncId{1} { }
+CancelGuard CancelRegistry::registerTag(uint64_t cancellationTag) {
+	if (!cancellationTag)
+		return {};
 
-void CancelRegistry::registerNode(CancelNode *node) {
-	assert(!node->_registry && !node->_asyncId);
+	// TODO: It may be possible to do this without allocations,
+	//       e.g., by embedding the Node into a coroutine frame.
+	//       One possibility would be using a specialized coroutine promise type
+	//       that embeds the Node.
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mapMutex);
+	auto node = frg::construct<CancelNode>(*kernelAlloc);
+	node->tag = cancellationTag;
+	node->refcount.store(1, std::memory_order_relaxed);
 
-	uint64_t id = _nextAsyncId++;
-	_nodeMap.insert(id, node);
-
-	node->_registry = _selfPtr.lock();
-	node->_asyncId = id;
-}
-
-void CancelRegistry::unregisterNode(CancelNode *node) {
-	assert(node->_registry.get() == this && node->_asyncId);
-	auto async_id = node->_asyncId;
-
-	auto irq_lock = frg::guard(&irqMutex());
-	auto cancel_lock = frg::guard(&_cancelMutex[async_id % lockGranularity]);
-	auto map_lock = frg::guard(&_mapMutex);
-
-	_nodeMap.remove(async_id);
-}
-
-void CancelRegistry::cancel(uint64_t async_id) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto cancel_lock = frg::guard(&_cancelMutex[async_id % lockGranularity]);
-
-	// Hold the map mutex only to get a pointer to the node.
-	// In particular, release it before calling handleCancellation().
-	CancelNode *node;
 	{
-		auto map_lock = frg::guard(&_mapMutex);
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
 
-		// TODO: Return an error in this case.
-		assert(async_id && async_id < _nextAsyncId);
-
-		auto it = _nodeMap.get(async_id);
-		if(!it)
-			return;
-		node = *it;
+		tree_.insert(node);
 	}
 
-	// Because the _cancelMutex is still taken, the node cannot be freed here.
-	assert(!node->_cancelCalled); // TODO: Return an error here.
-	node->_cancelCalled = true;
+	return CancelGuard{node};
+}
 
-	node->handleCancellation();
+void CancelRegistry::unregisterTag(CancelGuard guard) {
+	auto node = guard.node_;
+	if (!node)
+		return;
+	guard.node_ = nullptr;
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		tree_.remove(node);
+	}
+
+	if (node->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+		frg::destruct(*kernelAlloc, node);
+}
+
+unsigned int CancelRegistry::cancel(uint64_t cancellationTag) {
+	if (!cancellationTag)
+		return 0;
+
+	frg::intrusive_list<
+		CancelNode,
+		frg::locate_member<
+			CancelNode,
+			frg::default_list_hook<CancelNode>,
+			&CancelNode::listHook
+		>
+	> pending;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		// Find leftmost node with this tag by walking down the tree.
+		CancelNode *leftmost = nullptr;
+		auto current = tree_.get_root();
+		while (current) {
+			if (cancellationTag < current->tag) {
+				current = CancelNodeTree::get_left(current);
+			} else if (cancellationTag > current->tag) {
+				current = CancelNodeTree::get_right(current);
+			} else {
+				// Found a match. Continue left to find leftmost.
+				leftmost = current;
+				current = CancelNodeTree::get_left(current);
+			}
+		}
+
+		for (auto it = leftmost; it && it->tag == cancellationTag; it = CancelNodeTree::successor(it)) {
+			// Make sure to not enqueue the same Node multiple times.
+			if (it->cancelled)
+				continue;
+			it->cancelled = true;
+			it->refcount.fetch_add(1, std::memory_order_relaxed);
+			pending.push_back(it);
+		}
+	}
+
+	unsigned int count = 0;
+	while (!pending.empty()) {
+		auto node = pending.pop_front();
+		node->event.cancel();
+
+		if (node->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+			frg::destruct(*kernelAlloc, node);
+		++count;
+	}
+
+	return count;
 }
 
 } // namespace thor

@@ -178,6 +178,7 @@ public:
 				.chunkSize = 4096,
 			};
 			HEL_CHECK(helCreateQueue(&params, &_handle));
+			_nextAsyncId = 1;
 
 			auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
 			auto reservedPerChunk = (sizeof(HelChunk) + params.chunkSize + 63) & ~size_t(63);
@@ -210,6 +211,10 @@ public:
 		}
 
 		return _handle;
+	}
+
+	uint64_t makeAsyncId() {
+		return _nextAsyncId++;
 	}
 
 	void wait() {
@@ -305,6 +310,8 @@ private:
 	HelHandle _handle;
 	HelQueue *_queue;
 	HelChunk *_chunks[16];
+
+	uint64_t _nextAsyncId{0};
 
 	// Chunk that we are currently retrieving from.
 	int _retrieveChunk;
@@ -438,10 +445,11 @@ struct Submission : private Context {
 	Submission(AwaitClock *operation,
 			uint64_t counter, Dispatcher &dispatcher)
 	: _result(operation) {
-		uint64_t async_id;
-		HEL_CHECK(helSubmitAwaitClock(counter, dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context()), &async_id));
-		operation->setAsyncId(async_id);
+		auto queueHandle = dispatcher.acquire();
+		auto asyncId = dispatcher.makeAsyncId();
+		HEL_CHECK(helSubmitAwaitClock(counter, queueHandle,
+				reinterpret_cast<uintptr_t>(context()), asyncId));
+		operation->setAsyncId(asyncId);
 	}
 
 	Submission(BorrowedDescriptor space, ProtectMemory *operation,
@@ -868,9 +876,10 @@ struct AwaitEventOperation : private Context {
 	void start() {
 		auto context = static_cast<Context *>(this);
 
+		asyncId_ = Dispatcher::global().makeAsyncId();
 		HEL_CHECK(helSubmitAwaitEvent(event_.getHandle(), sequence_,
 				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context), &asyncId_));
+				reinterpret_cast<uintptr_t>(context), asyncId_));
 
 		cb_.emplace(ct_, this);
 	}

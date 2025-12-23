@@ -122,7 +122,7 @@ pub fn sleep_until_with_executor(
                     time.nanos(),
                     queue_handle.handle(),
                     context as usize,
-                    &mut 0, // We don't need the async operation ID
+                    0, // No cancellation needed
                 )
             })
         },
@@ -154,7 +154,7 @@ pub fn sleep_for_with_executor(
                     time?.nanos(),
                     queue_handle.handle(),
                     context as usize,
-                    &mut 0, // We don't need the async operation ID
+                    0, // No cancellation needed
                 )
             })
         },
