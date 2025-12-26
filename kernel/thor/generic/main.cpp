@@ -632,9 +632,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateQueue((const HelQueueParameters *)arg0, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallCancelAsync: {
-		*image.error() = helCancelAsync((HelHandle)arg0, (uint64_t)arg1);
-	} break;
 	case kHelCallDriveQueue: {
 		*image.error() = helDriveQueue((HelHandle)arg0, (uint32_t)arg1);
 	} break;

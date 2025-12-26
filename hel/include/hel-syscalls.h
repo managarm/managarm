@@ -68,11 +68,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCancelAsync(HelHandle handle,
-		uint64_t async_id) {
-	return helSyscall2(kHelCallCancelAsync, (HelWord)handle, (HelWord)async_id);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helDriveQueue(HelHandle handle,
 		uint32_t flags) {
 	return helSyscall2(kHelCallDriveQueue, (HelWord)handle, (HelWord)flags);

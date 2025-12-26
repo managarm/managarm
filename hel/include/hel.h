@@ -35,7 +35,6 @@ enum {
 	kHelCallCreateQueue = 89,
 	kHelCallDriveQueue = 105,
 	kHelCallAlertQueue = 106,
-	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
 	kHelCallResizeMemory = 83,
@@ -488,6 +487,8 @@ static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 //! Flag for helDriveQueue: wait until completion queue has progress.
 static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
 
+//! SQ opcode: cancel an asynchronous operation.
+static const uint32_t kHelSubmitCancel = 256;
 //! SQ opcode: asynchronous no-op (for testing/profiling).
 static const uint32_t kHelSubmitAsyncNop = 1;
 
@@ -540,6 +541,11 @@ struct HelElement {
 	unsigned int opcode;
 	//! User-defined value.
 	void *context;
+};
+
+//! SQ data for kHelSubmitCancel.
+struct HelSqCancel {
+	uint64_t cancellationTag;
 };
 
 struct HelSimpleResult {
@@ -718,13 +724,6 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 //!    	Handle to the newly created queue.
 HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 		HelHandle *handle);
-
-//! Cancels an ongoing asynchronous operation.
-//! @param[in] queueHandle
-//!    	Handle to the queue that the operation was submitted to.
-//! @param[in] asyncId
-//!    	ID identifying the operation.
-HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
 
 //! Drives an IPC queue.
 //!
@@ -1200,7 +1199,7 @@ HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint6
 //! @param[in] sequence
 //!     Previous sequence number.
 //! @param[in] cancellationTag
-//!     Tag to identify the asynchronous operation (see ::helCancelAsync).
+//!     Tag to identify the asynchronous operation.
 HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue, uintptr_t context, uint64_t cancellationTag);
 

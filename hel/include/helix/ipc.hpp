@@ -350,6 +350,13 @@ public:
 			HEL_CHECK(helDriveQueue(_handle, 0));
 	}
 
+	inline void cancel(uint64_t cancellationTag) {
+		HelSqCancel sqData{};
+		sqData.cancellationTag = cancellationTag;
+		std::array segments{std::as_bytes(std::span{&sqData, 1})};
+		pushSq(kHelSubmitCancel, 0, segments);
+	}
+
 private:
 	void _wakeHeadFutex() {
 		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySupplyCqChunks, __ATOMIC_RELEASE);
@@ -986,7 +993,7 @@ private:
 	}
 
 	void cancel() {
-		HEL_CHECK(helCancelAsync(Dispatcher::global().acquire(), asyncId_));
+		Dispatcher::global().cancel(asyncId_);
 	}
 
 	BorrowedDescriptor event_;

@@ -425,28 +425,6 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 	return kHelErrNone;
 }
 
-HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
-	auto this_thread = getCurrentThread();
-	auto this_universe = this_thread->getUniverse();
-
-	smarter::shared_ptr<IpcQueue> queue;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		auto queue_wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!queue_wrapper)
-			return kHelErrNoDescriptor;
-		if(!queue_wrapper->is<QueueDescriptor>())
-			return kHelErrBadDescriptor;
-		queue = queue_wrapper->get<QueueDescriptor>().queue;
-	}
-
-	queue->cancel(async_id);
-
-	return kHelErrNone;
-}
-
 HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 	if (flags & ~kHelDriveWaitCqProgress)
 		return kHelErrIllegalArgs;
@@ -3774,6 +3752,18 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		uintptr_t context) {
 	HelError error;
 	switch(opcode) {
+	case kHelSubmitCancel: {
+		if(length < sizeof(HelSqCancel)) {
+			infoLogger() << "Bad length for kSubmitCancel" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqCancel sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		queue->cancel(sqData.cancellationTag);
+		error = kHelErrNone;
+		break;
+	}
 	case kHelSubmitAsyncNop:
 		error = doSubmitAsyncNop(queue, context);
 		break;
