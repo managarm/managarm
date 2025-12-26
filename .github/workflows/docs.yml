@@ -47,13 +47,13 @@ jobs:
                 name: hel-reference
                 path: build/hel-api/html/
           - name: Upload handbook to docs.managarm.org
-            if: github.ref == 'refs/heads/master'
+            if: github.repository_owner == 'managarm' && github.ref == 'refs/heads/master'
             env:
                 RSYNC_PASSWORD: ${{ secrets.RSYNC_DOCUMENTATION_PASSWD }}
             run:
                 rsync-ssl -a --delete build/docs/ docs@rsync.managarm.org::docs/handbook
           - name: Upload hel reference to rsync.managarm.org
-            if: github.ref == 'refs/heads/master'
+            if: github.repository_owner == 'managarm' && github.ref == 'refs/heads/master'
             env:
                 RSYNC_PASSWORD: ${{ secrets.RSYNC_DOCUMENTATION_PASSWD }}
             run:
