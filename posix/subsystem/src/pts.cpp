@@ -571,7 +571,11 @@ public:
 
 	async::result<frg::expected<Error, FileStats>> getStats() override {
 		std::cout << "\e[31mposix: Fix pts DeviceNode::getStats()\e[39m" << std::endl;
-		co_return FileStats{};
+		FileStats stats{};
+		stats.uid = uid_;
+		stats.gid = gid_;
+
+		co_return stats;
 	}
 
 	DeviceId readDevice() override {
@@ -584,9 +588,21 @@ public:
 		return openDevice(process, _type, _id, std::move(mount), std::move(link), semantic_flags);
 	}
 
+	async::result<std::expected<void, Error>>
+	chown(std::optional<uid_t> uid, std::optional<gid_t> gid) override {
+		if(uid)
+			uid_ = *uid;
+		if(gid)
+			gid_ = *gid;
+		co_return {};
+	}
+
 private:
 	VfsType _type;
 	DeviceId _id;
+
+	uid_t uid_ = 0;
+	gid_t gid_ = 0;
 };
 
 struct RootNode final : FsNode, std::enable_shared_from_this<RootNode> {
