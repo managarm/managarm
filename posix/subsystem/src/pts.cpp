@@ -665,6 +665,7 @@ Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, hel
 				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
 			}else{
 				assert(e == Error::success);
+				cts.getSession()->setForegroundGroup(process->pgPointer().get());
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 			}
 
