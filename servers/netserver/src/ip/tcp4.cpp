@@ -577,7 +577,7 @@ struct Tcp4Socket {
 		auto self = static_cast<Tcp4Socket *>(object);
 
 		if(layer == SOL_SOCKET && number == SO_BINDTODEVICE) {
-			std::string ifname{optbuf.data()};
+			std::string ifname{optbuf.data(), optbuf.size()};
 
 			if(ifname.empty()) {
 				self->boundInterface_ = {};
@@ -600,11 +600,17 @@ struct Tcp4Socket {
 
 	static async::result<frg::expected<protocols::fs::Error>> getSocketOption(void *object,
 	helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
-		(void)object;
+		auto self = static_cast<Tcp4Socket *>(object);
+
 		if(layer == SOL_SOCKET && number == SO_TYPE) {
 			auto type_ = SOCK_STREAM;
 			optbuf.resize(std::min(optbuf.size(), sizeof(type_)));
 			memcpy(optbuf.data(), &type_, optbuf.size());
+		} else if(layer == SOL_SOCKET && number == SO_BINDTODEVICE) {
+			size_t size = self->boundInterface_ ? self->boundInterface_->name().size() : 0;
+			optbuf.resize(size);
+			if (size)
+				memcpy(optbuf.data(), self->boundInterface_->name().data(), size);
 		} else {
 			std::cout << std::format("netserver: unhandled TCP socket getsockopt layer {} number {}\n",
 				layer, number);
