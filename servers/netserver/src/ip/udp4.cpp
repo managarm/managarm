@@ -534,6 +534,20 @@ struct Udp4Socket {
 			int val = *reinterpret_cast<int *>(optbuf.data());
 
 			self->ipPacketInfo_ = (val != 0);
+		} else if(layer == SOL_SOCKET && number == SO_BINDTODEVICE) {
+			std::string ifname{optbuf.data(), optbuf.size()};
+
+			if(ifname.empty()) {
+				self->boundInterface_ = {};
+			} else {
+				auto nic = nic::Link::byName(ifname);
+
+				if(!nic)
+					co_return protocols::fs::Error::illegalArguments;
+
+				self->boundInterface_ = nic;
+				co_return {};
+			}
 		} else {
 			printf("netserver: unhandled UDP socket setsockopt layer %d number %d\n", layer, number);
 			co_return protocols::fs::Error::invalidProtocolOption;
@@ -544,11 +558,17 @@ struct Udp4Socket {
 
 	static async::result<frg::expected<protocols::fs::Error>> getSocketOption(void *object,
 	helix_ng::CredentialsView, int layer, int number, std::vector<char> &optbuf) {
-		(void)object;
+		auto self = static_cast<Udp4Socket *>(object);
+
 		if(layer == SOL_SOCKET && number == SO_TYPE) {
 			auto type_ = SOCK_DGRAM;
 			optbuf.resize(std::min(optbuf.size(), sizeof(type_)));
 			memcpy(optbuf.data(), &type_, optbuf.size());
+		} else if(layer == SOL_SOCKET && number == SO_BINDTODEVICE) {
+			size_t size = self->boundInterface_ ? self->boundInterface_->name().size() : 0;
+			optbuf.resize(size);
+			if (size)
+				memcpy(optbuf.data(), self->boundInterface_->name().data(), size);
 		} else {
 			std::cout << std::format("netserver: unhandled UDP socket getsockopt layer {} number {}\n",
 				layer, number);
@@ -652,6 +672,9 @@ struct Udp4Socket {
 
 private:
 	bool rejectPacket(Udp &udp) const {
+		if(boundInterface_ && boundInterface_->index() != udp.packet->link.lock()->index())
+			return true;
+
 		if (remote_.family == AF_UNSPEC)
 			return false;
 		if (remote_.port && remote_.port != udp.header.src)
@@ -678,6 +701,8 @@ private:
 
 	bool ipPacketInfo_ = false;
 	bool nonBlock_ = false;
+
+	std::shared_ptr<nic::Link> boundInterface_ = {};
 };
 
 void Udp4::feedDatagram(smarter::shared_ptr<const Ip4Packet> packet, std::weak_ptr<nic::Link> link) {
