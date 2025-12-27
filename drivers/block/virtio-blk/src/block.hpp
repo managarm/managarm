@@ -45,7 +45,7 @@ struct UserRequest : virtio_core::Request {
 	void *buffer;
 	size_t numSectors;
 
-	async::oneshot_event event;
+	async::oneshot_primitive event;
 };
 
 // --------------------------------------------------------

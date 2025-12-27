@@ -160,7 +160,7 @@ protected:
 	}
 
 private:
-	async::oneshot_event _ev;
+	async::oneshot_primitive _ev;
 };
 
 async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,

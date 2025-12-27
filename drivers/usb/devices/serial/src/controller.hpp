@@ -56,7 +56,7 @@ struct WriteRequest {
 
 	std::span<const uint8_t> buffer;
 	size_t progress;
-	async::oneshot_event event;
+	async::oneshot_primitive event;
 	frg::default_list_hook<WriteRequest> hook;
 
 	Controller *controller;

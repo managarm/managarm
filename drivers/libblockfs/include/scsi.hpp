@@ -73,7 +73,7 @@ private:
 		uint64_t sector;
 		void *buffer;
 		size_t numSectors;
-		async::oneshot_event event;
+		async::oneshot_primitive event;
 		frg::default_list_hook<Request> requestHook;
 	};
 
