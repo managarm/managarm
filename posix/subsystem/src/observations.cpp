@@ -252,6 +252,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			auto mode = gprs[kHelRegArg0];
 			auto mask = gprs[kHelRegArg1];
 
+			int err = 0;
 			uint64_t former = self->signalMask();
 			if(mode == SIG_SETMASK) {
 				self->setSignalMask(mask);
@@ -260,12 +261,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}else if(mode == SIG_UNBLOCK) {
 				self->setSignalMask(former & ~mask);
 			}else{
-				assert(!mode);
+				err = EINVAL;
 			}
 
 			gprs[kHelRegError] = 0;
-			gprs[kHelRegOut0] = former;
-			gprs[kHelRegOut1] = self->enteredSignalSeq();
+			gprs[kHelRegOut0] = err;
+			gprs[kHelRegOut1] = former;
+			gprs[kHelRegOut2] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			if (!self->delayedSignal) {
