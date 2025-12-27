@@ -369,15 +369,15 @@ struct KernletCtlBusObject : private KernelBusObject {
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [headError, headBuffer] = co_await RecvBufferSender{lane};
+		auto [headError, headBuffer] = co_await recvBuffer(lane);
 		if(headError != Error::success)
 			co_return headError;
 
-		auto [tailError, tailBuffer] = co_await RecvBufferSender{lane};
+		auto [tailError, tailBuffer] = co_await recvBuffer(lane);
 		if(tailError != Error::success)
 			co_return tailError;
 
@@ -410,7 +410,7 @@ private:
 				}
 			}
 
-			auto [elfError, elfBuffer] = co_await RecvBufferSender{lane};
+			auto [elfError, elfBuffer] = co_await recvBuffer(lane);
 			if(elfError != Error::success)
 				co_return elfError;
 			auto kernlet = processElfDso(reinterpret_cast<char *>(elfBuffer.data()), bind_types);
@@ -420,11 +420,11 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
-			auto objectError = co_await PushDescriptorSender{lane,
-					KernletObjectDescriptor{std::move(kernlet)}};
+			auto objectError = co_await pushDescriptor(lane,
+					KernletObjectDescriptor{std::move(kernlet)});
 			if(objectError != Error::success)
 				co_return objectError;
 		}else{
@@ -433,7 +433,7 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 		}

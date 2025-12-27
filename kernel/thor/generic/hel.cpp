@@ -2616,11 +2616,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		Packet(frg::dyn_array<Item, KernelAlloc> items_)
 		: items{std::move(items_)} { }
 
-		void completePacket() override {
-			completionEvent.raise();
-		}
-
-		async::oneshot_event completionEvent;
 		size_t count;
 		smarter::weak_ptr<Universe> weakUniverse;
 		frg::dyn_array<Item, KernelAlloc> items;
@@ -2910,7 +2905,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 	[](Packet *packet, smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		co_await packet->completionEvent.wait();
+		co_await packet->completion.wait();
 
 		QueueSource *tail = nullptr;
 		auto link = [&] (QueueSource *source) {

@@ -40,11 +40,11 @@ struct KerncfgBusObject : private KernelBusObject {
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		auto [reqError, reqBuffer] = co_await recvBuffer(lane);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -64,13 +64,13 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 
 			frg::unique_memory<KernelAlloc> cmdlineBuffer{*kernelAlloc, kernelCommandLine->size()};
 			memcpy(cmdlineBuffer.data(), kernelCommandLine->data(), kernelCommandLine->size());
-			auto cmdlineError = co_await SendBufferSender{lane, std::move(cmdlineBuffer)};
+			auto cmdlineError = co_await sendBuffer(lane, std::move(cmdlineBuffer));
 			if(cmdlineError != Error::success)
 				co_return cmdlineError;
 		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetMemoryInformationRequest>) {
@@ -87,7 +87,7 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetNumCpuRequest>) {
@@ -103,7 +103,7 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success) {
 				co_return respError;
 			}
@@ -113,7 +113,7 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 		}
@@ -140,11 +140,11 @@ private:
 	frg::string_view purpose_;
 
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		auto [reqError, reqBuffer] = co_await recvBuffer(lane);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -220,11 +220,11 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 
-			auto dataError = co_await SendBufferSender{lane, std::move(dataBuffer)};
+			auto dataError = co_await sendBuffer(lane, std::move(dataBuffer));
 
 			if(dataError != Error::success)
 				co_return dataError;
@@ -234,7 +234,7 @@ private:
 
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.size_of_head()};
 			bragi::write_head_only(resp, respBuffer);
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 		}
