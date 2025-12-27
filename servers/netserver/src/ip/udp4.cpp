@@ -405,10 +405,16 @@ struct Udp4Socket {
 			target = self->remote_;
 		}
 
-		if (target.port == 0 || target.addr == 0) {
+		if (target.addr == 0) {
 			if (logSockets)
-				std::cout << "netserver: udp needs destination" << std::endl;
+				std::println("netserver: udp needs destination address");
 			co_return protocols::fs::Error::destAddrRequired;
+		}
+
+		if (target.port == 0) {
+			if (logSockets)
+				std::println("netserver: udp port 0 is reserved");
+			co_return protocols::fs::Error::addressNotAvailable;
 		}
 
 		if (source.port == 0 && !self->bindAvailable(source.addr)) {
