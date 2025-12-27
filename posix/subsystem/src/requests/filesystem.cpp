@@ -1452,8 +1452,7 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 			.getPath(ctx.self->fsContext()->getRoot()));
 
 		if (!resolver.hasComponent()) {
-			if ((req->flags() & managarm::posix::OpenFlags::OF_RDWR)
-			|| (req->flags() & managarm::posix::OpenFlags::OF_WRONLY))
+			if (semantic_flags & semanticWrite)
 				co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
 			else
 				co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
@@ -1471,6 +1470,10 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 		auto link = linkResult.value();
 		assert(link);
 		auto node = link->getTarget();
+		if (node->getType() == VfsType::directory) {
+			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
+			co_return;
+		}
 
 		auto fileResult = co_await node->open(ctx.self.get(), resolver.currentView(), std::move(link),
 							semantic_flags);
@@ -1506,6 +1509,11 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 			.getPath(ctx.self->fsContext()->getRoot()));
 
 		auto target = resolver.currentLink()->getTarget();
+		if (target->getType() == VfsType::directory && (semantic_flags & semanticWrite)) {
+			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
+			co_return;
+		}
+
 		if(req->flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
 			if(target->getType() != VfsType::directory) {
 				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
