@@ -15,7 +15,7 @@
 
 using ResolveFlags = uint32_t;
 inline constexpr ResolveFlags resolvePrefix = (1 << 4);
-// The path must not refer to a directory (not trailing slash allowed).
+// The path must not refer to a directory (no trailing slash allowed).
 inline constexpr ResolveFlags resolveNoTrailingSlash = (1 << 2);
 inline constexpr ResolveFlags resolveDontFollow = (1 << 1);
 
