@@ -306,11 +306,9 @@ private:
 	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
 	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) override {
-		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite)){
-			std::cout << "\e[31mposix: DirectoryNode open() received illegal arguments:"
-				<< std::bitset<32>(semantic_flags)
-				<< "\nOnly semanticNonBlock (0x1), semanticRead (0x2) and semanticWrite(0x4) are allowed.\e[39m"
-				<< std::endl;
+		// we silently ignore semanticAppend for directories
+		if(semantic_flags & ~(semanticNonBlock | semanticRead | semanticWrite | semanticAppend)){
+			std::println("\e[31mposix: DirectoryNode open() received illegal arguments: {:#x}", semantic_flags);
 			co_return Error::illegalArguments;
 		}
 
