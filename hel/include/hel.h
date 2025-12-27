@@ -345,7 +345,8 @@ enum HelSyscallArgs {
 	kHelRegArg8 = kHelRegR14,
 
 	kHelRegOut0 = kHelRegRsi,
-	kHelRegOut1 = kHelRegRdx
+	kHelRegOut1 = kHelRegRdx,
+	kHelRegOut2 = kHelRegRax
 };
 
 #elif defined(__aarch64__)
@@ -403,7 +404,8 @@ enum HelSyscallArgs {
 	kHelRegArg8 = kHelRegX9,
 
 	kHelRegOut0 = kHelRegX1,
-	kHelRegOut1 = kHelRegX2
+	kHelRegOut1 = kHelRegX2,
+	kHelRegOut2 = kHelRegX3
 };
 
 #elif defined(__riscv) && __riscv_xlen == 64
@@ -454,8 +456,10 @@ enum HelSyscallArgs {
 	kHelRegArg6 = kHelRegA7,
 	kHelRegArg7 = kHelRegS2,
 	kHelRegArg8 = kHelRegS3,
+
 	kHelRegOut0 = kHelRegA1,
-	kHelRegOut1 = kHelRegA2
+	kHelRegOut1 = kHelRegA2,
+	kHelRegOut2 = kHelRegA3
 };
 
 #endif
