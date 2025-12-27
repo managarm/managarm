@@ -499,8 +499,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto ttynameResult = co_await file->ttyname();
 			if(!ttynameResult) {
-			    assert(ttynameResult.error() == Error::notTerminal);
-			    co_await sendErrorResponse(managarm::posix::Errors::NOT_A_TTY);
+			    co_await sendErrorResponse(ttynameResult.error() | toPosixProtoError);
 			    continue;
 			}
 
