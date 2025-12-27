@@ -418,8 +418,6 @@ async::result<void> File::ioctl(Process *, uint32_t id, helix_ng::RecvInlineResu
 
 async::result<frg::expected<Error, std::string>>
 File::ttyname() {
-	std::cout << "posix \e[1;34m" << structName()
-			<< "\e[0m: Object does not implement ttyname()" << std::endl;
 	co_return Error::notTerminal;
 }
 
