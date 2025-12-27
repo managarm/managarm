@@ -488,7 +488,6 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
 			logRequest(logRequests, "TTY_NAME", "fd={}", req.fd());
 
-			std::cout << "\e[31mposix: Fix TTY_NAME\e[39m" << std::endl;
 			managarm::posix::SvrResponse resp;
 
 			auto file = self->fileContext()->getFile(req.fd());
@@ -499,8 +498,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 
 			auto ttynameResult = co_await file->ttyname();
 			if(!ttynameResult) {
-			    assert(ttynameResult.error() == Error::notTerminal);
-			    co_await sendErrorResponse(managarm::posix::Errors::NOT_A_TTY);
+			    co_await sendErrorResponse(ttynameResult.error() | toPosixProtoError);
 			    continue;
 			}
 
