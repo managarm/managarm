@@ -84,7 +84,7 @@ void PciBus::runRootBus() {
 
 coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
 	// TODO(qookie): Implement this properly :^)
-	auto dismissError = co_await DismissSender{lane};
+	auto dismissError = co_await dismiss(lane);
 	if (dismissError != Error::success)
 		co_return dismissError;
 
@@ -180,11 +180,11 @@ void PciDevice::runDevice() {
 // --------------------------------------------------------
 
 coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
-	auto [acceptError, conversation] = co_await AcceptSender{lane};
+	auto [acceptError, conversation] = co_await accept(lane);
 	if(acceptError != Error::success)
 		co_return acceptError;
 
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+	auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 	if(reqError != Error::success)
 		co_return reqError;
 
@@ -202,12 +202,12 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+		auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 
 		if (respHeadError != Error::success)
 			co_return respHeadError;
 
-		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+		auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 
 		if (respTailError != Error::success)
 			co_return respTailError;
@@ -303,7 +303,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -323,7 +323,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -353,7 +353,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
 
 		if (descError != Error::success)
 			co_return descError;
@@ -419,7 +419,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
 
 		if (descError != Error::success)
 			co_return descError;
@@ -691,7 +691,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
 	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableDmaRequest>) {
@@ -727,7 +727,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 	}else{
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-		co_await DismissSender{conversation};
+		co_await dismiss(conversation);
 	}
 
 	co_return frg::success;

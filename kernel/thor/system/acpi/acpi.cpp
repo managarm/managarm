@@ -37,11 +37,11 @@ coroutine<void> AcpiObject::run(Properties acpi_properties) {
 }
 
 coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
-	auto [acceptError, conversation] = co_await AcceptSender{lane};
+	auto [acceptError, conversation] = co_await accept(lane);
 	if (acceptError != Error::success)
 		co_return acceptError;
 
-	auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+	auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 	if (reqError != Error::success)
 		co_return reqError;
 
@@ -59,12 +59,12 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+		auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 
 		if (respHeadError != Error::success)
 			co_return respHeadError;
 
-		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+		auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 
 		if (respTailError != Error::success)
 			co_return respTailError;
@@ -133,11 +133,11 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-		auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+		auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 		if (respHeadError != Error::success)
 			co_return respHeadError;
 
-		auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+		auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 		if (respTailError != Error::success)
 			co_return respTailError;
 	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessBarRequest>) {
@@ -208,7 +208,7 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto ioError = co_await PushDescriptorSender{conversation, IoDescriptor{space}};
+		auto ioError = co_await pushDescriptor(conversation, IoDescriptor{space});
 		if (ioError != Error::success)
 			co_return ioError;
 	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
@@ -279,12 +279,12 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto irqError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+		auto irqError = co_await pushDescriptor(conversation, IrqDescriptor{object});
 		if (irqError != Error::success)
 			co_return irqError;
 	} else {
 		infoLogger() << "thor: dismissing conversation due to illegal HW request." << frg::endlog;
-		co_await DismissSender{conversation};
+		co_await dismiss(conversation);
 	}
 
 	co_return frg::success;

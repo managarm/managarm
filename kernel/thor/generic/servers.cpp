@@ -457,11 +457,11 @@ struct SvrctlBusObject : private KernelBusObject {
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		auto [reqError, reqBuffer] = co_await recvBuffer(lane);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -475,7 +475,7 @@ private:
 			resp.set_error(managarm::svrctl::Errors::SUCCESS);
 
 			if(req->with_data()) {
-				auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
+				auto [dataError, dataBuffer] = co_await recvBuffer(lane);
 				if(dataError != Error::success)
 					co_return dataError;
 
@@ -496,7 +496,7 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.head_size};
 			bragi::write_head_only(resp, respBuffer);
 
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
 		}else if(preamble.id() == bragi::message_id<managarm::svrctl::RunServerRequest>) {
@@ -512,16 +512,16 @@ private:
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, resp.head_size};
 			bragi::write_head_only(resp, respBuffer);
 
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
-			auto controlError = co_await PushDescriptorSender{lane, LaneDescriptor{controlLane}};
+			auto controlError = co_await pushDescriptor(lane, LaneDescriptor{controlLane});
 			if(controlError != Error::success)
 				co_return controlError;
 		}else{
 			warningLogger() << "thor: Illegal message ID " << preamble.id()
 					<< " for SvrctlBusObject" << frg::endlog;
-			auto dismissError = co_await DismissSender{boundLane};
+			auto dismissError = co_await dismiss(boundLane);
 			if(dismissError != Error::success)
 				co_return Error::protocolViolation;
 		}

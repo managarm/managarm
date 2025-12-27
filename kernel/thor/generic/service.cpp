@@ -44,14 +44,14 @@ namespace stdio {
 		frg::string<KernelAlloc> lineBuffer{*kernelAlloc};
 
 		while(true) {
-			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
 				infoLogger() << "thor: Could not accept stdio lane" << frg::endlog;
 				co_return;
 			}
-			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 			if(reqError != Error::success) {
 				infoLogger() << "thor: Could not receive stdio request" << frg::endlog;
 				co_return;
@@ -64,7 +64,7 @@ namespace stdio {
 			}
 
 			if (preamble.id() != managarm::fs::CntRequest<KernelAlloc>::message_id) {
-				co_await DismissSender{conversation};
+				co_await dismiss(conversation);
 				infoLogger() << "thor: unexpected request ID " << preamble.id() << frg::endlog;
 				co_return;
 			}
@@ -73,13 +73,13 @@ namespace stdio {
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
-				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
+				auto [credsError, credentials] = co_await extractCredentials(conversation);
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
 							<< frg::endlog;
 					co_return;
 				}
-				auto [dataError, dataBuffer] = co_await RecvBufferSender{conversation};
+				auto [dataError, dataBuffer] = co_await recvBuffer(conversation);
 				if(dataError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio data" << frg::endlog;
 					co_return;
@@ -103,7 +103,7 @@ namespace stdio {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
@@ -114,14 +114,14 @@ namespace stdio {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else{
 				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided stdio file" << frg::endlog;
 
-				auto dismissError = co_await DismissSender{conversation};
+				auto dismissError = co_await dismiss(conversation);
 				// TODO: improve error handling here.
 				assert(dismissError == Error::success);
 			}
@@ -153,14 +153,14 @@ namespace initrd {
 
 	coroutine<void> runRegularRequests(OpenRegular *file, LaneHandle lane) {
 		while(true) {
-			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
 				infoLogger() << "thor: Could not accept regular lane" << frg::endlog;
 				co_return;
 			}
-			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 			if(reqError != Error::success) {
 				infoLogger() << "thor: Could not receive regular request" << frg::endlog;
 				co_return;
@@ -170,7 +170,7 @@ namespace initrd {
 			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
 			if(req.req_type() == managarm::fs::CntReqType::READ) {
-				auto [credsError, credentials] = co_await ExtractCredentialsSender{conversation};
+				auto [credsError, credentials] = co_await extractCredentials(conversation);
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
 							<< frg::endlog;
@@ -191,11 +191,11 @@ namespace initrd {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 
-				auto dataError = co_await SendBufferSender{conversation, std::move(dataBuffer)};
+				auto dataError = co_await sendBuffer(conversation, std::move(dataBuffer));
 				// TODO: improve error handling here.
 				assert(dataError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
@@ -208,7 +208,7 @@ namespace initrd {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
@@ -219,19 +219,19 @@ namespace initrd {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 
-				auto memoryError = co_await PushDescriptorSender{conversation,
-						MemoryViewDescriptor{file->module->getMemory()}};
+				auto memoryError = co_await pushDescriptor(conversation,
+						MemoryViewDescriptor{file->module->getMemory()});
 				// TODO: improve error handling here.
 				assert(memoryError == Error::success);
 			}else{
 				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
 						<< " for kernel provided regular file" << frg::endlog;
 
-				auto dismissError = co_await DismissSender{conversation};
+				auto dismissError = co_await dismiss(conversation);
 				// TODO: improve error handling here.
 				assert(dismissError == Error::success);
 			}
@@ -241,14 +241,14 @@ namespace initrd {
 
 	coroutine<void> runDirectoryRequests(OpenDirectory *file, LaneHandle lane) {
 		while(true) {
-			auto [acceptError, conversation] = co_await AcceptSender{lane};
+			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
 				break;
 			if(acceptError != Error::success) {
 				infoLogger() << "thor: Could not accept directory lane" << frg::endlog;
 				co_return;
 			}
-			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 			if(reqError != Error::success) {
 				infoLogger() << "thor: Could not receive directory request" << frg::endlog;
 				co_return;
@@ -283,13 +283,13 @@ namespace initrd {
 
 					bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-					auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+					auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 					if (respHeadError != Error::success) {
 						infoLogger() << "thor: Could not send ReadEntriesResponse head" << frg::endlog;
 						co_return;
 					}
 
-					auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+					auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 					if (respTailError != Error::success) {
 						infoLogger() << "thor: Could not send ReadEntriesResponse tail" << frg::endlog;
 						co_return;
@@ -305,13 +305,13 @@ namespace initrd {
 
 					bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-					auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+					auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 					if (respHeadError != Error::success) {
 						infoLogger() << "thor: Could not send ReadEntriesResponse head" << frg::endlog;
 						co_return;
 					}
 
-					auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+					auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 					if (respTailError != Error::success) {
 						infoLogger() << "thor: Could not send ReadEntriesResponse tail" << frg::endlog;
 						co_return;
@@ -321,7 +321,7 @@ namespace initrd {
 				urgentLogger() << "thor: Illegal request with message ID " << preamble.id()
 						<< " for kernel provided directory file" << frg::endlog;
 
-				auto dismissError = co_await DismissSender{conversation};
+				auto dismissError = co_await dismiss(conversation);
 				// TODO: improve error handling here.
 				assert(dismissError == Error::success);
 			}
@@ -448,12 +448,12 @@ namespace posix {
 
 	coroutine<void> Process::runPosixRequests(ThreadInfo info, LaneHandle posixLane) {
 		while(true) {
-			auto [acceptError, conversation] = co_await AcceptSender{posixLane};
+			auto [acceptError, conversation] = co_await accept(posixLane);
 			if(acceptError != Error::success) {
 				infoLogger() << "thor: Could not accept POSIX lane" << frg::endlog;
 				co_return;
 			}
-			auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+			auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 			if(reqError != Error::success) {
 				infoLogger() << "thor: Could not receive POSIX request" << frg::endlog;
 				co_return;
@@ -483,7 +483,7 @@ namespace posix {
 							resp.SerializeToString(&ser);
 							frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 							memcpy(respBuffer.data(), ser.data(), ser.size());
-							auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+							auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 							// TODO: improve error handling here.
 							assert(respError == Error::success);
 							break;
@@ -510,7 +510,7 @@ namespace posix {
 						resp.SerializeToString(&ser);
 						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+						auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 						// TODO: improve error handling here.
 						assert(respError == Error::success);
 						break;
@@ -527,14 +527,14 @@ namespace posix {
 						resp.SerializeToString(&ser);
 						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+						auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 						// TODO: improve error handling here.
 						assert(respError == Error::success);
 						break;
 					}
 				}
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
-				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
+				auto [tailError, tailBuffer] = co_await recvBuffer(conversation);
 				if(tailError != Error::success) {
 					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
 					co_return;
@@ -560,7 +560,7 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 					continue;
@@ -585,7 +585,7 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 				}else{
@@ -609,12 +609,12 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 				}
 			}else if(preamble.id() == bragi::message_id<managarm::posix::FstatAtRequest>) {
-				auto [tailError, tailBuffer] = co_await RecvBufferSender{conversation};
+				auto [tailError, tailBuffer] = co_await recvBuffer(conversation);
 				if(tailError != Error::success) {
 					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
 					co_return;
@@ -637,7 +637,7 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					if(respError != Error::success) {
 						infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
 						co_return;
@@ -656,7 +656,7 @@ namespace posix {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				if(respError != Error::success) {
 					infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
 					co_return;
@@ -680,7 +680,7 @@ namespace posix {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::CloseRequest>) {
@@ -699,7 +699,7 @@ namespace posix {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmMapRequest>) {
@@ -718,7 +718,7 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 					continue;
@@ -744,7 +744,7 @@ namespace posix {
 					resp.SerializeToString(&ser);
 					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 					// TODO: improve error handling here.
 					assert(respError == Error::success);
 
@@ -794,7 +794,7 @@ namespace posix {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::GetPidRequest>) {
@@ -813,7 +813,7 @@ namespace posix {
 				resp.SerializeToString(&ser);
 				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				if(respError != Error::success) {
 					infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
 					co_return;

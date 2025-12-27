@@ -112,7 +112,7 @@ struct OstraceBusObject : private KernelBusObject {
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError == Error::endOfLane)
 			co_return Error::endOfLane;
 		if(acceptError != Error::success) {
@@ -120,7 +120,7 @@ private:
 			co_return Error::protocolViolation;
 		}
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		auto [reqError, reqBuffer] = co_await recvBuffer(lane);
 		if(reqError != Error::success) {
 			assert(isRemoteIpcError(reqError));
 			co_return Error::protocolViolation;
@@ -150,7 +150,7 @@ private:
 			resp.SerializeToString(&ser);
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success) {
 				assert(isRemoteIpcError(respError));
 				co_return Error::protocolViolation;
@@ -163,7 +163,7 @@ private:
 				co_return Error::protocolViolation;
 			//auto &req = maybeReq.value();
 
-			auto [dataError, dataBuffer] = co_await RecvBufferSender{lane};
+			auto [dataError, dataBuffer] = co_await recvBuffer(lane);
 			if(dataError != Error::success) {
 				assert(isRemoteIpcError(dataError));
 				co_return Error::protocolViolation;
@@ -181,7 +181,7 @@ private:
 			resp.SerializeToString(&ser);
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success) {
 				assert(isRemoteIpcError(respError));
 				co_return Error::protocolViolation;
@@ -209,7 +209,7 @@ private:
 			resp.SerializeToString(&ser);
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success) {
 				assert(isRemoteIpcError(respError));
 				co_return Error::protocolViolation;
@@ -223,7 +223,7 @@ private:
 			resp.SerializeToString(&ser);
 			frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
 			memcpy(respBuffer.data(), ser.data(), ser.size());
-			auto respError = co_await SendBufferSender{lane, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success) {
 				assert(isRemoteIpcError(respError));
 				co_return Error::protocolViolation;

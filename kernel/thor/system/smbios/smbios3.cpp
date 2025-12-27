@@ -16,11 +16,11 @@ using namespace thor;
 
 struct NoSmbios final : KernelBusObject {
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
-		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		auto [acceptError, conversation] = co_await accept(lane);
 		if (acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 		if (reqError != Error::success)
 			co_return reqError;
 
@@ -29,7 +29,7 @@ struct NoSmbios final : KernelBusObject {
 			co_return Error::protocolViolation;
 
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-		co_await DismissSender{conversation};
+		co_await dismiss(conversation);
 
 		co_return frg::success;
 	}
@@ -77,11 +77,11 @@ struct Smbios3 final : KernelBusObject {
 	}
 
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
-		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		auto [acceptError, conversation] = co_await accept(lane);
 		if (acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 		if (reqError != Error::success)
 			co_return reqError;
 
@@ -100,11 +100,11 @@ struct Smbios3 final : KernelBusObject {
 			bragi::write_head_only(resp, respBuffer);
 			memcpy(dataBuffer.data(), &header_, sizeof(header_));
 
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 			if (respError != Error::success)
 				co_return respError;
 
-			auto dataError = co_await SendBufferSender{conversation, std::move(dataBuffer)};
+			auto dataError = co_await sendBuffer(conversation, std::move(dataBuffer));
 			if (respError != Error::success)
 				co_return dataError;
 		} else if (preamble.id() == bragi::message_id<managarm::hw::GetSmbiosTableRequest>) {
@@ -118,17 +118,17 @@ struct Smbios3 final : KernelBusObject {
 			bragi::write_head_only(resp, respBuffer);
 			memcpy(dataBuffer.data(), tableData_.data(), tableData_.size());
 
-			auto respError = co_await SendBufferSender{conversation, std::move(respBuffer)};
+			auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 			if (respError != Error::success)
 				co_return respError;
 
-			auto dataError = co_await SendBufferSender{conversation, std::move(dataBuffer)};
+			auto dataError = co_await sendBuffer(conversation, std::move(dataBuffer));
 			if (respError != Error::success)
 				co_return dataError;
 		} else {
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request."
 			             << frg::endlog;
-			co_await DismissSender{conversation};
+			co_await dismiss(conversation);
 		}
 
 		co_return frg::success;
