@@ -515,7 +515,7 @@ private:
 	}
 
 	Operation *_result;
-	async::oneshot_event _ev;
+	async::oneshot_primitive _ev;
 };
 
 inline Submission submitAwaitClock(AwaitClock *operation, uint64_t counter,

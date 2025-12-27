@@ -79,7 +79,7 @@ private:
 
 	struct SubmittedLane {
 		helix::UniqueLane lane;
-		async::oneshot_event complete;
+		async::oneshot_primitive complete;
 	};
 
 	async::queue<SubmittedLane *, frg::stl_allocator> _submittedLanes;
