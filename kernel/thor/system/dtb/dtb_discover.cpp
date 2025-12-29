@@ -99,11 +99,11 @@ struct MbusNode final : private KernelBusObject {
 	}
 
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
-		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		auto [acceptError, conversation] = co_await accept(lane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -121,12 +121,12 @@ struct MbusNode final : private KernelBusObject {
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 
 			if(respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 
 			if(respTailError != Error::success)
 				co_return respTailError;
@@ -178,7 +178,7 @@ struct MbusNode final : private KernelBusObject {
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-			auto descError = co_await PushDescriptorSender{conversation, std::move(descriptor)};
+			auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 
 			if(descError != Error::success)
 				co_return descError;
@@ -204,7 +204,7 @@ struct MbusNode final : private KernelBusObject {
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-			auto descError = co_await PushDescriptorSender{conversation, IrqDescriptor{object}};
+			auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
 
 			if(descError != Error::success)
 				co_return descError;
@@ -251,11 +251,11 @@ struct MbusNode final : private KernelBusObject {
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 			if(respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 			if(respTailError != Error::success)
 				co_return respTailError;
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPropertiesRequest>) {
@@ -286,11 +286,11 @@ struct MbusNode final : private KernelBusObject {
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 			if(respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 			if(respTailError != Error::success)
 				co_return respTailError;
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPathRequest>) {
@@ -310,16 +310,16 @@ struct MbusNode final : private KernelBusObject {
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 			if(respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 			if(respTailError != Error::success)
 				co_return respTailError;
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-			co_await DismissSender{conversation};
+			co_await dismiss(conversation);
 		}
 
 		co_return frg::success;

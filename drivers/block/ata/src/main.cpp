@@ -98,7 +98,7 @@ private:
 		uint64_t sector;
 		size_t numSectors;
 		void *buffer;
-		async::oneshot_event event;
+		async::oneshot_primitive event;
 	};
 
 	async::result<void> _performRequest(Request *request);

@@ -38,7 +38,7 @@ private:
 	size_t numBytes_;
 	void *buffer_;
 	CommandType type_;
-	async::oneshot_event event_;
+	async::oneshot_primitive event_;
 };
 
 constexpr const char *cmdTypeToString(CommandType type) {

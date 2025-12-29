@@ -21,7 +21,7 @@ struct Request {
 	Request(size_t size) : index(0, size) { };
 
 	QueueIndex index;
-	async::oneshot_event event;
+	async::oneshot_primitive event;
 	arch::dma_buffer_view frame;
 };
 

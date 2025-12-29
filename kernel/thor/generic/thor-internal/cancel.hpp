@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include <assert.h>
+#include <async/cancellation.hpp>
 #include <frg/hash_map.hpp>
 #include <smarter.hpp>
 #include <thor-internal/kernel_heap.hpp>
@@ -84,6 +85,23 @@ private:
 
 	uint64_t _nextAsyncId;
 
+};
+
+// CancelNode that provides a cancellation_token.
+struct CancelNodeWithToken final : CancelNode {
+	CancelNodeWithToken() = default;
+
+	async::cancellation_token token() {
+		return cancelEvent_;
+	}
+
+protected:
+	void handleCancellation() override {
+		cancelEvent_.cancel();
+	}
+
+private:
+	async::cancellation_event cancelEvent_;
 };
 
 } // namespace thor

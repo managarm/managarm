@@ -27,11 +27,11 @@ struct AcpiStatus final : public thor::KernelBusObject {
 	}
 
 	coroutine<frg::expected<thor::Error>> handleRequest(thor::LaneHandle lane) override {
-		auto [acceptError, conversation] = co_await thor::AcceptSender{lane};
+		auto [acceptError, conversation] = co_await thor::accept(lane);
 		if (acceptError != thor::Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await thor::RecvBufferSender{conversation};
+		auto [reqError, reqBuffer] = co_await thor::recvBuffer(conversation);
 		if (reqError != thor::Error::success)
 			co_return reqError;
 
@@ -42,7 +42,7 @@ struct AcpiStatus final : public thor::KernelBusObject {
 
 		thor::infoLogger() << "thor: dismissing conversation due to illegal HW request."
 		                   << frg::endlog;
-		co_await thor::DismissSender{conversation};
+		co_await thor::dismiss(conversation);
 
 		co_return frg::success;
 	};
