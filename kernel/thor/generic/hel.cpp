@@ -2612,23 +2612,12 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	// From this point on, the function must not fail, since we now link our items
 	// into intrusive linked lists.
 
-	struct Packet : StreamPacket {
-		Packet(frg::dyn_array<Item, KernelAlloc> items_)
-		: items{std::move(items_)} { }
-
-		size_t count;
-		smarter::weak_ptr<Universe> weakUniverse;
-		frg::dyn_array<Item, KernelAlloc> items;
-	};
-
 	[](frg::dyn_array<Item, KernelAlloc> items, size_t count,
 			smarter::weak_ptr<Universe> weakUniverse,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			LaneHandle lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
 			enable_detached_coroutine = {}) -> void {
-		Packet packet{std::move(items)};
-		packet.count = count;
-		packet.weakUniverse = std::move(weakUniverse);
+		StreamPacket packet;
 		packet.setup(count);
 
 		// Identifies the root chain on the stack below.
@@ -2638,15 +2627,15 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		StreamList rootChain;
 		for(size_t i = 0; i < count; i++) {
 			// Setup the packet pointer.
-			packet.items[i].transmit._packet = &packet;
+			items[i].transmit._packet = &packet;
 
 			// Link the nodes together.
-			auto l = packet.items[i].link;
+			auto l = items[i].link;
 			if(l == noIndex) {
-				rootChain.push_back(&packet.items[i].transmit);
+				rootChain.push_back(&items[i].transmit);
 			}else{
 				// Add the item to an ancillary list of another item.
-				packet.items[l].transmit.ancillaryChain.push_back(&packet.items[i].transmit);
+				items[l].transmit.ancillaryChain.push_back(&items[i].transmit);
 			}
 		}
 
@@ -2664,8 +2653,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			size_t i = 0;
 			size_t seenFlows = 0; // Iterates through flows.
 			while(seenFlows < numFlows) {
-				assert(i < packet.count);
-				auto item = &packet.items[i++];
+				assert(i < count);
+				auto item = &items[i++];
 				auto recipe = &item->recipe;
 				auto node = &item->transmit;
 
@@ -2917,8 +2906,8 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			tail = source;
 		};
 
-		for(size_t i = 0; i < packet.count; i++) {
-			auto item = &packet.items[i];
+		for(size_t i = 0; i < count; i++) {
+			auto item = &items[i];
 			HelAction *recipe = &item->recipe;
 			auto node = &item->transmit;
 
@@ -2931,7 +2920,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 
 				if(node->error() == Error::success
 						&& (recipe->flags & kHelItemWantLane)) {
-					auto universe = packet.weakUniverse.lock();
+					auto universe = weakUniverse.lock();
 					if (!universe) {
 						item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
 						item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
@@ -2954,7 +2943,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				// TODO: This condition should be replaced. Just test if lane is valid.
 				HelHandle handle = kHelNullHandle;
 				if(node->error() == Error::success) {
-					auto universe = packet.weakUniverse.lock();
+					auto universe = weakUniverse.lock();
 					assert(universe);
 
 					auto irq_lock = frg::guard(&irqMutex());
@@ -3004,7 +2993,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 				// TODO: This condition should be replaced. Just test if lane is valid.
 				HelHandle handle = kHelNullHandle;
 				if(node->error() == Error::success) {
-					auto universe = packet.weakUniverse.lock();
+					auto universe = weakUniverse.lock();
 					assert(universe);
 
 					auto irq_lock = frg::guard(&irqMutex());
@@ -3022,7 +3011,7 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 			}
 		}
 
-		co_await queue->submit(&packet.items[0].mainSource, context);
+		co_await queue->submit(&items[0].mainSource, context);
 	}(std::move(items), count, thisUniverse.lock(), std::move(queue), context,
 			lane, numFlows, thisThread.lock());
 
