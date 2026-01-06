@@ -29,6 +29,59 @@ struct ControllingTerminalState;
 
 typedef int ProcessId;
 
+struct Area {
+	bool copyOnWrite;
+	size_t areaSize;
+	uint32_t nativeFlags;
+	helix::UniqueDescriptor fileView;
+	helix::UniqueDescriptor copyView;
+	smarter::shared_ptr<File, FileHandle> file;
+	intptr_t offset;
+	intptr_t effectiveOffset = 0;
+
+	static Area makeAnonymous(size_t size, bool copyOnWrite) {
+		Area area;
+		area.areaSize = (size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = copyOnWrite;
+		area.offset = 0;
+		area.effectiveOffset = 0;
+
+		if (copyOnWrite) {
+			HelHandle handle;
+			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, 0, area.areaSize, &handle));
+			area.copyView = helix::UniqueDescriptor{handle};
+		} else {
+			HelHandle handle;
+			HEL_CHECK(helAllocateMemory(area.areaSize, 0, nullptr, &handle));
+			area.fileView = helix::UniqueDescriptor{handle};
+		}
+		return area;
+	}
+
+	static async::result<Area> makeFile(smarter::shared_ptr<File, FileHandle> file,
+			intptr_t offset, size_t size, bool copyOnWrite) {
+		Area area;
+		area.areaSize = (size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = copyOnWrite;
+		area.file = std::move(file);
+		area.offset = offset;
+
+		auto memory = co_await area.file->accessMemory();
+
+		if (copyOnWrite) {
+			HelHandle handle;
+			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, area.areaSize, &handle));
+			area.copyView = helix::UniqueDescriptor{handle};
+			area.effectiveOffset = 0;
+		} else {
+			area.effectiveOffset = offset;
+		}
+
+		area.fileView = std::move(memory);
+		co_return area;
+	}
+};
+
 // TODO: This struct should store the process' VMAs once we implement them.
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {
@@ -42,9 +95,7 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<frg::expected<Error, void *>> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
-			smarter::shared_ptr<File, FileHandle> file,
-			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
+	frg::expected<Error, void *> mapArea(uintptr_t hint, uint32_t nativeFlags, Area area);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
@@ -53,17 +104,6 @@ struct VmContext {
 	void unmapFile(void *pointer, size_t size);
 
 private:
-	struct Area {
-		bool copyOnWrite;
-		size_t areaSize;
-		uint32_t nativeFlags;
-		helix::UniqueDescriptor fileView;
-		helix::UniqueDescriptor copyView;
-		smarter::shared_ptr<File, FileHandle> file;
-		intptr_t offset;
-		intptr_t effectiveOffset = 0;
-	};
-
 	std::pair<
 		std::map<uintptr_t, Area>::iterator,
 		std::map<uintptr_t, Area>::iterator

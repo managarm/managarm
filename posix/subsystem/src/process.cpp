@@ -125,69 +125,45 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 	};
 }
 
-async::result<frg::expected<Error, void *>>
-VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
-		smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
-	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
-
-	// Perform the actual mapping.
-	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-	helix::UniqueDescriptor copyView;
-	void *pointer;
-	HelError error;
-	if(copyOnWrite) {
-		HelHandle handle;
-		if(memory) {
-			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
-		}else{
-			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, offset, alignedSize, &handle));
-		}
-		copyView = helix::UniqueDescriptor{handle};
-
-		error = helMapMemory(copyView.getHandle(), _space.getHandle(),
-				reinterpret_cast<void *>(hint),
-				0, alignedSize, nativeFlags, &pointer);
-	}else{
-		error = helMapMemory(memory.getHandle(), _space.getHandle(),
-				reinterpret_cast<void *>(hint),
-				offset, alignedSize, nativeFlags, &pointer);
+frg::expected<Error, void *>
+VmContext::mapArea(uintptr_t hint, uint32_t nativeFlags, Area area) {
+	helix::BorrowedDescriptor mappingMemory;
+	intptr_t mappingOffset;
+	if (area.copyOnWrite) {
+		mappingMemory = area.copyView;
+		mappingOffset = 0;
+	} else {
+		mappingMemory = area.fileView;
+		mappingOffset = area.effectiveOffset;
 	}
 
-	if(error == kHelErrAlreadyExists) {
-		co_return Error::alreadyExists;
-	}else if(error == kHelErrNoMemory)
-		co_return Error::noMemory;
-	HEL_CHECK(error);
+	void *pointer;
+	HelError error = helMapMemory(mappingMemory.getHandle(), _space.getHandle(),
+			reinterpret_cast<void *>(hint), mappingOffset, area.areaSize, nativeFlags, &pointer);
 
-	//std::cout << "posix: VM_MAP returns " << pointer
-	//		<< " (size: " << (void *)size << ")" << std::endl;
+	if (error == kHelErrAlreadyExists)
+		return Error::alreadyExists;
+	else if (error == kHelErrNoMemory)
+		return Error::noMemory;
+	HEL_CHECK(error);
 
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
-	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+	// Remove overlapping areas from tracking.
+	auto [startIt, endIt] = splitAreaOn_(address, area.areaSize);
 
 	for (auto it = startIt; it != endIt;) {
-		const auto &[addr, area] = *it;
-		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize))
+		const auto &[addr, existingArea] = *it;
+		if (addr >= address && (addr + existingArea.areaSize) <= (address + area.areaSize))
 			it = _areaTree.erase(it);
 		else
 			++it;
 	}
 
-	// Construct the new area.
-	Area area;
-	area.copyOnWrite = copyOnWrite;
-	area.areaSize = alignedSize;
 	area.nativeFlags = nativeFlags;
-	area.fileView = std::move(memory);
-	area.copyView = std::move(copyView);
-	area.file = std::move(file);
-	area.offset = offset;
-	area.effectiveOffset = copyOnWrite ? 0 : offset;
 	_areaTree.emplace(address, std::move(area));
 
-	co_return pointer;
+	return pointer;
 }
 
 async::result<void *> VmContext::remapFile(void *oldPointer,

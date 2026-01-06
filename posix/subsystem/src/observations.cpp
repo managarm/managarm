@@ -93,9 +93,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			size_t size = gprs[kHelRegArg0];
 
-			void *address = (co_await self->vmContext()->mapFile(0,
-					{}, nullptr,
-					0, size, true, kHelMapProtRead | kHelMapProtWrite)).unwrap();
+			auto area = Area::makeAnonymous(size, true);
+			void *address = self->vmContext()->mapArea(0,
+					kHelMapProtRead | kHelMapProtWrite, std::move(area)).unwrap();
 
 			gprs[kHelRegError] = kHelErrNone;
 			gprs[kHelRegOut0] = reinterpret_cast<uintptr_t>(address);
