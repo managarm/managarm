@@ -19,6 +19,7 @@
 #include "interval-timer.hpp"
 #include "vfs.hpp"
 #include "procfs.hpp"
+#include "sysv-shm.hpp"
 
 struct Generation;
 struct Process;
@@ -38,6 +39,8 @@ struct Area {
 	smarter::shared_ptr<File, FileHandle> file;
 	intptr_t offset;
 	intptr_t effectiveOffset = 0;
+	// For SysV SHM mappings, tracks the segment (nullptr for non-SHM)
+	std::shared_ptr<shm::ShmSegment> shmSegment;
 
 	static Area makeAnonymous(size_t size, bool copyOnWrite) {
 		Area area;
@@ -80,6 +83,18 @@ struct Area {
 		area.fileView = std::move(memory);
 		co_return area;
 	}
+
+	// Factory for SysV shared memory mappings
+	static Area makeShm(std::shared_ptr<shm::ShmSegment> segment) {
+		Area area;
+		area.areaSize = (segment->size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = false;  // SHM is always shared, never COW
+		area.fileView = segment->memory.dup();
+		area.offset = 0;
+		area.effectiveOffset = 0;
+		area.shmSegment = std::move(segment);
+		return area;
+	}
 };
 
 // TODO: This struct should store the process' VMAs once we implement them.
@@ -103,11 +118,28 @@ struct VmContext {
 
 	void unmapFile(void *pointer, size_t size);
 
+	// SysV shared memory operations
+	frg::expected<Error, void *> mapShm(
+			std::shared_ptr<shm::ShmSegment> segment,
+			uintptr_t hint,
+			uint32_t nativeFlags,
+			pid_t pid);
+
+	frg::expected<Error> unmapShm(void *pointer, pid_t pid);
+
 private:
 	std::pair<
 		std::map<uintptr_t, Area>::iterator,
 		std::map<uintptr_t, Area>::iterator
 	> splitAreaOn_(uintptr_t addr, size_t size);
+
+	// Common backend for mapFile/mapShm - performs mapping and area tracking
+	frg::expected<Error, void *> mapArea_(uintptr_t hint, size_t alignedSize,
+			helix::UniqueDescriptor memory, intptr_t offset, uint32_t nativeFlags,
+			Area area);
+
+	// Common backend for unmapFile/unmapShm - performs unmap and area removal
+	void unmapArea_(uintptr_t address, size_t alignedSize);
 
 	helix::UniqueDescriptor _space;
 

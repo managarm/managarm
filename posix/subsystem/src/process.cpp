@@ -8,6 +8,7 @@
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"
+#include "sysv-shm.hpp"
 
 #include <protocols/posix/data.hpp>
 
@@ -73,6 +74,14 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 		copy.file = area.file;
 		copy.offset = area.offset;
 		copy.effectiveOffset = area.effectiveOffset;
+
+		// Handle SHM mappings: copy the reference and increment nattch
+		if (area.shmSegment) {
+			copy.shmSegment = area.shmSegment;
+			area.shmSegment->nattch++;
+			// Note: lpid is NOT updated on fork (only on explicit attach/detach)
+		}
+
 		context->_areaTree.emplace(address, std::move(copy));
 	}
 
@@ -80,6 +89,16 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 }
 
 VmContext::~VmContext() {
+	// Decrement nattch for all SHM mappings
+	for (auto &[address, area] : _areaTree) {
+		if (area.shmSegment) {
+			area.shmSegment->nattch--;
+			// Note: dtime/lpid are NOT updated on process exit per POSIX
+			if (area.shmSegment->markedForRemoval && area.shmSegment->nattch == 0)
+				shm::removeSegment(area.shmSegment);
+		}
+	}
+
 	if(logCleanup_)
 		std::cout << "\e[33mposix: VmContext is destructed\e[39m" << std::endl;
 }
@@ -254,6 +273,43 @@ void VmContext::unmapFile(void *pointer, size_t size) {
 			++it;
 		}
 	}
+}
+
+frg::expected<Error> VmContext::unmapShm(void *pointer, pid_t pid) {
+	auto address = reinterpret_cast<uintptr_t>(pointer);
+
+	// Find the area to get the segment reference and size
+	auto it = _areaTree.find(address);
+	if (it == _areaTree.end() || !it->second.shmSegment)
+		return Error::illegalArguments;
+
+	auto segment = it->second.shmSegment;
+	size_t alignedSize = it->second.areaSize;
+
+	// Perform the unmap
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, alignedSize));
+
+	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+
+	for (auto it = startIt; it != endIt;) {
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			it = _areaTree.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	// Update segment metadata
+	segment->nattch--;
+	segment->lpid = pid;
+	segment->dtime = 0;
+
+	// Check if segment should be destroyed
+	if (segment->markedForRemoval && segment->nattch == 0)
+		shm::removeSegment(segment);
+
+	return {};
 }
 
 // ----------------------------------------------------------------------------

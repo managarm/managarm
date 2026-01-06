@@ -888,3 +888,68 @@ message FchownAtResponse 140 {
 head(128):
 	Errors error;
 }
+
+message ShmGetRequest 141 {
+head(128):
+	int32 key;
+	uint64 size;
+	int32 flags;
+}
+
+message ShmGetResponse 142 {
+head(128):
+	Errors error;
+	int32 shmid;
+}
+
+message ShmAtRequest 143 {
+head(128):
+	int32 shmid;
+	@format(hex) uint64 shmaddr;
+	int32 flags;
+}
+
+message ShmAtResponse 144 {
+head(128):
+	Errors error;
+	@format(hex) uint64 address;
+}
+
+message ShmDtRequest 145 {
+head(128):
+	@format(hex) uint64 address;
+}
+
+message ShmDtResponse 146 {
+head(128):
+	Errors error;
+}
+
+message ShmCtlRequest 147 {
+head(128):
+	int32 shmid;
+	int32 cmd;
+}
+
+message ShmCtlResponse 148 {
+head(128):
+	Errors error;
+
+	// Fields of ipc_perm.
+	int32 perm_key;
+	uint32 perm_uid;
+	uint32 perm_gid;
+	uint32 perm_cuid;
+	uint32 perm_cgid;
+	uint32 perm_mode;
+	int32 perm_seq;
+
+	// Fields of shmid_ds.
+	uint64 shm_segsz;
+	int64 shm_atime;
+	int64 shm_dtime;
+	int64 shm_ctime;
+	int32 shm_cpid;
+	int32 shm_lpid;
+	uint64 shm_nattch;
+}

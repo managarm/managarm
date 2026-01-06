@@ -212,6 +212,11 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		MAKE_CASE(TimerSet)
 		MAKE_CASE(TimerGet)
 		MAKE_CASE(TimerDelete)
+		// From shm.cpp
+		MAKE_CASE(ShmGet)
+		MAKE_CASE(ShmAt)
+		MAKE_CASE(ShmDt)
+		MAKE_CASE(ShmCtl)
 		default:
 			// Do nothing.
 		}
