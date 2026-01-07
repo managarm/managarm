@@ -525,6 +525,7 @@ void setupCpuContext(AssemblyCpuData *context) {
 
 void prepareCpuDataFor(CpuData *context, int cpu) {
 	cpuData.initialize(context);
+	heapSlabPool.initialize(context);
 
 	context->selfPointer = context;
 	context->cpuIndex = cpu;

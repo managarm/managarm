@@ -101,9 +101,7 @@ extern "C" void thorInitialize() {
 	infoLogger() << "thor: Number of available pages: "
 			<< physicalAllocator->numFreePages() << frg::endlog;
 
-	kernelVirtualAlloc.initialize();
-	kernelHeap.initialize(*kernelVirtualAlloc);
-	kernelAlloc.initialize(kernelHeap.get());
+	kernelAlloc.initialize();
 
 	infoLogger() << "thor: Basic memory management is ready" << frg::endlog;
 

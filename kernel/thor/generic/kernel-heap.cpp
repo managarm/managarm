@@ -10,6 +10,8 @@
 
 namespace thor {
 
+THOR_DEFINE_PERCPU_UNINITIALIZED(heapSlabPool);
+
 size_t kernelVirtualUsage = 0;
 size_t kernelMemoryUsage = 0;
 
@@ -191,9 +193,7 @@ KernelVirtualMemory &KernelVirtualMemory::global() {
 	return *kernelVirtualMemory;
 }
 
-KernelVirtualAlloc::KernelVirtualAlloc() { }
-
-uintptr_t KernelVirtualAlloc::map(size_t length) {
+void *HeapSlabPolicy::map(size_t length) {
 	auto p = KernelVirtualMemory::global().allocate(length);
 
 	// TODO: The slab_pool unpoisons memory before calling this.
@@ -208,10 +208,11 @@ uintptr_t KernelVirtualAlloc::map(size_t length) {
 	}
 	kernelMemoryUsage += length;
 
-	return uintptr_t(p);
+	return p;
 }
 
-void KernelVirtualAlloc::unmap(uintptr_t address, size_t length) {
+void HeapSlabPolicy::unmap(void *ptr, size_t length) {
+	auto address = reinterpret_cast<uintptr_t>(ptr);
 	assert((address % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
@@ -266,19 +267,19 @@ namespace {
 	};
 }
 
-void KernelVirtualAlloc::unpoison(void *pointer, size_t size) {
+void HeapSlabPolicy::unpoison(void *pointer, size_t size) {
 	unpoisonKasanShadow(pointer, size);
 }
 
-void KernelVirtualAlloc::unpoison_expand(void *pointer, size_t size) {
+void HeapSlabPolicy::unpoison_expand(void *pointer, size_t size) {
 	cleanKasanShadow(pointer, size);
 }
 
-void KernelVirtualAlloc::poison(void *pointer, size_t size) {
+void HeapSlabPolicy::poison(void *pointer, size_t size) {
 	poisonKasanShadow(pointer, size);
 }
 
-void KernelVirtualAlloc::output_trace(void *buffer, size_t size) {
+void HeapSlabPolicy::output_trace(void *buffer, size_t size) {
 	if (!allocLog)
 		allocLog.initialize(memoryLayoutNote->allocLog, memoryLayoutNote->allocLogSize);
 
@@ -286,15 +287,6 @@ void KernelVirtualAlloc::output_trace(void *buffer, size_t size) {
 }
 
 constinit frg::manual_box<PhysicalChunkAllocator> physicalAllocator = {};
-
-constinit frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc = {};
-
-constinit frg::manual_box<
-	frg::slab_pool<
-		KernelVirtualAlloc,
-		IrqSpinlock
-	>
-> kernelHeap = {};
 
 constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
 
