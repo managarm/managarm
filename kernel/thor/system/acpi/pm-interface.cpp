@@ -7,7 +7,7 @@
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/stream.hpp>
 

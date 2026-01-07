@@ -1,6 +1,6 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-stack.hpp>
 #include <thor-internal/physical.hpp>
 

@@ -13,7 +13,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/irq.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/timer.hpp>

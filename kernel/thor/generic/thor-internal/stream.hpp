@@ -12,7 +12,7 @@
 #include <frg/vector.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/universe.hpp>
 

@@ -3,7 +3,7 @@
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/pci/pci.hpp>
 
 #include <thor-internal/framebuffer/fb.hpp>

@@ -1,7 +1,7 @@
 #include <algorithm>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/pci/pci.hpp>

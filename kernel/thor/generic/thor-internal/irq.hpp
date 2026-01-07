@@ -5,7 +5,7 @@
 #include <frg/list.hpp>
 #include <frg/string.hpp>
 #include <thor-internal/error.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernlet.hpp>
 #include <thor-internal/work-queue.hpp>
 
