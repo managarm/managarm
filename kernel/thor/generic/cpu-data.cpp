@@ -6,6 +6,13 @@
 
 namespace thor {
 
+ExecutorContext::ExecutorContext() { }
+
+CpuData::CpuData()
+: activeFiber{nullptr}, heartbeat{0} {
+	iseqPtr = &regularIseq;
+}
+
 // Define a ELF note so that eir can find the per-CPU region and map
 // the KASAN shadow for it.
 

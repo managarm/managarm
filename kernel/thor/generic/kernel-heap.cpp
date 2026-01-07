@@ -8,19 +8,10 @@
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 
-// This is required for virtual destructors. It should not be called though.
-void operator delete(void *, size_t) {
-	thor::panicLogger() << "thor: operator delete() called" << frg::endlog;
-}
-
 namespace thor {
 
 size_t kernelVirtualUsage = 0;
 size_t kernelMemoryUsage = 0;
-
-// --------------------------------------------------------
-// Memory management
-// --------------------------------------------------------
 
 namespace {
 
@@ -306,16 +297,5 @@ constinit frg::manual_box<
 > kernelHeap = {};
 
 constinit frg::manual_box<KernelAlloc> kernelAlloc = {};
-
-// --------------------------------------------------------
-// CpuData
-// --------------------------------------------------------
-
-ExecutorContext::ExecutorContext() { }
-
-CpuData::CpuData()
-: activeFiber{nullptr}, heartbeat{0} {
-	iseqPtr = &regularIseq;
-}
 
 } // namespace thor
