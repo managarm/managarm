@@ -66,6 +66,7 @@ src = files(
 	'generic/physical.cpp',
 	'generic/profile.cpp',
 	'generic/random.cpp',
+	'generic/rcu.cpp',
 	'generic/service.cpp',
 	'generic/schedule.cpp',
 	'generic/stream.cpp',

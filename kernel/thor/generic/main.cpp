@@ -371,6 +371,7 @@ extern "C" void thorMain() {
 
 	infoLogger() << "thor: Entering initilization fiber." << frg::endlog;
 	LoadBalancer::singleton().setOnline(getCpuData());
+	setRcuOnline(getCpuData());
 	auto *scheduler = &localScheduler.get();
 	scheduler->update();
 	scheduler->forceReschedule();
