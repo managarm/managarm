@@ -116,7 +116,7 @@ public:
 	             && std::is_same_v<
 	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	                 void>)
-	static bool asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
 		(void)tag;
 		auto thisThread = getCurrentThread();
 
@@ -151,7 +151,7 @@ public:
 
 		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
 		if(async::execution::start_inline(operation))
-			return true;
+			return;
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
@@ -168,7 +168,7 @@ public:
 			}
 		}
 
-		return true;
+		return;
 	}
 
 	template <typename SenderFactory, AnyTag Tag>
