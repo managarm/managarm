@@ -6,7 +6,7 @@
 #include <async/cancellation.hpp>
 #include <frg/hash_map.hpp>
 #include <smarter.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 

@@ -3,7 +3,7 @@
 #include <smarter.hpp>
 #include <async/basic.hpp>
 #include <thor-internal/cpu-data.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/types.hpp>
 #include <frg/list.hpp>
 #include <frg/vector.hpp>

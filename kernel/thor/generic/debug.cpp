@@ -345,6 +345,11 @@ extern "C" void __assert_fail(const char *assertion, const char *file,
 			<< " at " << file << ":" << line << frg::endlog;
 }
 
+// This is required for virtual destructors. It should not be called though.
+void operator delete(void *, size_t) {
+	thor::panicLogger() << "thor: operator delete() called" << frg::endlog;
+}
+
 extern "C" void __cxa_pure_virtual() {
 	thor::panicLogger() << "Pure virtual call" << frg::endlog;
 }

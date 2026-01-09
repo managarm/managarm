@@ -1,6 +1,6 @@
 #pragma once
 
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 #define LIBASYNC_THREAD_LOCAL
 

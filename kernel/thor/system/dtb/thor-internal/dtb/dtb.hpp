@@ -2,7 +2,7 @@
 
 #include <dtb.hpp>
 #include <thor-internal/debug.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/dtb/irq.hpp>
 #include <thor-internal/irq.hpp>

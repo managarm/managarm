@@ -3,7 +3,7 @@
 #include <hw.frigg_bragi.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
-#include <thor-internal/kernel_heap.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/framebuffer/boot-screen.hpp>

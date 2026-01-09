@@ -4,6 +4,8 @@
 #include <async/algorithm.hpp>
 #include <helix/ipc.hpp>
 
+#include <atomic>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -80,6 +82,64 @@ async::result<void> doAsyncNopBenchmark() {
 		}
 		bench.announceIterations(n);
 	}
+	bench.finalizeStatistics();
+}
+
+void doParallelAsyncNopBenchmark() {
+	unsigned int numCpus = std::thread::hardware_concurrency();
+	std::cout << "ipc ops (parallel, " << numCpus << " threads)" << std::endl;
+
+	IterationsPerSecondBenchmark bench;
+	std::atomic<unsigned int> barrier{0};
+	std::atomic<int> iter{-1};
+	std::atomic<bool> stop{false};
+	std::atomic<uint64_t> totalIterations{0};
+
+	auto worker = [&](unsigned int c) -> async::result<void> {
+		for(int k = 0; k < 5; ++k) {
+			if (barrier.fetch_add(1, std::memory_order_relaxed) + 1 == numCpus) {
+				barrier.store(0, std::memory_order_relaxed);
+				stop.store(false, std::memory_order_relaxed);
+				totalIterations.store(0, std::memory_order_relaxed);
+				iter.store(k, std::memory_order_release);
+			}
+			while(iter.load(std::memory_order_acquire) < k)
+				;
+
+			if (!c) {
+				bench.launchRepetition();
+			}
+
+			while (true) {
+				if (!c) {
+					if (bench.isRepetitionDone()) {
+						stop.store(true, std::memory_order_relaxed);
+						bench.announceIterations(totalIterations.load(std::memory_order_acquire));
+						break;
+					}
+				} else {
+					if (stop.load(std::memory_order_relaxed))
+						break;
+				}
+				int n = 100;
+				for(int i = 0; i < n; ++i) {
+					auto result = co_await helix_ng::asyncNop();
+					HEL_CHECK(result.error());
+				}
+				totalIterations.fetch_add(n, std::memory_order_release);
+			}
+		}
+	};
+
+	std::vector<std::thread> threads;
+	threads.reserve(numCpus);
+	for(unsigned int c = 0; c < numCpus; ++c) {
+		threads.emplace_back([worker](unsigned int c) {
+			async::run(worker(c), helix::currentDispatcher);
+		}, c);
+	}
+	for(auto &t : threads)
+		t.join();
 	bench.finalizeStatistics();
 }
 
@@ -253,6 +313,7 @@ int main() {
 	doNopBenchmark();
 	doFutexBenchmark();
 	async::run(doAsyncNopBenchmark(), helix::currentDispatcher);
+	doParallelAsyncNopBenchmark();
 	doAllocateBenchmark(1 << 20);
 	doMapBenchmark(1 << 20);
 	doMapPopulatedBenchmark(1 << 20);

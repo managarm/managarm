@@ -1,6 +1,7 @@
 #pragma once
 
 #include <assert.h>
+#include <frg/sharded_slab.hpp>
 #include <frg/slab.hpp>
 #include <frg/spinlock.hpp>
 #include <frg/manual_box.hpp>
@@ -46,12 +47,10 @@ private:
 	Mutex mutex_;
 };
 
-class KernelVirtualAlloc {
+class HeapSlabPolicy {
 public:
-	KernelVirtualAlloc();
-
-	uintptr_t map(size_t length);
-	void unmap(uintptr_t address, size_t length);
+	void *map(size_t length);
+	void unmap(void *ptr, size_t length);
 
 	bool enable_trace() {
 #ifdef KERNEL_LOG_ALLOCATIONS
@@ -73,27 +72,37 @@ public:
 	void output_trace(void *buffer, size_t size);
 };
 
-using KernelAlloc = frg::slab_allocator<KernelVirtualAlloc, IrqSpinlock>;
+static_assert(frg::slab::has_poisoning_support<HeapSlabPolicy>);
+#ifdef KERNEL_LOG_ALLOCATIONS
+static_assert(frg::slab::has_trace_support<HeapSlabPolicy>);
+#endif
 
-extern constinit frg::manual_box<KernelVirtualAlloc> kernelVirtualAlloc;
-
-extern constinit frg::manual_box<
-	frg::slab_pool<
-		KernelVirtualAlloc,
-		IrqSpinlock
-	>
-> kernelHeap;
-
-extern constinit frg::manual_box<KernelAlloc> kernelAlloc;
+extern PerCpu<frg::sharded_slab_pool<HeapSlabPolicy>> heapSlabPool;
 
 struct Allocator {
-	void *allocate(size_t size) {
-		return kernelAlloc->allocate(size);
+	void *allocate(size_t size) const {
+		auto irqLock = frg::guard(&irqMutex());
+		auto &pool = heapSlabPool.get();
+		return pool.allocate(size);
 	}
 
-	void deallocate(void *p, size_t size) {
-		kernelAlloc->deallocate(p, size);
+	void deallocate(void *p, size_t size) const {
+		(void)size;
+		auto irqLock = frg::guard(&irqMutex());
+		auto &pool = heapSlabPool.get();
+		pool.deallocate(p);
+	}
+
+	void free(void *p) const {
+		auto irqLock = frg::guard(&irqMutex());
+		auto &pool = heapSlabPool.get();
+		pool.deallocate(p);
 	}
 };
+
+// TODO: KernelAlloc the kernelAlloc global should be removed in favor of the Allocator class.
+using KernelAlloc = Allocator;
+
+extern constinit frg::manual_box<KernelAlloc> kernelAlloc;
 
 } // namespace thor
