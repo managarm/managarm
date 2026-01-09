@@ -83,6 +83,7 @@ impl Handle {
     }
 
     /// Returns the raw handle of the universe this handle belongs to.
+    #[allow(dead_code)]
     pub(crate) fn universe(&self) -> hel_sys::HelHandle {
         self.universe
     }

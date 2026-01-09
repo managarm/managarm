@@ -173,7 +173,7 @@ impl Queue {
 
     /// Waits for a completion on the queue.
     /// This function blocks until a completion is available.
-    pub fn wait(&mut self) -> Result<QueueElement> {
+    pub fn wait(&mut self) -> Result<QueueElement<'_>> {
         loop {
             if self.retrieve_index == self.next_index {
                 self.reset_and_enqueue_chunk(self.active_chunks)?;
@@ -397,7 +397,7 @@ impl Queue {
     /// Returns a reference to the chunk at the given index.
     /// The index is wrapped around the number of chunks to allow
     /// for easier indexing since the queue is circular.
-    fn get_chunk(&mut self, index: usize) -> Chunk {
+    fn get_chunk(&mut self, index: usize) -> Chunk<'_> {
         let index = index & ((1 << self.ring_shift) - 1);
 
         assert!(index < self.num_chunks);
