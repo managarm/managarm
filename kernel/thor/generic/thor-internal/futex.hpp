@@ -171,7 +171,7 @@ public:
 			f.retire();
 
 			if(fastPath) {
-				async::execution::set_value_inline(receiver_);
+				async::execution::set_value_inline(receiver_, *result_);
 				return true;
 			}
 			return false;
@@ -179,7 +179,7 @@ public:
 
 	private:
 		void complete() override {
-			async::execution::set_value_noinline(receiver_);
+			async::execution::set_value_noinline(receiver_, *result_);
 		}
 
 		F f_;
@@ -190,14 +190,14 @@ public:
 
 	template<Futex F>
 	struct [[nodiscard]] WaitSender {
-		using value_type = void;
+		using value_type = Error;
 
 		template<typename R>
 		WaitOperation<F, R> connect(R receiver) {
 			return {self, std::move(f), expected, ct, std::move(receiver)};
 		}
 
-		async::sender_awaiter<WaitSender> operator co_await() {
+		async::sender_awaiter<WaitSender, Error> operator co_await() {
 			return {std::move(*this)};
 		}
 
