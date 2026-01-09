@@ -66,6 +66,69 @@ struct OneshotEvent {
 	void submitAwait(AwaitEventNode<OneshotEvent> *node, uint64_t sequence);
 	void cancelAwait(AwaitEventNode<OneshotEvent> *node);
 
+	// ----------------------------------------------------------------------------------
+	// awaitEvent() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
+	struct AwaitEventResult {
+		Error error;
+		uint64_t sequence;
+		uint32_t bitset;
+	};
+
+	template<typename Receiver>
+	struct AwaitEventOperation : AwaitEventNode<OneshotEvent> {
+		AwaitEventOperation(OneshotEvent *object, uint64_t sequence,
+				async::cancellation_token cancelToken, WorkQueue *wq, Receiver r)
+		: object_{object}, sequence_{sequence}, cancelToken_{cancelToken},
+				wq_{wq}, r_{std::move(r)} { }
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto self = frg::container_of(base, &AwaitEventOperation::worklet_);
+				auto error = self->wasCancelled() ? Error::cancelled : self->error();
+				async::execution::set_value(self->r_,
+					AwaitEventResult{error, self->sequence(), self->bitset()});
+			}, wq_);
+			setup(&worklet_, object_, cancelToken_);
+			object_->submitAwait(this, sequence_);
+		}
+
+	private:
+		OneshotEvent *object_;
+		uint64_t sequence_;
+		async::cancellation_token cancelToken_;
+		WorkQueue *wq_;
+		Receiver r_;
+		Worklet worklet_;
+	};
+
+	struct AwaitEventSender {
+		using value_type = AwaitEventResult;
+
+		template<typename Receiver>
+		friend AwaitEventOperation<Receiver> connect(AwaitEventSender s, Receiver r) {
+			return {s.object, s.sequence, s.cancelToken, s.wq, std::move(r)};
+		}
+
+		friend async::sender_awaiter<AwaitEventSender, AwaitEventResult>
+		operator co_await (AwaitEventSender s) {
+			return {s};
+		}
+
+		OneshotEvent *object;
+		uint64_t sequence;
+		async::cancellation_token cancelToken;
+		WorkQueue *wq;
+	};
+
+	AwaitEventSender awaitEvent(uint64_t sequence, async::cancellation_token cancelToken,
+			WorkQueue *wq) {
+		return {this, sequence, cancelToken, wq};
+	}
+
+	// ----------------------------------------------------------------------------------
+
 private:
 	frg::ticket_spinlock _mutex;
 
@@ -89,6 +152,69 @@ struct BitsetEvent {
 
 	void submitAwait(AwaitEventNode<BitsetEvent> *node, uint64_t sequence);
 	void cancelAwait(AwaitEventNode<BitsetEvent> *node);
+
+	// ----------------------------------------------------------------------------------
+	// awaitEvent() and its boilerplate.
+	// ----------------------------------------------------------------------------------
+
+	struct AwaitEventResult {
+		Error error;
+		uint64_t sequence;
+		uint32_t bitset;
+	};
+
+	template<typename Receiver>
+	struct AwaitEventOperation : AwaitEventNode<BitsetEvent> {
+		AwaitEventOperation(BitsetEvent *object, uint64_t sequence,
+				async::cancellation_token cancelToken, WorkQueue *wq, Receiver r)
+		: object_{object}, sequence_{sequence}, cancelToken_{cancelToken},
+				wq_{wq}, r_{std::move(r)} { }
+
+		void start() {
+			worklet_.setup([] (Worklet *base) {
+				auto self = frg::container_of(base, &AwaitEventOperation::worklet_);
+				auto error = self->wasCancelled() ? Error::cancelled : self->error();
+				async::execution::set_value(self->r_,
+					AwaitEventResult{error, self->sequence(), self->bitset()});
+			}, wq_);
+			setup(&worklet_, object_, cancelToken_);
+			object_->submitAwait(this, sequence_);
+		}
+
+	private:
+		BitsetEvent *object_;
+		uint64_t sequence_;
+		async::cancellation_token cancelToken_;
+		WorkQueue *wq_;
+		Receiver r_;
+		Worklet worklet_;
+	};
+
+	struct AwaitEventSender {
+		using value_type = AwaitEventResult;
+
+		template<typename Receiver>
+		friend AwaitEventOperation<Receiver> connect(AwaitEventSender s, Receiver r) {
+			return {s.object, s.sequence, s.cancelToken, s.wq, std::move(r)};
+		}
+
+		friend async::sender_awaiter<AwaitEventSender, AwaitEventResult>
+		operator co_await (AwaitEventSender s) {
+			return {s};
+		}
+
+		BitsetEvent *object;
+		uint64_t sequence;
+		async::cancellation_token cancelToken;
+		WorkQueue *wq;
+	};
+
+	AwaitEventSender awaitEvent(uint64_t sequence, async::cancellation_token cancelToken,
+			WorkQueue *wq) {
+		return {this, sequence, cancelToken, wq};
+	}
+
+	// ----------------------------------------------------------------------------------
 
 private:
 	frg::ticket_spinlock _mutex;

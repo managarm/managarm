@@ -34,12 +34,12 @@ private:
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 
 			if (respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 
 			if (respTailError != Error::success)
 				co_return respTailError;
@@ -47,11 +47,11 @@ private:
 			co_return frg::success;
 		};
 
-		auto [acceptError, lane] = co_await AcceptSender{boundLane};
+		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{lane};
+		auto [reqError, reqBuffer] = co_await recvBuffer(lane);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -113,7 +113,7 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto ioError = co_await PushDescriptorSender{lane, IoDescriptor{space}};
+			auto ioError = co_await pushDescriptor(lane, IoDescriptor{space});
 			if(ioError != Error::success)
 				co_return ioError;
 		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
@@ -142,12 +142,12 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto irqError = co_await PushDescriptorSender{lane, IrqDescriptor{object}};
+			auto irqError = co_await pushDescriptor(lane, IrqDescriptor{object});
 			if(irqError != Error::success)
 				co_return irqError;
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
-			co_await DismissSender{lane};
+			co_await dismiss(lane);
 			co_return Error::protocolViolation;
 		}
 

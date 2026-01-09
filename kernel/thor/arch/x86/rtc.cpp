@@ -87,11 +87,11 @@ struct RtcBusObject : private KernelBusObject {
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
-		auto [acceptError, conversation] = co_await AcceptSender{lane};
+		auto [acceptError, conversation] = co_await accept(lane);
 		if(acceptError != Error::success)
 			co_return acceptError;
 
-		auto [reqError, reqBuffer] = co_await RecvBufferSender{conversation};
+		auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
 		if(reqError != Error::success)
 			co_return reqError;
 
@@ -109,12 +109,12 @@ private:
 
 			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
 
-			auto respHeadError = co_await SendBufferSender{conversation, std::move(respHeadBuffer)};
+			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
 
 			if (respHeadError != Error::success)
 				co_return respHeadError;
 
-			auto respTailError = co_await SendBufferSender{conversation, std::move(respTailBuffer)};
+			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
 
 			if (respTailError != Error::success)
 				co_return respTailError;

@@ -322,7 +322,7 @@ public:
 
 	async::result<size_t> submitDescriptor(Handle descriptor) {
 		struct OneshotRequest : Request {
-			async::oneshot_event event;
+			async::oneshot_primitive event;
 		} ev_req;
 
 		postDescriptor(descriptor, &ev_req,

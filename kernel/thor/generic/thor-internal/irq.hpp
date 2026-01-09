@@ -314,7 +314,7 @@ struct IrqObject : IrqSink {
 					async::execution::set_value(self->r_, self->sequence());
 				}
 			}, wq_);
-			setup(&worklet_);
+			setup(&worklet_, object_, {});
 			object_->submitAwait(this, sequence_);
 		}
 

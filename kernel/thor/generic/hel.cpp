@@ -7,6 +7,7 @@
 #include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
 #include <frg/small_vector.hpp>
+#include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/io.hpp>
@@ -115,6 +116,7 @@ HelError translateError(Error error) {
 	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
 	case Error::remoteFault: return kHelErrRemoteFault;
+	case Error::cancelled: return kHelErrCancelled;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
@@ -2337,51 +2339,6 @@ HelError helGetClock(uint64_t *counter) {
 
 HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t context,
 		uint64_t *async_id) {
-	struct Closure final : CancelNode, PrecisionTimerNode, IpcNode {
-		static void issue(uint64_t nanos, smarter::shared_ptr<IpcQueue> queue,
-				uintptr_t context, uint64_t *async_id) {
-			auto closure = frg::construct<Closure>(*kernelAlloc, nanos,
-					std::move(queue), context);
-			closure->queue->registerNode(closure);
-			*async_id = closure->asyncId();
-			generalTimerEngine()->installTimer(closure);
-		}
-
-		static void elapsed(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &Closure::worklet);
-			if(closure->wasCancelled())
-				closure->result.error = kHelErrCancelled;
-			closure->queue->unregisterNode(closure);
-			closure->queue->submit(closure);
-		}
-
-		explicit Closure(uint64_t nanos, smarter::shared_ptr<IpcQueue> the_queue,
-				uintptr_t context)
-		: queue{std::move(the_queue)},
-				source{&result, sizeof(HelSimpleResult), nullptr},
-				result{translateError(Error::success), 0} {
-			setupContext(context);
-			setupSource(&source);
-
-			worklet.setup(&Closure::elapsed, getCurrentThread()->mainWorkQueue());
-			PrecisionTimerNode::setup(nanos, cancelEvent, &worklet);
-		}
-
-		void handleCancellation() override {
-			cancelEvent.cancel();
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-		Worklet worklet;
-		async::cancellation_event cancelEvent;
-		smarter::shared_ptr<IpcQueue> queue;
-		QueueSource source;
-		HelSimpleResult result;
-	};
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -2401,7 +2358,26 @@ HelError helSubmitAwaitClock(uint64_t counter, HelHandle queue_handle, uintptr_t
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	Closure::issue(counter, std::move(queue), context, async_id);
+	// Heap-allocate such that we can obtain the asyncId at submission time.
+	// TODO: This could be avoided by passing in the asyncId.
+	auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
+	queue->registerNode(cancelNode);
+	*async_id = cancelNode->asyncId();
+
+	[](smarter::shared_ptr<IpcQueue> queue, uint64_t counter, uintptr_t context,
+			CancelNodeWithToken *cancelNode,
+			enable_detached_coroutine = {}) -> void {
+		bool succeeded = co_await generalTimerEngine()->sleep(counter, cancelNode->token());
+
+		queue->unregisterNode(cancelNode);
+
+		HelError error = succeeded ? kHelErrNone : kHelErrCancelled;
+		HelSimpleResult helResult{.error = error, .reserved = {}};
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+
+		frg::destruct(*kernelAlloc, cancelNode);
+	}(std::move(queue), counter, context, cancelNode);
 
 	return kHelErrNone;
 }
@@ -2636,426 +2612,408 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	// From this point on, the function must not fail, since we now link our items
 	// into intrusive linked lists.
 
-	struct Closure final : StreamPacket, IpcNode {
-		static void transmitted(Closure *closure) {
-			QueueSource *tail = nullptr;
-			auto link = [&] (QueueSource *source) {
-				if(tail)
-					tail->link = source;
-				tail = source;
-			};
+	[](frg::dyn_array<Item, KernelAlloc> items, size_t count,
+			smarter::weak_ptr<Universe> weakUniverse,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			LaneHandle lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
+			enable_detached_coroutine = {}) -> void {
+		StreamPacket packet;
+		packet.setup(count);
 
-			for(size_t i = 0; i < closure->count; i++) {
-				auto item = &closure->items[i];
-				HelAction *recipe = &item->recipe;
+		// Identifies the root chain on the stack below.
+		constexpr size_t noIndex = static_cast<size_t>(-1);
+
+		// Now, build up the messages that we submit to the stream.
+		StreamList rootChain;
+		for(size_t i = 0; i < count; i++) {
+			// Setup the packet pointer.
+			items[i].transmit._packet = &packet;
+
+			// Link the nodes together.
+			auto l = items[i].link;
+			if(l == noIndex) {
+				rootChain.push_back(&items[i].transmit);
+			}else{
+				// Add the item to an ancillary list of another item.
+				items[l].transmit.ancillaryChain.push_back(&items[i].transmit);
+			}
+		}
+
+		Stream::transmit(lane, rootChain);
+
+		if(numFlows) {
+			// We exit once we processed numFlows-many items.
+			// This guarantees that we do not access the closure object after it is freed.
+			// Below, we need to ensure that we always complete our own nodes
+			// before completing peer nodes.
+
+			// The size of this array must be a power of two.
+			frg::array<frg::unique_memory<KernelAlloc>, 2> xferBuffers;
+
+			size_t i = 0;
+			size_t seenFlows = 0; // Iterates through flows.
+			while(seenFlows < numFlows) {
+				assert(i < count);
+				auto item = &items[i++];
+				auto recipe = &item->recipe;
 				auto node = &item->transmit;
 
-				if(recipe->type == kHelActionDismiss) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionOffer) {
-					HelHandle handle = kHelNullHandle;
+				if(!usesFlowProtocol(node->tag()))
+					continue;
+				++seenFlows;
 
-					if(node->error() == Error::success
-							&& (recipe->flags & kHelItemWantLane)) {
-						auto universe = closure->weakUniverse.lock();
-						if (!universe) {
-							item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
-							item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-							link(&item->mainSource);
-							continue;
-						}
-						assert(universe);
+				co_await node->issueFlow.wait();
+				auto peer = node->peerNode;
 
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock,
-								LaneDescriptor{node->lane()});
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionAccept) {
-					// TODO: This condition should be replaced. Just test if lane is valid.
-					HelHandle handle = kHelNullHandle;
-					if(node->error() == Error::success) {
-						auto universe = closure->weakUniverse.lock();
-						assert(universe);
-
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock,
-								LaneDescriptor{node->lane()});
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionImbueCredentials) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionExtractCredentials) {
-					item->helCredentialsResult = {.error = translateError(node->error()), .reserved = {}, .credentials = {}};
-					memcpy(item->helCredentialsResult.credentials,
-							node->credentials().data(), 16);
-					item->mainSource.setup(&item->helCredentialsResult,
-							sizeof(HelCredentialsResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionSendFromBuffer
-						|| recipe->type == kHelActionSendFromBufferSg) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionRecvInline) {
-					item->helInlineResult = {translateError(node->error()),
-							0, node->_transmitBuffer.size()};
-					item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
-					item->dataSource.setup(node->_transmitBuffer.data(),
-							node->_transmitBuffer.size());
-					link(&item->mainSource);
-					link(&item->dataSource);
-				}else if(recipe->type == kHelActionRecvToBuffer) {
-					item->helLengthResult = {translateError(node->error()),
-							0, node->actualLength()};
-					item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPushDescriptor) {
-					item->helSimpleResult = {translateError(node->error()), 0};
-					item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
-					link(&item->mainSource);
-				}else if(recipe->type == kHelActionPullDescriptor) {
-					// TODO: This condition should be replaced. Just test if lane is valid.
-					HelHandle handle = kHelNullHandle;
-					if(node->error() == Error::success) {
-						auto universe = closure->weakUniverse.lock();
-						assert(universe);
-
-						auto irq_lock = frg::guard(&irqMutex());
-						Universe::Guard lock(universe->lock);
-
-						handle = universe->attachDescriptor(lock, node->descriptor());
-					}
-
-					item->helHandleResult = {translateError(node->error()), 0, handle};
-					item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
-					link(&item->mainSource);
-				}else{
-					// This cannot happen since we validate recipes at submit time.
-					__builtin_trap();
-				}
-			}
-
-			closure->setupSource(&closure->items[0].mainSource);
-			closure->ipcQueue->submit(closure);
-		}
-
-		Closure(frg::dyn_array<Item, KernelAlloc> items_)
-		: items{std::move(items_)} { }
-
-		void completePacket() override {
-			transmitted(this);
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-		size_t count;
-		smarter::weak_ptr<Universe> weakUniverse;
-		smarter::shared_ptr<IpcQueue> ipcQueue;
-		frg::dyn_array<Item, KernelAlloc> items;
-	} *closure = frg::construct<Closure>(*kernelAlloc, std::move(items));
-
-	closure->count = count;
-	closure->weakUniverse = thisUniverse.lock();
-	closure->ipcQueue = std::move(queue);
-
-	closure->setup(count);
-	closure->setupContext(context);
-
-	// Now, build up the messages that we submit to the stream.
-	StreamList rootChain;
-	for(size_t i = 0; i < count; i++) {
-		// Setup the packet pointer.
-		closure->items[i].transmit._packet = closure;
-
-		// Link the nodes together.
-		auto l = closure->items[i].link;
-		if(l == noIndex) {
-			rootChain.push_back(&closure->items[i].transmit);
-		}else{
-			// Add the item to an ancillary list of another item.
-			closure->items[l].transmit.ancillaryChain.push_back(&closure->items[i].transmit);
-		}
-	}
-
-	auto handleFlow = [] (Closure *closure, size_t numFlows,
-			smarter::shared_ptr<Thread> thread,
-			enable_detached_coroutine = {}) -> void {
-		// We exit once we processed numFlows-many items.
-		// This guarantees that we do not access the closure object after it is freed.
-		// Below, we need to ensure that we always complete our own nodes
-		// before completing peer nodes.
-
-		// The size of this array must be a power of two.
-		frg::array<frg::unique_memory<KernelAlloc>, 2> xferBuffers;
-
-		size_t i = 0;
-		size_t seenFlows = 0; // Iterates through flows.
-		while(seenFlows < numFlows) {
-			assert(i < closure->count);
-			auto item = &closure->items[i++];
-			auto recipe = &item->recipe;
-			auto node = &item->transmit;
-
-			if(!usesFlowProtocol(node->tag()))
-				continue;
-			++seenFlows;
-
-			co_await node->issueFlow.wait();
-			auto peer = node->peerNode;
-
-			// Check for transmission errors (transmission errors or zero-size transfers).
-			if(!peer) {
-				node->complete();
-				continue;
-			}
-
-			if(recipe->type == kHelActionSendFromBuffer
-					&& node->tag() == kTagSendFlow
-					&& peer->tag() == kTagRecvKernelBuffer) {
-				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
-
-				auto res = co_await thread->mainWorkQueue()->enter();
-				if (!res) {
-					peer->_error = Error::threadExited;
-					node->_error = Error::threadExited;
-					peer->complete();
+				// Check for transmission errors (transmission errors or zero-size transfers).
+				if(!peer) {
 					node->complete();
 					continue;
 				}
 
-				auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
-				if(!outcome) {
-					// We complete with fault; the remote with success.
-					// TODO: it probably makes sense to introduce a "remote fault" error.
-					peer->_error = Error::success;
-					node->_error = Error::fault;
-					peer->complete();
-					node->complete();
-					continue;
-				}
-
-				// Both nodes complete successfully.
-				peer->_transmitBuffer = std::move(buffer);
-				peer->complete();
-				node->complete();
-			}else if(recipe->type == kHelActionSendFromBuffer
-					&& node->tag() == kTagSendFlow
-					&& peer->tag() == kTagRecvFlow) {
-				// Empty packets are handled by the generic stream code.
-				assert(recipe->length);
-
-				size_t progress = 0;
-				size_t numSent = 0;
-				size_t numAcked = 0;
-				bool lastTransferSent = false;
-				// Each iteration of this loop sends one transfer packet (or terminates).
-				while(true) {
-					bool anyRemoteFault = false;
-					while(numSent != numAcked) {
-						// If there is anything more to send, we only need to wait until
-						// at least one buffer is not in-flight (otherwise, we wait for all).
-						if(!lastTransferSent && numSent - numAcked < xferBuffers.size())
-							break;
-						auto ackPacket = co_await node->flowQueue.async_get();
-						assert(ackPacket);
-						if(ackPacket->fault)
-							anyRemoteFault = true;
-						++numAcked;
-					}
-
-					if(lastTransferSent) {
-						if(anyRemoteFault) {
-							node->_error = Error::remoteFault;
-						}else{
-							node->_error = Error::success;
-						}
-						break;
-					}
-
-					// If we encounter remote faults, we terminate.
-					if(anyRemoteFault) {
-						// Send the packet (may deallocate the peer!).
-						peer->flowQueue.put({ .terminate = true });
-						++numSent;
-
-						// Retrieve but ignore all acks.
-						assert(numSent > numAcked);
-						while(numSent != numAcked) {
-							auto ackPacket = co_await node->flowQueue.async_get();
-							assert(ackPacket);
-							++numAcked;
-						}
-
-						node->_error = Error::remoteFault;
-						break;
-					}
-
-					// Prepare a buffer an send it.
-					assert(numSent - numAcked < xferBuffers.size());
-					auto &xb = xferBuffers[numSent & (xferBuffers.size() - 1)];
-					if(!xb.size())
-						xb = frg::unique_memory<KernelAlloc>{*kernelAlloc, 4096};
-
-					auto chunkSize = frg::min(recipe->length - progress, xb.size());
-					assert(chunkSize);
+				if(recipe->type == kHelActionSendFromBuffer
+						&& node->tag() == kTagSendFlow
+						&& peer->tag() == kTagRecvKernelBuffer) {
+					frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
 
 					auto res = co_await thread->mainWorkQueue()->enter();
 					if (!res) {
-						peer->flowQueue.put({ .terminate = true, .fault = true });
-						++numSent;
-
-						// Retrieve but ignore all acks.
-						assert(numSent > numAcked);
-						while(numSent != numAcked) {
-							auto ackPacket = co_await node->flowQueue.async_get();
-							assert(ackPacket);
-							++numAcked;
-						}
-
+						peer->_error = Error::threadExited;
 						node->_error = Error::threadExited;
-						break;
+						peer->complete();
+						node->complete();
+						continue;
 					}
 
-					auto outcome = readUserMemory(xb.data(),
-							reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
+					auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 					if(!outcome) {
-						// Send the packet (may deallocate the peer!).
-						peer->flowQueue.put({ .terminate = true, .fault = true });
-						++numSent;
+						// We complete with fault; the remote with success.
+						// TODO: it probably makes sense to introduce a "remote fault" error.
+						peer->_error = Error::success;
+						node->_error = Error::fault;
+						peer->complete();
+						node->complete();
+						continue;
+					}
 
-						// Retrieve but ignore all acks.
-						assert(numSent > numAcked);
+					// Both nodes complete successfully.
+					peer->_transmitBuffer = std::move(buffer);
+					peer->complete();
+					node->complete();
+				}else if(recipe->type == kHelActionSendFromBuffer
+						&& node->tag() == kTagSendFlow
+						&& peer->tag() == kTagRecvFlow) {
+					// Empty packets are handled by the generic stream code.
+					assert(recipe->length);
+
+					size_t progress = 0;
+					size_t numSent = 0;
+					size_t numAcked = 0;
+					bool lastTransferSent = false;
+					// Each iteration of this loop sends one transfer packet (or terminates).
+					while(true) {
+						bool anyRemoteFault = false;
 						while(numSent != numAcked) {
+							// If there is anything more to send, we only need to wait until
+							// at least one buffer is not in-flight (otherwise, we wait for all).
+							if(!lastTransferSent && numSent - numAcked < xferBuffers.size())
+								break;
 							auto ackPacket = co_await node->flowQueue.async_get();
 							assert(ackPacket);
+							if(ackPacket->fault)
+								anyRemoteFault = true;
 							++numAcked;
 						}
 
-						node->_error = Error::fault;
-						break;
-					}
-
-					lastTransferSent = (progress + chunkSize == recipe->length);
-					// Send the packet (may deallocate the peer!).
-					peer->flowQueue.put({
-						.data = xb.data(),
-						.size = chunkSize,
-						.terminate = lastTransferSent
-					});
-					++numSent;
-					progress += chunkSize;
-				}
-
-				node->complete();
-			}else if(recipe->type == kHelActionRecvToBuffer
-					&& peer->tag() == kTagSendKernelBuffer) {
-				auto res = co_await thread->mainWorkQueue()->enter();
-				if (!res) {
-					peer->_error = Error::threadExited;
-					node->_error = Error::threadExited;
-					peer->complete();
-					node->complete();
-					continue;
-				}
-				auto outcome = writeUserMemory(recipe->buffer,
-						peer->_inBuffer.data(), peer->_inBuffer.size());
-				if(!outcome) {
-					// We complete with fault; the remote with success.
-					// TODO: it probably makes sense to introduce a "remote fault" error.
-					peer->_error = Error::success;
-					node->_error = Error::fault;
-					peer->complete();
-					node->complete();
-					continue;
-				}
-
-				// Both nodes complete successfully.
-				node->_actualLength = peer->_inBuffer.size();
-				peer->complete();
-				node->complete();
-			}else{
-				assert(recipe->type == kHelActionRecvToBuffer
-						&& peer->tag() == kTagSendFlow);
-
-				size_t progress = 0;
-				bool didFault = false;
-				// Each iteration of this loop sends one ack packet.
-				while(true) {
-					auto xferPacket = co_await node->flowQueue.async_get();
-					assert(xferPacket);
-
-					if(xferPacket->data && !didFault) {
-						// Otherwise, there would have been a transmission error.
-						assert(progress + xferPacket->size <= recipe->length);
-
-						co_await thread->mainWorkQueue()->enter();
-						auto outcome = writeUserMemory(
-								reinterpret_cast<std::byte *>(recipe->buffer) + progress,
-								xferPacket->data, xferPacket->size);
-						if(outcome) {
-							progress += xferPacket->size;
-						}else{
-							didFault = true;
-						}
-					}
-
-					if(xferPacket->terminate) {
-						if(didFault) {
-							// Ack the packet (may deallocate the peer!).
-							peer->flowQueue.put({ .terminate = true, .fault = true, });
-							node->_error = Error::fault;
-						}else{
-							// Ack the packet (may deallocate the peer!).
-							peer->flowQueue.put({ .terminate = true });
-							if(xferPacket->fault) {
+						if(lastTransferSent) {
+							if(anyRemoteFault) {
 								node->_error = Error::remoteFault;
 							}else{
-								node->_actualLength = progress;
+								node->_error = Error::success;
+							}
+							break;
+						}
+
+						// If we encounter remote faults, we terminate.
+						if(anyRemoteFault) {
+							// Send the packet (may deallocate the peer!).
+							peer->flowQueue.put({ .terminate = true });
+							++numSent;
+
+							// Retrieve but ignore all acks.
+							assert(numSent > numAcked);
+							while(numSent != numAcked) {
+								auto ackPacket = co_await node->flowQueue.async_get();
+								assert(ackPacket);
+								++numAcked;
+							}
+
+							node->_error = Error::remoteFault;
+							break;
+						}
+
+						// Prepare a buffer an send it.
+						assert(numSent - numAcked < xferBuffers.size());
+						auto &xb = xferBuffers[numSent & (xferBuffers.size() - 1)];
+						if(!xb.size())
+							xb = frg::unique_memory<KernelAlloc>{*kernelAlloc, 4096};
+
+						auto chunkSize = frg::min(recipe->length - progress, xb.size());
+						assert(chunkSize);
+
+						auto res = co_await thread->mainWorkQueue()->enter();
+						if (!res) {
+							peer->flowQueue.put({ .terminate = true, .fault = true });
+							++numSent;
+
+							// Retrieve but ignore all acks.
+							assert(numSent > numAcked);
+							while(numSent != numAcked) {
+								auto ackPacket = co_await node->flowQueue.async_get();
+								assert(ackPacket);
+								++numAcked;
+							}
+
+							node->_error = Error::threadExited;
+							break;
+						}
+
+						auto outcome = readUserMemory(xb.data(),
+								reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
+						if(!outcome) {
+							// Send the packet (may deallocate the peer!).
+							peer->flowQueue.put({ .terminate = true, .fault = true });
+							++numSent;
+
+							// Retrieve but ignore all acks.
+							assert(numSent > numAcked);
+							while(numSent != numAcked) {
+								auto ackPacket = co_await node->flowQueue.async_get();
+								assert(ackPacket);
+								++numAcked;
+							}
+
+							node->_error = Error::fault;
+							break;
+						}
+
+						lastTransferSent = (progress + chunkSize == recipe->length);
+						// Send the packet (may deallocate the peer!).
+						peer->flowQueue.put({
+							.data = xb.data(),
+							.size = chunkSize,
+							.terminate = lastTransferSent
+						});
+						++numSent;
+						progress += chunkSize;
+					}
+
+					node->complete();
+				}else if(recipe->type == kHelActionRecvToBuffer
+						&& peer->tag() == kTagSendKernelBuffer) {
+					auto res = co_await thread->mainWorkQueue()->enter();
+					if (!res) {
+						peer->_error = Error::threadExited;
+						node->_error = Error::threadExited;
+						peer->complete();
+						node->complete();
+						continue;
+					}
+					auto outcome = writeUserMemory(recipe->buffer,
+							peer->_inBuffer.data(), peer->_inBuffer.size());
+					if(!outcome) {
+						// We complete with fault; the remote with success.
+						// TODO: it probably makes sense to introduce a "remote fault" error.
+						peer->_error = Error::success;
+						node->_error = Error::fault;
+						peer->complete();
+						node->complete();
+						continue;
+					}
+
+					// Both nodes complete successfully.
+					node->_actualLength = peer->_inBuffer.size();
+					peer->complete();
+					node->complete();
+				}else{
+					assert(recipe->type == kHelActionRecvToBuffer
+							&& peer->tag() == kTagSendFlow);
+
+					size_t progress = 0;
+					bool didFault = false;
+					// Each iteration of this loop sends one ack packet.
+					while(true) {
+						auto xferPacket = co_await node->flowQueue.async_get();
+						assert(xferPacket);
+
+						if(xferPacket->data && !didFault) {
+							// Otherwise, there would have been a transmission error.
+							assert(progress + xferPacket->size <= recipe->length);
+
+							co_await thread->mainWorkQueue()->enter();
+							auto outcome = writeUserMemory(
+									reinterpret_cast<std::byte *>(recipe->buffer) + progress,
+									xferPacket->data, xferPacket->size);
+							if(outcome) {
+								progress += xferPacket->size;
+							}else{
+								didFault = true;
 							}
 						}
 
-						// This node is finished.
-						break;
+						if(xferPacket->terminate) {
+							if(didFault) {
+								// Ack the packet (may deallocate the peer!).
+								peer->flowQueue.put({ .terminate = true, .fault = true, });
+								node->_error = Error::fault;
+							}else{
+								// Ack the packet (may deallocate the peer!).
+								peer->flowQueue.put({ .terminate = true });
+								if(xferPacket->fault) {
+									node->_error = Error::remoteFault;
+								}else{
+									node->_actualLength = progress;
+								}
+							}
+
+							// This node is finished.
+							break;
+						}
+
+						// This is the only non-terminating case.
+						// Senders should always terminate if they fault.
+						assert(!xferPacket->fault);
+
+						// Ack the packet (may deallocate the peer!).
+						if(didFault) {
+							peer->flowQueue.put({ .fault = true });
+						}else{
+							peer->flowQueue.put({});
+						}
 					}
 
-					// This is the only non-terminating case.
-					// Senders should always terminate if they fault.
-					assert(!xferPacket->fault);
-
-					// Ack the packet (may deallocate the peer!).
-					if(didFault) {
-						peer->flowQueue.put({ .fault = true });
-					}else{
-						peer->flowQueue.put({});
-					}
+					node->complete();
 				}
-
-				node->complete();
 			}
 		}
-	};
 
-	if(numFlows)
-		handleFlow(closure, numFlows, thisThread.lock());
+		co_await packet.completion.wait();
 
-	Stream::transmit(lane, rootChain);
+		QueueSource *tail = nullptr;
+		auto link = [&] (QueueSource *source) {
+			if(tail)
+				tail->link = source;
+			tail = source;
+		};
+
+		for(size_t i = 0; i < count; i++) {
+			auto item = &items[i];
+			HelAction *recipe = &item->recipe;
+			auto node = &item->transmit;
+
+			if(recipe->type == kHelActionDismiss) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionOffer) {
+				HelHandle handle = kHelNullHandle;
+
+				if(node->error() == Error::success
+						&& (recipe->flags & kHelItemWantLane)) {
+					auto universe = weakUniverse.lock();
+					if (!universe) {
+						item->helHandleResult = {kHelErrBadDescriptor, 0, handle};
+						item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+						link(&item->mainSource);
+						continue;
+					}
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock,
+							LaneDescriptor{node->lane()});
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionAccept) {
+				// TODO: This condition should be replaced. Just test if lane is valid.
+				HelHandle handle = kHelNullHandle;
+				if(node->error() == Error::success) {
+					auto universe = weakUniverse.lock();
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock,
+							LaneDescriptor{node->lane()});
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionImbueCredentials) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionExtractCredentials) {
+				item->helCredentialsResult = {.error = translateError(node->error()), .reserved = {}, .credentials = {}};
+				memcpy(item->helCredentialsResult.credentials,
+						node->credentials().data(), 16);
+				item->mainSource.setup(&item->helCredentialsResult,
+						sizeof(HelCredentialsResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionSendFromBuffer
+					|| recipe->type == kHelActionSendFromBufferSg) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionRecvInline) {
+				item->helInlineResult = {translateError(node->error()),
+						0, node->_transmitBuffer.size()};
+				item->mainSource.setup(&item->helInlineResult, sizeof(HelInlineResultNoFlex));
+				item->dataSource.setup(node->_transmitBuffer.data(),
+						node->_transmitBuffer.size());
+				link(&item->mainSource);
+				link(&item->dataSource);
+			}else if(recipe->type == kHelActionRecvToBuffer) {
+				item->helLengthResult = {translateError(node->error()),
+						0, node->actualLength()};
+				item->mainSource.setup(&item->helLengthResult, sizeof(HelLengthResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionPushDescriptor) {
+				item->helSimpleResult = {translateError(node->error()), 0};
+				item->mainSource.setup(&item->helSimpleResult, sizeof(HelSimpleResult));
+				link(&item->mainSource);
+			}else if(recipe->type == kHelActionPullDescriptor) {
+				// TODO: This condition should be replaced. Just test if lane is valid.
+				HelHandle handle = kHelNullHandle;
+				if(node->error() == Error::success) {
+					auto universe = weakUniverse.lock();
+					assert(universe);
+
+					auto irq_lock = frg::guard(&irqMutex());
+					Universe::Guard lock(universe->lock);
+
+					handle = universe->attachDescriptor(lock, node->descriptor());
+				}
+
+				item->helHandleResult = {translateError(node->error()), 0, handle};
+				item->mainSource.setup(&item->helHandleResult, sizeof(HelHandleResult));
+				link(&item->mainSource);
+			}else{
+				// This cannot happen since we validate recipes at submit time.
+				__builtin_trap();
+			}
+		}
+
+		co_await queue->submit(&items[0].mainSource, context);
+	}(std::move(items), count, thisUniverse.lock(), std::move(queue), context,
+			lane, numFlows, thisThread.lock());
 
 	return kHelErrNone;
 }
@@ -3272,121 +3230,11 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	}
 }
 
-template <typename Event>
-requires (std::is_same_v<Event, OneshotEvent> || std::is_same_v<Event, BitsetEvent>)
-struct EventClosure final : CancelNode, AwaitEventNode<Event>, IpcNode {
-	static void issue(smarter::shared_ptr<Event> event, uint64_t sequence,
-			smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
-		auto closure = frg::construct<EventClosure>(*kernelAlloc, event.get(),
-				std::move(queue), context);
-		closure->_queue->registerNode(closure);
-		*async_id = closure->asyncId();
-
-		event->submitAwait(closure, sequence);
-	}
-
-	static void awaited(Worklet *worklet) {
-		auto closure = frg::container_of(worklet, &EventClosure::worklet);
-
-		if(!closure->wasCancelled())
-			closure->result.error = translateError(closure->error());
-		else
-			closure->result.error = kHelErrCancelled;
-
-		closure->_queue->unregisterNode(closure);
-		closure->result.sequence = closure->sequence();
-		closure->result.bitset = closure->bitset();
-		closure->_queue->submit(closure);
-	}
-
-	void handleCancellation() override {
-		cancelEvent.cancel();
-	}
-
-public:
-	explicit EventClosure(Event *event, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
-	: _queue{std::move(the_queue)},
-			source{&result, sizeof(HelEventResult), nullptr} {
-		setupContext(context);
-		setupSource(&source);
-		worklet.setup(&EventClosure::awaited, getCurrentThread()->mainWorkQueue());
-		AwaitEventNode<Event>::setup(&worklet, event, cancelEvent);
-	}
-
-	void complete() override {
-		frg::destruct(*kernelAlloc, this);
-	}
-
-private:
-	Worklet worklet;
-	async::cancellation_event cancelEvent;
-	smarter::shared_ptr<IpcQueue> _queue;
-	QueueSource source;
-	HelEventResult result{
-		.error = kHelErrNone,
-		.bitset = 0,
-		.sequence = 0,
-	};
-};
-
 HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 		HelHandle queue_handle, uintptr_t context, uint64_t *async_id) {
-	struct IrqClosure final : CancelNode, IpcNode {
-		static void issue(smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
-				smarter::shared_ptr<IpcQueue> queue, intptr_t context, uint64_t *async_id) {
-			auto closure = frg::construct<IrqClosure>(*kernelAlloc, irq.get(),
-					std::move(queue), context);
-			closure->_queue->registerNode(closure);
-			*async_id = closure->asyncId();
-			irq->submitAwait(&closure->irqNode, sequence);
-		}
-
-		static void awaited(Worklet *worklet) {
-			auto closure = frg::container_of(worklet, &IrqClosure::worklet);
-			if(closure->irqNode.wasCancelled())
-				closure->result.error = kHelErrCancelled;
-			else
-				closure->result.error = translateError(closure->irqNode.error());
-			closure->_queue->unregisterNode(closure);
-			closure->result.sequence = closure->irqNode.sequence();
-			closure->_queue->submit(closure);
-		}
-
-		void handleCancellation() override {
-			cancelEvent.cancel();
-		}
-
-	public:
-		explicit IrqClosure(IrqObject *irq, smarter::shared_ptr<IpcQueue> the_queue, uintptr_t context)
-		: _queue{std::move(the_queue)},
-				source{&result, sizeof(HelEventResult), nullptr} {
-			setupContext(context);
-			setupSource(&source);
-			worklet.setup(&IrqClosure::awaited, getCurrentThread()->mainWorkQueue());
-			irqNode.setup(&worklet, irq, cancelEvent);
-		}
-
-		void complete() override {
-			frg::destruct(*kernelAlloc, this);
-		}
-
-	private:
-		Worklet worklet;
-		async::cancellation_event cancelEvent;
-		AwaitIrqNode irqNode;
-		smarter::shared_ptr<IpcQueue> _queue;
-		QueueSource source;
-		HelEventResult result{
-			.error = kHelErrNone,
-			.bitset = 0,
-			.sequence = 0,
-		};
-	};
-
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	smarter::shared_ptr<IrqObject> irq;
 	AnyDescriptor descriptor;
 	smarter::shared_ptr<IpcQueue> queue;
 	{
@@ -3411,16 +3259,82 @@ HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
 
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
-		IrqClosure::issue(std::move(irq), sequence,
-				std::move(queue), context, async_id);
+		*async_id = 0;
+
+		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
+				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+				smarter::shared_ptr<WorkQueue> wq,
+				enable_detached_coroutine = {}) -> void {
+			auto result = co_await irq->awaitIrq(sequence, wq.get());
+
+			HelEventResult helResult{
+				.error = kHelErrNone,
+				.bitset = 0,
+				.sequence = 0,
+			};
+			if(result) {
+				helResult.sequence = result.value();
+			} else {
+				helResult.error = translateError(result.error());
+			}
+			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+		}(std::move(irq), sequence, std::move(queue), context,
+				this_thread->mainWorkQueue()->take());
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-		EventClosure<OneshotEvent>::issue(std::move(event), sequence,
-				std::move(queue), context, async_id);
+
+		auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
+		queue->registerNode(cancelNode);
+		*async_id = cancelNode->asyncId();
+
+		[](smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
+				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+				CancelNodeWithToken *cancelNode,
+				smarter::shared_ptr<WorkQueue> wq,
+				enable_detached_coroutine = {}) -> void {
+			auto result = co_await event->awaitEvent(sequence, cancelNode->token(), wq.get());
+
+			queue->unregisterNode(cancelNode);
+
+			HelEventResult helResult{
+				.error = translateError(result.error),
+				.bitset = result.bitset,
+				.sequence = result.sequence,
+			};
+			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+
+			frg::destruct(*kernelAlloc, cancelNode);
+		}(std::move(event), sequence, std::move(queue), context, cancelNode,
+				this_thread->mainWorkQueue()->take());
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
-		EventClosure<BitsetEvent>::issue(std::move(event), sequence,
-				std::move(queue), context, async_id);
+
+		auto cancelNode = frg::construct<CancelNodeWithToken>(*kernelAlloc);
+		queue->registerNode(cancelNode);
+		*async_id = cancelNode->asyncId();
+
+		[](smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
+				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+				CancelNodeWithToken *cancelNode,
+				smarter::shared_ptr<WorkQueue> wq,
+				enable_detached_coroutine = {}) -> void {
+			auto result = co_await event->awaitEvent(sequence, cancelNode->token(), wq.get());
+
+			queue->unregisterNode(cancelNode);
+
+			HelEventResult helResult{
+				.error = translateError(result.error),
+				.bitset = result.bitset,
+				.sequence = result.sequence,
+			};
+			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+
+			frg::destruct(*kernelAlloc, cancelNode);
+		}(std::move(event), sequence, std::move(queue), context, cancelNode,
+				this_thread->mainWorkQueue()->take());
 	}else{
 		return kHelErrBadDescriptor;
 	}

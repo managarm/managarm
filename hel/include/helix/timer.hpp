@@ -53,7 +53,7 @@ private:
 
 	F _function;
 	async::cancellation_event _cancelTimer;
-	async::oneshot_event _ev;
+	async::oneshot_primitive _ev;
 };
 
 struct TimeoutCancellation {
