@@ -15,22 +15,23 @@ struct IpcQueue;
 // NOTE: The following structs mirror the Hel{Queue,Element} structs.
 // They must be kept in sync!
 
-static const int kHeadMask = 0xFFFFFF;
-static const int kHeadWaiters = (1 << 24);
+static const int kUserNotifyCqProgress = (1 << 0);
+static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
-	int headFutex;
-	char padding[4];
-	int indexQueue[];
+	int userNotify;
+	int kernelNotify;
+	int cqFirst;
 };
 
+static const int kNextPresent = (1 << 24);
+
 static const int kProgressMask = 0xFFFFFF;
-static const int kProgressWaiters = (1 << 24);
 static const int kProgressDone = (1 << 25);
 
 struct ChunkStruct {
+	int next;
 	int progressFutex;
-	char padding[4];
 	char buffer[];
 };
 
@@ -94,7 +95,7 @@ private:
 	using Mutex = frg::ticket_spinlock;
 
 public:
-	IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize);
+	IpcQueue(unsigned int numChunks, size_t chunkSize);
 
 	IpcQueue(const IpcQueue &) = delete;
 
@@ -109,6 +110,24 @@ public:
 	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
 	void submit(IpcNode *node);
+
+	void raiseCqEvent() {
+		_cqEvent.raise();
+	}
+
+	bool checkUserNotify() {
+		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
+		return userNotify & kUserNotifyCqProgress;
+	}
+
+	auto waitUserEvent(async::cancellation_token ct) {
+		return _userEvent.async_wait_if([this] () -> bool {
+			auto head = _memory->accessImmediate<QueueStruct>(0);
+			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
+			return !(userNotify & kUserNotifyCqProgress);
+		}, ct);
+	}
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for submit()
@@ -172,17 +191,21 @@ private:
 
 	smarter::shared_ptr<ImmediateMemory> _memory;
 
-	unsigned int _ringShift;
 	size_t _chunkSize;
 
 	frg::vector<size_t, KernelAlloc> _chunkOffsets;
 
-	// Index into the queue that we are currently processing.
-	int _currentIndex;
+	// Chunk that we are currently processing.
+	int _currentChunk;
 	// Progress into the current chunk.
 	int _currentProgress;
 
 	async::recurring_event _doorbell;
+
+	// Event raised when userspace supplies new CQ chunks.
+	async::recurring_event _cqEvent;
+	// Event raised when kernel makes progress (i.e., userNotify changes).
+	async::recurring_event _userEvent;
 
 	frg::intrusive_list<
 		IpcNode,

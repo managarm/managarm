@@ -11,10 +11,10 @@ namespace thor {
 // IpcQueue
 // ----------------------------------------------------------------------------
 
-IpcQueue::IpcQueue(unsigned int ringShift, unsigned int numChunks, size_t chunkSize)
-: _ringShift{ringShift}, _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
-		_currentIndex{0}, _currentProgress{0}, _anyNodes{false} {
-	auto chunksOffset = (sizeof(QueueStruct) + (sizeof(int) << ringShift) + 63) & ~size_t(63);
+IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize)
+: _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
+		_currentChunk{0}, _currentProgress{0}, _anyNodes{false} {
+	auto chunksOffset = (sizeof(QueueStruct) + 63) & ~size_t(63);
 	auto reservedPerChunk = (sizeof(ChunkStruct) + chunkSize + 63) & ~size_t(63);
 	auto overallSize = chunksOffset + numChunks * reservedPerChunk;
 
@@ -49,49 +49,34 @@ void IpcQueue::submit(IpcNode *node) {
 coroutine<void> IpcQueue::_runQueue() {
 	auto head = _memory->accessImmediate<QueueStruct>(0);
 
+	// Wait for the initial chunk to be supplied via cqFirst.
+	{
+		auto cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
+		while(!(cqFirst & kNextPresent)) {
+			co_await _cqEvent.async_wait_if([&] () -> bool {
+				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
+
+				cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
+				return !(cqFirst & kNextPresent);
+			});
+		}
+		_currentChunk = cqFirst & ~kNextPresent;
+	}
+
 	while(true) {
+		// Wait until there are nodes to process.
 		co_await _doorbell.async_wait_if([&] () -> bool {
 			return !_anyNodes.load(std::memory_order_relaxed);
 		});
 		if(!_anyNodes.load(std::memory_order_relaxed))
 			continue;
 
-		// Wait until the futex advances past _currentIndex.
-		while(true) {
-			bool pastCurrentChunk = false;
-			auto headFutexWord = __atomic_load_n(&head->headFutex, __ATOMIC_ACQUIRE);
-			// TODO: Contract violation errors should be reported to user-space.
-			assert(!(headFutexWord & ~(kHeadMask | kHeadWaiters)));
-			do {
-				if(_currentIndex != (headFutexWord & kHeadMask)) {
-					pastCurrentChunk = true;
-					break;
-				}
-
-				if(headFutexWord & kHeadWaiters)
-					break; // Waiters bit is already set (in a previous iteration).
-			} while(!__atomic_compare_exchange_n(&head->headFutex, &headFutexWord,
-					_currentIndex | kHeadWaiters, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
-			if(pastCurrentChunk)
-				break;
-
-			auto hfOffset = offsetof(QueueStruct, headFutex);
-			co_await getGlobalFutexRealm()->wait(_memory->getImmediateFutex(hfOffset),
-					_currentIndex | kHeadWaiters);
-		}
-
-		// Lock the chunk.
 		size_t chunkOffset;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&_mutex);
-
-			size_t iq = + _currentIndex & ((size_t{1} << _ringShift) - 1);
-			size_t cn = *_memory->accessImmediate<int>(offsetof(QueueStruct, indexQueue) + iq * sizeof(int));
-			assert(cn < _chunkOffsets.size());
-			chunkOffset = _chunkOffsets[cn];
+			chunkOffset = _chunkOffsets[_currentChunk];
 		}
-
 		auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
 
 		// This inner loop runs until the chunk is exhausted.
@@ -122,6 +107,7 @@ coroutine<void> IpcQueue::_runQueue() {
 
 			// Check if we need to retire the current chunk.
 			bool emitElement = true;
+			int nextWord = 0;
 			if(progress + length <= _chunkSize) {
 				// Emit the next element to the current chunk.
 				auto elementOffset = offsetof(ChunkStruct, buffer) + _currentProgress;
@@ -142,6 +128,18 @@ coroutine<void> IpcQueue::_runQueue() {
 				}
 			}else{
 				emitElement = false;
+
+				// Wait until the next chunk is available before setting the done bit.
+				// This simplifies lifetime handling on the userspace side.
+				nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
+				while (!(nextWord & kNextPresent)) {
+					co_await _cqEvent.async_wait_if([&] () -> bool {
+						__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
+
+						nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
+						return !(nextWord & kNextPresent);
+					});
+				}
 			}
 
 			// Update the progress futex.
@@ -152,13 +150,14 @@ coroutine<void> IpcQueue::_runQueue() {
 				newProgressWord = progress | kProgressDone;
 			}
 
-			auto progressFutexWord = __atomic_exchange_n(&chunkHead->progressFutex,
-					newProgressWord, __ATOMIC_RELEASE);
+			__atomic_store_n(&chunkHead->progressFutex, newProgressWord, __ATOMIC_RELEASE);
+
+			auto userNotify = __atomic_fetch_or(&head->userNotify,
+					kUserNotifyCqProgress, __ATOMIC_RELEASE);
 			// If user-space modifies any non-flags field, that's a contract violation.
 			// TODO: Shut down the queue in this case.
-			if(progressFutexWord & kProgressWaiters) {
-				auto pfOffset = chunkOffset + offsetof(ChunkStruct, progressFutex);
-				getGlobalFutexRealm()->wake(_memory->resolveImmediateFutex(pfOffset), UINT32_MAX);
+			if(!(userNotify & kUserNotifyCqProgress)) {
+				_userEvent.raise();
 			}
 
 			// Update our internal state and retire the chunk.
@@ -166,7 +165,7 @@ coroutine<void> IpcQueue::_runQueue() {
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&_mutex);
 
-				_currentIndex = ((_currentIndex + 1) & kHeadMask);
+				_currentChunk = nextWord & ~kNextPresent;
 				_currentProgress = 0;
 				break;
 			}

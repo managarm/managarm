@@ -52,17 +52,12 @@ pub struct Executor {
 }
 
 impl Executor {
-    const QUEUE_RING_SHIFT: usize = 9;
     const QUEUE_CHUNK_COUNT: usize = 16;
     const QUEUE_CHUNK_SIZE: usize = 4096;
 
     /// Creates a new executor with a queue using default parameters.
     pub fn new() -> Result<Self> {
-        let queue = Queue::new(
-            Self::QUEUE_RING_SHIFT,
-            Self::QUEUE_CHUNK_COUNT,
-            Self::QUEUE_CHUNK_SIZE,
-        )?;
+        let queue = Queue::new(Self::QUEUE_CHUNK_COUNT, Self::QUEUE_CHUNK_SIZE)?;
 
         let queue_handle = queue.handle().clone_handle()?;
 

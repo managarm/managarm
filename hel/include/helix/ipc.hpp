@@ -160,13 +160,11 @@ private:
 	};
 
 public:
-	static constexpr int sizeShift = 9;
-
 	static Dispatcher &global();
 
 	Dispatcher()
 	: _handle{kHelNullHandle}, _queue{nullptr},
-			_activeChunks{0}, _retrieveIndex{0}, _nextIndex{0}, _lastProgress{0} { }
+			_retrieveChunk{0}, _tailChunk{0}, _lastProgress{0} { }
 
 	Dispatcher(const Dispatcher &) = delete;
 
@@ -176,13 +174,12 @@ public:
 		if(!_handle) {
 			HelQueueParameters params {
 				.flags = 0,
-				.ringShift = sizeShift,
 				.numChunks = 16,
 				.chunkSize = 4096,
 			};
 			HEL_CHECK(helCreateQueue(&params, &_handle));
 
-			auto chunksOffset = (sizeof(HelQueue) + (sizeof(int) << sizeShift) + 63) & ~size_t(63);
+			auto chunksOffset = (sizeof(HelQueue) + 63) & ~size_t(63);
 			auto reservedPerChunk = (sizeof(HelChunk) + params.chunkSize + 63) & ~size_t(63);
 			auto overallSize = chunksOffset + params.numChunks * reservedPerChunk;
 
@@ -195,6 +192,21 @@ public:
 			auto chunksPtr = reinterpret_cast<std::byte *>(mapping) + chunksOffset;
 			for(unsigned int i = 0; i < 16; ++i)
 				_chunks[i] = reinterpret_cast<HelChunk *>(chunksPtr + i * reservedPerChunk);
+
+			// Reset and supply all chunks to the queue.
+			for (unsigned int i = 0; i < 16; ++i)
+				_resetChunk(i);
+
+			// Set cqFirst to the initial chunk.
+			__atomic_store_n(&_queue->cqFirst, 0 | kHelNextPresent, __ATOMIC_RELEASE);
+
+			// Supply the remaining chunks.
+			_tailChunk = 0;
+			for (unsigned int i = 1; i < 16; ++i)
+				_supplyChunk(i);
+
+			_retrieveChunk = 0;
+			_wakeHeadFutex();
 		}
 
 		return _handle;
@@ -202,53 +214,26 @@ public:
 
 	void wait() {
 		while(true) {
-			// TODO: Initialize all chunks when setting up the queue.
-			if(_retrieveIndex == _nextIndex) {
-				assert(_activeChunks < 16);
-
-				// Reset and enqueue the new chunk.
-				_chunks[_activeChunks]->progressFutex = 0;
-
-				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
-				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
-				_wakeHeadFutex();
-
-				_refCounts[_activeChunks] = 1;
-				_activeChunks++;
-				continue;
-			}else if (_hadWaiters && _activeChunks < (1 << sizeShift)) {
-				assert(_activeChunks < 16);
-
-				// Reset and enqueue the new chunk.
-				_chunks[_activeChunks]->progressFutex = 0;
-
-				_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = _activeChunks;
-				_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
-				_wakeHeadFutex();
-
-				_refCounts[_activeChunks] = 1;
-				_activeChunks++;
-				_hadWaiters = false;
-			}
-
 			bool done;
 			_waitProgressFutex(&done);
 			if(done) {
-				_surrender(_numberOf(_retrieveIndex));
+				auto cn = _retrieveChunk;
+				auto next = __atomic_load_n(&_chunks[cn]->next, __ATOMIC_ACQUIRE);
+				_surrender(cn);
 
 				_lastProgress = 0;
-				_retrieveIndex = ((_retrieveIndex + 1) & kHelHeadMask);
+				_retrieveChunk = next & ~kHelNextPresent;
 				continue;
 			}
 
 			// Dequeue the next element.
-			auto ptr = (char *)_retrieveChunk() + sizeof(HelChunk) + _lastProgress;
+			auto ptr = (char *)_chunks[_retrieveChunk] + sizeof(HelChunk) + _lastProgress;
 			auto element = reinterpret_cast<HelElement *>(ptr);
 			_lastProgress += sizeof(HelElement) + element->length;
 
 			auto context = reinterpret_cast<Context *>(element->context);
-			_refCounts[_numberOf(_retrieveIndex)]++;
-			context->complete(ElementHandle{this, _numberOf(_retrieveIndex),
+			_refCounts[_retrieveChunk]++;
+			context->complete(ElementHandle{this, _retrieveChunk,
 					ptr + sizeof(HelElement)});
 			return;
 		}
@@ -259,15 +244,23 @@ private:
 		assert(_refCounts[cn] > 0);
 		if(_refCounts[cn]-- > 1)
 			return;
+		_resetChunk(cn);
+		_supplyChunk(cn);
+	}
 
-		// Reset and requeue the chunk.
+	void _resetChunk(int cn) {
+		// Reset the chunk's state.
+		_chunks[cn]->next = 0;
 		_chunks[cn]->progressFutex = 0;
 
-		_queue->indexQueue[_nextIndex & ((1 << sizeShift) - 1)] = cn;
-		_nextIndex = ((_nextIndex + 1) & kHelHeadMask);
-		_wakeHeadFutex();
-
+		// Internal bookkeeping.
 		_refCounts[cn] = 1;
+	}
+
+	void _supplyChunk(int cn) {
+		__atomic_store_n(&_chunks[_tailChunk]->next, cn | kHelNextPresent, __ATOMIC_RELEASE);
+		_tailChunk = cn;
+		_wakeHeadFutex();
 	}
 
 	void _reference(int cn) {
@@ -275,44 +268,36 @@ private:
 	}
 
 private:
-	int _numberOf(int index) {
-		return _queue->indexQueue[index & ((1 << sizeShift) - 1)];
-	}
-
-	HelChunk *_retrieveChunk() {
-		auto cn = _queue->indexQueue[_retrieveIndex & ((1 << sizeShift) - 1)];
-		return _chunks[cn];
-	}
-
 	void _wakeHeadFutex() {
-		auto futex = __atomic_exchange_n(&_queue->headFutex, _nextIndex, __ATOMIC_RELEASE);
-		if(futex & kHelHeadWaiters) {
-			HEL_CHECK(helFutexWake(&_queue->headFutex, UINT32_MAX));
-			_hadWaiters = true;
-		}
+		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySupplyCqChunks, __ATOMIC_RELEASE);
+		if(!(futex & kHelKernelNotifySupplyCqChunks))
+			HEL_CHECK(helDriveQueue(_handle, 0));
 	}
 
 	void _waitProgressFutex(bool *done) {
+		auto check = [&] () -> bool {
+			auto progress = __atomic_load_n(&_chunks[_retrieveChunk]->progressFutex, __ATOMIC_ACQUIRE);
+			assert(!(progress & ~(kHelProgressMask | kHelProgressDone)));
+			if(_lastProgress != (progress & kHelProgressMask)) {
+				*done = false;
+				return true;
+			}else if(progress & kHelProgressDone) {
+				*done = true;
+				return true;
+			}
+			return false;
+		};
+
+		if (check())
+			return;
 		while(true) {
-			auto futex = __atomic_load_n(&_retrieveChunk()->progressFutex, __ATOMIC_ACQUIRE);
-			assert(!(futex & ~(kHelProgressMask | kHelProgressWaiters | kHelProgressDone)));
-			do {
-				if(_lastProgress != (futex & kHelProgressMask)) {
-					*done = false;
-					return;
-				}else if(futex & kHelProgressDone) {
-					*done = true;
-					return;
-				}
-
-				if(futex & kHelProgressWaiters)
-					break; // Waiters bit is already set (in a previous iteration).
-			} while(!__atomic_compare_exchange_n(&_retrieveChunk()->progressFutex, &futex,
-						_lastProgress | kHelProgressWaiters,
-						false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE));
-
-			HEL_CHECK(helFutexWait(&_retrieveChunk()->progressFutex,
-					_lastProgress | kHelProgressWaiters, -1));
+			__atomic_fetch_and(&_queue->userNotify, ~kHelUserNotifyCqProgress, __ATOMIC_ACQUIRE);
+			if (check())
+				return;
+			auto e = helDriveQueue(_handle, kHelDriveWaitCqProgress);
+			if (e == kHelErrCancelled)
+				continue;
+			HEL_CHECK(e);
 		}
 	}
 
@@ -321,12 +306,10 @@ private:
 	HelQueue *_queue;
 	HelChunk *_chunks[16];
 
-	int _activeChunks;
-	bool _hadWaiters;
-
-	// Index of the chunk that we are currently retrieving/inserting next.
-	int _retrieveIndex;
-	int _nextIndex;
+	// Chunk that we are currently retrieving from.
+	int _retrieveChunk;
+	// Tail of the chunk list (where we append new chunks).
+	int _tailChunk;
 
 	// Progress into the current chunk.
 	int _lastProgress;

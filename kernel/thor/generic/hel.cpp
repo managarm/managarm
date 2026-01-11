@@ -405,7 +405,7 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 		return kHelErrIllegalArgs;
 
 	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			params.ringShift, params.numChunks, params.chunkSize);
+			params.numChunks, params.chunkSize);
 	queue->setupSelfPtr(queue);
 	{
 		auto irq_lock = frg::guard(&irqMutex());
@@ -436,6 +436,46 @@ HelError helCancelAsync(HelHandle handle, uint64_t async_id) {
 	}
 
 	queue->cancel(async_id);
+
+	return kHelErrNone;
+}
+
+HelError helDriveQueue(HelHandle handle, uint32_t flags) {
+	if (flags & ~kHelDriveWaitCqProgress)
+		return kHelErrIllegalArgs;
+
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<IpcQueue> queue;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, handle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
+	}
+
+	// Always raise cqEvent to indicate that kernelNotify may have changed.
+	queue->raiseCqEvent();
+
+	// If requested, wait until userNotify & kNotifyProgress is non-zero.
+	if(flags & kHelDriveWaitCqProgress) {
+		if (!queue->checkUserNotify()) {
+			auto outcome = Thread::asyncBlockCurrentInterruptible(
+				async::lambda([&](async::cancellation_token ct) {
+					return queue->waitUserEvent(ct);
+				})
+			);
+			if (!outcome) {
+				return kHelErrCancelled;
+			}
+		}
+	}
 
 	return kHelErrNone;
 }

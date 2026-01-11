@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 105,
+	kHelNumCalls = 106,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -33,6 +33,7 @@ enum {
 	kHelCallCloseDescriptor = 21,
 
 	kHelCallCreateQueue = 89,
+	kHelCallDriveQueue = 105,
 	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
@@ -466,44 +467,50 @@ enum HelSyscallArgs {
 
 struct HelQueueParameters {
 	uint32_t flags;
-	unsigned int ringShift;
 	unsigned int numChunks;
 	size_t chunkSize;
 };
 
-//! Mask to extract the current queue head.
-static const int kHelHeadMask = 0xFFFFFF;
+//! Set in userNotify after kernel has written progress.
+static const int kHelUserNotifyCqProgress = (1 << 0);
+//! Set in kernelNotify after userspace has supplied new chunks.
+static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
-//! Can be set by the kernel to request a FutexWake on update
-static const int kHelHeadWaiters = (1 << 24);
+//! Flag for helDriveQueue: wait until completion queue has progress.
+static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
-	//! Futex for kernel/user-space head synchronization.
-	int headFutex;
+	//! Futex that is used to wake userspace.
+	//! Kernel sets bits using atomic OR.
+	//! Userspace clears bits using atomic AND.
+	int userNotify;
 
-	//! Ensures that the buffer is 8-byte aligned.
-	char padding[4];
+	//! Futex that is used to wake the kernel.
+	//! Userspace sets bits using atomic OR.
+	//! Kernel clears bits using atomic AND.
+	int kernelNotify;
 
-	//! The actual queue.
-	int indexQueue[];
+	//! Index of the first chunk of the completion queue.
+	//! Written by userspace and read by the kernel.
+	int cqFirst;
 };
+
+//! Marks the next field as present.
+static const int kHelNextPresent = (1 << 24);
 
 //! Mask to extract the number of valid bytes in the chunk.
 static const int kHelProgressMask = 0xFFFFFF;
-
-//! Can be set by userspace to request a FutexWake on update.
-static const int kHelProgressWaiters = (1 << 24);
-
 //! Set by the kernel once it retires the chunk.
 static const int kHelProgressDone = (1 << 25);
 
 struct HelChunk {
+	//! Index of the next chunk.
+	//! Written by consumer, read by producer.
+	int next;
+
 	//! Futex for kernel/user-space progress synchronization.
 	int progressFutex;
-
-	//! Ensures that the buffer is 8-byte aligned.
-	char padding[4];
 
 	//! Actual contents of the chunk.
 	char buffer[];
@@ -701,6 +708,17 @@ HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 //! @param[in] asyncId
 //!    	ID identifying the operation.
 HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
+
+//! Drives an IPC queue.
+//!
+//! This function signals the kernel that new chunks have been supplied
+//! and optionally waits for progress on the completion queue.
+//! @param[in] queueHandle
+//!    	Handle to the queue.
+//! @param[in] flags
+//!    	Flags controlling the behavior.
+//!    	If kHelDriveWaitCqProgress is set, the call blocks until progress is made.
+HEL_C_LINKAGE HelError helDriveQueue(HelHandle queueHandle, uint32_t flags);
 
 //! @}
 //! @name Memory Management
