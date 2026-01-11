@@ -294,7 +294,10 @@ private:
 			__atomic_fetch_and(&_queue->userNotify, ~kHelUserNotifyCqProgress, __ATOMIC_ACQUIRE);
 			if (check())
 				return;
-			HEL_CHECK(helDriveQueue(_handle, kHelDriveWaitCqProgress));
+			auto e = helDriveQueue(_handle, kHelDriveWaitCqProgress);
+			if (e == kHelErrCancelled)
+				continue;
+			HEL_CHECK(e);
 		}
 	}
 

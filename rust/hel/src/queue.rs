@@ -344,9 +344,14 @@ impl Queue {
                 return Ok(done);
             }
 
-            hel_check(unsafe {
+            let res = hel_check(unsafe {
                 hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
-            })?;
+            });
+            match res {
+                Err(crate::Error::Cancelled) => continue,
+                _ => (),
+            };
+            res?;
         }
     }
 
