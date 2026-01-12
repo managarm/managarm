@@ -23,6 +23,31 @@ enum class ProfileMechanism {
 	amdPmc
 };
 
+// "Interrupt priority level". This is our version of the IRQL that the NT kernel uses.
+// Note that this is a software concept that does *not* correspond to hardware IRQ priorities.
+// Code running at IPL L can safely access thread-local data structures
+// if these data structures are only ever accessed at IPL <= L.
+using Ipl = short;
+
+using IplMask = uint32_t;
+
+namespace ipl {
+// Sentinel / invalid value.
+inline constexpr Ipl bad = -1;
+// Level that threads run at (unless they raise IPL).
+inline constexpr Ipl passive = 0;
+// Scheduling and blocking is only allowed at currentIpl() < ipl::schedule.
+inline constexpr Ipl schedule = 1;
+} // namespace ipl
+
+struct alignas(4) IplState {
+	// Level of the current context.
+	Ipl context{ipl::passive};
+	// Level of the currenly executing code path. This is always above the context level.
+	Ipl current{ipl::passive};
+};
+static_assert(std::atomic<IplState>::is_always_lock_free);
+
 struct CpuData : public PlatformCpuData {
 	static constexpr unsigned int RS_EMITTING = 1;
 	static constexpr unsigned int RS_PENDING = 2;
@@ -33,6 +58,8 @@ struct CpuData : public PlatformCpuData {
 
 	CpuData &operator= (const CpuData &) = delete;
 
+	std::atomic<IplState> iplState;
+	std::atomic<uint32_t> iplDeferred{0};
 	IrqMutex irqMutex;
 	UniqueKernelStack detachedStack;
 	UniqueKernelStack idleStack;

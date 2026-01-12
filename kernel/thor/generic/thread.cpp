@@ -575,6 +575,7 @@ template<typename ImageAccessor>
 void Thread::doHandlePreemption(bool inManipulableDomain, ImageAccessor image) {
 	assert(!intsAreEnabled());
 	assert(getCurrentThread().get() == this);
+	assert(currentIpl() < ipl::schedule);
 
 	auto *scheduler = &localScheduler.get();
 

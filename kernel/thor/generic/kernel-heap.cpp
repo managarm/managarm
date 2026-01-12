@@ -1,3 +1,4 @@
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
@@ -11,6 +12,7 @@
 namespace thor {
 
 THOR_DEFINE_PERCPU_UNINITIALIZED(heapSlabPool);
+THOR_DEFINE_PERCPU(inSlabPool);
 
 size_t kernelVirtualUsage = 0;
 size_t kernelMemoryUsage = 0;

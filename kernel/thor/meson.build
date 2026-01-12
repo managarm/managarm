@@ -50,6 +50,7 @@ src = files(
 	'generic/irq.cpp',
 	'generic/io.cpp',
 	'generic/ipc-queue.cpp',
+	'generic/ipl.cpp',
 	'generic/kasan.cpp',
 	'generic/kerncfg.cpp',
 	'generic/kernlet.cpp',

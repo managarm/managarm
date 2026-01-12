@@ -7,9 +7,17 @@
 #include <frg/pairing_heap.hpp>
 #include <frg/spinlock.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 
 namespace thor {
+
+inline bool deferPreemption() {
+	if (currentIpl() < ipl::schedule)
+		return false;
+	deferToIplLowerThan(ipl::schedule);
+	return true;
+}
 
 struct Scheduler;
 struct CpuData;
@@ -148,8 +156,11 @@ public:
 
 	void checkPreemption(IrqImageAccessor image) {
 		assert(image.inPreemptibleDomain());
-		if (mustCallPreemption())
-			currentRunnable()->handlePreemption(image);
+		if (!mustCallPreemption())
+			return;
+		if (deferPreemption())
+			return;
+		currentRunnable()->handlePreemption(image);
 	}
 
 	void update();
