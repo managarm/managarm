@@ -193,14 +193,13 @@ static initgraph::Task initReclaim{&globalInitEngine, "generic.init-reclaim",
 // MemoryView.
 // --------------------------------------------------------
 
-void MemoryView::resize(size_t newSize, async::any_receiver<void> receiver) {
+coroutine<frg::expected<Error>> MemoryView::resize(size_t newSize) {
 	(void)newSize;
-	(void)receiver;
-	panicLogger() << "MemoryView does not support resize!" << frg::endlog;
+	co_return Error::illegalObject;
 }
 
-void MemoryView::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
-	receiver.set_value({Error::illegalObject, nullptr});
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork() {
+	co_return Error::illegalObject;
 }
 
 // In addition to what copyFrom() does, we also have to mark the memory as dirty.
@@ -460,7 +459,7 @@ ImmediateMemory::~ImmediateMemory() {
 		physicalAllocator->free(_physicalPages[i], kPageSize);
 }
 
-void ImmediateMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
+coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -480,7 +479,7 @@ void ImmediateMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 		}
 	}
 
-	receiver.set_value();
+	co_return {};
 }
 
 frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
@@ -631,7 +630,7 @@ AllocatedMemory::~AllocatedMemory() {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frg::endlog;
 }
 
-void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
+coroutine<frg::expected<Error>> AllocatedMemory::resize(size_t newSize) {
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -641,7 +640,7 @@ void AllocatedMemory::resize(size_t newSize, async::any_receiver<void> receiver)
 		assert(num_chunks >= _physicalChunks.size());
 		_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
 	}
-	receiver.set_value();
+	co_return {};
 }
 
 frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
@@ -963,31 +962,28 @@ void ManagedSpace::_progressMonitors(MonitorList &pending) {
 // BackingMemory
 // --------------------------------------------------------
 
-void BackingMemory::resize(size_t newSize, async::any_receiver<void> receiver) {
+coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(!(newSize & (kPageSize - 1)));
 	auto newPages = newSize >> kPageShift;
 
-	async::detach_with_allocator(*kernelAlloc, [] (BackingMemory *self, size_t newPages,
-			async::any_receiver<void> receiver) -> coroutine<void> {
-		size_t oldPages;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->_managed->mutex);
+	size_t oldPages;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_managed->mutex);
 
-			oldPages = self->_managed->numPages;
-			self->_managed->numPages = newPages;
-		}
+		oldPages = _managed->numPages;
+		_managed->numPages = newPages;
+	}
 
-		if(newPages > self->_managed->numPages) {
-			// Do nothing for now.
-		}else if(newPages < self->_managed->numPages) {
-			// TODO: also free the affected pages!
-			co_await self->_managed->_evictQueue.evictRange(newPages << kPageShift,
-					oldPages << kPageShift);
-		}
+	if(newPages > _managed->numPages) {
+		// Do nothing for now.
+	}else if(newPages < _managed->numPages) {
+		// TODO: also free the affected pages!
+		co_await _managed->_evictQueue.evictRange(newPages << kPageShift,
+				oldPages << kPageShift);
+	}
 
-		receiver.set_value();
-	}(this, newPages, std::move(receiver)));
+	co_return {};
 }
 
 frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
@@ -1500,132 +1496,127 @@ CopyOnWriteMemory::resolveGlobalFutex(uintptr_t offset) {
 	return frg::make_tuple(std::move(futexSpace), offset);
 }
 
-void CopyOnWriteMemory::fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) {
+coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork() {
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
-	async::detach_with_allocator(*kernelAlloc,
-			[] (CopyOnWriteMemory *self,
-			async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver)
-			-> coroutine<void> {
-		smarter::shared_ptr<CopyOnWriteMemory> forked;
-		smarter::shared_ptr<CowChain> newChain;
-		frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
+	smarter::shared_ptr<CopyOnWriteMemory> forked;
+	smarter::shared_ptr<CowChain> newChain;
+	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
 
-		auto doCopyOnePage = [&] (size_t pg, smarter::borrowed_ptr<CowPage> page) {
-			// The page is locked. We *need* to keep it in the old address space.
-			if(page->lockCount /*|| disableCow */) {
-				// Allocate a new physical page for a copy.
-				auto copyPhysical = physicalAllocator->allocate(kPageSize);
-				assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+	auto doCopyOnePage = [&] (size_t pg, smarter::borrowed_ptr<CowPage> page) {
+		// The page is locked. We *need* to keep it in the old address space.
+		if(page->lockCount /*|| disableCow */) {
+			// Allocate a new physical page for a copy.
+			auto copyPhysical = physicalAllocator->allocate(kPageSize);
+			assert(copyPhysical != PhysicalAddr(-1) && "OOM");
 
-				// As the page is locked anyway, we can just copy it synchronously.
-				PageAccessor lockedAccessor{page->physical};
-				PageAccessor copyAccessor{copyPhysical};
-				memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
+			// As the page is locked anyway, we can just copy it synchronously.
+			PageAccessor lockedAccessor{page->physical};
+			PageAccessor copyAccessor{copyPhysical};
+			memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
 
-				// Update the chains.
-				auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-				copyPage->state = CowState::hasCopy;
-				copyPage->physical = copyPhysical;
-				auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
-				*copyIt = copyPage;
-			}else{
-				auto physical = page->physical;
-				assert(physical != PhysicalAddr(-1));
+			// Update the chains.
+			auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+			copyPage->state = CowState::hasCopy;
+			copyPage->physical = copyPhysical;
+			auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
+			*copyIt = copyPage;
+		}else{
+			auto physical = page->physical;
+			assert(physical != PhysicalAddr(-1));
 
-				// Update the chains.
-				auto pageOffset = self->_viewOffset + pg;
-				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
-				*newIt = page.lock();
-				self->_ownedPages.erase(pg >> kPageShift);
-			}
-		};
+			// Update the chains.
+			auto pageOffset = _viewOffset + pg;
+			auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
+			*newIt = page.lock();
+			_ownedPages.erase(pg >> kPageShift);
+		}
+	};
 
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->_mutex);
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-			// Create a new CowChain for both the original and the forked mapping.
-			// To correct handle locks pages, we move only non-locked pages from
-			// the original mapping to the new chain.
-			auto curChain = self->_copyChain;
-			newChain = smarter::allocate_shared<CowChain>(*kernelAlloc);
+		// Create a new CowChain for both the original and the forked mapping.
+		// To correct handle locks pages, we move only non-locked pages from
+		// the original mapping to the new chain.
+		auto curChain = _copyChain;
+		newChain = smarter::allocate_shared<CowChain>(*kernelAlloc);
 
-			// Update the original mapping
-			self->_copyChain = newChain;
+		// Update the original mapping
+		_copyChain = newChain;
 
-			// Create a new mapping in the forked space.
-			forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
-							self->_view, self->_viewOffset, self->_length, newChain);
-			forked->selfPtr = forked;
+		// Create a new mapping in the forked space.
+		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
+						_view, _viewOffset, _length, newChain);
+		forked->selfPtr = forked;
 
-			// Inspect all copied pages owned by the original mapping.
-			for(size_t pg = 0; pg < self->_length; pg += kPageSize) {
-				auto it = self->_ownedPages.find(pg >> kPageShift);
+		// Inspect all copied pages owned by the original mapping.
+		for(size_t pg = 0; pg < _length; pg += kPageSize) {
+			auto it = _ownedPages.find(pg >> kPageShift);
 
-				if(!it) {
-					// If the page is missing in this memory object, look at the CowChain.
-					auto pageOffset = self->_viewOffset + pg;
-					if (curChain) {
-						auto chainLock = frg::guard(&curChain->_mutex);
+			if(!it) {
+				// If the page is missing in this memory object, look at the CowChain.
+				auto pageOffset = _viewOffset + pg;
+				if (curChain) {
+					auto chainLock = frg::guard(&curChain->_mutex);
 
-						if(auto it = curChain->_pages.find(pageOffset >> kPageShift); it) {
-							auto page = *it;
-							assert(page->state == CowState::hasCopy);
-							auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
-							*newIt = page;
-						}
+					if(auto it = curChain->_pages.find(pageOffset >> kPageShift); it) {
+						auto page = *it;
+						assert(page->state == CowState::hasCopy);
+						auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
+						*newIt = page;
 					}
-					continue;
 				}
-
-				auto page = *it;
-				if(page->state == CowState::inProgress) {
-					// We wait for the in progress pages later, as we
-					// need to drop the locks we're holding before
-					// suspending, but they are ensuring consistency
-					// of the object we're working on.
-					inProgressPages.push(frg::make_tuple(pg, page));
-					continue;
-				}else
-					assert(page->state == CowState::hasCopy);
-
-				doCopyOnePage(pg, page);
+				continue;
 			}
-		}
 
-		// Wait for the in progress pages to complete copying.
-		bool stillWaiting = inProgressPages.size() > 0;
-		while (stillWaiting) {
-			stillWaiting = co_await self->_copyEvent.async_wait_if([&] {
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->_mutex);
-
-				for (auto [_, inProgressPage] : inProgressPages) {
-					if (inProgressPage->state == CowState::inProgress)
-						return true;
-				}
-
-				return false;
-			});
-			co_await WorkQueue::generalQueue()->schedule();
-		}
-
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&self->_mutex);
-
-			// Copy all the previously in progress pages now that they're done copying.
-			for (auto [pg, page] : inProgressPages) {
+			auto page = *it;
+			if(page->state == CowState::inProgress) {
+				// We wait for the in progress pages later, as we
+				// need to drop the locks we're holding before
+				// suspending, but they are ensuring consistency
+				// of the object we're working on.
+				inProgressPages.push(frg::make_tuple(pg, page));
+				continue;
+			}else
 				assert(page->state == CowState::hasCopy);
-				doCopyOnePage(pg, page);
-			}
-		}
 
-		co_await self->_evictQueue.evictRange(0, self->_length);
-		receiver.set_value({Error::success, std::move(forked)});
-	}(this, receiver));
+			doCopyOnePage(pg, page);
+		}
+	}
+
+	// Wait for the in progress pages to complete copying.
+	bool stillWaiting = inProgressPages.size() > 0;
+	while (stillWaiting) {
+		stillWaiting = co_await _copyEvent.async_wait_if([&] {
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
+
+			for (auto [_, inProgressPage] : inProgressPages) {
+				if (inProgressPage->state == CowState::inProgress)
+					return true;
+			}
+
+			return false;
+		});
+		co_await WorkQueue::generalQueue()->schedule();
+	}
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		// Copy all the previously in progress pages now that they're done copying.
+		for (auto [pg, page] : inProgressPages) {
+			assert(page->state == CowState::hasCopy);
+			doCopyOnePage(pg, page);
+		}
+	}
+
+	co_await _evictQueue.evictRange(0, _length);
+	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
 Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {

@@ -569,10 +569,9 @@ HelError helResizeMemory(HelHandle handle, size_t newSize) {
 		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	Thread::asyncBlockCurrent([] (smarter::shared_ptr<MemoryView> memory, size_t newSize)
-			-> coroutine<void> {
-		co_await memory->resize(newSize);
-	}(std::move(memory), newSize));
+	auto outcome = Thread::asyncBlockCurrent(memory->resize(newSize));
+	if (!outcome)
+		return translateError(outcome.error());
 
 	return kHelErrNone;
 }
@@ -791,18 +790,16 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 		view = viewWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	auto [error, forkedView] = Thread::asyncBlockCurrent(view->fork());
-
-	if(error == Error::illegalObject)
-		return kHelErrUnsupportedOperation;
-	assert(error == Error::success);
+	auto resultOrError = Thread::asyncBlockCurrent(view->fork());
+	if(!resultOrError)
+		return translateError(resultOrError.error());
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(this_universe->lock);
 
 		*forkedHandle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(forkedView));
+				MemoryViewDescriptor(resultOrError.value()));
 	}
 
 	return kHelErrNone;
