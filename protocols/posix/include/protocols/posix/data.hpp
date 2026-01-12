@@ -6,9 +6,8 @@ namespace posix {
 
 struct ThreadPage {
 	unsigned int globalSignalFlag;
-	uint64_t cancellationId;
-	HelHandle lane;
-	int fd;
+	bool cancellationRequested;
+	HelHandle queueHandle;
 };
 
 struct ManagarmProcessData {
