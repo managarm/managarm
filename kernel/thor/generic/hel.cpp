@@ -481,6 +481,28 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 	return kHelErrNone;
 }
 
+HelError helAlertQueue(HelHandle handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<IpcQueue> queue;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, handle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
+	}
+
+	queue->alert();
+
+	return kHelErrNone;
+}
+
 HelError helAllocateMemory(size_t size, uint32_t flags,
 		const HelAllocRestrictions *restrictions, HelHandle *handle) {
 	if(!size)

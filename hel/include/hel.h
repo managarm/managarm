@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 106,
+	kHelNumCalls = 107,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -34,6 +34,7 @@ enum {
 
 	kHelCallCreateQueue = 89,
 	kHelCallDriveQueue = 105,
+	kHelCallAlertQueue = 106,
 	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
@@ -473,6 +474,9 @@ struct HelQueueParameters {
 
 //! Set in userNotify after kernel has written progress.
 static const int kHelUserNotifyCqProgress = (1 << 0);
+//! Set in userNotify when the queue is alerted.
+static const int kHelUserNotifyAlert = (1 << 15);
+
 //! Set in kernelNotify after userspace has supplied new chunks.
 static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
@@ -719,6 +723,14 @@ HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
 //!    	Flags controlling the behavior.
 //!    	If kHelDriveWaitCqProgress is set, the call blocks until progress is made.
 HEL_C_LINKAGE HelError helDriveQueue(HelHandle queueHandle, uint32_t flags);
+
+//! Alerts an IPC queue.
+//!
+//! This function sets the kHelUserNotifyAlert flag in the queue's userNotify
+//! and causes helDriveQueue() to return from waiting.
+//! @param[in] queueHandle
+//!    	Handle to the queue.
+HEL_C_LINKAGE HelError helAlertQueue(HelHandle queueHandle);
 
 //! @}
 //! @name Memory Management
