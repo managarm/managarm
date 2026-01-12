@@ -207,26 +207,27 @@ struct VirtualOperations {
 
 	template<typename R>
 	struct RetireOperation final : private RetireNode {
-		RetireOperation(VirtualOperations *self, R receiver)
-		: self_{self}, receiver_{std::move(receiver)} { }
+		RetireOperation(VirtualOperations *self, WorkQueue *wq, R receiver)
+		: self_{self}, wq_{wq}, receiver_{std::move(receiver)} { }
 
 		void start() {
+			Worklet::setup([] (Worklet *base) {
+				auto op = static_cast<RetireOperation *>(base);
+				async::execution::set_value(op->receiver_);
+			}, wq_);
 			self_->retire(this);
 		}
 
 	private:
-		void complete() override {
-			async::execution::set_value(receiver_);
-		}
-
 		VirtualOperations *self_;
+		WorkQueue *wq_;
 		R receiver_;
 	};
 
 	struct RetireSender {
 		template<typename R>
 		RetireOperation<R> connect(R receiver) {
-			return {self, std::move(receiver)};
+			return {self, wq, std::move(receiver)};
 		}
 
 		async::sender_awaiter<RetireSender> operator co_await() {
@@ -234,10 +235,11 @@ struct VirtualOperations {
 		}
 
 		VirtualOperations *self;
+		WorkQueue *wq;
 	};
 
-	RetireSender retire() {
-		return {this};
+	RetireSender retire(WorkQueue *wq) {
+		return {this, wq};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -259,10 +261,11 @@ struct VirtualOperations {
 		VirtualOperations *self;
 		VirtualAddr address;
 		size_t size;
+		WorkQueue *wq;
 	};
 
-	ShootdownSender shootdown(VirtualAddr address, size_t size) {
-		return {this, address, size};
+	ShootdownSender shootdown(VirtualAddr address, size_t size, WorkQueue *wq) {
+		return {this, address, size, wq};
 	}
 
 	template<typename R>
@@ -277,6 +280,10 @@ struct VirtualOperations {
 		bool start_inline() {
 			ShootNode::address = s_.address;
 			ShootNode::size = s_.size;
+			Worklet::setup([] (Worklet *base) {
+				auto op = static_cast<ShootdownOperation *>(base);
+				async::execution::set_value_noinline(op->receiver_);
+			}, s_.wq);
 			if(s_.self->submitShootdown(this)) {
 				async::execution::set_value_inline(receiver_);
 				return true;
@@ -285,10 +292,6 @@ struct VirtualOperations {
 		}
 
 	private:
-		void complete() override {
-			async::execution::set_value_noinline(receiver_);
-		}
-
 		ShootdownSender s_;
 		R receiver_;
 	};
@@ -536,16 +539,17 @@ public:
 
 	coroutine<frg::expected<Error, VirtualAddr>>
 	map(smarter::borrowed_ptr<MemorySlice> view,
-			VirtualAddr address, size_t offset, size_t length, uint32_t flags);
+			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
+			WorkQueue *wq);
 
 	coroutine<frg::expected<Error>>
-	protect(VirtualAddr address, size_t length, uint32_t flags);
+	protect(VirtualAddr address, size_t length, uint32_t flags, WorkQueue *wq);
 
 	coroutine<frg::expected<Error>>
-	synchronize(VirtualAddr address, size_t length);
+	synchronize(VirtualAddr address, size_t length, WorkQueue *wq);
 
 	coroutine<frg::expected<Error>>
-	unmap(VirtualAddr address, size_t length);
+	unmap(VirtualAddr address, size_t length, WorkQueue *wq);
 
 	coroutine<frg::expected<Error>>
 	handleFault(VirtualAddr address, uint32_t flags, smarter::shared_ptr<WorkQueue> wq);

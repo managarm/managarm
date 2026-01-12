@@ -260,7 +260,14 @@ bool bootSecondary(DeviceTreeNode *node) {
 
 	KernelPageSpace::global().unmapSingle4k(VirtualAddr(codeVirtPtr));
 	KernelVirtualMemory::global().deallocate(codeVirtPtr, kPageSize);
-	KernelFiber::asyncBlockCurrent(shootdown(&KernelPageSpace::global(), VirtualAddr(codeVirtPtr), kPageSize));
+	KernelFiber::asyncBlockCurrent(
+		shootdown(
+			&KernelPageSpace::global(),
+			VirtualAddr(codeVirtPtr),
+			kPageSize,
+			WorkQueue::generalQueue()
+		)
+	);
 	physicalAllocator->free(codePhysPtr, kPageSize);
 
 	if (dontWait) {

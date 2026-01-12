@@ -3,6 +3,7 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-stack.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/work-queue.hpp>
 
 namespace thor {
 
@@ -34,7 +35,7 @@ UniqueKernelStack::~UniqueKernelStack() {
 	}
 
 	struct Closure final : ShootNode {
-		void complete() override {
+		void doComplete() {
 			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
 			auto physical = thisPage;
 			Closure::~Closure();
@@ -55,8 +56,12 @@ UniqueKernelStack::~UniqueKernelStack() {
 	p->thisPage = physical;
 	p->address = address;
 	p->size = guardedSize;
+	p->Worklet::setup([] (Worklet *worklet) {
+		auto op = static_cast<Closure *>(worklet);
+		op->doComplete();
+	}, WorkQueue::generalQueue());
 	if(KernelPageSpace::global().submitShootdown(p))
-		p->complete();
+		p->doComplete();
 }
 
 } //namespace thor

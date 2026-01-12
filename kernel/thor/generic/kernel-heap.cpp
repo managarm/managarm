@@ -228,11 +228,10 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 
 	// TODO: we could replace this closure by an appropriate async::detach_with_allocator call.
 	struct Closure final : ShootNode {
-		void complete() override {
+		void doComplete() {
 			frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> coreAllocator(corePool.get());
 
 			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
-			Closure::~Closure();
 			asm volatile ("" : : : "memory");
 			frg::destruct(getCoreAllocator(), this);
 		}
@@ -242,8 +241,12 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	auto p = frg::construct<Closure>(getCoreAllocator());
 	p->address = address;
 	p->size = length;
+	p->Worklet::setup([] (Worklet *worklet) {
+		auto op = static_cast<Closure *>(worklet);
+		op->doComplete();
+	}, WorkQueue::generalQueue());
 	if(KernelPageSpace::global().submitShootdown(p))
-		p->complete();
+		p->doComplete();
 }
 
 frg::manual_box<LogRingBuffer> allocLog;
