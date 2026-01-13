@@ -296,6 +296,11 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 
 			return false;
 		});
+
+		if (getCpuCount() != cpuConfigNote->totalCpus)
+			panicLogger() << "thor: Booted " << getCpuCount()
+					<< " CPUs but Eir detected " << cpuConfigNote->totalCpus
+					<< frg::endlog;
 	}
 };
 }

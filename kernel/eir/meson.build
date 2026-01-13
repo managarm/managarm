@@ -13,7 +13,9 @@ eir_generic_sources = files(
 	'generic/framebuffer.cpp',
 	'system/acpi/acpi.cpp',
 	'system/acpi/console.cpp',
+	'system/acpi/cpu-count.cpp',
 	'system/acpi/glue.cpp',
+	'system/dtb/cpu-count.cpp',
 	'system/dtb/discovery.cpp',
 	'system/uart/uart.cpp',
 )

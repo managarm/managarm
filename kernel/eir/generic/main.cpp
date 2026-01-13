@@ -32,6 +32,7 @@ frg::span<uint8_t> initrd_image{nullptr, 0};
 address_t physOffset = 0;
 
 PerCpuRegion perCpuRegion{0, 0};
+CpuConfig cpuConfig{0};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -387,65 +388,14 @@ address_t mapBootstrapData(void *p) {
 
 uint64_t kernelEntry;
 
-void parseInitrd(void *initrd) {
-	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
-	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
-	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
-	initrd_image = frg::span<uint8_t>{
-	    reinterpret_cast<uint8_t *>(initrd), initrd_end - reinterpret_cast<uintptr_t>(initrd)
-	};
-
-	for (auto entry : cpio_range) {
-		if (entry.name == "thor") {
-			kernel_image = entry.data;
-		}
-	}
-
-	if (!kernel_image.data() || !kernel_image.size())
-		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
-}
-
 namespace {
 
-bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
-	if (type == elf_note_type::memoryLayout) {
-		if (desc.size() != sizeof(MemoryLayout))
-			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &getMemoryLayout(), sizeof(MemoryLayout));
-		return true;
-	} else if (type == elf_note_type::perCpuRegion) {
-		if (desc.size() != sizeof(PerCpuRegion))
-			panicLogger() << "PerCpuRegion size does not match ELF note" << frg::endlog;
-		memcpy(&perCpuRegion, desc.data(), sizeof(PerCpuRegion));
-		return true;
-	} else if (type == elf_note_type::smbiosData) {
-		if (desc.size() != sizeof(SmbiosData))
-			panicLogger() << "SmbiosData size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &eirSmbios3Addr, sizeof(SmbiosData));
-		return true;
-	} else if (type == elf_note_type::bootUartConfig) {
-		if (desc.size() != sizeof(BootUartConfig))
-			panicLogger() << "BootUartConfig size does not match ELF note" << frg::endlog;
-		memcpy(desc.data(), &uart::bootUartConfig, sizeof(BootUartConfig));
-		return true;
-	}
-	return false;
-}
-
-} // namespace
-
-void loadKernelImage(void *imagePtr) {
-	auto image = reinterpret_cast<char *>(imagePtr);
-
+template <typename F>
+void forEachManagarmElfNote(char *image, F fn) {
+	// Note that the EHDR magic is already validated at this point.
 	Elf64_Ehdr ehdr;
 	memcpy(&ehdr, image, sizeof(Elf64_Ehdr));
-	if (ehdr.e_ident[0] != '\x7F' || ehdr.e_ident[1] != 'E' || ehdr.e_ident[2] != 'L'
-	    || ehdr.e_ident[3] != 'F') {
-		eir::panicLogger() << "Illegal magic fields" << frg::endlog;
-	}
-	assert(ehdr.e_type == ET_EXEC);
 
-	// Read and patch Thor's ELF notes.
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
 		memcpy(&phdr, image + ehdr.e_phoff + i * ehdr.e_phentsize, sizeof(Elf64_Phdr));
@@ -468,24 +418,120 @@ void loadKernelImage(void *imagePtr) {
 
 			frg::string_view name{namePtr, nhdr.n_namesz};
 			frg::span<char> desc{descPtr, nhdr.n_descsz};
-			infoLogger() << "ELF note: " << name << ", type 0x" << frg::hex_fmt{nhdr.n_type}
-			             << frg::endlog;
 			if (name != "Managarm")
 				continue;
-			if (elf_note_type::isThorGeneric(nhdr.n_type)) {
-				if (!patchGenericManagarmElfNote(nhdr.n_type, desc))
-					panicLogger() << "Failed to patch generic Managarm ELF note"
-					              << " with type 0x" << frg::hex_fmt{nhdr.n_type} << frg::endlog;
-			} else if (elf_note_type::isThorArchSpecific(nhdr.n_type)) {
-				if (!patchArchSpecificManagarmElfNote(nhdr.n_type, desc))
-					panicLogger() << "Failed to patch arch-specific Managarm ELF note"
-					              << " with type 0x" << frg::hex_fmt{nhdr.n_type} << frg::endlog;
-			} else {
-				panicLogger() << "Managarm ELF note type 0x" << frg::hex_fmt{nhdr.n_type}
-				              << " is not within known range" << frg::endlog;
-			}
+			fn(nhdr.n_type, desc);
 		}
 	}
+}
+
+bool parseGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
+	if (type == elf_note_type::perCpuRegion) {
+		if (desc.size() != sizeof(PerCpuRegion))
+			panicLogger() << "PerCpuRegion size does not match ELF note" << frg::endlog;
+		memcpy(&perCpuRegion, desc.data(), sizeof(PerCpuRegion));
+		return true;
+	}
+	return false;
+}
+
+} // namespace
+
+void parseInitrd(void *initrd) {
+	CpioRange cpio_range{reinterpret_cast<void *>(initrd)};
+	auto initrd_end = reinterpret_cast<uintptr_t>(cpio_range.eof());
+	eir::infoLogger() << "Initrd ends at " << (void *)initrd_end << frg::endlog;
+	initrd_image = frg::span<uint8_t>{
+	    reinterpret_cast<uint8_t *>(initrd), initrd_end - reinterpret_cast<uintptr_t>(initrd)
+	};
+
+	for (auto entry : cpio_range) {
+		if (entry.name == "thor") {
+			kernel_image = entry.data;
+		}
+	}
+
+	if (!kernel_image.data() || !kernel_image.size())
+		eir::panicLogger() << "eir: could not find thor in the initrd.cpio" << frg::endlog;
+
+	auto image = reinterpret_cast<char *>(kernel_image.data());
+
+	// Validate the kernel's ELF magic.
+	Elf64_Ehdr ehdr;
+	memcpy(&ehdr, image, sizeof(Elf64_Ehdr));
+	if (ehdr.e_ident[0] != '\x7F' || ehdr.e_ident[1] != 'E' || ehdr.e_ident[2] != 'L'
+	    || ehdr.e_ident[3] != 'F') {
+		eir::panicLogger() << "Illegal magic fields" << frg::endlog;
+	}
+	assert(ehdr.e_type == ET_EXEC);
+
+	forEachManagarmElfNote(image, [](unsigned int type, frg::span<char> desc) {
+		if (elf_note_type::isThorConfiguration(type))
+			return;
+		if (elf_note_type::isThorGenericCapability(type)) {
+			if (!parseGenericManagarmElfNote(type, desc))
+				panicLogger() << "Failed to parse generic Managarm ELF note"
+				              << " with type 0x" << frg::hex_fmt{type} << frg::endlog;
+		} else {
+			panicLogger() << "Managarm ELF note type 0x" << frg::hex_fmt{type}
+			              << " is not within known range" << frg::endlog;
+		}
+	});
+}
+
+namespace {
+
+bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
+	if (type == elf_note_type::memoryLayout) {
+		if (desc.size() != sizeof(MemoryLayout))
+			panicLogger() << "MemoryLayout size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &getMemoryLayout(), sizeof(MemoryLayout));
+		return true;
+	} else if (type == elf_note_type::cpuConfig) {
+		if (desc.size() != sizeof(CpuConfig))
+			panicLogger() << "CpuConfig size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &cpuConfig, sizeof(CpuConfig));
+		return true;
+	} else if (type == elf_note_type::smbiosData) {
+		if (desc.size() != sizeof(SmbiosData))
+			panicLogger() << "SmbiosData size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &eirSmbios3Addr, sizeof(SmbiosData));
+		return true;
+	} else if (type == elf_note_type::bootUartConfig) {
+		if (desc.size() != sizeof(BootUartConfig))
+			panicLogger() << "BootUartConfig size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &uart::bootUartConfig, sizeof(BootUartConfig));
+		return true;
+	}
+	return false;
+}
+
+} // namespace
+
+void loadKernelImage(void *imagePtr) {
+	auto image = reinterpret_cast<char *>(imagePtr);
+
+	// Note that the EHDR magic is already validated at this point.
+	Elf64_Ehdr ehdr;
+	memcpy(&ehdr, image, sizeof(Elf64_Ehdr));
+
+	// Read and patch Thor's ELF notes.
+	forEachManagarmElfNote(image, [](unsigned int type, frg::span<char> desc) {
+		if (elf_note_type::isThorCapability(type))
+			return;
+		if (elf_note_type::isThorGenericConfiguration(type)) {
+			if (!patchGenericManagarmElfNote(type, desc))
+				panicLogger() << "Failed to patch generic Managarm ELF note"
+				              << " with type 0x" << frg::hex_fmt{type} << frg::endlog;
+		} else if (elf_note_type::isThorArchSpecificConfiguration(type)) {
+			if (!patchArchSpecificManagarmElfNote(type, desc))
+				panicLogger() << "Failed to patch arch-specific Managarm ELF note"
+				              << " with type 0x" << frg::hex_fmt{type} << frg::endlog;
+		} else {
+			panicLogger() << "Managarm ELF note type 0x" << frg::hex_fmt{type}
+			              << " is not within known range" << frg::endlog;
+		}
+	});
 
 	for (int i = 0; i < ehdr.e_phnum; i++) {
 		Elf64_Phdr phdr;
@@ -533,17 +579,15 @@ void loadKernelImage(void *imagePtr) {
 
 	// Map the KASAN shadow for thor's per-CPU regions.
 	{
+		if (!cpuConfig.totalCpus)
+			panicLogger() << "eir: Could not detect number of CPUs" << frg::endlog;
 		assert(perCpuRegion.start && perCpuRegion.end);
-
-		// TODO(qookie): Figure out the number of cores
-		// instead of mapping shadow for 256.
-		int nrCores = 256;
 
 		auto singleSize = perCpuRegion.end - perCpuRegion.start;
 		assert(!(singleSize & 0xFFF));
 
 		// The BSPs region is covered by a PT_LOAD PHDR already.
-		auto totalSize = singleSize * (nrCores - 1);
+		auto totalSize = singleSize * (cpuConfig.totalCpus - 1);
 
 		mapKasanShadow(perCpuRegion.start + singleSize, totalSize);
 

@@ -147,24 +147,38 @@ static_assert(static_cast<unsigned int>(RiscvExtension::numExtensions) < extensi
 namespace elf_note_type {
 
 // Values for Elf64_Nhdr::n_type of ELF notes embedded into Thor.
-// 0x10xx'xxxx range reserved for generic notes in Thor.
+// 0x10xx'xxxx range reserved for generic configuration notes in Thor (write-only by Eir).
 constexpr unsigned int memoryLayout = 0x1000'0000;
-constexpr unsigned int perCpuRegion = 0x1000'0001;
+constexpr unsigned int cpuConfig = 0x1000'0001;
 constexpr unsigned int smbiosData = 0x1000'0002;
 constexpr unsigned int bootUartConfig = 0x1000'0003;
-// 0x11xx'xxxx range reserved for arch-specific notes in Thor.
+// 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
 // 0x1100'2xxx range reserved for riscv64.
 constexpr unsigned int riscvConfig = 0x1100'2000;
 constexpr unsigned int riscvHartCaps = 0x1100'2001;
+// 0x18xx'xxxx range reserved for generic capability notes in Thor (read-only by Eir).
+constexpr unsigned int perCpuRegion = 0x1800'0000;
 
-inline bool isThorGeneric(unsigned int type) {
+inline bool isThorConfiguration(unsigned int type) {
+	return (type & 0xF800'0000) == 0x1000'0000;
+}
+
+inline bool isThorCapability(unsigned int type) {
+	return (type & 0xF800'0000) == 0x1800'0000;
+}
+
+inline bool isThorGenericConfiguration(unsigned int type) {
 	return (type & 0xFF00'0000) == 0x1000'0000;
 }
 
-inline bool isThorArchSpecific(unsigned int type) {
+inline bool isThorArchSpecificConfiguration(unsigned int type) {
 	return (type & 0xFF00'0000) == 0x1100'0000;
+}
+
+inline bool isThorGenericCapability(unsigned int type) {
+	return (type & 0xFF00'0000) == 0x1800'0000;
 }
 
 } // namespace elf_note_type
@@ -206,6 +220,10 @@ struct RiscvHartCaps {
 struct PerCpuRegion {
 	uint64_t start;
 	uint64_t end;
+};
+
+struct CpuConfig {
+	uint64_t totalCpus;
 };
 
 struct SmbiosData {

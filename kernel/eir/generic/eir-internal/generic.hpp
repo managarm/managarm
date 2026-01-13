@@ -14,6 +14,8 @@ extern frg::span<uint8_t> kernel_image;
 extern address_t kernel_physical;
 extern frg::span<uint8_t> initrd_image;
 
+extern CpuConfig cpuConfig;
+
 enum class RegionType { null, unconstructed, allocatable };
 
 struct Region {

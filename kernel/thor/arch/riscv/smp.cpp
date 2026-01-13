@@ -177,6 +177,10 @@ initgraph::Task initAPsAcpi{
 		    }
 		    offset += generic.length;
 	    }
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 
@@ -198,6 +202,10 @@ initgraph::Task initAPs{
 			    return false;
 		    });
 	    }
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 

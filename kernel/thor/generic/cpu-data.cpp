@@ -1,10 +1,13 @@
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/elf-notes.hpp>
 
 namespace thor {
+
+THOR_DEFINE_ELF_NOTE(cpuConfigNote){elf_note_type::cpuConfig, {0}};
 
 ExecutorContext::ExecutorContext() { }
 
@@ -30,7 +33,6 @@ struct OurPerCpuRegion {
 
 extern ManagarmElfNote<OurPerCpuRegion> perCpuRegionNote;
 THOR_DEFINE_ELF_NOTE(perCpuRegionNote){elf_note_type::perCpuRegion, {&percpuStart, &percpuEnd}};
-
 
 // An instance of CpuData is the first thing in every CPU's per-CPU
 // region, hence it goes into a special section.
@@ -69,6 +71,11 @@ std::tuple<CpuData *, size_t> extendPerCpuData() {
 	// lock if we want to start CPUs in parallel.
 	curPos = reinterpret_cast<void *>(base + size);
 	int cpuNr = ++numExtraCpus;
+
+	if (static_cast<uint64_t>(cpuNr) >= cpuConfigNote->totalCpus)
+		panicLogger() << "thor: CPU index " << cpuNr
+		              << " exceeds expected number of CPUs " << cpuConfigNote->totalCpus
+		              << frg::endlog;
 
 	for(size_t pg = 0; pg < size; pg += kPageSize) {
 		auto page = physicalAllocator->allocate(kPageSize);

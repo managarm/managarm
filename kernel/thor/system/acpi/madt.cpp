@@ -6,6 +6,7 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
@@ -455,6 +456,10 @@ static initgraph::Task bootApsTask{
 		    return;
 
 	    bootOtherProcessors();
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 
