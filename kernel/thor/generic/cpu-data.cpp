@@ -43,10 +43,6 @@ extern "C" PerCpuInitializer percpuInitStart[], percpuInitEnd[];
 
 namespace {
 
-constinit void *curPos = percpuEnd;
-constinit size_t numExtraCpus = 0;
-
-
 void initializePerCpuDataFor(CpuData *context) {
 	for(PerCpuInitializer *p = percpuInitStart; p != percpuInitEnd; ++p) {
 		(*p)(context);
@@ -55,44 +51,14 @@ void initializePerCpuDataFor(CpuData *context) {
 
 } // namespace anonymous
 
-void runBootCpuDataInitializers() {
-	initializePerCpuDataFor(reinterpret_cast<CpuData *>(percpuStart));
-}
-
-std::tuple<CpuData *, size_t> extendPerCpuData() {
-	size_t size = percpuEnd - percpuStart;
-	assert(!(size & 0xFFF));
-
-	auto base = reinterpret_cast<uintptr_t>(curPos);
-
-	// Make sure we don't wrap around.
-	assert((base + size) > reinterpret_cast<uintptr_t>(percpuStart));
-	// TODO(qookie): These two lines need to be protected with a
-	// lock if we want to start CPUs in parallel.
-	curPos = reinterpret_cast<void *>(base + size);
-	int cpuNr = ++numExtraCpus;
-
-	if (static_cast<uint64_t>(cpuNr) >= cpuConfigNote->totalCpus)
-		panicLogger() << "thor: CPU index " << cpuNr
-		              << " exceeds expected number of CPUs " << cpuConfigNote->totalCpus
-		              << frg::endlog;
-
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		auto page = physicalAllocator->allocate(kPageSize);
-		assert(page != PhysicalAddr(-1) && "OOM");
-
-		KernelPageSpace::global().mapSingle4k(base + pg, page, page_access::write, CachingMode::null);
+void runCpuDataInitializers() {
+	for (size_t cpu = 0; cpu < getCpuCount(); ++cpu) {
+		initializePerCpuDataFor(getCpuData(cpu));
 	}
-	unpoisonKasanShadow(reinterpret_cast<void *>(base), size);
-
-	auto context = reinterpret_cast<CpuData *>(base);
-	initializePerCpuDataFor(context);
-
-	return {context, cpuNr};
 }
 
 size_t getCpuCount() {
-	return numExtraCpus + 1;
+	return cpuConfigNote->totalCpus;
 }
 
 } // namespace thor

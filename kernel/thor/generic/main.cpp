@@ -105,7 +105,7 @@ extern "C" void thorInitialize() {
 
 	infoLogger() << "thor: Basic memory management is ready" << frg::endlog;
 
-	runBootCpuDataInitializers();
+	runCpuDataInitializers();
 	initializeAsidContext(getCpuData());
 }
 

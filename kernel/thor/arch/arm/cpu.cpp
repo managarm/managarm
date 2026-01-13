@@ -211,13 +211,14 @@ void prepareCpuDataFor(CpuData *context, int cpu) {
 }
 
 void setupBootCpuContext() {
-	auto context = &cpuData.getFor(0);
+	for (size_t c = 0; c < getCpuCount(); ++c)
+		prepareCpuDataFor(getCpuData(c), c);
 
-	prepareCpuDataFor(context, 0);
+	auto context = getCpuData(0);
 	setupCpuContext(context);
 
 	bootLogRing.initialize();
-	cpuData.get().localLogRing = bootLogRing.get();
+	context->localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",

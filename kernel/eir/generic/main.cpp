@@ -577,22 +577,29 @@ void loadKernelImage(void *imagePtr) {
 		unpoisonKasanShadow(phdr.p_paddr, phdr.p_memsz);
 	}
 
-	// Map the KASAN shadow for thor's per-CPU regions.
+	// Map the per-CPU regions for all CPUs.
 	{
 		if (!cpuConfig.totalCpus)
 			panicLogger() << "eir: Could not detect number of CPUs" << frg::endlog;
 		assert(perCpuRegion.start && perCpuRegion.end);
 
 		auto singleSize = perCpuRegion.end - perCpuRegion.start;
+		assert(!(perCpuRegion.start & 0xFFF));
+		assert(!(perCpuRegion.end & 0xFFF));
 		assert(!(singleSize & 0xFFF));
 
-		// The BSPs region is covered by a PT_LOAD PHDR already.
-		auto totalSize = singleSize * (cpuConfig.totalCpus - 1);
+		// Allocate and map regions for CPUs > 0.
+		for (size_t cpu = 1; cpu < cpuConfig.totalCpus; ++cpu) {
+			auto address = perCpuRegion.end + singleSize * (cpu - 1);
+			for (size_t pg = 0; pg < singleSize; pg += pageSize) {
+				auto physical = allocPage();
+				memset(physToVirt<uint8_t>(physical), 0, pageSize);
+				mapSingle4kPage(address + pg, physical, PageFlags::write | PageFlags::global);
+			}
 
-		mapKasanShadow(perCpuRegion.start + singleSize, totalSize);
-
-		// We don't call unpoisonKasanShadow here as thor will
-		// unpoison these regions as it allocates them.
+			mapKasanShadow(address, singleSize);
+			unpoisonKasanShadow(address, singleSize);
+		}
 	}
 
 	kernelEntry = ehdr.e_entry;

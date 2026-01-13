@@ -239,8 +239,6 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
 }
 
-void bootSecondary(unsigned int apic_id);
-
 size_t getCpuCount();
 
 void saveCurrentSimdState(Executor *executor);

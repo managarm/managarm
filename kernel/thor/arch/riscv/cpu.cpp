@@ -230,13 +230,14 @@ void prepareCpuDataFor(CpuData *context, int cpu) {
 }
 
 void setupBootCpuContext() {
-	auto context = &cpuData.getFor(0);
+	for (size_t c = 0; c < getCpuCount(); ++c)
+		prepareCpuDataFor(getCpuData(c), c);
 
-	prepareCpuDataFor(context, 0);
+	auto context = getCpuData(0);
 	writeToTp(context);
 
-	cpuData.get().localLogRing = &bootLogRing;
-	cpuData.get().hartId = getEirInfo()->hartId;
+	context->localLogRing = &bootLogRing;
+	context->hartId = getEirInfo()->hartId;
 }
 
 static initgraph::Task probeSbiFeatures{

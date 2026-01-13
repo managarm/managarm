@@ -283,8 +283,6 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 
 void initializeThisProcessor();
 
-void bootSecondary(unsigned int apic_id);
-
 extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 
 // Save the current SIMD register state into the given executor.

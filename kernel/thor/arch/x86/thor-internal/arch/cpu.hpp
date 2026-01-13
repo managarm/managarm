@@ -551,7 +551,7 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 void setupBootCpuContext();
 void initializeThisProcessor();
 
-void bootSecondary(unsigned int apic_id);
+void bootSecondary(unsigned int apic_id, size_t cpuIndex);
 
 // Save the current SIMD register state into the given executor.
 inline void saveCurrentSimdState(Executor *executor) {

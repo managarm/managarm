@@ -101,13 +101,9 @@ namespace {
 	}
 }
 
-bool bootSecondary(DeviceTreeNode *node) {
+bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 	infoLogger() << "thor: Starting CPU \"" << node->path() << "\"" << frg::endlog;
 	uint64_t id = node->reg()[0].addr;
-
-	// TODO: We assume CPU 0 is the boot CPU, but potentially it could be some other one
-	if (id == 0)
-		return false;
 
 	auto methodProp = node->dtNode().findProperty("enable-method");
 	if (!methodProp)
@@ -139,9 +135,7 @@ bool bootSecondary(DeviceTreeNode *node) {
 	constexpr size_t stackSize = 0x10000;
 	void *stackPtr = kernelAlloc->allocate(stackSize);
 
-	auto [context, cpuNr] = extendPerCpuData();
-	prepareCpuDataFor(context, cpuNr);
-
+	auto *context = getCpuData(cpuIndex);
 	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
@@ -289,11 +283,29 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 			return false;
 		});
 
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			if (node->isCompatible<4>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8", "arm,armv8"})) {
-				bootSecondary(node);
+		auto bspAffinity = getCpuData()->affinity;
+
+		size_t apCpuIndex = 1;
+		auto bootApFromDt = [&](DeviceTreeNode *node) {
+			if (!node->isCompatible<4>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8", "arm,armv8"}))
+				return;
+
+			auto affinity = node->reg()[0].addr;
+			if (affinity == bspAffinity)
+				return;
+
+			if (static_cast<uint64_t>(apCpuIndex) >= cpuConfigNote->totalCpus) {
+				panicLogger() << "thor: CPU index " << apCpuIndex
+						<< " exceeds expected number of CPUs " << cpuConfigNote->totalCpus
+						<< frg::endlog;
 			}
 
+			bootSecondary(node, apCpuIndex);
+			++apCpuIndex;
+		};
+
+		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+			bootApFromDt(node);
 			return false;
 		});
 
