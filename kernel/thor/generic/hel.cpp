@@ -3143,11 +3143,10 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			);
 		}));
 
-		if (waitErr != Error::success)
-			return translateError(waitErr);
+		if (waitErr == Error::cancelled)
+			return timeout ? kHelErrTimeout : kHelErrCancelled;
 
-		if (timeout)
-			return kHelErrTimeout;
+		return translateError(waitErr);
 	}
 
 	return kHelErrNone;
