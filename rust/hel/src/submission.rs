@@ -17,7 +17,7 @@ use crate::{
     executor::{Executor, ExecutorInner, current_executor},
     handle::Handle,
     queue::QueueElement,
-    result::{Result, hel_check},
+    result::Result,
 };
 
 /// Operation state object. This is used to store the submission and completion
@@ -117,14 +117,21 @@ pub fn sleep_until_with_executor(
     new_async_operation(
         executor.clone_inner(),
         move |executor, context| {
-            hel_check(unsafe {
-                hel_sys::helSubmitAwaitClock(
-                    time.nanos(),
-                    executor.queue_handle().handle(),
-                    context as usize,
-                    0, // No cancellation needed
+            let header = hel_sys::HelSqAwaitClock {
+                counter: time.nanos(),
+                cancellationTag: 0, // No cancellation needed
+            };
+            let header_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    &header as *const _ as *const u8,
+                    size_of::<hel_sys::HelSqAwaitClock>(),
                 )
-            })
+            };
+            executor.push_sq(
+                hel_sys::kHelSubmitAwaitClock,
+                context as usize,
+                &[header_bytes],
+            )
         },
         SimpleResult::from_queue_element,
     )
@@ -149,14 +156,21 @@ pub fn sleep_for_with_executor(
     new_async_operation(
         executor.clone_inner(),
         move |executor, context| {
-            hel_check(unsafe {
-                hel_sys::helSubmitAwaitClock(
-                    time?.nanos(),
-                    executor.queue_handle().handle(),
-                    context as usize,
-                    0, // No cancellation needed
+            let header = hel_sys::HelSqAwaitClock {
+                counter: time?.nanos(),
+                cancellationTag: 0, // No cancellation needed
+            };
+            let header_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    &header as *const _ as *const u8,
+                    size_of::<hel_sys::HelSqAwaitClock>(),
                 )
-            })
+            };
+            executor.push_sq(
+                hel_sys::kHelSubmitAwaitClock,
+                context as usize,
+                &[header_bytes],
+            )
         },
         SimpleResult::from_queue_element,
     )

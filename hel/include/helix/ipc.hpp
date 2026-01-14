@@ -540,10 +540,15 @@ struct Submission : private Context {
 	Submission(AwaitClock *operation,
 			uint64_t counter, Dispatcher &dispatcher)
 	: _result(operation) {
-		auto queueHandle = dispatcher.acquire();
 		auto asyncId = dispatcher.makeAsyncId();
-		HEL_CHECK(helSubmitAwaitClock(counter, queueHandle,
-				reinterpret_cast<uintptr_t>(context()), asyncId));
+
+		HelSqAwaitClock sqData;
+		sqData.counter = counter;
+		sqData.cancellationTag = asyncId;
+		std::array segments{std::as_bytes(std::span{&sqData, 1})};
+		dispatcher.pushSq(kHelSubmitAwaitClock,
+				reinterpret_cast<uintptr_t>(context()), segments);
+
 		operation->setAsyncId(asyncId);
 	}
 
@@ -551,34 +556,63 @@ struct Submission : private Context {
 			void *pointer, size_t length, uint32_t flags,
 			Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitProtectMemory(space.getHandle(),
-				pointer, length, flags,
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
+		HelSqProtectMemory header;
+		header.spaceHandle = space.getHandle();
+		header.pointer = pointer;
+		header.size = length;
+		header.flags = flags;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		dispatcher.pushSq(kHelSubmitProtectMemory,
+				reinterpret_cast<uintptr_t>(context()), segments);
 	}
 
 	Submission(BorrowedDescriptor memory, ManageMemory *operation,
 			Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitManageMemory(memory.getHandle(),
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
+		HelSqManageMemory header;
+		header.handle = memory.getHandle();
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		dispatcher.pushSq(kHelSubmitManageMemory,
+				reinterpret_cast<uintptr_t>(context()), segments);
 	}
 
 	Submission(BorrowedDescriptor memory, LockMemoryView *operation,
 			uintptr_t offset, size_t size, Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitLockMemoryView(memory.getHandle(), offset, size,
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
+		HelSqLockMemoryView header;
+		header.handle = memory.getHandle();
+		header.offset = offset;
+		header.size = size;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		dispatcher.pushSq(kHelSubmitLockMemoryView,
+				reinterpret_cast<uintptr_t>(context()), segments);
 	}
 
 	Submission(BorrowedDescriptor thread, Observe *operation,
 			uint64_t in_seq, Dispatcher &dispatcher)
 	: _result(operation) {
-		HEL_CHECK(helSubmitObserve(thread.getHandle(), in_seq,
-				dispatcher.acquire(),
-				reinterpret_cast<uintptr_t>(context())));
+		HelSqObserve header;
+		header.handle = thread.getHandle();
+		header.sequence = in_seq;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		dispatcher.pushSq(kHelSubmitObserve,
+				reinterpret_cast<uintptr_t>(context()), segments);
 	}
 
 	Submission(const Submission &) = delete;
@@ -789,11 +823,18 @@ struct SynchronizeSpaceOperation : private Context {
 	: space_{std::move(space)}, pointer_{pointer}, size_{size}, r_{std::move(r)} {}
 
 	void start() {
+		HelSqSynchronizeSpace header;
+		header.spaceHandle = space_.getHandle();
+		header.pointer = pointer_;
+		header.size = size_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitSynchronizeSpace(space_.getHandle(),
-				pointer_, size_,
-				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context)));
+		Dispatcher::global().pushSq(kHelSubmitSynchronizeSpace,
+				reinterpret_cast<uintptr_t>(context), segments);
 	}
 
 	SynchronizeSpaceOperation(const SynchronizeSpaceOperation &) = delete;
@@ -851,11 +892,19 @@ struct ReadMemoryOperation : private Context {
 		buffer_{buffer}, r_{std::move(r)} {}
 
 	void start() {
+		HelSqReadMemory header;
+		header.handle = descriptor_.getHandle();
+		header.address = address_;
+		header.length = length_;
+		header.buffer = buffer_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitReadMemory(descriptor_.getHandle(),
-				address_, length_, buffer_,
-				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context)));
+		Dispatcher::global().pushSq(kHelSubmitReadMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
 	}
 
 	ReadMemoryOperation(const ReadMemoryOperation &) = delete;
@@ -914,11 +963,19 @@ struct WriteMemoryOperation : private Context {
 		buffer_{buffer}, r_{std::move(r)} { }
 
 	void start() {
+		HelSqWriteMemory header;
+		header.handle = descriptor_.getHandle();
+		header.address = address_;
+		header.length = length_;
+		header.buffer = buffer_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitWriteMemory(descriptor_.getHandle(),
-				address_, length_, buffer_,
-				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context)));
+		Dispatcher::global().pushSq(kHelSubmitWriteMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
 	}
 
 	WriteMemoryOperation(const WriteMemoryOperation &) = delete;
@@ -979,12 +1036,20 @@ struct AwaitEventOperation : private Context {
 	: event_{std::move(event)}, sequence_{sequence}, ct_{ct}, receiver_{std::move(receiver)} { }
 
 	void start() {
-		auto context = static_cast<Context *>(this);
-
 		asyncId_ = Dispatcher::global().makeAsyncId();
-		HEL_CHECK(helSubmitAwaitEvent(event_.getHandle(), sequence_,
-				Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context), asyncId_));
+
+		HelSqAwaitEvent header;
+		header.handle = event_.getHandle();
+		header.sequence = sequence_;
+		header.cancellationTag = asyncId_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitAwaitEvent,
+				reinterpret_cast<uintptr_t>(context), segments);
 
 		cb_.emplace(ct_, this);
 	}
