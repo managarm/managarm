@@ -320,9 +320,8 @@ public:
 					_sqProgress | kHelProgressDone, __ATOMIC_RELEASE);
 
 			// Signal the kernel.
-			auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
-			if(!(futex & kHelKernelNotifySqProgress))
-				HEL_CHECK(helDriveQueue(_handle, 0));
+			// Note: We do not call helDriveQueue() here; instead this is done at the next wait().
+			__atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
 
 			_sqCurrentChunk = nextWord & ~kHelNextPresent;
 			_sqProgress = 0;
@@ -343,11 +342,10 @@ public:
 
 		_sqProgress += elementSize;
 
-		// Update the progress futex and signal the kernel.
+		// Signal the kernel that new SQ elements are available.
+		// Note: We do not call helDriveQueue() here; instead this is done at the next wait().
 		__atomic_store_n(&_chunks[_sqCurrentChunk]->progressFutex, _sqProgress, __ATOMIC_RELEASE);
-		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
-		if(!(futex & kHelKernelNotifySqProgress))
-			HEL_CHECK(helDriveQueue(_handle, 0));
+		__atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySqProgress, __ATOMIC_RELEASE);
 	}
 
 	inline void cancel(uint64_t cancellationTag) {
