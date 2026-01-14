@@ -829,10 +829,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = lane1;
 		*image.out1() = lane2;
 	} break;
-	case kHelCallSubmitAsync: {
-		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
-				(size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4, (uint32_t)arg5);
-	} break;
 	case kHelCallShutdownLane: {
 		*image.error() = helShutdownLane((HelHandle)arg0);
 	} break;

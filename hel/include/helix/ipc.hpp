@@ -648,10 +648,19 @@ struct ExchangeMsgsOperation : private Context {
 	void start() {
 		auto helActions = frg::apply(chainActionArrays, actions_);
 
+		HelSqExchangeMsgs header;
+		header.lane = lane_.getHandle();
+		header.count = helActions.size();
+		header.flags = 0;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1}),
+			std::as_bytes(std::span{helActions.data(), helActions.size()})
+		};
+
 		auto context = static_cast<Context *>(this);
-		HEL_CHECK(helSubmitAsync(lane_.getHandle(),
-				helActions.data(), helActions.size(), Dispatcher::global().acquire(),
-				reinterpret_cast<uintptr_t>(context), 0));
+		Dispatcher::global().pushSq(kHelSubmitExchangeMsgs,
+				reinterpret_cast<uintptr_t>(context), segments);
 	}
 
 private:

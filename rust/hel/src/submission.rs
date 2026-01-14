@@ -3,7 +3,7 @@ pub mod result;
 
 use std::{
     cell::Cell,
-    mem::MaybeUninit,
+    mem::{MaybeUninit, size_of},
     rc::Rc,
     task::{LocalWaker, Poll},
     time::Duration,
@@ -66,7 +66,7 @@ impl<'a> OperationState<'a> {
 /// queue element must be placed onto the given queue. If an error
 /// is returned, no elements may be placed on the given queue.
 fn new_async_operation<
-    Submit: Fn(&Handle, *const OperationState) -> Result<()>,
+    Submit: Fn(&Rc<ExecutorInner>, *const OperationState) -> Result<()>,
     Complete: Fn(&mut QueueElement) -> Result<T>,
     T: Sized,
 >(
@@ -89,7 +89,7 @@ fn new_async_operation<
                 // be dropped once the submission is completed.
                 let context = Rc::into_raw(state.clone());
 
-                if let Err(err) = submit(state.executor.queue_handle(), context) {
+                if let Err(err) = submit(&state.executor, context) {
                     // In case of an error we need to release the previously
                     // leaked reference to the state object and return the error.
                     drop(unsafe { Rc::from_raw(context) });
@@ -116,11 +116,11 @@ pub fn sleep_until_with_executor(
 ) -> impl Future<Output = Result<()>> {
     new_async_operation(
         executor.clone_inner(),
-        move |queue_handle, context| {
+        move |executor, context| {
             hel_check(unsafe {
                 hel_sys::helSubmitAwaitClock(
                     time.nanos(),
-                    queue_handle.handle(),
+                    executor.queue_handle().handle(),
                     context as usize,
                     0, // No cancellation needed
                 )
@@ -148,11 +148,11 @@ pub fn sleep_for_with_executor(
 
     new_async_operation(
         executor.clone_inner(),
-        move |queue_handle, context| {
+        move |executor, context| {
             hel_check(unsafe {
                 hel_sys::helSubmitAwaitClock(
                     time?.nanos(),
-                    queue_handle.handle(),
+                    executor.queue_handle().handle(),
                     context as usize,
                     0, // No cancellation needed
                 )
@@ -183,19 +183,33 @@ where
 
     let actions = actions.map(|action| unsafe { action.assume_init() });
 
+    let lane_handle = lane.handle();
+
     new_async_operation(
         executor.clone_inner(),
-        move |queue_handle, context| {
-            hel_check(unsafe {
-                hel_sys::helSubmitAsync(
-                    lane.handle(),
-                    actions.as_ptr() as *const _,
-                    actions.len(),
-                    queue_handle.handle(),
-                    context as usize,
-                    0,
+        move |executor, context| {
+            let header = hel_sys::HelSqExchangeMsgs {
+                lane: lane_handle,
+                count: actions.len(),
+                flags: 0,
+            };
+            let header_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    &header as *const _ as *const u8,
+                    size_of::<hel_sys::HelSqExchangeMsgs>(),
                 )
-            })
+            };
+            let actions_bytes: &[u8] = unsafe {
+                std::slice::from_raw_parts(
+                    actions.as_ptr() as *const u8,
+                    actions.len() * size_of::<hel_sys::HelAction>(),
+                )
+            };
+            executor.push_sq(
+                hel_sys::kHelSubmitExchangeMsgs,
+                context as usize,
+                &[header_bytes, actions_bytes],
+            )
         },
         |element| Ok(T::Output::from_queue_element(element)),
     )

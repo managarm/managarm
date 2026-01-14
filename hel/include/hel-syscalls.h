@@ -373,13 +373,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHand
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitAsync(HelHandle handle,
-		const struct HelAction *actions, size_t count, HelHandle queue, uintptr_t context,
-		uint32_t flags) {
-	return helSyscall6(kHelCallSubmitAsync, (HelWord)handle, (HelWord)actions, (HelWord)count,
-			(HelWord)queue, (HelWord)context, (HelWord)flags);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helShutdownLane(HelHandle handle) {
 	return helSyscall1(kHelCallShutdownLane, (HelWord)handle);
 };

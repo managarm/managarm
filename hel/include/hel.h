@@ -491,6 +491,8 @@ static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
 static const uint32_t kHelSubmitCancel = 256;
 //! SQ opcode: asynchronous no-op (for testing/profiling).
 static const uint32_t kHelSubmitAsyncNop = 1;
+//! SQ opcode: exchange messages on a stream.
+static const uint32_t kHelSubmitExchangeMsgs = 2;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -546,6 +548,17 @@ struct HelElement {
 //! SQ data for kHelSubmitCancel.
 struct HelSqCancel {
 	uint64_t cancellationTag;
+};
+
+//! SQ data for kHelSubmitExchangeMsgs.
+//! Followed by count HelAction structures.
+struct HelSqExchangeMsgs {
+	//! Handle to the lane.
+	HelHandle lane;
+	//! Number of actions.
+	size_t count;
+	//! Flags.
+	uint32_t flags;
 };
 
 struct HelSimpleResult {
@@ -1125,16 +1138,6 @@ HEL_C_LINKAGE HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t si
 //! @param[in] attach_credentials
 //!     Enable or disable credentials for the new stream.
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2, uint32_t attach_credentials);
-
-//! Pass messages on a stream.
-//! @param[in] handle
-//!     Handle to the lane that messages will be passed to.
-//! @param[in] actions
-//!     Pointer to array of message items.
-//! @param[in] count
-//!     Number of elements in @p actions.
-HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const struct HelAction *actions,
-		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 

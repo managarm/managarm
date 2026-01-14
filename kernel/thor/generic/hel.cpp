@@ -2451,8 +2451,9 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 	return kHelErrNone;
 }
 
-HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count,
-		HelHandle queueHandle, uintptr_t context, uint32_t flags) {
+HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue> queue,
+		ImmediateMemory *sqMemory, size_t sqActionsOffset,
+		size_t count, uintptr_t context, uint32_t flags) {
 	if(flags)
 		return kHelErrIllegalArgs;
 	if(!count)
@@ -2462,12 +2463,11 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	auto thisUniverse = thisThread->getUniverse();
 
 	LaneHandle lane;
-	smarter::shared_ptr<IpcQueue> queue;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
 
-		auto wrapper = thisUniverse->getDescriptor(universe_guard, handle);
+		auto wrapper = thisUniverse->getDescriptor(universe_guard, laneHandle);
 		if(!wrapper)
 			return kHelErrNoDescriptor;
 		if(wrapper->is<LaneDescriptor>()) {
@@ -2475,13 +2475,6 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 		}else{
 			return kHelErrBadDescriptor;
 		}
-
-		auto queueWrapper = thisUniverse->getDescriptor(universe_guard, queueHandle);
-		if(!queueWrapper)
-			return kHelErrNoDescriptor;
-		if(!queueWrapper->is<QueueDescriptor>())
-			return kHelErrBadDescriptor;
-		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
 	struct Item {
@@ -2508,14 +2501,15 @@ HelError helSubmitAsync(HelHandle handle, const HelAction *actions, size_t count
 	frg::small_vector<size_t, 4, KernelAlloc> linkStack{*kernelAlloc};
 	linkStack.push_back(noIndex);
 
-	// Read the message items from userspace.
+	// Read the message items.
 	size_t ipcSize = 0;
 	size_t numFlows = 0;
 	for(size_t i = 0; i < count; i++) {
 		HelAction *recipe = &items[i].recipe;
 		auto node = &items[i].transmit;
 
-		readUserObject(actions + i, *recipe);
+		sqMemory->readImmediate(sqActionsOffset + i * sizeof(HelAction),
+				recipe, sizeof(HelAction));
 
 		switch(recipe->type) {
 			case kHelActionDismiss:
@@ -3767,6 +3761,19 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 	case kHelSubmitAsyncNop:
 		error = doSubmitAsyncNop(queue, context);
 		break;
+	case kHelSubmitExchangeMsgs: {
+		if(length < sizeof(HelSqExchangeMsgs)) {
+			infoLogger() << "Bad length for kSubmitExchangeMsgs" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqExchangeMsgs sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		auto actionsOffset = dataOffset + sizeof(HelSqExchangeMsgs);
+		error = doSubmitExchangeMsgs(sqData.lane, queue, memory, actionsOffset,
+				sqData.count, context, sqData.flags);
+		break;
+	}
 	default:
 		error = kHelErrIllegalSyscall;
 		infoLogger() << "thor: Bad opcode " << opcode << " in submission queue" << frg::endlog;
