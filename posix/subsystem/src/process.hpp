@@ -515,7 +515,7 @@ public:
 		return reinterpret_cast<posix::ThreadPage *>(_threadPageMapping.get());
 	}
 
-	async::result<void> cancelEvent();
+	async::result<void> cancelEvent(uint64_t cancelId, int fd);
 
 	// Like checkOrRequestSignalRaise() but only check if raising is possible.
 	bool checkSignalRaise();

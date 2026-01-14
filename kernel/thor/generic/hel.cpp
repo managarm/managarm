@@ -117,6 +117,7 @@ HelError translateError(Error error) {
 	case Error::fault: return kHelErrFault;
 	case Error::remoteFault: return kHelErrRemoteFault;
 	case Error::cancelled: return kHelErrCancelled;
+	case Error::futexRace: return kHelErrNone;
 	default:
 		assert(!"Unexpected error");
 		__builtin_unreachable();
@@ -476,6 +477,28 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 			}
 		}
 	}
+
+	return kHelErrNone;
+}
+
+HelError helAlertQueue(HelHandle handle) {
+	auto thisThread = getCurrentThread();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<IpcQueue> queue;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		Universe::Guard universeGuard(thisUniverse->lock);
+
+		auto queueWrapper = thisUniverse->getDescriptor(universeGuard, handle);
+		if(!queueWrapper)
+			return kHelErrNoDescriptor;
+		if(!queueWrapper->is<QueueDescriptor>())
+			return kHelErrBadDescriptor;
+		queue = queueWrapper->get<QueueDescriptor>().queue;
+	}
+
+	queue->alert();
 
 	return kHelErrNone;
 }
@@ -3095,35 +3118,33 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		if(deadline != -1)
 			return kHelErrIllegalArgs;
 
-		if (!Thread::asyncBlockCurrentInterruptible(
-		        async::lambda([&](async::cancellation_token ct) {
-			        return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
-		        })
-		    )) {
-			return kHelErrCancelled;
-		}
+		return translateError(Thread::asyncBlockCurrentInterruptible(
+			async::lambda([&](async::cancellation_token ct) {
+				return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
+			})
+		));
 	}else{
+		Error waitErr;
 		bool timeout = false;
 
-		if (!Thread::asyncBlockCurrentInterruptible(
-		        async::lambda([&](async::cancellation_token ct) {
-			        return async::race_and_cancel(
-						async::lambda([&](async::cancellation_token cancellation) {
-							return getGlobalFutexRealm()->wait(
-								std::move(futex), expected, cancellation
-							);
-						}),
-			            async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
-							timeout = co_await generalTimerEngine()->sleep(deadline, cancellation);
-			            }),
-			            async::lambda([ct](async::cancellation_token cancellation) {
-				            return async::suspend_indefinitely(ct, cancellation);
-			            })
-			        );
-		        })
-		    )) {
-			return kHelErrCancelled;
-		}
+		Thread::asyncBlockCurrentInterruptible(async::lambda([&](async::cancellation_token ct) {
+			return async::race_and_cancel(
+			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
+				    waitErr = co_await getGlobalFutexRealm()->wait(
+				        std::move(futex), expected, cancellation
+				    );
+			    }),
+			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
+				    timeout = co_await generalTimerEngine()->sleep(deadline, cancellation);
+			    }),
+			    async::lambda([ct](async::cancellation_token cancellation) {
+				    return async::suspend_indefinitely(ct, cancellation);
+			    })
+			);
+		}));
+
+		if (waitErr != Error::success)
+			return translateError(waitErr);
 
 		if (timeout)
 			return kHelErrTimeout;

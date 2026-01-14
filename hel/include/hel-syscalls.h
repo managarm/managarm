@@ -78,6 +78,10 @@ extern inline __attribute__ (( always_inline )) HelError helDriveQueue(HelHandle
 	return helSyscall2(kHelCallDriveQueue, (HelWord)handle, (HelWord)flags);
 };
 
+extern inline __attribute__ (( always_inline )) HelError helAlertQueue(HelHandle handle) {
+	return helSyscall1(kHelCallAlertQueue, (HelWord)handle);
+};
+
 extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_t size,
 		uint32_t flags, const struct HelAllocRestrictions *restrictions, HelHandle *handle) {
 	HelWord hel_handle;

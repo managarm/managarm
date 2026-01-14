@@ -1012,23 +1012,19 @@ std::shared_ptr<ProcessGroup> Process::pgPointer() {
 	return threadGroup()->pgPointer();
 }
 
-async::result<void> Process::cancelEvent() {
-	auto threadPagePtr = static_cast<posix::ThreadPage *>(_threadPageMapping.get());
-	auto cancelId = __atomic_load_n(&threadPagePtr->cancellationId, __ATOMIC_ACQUIRE);
+async::result<void> Process::cancelEvent(uint64_t cancelId, int fd) {
 	if (cancelId != 0) {
-		HelHandle handle;
-		HEL_CHECK(helTransferDescriptor(threadPagePtr->lane, _fileContext->getUniverse().getHandle(), kHelTransferDescriptorIn, &handle));
-		int fd = threadPagePtr->fd;
-
 		if (fd == -1) {
 			cancelEventRegistry_.cancel(helix_ng::CredentialsView{credentials_}, cancelId);
 		} else {
 			managarm::fs::CancelOperation req;
 			req.set_cancellation_id(cancelId);
 
+			auto file = fileContext()->getFile(fd);
+
 			auto [offer, send_req, imbue_creds] =
 			co_await helix_ng::exchangeMsgs(
-				helix::BorrowedDescriptor{handle},
+				file->getPassthroughLane(),
 				helix_ng::offer(
 					helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 					helix_ng::imbueCredentials(_threadDescriptor.getHandle())

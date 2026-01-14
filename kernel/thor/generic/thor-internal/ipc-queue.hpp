@@ -16,6 +16,8 @@ struct IpcQueue;
 // They must be kept in sync!
 
 static const int kUserNotifyCqProgress = (1 << 0);
+static const int kUserNotifyAlert = (1 << 15);
+
 static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
@@ -118,15 +120,24 @@ public:
 	bool checkUserNotify() {
 		auto head = _memory->accessImmediate<QueueStruct>(0);
 		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-		return userNotify & kUserNotifyCqProgress;
+		return userNotify & (kUserNotifyCqProgress | kUserNotifyAlert);
 	}
 
 	auto waitUserEvent(async::cancellation_token ct) {
 		return _userEvent.async_wait_if([this] () -> bool {
 			auto head = _memory->accessImmediate<QueueStruct>(0);
 			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-			return !(userNotify & kUserNotifyCqProgress);
+			return !(userNotify & (kUserNotifyCqProgress | kUserNotifyAlert));
 		}, ct);
+	}
+
+	void alert() {
+		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto userNotify = __atomic_fetch_or(&head->userNotify,
+				kUserNotifyAlert, __ATOMIC_RELEASE);
+		if(!(userNotify & kUserNotifyAlert)) {
+			_userEvent.raise();
+		}
 	}
 
 	// ----------------------------------------------------------------------------------
