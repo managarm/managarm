@@ -2,6 +2,7 @@
 
 #include <async/result.hpp>
 #include <async/algorithm.hpp>
+#include <async/wait-group.hpp>
 #include <helix/ipc.hpp>
 
 #include <atomic>
@@ -78,6 +79,38 @@ async::result<void> doAsyncNopBenchmark() {
 				auto result = co_await helix_ng::asyncNop();
 				HEL_CHECK(result.error());
 				++n;
+			}
+		}
+		bench.announceIterations(n);
+	}
+	bench.finalizeStatistics();
+}
+
+async::result<void> doMultiSubmitAsyncNopBenchmark() {
+	std::cout << "ipc ops, multi-submit" << std::endl;
+
+	IterationsPerSecondBenchmark bench;
+	for(int k = 0; k < 5; ++k) {
+		uint64_t n = 0;
+		bench.launchRepetition();
+		while(!bench.isRepetitionDone()) {
+			for (int i = 0; i < 100; ++i) {
+				co_await async::when_all(
+					async::transform(
+						helix_ng::asyncNop(),
+						[&] (auto result) {
+							HEL_CHECK(result.error());
+							++n;
+						}
+					),
+					async::transform(
+						helix_ng::asyncNop(),
+						[&] (auto result) {
+							HEL_CHECK(result.error());
+							++n;
+						}
+					)
+				);
 			}
 		}
 		bench.announceIterations(n);
@@ -313,6 +346,7 @@ int main() {
 	doNopBenchmark();
 	doFutexBenchmark();
 	async::run(doAsyncNopBenchmark(), helix::currentDispatcher);
+	async::run(doMultiSubmitAsyncNopBenchmark(), helix::currentDispatcher);
 	doParallelAsyncNopBenchmark();
 	doAllocateBenchmark(1 << 20);
 	doMapBenchmark(1 << 20);
