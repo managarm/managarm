@@ -100,6 +100,7 @@ struct WiresharkPolicy {
 	std::set<std::string_view> requests = {
 		"posix.request",
 		"fs.request",
+		"supercall.request",
 	};
 
 	bool onEvent(managarm::ostrace::EventRecord &record, size_t) {
@@ -162,7 +163,7 @@ struct WiresharkPolicy {
 			}
 			auto convo = requests_.at(metadata);
 			size_t request_time = 0;
-			if(state_.ts > metadata.last_request_ts)
+			if(state_.ts > metadata.last_request_ts && metadata.last_request_ts)
 				request_time = state_.ts - metadata.last_request_ts;
 			uint32_t packet_size = record.buffer().size()
 				+ sizeof(proto_hash) + sizeof(state_.last_pid) + sizeof(convo.first) + sizeof(convo.second) + sizeof(request_time);
