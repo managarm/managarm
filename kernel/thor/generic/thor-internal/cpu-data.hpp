@@ -76,7 +76,7 @@ extern "C" char percpuStart[], percpuEnd[];
 
 template<typename T>
 concept HasCpuDataConstructor = requires(CpuData *cpuData) {
-	{ T(cpuData) };
+	{ T{cpuData} };
 };
 
 // To add a new per-CPU variable, add a forward declaration like
