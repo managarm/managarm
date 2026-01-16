@@ -643,8 +643,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
-		FRG_CO_TRY(co_await mapping->view->fetchRange(
-				mapping->viewOffset + offset, fetchFlags, wq));
+		FRG_CO_TRY(co_await mapping->view->touchRange(
+				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
 
 		auto caching = CachingMode::null;
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
@@ -663,7 +663,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 				warningLogger() << "thor: Spurious page fault" << frg::endlog;
 			}else{
 				assert(remapOutcome.error() == Error::fault);
-				warningLogger() << "thor: Page still not available after fetchRange()"
+				warningLogger() << "thor: Page still not available after touchRange()"
 					<< frg::endlog;
 				continue;
 			}
@@ -695,12 +695,12 @@ VirtualSpace::retrievePhysical(VirtualAddr address, WorkQueue *wq) {
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
-		FRG_CO_TRY(co_await mapping->view->fetchRange(
-				mapping->viewOffset + offset, fetchFlags, wq));
+		FRG_CO_TRY(co_await mapping->view->touchRange(
+				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
 
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
 		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
-			warningLogger() << "thor: Page still not available after fetchRange()" << frg::endlog;
+			warningLogger() << "thor: Page still not available after touchRange()" << frg::endlog;
 			continue;
 		}
 
