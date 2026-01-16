@@ -1644,7 +1644,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await memory->touchRange(offset, size, 0, edc.wq.get());
+		auto touchOutcome = co_await memory->touchFullRange(offset, size, 0, edc.wq.get());
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
