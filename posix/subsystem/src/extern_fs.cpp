@@ -73,7 +73,8 @@ struct Node : FsNode {
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		FileStats stats{};
 		stats.inodeNumber = getInode(); // TODO: Move this out of FileStats.
@@ -112,7 +113,8 @@ struct Node : FsNode {
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		co_return Error::success;
 	}
@@ -150,7 +152,8 @@ struct Node : FsNode {
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		co_return Error::success;
 	}
@@ -275,7 +278,8 @@ public:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | protocols::fs::toFsProtoError;
 		co_return {};
 	}
 
@@ -331,7 +335,8 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(mount), std::move(link));
@@ -370,7 +375,8 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		co_return std::string{static_cast<char *>(recv_target.data()), recv_target.length()};
 	}
@@ -408,7 +414,8 @@ public:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 		co_return frg::success_tag{};
 	}
 
@@ -572,15 +579,10 @@ private:
 		auto resp = *bragi::parse_head_tail<managarm::fs::NodeTraverseLinksResponse>(recv_resp, tail);
 		recv_resp.reset();
 
-		if (resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
-			co_return Error::noSuchFile;
-		} else if (resp.error() == managarm::fs::Errors::NOT_DIRECTORY) {
-			co_return Error::notDirectory;
-		} else {
-			assert(resp.error() == managarm::fs::Errors::SUCCESS);
-			HEL_CHECK(pull_desc.error());
-		}
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
+		HEL_CHECK(pull_desc.error());
 		helix::UniqueLane pull_lane = pull_desc.descriptor();
 
 		assert(resp.links_traversed());
@@ -641,7 +643,7 @@ private:
 					resp.id(), pullNode.descriptor());
 			co_return child->treeLink();
 		} else {
-			co_return Error::illegalOperationTarget; // TODO
+			co_return resp.error() | toPosixError;
 		}
 	}
 
@@ -679,7 +681,7 @@ private:
 					resp.id(), pullNode.descriptor());
 			co_return child->treeLink();
 		} else {
-			co_return Error::illegalOperationTarget; // TODO
+			co_return resp.error() | toPosixError;
 		}
 	}
 
@@ -724,11 +726,8 @@ private:
 						pull_node.descriptor());
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
-		}else if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND) {
-			co_return Error::noSuchFile;
 		}else{
-			assert(resp.error() == managarm::fs::Errors::NOT_DIRECTORY);
-			co_return Error::notDirectory;
+			co_return resp.error() | toPosixError;
 		}
 	}
 
@@ -790,11 +789,9 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		if(resp.error() == managarm::fs::Errors::FILE_NOT_FOUND)
-			co_return Error::noSuchFile;
-		else if(resp.error() == managarm::fs::Errors::DIRECTORY_NOT_EMPTY)
-			co_return Error::directoryNotEmpty;
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
+
 		co_return {};
 	}
 
@@ -818,11 +815,8 @@ private:
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
 
-		if(resp.error() == managarm::fs::Errors::DIRECTORY_NOT_EMPTY) {
-			co_return Error::directoryNotEmpty;
-		}
-
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		co_return {};
 	}
@@ -868,7 +862,8 @@ private:
 		managarm::fs::SvrResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
-		assert(resp.error() == managarm::fs::Errors::SUCCESS);
+		if(resp.error() != managarm::fs::Errors::SUCCESS)
+			co_return resp.error() | toPosixError;
 
 		auto file = smarter::make_shared<OpenFile>(pull_ctrl.descriptor(),
 				pull_passthrough.descriptor(), std::move(mount), std::move(link));
