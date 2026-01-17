@@ -304,14 +304,10 @@ private:
 			co_return Error::illegalArguments;
 		}
 
-		bool append = false;
-		if(semantic_flags & semanticAppend) {
-			append = true;
-		}
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
-		req.set_append(append);
+		managarm::fs::NodeOpenRequest req;
+		req.set_append((semantic_flags & semanticAppend) != 0);
+		req.set_write((semantic_flags & semanticWrite) != 0);
+		req.set_read((semantic_flags & semanticRead) != 0);
 
 		auto [offer, send_req, recv_resp, pull_ctrl, pull_passthrough] = co_await helix_ng::exchangeMsgs(
 			getLane(),
@@ -328,7 +324,7 @@ private:
 		HEL_CHECK(pull_ctrl.error());
 		HEL_CHECK(pull_passthrough.error());
 
-		managarm::fs::SvrResponse resp;
+		managarm::fs::NodeOpenResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);
@@ -841,14 +837,10 @@ private:
 			co_return Error::illegalArguments;
 		}
 
-		bool append = false;
-		if(semantic_flags & semanticAppend) {
-			append = true;
-		}
-
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::NODE_OPEN);
-		req.set_append(append);
+		managarm::fs::NodeOpenRequest req;
+		req.set_append((semantic_flags & semanticAppend) != 0);
+		req.set_write((semantic_flags & semanticWrite) != 0);
+		req.set_read((semantic_flags & semanticRead) != 0);
 
 		auto [offer, send_req, recv_resp, pull_ctrl, pull_passthrough] = co_await helix_ng::exchangeMsgs(
 			getLane(),
@@ -865,7 +857,7 @@ private:
 		HEL_CHECK(pull_ctrl.error());
 		HEL_CHECK(pull_passthrough.error());
 
-		managarm::fs::SvrResponse resp;
+		managarm::fs::NodeOpenResponse resp;
 		resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 		recv_resp.reset();
 		assert(resp.error() == managarm::fs::Errors::SUCCESS);

@@ -78,7 +78,6 @@ enum CntReqType {
 	// File node API.
 	NODE_GET_STATS = 5,
 	NODE_SYMLINK = 39,
-	NODE_OPEN = 13,
 	NODE_READ_SYMLINK = 15,
 
 	// Primary file API.
@@ -236,8 +235,6 @@ head(128):
 		tag(69) int64 pgid;
 
 		tag(84) int32 seals;
-
-		tag(85) byte append;
 
 		// used by SB_CREATE_REGULAR
 		tag(86) int64 uid;
@@ -884,4 +881,16 @@ head(128):
 	int32 fsid0;
 	int32 fsid1;
 	uint64 flags;
+}
+
+message NodeOpenRequest 47 {
+head(128):
+	byte append;
+	byte read;
+	byte write;
+}
+
+message NodeOpenResponse 48 {
+head(128):
+	Errors error;
 }

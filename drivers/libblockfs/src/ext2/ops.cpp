@@ -1,5 +1,6 @@
 #include <core/clock.hpp>
 #include <async/result.hpp>
+#include <fcntl.h>
 #include <protocols/fs/server.hpp>
 #include <frg/scope_exit.hpp>
 
@@ -23,9 +24,18 @@ readEntries(void *object) {
 	co_return co_await self->readEntries();
 }
 
-async::result<int> getFileFlags(void *) {
-	std::cout << "libblockfs: getFileFlags is stubbed" << std::endl;
-	co_return 0;
+async::result<int> getFileFlags(void *object) {
+	auto self = static_cast<ext2fs::OpenFile *>(object);
+	int flags = 0;
+
+	if(self->read && self->write)
+		flags |= O_RDWR;
+	else if(self->read)
+		flags |= O_RDONLY;
+	else if(self->write)
+		flags |= O_WRONLY;
+
+	co_return flags;
 }
 
 async::result<void> setFileFlags(void *, int) {
