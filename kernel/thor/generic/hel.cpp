@@ -1025,10 +1025,12 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
 
 		mapResult = Thread::asyncBlockCurrent(space->map(slice,
-				(VirtualAddr)pointer, offset, length, map_flags));
+				(VirtualAddr)pointer, offset, length, map_flags,
+				getCurrentThread()->mainWorkQueue()));
 	} else {
 		mapResult = Thread::asyncBlockCurrent(vspace->map(slice,
-				(VirtualAddr)pointer, offset, length, map_flags));
+				(VirtualAddr)pointer, offset, length, map_flags,
+				getCurrentThread()->mainWorkQueue()));
 	}
 
 	if(!mapResult) {
@@ -1088,19 +1090,21 @@ HelError helSubmitProtectMemory(HelHandle space_handle,
 	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
 		return kHelErrQueueTooSmall;
 
-	[](smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	[](smarter::shared_ptr<Thread> thisThread,
+			smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			smarter::shared_ptr<IpcQueue> queue,
 			VirtualAddr pointer, size_t length,
 			uint32_t protectFlags, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		auto outcome = co_await space->protect(pointer, length, protectFlags);
+		auto outcome = co_await space->protect(pointer, length, protectFlags,
+				thisThread->mainWorkQueue());
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
 		assert(outcome);
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(space), std::move(queue), reinterpret_cast<VirtualAddr>(pointer),
+	}(this_thread.lock(), std::move(space), std::move(queue), reinterpret_cast<VirtualAddr>(pointer),
 			length, protectFlags, context);
 
 	return kHelErrNone;
@@ -1127,7 +1131,8 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		}
 	}
 
-	auto outcome = Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length));
+	auto outcome = Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length,
+			getCurrentThread()->mainWorkQueue()));
 	if(!outcome) {
 		assert(outcome.error() == Error::illegalArgs);
 		return kHelErrIllegalArgs;
@@ -1166,18 +1171,20 @@ HelError helSubmitSynchronizeSpace(HelHandle spaceHandle, void *pointer, size_t 
 		queue = queueWrapper->get<QueueDescriptor>().queue;
 	}
 
-	[] (smarter::shared_ptr<AddressSpace, BindableHandle> space,
+	[] (smarter::shared_ptr<Thread> thisThread,
+			smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			void *pointer, size_t length,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
-		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length);
+		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length,
+				thisThread->mainWorkQueue());
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
 		assert(outcome);
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(space), pointer, length, std::move(queue), context);
+	}(thisThread.lock(), std::move(space), pointer, length, std::move(queue), context);
 
 	return kHelErrNone;
 }

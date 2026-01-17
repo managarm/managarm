@@ -63,8 +63,9 @@ PageBinding::completeShootdown_(PageSpace *space, uint64_t afterSequence, bool d
 	if(!doShootdown) {
 		space->numBindings_--;
 		if(!space->numBindings_ && space->retireNode_) {
-			space->retireNode_->complete();
+			auto node = space->retireNode_;
 			space->retireNode_ = nullptr;
+			node->complete();
 		}
 	}
 

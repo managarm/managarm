@@ -8,6 +8,7 @@
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 
 namespace thor {
 
@@ -78,23 +79,39 @@ static_assert(frg::slab::has_trace_support<HeapSlabPolicy>);
 #endif
 
 extern PerCpu<frg::sharded_slab_pool<HeapSlabPolicy>> heapSlabPool;
+// We use this variable to check for reentrancy (i.e., for error checking).
+extern PerCpu<std::atomic<bool>> inSlabPool;
 
 struct Allocator {
+	struct Guard : IplGuard<ipl::schedule> {
+		Guard() {
+			auto cpu = getCpuData();
+			assert(!inSlabPool.get(cpu).load(std::memory_order_relaxed));
+			inSlabPool.get(cpu).store(true, std::memory_order_relaxed);
+		}
+
+		~Guard() {
+			auto cpu = getCpuData();
+			assert(inSlabPool.get(cpu).load(std::memory_order_relaxed));
+			inSlabPool.get(cpu).store(false, std::memory_order_relaxed);
+		}
+	};
+
 	void *allocate(size_t size) const {
-		auto irqLock = frg::guard(&irqMutex());
+		Guard guard;
 		auto &pool = heapSlabPool.get();
 		return pool.allocate(size);
 	}
 
 	void deallocate(void *p, size_t size) const {
 		(void)size;
-		auto irqLock = frg::guard(&irqMutex());
+		Guard guard;
 		auto &pool = heapSlabPool.get();
 		pool.deallocate(p);
 	}
 
 	void free(void *p) const {
-		auto irqLock = frg::guard(&irqMutex());
+		Guard guard;
 		auto &pool = heapSlabPool.get();
 		pool.deallocate(p);
 	}

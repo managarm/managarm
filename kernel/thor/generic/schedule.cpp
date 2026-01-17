@@ -461,8 +461,11 @@ void doCheckThreadPreemption(ImageAccessor image) {
 	// we can avoid a virtual call here and directly call into Thread::handlePreemption().
 
 	scheduler->suppressRenewalUntilInterrupt();
-	if (scheduler->mustCallPreemption())
-		thisThread->handlePreemption(image);
+	if (!scheduler->mustCallPreemption())
+		return;
+	if (deferPreemption())
+		return;
+	thisThread->handlePreemption(image);
 }
 
 } // namespace

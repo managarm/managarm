@@ -352,7 +352,8 @@ namespace posix {
 					fileTableMemory, 0, 0x1000);
 			auto result = co_await thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
-					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
+					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
+					WorkQueue::generalQueue());
 			assert(result);
 			clientFileTable = result.value();
 		}
@@ -499,7 +500,8 @@ namespace posix {
 
 						auto space = info.thread->getAddressSpace();
 						auto result = co_await space->protect(
-							req->address(), req->size(), native_flags);
+							req->address(), req->size(), native_flags,
+							WorkQueue::generalQueue());
 						// TODO: improve error handling here.
 						assert(result);
 
@@ -782,7 +784,8 @@ namespace posix {
 
 				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
-						req->address_hint(), 0, req->size(), protFlags);
+						req->address_hint(), 0, req->size(), protFlags,
+						WorkQueue::generalQueue());
 				// TODO: improve error handling here.
 				assert(mapResult);
 
@@ -862,7 +865,8 @@ namespace posix {
 				auto mapResult = co_await space->map(std::move(slice),
 						0, 0, size,
 						AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-						| AddressSpace::kMapProtWrite);
+						| AddressSpace::kMapProtWrite,
+						WorkQueue::generalQueue());
 				// TODO: improve error handling here.
 				assert(mapResult);
 
@@ -874,7 +878,8 @@ namespace posix {
 				auto address = *info.thread->_executor.arg0();
 				auto size = *info.thread->_executor.arg1();
 				auto space = info.thread->getAddressSpace();
-				auto unmapOutcome = co_await space->unmap(address, size);
+				auto unmapOutcome = co_await space->unmap(address, size,
+						WorkQueue::generalQueue());
 
 				if(!unmapOutcome) {
 					assert(unmapOutcome.error() == Error::illegalArgs);

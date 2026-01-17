@@ -215,18 +215,21 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
-							| AddressSpace::kMapProtWrite);
+							| AddressSpace::kMapProtWrite,
+						WorkQueue::generalQueue());
 				assert(mapResult);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
 				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
 						AddressSpace::kMapFixed | AddressSpace::kMapProtRead
-							| AddressSpace::kMapProtExecute);
+							| AddressSpace::kMapProtExecute,
+						WorkQueue::generalQueue());
 				assert(mapResult);
 			}else if((phdr.p_flags & (PF_R | PF_W | PF_X)) == PF_R) {
 				auto mapResult = co_await space->map(std::move(view),
 						base + virt_address, 0, virt_length,
-						AddressSpace::kMapFixed | AddressSpace::kMapProtRead);
+						AddressSpace::kMapFixed | AddressSpace::kMapProtRead,
+						WorkQueue::generalQueue());
 				assert(mapResult);
 			}else{
 				panicLogger() << "Illegal combination of segment permissions"
@@ -289,7 +292,8 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-				| AddressSpace::kMapProtWrite);
+				| AddressSpace::kMapProtWrite,
+			WorkQueue::generalQueue());
 	assert(mapResult);
 
 	// build the stack data area (containing program arguments,

@@ -5,6 +5,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/types.hpp>
+#include <thor-internal/work-queue.hpp>
 #include <frg/list.hpp>
 #include <frg/vector.hpp>
 #include <cstddef>
@@ -12,29 +13,27 @@
 
 namespace thor {
 
-struct RetireNode {
+struct RetireNode : Worklet {
 	friend struct PageSpace;
 	friend struct PageBinding;
 
-	virtual void complete() = 0;
-
-protected:
-	virtual ~RetireNode() = default;
+	void complete() {
+		WorkQueue::post(this);
+	}
 };
 
-struct ShootNode {
+struct ShootNode : Worklet {
 	friend struct PageSpace;
 	friend struct PageBinding;
 
 	VirtualAddr address;
 	size_t size;
 
-	virtual void complete() = 0;
+	void complete() {
+		WorkQueue::post(this);
+	}
 
 	frg::default_list_hook<ShootNode> queueNode;
-
-protected:
-	virtual ~ShootNode() = default;
 
 private:
 	// This CPU already performed synchronous shootdown,
@@ -45,7 +44,6 @@ private:
 	uint64_t sequence_;
 
 	std::atomic<size_t> bindingsToShoot_;
-
 };
 
 using ShootNodeList = frg::intrusive_list<
@@ -236,18 +234,17 @@ struct [[nodiscard]] ShootdownSender {
 	PageSpace *self;
 	VirtualAddr address;
 	size_t size;
+	WorkQueue *wq;
 };
 
-inline ShootdownSender shootdown(PageSpace *space, VirtualAddr address, size_t size) {
-	return {space, address, size};
+inline ShootdownSender shootdown(PageSpace *space, VirtualAddr address, size_t size, WorkQueue *wq) {
+	return {space, address, size, wq};
 }
 
 template<typename R>
 struct ShootdownOperation : private ShootNode {
 	ShootdownOperation(ShootdownSender s, R receiver)
 	: s_{s}, receiver_{std::move(receiver)} { }
-
-	virtual ~ShootdownOperation() = default;
 
 	ShootdownOperation(const ShootdownOperation &) = delete;
 
@@ -256,6 +253,10 @@ struct ShootdownOperation : private ShootNode {
 	bool start_inline() {
 		ShootNode::address = s_.address;
 		ShootNode::size = s_.size;
+		Worklet::setup([] (Worklet *base) {
+			auto op = static_cast<ShootdownOperation *>(base);
+			async::execution::set_value_noinline(op->receiver_);
+		}, s_.wq);
 		if(s_.self->submitShootdown(this)) {
 			async::execution::set_value_inline(receiver_);
 			return true;
@@ -264,10 +265,6 @@ struct ShootdownOperation : private ShootNode {
 	}
 
 private:
-	void complete() override {
-		async::execution::set_value_noinline(receiver_);
-	}
-
 	ShootdownSender s_;
 	R receiver_;
 };
