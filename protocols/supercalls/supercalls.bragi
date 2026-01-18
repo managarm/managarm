@@ -1,0 +1,37 @@
+namespace "managarm::supercall";
+
+// fake protocol, only used for logging supercalls to ostrace
+
+message SupercallFork 1 {
+head(128):
+	int32 pid;
+	char[16] credentials;
+}
+
+message SupercallExecve 2 {
+head(128):
+	int32 error;
+	char[16] credentials;
+tail:
+	string path;
+	string[] args;
+	string[] env;
+}
+
+message SupercallExit 3 {
+head(128):
+	int64 code;
+}
+
+message SupercallThreadExit 4 {
+head(128):
+	int64 code;
+	int32 lastInGroup;
+}
+
+message SupercallKill 5 {
+head(128):
+	int64 pid;
+	int32 signal;
+	int32 error;
+}

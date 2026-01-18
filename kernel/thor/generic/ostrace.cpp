@@ -63,9 +63,9 @@ void doEmit(frg::span<char> payload) {
 	frg::small_vector<char, 64, KernelAlloc> buffer{*kernelAlloc};
 	buffer.resize(sizeof(Header) + payload.size());
 
-	auto hdr = new (buffer.data()) Header;
-	hdr->size = payload.size();
+	Header hdr{static_cast<uint32_t>(payload.size())};
 
+	memcpy(buffer.data(), &hdr, sizeof(Header));
 	memcpy(buffer.data() + sizeof(Header), payload.data(), payload.size());
 
 	// We want to be able to call this function from any context, but we cannot wake the waiters
