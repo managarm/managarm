@@ -140,8 +140,10 @@ freestnd_cxx_hdrs_dep = dependency(
 	method: 'pkg-config'
 )
 
-# declare dependencies that subdirs are going to use
-bragi_dep = dependency('bragi', method: 'pkg-config')
+if not provide_deps
+	# declare dependencies that subdirs are going to use
+	bragi_dep = dependency('bragi', method: 'pkg-config')
+endif
 
 if build_kernel or build_drivers
 	libarch_base = dependency('libarch', method: 'pkg-config')
