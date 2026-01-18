@@ -2,9 +2,11 @@
 
 #include <async/result.hpp>
 #include <async/algorithm.hpp>
+#include <async/wait-group.hpp>
 #include <helix/ipc.hpp>
 
 #include <atomic>
+#include <print>
 #include <thread>
 #include <vector>
 
@@ -85,6 +87,38 @@ async::result<void> doAsyncNopBenchmark() {
 	bench.finalizeStatistics();
 }
 
+async::result<void> doMultiSubmitAsyncNopBenchmark() {
+	std::cout << "ipc ops, multi-submit" << std::endl;
+
+	IterationsPerSecondBenchmark bench;
+	for(int k = 0; k < 5; ++k) {
+		uint64_t n = 0;
+		bench.launchRepetition();
+		while(!bench.isRepetitionDone()) {
+			for (int i = 0; i < 100; ++i) {
+				co_await async::when_all(
+					async::transform(
+						helix_ng::asyncNop(),
+						[&] (auto result) {
+							HEL_CHECK(result.error());
+							++n;
+						}
+					),
+					async::transform(
+						helix_ng::asyncNop(),
+						[&] (auto result) {
+							HEL_CHECK(result.error());
+							++n;
+						}
+					)
+				);
+			}
+		}
+		bench.announceIterations(n);
+	}
+	bench.finalizeStatistics();
+}
+
 void doParallelAsyncNopBenchmark() {
 	unsigned int numCpus = std::thread::hardware_concurrency();
 	std::cout << "ipc ops (parallel, " << numCpus << " threads)" << std::endl;
@@ -97,7 +131,7 @@ void doParallelAsyncNopBenchmark() {
 
 	auto worker = [&](unsigned int c) -> async::result<void> {
 		for(int k = 0; k < 5; ++k) {
-			if (barrier.fetch_add(1, std::memory_order_relaxed) + 1 == numCpus) {
+			if (barrier.fetch_add(1, std::memory_order_acquire) + 1 == numCpus) {
 				barrier.store(0, std::memory_order_relaxed);
 				stop.store(false, std::memory_order_relaxed);
 				totalIterations.store(0, std::memory_order_relaxed);
@@ -307,22 +341,100 @@ async::result<void> doSendRecvBufferBenchmark(size_t size) {
 	bench.finalizeStatistics();
 }
 
+void doCrossThreadSendRecvBufferBenchmark(size_t size) {
+	auto [lane1, lane2] = helix::createStream();
+
+	if(size < 1024) {
+		std::cout << "cross-thread send/recv, size = " << size << std::endl;
+	}else if(size < 1024 * 1024) {
+		std::cout << "cross-thread send/recv, size = " << (size / 1024) << " KiB" << std::endl;
+	}else{
+		std::cout << "cross-thread send/recv, size = " << (size / (1024 * 1024)) << " MiB" << std::endl;
+	}
+
+	IterationsPerSecondBenchmark bench;
+	std::atomic<unsigned int> barrier{0};
+	std::atomic<int> iter{-1};
+	std::atomic<bool> stop{false};
+	std::atomic<uint64_t> totalIterations{0};
+
+	auto worker = [&] (unsigned int c) -> async::result<void> {
+		std::vector<std::byte> buf(size);
+		int m = 0;
+		for(int k = 0; k < 5; ++k) {
+			bool started = false;
+			while (true) {
+				if (barrier.fetch_add(1, std::memory_order_acquire) + 1 == 2) {
+					barrier.store(0, std::memory_order_relaxed);
+					if (!started) {
+						stop.store(false, std::memory_order_relaxed);
+						totalIterations.store(0, std::memory_order_relaxed);
+						bench.launchRepetition();
+					} else if (bench.isRepetitionDone()) {
+						stop.store(true, std::memory_order_relaxed);
+						bench.announceIterations(totalIterations.load(std::memory_order_acquire));
+					}
+					iter.store(m, std::memory_order_release);
+				}
+				started = true;
+				while(iter.load(std::memory_order_acquire) < m)
+					;
+				++m;
+
+				if (stop.load(std::memory_order_relaxed))
+					break;
+
+				if (!c) {
+					for (int i = 0; i < 100; ++i) {
+						auto result = co_await helix_ng::exchangeMsgs(lane1, helix_ng::sendBuffer(buf.data(), size));
+						auto [send] = std::move(result);
+						HEL_CHECK(send.error());
+					}
+					totalIterations.fetch_add(100, std::memory_order_release);
+				} else {
+					assert(c == 1);
+					for (int i = 0; i < 100; ++i) {
+						auto result = co_await helix_ng::exchangeMsgs(lane2, helix_ng::recvBuffer(buf.data(), size));
+						auto [recv] = std::move(result);
+						HEL_CHECK(recv.error());
+					}
+				}
+			}
+		}
+	};
+
+	std::thread thread0([worker] () {
+		async::run(worker(0), helix::currentDispatcher);
+	});
+	std::thread thread1([worker] () mutable {
+		async::run(worker(1), helix::currentDispatcher);
+	});
+
+	thread0.join();
+	thread1.join();
+	bench.finalizeStatistics();
+}
+
 } // anonymous namespace
 
 int main() {
 	doNopBenchmark();
 	doFutexBenchmark();
 	async::run(doAsyncNopBenchmark(), helix::currentDispatcher);
+	async::run(doMultiSubmitAsyncNopBenchmark(), helix::currentDispatcher);
 	doParallelAsyncNopBenchmark();
 	doAllocateBenchmark(1 << 20);
 	doMapBenchmark(1 << 20);
 	doMapPopulatedBenchmark(1 << 20);
 	doPageFaultBenchmark(1 << 20);
 	async::run(doSendRecvBufferBenchmark(1), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(32), helix::currentDispatcher);
-	async::run(doSendRecvBufferBenchmark(128), helix::currentDispatcher);
 	async::run(doSendRecvBufferBenchmark(4096), helix::currentDispatcher);
 	async::run(doSendRecvBufferBenchmark(16 * 1024), helix::currentDispatcher);
 	async::run(doSendRecvBufferBenchmark(64 * 1024), helix::currentDispatcher);
 	async::run(doSendRecvBufferBenchmark(1024 * 1024), helix::currentDispatcher);
+	doCrossThreadSendRecvBufferBenchmark(1);
+	doCrossThreadSendRecvBufferBenchmark(4096);
+	doCrossThreadSendRecvBufferBenchmark(16 * 1024);
+	doCrossThreadSendRecvBufferBenchmark(64 * 1024);
+	doCrossThreadSendRecvBufferBenchmark(1024 * 1024);
 }

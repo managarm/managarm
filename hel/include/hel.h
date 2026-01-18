@@ -35,7 +35,6 @@ enum {
 	kHelCallCreateQueue = 89,
 	kHelCallDriveQueue = 105,
 	kHelCallAlertQueue = 106,
-	kHelCallCancelAsync = 92,
 
 	kHelCallAllocateMemory = 51,
 	kHelCallResizeMemory = 83,
@@ -470,18 +469,48 @@ struct HelQueueParameters {
 	uint32_t flags;
 	unsigned int numChunks;
 	size_t chunkSize;
+	unsigned int numSqChunks;
 };
 
 //! Set in userNotify after kernel has written progress.
 static const int kHelUserNotifyCqProgress = (1 << 0);
+//! Set in userNotify after kernel has supplied new SQ chunks.
+static const int kHelUserNotifySupplySqChunks = (1 << 1);
 //! Set in userNotify when the queue is alerted.
 static const int kHelUserNotifyAlert = (1 << 15);
 
+//! Set in kernelNotify after userspace has added SQ elements.
+static const int kHelKernelNotifySqProgress = (1 << 0);
 //! Set in kernelNotify after userspace has supplied new chunks.
 static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
 //! Flag for helDriveQueue: wait until completion queue has progress.
 static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
+
+//! SQ opcode: cancel an asynchronous operation.
+static const uint32_t kHelSubmitCancel = 256;
+//! SQ opcode: asynchronous no-op (for testing/profiling).
+static const uint32_t kHelSubmitAsyncNop = 1;
+//! SQ opcode: exchange messages on a stream.
+static const uint32_t kHelSubmitExchangeMsgs = 2;
+//! SQ opcode: wait for time to pass.
+static const uint32_t kHelSubmitAwaitClock = 3;
+//! SQ opcode: wait for an event.
+static const uint32_t kHelSubmitAwaitEvent = 4;
+//! SQ opcode: protect memory.
+static const uint32_t kHelSubmitProtectMemory = 5;
+//! SQ opcode: synchronize space.
+static const uint32_t kHelSubmitSynchronizeSpace = 6;
+//! SQ opcode: read memory.
+static const uint32_t kHelSubmitReadMemory = 7;
+//! SQ opcode: write memory.
+static const uint32_t kHelSubmitWriteMemory = 8;
+//! SQ opcode: manage memory.
+static const uint32_t kHelSubmitManageMemory = 9;
+//! SQ opcode: lock memory view.
+static const uint32_t kHelSubmitLockMemoryView = 10;
+//! SQ opcode: observe thread.
+static const uint32_t kHelSubmitObserve = 11;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -498,6 +527,10 @@ struct HelQueue {
 	//! Index of the first chunk of the completion queue.
 	//! Written by userspace and read by the kernel.
 	int cqFirst;
+
+	//! Index of the first chunk of the submission queue.
+	//! Written by the kernel and read by userspace.
+	int sqFirst;
 };
 
 //! Marks the next field as present.
@@ -524,9 +557,114 @@ struct HelChunk {
 struct HelElement {
 	//! Length of the element in bytes.
 	unsigned int length;
-	unsigned int reserved;
+	//! Operation code (for SQ elements).
+	unsigned int opcode;
 	//! User-defined value.
 	void *context;
+};
+
+//! SQ data for kHelSubmitCancel.
+struct HelSqCancel {
+	uint64_t cancellationTag;
+};
+
+//! SQ data for kHelSubmitExchangeMsgs.
+//! Followed by count HelAction structures.
+struct HelSqExchangeMsgs {
+	//! Handle to the lane.
+	HelHandle lane;
+	//! Number of actions.
+	size_t count;
+	//! Flags.
+	uint32_t flags;
+};
+
+//! SQ data for kHelSubmitAwaitClock.
+struct HelSqAwaitClock {
+	//! Deadline in nanoseconds since boot.
+	uint64_t counter;
+	//! Tag to cancel this operation.
+	uint64_t cancellationTag;
+};
+
+//! SQ data for kHelSubmitAwaitEvent.
+struct HelSqAwaitEvent {
+	//! Handle to the event descriptor.
+	HelHandle handle;
+	//! Previous sequence number.
+	uint64_t sequence;
+	//! Tag to cancel this operation.
+	uint64_t cancellationTag;
+};
+
+//! SQ data for kHelSubmitProtectMemory.
+struct HelSqProtectMemory {
+	//! Handle to the address space.
+	HelHandle spaceHandle;
+	//! Pointer to the mapping.
+	void *pointer;
+	//! Size of the mapping.
+	size_t size;
+	//! Protection flags.
+	uint32_t flags;
+};
+
+//! SQ data for kHelSubmitSynchronizeSpace.
+struct HelSqSynchronizeSpace {
+	//! Handle to the address space.
+	HelHandle spaceHandle;
+	//! Pointer to the mapping.
+	void *pointer;
+	//! Size of the mapping.
+	size_t size;
+};
+
+//! SQ data for kHelSubmitReadMemory.
+struct HelSqReadMemory {
+	//! Handle to the memory object.
+	HelHandle handle;
+	//! Address within the memory object.
+	uintptr_t address;
+	//! Length in bytes.
+	size_t length;
+	//! Buffer to read into.
+	void *buffer;
+};
+
+//! SQ data for kHelSubmitWriteMemory.
+struct HelSqWriteMemory {
+	//! Handle to the memory object.
+	HelHandle handle;
+	//! Address within the memory object.
+	uintptr_t address;
+	//! Length in bytes.
+	size_t length;
+	//! Buffer to write from.
+	const void *buffer;
+};
+
+//! SQ data for kHelSubmitManageMemory.
+struct HelSqManageMemory {
+	//! Handle to the memory object.
+	HelHandle handle;
+};
+
+//! SQ data for kHelSubmitLockMemoryView.
+struct HelSqLockMemoryView {
+	//! Handle to the memory object.
+	HelHandle handle;
+	//! Offset within the memory object.
+	uintptr_t offset;
+	//! Size to lock.
+	size_t size;
+};
+
+//! SQ data for kHelSubmitObserve.
+struct HelSqObserve {
+	//! Handle to the thread.
+	HelHandle handle;
+	//! Input sequence number.
+	uint64_t sequence;
 };
 
 struct HelSimpleResult {
@@ -706,13 +844,6 @@ HEL_C_LINKAGE HelError helCloseDescriptor(HelHandle universeHandle, HelHandle ha
 HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 		HelHandle *handle);
 
-//! Cancels an ongoing asynchronous operation.
-//! @param[in] queueHandle
-//!    	Handle to the queue that the operation was submitted to.
-//! @param[in] asyncId
-//!    	ID identifying the operation.
-HEL_C_LINKAGE HelError helCancelAsync(HelHandle queueHandle, uint64_t asyncId);
-
 //! Drives an IPC queue.
 //!
 //! This function signals the kernel that new chunks have been supplied
@@ -849,39 +980,6 @@ HEL_C_LINKAGE HelError helCreateSpace(HelHandle *handle);
 HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandle,
 		void *pointer, uintptr_t offset, size_t size, uint32_t flags, void **actualPointer);
 
-//! Changes protection attributes of a memory mapping.
-//!
-//! This is an asynchronous operation.
-//! @param[in] spaceHandle
-//!     Handle to the address space containing @p pointer.
-//! @param[in] pointer
-//!     Pointer to the mapping that is modified.
-//!    	Must be aligned to the system's page size.
-//! @param[in] size
-//!    	Size of the mapping that is modified.
-//!    	Must be aligned to the system's page size.
-HEL_C_LINKAGE HelError helSubmitProtectMemory(HelHandle spaceHandle,
-		void *pointer, size_t size, uint32_t flags,
-		HelHandle queueHandle, uintptr_t context);
-
-//! Notifies the kernel of dirty pages in a memory mapping.
-//!
-//! This system call returns after the kernel has scanned all specified pages
-//! and determined whether they are dirty
-//! or not. It does *not* wait until the pages are clean again.
-//!
-//! This is an asynchronous operation.
-//! @param[in] spaceHandle
-//!     Handle to the address space containing @p pointer.
-//! @param[in] pointer
-//!     Pointer to the mapping that is synchronized.
-//!    	Must be aligned to the system's page size.
-//! @param[in] size
-//!    	Size of the mapping that is synchronized.
-//!    	Must be aligned to the system's page size.
-HEL_C_LINKAGE HelError helSubmitSynchronizeSpace(HelHandle spaceHandle,
-		void *pointer, size_t size,
-		HelHandle queueHandle, uintptr_t context);
 
 //! Unmaps memory from an address space.
 //!
@@ -897,46 +995,10 @@ HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size
 
 HEL_C_LINKAGE HelError helPointerPhysical(const void *pointer, uintptr_t *physical);
 
-//! Load memory (i.e., bytes) from a descriptor.
-//!
-//! This is an asynchronous operation.
-//! @param[in] handle
-//!     Handle to the descriptor. This system call supports
-//!     address spaces (see ::helCreateAddressSpace)
-//!     and virtualized spaces (see ::helCreateVirtualizedSpace).
-//! @param[in] address
-//!     Address that is accessed, relative to @p handle.
-//! @param[in] length
-//!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helSubmitReadMemory(HelHandle handle, uintptr_t address,
-		size_t length, void *buffer,
-		HelHandle queue, uintptr_t context);
-
-//! Store memory (i.e., bytes) to a descriptor.
-//!
-//! This is an asynchronous operation.
-//! @param[in] handle
-//!     Handle to the descriptor. This system call supports
-//!     address spaces (see ::helCreateAddressSpace)
-//!     and virtualized spaces (see ::helCreateVirtualizedSpace).
-//! @param[in] address
-//!     Address that is accessed, relative to @p handle.
-//! @param[in] length
-//!     Length of the copied memory region.
-HEL_C_LINKAGE HelError helSubmitWriteMemory(HelHandle handle, uintptr_t address,
-		size_t length, const void *buffer,
-		HelHandle queue, uintptr_t context);
-
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);
 
-HEL_C_LINKAGE HelError helSubmitManageMemory(HelHandle handle,
-		HelHandle queue, uintptr_t context);
-
 HEL_C_LINKAGE HelError helUpdateMemory(HelHandle handle, int type, uintptr_t offset, size_t length);
-
-HEL_C_LINKAGE HelError helSubmitLockMemoryView(HelHandle handle, uintptr_t offset, size_t size,
-		HelHandle queue, uintptr_t context);
 
 //! Notifies the kernel that a certain range of memory should be preloaded.
 //!
@@ -991,16 +1053,6 @@ HEL_C_LINKAGE HelError helSetPriority(HelHandle handle, int priority);
 
 //! Yields the current thread.
 HEL_C_LINKAGE HelError helYield();
-
-//! Observe whether a thread changes its state.
-//!
-//! This is an asynchronous operation.
-//! @param[in] handle
-//!     Handle to the thread.
-//! @param[in] sequence
-//!     Previous sequence number.
-HEL_C_LINKAGE HelError helSubmitObserve(HelHandle handle, uint64_t sequence,
-		HelHandle queue, uintptr_t context);
 
 //! Kill (i.e., terminate) a thread.
 //! @param[in] handle
@@ -1065,16 +1117,6 @@ HEL_C_LINKAGE HelError helGetCurrentCpu(int *cpu);
 //!     Current value of the system-wide clock in nanoseconds since boot.
 HEL_C_LINKAGE HelError helGetClock(uint64_t *counter);
 
-//! Wait until time passes.
-//!
-//! This is an asynchronous operation.
-//! @param[in] counter
-//!     Deadline (absolute, see ::helGetClock).
-//! @param[out] asyncId
-//!     ID to identify the asynchronous operation (absolute, see ::helCancelAsync).
-HEL_C_LINKAGE HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *asyncId);
-
 HEL_C_LINKAGE HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out_handle);
 
 HEL_C_LINKAGE HelError helRunVirtualizedCpu(HelHandle handle, struct HelVmexitReason *reason);
@@ -1113,16 +1155,6 @@ HEL_C_LINKAGE HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t si
 //! @param[in] attach_credentials
 //!     Enable or disable credentials for the new stream.
 HEL_C_LINKAGE HelError helCreateStream(HelHandle *lane1, HelHandle *lane2, uint32_t attach_credentials);
-
-//! Pass messages on a stream.
-//! @param[in] handle
-//!     Handle to the lane that messages will be passed to.
-//! @param[in] actions
-//!     Pointer to array of message items.
-//! @param[in] count
-//!     Number of elements in @p actions.
-HEL_C_LINKAGE HelError helSubmitAsync(HelHandle handle, const struct HelAction *actions,
-		size_t count, HelHandle queue, uintptr_t context, uint32_t flags);
 
 HEL_C_LINKAGE HelError helShutdownLane(HelHandle handle);
 
@@ -1178,16 +1210,6 @@ HEL_C_LINKAGE HelError helRaiseEvent(HelHandle handle);
 HEL_C_LINKAGE HelError helAccessIrq(int number, HelHandle *handle);
 
 HEL_C_LINKAGE HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence);
-
-//! Wait for an event.
-//!
-//! This is an asynchronous operation.
-//! @param[in] handle
-//!     Handle to the event that will be awaited.
-//! @param[in] sequence
-//!     Previous sequence number.
-HEL_C_LINKAGE HelError helSubmitAwaitEvent(HelHandle handle, uint64_t sequence,
-		HelHandle queue, uintptr_t context, uint64_t *asyncId);
 
 HEL_C_LINKAGE HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet);
 

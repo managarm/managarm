@@ -37,8 +37,7 @@ private:
 
 		{
 			async::cancellation_callback cb{_cancelTimer, [&] {
-				HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
-						async_id));
+				helix::Dispatcher::global().cancel(async_id);
 			}};
 			co_await submit.async_wait();
 		}
@@ -88,8 +87,7 @@ inline async::result<bool> sleepFor(uint64_t duration, async::cancellation_token
 
 	{
 		async::cancellation_callback cb{cancel, [&] {
-			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(),
-					async_id));
+			helix::Dispatcher::global().cancel(async_id);
 		}};
 		co_await submit.async_wait();
 	}
@@ -107,7 +105,7 @@ inline async::result<bool> sleepUntil(uint64_t tick, async::cancellation_token c
 	auto asyncId = await.asyncId();
 	{
 		async::cancellation_callback cb{cancelToken, [&] {
-			HEL_CHECK(helCancelAsync(helix::Dispatcher::global().acquire(), asyncId));
+			helix::Dispatcher::global().cancel(asyncId);
 		}};
 		co_await submit.async_wait();
 	}

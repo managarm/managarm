@@ -765,6 +765,21 @@ struct ImmediateMemory final : MemoryView, GlobalFutexSpace {
 		}
 	}
 
+	void readImmediate(uintptr_t offset, void *pointer, size_t size) {
+		size_t progress = 0;
+		while(progress < size) {
+			auto misalign = (offset + progress) & (kPageSize - 1);
+			auto chunk = frg::min(size - progress, kPageSize - misalign);
+
+			auto index = (offset + progress) >> kPageShift;
+			assert(index < _physicalPages.size());
+			PageAccessor accessor{_physicalPages[index]};
+			memcpy(reinterpret_cast<std::byte *>(pointer) + progress,
+					reinterpret_cast<std::byte *>(accessor.get()) + misalign, chunk);
+			progress += chunk;
+		}
+	}
+
 public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<ImmediateMemory> selfPtr;

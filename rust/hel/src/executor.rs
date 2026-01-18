@@ -42,6 +42,11 @@ impl ExecutorInner {
     pub fn queue_handle(&self) -> &Handle {
         &self.queue_handle
     }
+
+    /// Pushes an element to the submission queue using a gather list.
+    pub fn push_sq(&self, opcode: u32, context: usize, segments: &[&[u8]]) -> crate::result::Result<()> {
+        self.queue.borrow_mut().push_sq(opcode, context, segments)
+    }
 }
 
 /// A single-threaded executor, takes care of completing submissions
@@ -54,10 +59,15 @@ pub struct Executor {
 impl Executor {
     const QUEUE_CHUNK_COUNT: usize = 16;
     const QUEUE_CHUNK_SIZE: usize = 4096;
+    const QUEUE_SQ_CHUNK_COUNT: usize = 2;
 
     /// Creates a new executor with a queue using default parameters.
     pub fn new() -> Result<Self> {
-        let queue = Queue::new(Self::QUEUE_CHUNK_COUNT, Self::QUEUE_CHUNK_SIZE)?;
+        let queue = Queue::new_with_sq(
+            Self::QUEUE_CHUNK_COUNT,
+            Self::QUEUE_CHUNK_SIZE,
+            Self::QUEUE_SQ_CHUNK_COUNT,
+        )?;
 
         let queue_handle = queue.handle().clone_handle()?;
 

@@ -120,9 +120,11 @@ impl Drop for QueueElement<'_> {
 pub struct Queue {
     // Queue parameters
     num_chunks: usize,
+    num_sq_chunks: usize,
+    chunk_size: usize,
     chunks_offset: usize,
     reserved_per_chunk: usize,
-    // Queue state
+    // CQ state
     /// Chunk that we are currently retrieving from.
     retrieve_chunk: usize,
     /// Tail of the chunk list (where we append new chunks).
@@ -131,6 +133,11 @@ pub struct Queue {
     last_progress: usize,
     /// Per-chunk reference counts.
     ref_counts: Box<[usize]>,
+    // SQ state.
+    /// Current SQ chunk index.
+    sq_current_chunk: usize,
+    /// Progress into current SQ chunk.
+    sq_progress: usize,
     // Resources
     handle: Handle,
     mapping: Mapping<hel_sys::HelQueue>,
@@ -139,16 +146,23 @@ pub struct Queue {
 impl Queue {
     /// Creates a new queue with the given parameters.
     pub fn new(num_chunks: usize, chunk_size: usize) -> Result<Self> {
+        Self::new_with_sq(num_chunks, chunk_size, 0)
+    }
+
+    /// Creates a new queue with the given parameters and submission queue chunks.
+    pub fn new_with_sq(num_chunks: usize, chunk_size: usize, num_sq_chunks: usize) -> Result<Self> {
         let mut queue_params = hel_sys::HelQueueParameters {
             flags: 0,
             numChunks: num_chunks as c_uint,
             chunkSize: chunk_size,
+            numSqChunks: num_sq_chunks as c_uint,
         };
 
         let mut raw_handle = hel_sys::kHelNullHandle as hel_sys::HelHandle;
 
         hel_check(unsafe { hel_sys::helCreateQueue(&mut queue_params, &mut raw_handle) })?;
 
+        let total_chunks = num_chunks + num_sq_chunks;
         let chunks_offset = size_of::<hel_sys::HelQueue>().next_multiple_of(64);
         let reserved_per_chunk = (size_of::<hel_sys::HelChunk>() + chunk_size).next_multiple_of(64);
         let handle = unsafe { Handle::from_raw(raw_handle) };
@@ -157,24 +171,28 @@ impl Queue {
                 &handle,
                 None,
                 0,
-                (chunks_offset + reserved_per_chunk * num_chunks).next_multiple_of(4096),
+                (chunks_offset + reserved_per_chunk * total_chunks).next_multiple_of(4096),
                 MappingFlags::READ | MappingFlags::WRITE,
             )?
         };
 
         let mut queue = Self {
             num_chunks,
+            num_sq_chunks,
+            chunk_size,
             chunks_offset,
             reserved_per_chunk,
             retrieve_chunk: 0,
             tail_chunk: 0,
             last_progress: 0,
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
+            sq_current_chunk: 0,
+            sq_progress: 0,
             handle,
             mapping,
         };
 
-        // Reset all chunks.
+        // Reset all CQ chunks.
         for i in 0..num_chunks {
             queue.reset_chunk(i);
         }
@@ -184,13 +202,21 @@ impl Queue {
             .cq_first()
             .store(0 | hel_sys::kHelNextPresent, Ordering::Release);
 
-        // Supply the remaining chunks.
+        // Supply the remaining CQ chunks.
         queue.tail_chunk = 0;
         for i in 1..num_chunks {
             queue.supply_chunk(i)?;
         }
         queue.retrieve_chunk = 0;
         queue.wake_kernel_futex()?;
+
+        // Initialize SQ state if we have SQ chunks.
+        if num_sq_chunks > 0 {
+            // SQ is initialized by the kernel. Read sqFirst to get the first SQ chunk.
+            let sq_first = queue.sq_first().load(Ordering::Acquire);
+            queue.sq_current_chunk = (sq_first & !hel_sys::kHelNextPresent) as usize;
+            queue.sq_progress = 0;
+        }
 
         Ok(queue)
     }
@@ -371,6 +397,22 @@ impl Queue {
         }
     }
 
+    /// Returns a reference to the sqFirst field of the queue.
+    fn sq_first(&mut self) -> &AtomicI32 {
+        // SAFETY: The sqFirst field is always accessed atomically
+        // by the kernel, so it's safe to obtain a pointer to it.
+        unsafe {
+            AtomicI32::from_ptr(
+                self.mapping
+                    .as_ptr()
+                    .unwrap()
+                    .byte_add(offset_of!(hel_sys::HelQueue, sqFirst))
+                    .as_ptr()
+                    .cast(),
+            )
+        }
+    }
+
     /// Returns a reference to the userNotify futex of the queue.
     fn user_notify(&mut self) -> &AtomicI32 {
         // SAFETY: The userNotify futex is always accessed atomically
@@ -414,5 +456,112 @@ impl Queue {
                 .byte_add(self.chunks_offset + index * self.reserved_per_chunk)
                 .cast()
         })
+    }
+
+    /// Returns a reference to the SQ chunk at the given index.
+    fn get_sq_chunk(&mut self, index: usize) -> Chunk<'_> {
+        assert!(index >= self.num_chunks && index < self.num_chunks + self.num_sq_chunks);
+
+        Chunk::new(unsafe {
+            self.mapping
+                .as_ptr()
+                .unwrap()
+                .byte_add(self.chunks_offset + index * self.reserved_per_chunk)
+                .cast()
+        })
+    }
+
+    /// Pushes an element to the submission queue using a gather list.
+    pub fn push_sq(&mut self, opcode: u32, context: usize, segments: &[&[u8]]) -> Result<()> {
+        assert!(self.num_sq_chunks > 0, "No SQ chunks configured");
+
+        let data_length: usize = segments.iter().map(|s| s.len()).sum();
+        let element_size = size_of::<hel_sys::HelElement>() + data_length;
+
+        // Check if we need to move to the next SQ chunk.
+        if self.sq_progress + element_size > self.chunk_size {
+            // Wait for a new chunk to become available.
+            let mut next = self
+                .get_sq_chunk(self.sq_current_chunk)
+                .next()
+                .load(Ordering::Acquire);
+            while (next & hel_sys::kHelNextPresent) == 0 {
+                self.user_notify()
+                    .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Release);
+
+                next = self
+                    .get_sq_chunk(self.sq_current_chunk)
+                    .next()
+                    .load(Ordering::Acquire);
+                if (next & hel_sys::kHelNextPresent) != 0 {
+                    break;
+                }
+
+                hel_check(unsafe {
+                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
+                })?;
+            }
+
+            // Mark current chunk as done.
+            let progress = self.sq_progress as i32;
+            self.get_sq_chunk(self.sq_current_chunk)
+                .progress_futex()
+                .store(progress | hel_sys::kHelProgressDone, Ordering::Release);
+
+            // Signal the kernel.
+            let futex = self
+                .kernel_notify()
+                .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
+            if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
+                hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+            }
+
+            self.sq_current_chunk = (next & !hel_sys::kHelNextPresent) as usize;
+            self.sq_progress = 0;
+        }
+
+        // Write the element to the SQ chunk.
+        let sq_progress = self.sq_progress;
+        let mut chunk = self.get_sq_chunk(self.sq_current_chunk);
+        let ptr = unsafe { chunk.buffer().byte_add(sq_progress) };
+
+        // Write HelElement header.
+        let element: &mut hel_sys::HelElement = unsafe { ptr.cast().as_mut() };
+        element.length = data_length as u32;
+        element.opcode = opcode;
+        element.context = context as *mut std::ffi::c_void;
+
+        // Write each segment after the header.
+        let mut offset = size_of::<hel_sys::HelElement>();
+        for segment in segments {
+            if !segment.is_empty() {
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        segment.as_ptr(),
+                        ptr.byte_add(offset).cast().as_ptr(),
+                        segment.len(),
+                    );
+                }
+                offset += segment.len();
+            }
+        }
+
+        self.sq_progress += element_size;
+
+        // Update the progress futex.
+        let progress = self.sq_progress as i32;
+        self.get_sq_chunk(self.sq_current_chunk)
+            .progress_futex()
+            .store(progress, Ordering::Release);
+
+        // Signal the kernel.
+        let futex = self
+            .kernel_notify()
+            .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
+        if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+        }
+
+        Ok(())
     }
 }

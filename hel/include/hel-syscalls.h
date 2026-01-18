@@ -68,11 +68,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helCancelAsync(HelHandle handle,
-		uint64_t async_id) {
-	return helSyscall2(kHelCallCancelAsync, (HelWord)handle, (HelWord)async_id);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helDriveQueue(HelHandle handle,
 		uint32_t flags) {
 	return helSyscall2(kHelCallDriveQueue, (HelWord)handle, (HelWord)flags);
@@ -205,26 +200,12 @@ extern inline __attribute__ (( always_inline )) HelError helMapMemory(HelHandle 
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitProtectMemory(HelHandle space,
-		void *pointer, size_t size, uint32_t flags,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall6(kHelCallSubmitProtectMemory, (HelWord)space,
-			(HelWord)pointer, (HelWord)size, (HelWord)flags,
-			(HelWord)queue, (HelWord)context);
-};
 
 extern inline __attribute__ (( always_inline )) HelError helUnmapMemory(HelHandle space,
 		void *pointer, size_t size) {
 	return helSyscall3(kHelCallUnmapMemory, (HelWord)space, (HelWord)pointer, (HelWord)size);
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitSynchronizeSpace(
-		HelHandle space, void *pointer, size_t size,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall5(kHelCallSubmitSynchronizeSpace,
-			(HelWord)space, (HelWord)pointer, (HelWord)size,
-			(HelWord)queue, (HelWord)context);
-};
 
 extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(const void *pointer, 
 		uintptr_t *physical) {
@@ -232,22 +213,6 @@ extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(cons
 	HelError error = helSyscall1_1(kHelCallPointerPhysical, (HelWord)pointer, &handle_word);
 	*physical = (uintptr_t)handle_word;
 	return error;
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitReadMemory(HelHandle handle,
-		uintptr_t address, size_t length, void *buffer,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall6(kHelCallSubmitReadMemory, (HelWord)handle, (HelWord)address,
-			(HelWord)length, (HelWord)buffer,
-			(HelWord)queue, (HelWord)context);
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitWriteMemory(HelHandle handle,
-		uintptr_t address, size_t length, const void *buffer,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall6(kHelCallSubmitWriteMemory, (HelWord)handle, (HelWord)address,
-			(HelWord)length, (HelWord)buffer,
-			(HelWord)queue, (HelWord)context);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle handle, 
@@ -258,21 +223,10 @@ extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitManageMemory(HelHandle handle,
-		HelHandle queue, uintptr_t context) {
-	return helSyscall3(kHelCallSubmitManageMemory, (HelWord)handle, (HelWord)queue, (HelWord)context);
-};
-
 extern inline __attribute__ (( always_inline )) HelError helUpdateMemory(HelHandle handle,
 		int type, uintptr_t offset, size_t length) {
 	return helSyscall4(kHelCallUpdateMemory, (HelWord)handle, (HelWord)type,
 			(HelWord)offset, (HelWord)length);
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitLockMemoryView(HelHandle handle,
-		uintptr_t offset, size_t size, HelHandle queue, uintptr_t context) {
-	return helSyscall5(kHelCallSubmitLockMemoryView, (HelWord)handle, (HelWord)offset,
-			(HelWord)size, (HelWord)queue, (HelWord)context);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helLoadahead(HelHandle handle,
@@ -302,12 +256,6 @@ extern inline __attribute__ (( always_inline )) HelError helYield() {
 extern inline __attribute__ (( always_inline )) HelError helSetPriority(HelHandle handle,
 		int priority) {
 	return helSyscall2(kHelCallSetPriority, (HelWord)handle, (HelWord)priority);
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitObserve(HelHandle handle,
-		uint64_t in_seq, HelHandle queue, uintptr_t context) {
-	return helSyscall4(kHelCallSubmitObserve, (HelWord)handle, (HelWord)in_seq,
-			(HelWord)queue, (HelWord)context);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helKillThread(HelHandle handle) {
@@ -362,15 +310,6 @@ extern inline __attribute__ (( always_inline )) HelError helGetClock(uint64_t *c
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitClock(uint64_t counter,
-		HelHandle queue, uintptr_t context, uint64_t *async_id) {
-	HelWord async_word;
-	HelError error = helSyscall3_1(kHelCallSubmitAwaitClock, (HelWord)counter, (HelWord)queue,
-			(HelWord)context, &async_word);
-	*async_id = (uint64_t)async_word;
-	return error;
-};
-
 extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHandle *lane1,
 		HelHandle *lane2, uint32_t attach_credentials) {
 	HelWord out_lane1;
@@ -379,13 +318,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateStream(HelHand
 	*lane1 = (HelHandle)out_lane1;
 	*lane2 = (HelHandle)out_lane2;
 	return error;
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitAsync(HelHandle handle,
-		const struct HelAction *actions, size_t count, HelHandle queue, uintptr_t context,
-		uint32_t flags) {
-	return helSyscall6(kHelCallSubmitAsync, (HelWord)handle, (HelWord)actions, (HelWord)count,
-			(HelWord)queue, (HelWord)context, (HelWord)flags);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helShutdownLane(HelHandle handle) {
@@ -432,12 +364,6 @@ extern inline __attribute__ (( always_inline )) HelError helAcknowledgeIrq(HelHa
 		uint32_t flags, uint64_t sequence) {
 	return helSyscall3(kHelCallAcknowledgeIrq, (HelWord)handle, (HelWord)flags,
 			(HelWord)sequence);
-};
-
-extern inline __attribute__ (( always_inline )) HelError helSubmitAwaitEvent(HelHandle handle,
-		uint64_t sequence, HelHandle queue, uintptr_t context, uint64_t *async_id) {
-	return helSyscall4_1(kHelCallSubmitAwaitEvent, (HelWord)handle, (HelWord)sequence,
-			(HelWord)queue, (HelWord)context, (HelWord *)async_id);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAutomateIrq(HelHandle handle,
