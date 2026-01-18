@@ -39,8 +39,8 @@ struct BaseInode {
 };
 
 struct BaseFile {
-	BaseFile(std::shared_ptr<BaseInode> inode, bool append)
-	: inode{inode}, append{append} { }
+	BaseFile(std::shared_ptr<BaseInode> inode, bool write, bool read, bool append)
+	: inode{inode}, write{write}, read{read}, append{append} { }
 
 	BaseFile(const BaseFile &) = delete;
 	BaseFile(BaseFile &&) = delete;
@@ -52,6 +52,8 @@ struct BaseFile {
 
 	uint64_t offset = 0;
 	Flock flock;
+	bool write;
+	bool read;
 	bool append;
 };
 

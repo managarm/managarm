@@ -316,8 +316,8 @@ struct FileSystem final : BaseFileSystem {
 // --------------------------------------------------------
 
 struct OpenFile final : BaseFile {
-	OpenFile(std::shared_ptr<Inode> inode, bool append)
-	: BaseFile{inode, append} { }
+	OpenFile(std::shared_ptr<Inode> inode, bool write, bool read, bool append)
+	: BaseFile{inode, write, read, append} { }
 
 	async::result<std::optional<std::string>> readEntries();
 };
