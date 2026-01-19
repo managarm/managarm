@@ -1106,4 +1106,174 @@ inline auto awaitEvent(BorrowedDescriptor event, uint64_t sequence, async::cance
 	};
 }
 
+// --------------------------------------------------------------------
+// ResizeMemory
+// --------------------------------------------------------------------
+
+struct ResizeMemoryResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct ResizeMemoryOperation : private Context {
+	ResizeMemoryOperation(BorrowedDescriptor memory, size_t newSize, Receiver r)
+	: memory_{std::move(memory)}, newSize_{newSize}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqResizeMemory header;
+		header.handle = memory_.getHandle();
+		header.newSize = newSize_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitResizeMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	ResizeMemoryOperation(const ResizeMemoryOperation &) = delete;
+	ResizeMemoryOperation &operator= (const ResizeMemoryOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		ResizeMemoryResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value_noinline(r_, std::move(result));
+	}
+
+	BorrowedDescriptor memory_;
+	size_t newSize_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] ResizeMemorySender {
+	using value_type = ResizeMemoryResult;
+
+	ResizeMemorySender(BorrowedDescriptor memory, size_t newSize)
+	: memory_{std::move(memory)}, newSize_{newSize} { }
+
+	template<typename Receiver>
+	ResizeMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(memory_), newSize_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor memory_;
+	size_t newSize_;
+};
+
+inline async::sender_awaiter<ResizeMemorySender, ResizeMemoryResult>
+operator co_await (ResizeMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto resizeMemory(BorrowedDescriptor memory, size_t newSize) {
+	return ResizeMemorySender{std::move(memory), newSize};
+}
+
+// --------------------------------------------------------------------
+// ForkMemory
+// --------------------------------------------------------------------
+
+struct ForkMemoryResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	UniqueDescriptor descriptor() {
+		assert(valid_);
+		HEL_CHECK(error());
+		return std::move(descriptor_);
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelHandleResult *>(ptr);
+		error_ = result->error;
+		if(!error_)
+			descriptor_ = UniqueDescriptor{result->handle};
+		ptr = (char *)ptr + sizeof(HelHandleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+	UniqueDescriptor descriptor_;
+};
+
+template <typename Receiver>
+struct ForkMemoryOperation : private Context {
+	ForkMemoryOperation(BorrowedDescriptor memory, Receiver r)
+	: memory_{std::move(memory)}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqForkMemory header;
+		header.handle = memory_.getHandle();
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitForkMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	ForkMemoryOperation(const ForkMemoryOperation &) = delete;
+	ForkMemoryOperation &operator= (const ForkMemoryOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		ForkMemoryResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value_noinline(r_, std::move(result));
+	}
+
+	BorrowedDescriptor memory_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] ForkMemorySender {
+	using value_type = ForkMemoryResult;
+
+	ForkMemorySender(BorrowedDescriptor memory)
+	: memory_{std::move(memory)} { }
+
+	template<typename Receiver>
+	ForkMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(memory_), std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor memory_;
+};
+
+inline async::sender_awaiter<ForkMemorySender, ForkMemoryResult>
+operator co_await (ForkMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto forkMemory(BorrowedDescriptor memory) {
+	return ForkMemorySender{std::move(memory)};
+}
+
 } // namespace helix_ng

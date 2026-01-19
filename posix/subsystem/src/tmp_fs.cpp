@@ -4,6 +4,7 @@
 #include <set>
 
 #include <core/clock.hpp>
+#include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <helix/passthrough-fd.hpp>
 #include <protocols/fs/client.hpp>
@@ -522,15 +523,16 @@ struct MemoryNode final : Node {
 	}
 
 private:
-	void _resizeFile(size_t new_size) {
+	async::result<void> _resizeFile(size_t new_size) {
 		_fileSize = new_size;
 
 		size_t aligned_size = (new_size + 0xFFF) & ~size_t(0xFFF);
 		if(aligned_size <= _areaSize)
-			return;
+			co_return;
 
 		if(_memory) {
-			HEL_CHECK(helResizeMemory(_memory.getHandle(), aligned_size));
+			auto result = co_await helix_ng::resizeMemory(_memory, aligned_size);
+			HEL_CHECK(result.error());
 		}else{
 			HelHandle handle;
 			HEL_CHECK(helAllocateMemory(aligned_size, 0, nullptr, &handle));
@@ -670,7 +672,7 @@ MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 		_offset = node->_fileSize;
 
 	if(_offset + length > node->_fileSize)
-		node->_resizeFile(_offset + length);
+		co_await node->_resizeFile(_offset + length);
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + _offset, buffer, length);
 	_offset += length;
@@ -696,7 +698,7 @@ MemoryFile::pwrite(Process *, int64_t offset, const void *buffer, size_t length)
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
 	if(offset + length > node->_fileSize)
-		node->_resizeFile(offset + length);
+		co_await node->_resizeFile(offset + length);
 
 	memcpy(reinterpret_cast<char *>(node->_mapping.get()) + offset, buffer, length);
 	co_return length;
@@ -706,7 +708,7 @@ async::result<frg::expected<protocols::fs::Error>>
 MemoryFile::truncate(size_t size) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
-	node->_resizeFile(size);
+	co_await node->_resizeFile(size);
 	co_return {};
 }
 
@@ -717,7 +719,7 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 	// TODO: Careful about overflow.
 	if(offset + size <= node->_fileSize)
 		co_return {};
-	node->_resizeFile(offset + size);
+	co_await node->_resizeFile(offset + size);
 	co_return {};
 }
 

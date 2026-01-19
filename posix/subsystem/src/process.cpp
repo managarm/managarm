@@ -10,6 +10,7 @@
 #include "process.hpp"
 
 #include <protocols/posix/data.hpp>
+#include <helix/ipc.hpp>
 
 #include "debug-options.hpp"
 
@@ -34,7 +35,7 @@ std::shared_ptr<VmContext> VmContext::create() {
 	return context;
 }
 
-std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original) {
+async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmContext> original) {
 	auto context = std::make_shared<VmContext>();
 
 	HelHandle space;
@@ -46,9 +47,9 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 
 		helix::UniqueDescriptor copyView;
 		if(area.copyOnWrite) {
-			HelHandle copyHandle;
-			HEL_CHECK(helForkMemory(area.copyView.getHandle(), &copyHandle));
-			copyView = helix::UniqueDescriptor{copyHandle};
+			auto forkResult = co_await helix_ng::forkMemory(area.copyView);
+			HEL_CHECK(forkResult.error());
+			copyView = forkResult.descriptor();
 
 			void *pointer;
 			HelError error = helMapMemory(copyView.getHandle(), context->_space.getHandle(),
@@ -76,7 +77,7 @@ std::shared_ptr<VmContext> VmContext::clone(std::shared_ptr<VmContext> original)
 		context->_areaTree.emplace(address, std::move(copy));
 	}
 
-	return context;
+	co_return context;
 }
 
 VmContext::~VmContext() {
@@ -1234,14 +1235,14 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	co_return threadGroup;
 }
 
-std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
+async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> original) {
 	auto hull = std::make_shared<PidHull>(nextPid++);
 	auto threadGroup = ThreadGroup::create(hull, original->threadGroup());
 	auto process = std::make_shared<Process>(threadGroup, std::move(hull));
 	process->threadGroup()->associateProcess(process);
 	process->_path = original->path();
 	process->_name = original->name();
-	process->_vmContext = VmContext::clone(original->_vmContext);
+	process->_vmContext = co_await VmContext::clone(original->_vmContext);
 	process->_fsContext = FsContext::clone(original->_fsContext);
 	process->_fileContext = FileContext::clone(original->_fileContext);
 	process->threadGroup()->_signalContext = SignalContext::clone(original->threadGroup()->_signalContext);
@@ -1303,26 +1304,26 @@ std::shared_ptr<Process> Process::fork(std::shared_ptr<Process> original) {
 	process->_currentGeneration = generation;
 	async::detach(serve(process, std::move(generation)));
 
-	return process;
+	co_return process;
 }
 
 constexpr uint64_t supportedCloneFlags = (CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND |
 	CLONE_THREAD | CLONE_PARENT | CLONE_CLEAR_SIGHAND);
 
-std::expected<std::shared_ptr<Process>, Error>
+async::result<std::expected<std::shared_ptr<Process>, Error>>
 Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::superCloneArgs *args) {
 	if (args->flags & ~supportedCloneFlags) {
 		std::println("posix: unexpected clone flags {:#x}", args->flags & ~supportedCloneFlags);
-		return std::unexpected{Error::illegalArguments};
+		co_return std::unexpected{Error::illegalArguments};
 	}
 
 	if ((args->flags & CLONE_PARENT) && original->pid() == 1) {
 		std::println("posix: attempted clone with CLONE_PARENT from init!");
-		return std::unexpected{Error::illegalArguments};
+		co_return std::unexpected{Error::illegalArguments};
 	}
 
 	if ((args->flags & CLONE_SIGHAND) && (args->flags & CLONE_CLEAR_SIGHAND)) {
-		return std::unexpected{Error::illegalArguments};
+		co_return std::unexpected{Error::illegalArguments};
 	}
 
 	ThreadGroup *parentPtr = original->threadGroup();
@@ -1348,7 +1349,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	if (args->flags & CLONE_VM)
 		process->_vmContext = original->_vmContext;
 	else
-		process->_vmContext = VmContext::clone(original->_vmContext);
+		process->_vmContext = co_await VmContext::clone(original->_vmContext);
 
 	if (args->flags & CLONE_FS)
 		process->_fsContext = original->_fsContext;
@@ -1433,7 +1434,7 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 	process->_currentGeneration = generation;
 	async::detach(serve(process, std::move(generation)));
 
-	return process;
+	co_return process;
 }
 
 async::result<Error> Process::exec(std::shared_ptr<Process> process,

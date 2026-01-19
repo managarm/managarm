@@ -1,5 +1,7 @@
 #include "memfd.hpp"
 
+#include <helix/ipc.hpp>
+
 void MemoryFile::handleClose() {
 	_cancelServe.cancel();
 }
@@ -18,7 +20,7 @@ MemoryFile::seek(off_t delta, VfsSeek whence) {
 }
 
 async::result<frg::expected<protocols::fs::Error>> MemoryFile::truncate(size_t size) {
-	co_return _resizeFile(size).map_error(protocols::fs::toFsProtoError);
+	co_return (co_await _resizeFile(size)).map_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error>>
@@ -31,7 +33,7 @@ MemoryFile::allocate(int64_t offset, size_t size) {
 	if(offset + size <= _fileSize)
 		co_return {};
 
-	co_return _resizeFile(offset + size).map_error(protocols::fs::toFsProtoError);
+	co_return (co_await _resizeFile(offset + size)).map_error(protocols::fs::toFsProtoError);
 }
 
 FutureMaybe<helix::UniqueDescriptor>
@@ -39,21 +41,22 @@ MemoryFile::accessMemory() {
 	co_return _memory.dup();
 }
 
-frg::expected<Error> MemoryFile::_resizeFile(size_t new_size) {
+async::result<frg::expected<Error>> MemoryFile::_resizeFile(size_t new_size) {
 	if(new_size > _fileSize && _seals & F_SEAL_GROW)
-		return Error::insufficientPermissions;
+		co_return Error::insufficientPermissions;
 
 	if(new_size < _fileSize && _seals & F_SEAL_SHRINK)
-		return Error::insufficientPermissions;
+		co_return Error::insufficientPermissions;
 
 	_fileSize = new_size;
 
 	size_t aligned_size = (new_size + 0xFFF) & ~size_t(0xFFF);
 	if(aligned_size <= _areaSize)
-		return {};
+		co_return {};
 
 	if(_memory) {
-		HEL_CHECK(helResizeMemory(_memory.getHandle(), aligned_size));
+		auto resizeResult = co_await helix_ng::resizeMemory(_memory, aligned_size);
+		HEL_CHECK(resizeResult.error());
 	}else{
 		HelHandle handle;
 		HEL_CHECK(helAllocateMemory(aligned_size, 0, nullptr, &handle));
@@ -63,7 +66,7 @@ frg::expected<Error> MemoryFile::_resizeFile(size_t new_size) {
 	_mapping = helix::Mapping{_memory, 0, aligned_size};
 	_areaSize = aligned_size;
 
-	return {};
+	co_return {};
 }
 
 async::result<frg::expected<protocols::fs::Error, int>>
@@ -88,7 +91,7 @@ MemoryFile::writeAll(Process *, const void *data, size_t length) {
 
 	auto end_size = _offset + length;
 	if(end_size > _fileSize) {
-		FRG_CO_TRY(_resizeFile(end_size));
+		FRG_CO_TRY(co_await _resizeFile(end_size));
 	}
 
 	memcpy(reinterpret_cast<std::byte *>(_mapping.get()) + _offset, data, length);

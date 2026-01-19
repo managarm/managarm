@@ -552,7 +552,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	return kHelErrNone;
 }
 
-HelError helResizeMemory(HelHandle handle, size_t newSize) {
+HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		size_t newSize, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -569,9 +570,20 @@ HelError helResizeMemory(HelHandle handle, size_t newSize) {
 		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	auto outcome = Thread::asyncBlockCurrent(memory->resize(newSize));
-	if (!outcome)
-		return translateError(outcome.error());
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<MemoryView> memory, size_t newSize,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		auto outcome = co_await memory->resize(newSize);
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(memory), newSize, std::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -773,7 +785,8 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
+HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -790,17 +803,43 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 		view = viewWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	auto resultOrError = Thread::asyncBlockCurrent(view->fork());
-	if(!resultOrError)
-		return translateError(resultOrError.error());
+	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
+		return kHelErrQueueTooSmall;
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
+	[](smarter::weak_ptr<Universe> weakUniverse,
+			smarter::shared_ptr<MemoryView> view,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		auto outcome = co_await view->fork();
 
-		*forkedHandle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(resultOrError.value()));
-	}
+		if(!outcome) {
+			HelHandleResult helResult{.error = translateError(outcome.error())};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
+		auto universe = weakUniverse.lock();
+		if (!universe) {
+			HelHandleResult helResult{.error = kHelErrThreadTerminated};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
+		HelHandle forkedHandle;
+		{
+			auto irq_lock = frg::guard(&irqMutex());
+			Universe::Guard universe_guard(universe->lock);
+
+			forkedHandle = universe->attachDescriptor(universe_guard,
+					MemoryViewDescriptor(outcome.value()));
+		}
+
+		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
+		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(this_universe.lock(), std::move(view), std::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -3811,6 +3850,28 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqObserve sqData;
 		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
 		error = doSubmitObserve(sqData.handle, queue, sqData.sequence, context);
+		break;
+	}
+	case kHelSubmitResizeMemory: {
+		if(length < sizeof(HelSqResizeMemory)) {
+			infoLogger() << "Bad length for kHelSubmitResizeMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqResizeMemory sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		error = doSubmitResizeMemory(sqData.handle, queue, sqData.newSize, context);
+		break;
+	}
+	case kHelSubmitForkMemory: {
+		if(length < sizeof(HelSqForkMemory)) {
+			infoLogger() << "Bad length for kHelSubmitForkMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqForkMemory sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		error = doSubmitForkMemory(sqData.handle, queue, context);
 		break;
 	}
 	default:

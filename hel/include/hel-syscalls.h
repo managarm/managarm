@@ -86,12 +86,6 @@ extern inline __attribute__ (( always_inline )) HelError helAllocateMemory(size_
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helResizeMemory(HelHandle handle,
-		size_t size) {
-	HelError error = helSyscall2(kHelCallResizeMemory, (HelWord)handle, (HelWord)size);
-	return error;
-};
-
 extern inline __attribute__ (( always_inline )) HelError helCreateManagedMemory(size_t size,
 		uint32_t flags, HelHandle *backing_handle, HelHandle *frontal_handle) {
 	HelWord back_handle;
@@ -144,14 +138,6 @@ extern inline __attribute__ (( always_inline )) HelError helCreateSliceView(HelH
 	HelError error = helSyscall4_1(kHelCallCreateSliceView, (HelWord)bundle,
 			(HelWord)offset, (HelWord)size, (HelWord)flags, &hel_handle);
 	*handle = (HelHandle)hel_handle;
-	return error;
-};
-
-extern inline __attribute__ (( always_inline )) HelError helForkMemory(HelHandle handle,
-		HelHandle *out_handle) {
-	HelWord handle_word;
-	HelError error = helSyscall1_1(kHelCallForkMemory, (HelWord)handle, &handle_word);
-	*out_handle = (HelHandle)handle_word;
 	return error;
 };
 

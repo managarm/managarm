@@ -208,7 +208,9 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	auto newSize = (offset + fs.blockSize + 0xFFF) & ~size_t(0xFFF);
 	setFileSize(newSize);
 	co_await fs.assignDataBlocks(this, blockOffset, 1);
-	HEL_CHECK(helResizeMemory(backingMemory, newSize));
+	auto resizeResult = co_await helix_ng::resizeMemory(
+			helix::BorrowedDescriptor{backingMemory}, newSize);
+	HEL_CHECK(resizeResult.error());
 	fileMapping = helix::Mapping{helix::BorrowedDescriptor{frontalMemory},
 			0, newSize,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
@@ -375,8 +377,10 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
 
 	dirNode->setFileSize(fs.blockSize);
-	HEL_CHECK(helResizeMemory(dirNode->backingMemory,
-			(fs.blockSize + 0xFFF) & ~size_t(0xFFF)));
+	auto resizeResult = co_await helix_ng::resizeMemory(
+			helix::BorrowedDescriptor{dirNode->backingMemory},
+			(fs.blockSize + 0xFFF) & ~size_t(0xFFF));
+	HEL_CHECK(resizeResult.error());
 	dirNode->fileMapping = helix::Mapping{helix::BorrowedDescriptor{dirNode->frontalMemory},
 			0, fs.blockSize,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
@@ -528,8 +532,10 @@ Inode::resizeFile(size_t newSize) {
 		co_return frg::success;
 	}
 
-	HEL_CHECK(helResizeMemory(backingMemory,
-			(newSize + 0xFFF) & ~size_t(0xFFF)));
+	auto resizeResult = co_await helix_ng::resizeMemory(
+			helix::BorrowedDescriptor{backingMemory},
+			(newSize + 0xFFF) & ~size_t(0xFFF));
+	HEL_CHECK(resizeResult.error());
 	setFileSize(newSize);
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 		helix::BorrowedDescriptor{kHelNullHandle},
