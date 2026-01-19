@@ -2,49 +2,70 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <assert.h>
 #include <async/cancellation.hpp>
-#include <frg/hash_map.hpp>
-#include <smarter.hpp>
+#include <frg/list.hpp>
+#include <frg/rbtree.hpp>
 #include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 
-struct CancelRegistry;
-
+// Private helper struct for CancelRegistry.
 struct CancelNode {
-	friend struct CancelRegistry;
+	uint64_t tag;
+	std::atomic<int> refcount{0};
+	bool cancelled = false;
+	async::cancellation_event event;
+	frg::rbtree_hook treeNode;
+	frg::default_list_hook<CancelNode> listHook;
+};
 
-	CancelNode();
+struct CancelNodeLess {
+	bool operator() (const CancelNode &a, const CancelNode &b) {
+		return a.tag < b.tag;
+	}
+};
 
-	CancelNode(const CancelNode &) = delete;
+using CancelNodeTree = frg::rbtree<CancelNode, &CancelNode::treeNode, CancelNodeLess>;
 
-	CancelNode &operator= (const CancelNode &) = delete;
-
-	uint64_t asyncId() {
-		return _asyncId;
+struct CancelGuard {
+	friend void swap(CancelGuard &a, CancelGuard &b) {
+		std::swap(a.node_, b.node_);
 	}
 
-protected:
-	// This function is called to perform cancellation.
-	// Note that it is called with CancelRegistry::_cancelLock taken, so it must cancel the
-	// operation quickly without doing heavy work.
-	// Specifically, it must not call into CancelRegistry functions.
-	virtual void handleCancellation() = 0;
+	CancelGuard() : node_{nullptr} {}
 
-	~CancelNode() = default;
+	explicit CancelGuard(CancelNode *node) : node_{node} {}
+
+	CancelGuard(CancelGuard &&other) : CancelGuard() {
+		swap(*this, other);
+	}
+
+	CancelGuard(const CancelGuard &) = delete;
+
+	CancelGuard &operator=(CancelGuard other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	// CancelGuard must be consumed by CancelRegistry::unregisterTag().
+	~CancelGuard() {
+		assert(!node_);
+	}
+
+	async::cancellation_token token() const {
+		if (!node_)
+			return {};
+		return node_->event;
+	}
 
 private:
-	smarter::shared_ptr<CancelRegistry> _registry;
-
-	uint64_t _asyncId;
-
-	bool _cancelCalled;
+	friend struct CancelRegistry;
+	CancelNode *node_;
 };
 
 struct CancelRegistry {
-	friend struct CancelNode;
-
 public:
 	CancelRegistry();
 
@@ -52,56 +73,17 @@ public:
 
 	CancelRegistry &operator= (const CancelRegistry &) = delete;
 
-	void setupSelfPtr(smarter::borrowed_ptr<CancelRegistry> ptr) {
-		_selfPtr = ptr;
-	}
+	CancelGuard registerTag(uint64_t cancellationTag);
 
-	void registerNode(CancelNode *node);
-	void unregisterNode(CancelNode *node);
+	void unregisterTag(CancelGuard guard);
 
-	void cancel(uint64_t async_id);
+	// Returns the number of cancelled operations.
+	unsigned int cancel(uint64_t cancellationTag);
 
 private:
-	// Number of _cancelMutex instances.
-	// Can be adjusted to tune the scalability of this mechanism.
-	static constexpr int lockGranularity = 4;
+	frg::ticket_spinlock mutex_;
 
-	smarter::borrowed_ptr<CancelRegistry> _selfPtr;
-
-	// Protects the cancel operation.
-	// This is indexed by the asyncId of the operation.
-	// Taken *before* _mapMutex.
-	frg::ticket_spinlock _cancelMutex[lockGranularity];
-
-	// Protects the _nodeMap.
-	frg::ticket_spinlock _mapMutex;
-
-	frg::hash_map<
-		uint64_t,
-		CancelNode *,
-		frg::hash<uint64_t>,
-		KernelAlloc
-	> _nodeMap;
-
-	uint64_t _nextAsyncId;
-
-};
-
-// CancelNode that provides a cancellation_token.
-struct CancelNodeWithToken final : CancelNode {
-	CancelNodeWithToken() = default;
-
-	async::cancellation_token token() {
-		return cancelEvent_;
-	}
-
-protected:
-	void handleCancellation() override {
-		cancelEvent_.cancel();
-	}
-
-private:
-	async::cancellation_event cancelEvent_;
+	CancelNodeTree tree_;
 };
 
 } // namespace thor

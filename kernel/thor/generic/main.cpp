@@ -632,9 +632,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateQueue((const HelQueueParameters *)arg0, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallCancelAsync: {
-		*image.error() = helCancelAsync((HelHandle)arg0, (uint64_t)arg1);
-	} break;
 	case kHelCallDriveQueue: {
 		*image.error() = helDriveQueue((HelHandle)arg0, (uint32_t)arg1);
 	} break;
@@ -699,48 +696,22 @@ void handleSyscall(SyscallImageAccessor image) {
 				(void *)arg2, (uintptr_t)arg3, (size_t)arg4, (uint32_t)arg5, &actual_pointer);
 		*image.out0() = (Word)actual_pointer;
 	} break;
-	case kHelCallSubmitProtectMemory: {
-		*image.error() = helSubmitProtectMemory((HelHandle)arg0,
-				(void *)arg1, (size_t)arg2, (uint32_t)arg3, (HelHandle)arg4, (uintptr_t)arg5);
-	} break;
 	case kHelCallUnmapMemory: {
 		*image.error() = helUnmapMemory((HelHandle)arg0, (void *)arg1, (size_t)arg2);
-	} break;
-	case kHelCallSubmitSynchronizeSpace: {
-		*image.error() = helSubmitSynchronizeSpace((HelHandle)arg0, (void *)arg1, (size_t)arg2,
-				(HelHandle)arg3, (uintptr_t)arg4);
 	} break;
 	case kHelCallPointerPhysical: {
 		uintptr_t physical;
 		*image.error() = helPointerPhysical((void *)arg0, &physical);
 		*image.out0() = physical;
 	} break;
-	case kHelCallSubmitReadMemory: {
-		*image.error() = helSubmitReadMemory((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (void *)arg3,
-				(HelHandle)arg4, (uintptr_t)arg5);
-	} break;
-	case kHelCallSubmitWriteMemory: {
-		*image.error() = helSubmitWriteMemory((HelHandle)arg0, (uintptr_t)arg1,
-				(size_t)arg2, (const void *)arg3,
-				(HelHandle)arg4, (uintptr_t)arg5);
-	} break;
 	case kHelCallMemoryInfo: {
 		size_t size;
 		*image.error() = helMemoryInfo((HelHandle)arg0, &size);
 		*image.out0() = size;
 	} break;
-	case kHelCallSubmitManageMemory: {
-		*image.error() = helSubmitManageMemory((HelHandle)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2);
-	} break;
 	case kHelCallUpdateMemory: {
 		*image.error() = helUpdateMemory((HelHandle)arg0, (int)arg1,
 				(uintptr_t)arg2, (size_t)arg3);
-	} break;
-	case kHelCallSubmitLockMemoryView: {
-		*image.error() = helSubmitLockMemoryView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
-				(HelHandle)arg3, (uintptr_t)arg4);
 	} break;
 	case kHelCallLoadahead: {
 		*image.error() = helLoadahead((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2);
@@ -780,10 +751,6 @@ void handleSyscall(SyscallImageAccessor image) {
 	case kHelCallYield: {
 		*image.error() = helYield();
 	} break;
-	case kHelCallSubmitObserve: {
-		*image.error() = helSubmitObserve((HelHandle)arg0, (uint64_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3);
-	} break;
 	case kHelCallKillThread: {
 		*image.error() = helKillThread((HelHandle)arg0);
 	} break;
@@ -820,23 +787,12 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helGetClock(&counter);
 		*image.out0() = counter;
 	} break;
-	case kHelCallSubmitAwaitClock: {
-		uint64_t async_id;
-		*image.error() = helSubmitAwaitClock((uint64_t)arg0,
-				(HelHandle)arg1, (uintptr_t)arg2, &async_id);
-		*image.out0() = async_id;
-	} break;
-
 	case kHelCallCreateStream: {
 		HelHandle lane1;
 		HelHandle lane2;
 		*image.error() = helCreateStream(&lane1, &lane2, (uint32_t) arg0);
 		*image.out0() = lane1;
 		*image.out1() = lane2;
-	} break;
-	case kHelCallSubmitAsync: {
-		*image.error() = helSubmitAsync((HelHandle)arg0, (HelAction *)arg1,
-				(size_t)arg2, (HelHandle)arg3, (uintptr_t)arg4, (uint32_t)arg5);
 	} break;
 	case kHelCallShutdownLane: {
 		*image.error() = helShutdownLane((HelHandle)arg0);
@@ -869,12 +825,6 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallAcknowledgeIrq: {
 		*image.error() = helAcknowledgeIrq((HelHandle)arg0, (uint32_t)arg1, (uint64_t)arg2);
-	} break;
-	case kHelCallSubmitAwaitEvent: {
-		uint64_t async_id;
-		*image.error() = helSubmitAwaitEvent((HelHandle)arg0, (uint64_t)arg1,
-				(HelHandle)arg2, (uintptr_t)arg3, &async_id);
-		*image.out0() = async_id;
 	} break;
 	case kHelCallAutomateIrq: {
 		*image.error() = helAutomateIrq((HelHandle)arg0, (uint32_t)arg1, (HelHandle)arg2);

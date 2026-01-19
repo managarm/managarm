@@ -1,6 +1,6 @@
 #pragma once
 
-#include <frg/list.hpp>
+#include <async/mutex.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/arch/ints.hpp>
 #include <thor-internal/cancel.hpp>
@@ -16,14 +16,17 @@ struct IpcQueue;
 // They must be kept in sync!
 
 static const int kUserNotifyCqProgress = (1 << 0);
+static const int kUserNotifySupplySqChunks = (1 << 1);
 static const int kUserNotifyAlert = (1 << 15);
 
+static const int kKernelNotifySqProgress = (1 << 0);
 static const int kKernelNotifySupplyCqChunks = (1 << 1);
 
 struct QueueStruct {
 	int userNotify;
 	int kernelNotify;
 	int cqFirst;
+	int sqFirst;
 };
 
 static const int kNextPresent = (1 << 24);
@@ -37,9 +40,17 @@ struct ChunkStruct {
 	char buffer[];
 };
 
+struct IpcQueue;
+struct ImmediateMemory;
+
+// Called from IpcQueue::processSq() to handle SQ elements.
+// Implemented in hel.cpp.
+void submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
+		ImmediateMemory *memory, size_t dataOffset, size_t length, uintptr_t context);
+
 struct ElementStruct {
 	unsigned int length;
-	unsigned int reserved;
+	unsigned int opcode;
 	void *context;
 };
 
@@ -54,54 +65,19 @@ struct QueueSource {
 	const QueueSource *link;
 };
 
-struct IpcNode {
-	friend struct IpcQueue;
-
-	IpcNode()
-	: _context{0}, _source{nullptr} { }
-
-	// Users of IpcQueue::submit() have to set this up first.
-	void setupContext(uintptr_t context) {
-		_context = context;
-	}
-	void setupSource(QueueSource *source) {
-		_source = source;
-	}
-
-	virtual void complete() = 0;
-
-protected:
-	~IpcNode() = default;
-
-private:
-	uintptr_t _context;
-	const QueueSource *_source;
-
-	IpcQueue *_queue;
-	frg::default_list_hook<IpcNode> _queueNode;
-};
-
 struct IpcQueue : CancelRegistry {
 private:
 	using Address = uintptr_t;
 
-	using NodeList = frg::intrusive_list<
-		IpcNode,
-		frg::locate_member<
-			IpcNode,
-			frg::default_list_hook<IpcNode>,
-			&IpcNode::_queueNode
-		>
-	>;
-
-	using Mutex = frg::ticket_spinlock;
-
 public:
-	IpcQueue(unsigned int numChunks, size_t chunkSize);
+	IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
 
 	IpcQueue(const IpcQueue &) = delete;
 
 	IpcQueue &operator= (const IpcQueue &) = delete;
+
+	// Contract: must be called after construction.
+	smarter::borrowed_ptr<IpcQueue> selfPtr;
 
 	smarter::shared_ptr<MemoryView> getMemory() {
 		return _memory;
@@ -111,7 +87,10 @@ public:
 
 	void setupChunk(size_t index, smarter::shared_ptr<AddressSpace, BindableHandle> space, void *pointer);
 
-	void submit(IpcNode *node);
+	coroutine<void> submit(QueueSource *source, uintptr_t context);
+
+	// Processes pending SQ elements. Called from helDriveQueue().
+	void processSq();
 
 	void raiseCqEvent() {
 		_cqEvent.raise();
@@ -140,96 +119,36 @@ public:
 		}
 	}
 
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for submit()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct SubmitOperation;
-
-	struct [[nodiscard]] SubmitSender {
-		template<typename R>
-		friend SubmitOperation<R>
-		connect(SubmitSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		IpcQueue *self;
-		QueueSource *source;
-		uintptr_t context;
-	};
-
-	SubmitSender submit(QueueSource *source, uintptr_t context) {
-		return {this, source, context};
-	}
-
-	template<typename R>
-	struct SubmitOperation final : private IpcNode {
-		SubmitOperation(SubmitSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		SubmitOperation(const SubmitOperation &) = delete;
-
-		SubmitOperation &operator= (const SubmitOperation &) = delete;
-
-		void start() {
-			setupSource(s_.source);
-			setupContext(s_.context);
-			s_.self->submit(this);
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value(receiver_);
-		}
-
-		SubmitSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<SubmitSender>
-	operator co_await(SubmitSender sender) {
-		return {sender};
-	}
-
-	// ----------------------------------------------------------------------------------
-
 private:
-	coroutine<void> _runQueue();
-
-private:
-	Mutex _mutex;
-
 	smarter::shared_ptr<ImmediateMemory> _memory;
 
 	size_t _chunkSize;
 
 	frg::vector<size_t, KernelAlloc> _chunkOffsets;
 
+	// CQ state.
+	async::mutex _cqMutex;
+
+	// True if _currentChunk and _currentProgress are valid.
+	bool _haveCqChunk{false};
 	// Chunk that we are currently processing.
 	int _currentChunk;
 	// Progress into the current chunk.
 	int _currentProgress;
-
-	async::recurring_event _doorbell;
 
 	// Event raised when userspace supplies new CQ chunks.
 	async::recurring_event _cqEvent;
 	// Event raised when kernel makes progress (i.e., userNotify changes).
 	async::recurring_event _userEvent;
 
-	frg::intrusive_list<
-		IpcNode,
-		frg::locate_member<
-			IpcNode,
-			frg::default_list_hook<IpcNode>,
-			&IpcNode::_queueNode
-		>
-	> _nodeQueue;
+	// SQ state.
+	async::mutex _sqMutex;
 
-	// Stores whether any nodes are in the queue.
-	// Written only when _mutex is held (but read outside of _mutex).
-	std::atomic<bool> _anyNodes;
+	unsigned int _numCqChunks{0};
+	unsigned int _numSqChunks{0};
+	int _sqCurrentChunk{0};
+	int _sqCurrentProgress{0};
+	int _sqTailChunk{0};
 };
 
 } // namespace thor
