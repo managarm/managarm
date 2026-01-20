@@ -1623,7 +1623,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
 		return kHelErrQueueTooSmall;
 
-	[](smarter::borrowed_ptr<thor::Universe> universe,
+	[](smarter::weak_ptr<thor::Universe> weakUniverse,
 			smarter::shared_ptr<MemoryView> memory,
 			smarter::shared_ptr<IpcQueue> queue,
 			uintptr_t offset, size_t size,
@@ -1633,7 +1633,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		co_await lockHandle.acquire(wq);
 		if(!lockHandle) {
 			// TODO: Return a better error.
-			HelHandleResult helResult{kHelErrFault, 0, 0};
+			HelHandleResult helResult{.error = kHelErrFault};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1643,13 +1643,21 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
 		auto touchOutcome = co_await memory->touchRange(offset, size, 0, wq);
 		if(!touchOutcome) {
-			HelHandleResult helResult{translateError(touchOutcome.error()), 0, kHelNullHandle};
+			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
 		}
 
 		// Attach the descriptor.
+		auto universe = weakUniverse.lock();
+		if (!universe) {
+			HelHandleResult helResult{.error = kHelErrThreadTerminated};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
 		HelHandle handle;
 		{
 			auto irq_lock = frg::guard(&irqMutex());
@@ -1661,10 +1669,10 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 							*kernelAlloc, std::move(lockHandle))});
 		}
 
-		HelHandleResult helResult{kHelErrNone, 0, handle};
+		HelHandleResult helResult{.error = kHelErrNone, .handle = handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(this_universe), std::move(memory), std::move(queue),
+	}(this_universe.lock(), std::move(memory), std::move(queue),
 		offset, size, context, this_thread->mainWorkQueue()->take());
 
 	return kHelErrNone;
