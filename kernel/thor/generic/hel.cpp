@@ -104,24 +104,42 @@ size_t ipcSourceSize(size_t size) {
 	return (size + 7) & ~size_t(7);
 }
 
-// TODO: one translate function per error source?
 HelError translateError(Error error) {
 	switch(error) {
 	case Error::success: return kHelErrNone;
+	case Error::illegalArgs: return kHelErrIllegalArgs;
+	case Error::illegalObject: return kHelErrIllegalObject;
+	case Error::illegalState: return kHelErrIllegalState;
+	case Error::outOfBounds: return kHelErrOutOfBounds;
+	case Error::cancelled: return kHelErrCancelled;
+	case Error::futexRace: return kHelErrNone; // Note that the translation to success.
+	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::threadExited: return kHelErrThreadTerminated;
 	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
 	case Error::laneShutdown: return kHelErrLaneShutdown;
 	case Error::endOfLane: return kHelErrEndOfLane;
 	case Error::dismissed: return kHelErrDismissed;
-	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
 	case Error::remoteFault: return kHelErrRemoteFault;
-	case Error::cancelled: return kHelErrCancelled;
-	case Error::futexRace: return kHelErrNone;
-	default:
-		assert(!"Unexpected error");
-		__builtin_unreachable();
+	case Error::noMemory: return kHelErrNoMemory;
+	case Error::noHardwareSupport: return kHelErrNoHardwareSupport;
+	case Error::alreadyExists: return kHelErrAlreadyExists;
+	case Error::badPermissions: return kHelErrBadPermissions;
+
+	// Thor-internal error cases that should not be passed down to userspace.
+	case Error::hardwareBroken: [[fallthrough]];
+	case Error::protocolViolation: [[fallthrough]];
+	case Error::spuriousOperation:
+		warningLogger() << "thor: Encountered unexpected internal error "
+				<< std::to_underlying(error) << " during translation to HelError" << frg::endlog;
+		return kHelErrOther;
 	}
+
+	// The switch above should handle all cases due to -Wswitch.
+	// If we still get here, something is most likely broken.
+	warningLogger() << "thor: Encountered broken error "
+			<< std::to_underlying(error) << " during translation to HelError" << frg::endlog;
+	return kHelErrOther;
 }
 
 namespace {

@@ -20,12 +20,12 @@ enum class Error {
 	remoteFault,
 	noMemory,
 	noHardwareSupport,
-	hardwareBroken,
-	// Internal error: the remote has violated the IPC protocol.
-	protocolViolation,
-	spuriousOperation,
 	alreadyExists,
 	badPermissions,
+	// Internal error: the remote has violated the IPC protocol.
+	hardwareBroken,
+	protocolViolation,
+	spuriousOperation,
 };
 
 } // namespace thor

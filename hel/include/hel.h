@@ -118,6 +118,7 @@ enum {
 	kHelErrTimeout = 3,
 	kHelErrNoDescriptor = 4,
 	kHelErrIllegalSyscall = 5,
+	kHelErrIllegalObject = 6,
 	kHelErrIllegalArgs = 7,
 	kHelErrLaneShutdown = 8,
 	kHelErrEndOfLane = 9,
@@ -133,7 +134,9 @@ enum {
 	kHelErrOutOfBounds = 19,
 	kHelErrDismissed = 20,
 	kHelErrRemoteFault = 21,
-	kHelErrAlreadyExists = 22
+	kHelErrAlreadyExists = 22,
+	kHelErrBadPermissions = 23,
+	kHelErrOther = 24
 };
 
 struct HelX86SegmentRegister {
