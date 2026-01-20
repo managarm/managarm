@@ -54,7 +54,7 @@ if build_kernel or build_drivers
 endif
 
 if build_tools or build_testsuite
-	add_languages('c', 'cpp')
+	add_languages('c', 'cpp', native: host_machine.system() == 'managarm')
 endif
 
 if build_kernel and any_userspace
