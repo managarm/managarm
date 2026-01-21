@@ -193,6 +193,7 @@ if build_drivers or provide_deps
 	subdir('protocols/mbus')
 	subdir('protocols/kerncfg')
 	subdir('protocols/clock')
+	subdir('protocols/supercalls')
 
 	if build_drivers
 		subdir('core/arch')

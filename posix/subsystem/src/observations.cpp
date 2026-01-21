@@ -9,7 +9,9 @@
 #include <protocols/posix/data.hpp>
 #include <protocols/posix/supercalls.hpp>
 
+#include "core/clock.hpp"
 #include "debug-options.hpp"
+#include "supercalls.bragi.hpp"
 
 namespace {
 
@@ -56,6 +58,31 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
+
+	timespec requestTimestamp = {};
+	auto logSupercall = [&](auto &msg) {
+		if(!posix::ostContext.isActive())
+			return;
+
+		requestTimestamp = clk::getTimeSinceBoot();
+		std::string replyHead;
+		std::string replyTail;
+		replyHead.resize(msg.size_of_head());
+		replyTail.resize(msg.size_of_tail());
+		bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+		bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+		auto headOk = msg.encode_head(headWriter);
+		auto tailOk = msg.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		posix::ostContext.emitWithTimestamp(
+			posix::ostEvtSupercallRequest,
+			(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+			posix::ostAttrPid(self->tid()),
+			posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			posix::ostSupercallBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+		);
+	};
 
 	uint64_t sequence = 1;
 	while(true) {
@@ -131,9 +158,16 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superFork) {
+			managarm::supercall::SupercallFork supercallInfo;
+			frg::scope_exit logSupercallInfo{[&]{logSupercall(supercallInfo);}};
+
+			helix_ng::Credentials creds = self->credentials();
+			supercallInfo.set_credentials(creds);
+
 			if(logRequests)
 				std::cout << "posix: fork supercall" << std::endl;
 			auto child = Process::fork(self);
+			supercallInfo.set_pid(child->pid());
 
 			// Copy registers from the current thread to the new one.
 			auto new_thread = child->threadDescriptor().getHandle();
@@ -189,6 +223,12 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if (newThread != kHelNullHandle)
 				HEL_CHECK(helResume(newThread));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superExecve) {
+			managarm::supercall::SupercallExecve supercallInfo;
+			frg::scope_exit logSupercallInfo{[&]{logSupercall(supercallInfo);}};
+
+			helix_ng::Credentials creds = self->credentials();
+			supercallInfo.set_credentials(creds);
+
 			if(logRequests)
 				std::cout << "posix: execve supercall" << std::endl;
 			uintptr_t gprs[kHelNumGprs];
@@ -238,8 +278,15 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				k = d + 1;
 			}
 
+			supercallInfo.set_path(path);
+			supercallInfo.set_args(args);
+			supercallInfo.set_env(env);
+
 			auto error = co_await Process::exec(self,
 					path, std::move(args), std::move(env));
+
+			supercallInfo.set_error(std::to_underlying(error));
+
 			if(error == Error::success) {
 				// Continue
 			}else if(error == Error::noSuchFile) {
@@ -264,6 +311,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				HEL_CHECK(helResume(thread.getHandle()));
 			}
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superExit) {
+			managarm::supercall::SupercallExit supercallInfo;
+			frg::scope_exit logSupercallInfo{[&]{logSupercall(supercallInfo);}};
+
 			if(logRequests)
 				std::cout << "posix: EXIT supercall" << std::endl;
 
@@ -271,9 +321,14 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto code = gprs[kHelRegArg0];
 
+			supercallInfo.set_code(code);
+
 			co_await self->terminate();
 			co_await self->threadGroup()->terminateGroup(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superThreadExit) {
+			managarm::supercall::SupercallThreadExit supercallInfo;
+			frg::scope_exit logSupercallInfo{[&]{logSupercall(supercallInfo);}};
+
 			if(logRequests)
 				std::cout << "posix: THREAD_EXIT supercall" << std::endl;
 
@@ -283,6 +338,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			bool lastInGroup;
 			co_await self->terminate(&lastInGroup);
+
+			supercallInfo.set_code(code);
+			supercallInfo.set_lastInGroup(lastInGroup);
+
 			if (lastInGroup)
 				co_await self->threadGroup()->terminateGroup(TerminationByExit{static_cast<int>(code & 0xFF)});
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigMask) {
@@ -350,6 +409,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			co_await self->threadGroup()->signalContext()->restoreContext(thread, self.get());
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
+			managarm::supercall::SupercallKill supercallInfo;
+			frg::scope_exit logSupercallInfo{[&]{logSupercall(supercallInfo);}};
+
 			if(logRequests || logSignals)
 				std::cout << "posix: SIG_KILL supercall" << std::endl;
 
@@ -357,6 +419,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto pid = (intptr_t)gprs[kHelRegArg0];
 			auto sn = gprs[kHelRegArg1];
+
+			supercallInfo.set_pid(pid);
+			supercallInfo.set_signal(sn);
 
 			std::shared_ptr<Process> target;
 			std::shared_ptr<ProcessGroup> targetGroup;
@@ -383,10 +448,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut0] = 0;
 			if(!target && !targetGroup) {
 				gprs[kHelRegOut0] = ESRCH;
+				supercallInfo.set_error(ESRCH);
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 				HEL_CHECK(helResume(thread.getHandle()));
 				continue;
 			}
+
+			supercallInfo.set_error(0);
 
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			UserSignal info;
