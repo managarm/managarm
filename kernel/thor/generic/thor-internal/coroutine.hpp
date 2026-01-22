@@ -286,7 +286,7 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 
 	coroutine_operation &operator= (const coroutine_operation &) = delete;
 
-	bool start_inline() {
+	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
 		promise->cont_ = this;
@@ -295,10 +295,8 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 		if(cfp == coroutine_cfp::past_suspend) {
 			// Synchronize with the thread that complete the coroutine.
 			std::atomic_thread_fence(std::memory_order_acquire);
-			async::execution::set_value_inline(receiver_, std::move(value()));
-			return true;
+			return async::execution::set_value(receiver_, std::move(value()));
 		}
-		return false;
 	}
 
 private:
@@ -323,7 +321,7 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 
 	coroutine_operation &operator= (const coroutine_operation &) = delete;
 
-	bool start_inline() {
+	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
 		promise->cont_ = this;
@@ -332,10 +330,8 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 		if(cfp == coroutine_cfp::past_suspend) {
 			// Synchronize with the thread that complete the coroutine.
 			std::atomic_thread_fence(std::memory_order_acquire);
-			async::execution::set_value_inline(receiver_);
-			return true;
+			return async::execution::set_value(receiver_);
 		}
-		return false;
 	}
 
 private:

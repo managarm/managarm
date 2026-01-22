@@ -358,12 +358,9 @@ public:
 
 		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
 
-		bool start_inline() {
-			if(self_->asyncLockRange(offset_, size_, std::move(wq_), this)) {
-				async::execution::set_value_inline(std::move(receiver_), result);
-				return true;
-			}
-			return false;
+		void start() {
+			if(self_->asyncLockRange(offset_, size_, std::move(wq_), this))
+				return async::execution::set_value(std::move(receiver_), result);
 		}
 
 	private:

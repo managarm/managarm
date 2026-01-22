@@ -93,21 +93,16 @@ struct WorkQueue {
 		EnterOperation(WorkQueue *wq, Receiver r)
 		: wq_{wq}, r_{std::move(r)} { }
 
-		bool start_inline() {
+		void start() {
 			auto swq = wq_->selfPtr.lock();
-			if (!swq) {
-				async::execution::set_value_inline(r_, false);
-				return true;
-			}
+			if (!swq)
+				return async::execution::set_value(r_, false);
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
 				async::execution::set_value_noinline(self->r_, true);
 			}, wq_);
-			if(enter(&worklet_)) {
-				async::execution::set_value_inline(r_, true);
-				return true;
-			}
-			return false;
+			if(enter(&worklet_))
+				return async::execution::set_value(r_, true);
 		}
 
 	private:

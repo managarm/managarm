@@ -136,7 +136,7 @@ public:
 
 		WaitOperation &operator= (const WaitOperation &) = delete;
 
-		bool start_inline() {
+		void start() {
 			// We still need the futex after unlocking in the lambda below. However,
 			// the operation struct can be deallocated at any time after unlocking.
 			// Move the futex to the stack to avoid memory safety issues.
@@ -170,11 +170,8 @@ public:
 			// Retire up the Futex after installing the waiter.
 			f.retire();
 
-			if(fastPath) {
-				async::execution::set_value_inline(receiver_, *result_);
-				return true;
-			}
-			return false;
+			if(fastPath)
+				return async::execution::set_value(receiver_, *result_);
 		}
 
 	private:
