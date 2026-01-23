@@ -97,14 +97,9 @@ void smpMain(StatusBlock *statusBlock) {
 	);
 }
 
-void bootAp(uint64_t hartId) {
-	// Skip the BSP.
-	if (hartId == getCpuData()->hartId)
-		return;
-
+void bootAp(uint64_t hartId, size_t cpuIndex) {
 	// Setup the CpuData.
-	auto [smpCpu, cpuNr] = extendPerCpuData();
-	prepareCpuDataFor(smpCpu, cpuNr);
+	auto *smpCpu = getCpuData(cpuIndex);
 	smpCpu->hartId = hartId;
 	// Ensure that the CPU data is visible to the HART.
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -136,13 +131,6 @@ void bootAp(uint64_t hartId) {
 		panicLogger() << "SBI HSM hart start failed with error " << sbiError << frg::endlog;
 }
 
-void bootApFromDt(DeviceTreeNode *node) {
-	const auto &reg = node->reg();
-	if (reg.size() != 1)
-		panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs" << frg::endlog;
-	bootAp(reg.front().addr);
-}
-
 initgraph::Task initAPsAcpi{
     &globalInitEngine,
     "riscv.init-aps-acpi",
@@ -153,6 +141,8 @@ initgraph::Task initAPsAcpi{
 
 	    setUpTrampoline();
 
+	    auto bspHartId = getCpuData()->hartId;
+
 	    uacpi_table madtTbl;
 	    if (uacpi_table_find_by_signature("APIC", &madtTbl) != UACPI_STATUS_OK)
 		    panicLogger() << "thor: Unable to initalize APs, no MADT found" << frg::endlog;
@@ -160,6 +150,7 @@ initgraph::Task initAPsAcpi{
 
 	    infoLogger() << "thor: Booting APs." << frg::endlog;
 
+	    size_t apCpuIndex = 1;
 	    size_t offset = sizeof(acpi_madt);
 	    while (offset < madt->length) {
 		    acpi_entry_hdr generic;
@@ -169,14 +160,22 @@ initgraph::Task initAPsAcpi{
 			    case 0x18: {
 				    acpi_madt_rintc entry;
 				    memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
-				    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
-				    bootAp(entry.hart_id);
+
+				    if (entry.hart_id != bspHartId) {
+					    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
+					    bootAp(entry.hart_id, apCpuIndex);
+					    ++apCpuIndex;
+				    }
 			    } break;
 			    default:
 				    // Do nothing.
 		    }
 		    offset += generic.length;
 	    }
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 
@@ -191,13 +190,40 @@ initgraph::Task initAPs{
 
 	    setUpTrampoline();
 
+	    auto bspHartId = getCpuData()->hartId;
+
+	    size_t apCpuIndex = 1;
+	    auto bootApFromDt = [&](DeviceTreeNode *node) {
+		    if (!node->isCompatible(cpuCompatible))
+			    return;
+
+		    const auto &reg = node->reg();
+		    if (reg.size() != 1)
+			    panicLogger() << "thor: Expect exactly one 'reg' entry for RISC-V CPUs"
+			                  << frg::endlog;
+		    if (reg.front().addr == bspHartId)
+			    return;
+
+		    if (static_cast<uint64_t>(apCpuIndex) >= cpuConfigNote->totalCpus) {
+			    panicLogger() << "thor: CPU index " << apCpuIndex
+			                  << " exceeds expected number of CPUs " << cpuConfigNote->totalCpus
+			                  << frg::endlog;
+		    }
+
+		    bootAp(reg.front().addr, apCpuIndex);
+		    ++apCpuIndex;
+	    };
+
 	    if (root) {
 		    root->forEach([&](DeviceTreeNode *node) -> bool {
-			    if (node->isCompatible(cpuCompatible))
-				    bootApFromDt(node);
+			    bootApFromDt(node);
 			    return false;
 		    });
 	    }
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 

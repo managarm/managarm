@@ -1,5 +1,7 @@
 #pragma once
 
+#include <eir/interface.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/executor-context.hpp>
 #include <thor-internal/kernel-locks.hpp>
@@ -8,6 +10,8 @@
 #include <tuple>
 
 namespace thor {
+
+extern ManagarmElfNote<CpuConfig> cpuConfigNote;
 
 // Forward defined for pointers that are part of CpuData.
 struct Thread;
@@ -185,14 +189,8 @@ void doInitializePerCpu(CpuData *context) {
 
 extern PerCpu<CpuData> cpuData;
 
-// Extend the per-CPU data area to make space for a new CPU, and run
-// initializers for it.
-// Returns a tuple of the pointer to the start of the new data, and
-// it's index (e.g. for PerCpu<T>::getFor).
-std::tuple<CpuData *, size_t> extendPerCpuData();
-
-// Run initializers for the per-CPU variables of the boot CPU.
-void runBootCpuDataInitializers();
+// Run initializers for the per-CPU variables of all CPUs.
+void runCpuDataInitializers();
 
 
 inline CpuData *getCpuData(size_t cpu) {

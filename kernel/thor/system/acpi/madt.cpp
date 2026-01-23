@@ -6,6 +6,7 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
@@ -149,6 +150,7 @@ void bootOtherProcessors() {
 
 	infoLogger() << "thor: Booting APs." << frg::endlog;
 
+	size_t apCpuIndex = 1;
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while (offset < madt->length) {
 		auto generic = (MadtGenericEntry *)(madtTbl.virt_addr + offset);
@@ -158,14 +160,14 @@ void bootOtherProcessors() {
 				// TODO: Support BSPs with APIC ID != 0.
 				if ((entry->flags & local_flags::enabled)
 				    && entry->localApicId) // We ignore the BSP here.
-					bootSecondary(entry->localApicId);
+					bootSecondary(entry->localApicId, apCpuIndex++);
 			} break;
 			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC: {
 				auto entry = (MadtLocalX2Entry *)generic;
 				// TODO: Support BSPs with APIC ID != 0.
 				if ((entry->flags & local_flags::enabled)
 				    && entry->localX2ApicId) // We ignore the BSP here.
-					bootSecondary(entry->localX2ApicId);
+					bootSecondary(entry->localX2ApicId, apCpuIndex++);
 			} break;
 			default:
 				// Do nothing.
@@ -455,6 +457,10 @@ static initgraph::Task bootApsTask{
 		    return;
 
 	    bootOtherProcessors();
+
+	    if (getCpuCount() != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 

@@ -532,13 +532,14 @@ void prepareCpuDataFor(CpuData *context, int cpu) {
 }
 
 void setupBootCpuContext() {
-	auto context = &cpuData.getFor(0);
+	for (size_t c = 0; c < getCpuCount(); ++c)
+		prepareCpuDataFor(getCpuData(c), c);
 
-	prepareCpuDataFor(context, 0);
+	auto context = getCpuData(0);
 	setupCpuContext(context);
 
 	bootLogRing.initialize();
-	cpuData.get().localLogRing = bootLogRing.get();
+	context->localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
@@ -775,7 +776,7 @@ void secondaryMain(StatusBlock *statusBlock) {
 	scheduler->commitReschedule();
 }
 
-void bootSecondary(unsigned int apic_id) {
+void bootSecondary(unsigned int apic_id, size_t cpuIndex) {
 	if(disableSmp)
 		return;
 
@@ -793,9 +794,7 @@ void bootSecondary(unsigned int apic_id) {
 	constexpr size_t stack_size = 0x10000;
 	void *stack_ptr = kernelAlloc->allocate(stack_size);
 
-	auto [context, cpuNr] = extendPerCpuData();
-	prepareCpuDataFor(context, cpuNr);
-
+	auto *context = getCpuData(cpuIndex);
 	context->localApicId = apic_id;
 	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 

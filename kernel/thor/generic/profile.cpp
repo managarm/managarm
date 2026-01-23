@@ -48,8 +48,8 @@ void initializeProfile() {
 	globalProfileRing.initialize(reinterpret_cast<uintptr_t>(profileMemory), 1 << 20);
 
 	// Dump the per-CPU profiling data to the global ring buffer.
-	// TODO: Start one such fiber per CPU.
-	KernelFiber::run([=] {
+	auto fiberMain = [] {
+		infoLogger() << "thor: Profiling on CPU " << getCpuData()->cpuIndex << frg::endlog;
 		getCpuData()->localProfileRing = frg::construct<SingleContextRecordRing>(*kernelAlloc);
 
 		if(getGlobalCpuFeatures()->profileFlags & CpuFeatures::profileIntelSupported) {
@@ -79,7 +79,10 @@ void initializeProfile() {
 
 			globalProfileRing->enqueue(buffer, size);
 		}
-	});
+	};
+
+	for (size_t c = 0; c < getCpuCount(); ++c)
+		KernelFiber::run(fiberMain, &localScheduler.getFor(c));
 #endif
 }
 
