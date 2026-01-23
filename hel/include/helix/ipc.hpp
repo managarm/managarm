@@ -843,7 +843,7 @@ private:
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		async::execution::set_value_noinline(r_, std::move(result));
+		async::execution::set_value(r_, std::move(result));
 	}
 
 	BorrowedDescriptor space_;
@@ -913,7 +913,7 @@ private:
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		async::execution::set_value_noinline(r_, std::move(result));
+		async::execution::set_value(r_, std::move(result));
 	}
 
 	BorrowedDescriptor descriptor_;
@@ -984,7 +984,7 @@ private:
 		SynchronizeSpaceResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		async::execution::set_value_noinline(r_, std::move(result));
+		async::execution::set_value(r_, std::move(result));
 	}
 
 	BorrowedDescriptor descriptor_;
@@ -1155,7 +1155,7 @@ private:
 		ResizeMemoryResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		async::execution::set_value_noinline(r_, std::move(result));
+		async::execution::set_value(r_, std::move(result));
 	}
 
 	BorrowedDescriptor memory_;
@@ -1245,7 +1245,7 @@ private:
 		ForkMemoryResult result;
 		void *ptr = element.data();
 		result.parse(ptr, element);
-		async::execution::set_value_noinline(r_, std::move(result));
+		async::execution::set_value(r_, std::move(result));
 	}
 
 	BorrowedDescriptor memory_;

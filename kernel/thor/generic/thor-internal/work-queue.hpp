@@ -99,7 +99,7 @@ struct WorkQueue {
 				return async::execution::set_value(r_, false);
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
-				async::execution::set_value_noinline(self->r_, true);
+				async::execution::set_value(self->r_, true);
 			}, wq_);
 			if(enter(&worklet_))
 				return async::execution::set_value(r_, true);

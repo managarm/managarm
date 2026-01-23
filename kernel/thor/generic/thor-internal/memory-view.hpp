@@ -365,7 +365,7 @@ public:
 
 	private:
 		void resume() override {
-			async::execution::set_value_noinline(std::move(receiver_), result);
+			async::execution::set_value(std::move(receiver_), result);
 		}
 
 		MemoryView *self_;
@@ -440,7 +440,7 @@ public:
 
 	private:
 		void complete() override {
-			async::execution::set_value_noinline(receiver_,
+			async::execution::set_value(receiver_,
 					frg::tuple<Error, ManageRequest, uintptr_t, size_t>{error(),
 							type(), offset(), size()});
 		}

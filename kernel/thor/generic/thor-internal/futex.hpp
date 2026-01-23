@@ -176,7 +176,7 @@ public:
 
 	private:
 		void complete() override {
-			async::execution::set_value_noinline(receiver_, *result_);
+			async::execution::set_value(receiver_, *result_);
 		}
 
 		F f_;

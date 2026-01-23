@@ -301,7 +301,7 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 
 private:
 	void resume() override {
-		async::execution::set_value_noinline(receiver_, std::move(value()));
+		async::execution::set_value(receiver_, std::move(value()));
 	}
 
 private:
@@ -336,7 +336,7 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 
 private:
 	void resume() override {
-		async::execution::set_value_noinline(receiver_);
+		async::execution::set_value(receiver_);
 	}
 
 private:

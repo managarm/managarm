@@ -255,7 +255,7 @@ struct ShootdownOperation : private ShootNode {
 		ShootNode::size = s_.size;
 		Worklet::setup([] (Worklet *base) {
 			auto op = static_cast<ShootdownOperation *>(base);
-			async::execution::set_value_noinline(op->receiver_);
+			async::execution::set_value(op->receiver_);
 		}, s_.wq);
 		if(s_.self->submitShootdown(this))
 			return async::execution::set_value(receiver_);
