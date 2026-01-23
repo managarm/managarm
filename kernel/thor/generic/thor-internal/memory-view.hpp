@@ -433,9 +433,8 @@ public:
 
 		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
 
-		bool start_inline() {
+		void start() {
 			s_->submitManage(this);
-			return false;
 		}
 
 	private:
