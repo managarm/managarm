@@ -310,12 +310,18 @@ IrqPin *getGlobalSystemIrq(size_t n) {
 
 void setGlobalSystemIrq(size_t n, IrqPin *pin) { globalSystemIrqs->insert(n, pin); }
 
+namespace {
+
+constinit std::array<char, 4096> earlyTableBuffer{};
+
+} // namespace
+
 static initgraph::Task initTablesTask{
-    &globalInitEngine, "acpi.initialize", initgraph::Entails{getTablesDiscoveredStage()}, [] {
+    &globalInitEngine, "acpi.init-tables", initgraph::Entails{getTablesDiscoveredStage()}, [] {
 	    if (!getEirInfo()->acpiRsdp)
 		    return;
 
-	    auto ret = uacpi_initialize(0);
+	    auto ret = uacpi_setup_early_table_access(earlyTableBuffer.data(), earlyTableBuffer.size());
 	    assert(ret == UACPI_STATUS_OK);
 
 	    globalSystemIrqs.initialize(frg::hash<uint32_t>{}, *kernelAlloc);
@@ -425,7 +431,10 @@ static initgraph::Task loadAcpiNamespaceTask{
 
 	    initGlue();
 
-	    auto ret = uacpi_namespace_load();
+	    auto ret = uacpi_initialize(0);
+	    assert(ret == UACPI_STATUS_OK);
+
+	    ret = uacpi_namespace_load();
 	    assert(ret == UACPI_STATUS_OK);
 
 	    ret = uacpi_set_interrupt_model(UACPI_INTERRUPT_MODEL_IOAPIC);
