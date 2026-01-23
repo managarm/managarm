@@ -33,7 +33,7 @@ typedef int ProcessId;
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
 struct VmContext {
 	static std::shared_ptr<VmContext> create();
-	static std::shared_ptr<VmContext> clone(std::shared_ptr<VmContext> original);
+	static async::result<std::shared_ptr<VmContext>> clone(std::shared_ptr<VmContext> original);
 
 	~VmContext();
 
@@ -446,8 +446,9 @@ struct Process : std::enable_shared_from_this<Process> {
 
 	static async::result<std::shared_ptr<ThreadGroup>> init(std::string path);
 
-	static std::shared_ptr<Process> fork(std::shared_ptr<Process> parent);
-	static std::expected<std::shared_ptr<Process>, Error>
+	static async::result<std::shared_ptr<Process>> fork(std::shared_ptr<Process> parent);
+
+	static async::result<std::expected<std::shared_ptr<Process>, Error>>
 	clone(std::shared_ptr<Process> parent, void *ip, void *sp, posix::superCloneArgs *args);
 
 	static async::result<Error> exec(std::shared_ptr<Process> process,

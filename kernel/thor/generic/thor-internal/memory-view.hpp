@@ -276,14 +276,14 @@ public:
 
 	virtual size_t getLength() = 0;
 
-	virtual void resize(size_t newLength, async::any_receiver<void> receiver);
+	virtual coroutine<frg::expected<Error>> resize(size_t newLength);
 
 	// Returns a unique identity for each memory address.
 	// This is used as a key to access futexes.
 	virtual frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
 	resolveGlobalFutex(uintptr_t offset) = 0;
 
-	virtual void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver);
+	virtual coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork();
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
@@ -341,51 +341,6 @@ public:
 				return Eviction{std::move(handle)};
 			}
 		);
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for resize()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct ResizeOperation;
-
-	struct [[nodiscard]] ResizeSender {
-		template<typename R>
-		friend ResizeOperation<R>
-		connect(ResizeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-		size_t newSize;
-	};
-
-	ResizeSender resize(size_t newSize) {
-		return {this, newSize};
-	}
-
-	template<typename R>
-	struct ResizeOperation {
-		ResizeOperation(ResizeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		ResizeOperation(const ResizeOperation &) = delete;
-
-		ResizeOperation &operator= (const ResizeOperation &) = delete;
-
-		void start() {
-			s_.self->resize(s_.newSize, std::move(receiver_));
-		}
-
-	private:
-		ResizeSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<ResizeSender>
-	operator co_await(ResizeSender sender) {
-		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -502,46 +457,6 @@ public:
 	operator co_await(SubmitManageSender sender) {
 		return {sender};
 	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for fork()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct ForkOperation;
-
-	struct [[nodiscard]] ForkSender {
-		using value_type = frg::tuple<Error, smarter::shared_ptr<MemoryView>>;
-
-		template<typename R>
-		friend ForkOperation<R>
-		connect(ForkSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-	};
-
-	ForkSender fork() {
-		return {this};
-	}
-
-	template<typename R>
-	struct ForkOperation {
-		ForkOperation(ForkSender s, R receiver)
-		: v_{s.self}, receiver_{std::move(receiver)} { }
-
-		ForkOperation(const ForkOperation &) = delete;
-		ForkOperation &operator= (const ForkOperation &) = delete;
-
-		void start() {
-			v_->fork(std::move(receiver_));
-		}
-
-	private:
-		MemoryView *v_;
-		R receiver_;
-	};
 
 private:
 	EvictionQueue *associatedEvictionQueue_;
@@ -712,7 +627,7 @@ struct ImmediateMemory final : MemoryView, GlobalFutexSpace {
 	ImmediateMemory &operator= (const ImmediateMemory &) = delete;
 
 	size_t getLength() override;
-	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
 			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -822,7 +737,7 @@ struct AllocatedMemory final : MemoryView, GlobalFutexSpace {
 	AllocatedMemory &operator= (const AllocatedMemory &) = delete;
 
 	size_t getLength() override;
-	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
 			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -958,7 +873,7 @@ public:
 	BackingMemory &operator= (const BackingMemory &) = delete;
 
 	size_t getLength() override;
-	void resize(size_t newLength, async::any_receiver<void> receiver) override;
+	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
 			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
@@ -1085,7 +1000,7 @@ public:
 	CopyOnWriteMemory &operator= (const CopyOnWriteMemory &) = delete;
 
 	size_t getLength() override;
-	void fork(async::any_receiver<frg::tuple<Error, smarter::shared_ptr<MemoryView>>> receiver) override;
+	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
 	frg::expected<Error, frg::tuple<smarter::shared_ptr<GlobalFutexSpace>, uintptr_t>>
 			resolveGlobalFutex(uintptr_t offset) override;
 	Error lockRange(uintptr_t offset, size_t size) override;

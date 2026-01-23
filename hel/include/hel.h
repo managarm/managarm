@@ -118,6 +118,7 @@ enum {
 	kHelErrTimeout = 3,
 	kHelErrNoDescriptor = 4,
 	kHelErrIllegalSyscall = 5,
+	kHelErrIllegalObject = 6,
 	kHelErrIllegalArgs = 7,
 	kHelErrLaneShutdown = 8,
 	kHelErrEndOfLane = 9,
@@ -133,7 +134,9 @@ enum {
 	kHelErrOutOfBounds = 19,
 	kHelErrDismissed = 20,
 	kHelErrRemoteFault = 21,
-	kHelErrAlreadyExists = 22
+	kHelErrAlreadyExists = 22,
+	kHelErrBadPermissions = 23,
+	kHelErrOther = 24
 };
 
 struct HelX86SegmentRegister {
@@ -511,6 +514,10 @@ static const uint32_t kHelSubmitManageMemory = 9;
 static const uint32_t kHelSubmitLockMemoryView = 10;
 //! SQ opcode: observe thread.
 static const uint32_t kHelSubmitObserve = 11;
+//! SQ opcode: resize memory.
+static const uint32_t kHelSubmitResizeMemory = 12;
+//! SQ opcode: fork memory.
+static const uint32_t kHelSubmitForkMemory = 13;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -665,6 +672,20 @@ struct HelSqObserve {
 	HelHandle handle;
 	//! Input sequence number.
 	uint64_t sequence;
+};
+
+//! SQ data for kHelSubmitResizeMemory.
+struct HelSqResizeMemory {
+	//! Handle to the memory object.
+	HelHandle handle;
+	//! New size in bytes.
+	size_t newSize;
+};
+
+//! SQ data for kHelSubmitForkMemory.
+struct HelSqForkMemory {
+	//! Handle to the memory object.
+	HelHandle handle;
 };
 
 struct HelSimpleResult {

@@ -645,9 +645,6 @@ void handleSyscall(SyscallImageAccessor image) {
 				(const HelAllocRestrictions *)arg2, &handle);
 		*image.out0() = handle;
 	} break;
-	case kHelCallResizeMemory: {
-		*image.error() = helResizeMemory((HelHandle)arg0, (size_t)arg1);
-	} break;
 	case kHelCallCreateManagedMemory: {
 		HelHandle backing_handle, frontal_handle;
 		*image.error() = helCreateManagedMemory((size_t)arg0, (uint32_t)arg1,
@@ -679,11 +676,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = helCreateSliceView((HelHandle)arg0, (uintptr_t)arg1, (size_t)arg2,
 				(uint32_t)arg3, &handle);
 		*image.out0() = handle;
-	} break;
-	case kHelCallForkMemory: {
-		HelHandle forkedHandle;
-		*image.error() = helForkMemory((HelHandle)arg0, &forkedHandle);
-		*image.out0() = forkedHandle;
 	} break;
 	case kHelCallCreateSpace: {
 		HelHandle handle;

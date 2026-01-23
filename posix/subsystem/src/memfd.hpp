@@ -43,7 +43,7 @@ public:
 	}
 
 private:
-	frg::expected<Error> _resizeFile(size_t new_size);
+	async::result<frg::expected<Error>> _resizeFile(size_t new_size);
 
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;

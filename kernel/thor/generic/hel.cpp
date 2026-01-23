@@ -104,24 +104,42 @@ size_t ipcSourceSize(size_t size) {
 	return (size + 7) & ~size_t(7);
 }
 
-// TODO: one translate function per error source?
 HelError translateError(Error error) {
 	switch(error) {
 	case Error::success: return kHelErrNone;
+	case Error::illegalArgs: return kHelErrIllegalArgs;
+	case Error::illegalObject: return kHelErrIllegalObject;
+	case Error::illegalState: return kHelErrIllegalState;
+	case Error::outOfBounds: return kHelErrOutOfBounds;
+	case Error::cancelled: return kHelErrCancelled;
+	case Error::futexRace: return kHelErrNone; // Note that the translation to success.
+	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::threadExited: return kHelErrThreadTerminated;
 	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
 	case Error::laneShutdown: return kHelErrLaneShutdown;
 	case Error::endOfLane: return kHelErrEndOfLane;
 	case Error::dismissed: return kHelErrDismissed;
-	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::fault: return kHelErrFault;
 	case Error::remoteFault: return kHelErrRemoteFault;
-	case Error::cancelled: return kHelErrCancelled;
-	case Error::futexRace: return kHelErrNone;
-	default:
-		assert(!"Unexpected error");
-		__builtin_unreachable();
+	case Error::noMemory: return kHelErrNoMemory;
+	case Error::noHardwareSupport: return kHelErrNoHardwareSupport;
+	case Error::alreadyExists: return kHelErrAlreadyExists;
+	case Error::badPermissions: return kHelErrBadPermissions;
+
+	// Thor-internal error cases that should not be passed down to userspace.
+	case Error::hardwareBroken: [[fallthrough]];
+	case Error::protocolViolation: [[fallthrough]];
+	case Error::spuriousOperation:
+		warningLogger() << "thor: Encountered unexpected internal error "
+				<< std::to_underlying(error) << " during translation to HelError" << frg::endlog;
+		return kHelErrOther;
 	}
+
+	// The switch above should handle all cases due to -Wswitch.
+	// If we still get here, something is most likely broken.
+	warningLogger() << "thor: Encountered broken error "
+			<< std::to_underlying(error) << " during translation to HelError" << frg::endlog;
+	return kHelErrOther;
 }
 
 namespace {
@@ -534,7 +552,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	return kHelErrNone;
 }
 
-HelError helResizeMemory(HelHandle handle, size_t newSize) {
+HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		size_t newSize, uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -551,10 +570,20 @@ HelError helResizeMemory(HelHandle handle, size_t newSize) {
 		memory = wrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	Thread::asyncBlockCurrent([] (smarter::shared_ptr<MemoryView> memory, size_t newSize)
-			-> coroutine<void> {
-		co_await memory->resize(newSize);
-	}(std::move(memory), newSize));
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<MemoryView> memory, size_t newSize,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		auto outcome = co_await memory->resize(newSize);
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(memory), newSize, std::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -756,7 +785,8 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	return kHelErrNone;
 }
 
-HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
+HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t context) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
@@ -773,19 +803,43 @@ HelError helForkMemory(HelHandle handle, HelHandle *forkedHandle) {
 		view = viewWrapper->get<MemoryViewDescriptor>().memory;
 	}
 
-	auto [error, forkedView] = Thread::asyncBlockCurrent(view->fork());
+	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
+		return kHelErrQueueTooSmall;
 
-	if(error == Error::illegalObject)
-		return kHelErrUnsupportedOperation;
-	assert(error == Error::success);
+	[](smarter::weak_ptr<Universe> weakUniverse,
+			smarter::shared_ptr<MemoryView> view,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine = {}) -> void {
+		auto outcome = co_await view->fork();
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
+		if(!outcome) {
+			HelHandleResult helResult{.error = translateError(outcome.error())};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
 
-		*forkedHandle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(forkedView));
-	}
+		auto universe = weakUniverse.lock();
+		if (!universe) {
+			HelHandleResult helResult{.error = kHelErrThreadTerminated};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
+		HelHandle forkedHandle;
+		{
+			auto irq_lock = frg::guard(&irqMutex());
+			Universe::Guard universe_guard(universe->lock);
+
+			forkedHandle = universe->attachDescriptor(universe_guard,
+					MemoryViewDescriptor(outcome.value()));
+		}
+
+		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
+		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(this_universe.lock(), std::move(view), std::move(queue), context);
 
 	return kHelErrNone;
 }
@@ -1569,7 +1623,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelHandleResult))))
 		return kHelErrQueueTooSmall;
 
-	[](smarter::borrowed_ptr<thor::Universe> universe,
+	[](smarter::weak_ptr<thor::Universe> weakUniverse,
 			smarter::shared_ptr<MemoryView> memory,
 			smarter::shared_ptr<IpcQueue> queue,
 			uintptr_t offset, size_t size,
@@ -1579,7 +1633,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		co_await lockHandle.acquire(wq);
 		if(!lockHandle) {
 			// TODO: Return a better error.
-			HelHandleResult helResult{kHelErrFault, 0, 0};
+			HelHandleResult helResult{.error = kHelErrFault};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
@@ -1589,13 +1643,21 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
 		auto touchOutcome = co_await memory->touchRange(offset, size, 0, wq);
 		if(!touchOutcome) {
-			HelHandleResult helResult{translateError(touchOutcome.error()), 0, kHelNullHandle};
+			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
 			co_return;
 		}
 
 		// Attach the descriptor.
+		auto universe = weakUniverse.lock();
+		if (!universe) {
+			HelHandleResult helResult{.error = kHelErrThreadTerminated};
+			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
+			co_await queue->submit(&ipcSource, context);
+			co_return;
+		}
+
 		HelHandle handle;
 		{
 			auto irq_lock = frg::guard(&irqMutex());
@@ -1607,10 +1669,10 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 							*kernelAlloc, std::move(lockHandle))});
 		}
 
-		HelHandleResult helResult{kHelErrNone, 0, handle};
+		HelHandleResult helResult{.error = kHelErrNone, .handle = handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(this_universe), std::move(memory), std::move(queue),
+	}(this_universe.lock(), std::move(memory), std::move(queue),
 		offset, size, context, this_thread->mainWorkQueue()->take());
 
 	return kHelErrNone;
@@ -3796,6 +3858,28 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqObserve sqData;
 		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
 		error = doSubmitObserve(sqData.handle, queue, sqData.sequence, context);
+		break;
+	}
+	case kHelSubmitResizeMemory: {
+		if(length < sizeof(HelSqResizeMemory)) {
+			infoLogger() << "Bad length for kHelSubmitResizeMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqResizeMemory sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		error = doSubmitResizeMemory(sqData.handle, queue, sqData.newSize, context);
+		break;
+	}
+	case kHelSubmitForkMemory: {
+		if(length < sizeof(HelSqForkMemory)) {
+			infoLogger() << "Bad length for kHelSubmitForkMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqForkMemory sqData;
+		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		error = doSubmitForkMemory(sqData.handle, queue, context);
 		break;
 	}
 	default:
