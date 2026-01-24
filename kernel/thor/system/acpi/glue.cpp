@@ -488,9 +488,7 @@ uacpi_status uacpi_kernel_acquire_mutex(uacpi_handle opaque, uacpi_u16 timeout) 
 	auto *mutex = reinterpret_cast<async::mutex *>(opaque);
 
 	if (timeout == 0xFFFF) {
-		KernelFiber::asyncBlockCurrent([mutex]() -> coroutine<void> {
-			co_await mutex->async_lock();
-		}());
+		KernelFiber::asyncBlockCurrent(mutex->async_lock());
 		return UACPI_STATUS_OK;
 	}
 

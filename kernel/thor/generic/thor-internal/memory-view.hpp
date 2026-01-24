@@ -358,17 +358,14 @@ public:
 
 		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
 
-		bool start_inline() {
-			if(self_->asyncLockRange(offset_, size_, std::move(wq_), this)) {
-				async::execution::set_value_inline(std::move(receiver_), result);
-				return true;
-			}
-			return false;
+		void start() {
+			if(self_->asyncLockRange(offset_, size_, std::move(wq_), this))
+				return async::execution::set_value(std::move(receiver_), result);
 		}
 
 	private:
 		void resume() override {
-			async::execution::set_value_noinline(std::move(receiver_), result);
+			async::execution::set_value(std::move(receiver_), result);
 		}
 
 		MemoryView *self_;
@@ -436,14 +433,13 @@ public:
 
 		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
 
-		bool start_inline() {
+		void start() {
 			s_->submitManage(this);
-			return false;
 		}
 
 	private:
 		void complete() override {
-			async::execution::set_value_noinline(receiver_,
+			async::execution::set_value(receiver_,
 					frg::tuple<Error, ManageRequest, uintptr_t, size_t>{error(),
 							type(), offset(), size()});
 		}

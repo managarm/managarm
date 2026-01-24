@@ -250,18 +250,15 @@ struct ShootdownOperation : private ShootNode {
 
 	ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
-	bool start_inline() {
+	void start() {
 		ShootNode::address = s_.address;
 		ShootNode::size = s_.size;
 		Worklet::setup([] (Worklet *base) {
 			auto op = static_cast<ShootdownOperation *>(base);
-			async::execution::set_value_noinline(op->receiver_);
+			async::execution::set_value(op->receiver_);
 		}, s_.wq);
-		if(s_.self->submitShootdown(this)) {
-			async::execution::set_value_inline(receiver_);
-			return true;
-		}
-		return false;
+		if(s_.self->submitShootdown(this))
+			return async::execution::set_value(receiver_);
 	}
 
 private:
