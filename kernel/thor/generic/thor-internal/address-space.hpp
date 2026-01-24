@@ -11,6 +11,29 @@
 
 namespace thor {
 
+struct GlobalFutex {
+	GlobalFutex(FutexIdentity id, PhysicalAddr physical)
+	: id_{id}, physical_{physical} {
+		assert(!(physical & (sizeof(int) - 1)));
+	}
+
+	FutexIdentity getIdentity() {
+		return id_;
+	}
+
+	unsigned int read() {
+		PageAccessor accessor{physical_ & ~(kPageSize - 1)};
+		auto offset = physical_ & (kPageSize - 1);
+		auto accessPtr = reinterpret_cast<unsigned int *>(
+				reinterpret_cast<std::byte *>(accessor.get()) + offset);
+		return __atomic_load_n(accessPtr, __ATOMIC_RELAXED);
+	}
+
+private:
+	FutexIdentity id_;
+	PhysicalAddr physical_;
+};
+
 struct VirtualSpace;
 
 inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
@@ -597,45 +620,60 @@ public:
 	// GlobalFutex support.
 	// ----------------------------------------------------------------------------------
 
-	frg::expected<Error, FutexIdentity> resolveGlobalFutex(uintptr_t address) {
-		// We do not take _consistencyMutex here since we are only interested in a snapshot.
+	struct GlobalFutexSpace {
+		template<typename F>
+		coroutine<frg::expected<Error>> withFutex(uintptr_t address, WorkQueue *wq, F &&f) {
+			if (address & (sizeof(int) - 1))
+				co_return Error::illegalArgs;
 
-		smarter::shared_ptr<Mapping> mapping;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_snapshotMutex);
+			while (true) {
+				smarter::shared_ptr<Mapping> mapping;
+				{
+					auto irqLock = frg::guard(&irqMutex());
+					auto spaceGuard = frg::guard(&self->_snapshotMutex);
+					mapping = self->_findMapping(address);
+				}
+				if(!mapping)
+					co_return Error::fault;
 
-			mapping = _findMapping(address);
+				auto offset = address - mapping->address;
+				auto alignedOffset = offset & ~(kPageSize - 1);
+				auto offsetMisalign = offset & (kPageSize - 1);
+
+				// TODO: We may want to resolve the page to a (owner MemoryView, offset) pair
+				//       to handle futexes behind IndirectMemory.
+				//       However, we do not have any futexes on IndirectMemory right now.
+				FutexIdentity id{
+					.spaceQualifier = reinterpret_cast<uintptr_t>(mapping->view.get()),
+					.localAddress = mapping->viewOffset + offset,
+				};
+
+				// Lock evictionMutex to prevent page eviction.
+				{
+					co_await mapping->evictionMutex.async_lock();
+					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+
+					// Complete the operation if the memory page is available.
+					auto [physical, caching] = mapping->view->peekRange(mapping->viewOffset + alignedOffset);
+					if(physical != PhysicalAddr(-1)) {
+						f(GlobalFutex{id, physical + offsetMisalign});
+						co_return {};
+					}
+				}
+
+				// Otherwise, try to make the page available.
+				FRG_CO_TRY(co_await mapping->view->touchRange(
+					alignedOffset, kPageSize, 0, wq->selfPtr.lock()
+				));
+			}
 		}
-		if(!mapping)
-			return Error::fault;
 
-		auto offset = address - mapping->address;
-		auto [futexSpace, futexOffset] = FRG_TRY(mapping->view->resolveGlobalFutex(
-				mapping->viewOffset + offset));
-		return FutexIdentity{reinterpret_cast<uintptr_t>(futexSpace.get()), offset};
-	}
+		VirtualSpace *self;
+	};
+	static_assert(FutexSpace<GlobalFutexSpace>);
 
-	coroutine<frg::expected<Error, GlobalFutex>> grabGlobalFutex(uintptr_t address,
-			smarter::shared_ptr<WorkQueue> wq) {
-		// We do not take _consistencyMutex here since we are only interested in a snapshot.
-
-		smarter::shared_ptr<Mapping> mapping;
-		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto spaceGuard = frg::guard(&_snapshotMutex);
-
-			mapping = _findMapping(address);
-		}
-		if(!mapping)
-			co_return Error::fault;
-
-		auto offset = address - mapping->address;
-		auto [futexSpace, futexOffset] = FRG_CO_TRY(mapping->view->resolveGlobalFutex(
-				mapping->viewOffset + offset));
-		auto futexPhysical = FRG_CO_TRY(co_await futexSpace->takeGlobalFutex(futexOffset,
-				std::move(wq)));
-		co_return GlobalFutex{std::move(futexSpace), futexOffset, futexPhysical};
+	GlobalFutexSpace globalFutexSpace() {
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
