@@ -246,7 +246,7 @@ struct NodeOperations {
 	async::result<std::expected<void, protocols::fs::Error>> (*rmdir)(std::shared_ptr<void> object,
 			std::string name);
 
-	async::result<OpenResult> (*open)(std::shared_ptr<void> object, bool append);
+	async::result<OpenResult> (*open)(std::shared_ptr<void> object, bool write, bool read, bool append);
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 
