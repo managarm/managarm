@@ -93,9 +93,6 @@ struct WorkQueue {
 		: wq_{wq}, r_{std::move(r)} { }
 
 		void start() {
-			auto swq = wq_->selfPtr.lock();
-			if (!swq)
-				return async::execution::set_value(r_, false);
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
 				async::execution::set_value(self->r_, true);

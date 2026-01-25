@@ -96,9 +96,6 @@ void WorkQueue::run() {
 		}
 	}
 
-	// Keep this shared pointer to avoid destructing *this here.
-	smarter::shared_ptr<WorkQueue> self = selfPtr.lock();
-	assert(self);
 	while(!pending.empty()) {
 		auto worklet = pending.pop_front();
 		worklet->_run(worklet);
