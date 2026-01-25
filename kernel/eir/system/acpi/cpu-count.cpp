@@ -13,7 +13,7 @@ initgraph::Task detectCpusFromMadt{
     &globalInitEngine,
     "acpi.detect-cpu-count",
     initgraph::Requires{getTablesAvailableStage()},
-    initgraph::Entails{getReservedRegionsKnownStage()},
+    initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    if (!haveTables())
 		    return;
@@ -33,7 +33,7 @@ initgraph::Task detectCpusFromMadt{
 		    memcpy(&generic, genericPtr, sizeof(generic));
 
 		    switch (generic.type) {
-#ifdef __x86_64__
+#if defined(__i386__) || defined(__x86_64__)
 			    case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				    acpi_madt_lapic entry;
 				    memcpy(&entry, genericPtr, sizeof(entry));
@@ -64,6 +64,8 @@ initgraph::Task detectCpusFromMadt{
 	    if (cpuCount > 0) {
 		    cpuConfig.totalCpus = cpuCount;
 		    infoLogger() << "eir: Detected " << cpuCount << " CPUs from MADT" << frg::endlog;
+	    } else {
+		    panicLogger() << "eir: Failed to detect CPUs from MADT" << frg::endlog;
 	    }
     }
 };

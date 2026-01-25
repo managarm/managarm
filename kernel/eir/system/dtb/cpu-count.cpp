@@ -8,10 +8,7 @@ namespace eir {
 namespace {
 
 initgraph::Task detectCpusFromDtb{
-    &globalInitEngine,
-    "dt.detect-cpu-count",
-    initgraph::Entails{getReservedRegionsKnownStage()},
-    [] {
+    &globalInitEngine, "dt.detect-cpu-count", initgraph::Entails{getKernelLoadableStage()}, [] {
 	    if (!eirDtbPtr)
 		    return;
 
@@ -41,6 +38,8 @@ initgraph::Task detectCpusFromDtb{
 	    if (cpuCount > 0) {
 		    cpuConfig.totalCpus = cpuCount;
 		    infoLogger() << "eir: Detected " << cpuCount << " CPUs from DTB" << frg::endlog;
+	    } else {
+		    panicLogger() << "eir: Failed to detect CPUs from DT" << frg::endlog;
 	    }
     }
 };
