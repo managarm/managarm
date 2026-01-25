@@ -22,7 +22,7 @@ void OneshotEvent::trigger() {
 		node->sequence_ = 2;
 		node->bitset_ = 1;
 		if(node->cancelCb_.try_reset())
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 	}
 }
 
@@ -36,19 +36,19 @@ void OneshotEvent::submitAwait(AwaitEventNode<OneshotEvent> *node, uint64_t sequ
 		node->error_ = Error::success;
 		node->sequence_ = 2;
 		node->bitset_ = 1;
-		WorkQueue::post(node->awaited_);
+		node->wq_->post(node->awaited_);
 	}else{
 		if(!sequence) {
 			node->error_ = Error::success;
 			node->sequence_ = 1;
 			node->bitset_ = 0;
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 		}else{
 			assert(sequence == 1);
 
 			if(!node->cancelCb_.try_set(node->cancelToken_)) {
 				node->wasCancelled_ = true;
-				WorkQueue::post(node->awaited_);
+				node->wq_->post(node->awaited_);
 				return;
 			}
 
@@ -63,7 +63,7 @@ void OneshotEvent::cancelAwait(AwaitEventNode<OneshotEvent> *node) {
 
 	node->wasCancelled_ = true;
 	_waitQueue.erase(_waitQueue.iterator_to(node));
-	WorkQueue::post(node->awaited_);
+	node->wq_->post(node->awaited_);
 }
 
 //---------------------------------------------------------------------------------------
@@ -94,7 +94,7 @@ void BitsetEvent::trigger(uint32_t bits) {
 		node->sequence_ = _currentSequence;
 		node->bitset_ = bits;
 		if(node->cancelCb_.try_reset())
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 	}
 }
 
@@ -113,11 +113,11 @@ void BitsetEvent::submitAwait(AwaitEventNode<BitsetEvent> *node, uint64_t sequen
 		node->error_ = Error::success;
 		node->sequence_ = _currentSequence;
 		node->bitset_ = bits;
-		WorkQueue::post(node->awaited_);
+		node->wq_->post(node->awaited_);
 	}else{
 		if(!node->cancelCb_.try_set(node->cancelToken_)) {
 			node->wasCancelled_ = true;
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 			return;
 		}
 
@@ -131,7 +131,7 @@ void BitsetEvent::cancelAwait(AwaitEventNode<BitsetEvent> *node) {
 
 	node->wasCancelled_ = true;
 	_waitQueue.erase(_waitQueue.iterator_to(node));
-	WorkQueue::post(node->awaited_);
+	node->wq_->post(node->awaited_);
 }
 
 } // namespace thor

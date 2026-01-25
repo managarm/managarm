@@ -10,35 +10,31 @@ WorkQueue *WorkQueue::generalQueue() {
 }
 
 void WorkQueue::post(Worklet *worklet) {
-	auto wq = worklet->_workQueue;
-
 	bool invokeWakeup;
-	if(wq->_executorContext == currentExecutorContext()) {
+	if(_executorContext == currentExecutorContext()) {
 		auto irqLock = frg::guard(&irqMutex());
 
-		invokeWakeup = wq->_localQueue.empty();
-		wq->_localQueue.push_back(worklet);
-		wq->_localPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = _localQueue.empty();
+		_localQueue.push_back(worklet);
+		_localPosted.store(true, std::memory_order_relaxed);
 	}else{
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&wq->_mutex);
+		auto lock = frg::guard(&_mutex);
 
-		invokeWakeup = wq->_lockedQueue.empty();
-		wq->_lockedQueue.push_back(worklet);
-		wq->_lockedPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = _lockedQueue.empty();
+		_lockedQueue.push_back(worklet);
+		_lockedPosted.store(true, std::memory_order_relaxed);
 	}
 
 	if(invokeWakeup)
-		wq->wakeup();
+		wakeup();
 }
 
 bool WorkQueue::enter(Worklet *worklet) {
-	auto wq = worklet->_workQueue;
-
 	bool invokeWakeup;
-	if(wq->_executorContext == currentExecutorContext()) {
+	if(_executorContext == currentExecutorContext()) {
 		// Fast-track if we are on the right executor and the WQ is being drained.
-		if(wq->_inRun.load(std::memory_order_relaxed)) {
+		if(_inRun.load(std::memory_order_relaxed)) {
 			std::atomic_signal_fence(std::memory_order_acquire);
 			return true;
 		}
@@ -46,21 +42,21 @@ bool WorkQueue::enter(Worklet *worklet) {
 		// Same logic as in post().
 		auto irqLock = frg::guard(&irqMutex());
 
-		invokeWakeup = wq->_localQueue.empty();
-		wq->_localQueue.push_back(worklet);
-		wq->_localPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = _localQueue.empty();
+		_localQueue.push_back(worklet);
+		_localPosted.store(true, std::memory_order_relaxed);
 	}else{
 		// Same logic as in post().
 		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&wq->_mutex);
+		auto lock = frg::guard(&_mutex);
 
-		invokeWakeup = wq->_lockedQueue.empty();
-		wq->_lockedQueue.push_back(worklet);
-		wq->_lockedPosted.store(true, std::memory_order_relaxed);
+		invokeWakeup = _lockedQueue.empty();
+		_lockedQueue.push_back(worklet);
+		_lockedPosted.store(true, std::memory_order_relaxed);
 	}
 
 	if(invokeWakeup)
-		wq->wakeup();
+		wakeup();
 	return false;
 }
 
@@ -101,10 +97,10 @@ void WorkQueue::run() {
 	}
 
 	// Keep this shared pointer to avoid destructing *this here.
-	smarter::shared_ptr<WorkQueue> self;
+	smarter::shared_ptr<WorkQueue> self = selfPtr.lock();
+	assert(self);
 	while(!pending.empty()) {
 		auto worklet = pending.pop_front();
-		self = std::move(worklet->_workQueue);
 		worklet->_run(worklet);
 	}
 

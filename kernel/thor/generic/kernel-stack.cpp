@@ -56,10 +56,11 @@ UniqueKernelStack::~UniqueKernelStack() {
 	p->thisPage = physical;
 	p->address = address;
 	p->size = guardedSize;
+	p->wq_ = WorkQueue::generalQueue();
 	p->Worklet::setup([] (Worklet *worklet) {
 		auto op = static_cast<Closure *>(worklet);
 		op->doComplete();
-	}, WorkQueue::generalQueue());
+	});
 	if(KernelPageSpace::global().submitShootdown(p))
 		p->doComplete();
 }

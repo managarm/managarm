@@ -120,7 +120,7 @@ void PrecisionTimerEngine::installTimer(PrecisionTimerNode *timer) {
 	if(!timer->_cancelCb.try_set(timer->_cancelToken)) {
 		timer->_wasCancelled = true;
 		timer->_state = TimerState::retired;
-		WorkQueue::post(timer->_elapsed);
+		timer->_wq->post(timer->_elapsed);
 		return;
 	}
 
@@ -144,7 +144,7 @@ void PrecisionTimerEngine::cancelTimer(PrecisionTimerNode *timer) {
 	}
 
 	timer->_state = TimerState::retired;
-	WorkQueue::post(timer->_elapsed);
+	timer->_wq->post(timer->_elapsed);
 }
 
 void PrecisionTimerEngine::firedAlarm() {
@@ -184,7 +184,7 @@ void PrecisionTimerEngine::_progress() {
 				infoLogger() << "thor: Timer completed" << frg::endlog;
 			if(timer->_cancelCb.try_reset()) {
 				timer->_state = TimerState::retired;
-				WorkQueue::post(timer->_elapsed);
+				timer->_wq->post(timer->_elapsed);
 			}else{
 				// Let the cancellation handler invoke the continuation.
 				timer->_state = TimerState::elapsed;
