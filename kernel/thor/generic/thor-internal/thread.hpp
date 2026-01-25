@@ -90,10 +90,6 @@ public:
 		thread.release();
 		smarter::shared_ptr<Thread, ActiveHandle> sptr{smarter::adopt_rc, ptr, ptr};
 
-		ptr->_mainWorkQueue.selfPtr = remove_tag_cast(
-				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_mainWorkQueue});
-		ptr->_pagingWorkQueue.selfPtr = remove_tag_cast(
-				smarter::shared_ptr<WorkQueue, ActiveHandle>{sptr, &ptr->_pagingWorkQueue});
 		return sptr;
 	}
 

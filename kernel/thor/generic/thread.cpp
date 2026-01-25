@@ -485,8 +485,6 @@ void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
 		infoLogger() << "thor: Killing thread after no more handles keep it alive" << frg::endlog;
 	_kill();
-	_mainWorkQueue.selfPtr = {};
-	_pagingWorkQueue.selfPtr = {};
 }
 
 void Thread::observe_(uint64_t inSeq, ObserveNode *node) {

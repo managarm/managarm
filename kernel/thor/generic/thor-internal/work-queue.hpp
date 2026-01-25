@@ -37,10 +37,6 @@ struct WorkQueue {
 
 	void run();
 
-	auto take() {
-		return selfPtr.lock();
-	}
-
 	// ----------------------------------------------------------------------------------
 	// schedule() and its boilerplate.
 	// ----------------------------------------------------------------------------------
@@ -127,8 +123,6 @@ struct WorkQueue {
 	}
 
 	// ----------------------------------------------------------------------------------
-
-	smarter::weak_ptr<WorkQueue> selfPtr;
 
 protected:
 	virtual void wakeup() = 0;

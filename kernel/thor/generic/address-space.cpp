@@ -247,7 +247,7 @@ uint32_t Mapping::compilePageFlags() {
 }
 
 void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
-		smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node) {
+		WorkQueue *wq, LockVirtualRangeNode *node) {
 	// This can be removed if we change the return type of asyncLockRange to frg::expected.
 	auto transformError = [node] (Error e) {
 		if(e == Error::success) {
@@ -258,7 +258,7 @@ void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
 		node->resume();
 	};
 	async::detach_with_allocator(*kernelAlloc,
-			async::transform(view->asyncLockRange(viewOffset + offset, size, std::move(wq)),
+			async::transform(view->asyncLockRange(viewOffset + offset, size, wq),
 					transformError));
 }
 
@@ -633,7 +633,7 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
 
 coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
-		smarter::shared_ptr<WorkQueue> wq) {
+		WorkQueue *wq) {
 	co_await _consistencyMutex.async_lock_shared();
 	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 
@@ -694,7 +694,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 }
 
 coroutine<frg::expected<Error, PhysicalAddr>>
-VirtualSpace::retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq) {
+VirtualSpace::retrievePhysical(VirtualAddr address, WorkQueue *wq) {
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	smarter::shared_ptr<Mapping> mapping;
@@ -1092,7 +1092,7 @@ coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
-		void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+		void *buffer, size_t size, WorkQueue *wq) {
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;
@@ -1166,7 +1166,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 }
 
 coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
-		const void *buffer, size_t size, smarter::shared_ptr<WorkQueue> wq) {
+		const void *buffer, size_t size, WorkQueue *wq) {
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;

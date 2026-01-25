@@ -409,7 +409,7 @@ private:
 
 	// Makes sure that pages are not evicted from virtual memory.
 	void lockVirtualRange(uintptr_t offset, size_t length,
-			smarter::shared_ptr<WorkQueue> wq, LockVirtualRangeNode *node);
+			WorkQueue *wq, LockVirtualRangeNode *node);
 
 public:
 	template<typename R>
@@ -425,12 +425,12 @@ public:
 		Mapping *self;
 		uintptr_t offset;
 		size_t size;
-		smarter::shared_ptr<WorkQueue> wq;
+		WorkQueue *wq;
 	};
 
 	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size,
-			smarter::shared_ptr<WorkQueue> wq) {
-		return {this, offset, size, std::move(wq)};
+			WorkQueue *wq) {
+		return {this, offset, size, wq};
 	}
 
 	template<typename R>
@@ -443,9 +443,7 @@ public:
 		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
 
 		void start() {
-			// XXX: work around Clang bug that runs s_.wq dtor after the call.
-			auto wq = s_.wq;
-			s_.self->lockVirtualRange(s_.offset, s_.size, std::move(wq), this);
+			s_.self->lockVirtualRange(s_.offset, s_.size, s_.wq, this);
 		}
 
 	private:
@@ -574,10 +572,10 @@ public:
 	unmap(VirtualAddr address, size_t length, WorkQueue *wq);
 
 	coroutine<frg::expected<Error>>
-	handleFault(VirtualAddr address, uint32_t flags, smarter::shared_ptr<WorkQueue> wq);
+	handleFault(VirtualAddr address, uint32_t flags, WorkQueue *wq);
 
 	coroutine<frg::expected<Error, PhysicalAddr>>
-	retrievePhysical(VirtualAddr address, smarter::shared_ptr<WorkQueue> wq);
+	retrievePhysical(VirtualAddr address, WorkQueue *wq);
 
 	size_t rss() {
 		return _ops->getRss();
@@ -590,14 +588,14 @@ public:
 	// These functions read as much data as possible;
 	// on error, they read/write a partially filled buffer.
 	coroutine<size_t> readPartialSpace(uintptr_t address, void *buffer, size_t size,
-			smarter::shared_ptr<WorkQueue> wq);
+			WorkQueue *wq);
 	coroutine<size_t> writePartialSpace(uintptr_t address, const void *buffer, size_t size,
-			smarter::shared_ptr<WorkQueue> wq);
+			WorkQueue *wq);
 
 	auto readSpace(uintptr_t address, void *buffer, size_t size,
-			smarter::shared_ptr<WorkQueue> wq) {
+			WorkQueue *wq) {
 		return async::transform(
-			readPartialSpace(address, buffer, size, std::move(wq)),
+			readPartialSpace(address, buffer, size, wq),
 			[=] (size_t actualSize) -> frg::expected<Error> {
 				if(actualSize != size)
 					return Error::fault;
@@ -607,9 +605,9 @@ public:
 	}
 
 	auto writeSpace(uintptr_t address, const void *buffer, size_t size,
-			smarter::shared_ptr<WorkQueue> wq) {
+			WorkQueue *wq) {
 		return async::transform(
-			writePartialSpace(address, buffer, size, std::move(wq)),
+			writePartialSpace(address, buffer, size, wq),
 			[=] (size_t actualSize) -> frg::expected<Error> {
 				if(actualSize != size)
 					return Error::fault;
@@ -665,7 +663,7 @@ public:
 
 				// Otherwise, try to make the page available.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					alignedOffset, kPageSize, 0, wq->selfPtr.lock()
+					alignedOffset, kPageSize, 0, wq
 				));
 			}
 		}
@@ -840,8 +838,8 @@ struct MemoryViewLockHandle {
 		return _active;
 	}
 
-	auto acquire(smarter::shared_ptr<WorkQueue> wq) {
-		return async::transform(_view->asyncLockRange(_offset, _size, std::move(wq)),
+	auto acquire(WorkQueue *wq) {
+		return async::transform(_view->asyncLockRange(_offset, _size, wq),
 			[&] (Error e) { _active = e == Error::success; });
 	}
 
