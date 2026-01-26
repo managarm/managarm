@@ -671,7 +671,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 : pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
 
-	[] (ManagedSpace *self, enable_detached_coroutine = {}) -> void {
+	[] (ManagedSpace *self, enable_detached_coroutine) -> void {
 		while(true) {
 			// TODO: Cancel awaitReclaim() when the ManagedSpace is destructed.
 			co_await globalReclaimer->awaitReclaim(self);
@@ -716,7 +716,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				warningLogger() << "Evicting physical page" << frg::endlog;
 			physicalAllocator->free(physical, kPageSize);
 		}
-	}(this);
+	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
 
 ManagedSpace::~ManagedSpace() {

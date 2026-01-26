@@ -125,7 +125,7 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 		_maskState{0} {
 	_hash = frg::hash<frg::string<KernelAlloc>>{}(_name);
 
-	[] (IrqPin *self, enable_detached_coroutine = {}) -> void {
+	[] (IrqPin *self, enable_detached_coroutine) -> void {
 		while(true) {
 			co_await self->_unstallEvent.async_wait_if([&] () -> bool {
 				auto irqLock = frg::guard(&irqMutex());
@@ -163,7 +163,7 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 				self->_kick(false);
 			}
 		}
-	}(this);
+	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
 
 void IrqPin::configure(IrqConfiguration desired) {

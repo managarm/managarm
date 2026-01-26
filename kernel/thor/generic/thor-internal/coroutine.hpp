@@ -407,10 +407,20 @@ async::sender_awaiter<coroutine<T>, T> operator co_await(coroutine<T> s) {
 	return {std::move(s)};
 }
 
+namespace detail {
+	template<typename T>
+	constexpr T &lastArg(T &t) { return t; }
+
+	template<typename Head, typename... Tail>
+	constexpr auto &lastArg(Head &, Tail &... tail) { return lastArg(tail...); }
+}
+
 // Helper type that marks void-returning functions as detached coroutines.
 // Must be passed as last argument to the function.
-// Example usage: [] (enable_detached_coroutine = {}) -> void { co_await foobar(); }
-struct enable_detached_coroutine { };
+// Example usage: [] (enable_detached_coroutine) -> void { co_await foobar(); }
+struct enable_detached_coroutine {
+	smarter::shared_ptr<thor::WorkQueue> wq;
+};
 
 struct detached_coroutine_promise {
 	void *operator new(size_t size) {
@@ -420,6 +430,10 @@ struct detached_coroutine_promise {
 	void operator delete(void *p, size_t size) {
 		return thor::kernelAlloc->deallocate(p, size);
 	}
+
+	template<typename... Args>
+	detached_coroutine_promise(Args &... args)
+	: wq_{detail::lastArg(args...).wq.get()} { }
 
 	void get_return_object() {
 		// Our return object is void.
@@ -440,6 +454,14 @@ struct detached_coroutine_promise {
 	auto final_suspend() noexcept {
 		return std::suspend_never{};
 	}
+
+	template<async::Sender S>
+	auto await_transform(S &&s) {
+		return thor::WorkQueueAffineAwaiter{std::move(s), wq_};
+	}
+
+private:
+	thor::WorkQueue *wq_;
 };
 
 template<typename... Ts>
