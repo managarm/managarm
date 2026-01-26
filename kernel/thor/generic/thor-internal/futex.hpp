@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/cancellation.hpp>
+#include <async/oneshot-event.hpp>
 #include <frg/functional.hpp>
 #include <frg/hash_map.hpp>
 #include <frg/list.hpp>
@@ -42,64 +43,31 @@ struct FutexIdentity {
 	uintptr_t localAddress = 0;
 };
 
-// This concept allows access to a futex.
-// The FutexRealm code calls retire() after it is done with the futex. For example, retire()
-// can be used to unpin the memory page that contains the futex.
 template<typename F>
 concept Futex = requires(F f) {
-	// TODO: We would like to enfore return type here but we do not have the <concepts> header
-	//       in our current libstdc++ installation.
 	f.getIdentity();
 	f.read();
-	f.retire();
+};
+
+template<typename S>
+concept FutexSpace = requires(S s, WorkQueue *wq) {
+	// Provides temporary access to a Futex.
+	{ s.withFutex(uintptr_t{}, wq, [] (Futex auto) {}) } -> std::same_as<coroutine<frg::expected<Error>>>;
 };
 
 struct FutexRealm {
 private:
+	enum class State {
+		none,
+		done,
+		cancelled,
+	};
+
 	// Represents a single waiter.
 	struct Node {
-		friend struct FutexRealm;
-
-		Node(FutexRealm *realm, FutexIdentity id)
-		: realm_{realm}, id_{id}, cobs_{this} { }
-
-	protected:
-		virtual void complete() = 0;
-
-		~Node() = default;
-
-	private:
-		void cancel_() {
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&realm_->_mutex);
-
-				if(!result_) {
-					auto sit = realm_->_slots.get(id_);
-					assert(sit);			
-
-					// Invariant: If the slot exists then its queue is not empty.
-					assert(!sit->queue.empty());
-
-					auto nit = sit->queue.iterator_to(this);
-					sit->queue.erase(nit);
-					result_ = Error::cancelled;
-
-					if(sit->queue.empty())
-						realm_->_slots.remove(id_);
-				}else{
-					assert(!queueHook_.in_list);
-				}
-			}
-
-			complete();
-		}
-
-		FutexRealm *realm_;
-		FutexIdentity id_;
-		frg::optional<Error> result_; // Set after completion.
-		async::cancellation_observer<frg::bound_mem_fn<&Node::cancel_>> cobs_;
-		frg::default_list_hook<Node> queueHook_;
+		State st{State::none};
+		frg::default_list_hook<Node> queueHook;
+		async::oneshot_primitive completionEvent;
 	};
 
 	struct Slot {
@@ -108,7 +76,7 @@ private:
 			frg::locate_member<
 				Node,
 				frg::default_list_hook<Node>,
-				&Node::queueHook_
+				&Node::queueHook
 			>
 		> queue;
 	};
@@ -125,99 +93,98 @@ public:
 	// wait().
 	// ----------------------------------------------------------------------------------
 
-	template<Futex F, typename R>
-	struct WaitOperation final : private Node {
-		WaitOperation(FutexRealm *self, F f, unsigned int expected,
-				async::cancellation_token ct, R receiver)
-		: Node{self, f.getIdentity()}, f_{std::move(f)}, expected_{expected}, ct_{ct},
-				receiver_{std::move(receiver)} { }
+	template<FutexSpace S>
+	coroutine<Error> wait(S space, uintptr_t address, unsigned int expected,
+			WorkQueue *wq,
+			async::cancellation_token ct = {}) {
+		Node node{};
+		FutexIdentity id;
 
-		WaitOperation(const WaitOperation &) = delete;
+		bool futexRace = false;
+		auto result = co_await space.withFutex(address, wq, [&](auto futex) {
+			id = futex.getIdentity();
 
-		WaitOperation &operator= (const WaitOperation &) = delete;
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
 
-		void start() {
-			// We still need the futex after unlocking in the lambda below. However,
-			// the operation struct can be deallocated at any time after unlocking.
-			// Move the futex to the stack to avoid memory safety issues.
-			F f = std::move(f_);
+			if(futex.read() != expected) {
+				futexRace = true;
+				return;
+			}
 
-			auto fastPath = [&] {
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&realm_->_mutex);
+			auto sit = _slots.get(id);
+			if(!sit) {
+				_slots.insert(id, Slot());
+				sit = _slots.get(id);
+			}
 
-				if(f.read() != expected_) {
-					result_ = Error::futexRace;
-					return true;
+			sit->queue.push_back(&node);
+		});
+		if(!result)
+			co_return result.error();
+		if (futexRace)
+			co_return Error::futexRace;
+
+		co_await async::with_cancel_cb(
+			node.completionEvent.wait(),
+			[&] {
+				// Remove the node from the futex's wait list.
+				{
+					auto irqLock = frg::guard(&irqMutex());
+					auto lock = frg::guard(&_mutex);
+
+					if (node.st == State::done)
+						return;
+					assert(node.st == State::none);
+
+					auto sit = _slots.get(id);
+					assert(sit);
+
+					// Invariant: If the slot exists then its queue is not empty.
+					assert(!sit->queue.empty());
+
+					auto nit = sit->queue.iterator_to(&node);
+					sit->queue.erase(nit);
+					node.st = State::cancelled;
+
+					if(sit->queue.empty())
+						_slots.remove(id);
 				}
 
-				if(!cobs_.try_set(ct_)) {
-					result_ = Error::cancelled;
-					return true;
-				}
-
-				auto sit = realm_->_slots.get(id_);
-				if(!sit) {
-					realm_->_slots.insert(id_, Slot());
-					sit = realm_->_slots.get(id_);
-				}
-
-				assert(!queueHook_.in_list);
-				sit->queue.push_back(this);
-				return false;
-			}(); // Immediately invoked.
-
-			// Retire up the Futex after installing the waiter.
-			f.retire();
-
-			if(fastPath)
-				return async::execution::set_value(receiver_, *result_);
+				node.completionEvent.raise();
+			},
+			ct
+		);
+		if (node.st == State::done) {
+			co_return Error::success;
+		} else {
+			assert(node.st == State::cancelled);
+			co_return Error::cancelled;
 		}
-
-	private:
-		void complete() override {
-			async::execution::set_value(receiver_, *result_);
-		}
-
-		F f_;
-		unsigned int expected_;
-		async::cancellation_token ct_;
-		R receiver_;
-	};
-
-	template<Futex F>
-	struct [[nodiscard]] WaitSender {
-		using value_type = Error;
-
-		template<typename R>
-		WaitOperation<F, R> connect(R receiver) {
-			return {self, std::move(f), expected, ct, std::move(receiver)};
-		}
-
-		async::sender_awaiter<WaitSender, Error> operator co_await() {
-			return {std::move(*this)};
-		}
-
-		FutexRealm *self;
-		F f;
-		unsigned int expected;
-		async::cancellation_token ct;
-	};
-
-	template<Futex F>
-	WaitSender<F> wait(F f, unsigned int expected, async::cancellation_token ct = {}) {
-		return {this, std::move(f), expected, ct};
 	}
 
 	// ----------------------------------------------------------------------------------
+	// wake().
+	// ----------------------------------------------------------------------------------
 
-	void wake(FutexIdentity id, uint32_t count) {
+	template<FutexSpace S>
+	coroutine<frg::expected<Error>> wake(S space, uintptr_t address, uint32_t count,
+			WorkQueue *wq) {
+		FutexIdentity id;
+
+		auto result = co_await space.withFutex(address, wq, [&](auto futex) {
+			id = futex.getIdentity();
+		});
+
+		if(!result)
+			co_return result.error();
+
 		frg::intrusive_list<
 			Node,
 			frg::locate_member<
 				Node,
 				frg::default_list_hook<Node>,
-				&Node::queueHook_
+				&Node::queueHook
 			>
 		> pending;
 		{
@@ -226,19 +193,17 @@ public:
 
 			auto sit = _slots.get(id);
 			if(!sit)
-				return;
+				co_return {};
 			// Invariant: If the slot exists then its queue is not empty.
 			assert(!sit->queue.empty());
 
 			while(!sit->queue.empty() && count) {
 				auto node = sit->queue.front();
-				assert(!node->result_);
+				assert(node->st == State::none);
 				sit->queue.pop_front();
 
-				node->result_ = Error::success;
-				if(node->cobs_.try_reset()) {
-					pending.push_back(node);
-				}
+				node->st = State::done;
+				pending.push_back(node);
 
 				count--;
 			}
@@ -249,8 +214,10 @@ public:
 
 		while(!pending.empty()) {
 			auto node = pending.pop_front();
-			node->complete();
+			node->completionEvent.raise();
 		}
+
+		co_return {};
 	}
 
 private:

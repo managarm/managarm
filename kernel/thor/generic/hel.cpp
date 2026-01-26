@@ -3074,13 +3074,7 @@ HelError helShutdownLane(HelHandle handle) {
 HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 	auto thisThread = getCurrentThread();
 	auto space = thisThread->getAddressSpace();
-
-	auto futexOrError = Thread::asyncBlockCurrent(
-			space->grabGlobalFutex(reinterpret_cast<uintptr_t>(pointer),
-					thisThread->mainWorkQueue()->take()));
-	if(!futexOrError)
-		return kHelErrFault;
-	GlobalFutex futex = std::move(futexOrError.value());
+	auto address = reinterpret_cast<uintptr_t>(pointer);
 
 	if(deadline < 0) {
 		if(deadline != -1)
@@ -3088,7 +3082,9 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 
 		return translateError(Thread::asyncBlockCurrentInterruptible(
 			async::lambda([&](async::cancellation_token ct) {
-				return getGlobalFutexRealm()->wait(std::move(futex), expected, ct);
+				return getGlobalFutexRealm()->wait(
+					space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue(), ct
+				);
 			})
 		));
 	}else{
@@ -3099,7 +3095,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			return async::race_and_cancel(
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
 				    waitErr = co_await getGlobalFutexRealm()->wait(
-				        std::move(futex), expected, cancellation
+				        space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue(), cancellation
 				    );
 			    }),
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
@@ -3121,13 +3117,17 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 }
 
 HelError helFutexWake(int *pointer, unsigned int count) {
-	auto this_thread = getCurrentThread();
-	auto space = this_thread->getAddressSpace();
+	auto thisThread = getCurrentThread();
+	auto space = thisThread->getAddressSpace();
+	auto address = reinterpret_cast<uintptr_t>(pointer);
 
-	auto identityOrError = space->resolveGlobalFutex(reinterpret_cast<uintptr_t>(pointer));
-	if(!identityOrError)
+	auto result = Thread::asyncBlockCurrent(
+			getGlobalFutexRealm()->wake(
+				space->globalFutexSpace(), address, count, thisThread->mainWorkQueue()
+			)
+	);
+	if(!result)
 		return kHelErrFault;
-	getGlobalFutexRealm()->wake(identityOrError.value(), count);
 
 	return kHelErrNone;
 }
