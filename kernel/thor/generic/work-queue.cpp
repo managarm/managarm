@@ -3,10 +3,10 @@
 
 namespace thor {
 
-WorkQueue *WorkQueue::generalQueue() {
+smarter::borrowed_ptr<WorkQueue> WorkQueue::generalQueue() {
 	auto cpuData = getCpuData();
 	assert(cpuData->generalWorkQueue);
-	return cpuData->generalWorkQueue.get();
+	return cpuData->generalWorkQueue;
 }
 
 void WorkQueue::post(Worklet *worklet) {

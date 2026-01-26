@@ -134,8 +134,8 @@ public:
 
 	void handlePreemption(IrqImageAccessor) override;
 
-	WorkQueue *associatedWorkQueue() {
-		return _associatedWorkQueue.get();
+	smarter::borrowed_ptr<WorkQueue> associatedWorkQueue() {
+		return _associatedWorkQueue;
 	}
 
 private:

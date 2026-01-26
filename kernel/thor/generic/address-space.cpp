@@ -307,7 +307,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 		assert(unmapOutcome);
 
 		co_await owner->_ops->shootdown(address + shootOffset, shootSize,
-				WorkQueue::generalQueue());
+				WorkQueue::generalQueue().get());
 
 		eviction.done();
 
@@ -373,7 +373,7 @@ void VirtualSpace::retire() {
 	// TODO: It would be less ugly to run this in a non-detached way.
 	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
-		co_await self->_ops->retire(WorkQueue::generalQueue());
+		co_await self->_ops->retire(WorkQueue::generalQueue().get());
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();

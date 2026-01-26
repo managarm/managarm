@@ -1067,11 +1067,11 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 		mapResult = Thread::asyncBlockCurrent(space->map(slice,
 				(VirtualAddr)pointer, offset, length, map_flags,
-				getCurrentThread()->mainWorkQueue()));
+				getCurrentThread()->mainWorkQueue().get()));
 	} else {
 		mapResult = Thread::asyncBlockCurrent(vspace->map(slice,
 				(VirtualAddr)pointer, offset, length, map_flags,
-				getCurrentThread()->mainWorkQueue()));
+				getCurrentThread()->mainWorkQueue().get()));
 	}
 
 	if(!mapResult) {
@@ -1129,7 +1129,7 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 			uint32_t protectFlags, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
 		auto outcome = co_await space->protect(pointer, length, protectFlags,
-				thisThread->mainWorkQueue());
+				thisThread->mainWorkQueue().get());
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
 		assert(outcome);
 
@@ -1164,7 +1164,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	}
 
 	auto outcome = Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length,
-			getCurrentThread()->mainWorkQueue()));
+			getCurrentThread()->mainWorkQueue().get()));
 	if(!outcome) {
 		assert(outcome.error() == Error::illegalArgs);
 		return kHelErrIllegalArgs;
@@ -1201,7 +1201,7 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine = {}) -> void {
 		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length,
-				thisThread->mainWorkQueue());
+				thisThread->mainWorkQueue().get());
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
 		assert(outcome);
 
@@ -3083,7 +3083,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		return translateError(Thread::asyncBlockCurrentInterruptible(
 			async::lambda([&](async::cancellation_token ct) {
 				return getGlobalFutexRealm()->wait(
-					space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue(), ct
+					space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue().get(), ct
 				);
 			})
 		));
@@ -3095,7 +3095,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 			return async::race_and_cancel(
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
 				    waitErr = co_await getGlobalFutexRealm()->wait(
-				        space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue(), cancellation
+				        space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue().get(), cancellation
 				    );
 			    }),
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
@@ -3123,7 +3123,7 @@ HelError helFutexWake(int *pointer, unsigned int count) {
 
 	auto result = Thread::asyncBlockCurrent(
 			getGlobalFutexRealm()->wake(
-				space->globalFutexSpace(), address, count, thisThread->mainWorkQueue()
+				space->globalFutexSpace(), address, count, thisThread->mainWorkQueue().get()
 			)
 	);
 	if(!result)

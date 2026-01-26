@@ -56,7 +56,7 @@ UniqueKernelStack::~UniqueKernelStack() {
 	p->thisPage = physical;
 	p->address = address;
 	p->size = guardedSize;
-	p->wq_ = WorkQueue::generalQueue();
+	p->wq_ = WorkQueue::generalQueue().get();
 	p->Worklet::setup([] (Worklet *worklet) {
 		auto op = static_cast<Closure *>(worklet);
 		op->doComplete();

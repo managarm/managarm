@@ -275,11 +275,11 @@ public:
 			AbiParameters abi);
 	~Thread();
 
-	WorkQueue *mainWorkQueue() {
-		return &_mainWorkQueue;
+	smarter::borrowed_ptr<WorkQueue> mainWorkQueue() {
+		return {&_mainWorkQueue, self.ctr()};
 	}
-	WorkQueue *pagingWorkQueue() {
-		return &_pagingWorkQueue;
+	smarter::borrowed_ptr<WorkQueue> pagingWorkQueue() {
+		return {&_pagingWorkQueue, self.ctr()};
 	}
 
 	UserContext &getContext();

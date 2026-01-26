@@ -25,7 +25,7 @@ private:
 };
 
 struct WorkQueue {
-	static WorkQueue *generalQueue();
+	static smarter::borrowed_ptr<WorkQueue> generalQueue();
 
 	void post(Worklet *worklet);
 	bool enter(Worklet *worklet);
