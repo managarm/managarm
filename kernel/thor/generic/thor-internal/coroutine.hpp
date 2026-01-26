@@ -2,6 +2,59 @@
 
 #include <async/basic.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/work-queue.hpp>
+
+namespace thor {
+
+template<async::Sender S>
+struct WorkQueueAffineAwaiter : Worklet {
+	struct Receiver {
+		template<typename... Args>
+		void set_value(Args &&... args) {
+			aw->value_.emplace(std::forward<Args>(args)...);
+			aw->setup([] (Worklet *base) {
+				auto aw = static_cast<WorkQueueAffineAwaiter *>(base);
+				aw->h_.resume();
+			});
+			aw->wq_->post(aw);
+		}
+
+		WorkQueueAffineAwaiter *aw;
+	};
+
+	WorkQueueAffineAwaiter(S s, WorkQueue *wq)
+	: op_{async::execution::connect(std::move(s), Receiver{.aw = this})},
+		wq_{wq} { }
+
+	bool await_ready() { return false; }
+
+	void await_suspend(std::coroutine_handle<void> h) {
+		h_ = h;
+		async::execution::start(op_);
+	}
+
+	typename S::value_type await_resume() {
+		assert(value_);
+		if constexpr (!std::is_same_v<typename S::value_type, void>)
+			return std::move(*value_);
+	}
+
+	async::execution::operation_t<S, Receiver> op_;
+	WorkQueue *wq_;
+	std::coroutine_handle<void> h_;
+
+	struct empty { };
+
+	std::optional<
+		std::conditional_t<
+			std::is_same_v<typename S::value_type, void>,
+			empty,
+			typename S::value_type
+		>
+	> value_;
+};
+
+} // namespace thor
 
 template<typename T>
 struct coroutine_continuation {
