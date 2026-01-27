@@ -1143,9 +1143,6 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 			// Since we have locked the MemoryView, the physical address remains valid here.
 			assert(physical != PhysicalAddr(-1));
 
-			// Do heavy copying on the WQ.
-			co_await wq->schedule();
-
 			PageAccessor accessor{physical};
 			auto misalign = offsetInMapping & (kPageSize - 1);
 			auto chunk = frg::min(size - progress, kPageSize - misalign);
@@ -1216,9 +1213,6 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 					offsetInMapping & ~(kPageSize - 1));
 			// Since we have locked the MemoryView, the physical address remains valid here.
 			assert(physical != PhysicalAddr(-1));
-
-			// Do heavy copying on the WQ.
-			co_await wq->schedule();
 
 			PageAccessor accessor{physical};
 			auto misalign = offsetInMapping & (kPageSize - 1);

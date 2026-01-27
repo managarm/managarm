@@ -168,9 +168,6 @@ struct DmalogDevice final : IrqSink, KernelIoChannel {
 		while (true) {
 			irqSeq_ = co_await irqEvent_.async_wait(irqSeq_);
 
-			// Schedule on the work queue in order to return from the IRQ handler
-			co_await WorkQueue::generalQueue()->schedule();
-
 			auto inSeq = inSeq_.load(std::memory_order_acquire);
 			auto outSeq = outSeq_.load(std::memory_order_acquire);
 

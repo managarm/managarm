@@ -134,10 +134,6 @@ IrqPin::IrqPin(frg::string<KernelAlloc> name)
 				return !(self->_maskState & maskedForNack);
 			});
 
-			// Enter the WQ to avoid doing work in IRQ context,
-			// and also to avoid a deadlock if _unstallEvent is raised with locks held.
-			co_await WorkQueue::generalQueue()->schedule();
-
 			// Check if the IRQ is still NACKed.
 			{
 				auto irqLock = frg::guard(&irqMutex());

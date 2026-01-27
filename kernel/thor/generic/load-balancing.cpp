@@ -117,9 +117,6 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 		// Global barrier to wait until all CPUs know their load level.
 		co_await barrier_.async_wait(barrier_.arrive());
 
-		// Enter our own WorkQueue such that all CPUs can balance in parallel.
-		co_await cpu->generalWorkQueue->enter();
-
 		// Sum load of all CPUs.
 		// TODO: Doing this on all CPUs is unnecessary. However, it is also reasonably fast
 		//       and might be preferable over synchronization overhead.
