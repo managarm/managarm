@@ -6,8 +6,33 @@
 
 namespace thor {
 
+template<typename E>
+concept get_work_queue_member = requires(E env) {
+	{ env.get_work_queue() } -> std::same_as<WorkQueue *>;
+};
+
+[[gnu::error("WorkQueue must be available for coroutine")]] WorkQueue *unavailableWq();
+
+template<typename E>
+WorkQueue *workQueueFromEnv(E &&env) {
+	if constexpr (get_work_queue_member<E>) {
+		return env.get_work_queue();
+	} else {
+		// Allow this code path in unevaluated contexts but not in evaluated ones.
+		return unavailableWq();
+	}
+}
+
 template<async::Sender S>
 struct WorkQueueAffineAwaiter : Worklet {
+	struct Env {
+		WorkQueue *get_work_queue() {
+			return aw->wq_;
+		}
+
+		WorkQueueAffineAwaiter *aw;
+	};
+
 	struct Receiver {
 		template<typename... Args>
 		void set_value(Args &&... args) {
@@ -17,6 +42,10 @@ struct WorkQueueAffineAwaiter : Worklet {
 				aw->h_.resume();
 			});
 			aw->wq_->post(aw);
+		}
+
+		auto get_env() {
+			return Env{.aw = aw};
 		}
 
 		WorkQueueAffineAwaiter *aw;
@@ -181,7 +210,13 @@ struct coroutine {
 			return awaiter{this};
 		}
 
+		template<async::Sender S>
+		auto await_transform(S &&s) {
+			return thor::WorkQueueAffineAwaiter{std::move(s), wq_};
+		}
+
 	private:
+		thor::WorkQueue *wq_{nullptr};
 		coroutine_continuation<T> *cont_ = nullptr;
 		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
@@ -298,7 +333,13 @@ struct coroutine<void> {
 			return awaiter{this};
 		}
 
+		template<async::Sender S>
+		auto await_transform(S &&s) {
+			return thor::WorkQueueAffineAwaiter{std::move(s), wq_};
+		}
+
 	private:
+		thor::WorkQueue *wq_{nullptr};
 		coroutine_continuation<void> *cont_ = nullptr;
 		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
@@ -342,6 +383,7 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
+		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
 		promise->cont_ = this;
 		h.resume();
 		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
@@ -377,6 +419,7 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
+		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
 		promise->cont_ = this;
 		h.resume();
 		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
@@ -490,10 +533,22 @@ namespace thor {
 
 template<typename A, async::Sender S>
 struct WqSpawnCtrlBlock {
+	struct Env {
+		WorkQueue *get_work_queue() {
+			return cb->wq_.get();
+		}
+
+		WqSpawnCtrlBlock *cb;
+	};
+
 	struct Receiver {
 		void set_value() {
 			A allocator = std::move(cb->allocator_);
 			frg::destruct(allocator, cb);
+		}
+
+		auto get_env() {
+			return Env{.cb = cb};
 		}
 
 		WqSpawnCtrlBlock *cb;

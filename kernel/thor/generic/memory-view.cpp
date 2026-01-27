@@ -77,13 +77,9 @@ struct MemoryReclaimer {
 	}
 
 	auto awaitReclaim(CacheBundle *bundle, async::cancellation_token ct = {}) {
-		return async::sequence(
-			async::transform(
-				bundle->_reclaimEvent.async_wait(ct),
-				[] (auto) { }
-			),
-			// TODO: Use the reclaim fiber, not WorkQueue::generalQueue().
-			WorkQueue::generalQueue()->schedule()
+		return async::transform(
+			bundle->_reclaimEvent.async_wait(ct),
+			[] (auto) { }
 		);
 	}
 
@@ -373,7 +369,6 @@ struct ZeroMemory final : MemoryView {
 
 	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
 			WorkQueue *wq) override {
-		co_await wq->enter();
 		memset(buffer, 0, size);
 		co_return {};
 	}
@@ -1497,7 +1492,6 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 			return false;
 		});
-		co_await WorkQueue::generalQueue()->schedule();
 	}
 
 	{
@@ -1580,7 +1574,6 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 						assert(cowPage->state == CowState::hasCopy);
 						return false;
 					});
-					co_await wq->schedule();
 				} while(stillWaiting);
 
 				{
@@ -1724,7 +1717,6 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 				assert(cowPage->state == CowState::hasCopy);
 				return false;
 			});
-			co_await wq->schedule();
 		} while(stillWaiting);
 
 		co_return PhysicalRange{cowPage->physical, kPageSize, CachingMode::null};
