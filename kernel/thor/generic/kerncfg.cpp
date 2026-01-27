@@ -249,26 +249,26 @@ void initializeKerncfg() {
 	// Create a fiber to manage requests to the kerncfg mbus object(s).
 	KernelFiber::run([=] {
 		auto kerncfg = frg::construct<KerncfgBusObject>(*kernelAlloc);
-		async::detach_with_allocator(*kernelAlloc, kerncfg->run());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), kerncfg->run());
 
 		{
 			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalKmsgRing(), "kernel-log");
-			async::detach_with_allocator(*kernelAlloc, ring->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
 		}
 
 #ifdef KERNEL_LOG_ALLOCATIONS
 		auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, allocLog.get(), "heap-trace");
-		async::detach_with_allocator(*kernelAlloc, ring->run());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
 #endif
 
 		if (wantKernelProfile) {
 			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalProfileRing(), "kernel-profile");
-			async::detach_with_allocator(*kernelAlloc, ring->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
 		}
 
 		if (wantOsTrace) {
 			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalOsTraceRing(), "os-trace");
-			async::detach_with_allocator(*kernelAlloc, ring->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
 		}
 	});
 }

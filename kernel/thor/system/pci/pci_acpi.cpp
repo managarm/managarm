@@ -272,7 +272,7 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 				addRootBus(rootBus);
 
 				rootBus->acpiNode = frg::construct<acpi::AcpiObject>(*kernelAlloc, node, uid);
-				async::detach_with_allocator(*kernelAlloc, [&](PciBus *bus) -> coroutine<void> {
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [&](PciBus *bus) -> coroutine<void> {
 					Properties props;
 					if(uid_status == UACPI_STATUS_OK)
 						props.decStringProperty("acpi.uid", uid, 1);

@@ -540,7 +540,7 @@ void initializeSvrctl() {
 	// Create a fiber to manage requests to the svrctl mbus object.
 	KernelFiber::run([=] {
 		auto svrctl = frg::construct<SvrctlBusObject>(*kernelAlloc);
-		async::detach_with_allocator(*kernelAlloc, svrctl->run());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), svrctl->run());
 	});
 }
 

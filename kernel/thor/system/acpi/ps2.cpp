@@ -59,7 +59,7 @@ namespace thor::acpi {
 
 void initializePS2() {
 	// Create a fiber to manage requests to the ACPI mbus objects.
-	async::detach_with_allocator(*kernelAlloc, []() -> coroutine<void> {
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), []() -> coroutine<void> {
 		frg::vector<async::oneshot_event *, thor::KernelAlloc> events{*thor::kernelAlloc};
 
 		co_await onAcpiFiber([&] {
@@ -72,7 +72,7 @@ void initializePS2() {
 
 				    auto obj = frg::construct<AcpiObject>(*kernelAlloc, node, next_keyboard_id++);
 				    events->push_back(&obj->completion);
-				    async::detach_with_allocator(*kernelAlloc, obj->run());
+				    spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), obj->run());
 
 				    return UACPI_ITERATION_DECISION_CONTINUE;
 			    },
@@ -88,7 +88,7 @@ void initializePS2() {
 
 				    auto obj = frg::construct<AcpiObject>(*kernelAlloc, node, next_mouse_id++);
 				    events->push_back(&obj->completion);
-				    async::detach_with_allocator(*kernelAlloc, obj->run());
+				    spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), obj->run());
 
 				    return UACPI_ITERATION_DECISION_CONTINUE;
 			    },

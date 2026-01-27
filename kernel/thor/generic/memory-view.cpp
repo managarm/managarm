@@ -1525,7 +1525,7 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 		WorkQueue *wq, LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
-	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
 			WorkQueue *wq, LockRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {

@@ -65,7 +65,7 @@ initgraph::Stage *getDevicesEnumeratedStage() {
 
 void PciBus::runRootBus() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciBus *device)
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (PciBus *device)
 				-> coroutine<void> {
 			Properties properties;
 
@@ -97,7 +97,7 @@ coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
 
 void PciBridge::runBridge() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciBridge *device)
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (PciBridge *device)
 				-> coroutine<void> {
 			Properties properties;
 
@@ -136,7 +136,7 @@ void PciBridge::runBridge() {
 
 void PciDevice::runDevice() {
 	KernelFiber::run([=, this] {
-		async::detach_with_allocator(*kernelAlloc, [] (PciDevice *device)
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (PciDevice *device)
 				-> coroutine<void> {
 			Properties properties;
 

@@ -463,7 +463,7 @@ void BatteryBusObject::updateState() {
 }
 
 void initializeBatteries() {
-	async::detach_with_allocator(*kernelAlloc, []() -> coroutine<void> {
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), []() -> coroutine<void> {
 		co_await onAcpiFiber([&] {
 			uacpi_find_devices(
 			    ACPI_HID_BATTERY,
@@ -476,7 +476,7 @@ void initializeBatteries() {
 
 				    auto obj =
 				        frg::construct<BatteryBusObject>(*kernelAlloc, next_battery_id++, node);
-				    async::detach_with_allocator(*kernelAlloc, obj->run());
+				    spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), obj->run());
 
 				    return UACPI_ITERATION_DECISION_CONTINUE;
 			    },

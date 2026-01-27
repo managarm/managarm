@@ -243,7 +243,7 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 		KernelFiber::run([=] {
 			// We unconditionally create the mbus object since userspace might use it.
 			auto ostrace = frg::construct<OstraceBusObject>(*kernelAlloc);
-			async::detach_with_allocator(*kernelAlloc, ostrace->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ostrace->run());
 
 			// Only dump to an I/O channel if ostrace is supported (otherwise, the ring buffer
 			// does not even exist).
@@ -251,7 +251,7 @@ initgraph::Task initOsTraceMbus{&globalInitEngine, "generic.init-ostrace-sinks",
 				auto channel = solicitIoChannel("ostrace");
 				if(channel) {
 					infoLogger() << "thor: Connecting ostrace to I/O channel" << frg::endlog;
-					async::detach_with_allocator(*kernelAlloc,
+					spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 							dumpRingToChannel(globalOsTraceRing.get(), std::move(channel), 2048));
 				}
 			}

@@ -383,9 +383,9 @@ namespace posix {
 				.posixHandle = posixHandle,
 			};
 
-			async::detach_with_allocator(*kernelAlloc,
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 				runPosixRequests(info, std::move(posixStream.get<0>())));
-			async::detach_with_allocator(*kernelAlloc,
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 				runObserveLoop(info));
 
 			return _thread.push_back(std::move(info));
@@ -574,7 +574,7 @@ namespace posix {
 							static_cast<MfsDirectory *>(module));
 					file->clientLane = std::move(stream.get<1>());
 
-					async::detach_with_allocator(*kernelAlloc,
+					spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 							runDirectoryRequests(file, std::move(stream.get<0>())));
 
 					auto fd = co_await attachFile(info.thread, file);
@@ -598,7 +598,7 @@ namespace posix {
 							static_cast<MfsRegular *>(module));
 					file->clientLane = std::move(stream.get<1>());
 
-					async::detach_with_allocator(*kernelAlloc,
+					spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 							runRegularRequests(file, std::move(stream.get<0>())));
 
 					auto fd = co_await attachFile(info.thread, file);
@@ -981,7 +981,7 @@ void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
 		stdioFile->clientLane = std::move(stdioStream.get<1>());
 
-		async::detach_with_allocator(*kernelAlloc,
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 				stdio::runStdioRequests(stdioStream.get<0>()));
 
 		auto process = frg::construct<posix::Process>(*kernelAlloc, std::move(name));

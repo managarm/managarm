@@ -45,7 +45,7 @@ struct KernelBusObject {
 	virtual LaneHandle initiateClient() {
 		auto stream = createStream();
 
-		async::detach_with_allocator(*kernelAlloc, [] (LaneHandle lane,
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (LaneHandle lane,
 				KernelBusObject *self) -> coroutine<void> {
 			while(true) {
 				auto result = co_await self->handleRequest(lane);
