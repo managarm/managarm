@@ -485,3 +485,39 @@ namespace std {
 		using promise_type = detached_coroutine_promise;
 	};
 }
+
+namespace thor {
+
+template<typename A, async::Sender S>
+struct WqSpawnCtrlBlock {
+	struct Receiver {
+		void set_value() {
+			A allocator = std::move(cb->allocator_);
+			frg::destruct(allocator, cb);
+		}
+
+		WqSpawnCtrlBlock *cb;
+	};
+
+	WqSpawnCtrlBlock(A allocator, smarter::shared_ptr<WorkQueue> wq, S sender)
+	: allocator_{std::move(allocator)},
+		wq_{std::move(wq)},
+		op_{async::execution::connect(std::move(sender), Receiver{.cb = this})} { }
+
+	void spawn() {
+		op_.start();
+	}
+
+private:
+	A allocator_;
+	smarter::shared_ptr<WorkQueue> wq_;
+	async::execution::operation_t<S, Receiver> op_;
+};
+
+template<typename A, async::Sender S>
+void spawnOnWorkQueue(A allocator, smarter::shared_ptr<WorkQueue> wq, S sender) {
+	auto cb = frg::construct<WqSpawnCtrlBlock<A, S>>(allocator, allocator, std::move(wq), std::move(sender));
+	cb->spawn();
+}
+
+} // namespace thor

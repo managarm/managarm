@@ -32,7 +32,7 @@ LoadBalancer::LoadBalancer()
 void LoadBalancer::setOnline(CpuData *cpu) {
 	auto *node = &lbNode.get(cpu);
 	node->cpu = cpu;
-	async::detach_with_allocator(*kernelAlloc, loadBalancer->run_(cpu));
+	spawnOnWorkQueue(*kernelAlloc, cpu->generalWorkQueue, loadBalancer->run_(cpu));
 }
 
 void LoadBalancer::connect(Thread *thread, CpuData *cpu) {

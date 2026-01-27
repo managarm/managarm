@@ -158,13 +158,13 @@ namespace {
 			void *kmsgMemory = kernelAlloc->allocate(1 << 20);
 			globalKmsgRing.initialize(reinterpret_cast<uintptr_t>(kmsgMemory), 1 << 20);
 
-			async::detach_with_allocator(*kernelAlloc, dumpLogToKmsg());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), dumpLogToKmsg());
 
 			// Expose globalKmsgRing as I/O channel.
 			auto channel = solicitIoChannel("kernel-log");
 			if(channel) {
 				infoLogger() << "thor: Connecting logging to I/O channel" << frg::endlog;
-				async::detach_with_allocator(*kernelAlloc,
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 						dumpRingToChannel(globalKmsgRing.get(), std::move(channel), 2048));
 			}
 		}
