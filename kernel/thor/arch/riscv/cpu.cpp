@@ -51,6 +51,14 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	memcpy(executor->general(), accessor.frame(), sizeof(Frame));
 }
 
+extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
+
+void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
+	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+
+	forkExecutorRegisters(executor, functor, context);
+}
+
 void workOnExecutor(Executor *executor) {
 	auto sp = reinterpret_cast<char *>(executor->getExceptionStack()) - sizeof(Frame);
 

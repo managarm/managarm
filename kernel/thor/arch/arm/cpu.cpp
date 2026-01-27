@@ -34,6 +34,9 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 	restoreFpSimdRegisters(&executor->general()->fp);
+
+	iplLeaveContext(executor->general()->iplState);
+
 	_restoreExecutorRegisters(executor->general());
 }
 
@@ -81,6 +84,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	saveFpSimdRegisters(&executor->general()->fp);
 }
@@ -94,6 +98,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	saveFpSimdRegisters(&executor->general()->fp);
 }
@@ -107,8 +112,17 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	saveFpSimdRegisters(&executor->general()->fp);
+}
+
+extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
+
+void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
+	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+
+	forkExecutorRegisters(executor, functor, context);
 }
 
 extern "C" void workStub();

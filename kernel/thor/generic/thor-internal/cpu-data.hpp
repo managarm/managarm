@@ -40,8 +40,19 @@ namespace ipl {
 inline constexpr Ipl bad = -1;
 // Level that threads run at (unless they raise IPL).
 inline constexpr Ipl passive = 0;
-// Scheduling and blocking is only allowed at currentIpl() < ipl::schedule.
-inline constexpr Ipl schedule = 1;
+// Level that page faults run at.
+// Accessing lower-half memory is only allowed at currentIpl() < ipl::exceptional.
+inline constexpr Ipl exceptional = 1;
+// Blocking is only allowed at currentIpl() < ipl::schedule.
+// Threads may only be scheduled out if Executor::iplState()->current < ipl::schedule.
+inline constexpr Ipl schedule = 2;
+// Level that interrupts run at.
+// Also, level that the scheduler itself runs at.
+inline constexpr Ipl interrupt = 3;
+// Level that exceptions and NMIs run at.
+// This is the only level that can be entered multiple times
+// (i.e., ipl::maximal -> ipl::maximal entries are allowed).
+inline constexpr Ipl maximal = 4;
 } // namespace ipl
 
 struct alignas(4) IplState {

@@ -28,6 +28,7 @@
 .set .L_imageSs, 0x98
 .set .L_imageClientFs, 0xA0
 .set .L_imageClientGs, 0xA8
+.set .L_imageIplState, 0xB0
 
 .set .L_imageFxSave, 0xC0
 
@@ -119,10 +120,17 @@
 	.cfi_adjust_cfa_offset 8
 	.cfi_rel_offset %rax, 0
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+	.cfi_adjust_cfa_offset 8
+
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
 	call onPlatformFault
+
+	add $8, %rsp
+	.cfi_adjust_cfa_offset -8
 
 	pop %rax
 	.cfi_adjust_cfa_offset -8
@@ -232,10 +240,15 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	push %rbx
 	push %rax
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
 	call onPlatformIrq
+
+	add $8, %rsp
 
 	pop %rax
 	pop %rbx
@@ -288,10 +301,15 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	push %rbx
 	push %rax
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
 	call onPlatformLegacyIrq
+
+	add $8, %rsp
 
 	pop %rax
 	pop %rbx
@@ -344,8 +362,13 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	push %rbx
 	push %rax
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	mov %rsp, %rdi
 	call \handler
+
+	add $8, %rsp
 
 	pop %rax
 	pop %rbx
@@ -476,6 +499,9 @@ syscallStub:
 	push %rsi
 	push %rdi
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	# debugging: disallow use of the FPU in kernel code
 #	mov %cr0, %r15
 #	or $8, %r15
@@ -489,7 +515,9 @@ syscallStub:
 #	mov %cr0, %r15
 #	and $0xFFFFFFFFFFFFFFF7, %r15
 #	mov %r15, %cr0
-	
+
+	add $8, %rsp
+
 	pop %rdi
 	pop %rsi
 	pop %rdx
@@ -537,10 +565,15 @@ workStub:
 	push %rcx
 	push %rbx
 	push %rax
-	
+
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	mov %rsp, %rdi
 	xor %ebp, %ebp
 	call onPlatformWork
+
+	add $8, %rsp
 
 	pop %rax
 	pop %rbx
@@ -583,9 +616,14 @@ nmiStub:
 	push %rbx
 	push %rax
 
+	# Reserve space for iplState.
+	sub $8, %rsp
+
 	mov %rsp, %rdi
 	xor %ebp, %ebp
 	call onPlatformNmi
+
+	add $8, %rsp
 
 	pop %rax
 	pop %rbx
@@ -610,8 +648,8 @@ nmiStub:
 # ---------------------------------------------------------
 
 .text
-.global doForkExecutor
-doForkExecutor:
+.global forkExecutorRegisters
+forkExecutorRegisters:
 	mov .L_executorImagePtr(%rdi), %rdi
 	mov %rdx, %r11
 	
