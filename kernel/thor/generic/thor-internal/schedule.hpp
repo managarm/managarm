@@ -12,8 +12,9 @@
 
 namespace thor {
 
-inline bool deferPreemption() {
-	if (currentIpl() < ipl::schedule)
+template<typename ImageAccessor>
+inline bool deferPreemption(ImageAccessor image) {
+	if (image.iplState()->current < ipl::schedule)
 		return false;
 	deferToIplLowerThan(ipl::schedule);
 	return true;
@@ -158,7 +159,7 @@ public:
 		assert(image.inPreemptibleDomain());
 		if (!mustCallPreemption())
 			return;
-		if (deferPreemption())
+		if (deferPreemption(image))
 			return;
 		currentRunnable()->handlePreemption(image);
 	}

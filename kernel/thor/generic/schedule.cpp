@@ -463,7 +463,7 @@ void doCheckThreadPreemption(ImageAccessor image) {
 	scheduler->suppressRenewalUntilInterrupt();
 	if (!scheduler->mustCallPreemption())
 		return;
-	if (deferPreemption())
+	if (deferPreemption(image))
 		return;
 	thisThread->handlePreemption(image);
 }

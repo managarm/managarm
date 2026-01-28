@@ -31,7 +31,7 @@ thorExcVectors:
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 fiq
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 error
 
-.set .L_excStateSize, 832
+.set .L_excStateSize, 840
 
 .set .L_irqDomain, 0
 .set .L_faultDomain, 1
@@ -348,8 +348,8 @@ _restoreExecutorRegisters:
 
 .set .L_executorImagePtr, 0
 
-.global doForkExecutor
-doForkExecutor:
+.global forkExecutorRegisters
+forkExecutorRegisters:
 	ldr x0, [x0, .L_executorImagePtr]
 
 	// Save callee saved registers (and LR and FP)

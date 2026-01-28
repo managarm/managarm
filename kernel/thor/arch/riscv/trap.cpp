@@ -162,6 +162,9 @@ void handleRiscvPageFault(Frame *frame, uint64_t code, uint64_t address) {
 }
 
 void handleRiscvInterrupt(Frame *frame, uint64_t code) {
+	iplSave(frame->iplState);
+	iplEnterContext(ipl::interrupt, frame->iplState);
+
 	if (logTrapStubs)
 		infoLogger() << "thor: IRQ " << code << frg::endlog;
 
@@ -193,9 +196,13 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 	} else {
 		panicLogger() << "thor: Unexpected interrupt " << code << " was raised" << frg::endlog;
 	}
+
+	iplLeaveContext(frame->iplState);
 }
 
 void handleRiscvException(Frame *frame, uint64_t code) {
+	iplSave(frame->iplState);
+
 	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
 
 	const char *string = "unknown";
@@ -217,6 +224,8 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 
 	switch (code) {
 		case codeEcallUmode:
+			assert(frame->iplState.current == ipl::passive);
+
 			// We need to skip over the ecall instruction (since sepc points to ecall on entry).
 			frame->ip += 4;
 
@@ -226,12 +235,18 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 			[[fallthrough]];
 		case codeLoadPageFault:
 		case codeStorePageFault:
+			iplEnterContext(ipl::exceptional, frame->iplState);
+
 			handleRiscvPageFault(frame, code, trapValue);
 			break;
 		case codeIllegalInstruction:
+			iplEnterContext(ipl::maximal, frame->iplState);
+
 			handleOtherFault(FaultImageAccessor{frame}, kIntrIllegalInstruction);
 			break;
 		case codeBreakpoint:
+			iplEnterContext(ipl::maximal, frame->iplState);
+
 			handleOtherFault(FaultImageAccessor{frame}, kIntrBreakpoint);
 			break;
 		case codeInstructionMisaligned:
@@ -240,6 +255,8 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 		case codeLoadAccessFault:
 		case codeStoreMisaligned:
 		case codeStoreAccessFault:
+			iplEnterContext(ipl::maximal, frame->iplState);
+
 			infoLogger() << "thor: Exception with code " << code << ", trap value 0x"
 			             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
 			             << frg::endlog;
@@ -254,6 +271,8 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 	// This syscall/fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.
 	checkThreadPreemption(FaultImageAccessor{frame});
+
+	iplLeaveContext(frame->iplState);
 }
 
 void writeSretCsrs(Frame *frame) {
@@ -312,6 +331,9 @@ void restoreExecutor(Executor *executor) {
 
 	assert(!cpuData->stashedFs);
 	restoreStaleExtendedState(executor, frame);
+
+	iplLeaveContext(executor->general()->iplState);
+
 	writeSretCsrs(frame);
 	// TODO: In principle, this is only necessary on CPU migration.
 	if (!frame->umode())

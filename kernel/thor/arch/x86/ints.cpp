@@ -1,5 +1,6 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/int-call.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/profile.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -305,6 +306,8 @@ void handleDebugFault(FaultImageAccessor image) {
 }
 
 extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
+	iplSave(*image.iplState());
+
 	// For page faults: we need to get the address *before* re-enabling IRQs.
 	uintptr_t pfAddress;
 	if(number == 14)
@@ -337,25 +340,36 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	disableUserAccess();
 	assert(getCurrentThread());
 
-	enableInts();
-
 	switch(number) {
 	case 0: {
+		iplEnterContext(ipl::maximal, *image.iplState());
+
 		handleOtherFault(image, kIntrDivByZero);
 	} break;
 	case 1: {
+		iplEnterContext(ipl::maximal, *image.iplState());
+
 		handleDebugFault(image);
 	} break;
 	case 3: {
+		iplEnterContext(ipl::maximal, *image.iplState());
+
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
 	case 6: {
+		iplEnterContext(ipl::maximal, *image.iplState());
+
 		handleOtherFault(image, kIntrIllegalInstruction);
 	} break;
 	case 13: {
+		iplEnterContext(ipl::maximal, *image.iplState());
+
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
 	case 14: {
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
+
 		handlePageFault(image, pfAddress, *image.code());
 	} break;
 	default:
@@ -372,9 +386,14 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	// This fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.
 	checkThreadPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "IRQ " << number
 				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
@@ -389,9 +408,14 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 	disableUserAccess();
 
 	handleIrq(image, globalIrqSlots[number]->pin());
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "IRQ " << number
 				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
@@ -412,14 +436,19 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 		urgentLogger() << "thor: Ignoring non-spurious IRQ " << number
 				<< " of legacy PIC" << frg::endlog;
 	}
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformPreemption(IrqImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "Preemption IRQ"
 				" in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
-	
+
 	uint16_t cs = *image.cs();
 	if(logEveryPreemption)
 		infoLogger() << "thor [CPU " << getLocalApicId()
@@ -440,9 +469,14 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 	acknowledgeIrq(0);
 
 	localScheduler.get().checkPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
+	iplSave(*image.iplState());
+	assert(image.iplState()->current == ipl::passive);
+
 	assert(!irqMutex().nesting());
 	enableInts();
 	// TODO: User-access should already be disabled here.
@@ -458,6 +492,9 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "Shootdown IPI"
 				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
@@ -479,9 +516,14 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 	acknowledgeIpi();
 
 	localScheduler.get().checkPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformPing(IrqImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "Ping IPI"
 				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
@@ -500,9 +542,14 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	auto *scheduler = &localScheduler.get();
 	scheduler->forcePreemptionCall();
 	scheduler->checkPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformCall(IrqImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	if(inStub(*image.ip()))
 		panicLogger() << "Call IPI"
 				<< " in stub section, cs: 0x" << frg::hex_fmt(*image.cs())
@@ -521,6 +568,8 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 	SelfIntCallBase::runScheduledCalls();
 
 	localScheduler.get().checkPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformWork() {
@@ -562,6 +611,9 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(*image.expectedGs()));
+
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::maximal, *image.iplState());
 
 	auto cpuData = getCpuData();
 	auto *iseq = cpuData->iseqPtr;
@@ -623,6 +675,8 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	}
 
 	cpuData->iseqPtr = iseq;
+
+	iplLeaveContext(*image.iplState());
 
 	// Restore the old value of GS.
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,

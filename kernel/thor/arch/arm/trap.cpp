@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/gic_v2.hpp>
 #include <thor-internal/arch/gic_v3.hpp>
@@ -100,19 +101,23 @@ void handleSyscall(SyscallImageAccessor image);
 constexpr bool logUpdatePageAccess = false;
 
 extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
+	iplSave(*image.iplState());
+
 	auto ec = *image.code() >> 26;
-
-	enableInts();
-
 	switch (ec) {
 		case 0x00: // Invalid
 		case 0x18: // Trapped MSR, MRS, or System instruction
+			iplEnterContext(ipl::maximal, *image.iplState());
+
 			handleOtherFault(image, kIntrIllegalInstruction);
 			break;
 		case 0x20:   // Instruction abort, lower EL
 		case 0x21:   // Instruction abort, same EL
 		case 0x24:   // Data abort, lower EL
 		case 0x25: { // Data abort, same EL
+			iplEnterContext(ipl::exceptional, *image.iplState());
+			enableInts();
+
 			auto error = mmuAbortError(*image.code());
 			if (updatePageAccess(image, error)) {
 				if constexpr (logUpdatePageAccess) {
@@ -128,18 +133,27 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 			break;
 		}
 		case 0x15: // Trapped SVC in AArch64
+			assert(image.iplState()->current == ipl::passive);
+			enableInts();
+
 			handleSyscall(image);
 			break;
 		case 0x30: // Breakpoint, lower EL
 		case 0x31: // Breakpoint, same EL
+			iplEnterContext(ipl::maximal, *image.iplState());
+
 			handleOtherFault(image, kIntrBreakpoint);
 			break;
 		case 0x0E: // Illegal Execution fault
 		case 0x22: // IP alignment fault
 		case 0x26: // SP alignment fault
+			iplEnterContext(ipl::maximal, *image.iplState());
+
 			handleOtherFault(image, kIntrGeneralFault);
 			break;
 		case 0x3C: // BRK instruction
+			iplEnterContext(ipl::maximal, *image.iplState());
+
 			handleOtherFault(image, kIntrBreakpoint);
 			break;
 		default:
@@ -155,9 +169,14 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	// This syscall/fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.
 	checkThreadPreemption(image);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::maximal, *image.iplState());
+
 	urgentLogger() << "thor: On CPU " << getCpuData()->cpuIndex << frg::endlog;
 	urgentLogger() << "thor: An asynchronous fault has occured!" << frg::endlog;
 
@@ -217,9 +236,14 @@ extern "C" void onPlatformAsyncFault(FaultImageAccessor image) {
 
 	if (!recoverable)
 		panicLogger() << "thor: Panic due to unrecoverable error" << frg::endlog;
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformIrq(IrqImageAccessor image) {
+	iplSave(*image.iplState());
+	iplEnterContext(ipl::interrupt, *image.iplState());
+
 	std::visit(
 	    frg::overloaded{
 	        [](std::monostate) {
@@ -240,6 +264,8 @@ extern "C" void onPlatformIrq(IrqImageAccessor image) {
 	    },
 	    externalIrq
 	);
+
+	iplLeaveContext(*image.iplState());
 }
 
 extern "C" void onPlatformWork() {

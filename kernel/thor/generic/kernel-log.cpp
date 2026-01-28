@@ -140,6 +140,9 @@ namespace {
 				continue;
 			}
 
+			// Escape interrupt context such that we can allocate in translateRecord().
+			co_await WorkQueue::generalQueue()->schedule();
+
 			frg::string_view record{buffer, actualSize};
 			translateRecord(&ctx, record);
 

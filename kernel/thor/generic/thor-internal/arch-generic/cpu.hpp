@@ -159,7 +159,7 @@ void runOnStack(F functor, StackBase stack, Args... args) {
 
 
 // Copies the current state into the executor and calls the supplied function.
-extern "C" void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
+void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
 
 // Copies the current state into the executor and calls the supplied functor.
 template<typename F>

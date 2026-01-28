@@ -44,10 +44,11 @@ struct Frame {
 	uint64_t far;
 	Domain domain;
 	uint64_t tpidr_el0;
+	IplState iplState;
 
 	FpRegisters fp;
 };
-static_assert(sizeof(Frame) == 832, "Invalid exception frame size");
+static_assert(sizeof(Frame) == 840, "Invalid exception frame size");
 
 struct Executor;
 
@@ -75,6 +76,8 @@ struct SyscallImageAccessor {
 	Word *out0() { return &_frame()->x[1]; }
 	Word *out1() { return &_frame()->x[2]; }
 
+	IplState *iplState() { return &_frame()->iplState; }
+
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
@@ -101,6 +104,8 @@ struct FaultImageAccessor {
 	Word *code() { return &_frame()->esr ; }
 
 	Word *faultAddr() { return &_frame()->far; }
+
+	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inKernelDomain() {
 		return (_frame()->spsr & 0b1111) != 0b0000;
@@ -130,6 +135,8 @@ struct IrqImageAccessor {
 	// TODO: These are only exposed for debugging.
 	// TODO: this should have a different name
 	Word *rflags() { return &_frame()->spsr; }
+
+	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inPreemptibleDomain() {
 		return _frame()->domain == Domain::fault

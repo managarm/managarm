@@ -8,8 +8,8 @@
 #include <x86/gdt.hpp>
 #include <x86/idt.hpp>
 #include <x86/machine.hpp>
-#include <thor-internal/arch-generic/cpu-data.hpp>
 #include <thor-internal/arch/ints.hpp>
+#include <thor-internal/cpu-data.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-stack.hpp>
@@ -88,6 +88,8 @@ struct FaultImageAccessor {
 	Word *rflags() { return &_frame()->rflags; }
 	Word *code() { return &_frame()->code; }
 
+	IplState *iplState() { return &_frame()->iplState; }
+
 	bool inKernelDomain() {
 		if(*cs() == kSelSystemIrqCode
 				|| *cs() == kSelSystemIdleCode
@@ -110,6 +112,7 @@ private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
+		IplState iplState;
 		Word rax;
 		Word rbx;
 		Word rcx;
@@ -151,6 +154,8 @@ struct IrqImageAccessor {
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
 	Word *ss() { return &_frame()->ss; }
+
+	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inPreemptibleDomain() {
 		assert(*cs() == kSelSystemIdleCode
@@ -200,6 +205,7 @@ private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
+		IplState iplState;
 		Word rax;
 		Word rbx;
 		Word rcx;
@@ -249,12 +255,15 @@ struct SyscallImageAccessor {
 	Word *out0() { return &_frame()->rsi; }
 	Word *out1() { return &_frame()->rdx; }
 
+	IplState *iplState() { return &_frame()->iplState; }
+
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
 	// this struct is accessed from assembly.
 	// do not randomly change its contents.
 	struct Frame {
+		IplState iplState;
 		Word rdi;
 		Word rsi;
 		Word rdx;
@@ -289,10 +298,13 @@ struct NmiImageAccessor {
 	Word *rflags() { return &_frame()->rflags; }
 	Word *bp() { return &_frame()->rbp; }
 
+	IplState *iplState() { return &_frame()->iplState; }
+
 private:
 	// note: this struct is accessed from assembly.
 	// do not change the field offsets!
 	struct Frame {
+		IplState iplState;
 		Word rax;
 		Word rbx;
 		Word rcx;
@@ -378,6 +390,7 @@ struct Executor {
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
+	friend void doForkExecutor(Executor *executor, void (*functor)(void *), void *context);
 
 	static size_t determineSize();
 	static size_t determineSimdSize();
@@ -439,8 +452,9 @@ private:
 		Word ss;			// offset 0x98
 		Word clientFs;		// offset 0xA0
 		Word clientGs;		// offset 0xA8
+		IplState iplState;	// offset 0xB0
 	};
-	static_assert(sizeof(General) == 0xB0, "Bad sizeof(General)");
+	static_assert(sizeof(General) == 0xB8, "Bad sizeof(General)");
 
 	struct FxState {
 		uint16_t fcw; // x87 control word
@@ -494,8 +508,9 @@ public:
 	}
 
 	FxState *_fxState() {
-		// fxState is offset from General by 0x10 bytes to make it aligned
-		return reinterpret_cast<FxState *>(_pointer + sizeof(General) + 0x10);
+		// fxState is offset from General by 0x08 bytes
+		// to make it aligned to a 64-byte boundary as required by xsave.
+		return reinterpret_cast<FxState *>(_pointer + sizeof(General) + 0x08);
 	}
 
 	UserAccessRegion *currentUar() {
