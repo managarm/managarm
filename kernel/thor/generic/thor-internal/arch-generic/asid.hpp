@@ -18,8 +18,10 @@ struct RetireNode : Worklet {
 	friend struct PageBinding;
 
 	void complete() {
-		WorkQueue::post(this);
+		wq_->post(this);
 	}
+
+	WorkQueue *wq_;
 };
 
 struct ShootNode : Worklet {
@@ -28,9 +30,10 @@ struct ShootNode : Worklet {
 
 	VirtualAddr address;
 	size_t size;
+	WorkQueue *wq_;
 
 	void complete() {
-		WorkQueue::post(this);
+		wq_->post(this);
 	}
 
 	frg::default_list_hook<ShootNode> queueNode;
@@ -253,10 +256,11 @@ struct ShootdownOperation : private ShootNode {
 	void start() {
 		ShootNode::address = s_.address;
 		ShootNode::size = s_.size;
+		ShootNode::wq_ = s_.wq;
 		Worklet::setup([] (Worklet *base) {
 			auto op = static_cast<ShootdownOperation *>(base);
 			async::execution::set_value(op->receiver_);
-		}, s_.wq);
+		});
 		if(s_.self->submitShootdown(this))
 			return async::execution::set_value(receiver_);
 	}

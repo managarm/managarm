@@ -259,7 +259,7 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 			&KernelPageSpace::global(),
 			VirtualAddr(codeVirtPtr),
 			kPageSize,
-			WorkQueue::generalQueue()
+			WorkQueue::generalQueue().get()
 		)
 	);
 	physicalAllocator->free(codePhysPtr, kPageSize);

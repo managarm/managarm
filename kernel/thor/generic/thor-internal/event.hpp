@@ -28,10 +28,11 @@ struct AwaitEventNode {
 		AwaitEventNode *node_;
 	};
 
-	void setup(Worklet *awaited, Event *event, async::cancellation_token cancelToken) {
+	void setup(Worklet *awaited, Event *event, async::cancellation_token cancelToken, WorkQueue *wq) {
 		awaited_ = awaited;
 		cancelToken_ = cancelToken;
 		event_ = event;
+		wq_ = wq;
 	}
 
 	Error error() const { return error_; }
@@ -52,6 +53,7 @@ protected:
 	async::cancellation_observer<CancelFunctor> cancelCb_{this};
 	async::cancellation_token cancelToken_;
 	Event *event_;
+	WorkQueue *wq_;
 
 private:
 
@@ -89,8 +91,8 @@ struct OneshotEvent {
 				auto error = self->wasCancelled() ? Error::cancelled : self->error();
 				async::execution::set_value(self->r_,
 					AwaitEventResult{error, self->sequence(), self->bitset()});
-			}, wq_);
-			setup(&worklet_, object_, cancelToken_);
+			});
+			setup(&worklet_, object_, cancelToken_, wq_);
 			object_->submitAwait(this, sequence_);
 		}
 
@@ -176,8 +178,8 @@ struct BitsetEvent {
 				auto error = self->wasCancelled() ? Error::cancelled : self->error();
 				async::execution::set_value(self->r_,
 					AwaitEventResult{error, self->sequence(), self->bitset()});
-			}, wq_);
-			setup(&worklet_, object_, cancelToken_);
+			});
+			setup(&worklet_, object_, cancelToken_, wq_);
 			object_->submitAwait(this, sequence_);
 		}
 

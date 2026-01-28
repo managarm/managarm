@@ -486,7 +486,7 @@ IrqStatus IrqObject::raise() {
 		node->error_ = Error::success;
 		node->sequence_ = currentSequence();
 		if (node->cancelCb_.try_reset())
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 	}
 
 	if(_automationKernlet) {
@@ -512,11 +512,11 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 	if(sequence < currentSequence()) {
 		node->error_ = Error::success;
 		node->sequence_ = currentSequence();
-		WorkQueue::post(node->awaited_);
+		node->wq_->post(node->awaited_);
 	}else{
 		if(!node->cancelCb_.try_set(node->cancelToken_)) {
 			node->wasCancelled_ = true;
-			WorkQueue::post(node->awaited_);
+			node->wq_->post(node->awaited_);
 			return;
 		}
 
@@ -527,7 +527,7 @@ void IrqObject::submitAwait(AwaitIrqNode *node, uint64_t sequence) {
 void AwaitIrqNode::cancel() {
 	wasCancelled_ = true;
 	irq_->_waitQueue.erase(irq_->_waitQueue.iterator_to(this));
-	WorkQueue::post(awaited_);
+	wq_->post(awaited_);
 }
 
 } // namespace thor

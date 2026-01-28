@@ -7,6 +7,6 @@
 namespace thor {
 
 void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
-		frg::string_view path, smarter::shared_ptr<WorkQueue> wq);
+		frg::string_view path, WorkQueue *wq);
 
 } // namespace thor

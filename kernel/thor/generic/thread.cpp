@@ -314,6 +314,10 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 
 			lock.unlock();
 
+			// Release the kernel's reference to the thread after it finished execution.
+			auto threadSelf = thread->self;
+			threadSelf.ctr()->decrement();
+
 			// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
 			while(!queue.empty()) {
 				auto node = queue.pop_front();
@@ -470,6 +474,8 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 }
 
 Thread::~Thread() {
+	if(logCleanup)
+		infoLogger() << "thor: Thread is destructed" << frg::endlog;
 	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
 }
@@ -477,10 +483,8 @@ Thread::~Thread() {
 // This function has to initiate the thread's shutdown.
 void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
-		urgentLogger() << "thor: Killing thread due to destruction" << frg::endlog;
+		infoLogger() << "thor: Killing thread after no more handles keep it alive" << frg::endlog;
 	_kill();
-	_mainWorkQueue.selfPtr = {};
-	_pagingWorkQueue.selfPtr = {};
 }
 
 void Thread::observe_(uint64_t inSeq, ObserveNode *node) {
@@ -644,6 +648,10 @@ void Thread::_kill() {
 		queue.splice(queue.end(), _observeQueue);
 
 		lock.unlock();
+
+		// Release the kernel's reference to the thread after it finished execution.
+		auto threadSelf = self;
+		threadSelf.ctr()->decrement();
 
 		while(!queue.empty()) {
 			auto node = queue.pop_front();

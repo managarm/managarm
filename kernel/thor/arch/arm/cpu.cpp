@@ -275,7 +275,7 @@ void initializeThisProcessor() {
 	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.
 	});
-	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue()->selfPtr.lock();
+	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue().lock();
 	assert(cpu_data->generalWorkQueue);
 }
 

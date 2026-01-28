@@ -16,10 +16,11 @@ struct IrqObject;
 struct AwaitIrqNode {
 	friend struct IrqObject;
 
-	void setup(Worklet *awaited, IrqObject *irq, async::cancellation_token ct) {
+	void setup(Worklet *awaited, IrqObject *irq, async::cancellation_token ct, WorkQueue *wq) {
 		awaited_ = awaited;
 		ct_ = ct;
 		irq_ = irq;
+		wq_ = wq;
 	}
 
 	Error error() { return error_; }
@@ -33,6 +34,7 @@ private:
 	async::cancellation_token ct_;
 
 	IrqObject *irq_;
+	WorkQueue *wq_;
 	bool wasCancelled_ = false;
 	async::cancellation_observer<frg::bound_mem_fn<&AwaitIrqNode::cancel>> cancelCb_{this};
 	async::cancellation_token cancelToken_;
@@ -313,8 +315,8 @@ struct IrqObject : IrqSink {
 				}else{
 					async::execution::set_value(self->r_, self->sequence());
 				}
-			}, wq_);
-			setup(&worklet_, object_, {});
+			});
+			setup(&worklet_, object_, {}, wq_);
 			object_->submitAwait(this, sequence_);
 		}
 

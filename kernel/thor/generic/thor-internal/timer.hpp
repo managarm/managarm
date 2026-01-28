@@ -48,14 +48,16 @@ struct PrecisionTimerNode {
 	PrecisionTimerNode()
 	: _engine{nullptr}, _cancelCb{this} { }
 
-	void setup(uint64_t deadline, Worklet *elapsed) {
+	void setup(uint64_t deadline, WorkQueue *wq, Worklet *elapsed) {
 		_deadline = deadline;
+		_wq = wq;
 		_elapsed = elapsed;
 	}
 
-	void setup(uint64_t deadline, async::cancellation_token cancelToken, Worklet *elapsed) {
+	void setup(uint64_t deadline, async::cancellation_token cancelToken, WorkQueue *wq, Worklet *elapsed) {
 		_deadline = deadline;
 		_cancelToken = cancelToken;
+		_wq = wq;
 		_elapsed = elapsed;
 	}
 
@@ -68,6 +70,7 @@ struct PrecisionTimerNode {
 private:
 	uint64_t _deadline;
 	async::cancellation_token _cancelToken;
+	WorkQueue *_wq;
 	Worklet *_elapsed;
 
 	// TODO: If we allow timer engines to be destructed, this needs to be refcounted.
@@ -139,8 +142,8 @@ public:
 			worklet_.setup([] (Worklet *base) {
 				auto op = frg::container_of(base, &SleepOperation::worklet_);
 				async::execution::set_value(op->receiver_, !op->node_.wasCancelled());
-			}, WorkQueue::generalQueue());
-			node_.setup(s_.deadline, s_.cancellation, &worklet_);
+			});
+			node_.setup(s_.deadline, s_.cancellation, WorkQueue::generalQueue().get(), &worklet_);
 			s_.self->installTimer(&node_);
 		}
 

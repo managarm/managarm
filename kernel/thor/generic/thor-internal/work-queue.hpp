@@ -17,19 +17,18 @@ struct WorkQueue;
 struct Worklet {
 	friend struct WorkQueue;
 
-	void setup(void (*run)(Worklet *), WorkQueue *wq);
+	void setup(void (*run)(Worklet *));
 
 private:
-	smarter::shared_ptr<WorkQueue> _workQueue;
 	void (*_run)(Worklet *);
 	frg::default_list_hook<Worklet> _hook;
 };
 
 struct WorkQueue {
-	static WorkQueue *generalQueue();
+	static smarter::borrowed_ptr<WorkQueue> generalQueue();
 
-	static void post(Worklet *worklet);
-	static bool enter(Worklet *worklet);
+	void post(Worklet *worklet);
+	bool enter(Worklet *worklet);
 
 	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
 	: _executorContext{executorContext}, _localPosted{false}, _lockedPosted{false} { }
@@ -37,10 +36,6 @@ struct WorkQueue {
 	bool check();
 
 	void run();
-
-	auto take() {
-		return selfPtr.lock();
-	}
 
 	// ----------------------------------------------------------------------------------
 	// schedule() and its boilerplate.
@@ -55,8 +50,8 @@ struct WorkQueue {
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &ScheduleOperation::worklet_);
 				async::execution::set_value(self->r_);
-			}, wq_);
-			post(&worklet_);
+			});
+			wq_->post(&worklet_);
 		}
 
 	private:
@@ -94,14 +89,11 @@ struct WorkQueue {
 		: wq_{wq}, r_{std::move(r)} { }
 
 		void start() {
-			auto swq = wq_->selfPtr.lock();
-			if (!swq)
-				return async::execution::set_value(r_, false);
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
 				async::execution::set_value(self->r_, true);
-			}, wq_);
-			if(enter(&worklet_))
+			});
+			if(wq_->enter(&worklet_))
 				return async::execution::set_value(r_, true);
 		}
 
@@ -131,8 +123,6 @@ struct WorkQueue {
 	}
 
 	// ----------------------------------------------------------------------------------
-
-	smarter::weak_ptr<WorkQueue> selfPtr;
 
 protected:
 	virtual void wakeup() = 0;
@@ -174,11 +164,8 @@ private:
 	> _lockedQueue;
 };
 
-inline void Worklet::setup(void (*run)(Worklet *), WorkQueue *wq) {
-	auto swq = wq->selfPtr.lock();
-	assert(swq);
+inline void Worklet::setup(void (*run)(Worklet *)) {
 	_run = run;
-	_workQueue = std::move(swq);
 }
 
 template<typename P>
@@ -207,8 +194,8 @@ struct DeferredWork {
 			assert(self->posted_.load(std::memory_order_relaxed));
 			self->posted_.store(false, std::memory_order_release);
 			self->policy_.execute();
-		}, WorkQueue::generalQueue());
-		WorkQueue::post(&worklet_);
+		});
+		WorkQueue::generalQueue()->post(&worklet_);
 		return true;
 	}
 
