@@ -75,7 +75,7 @@ struct MbusNode final : private KernelBusObject {
 		// TODO(qookie): Try interrupts-extended if interrupts failed.
 	}
 
-	void run(enable_detached_coroutine = {}) {
+	void run(enable_detached_coroutine) {
 		Properties properties;
 
 		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dt"));
@@ -361,7 +361,7 @@ static initgraph::Task discoverDtNodes{&globalInitEngine, "dt.discover-nodes",
 void publishNodes() {
 	KernelFiber::run([=] {
 		for(auto& node : *allNodes)
-			node->run();
+			node->run(enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 	});
 }
 

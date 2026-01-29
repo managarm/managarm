@@ -161,7 +161,7 @@ static initgraph::Task initAtaTask{&globalInitEngine, "legacy_pc.init-ata",
 		// For now, we only need the kernel fiber to make sure mbusClient is already initialized.
 		KernelFiber::run([=] {
 			auto ata = frg::construct<AtaBusObject>(*kernelAlloc);
-			async::detach_with_allocator(*kernelAlloc, ata->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ata->run());
 		});
 	}
 };

@@ -25,7 +25,7 @@ namespace {
 			auto channel = solicitIoChannel("kernel-profile");
 			if(channel) {
 				infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
-				async::detach_with_allocator(*kernelAlloc,
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 						dumpRingToChannel(globalProfileRing.get(), std::move(channel), 2048));
 			}
 		}

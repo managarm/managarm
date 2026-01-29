@@ -4,6 +4,11 @@
 
 namespace thor {
 
+inline Ipl contextIpl() {
+	auto state = getCpuData()->iplState.load(std::memory_order_relaxed);
+	return state.context;
+}
+
 inline Ipl currentIpl() {
 	auto state = getCpuData()->iplState.load(std::memory_order_relaxed);
 	return state.current;

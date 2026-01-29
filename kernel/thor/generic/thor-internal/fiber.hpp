@@ -31,7 +31,7 @@ struct KernelFiber final : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: WorkQueue{&fiber->_executorContext}, fiber_{fiber} { }
+		: WorkQueue{&fiber->_executorContext, ipl::exceptional}, fiber_{fiber} { }
 
 		void wakeup() override;
 
@@ -47,7 +47,16 @@ public:
 	static void asyncBlockCurrent(Sender s) {
 		struct Closure {
 			FiberBlocker blocker;
-		} closure;
+			WorkQueue *wq;
+		} closure{.wq = thisFiber()->associatedWorkQueue().get()};
+
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return closure->wq;
+			}
+
+			Closure *closure;
+		};
 
 		struct Receiver {
 			void set_value_inline() {
@@ -56,6 +65,10 @@ public:
 
 			void set_value_noinline() {
 				KernelFiber::unblockOther(&closure->blocker);
+			}
+
+			auto get_env() {
+				return Env{.closure = closure};
 			}
 
 			Closure *closure;
@@ -74,7 +87,16 @@ public:
 		struct Closure {
 			frg::optional<typename Sender::value_type> value;
 			FiberBlocker blocker;
-		} closure;
+			WorkQueue *wq;
+		} closure{.wq = thisFiber()->associatedWorkQueue().get()};
+
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return closure->wq;
+			}
+
+			Closure *closure;
+		};
 
 		struct Receiver {
 			void set_value_inline(typename Sender::value_type value) {
@@ -84,6 +106,10 @@ public:
 			void set_value_noinline(typename Sender::value_type value) {
 				closure->value.emplace(std::move(value));
 				KernelFiber::unblockOther(&closure->blocker);
+			}
+
+			auto get_env() {
+				return Env{.closure = closure};
 			}
 
 			Closure *closure;

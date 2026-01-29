@@ -66,8 +66,8 @@ struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntit
 
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
-		AssociatedWorkQueue(Thread *thread)
-		: WorkQueue{&thread->_executorContext}, _thread{thread} { }
+		AssociatedWorkQueue(Thread *thread, Ipl wqIpl)
+		: WorkQueue{&thread->_executorContext, wqIpl}, _thread{thread} { }
 
 		void wakeup() override;
 
@@ -127,9 +127,18 @@ public:
 			// We need a shared_ptr since the thread might continue (and thus could be killed)
 			// immediately after we set the done flag.
 			smarter::shared_ptr<Thread> thread;
+			WorkQueue *wq;
 			// Acquire-release semantics to publish the result of the async operation.
 			std::atomic<bool> done{false};
-		} bls {.thread = thisThread.lock()};
+		} bls {.thread = thisThread.lock(), .wq = wq};
+
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return blsp->wq;
+			}
+
+			BlockingState *blsp;
+		};
 
 		struct Receiver {
 			void set_value_inline() {
@@ -142,6 +151,10 @@ public:
 				assert(!blsp->done.load(std::memory_order_relaxed));
 				blsp->done.store(true, std::memory_order_release);
 				Thread::unblockOther(thread);
+			}
+
+			auto get_env() {
+				return Env{.blsp = blsp};
 			}
 
 			BlockingState *blsp;
@@ -191,10 +204,19 @@ public:
 			// We need a shared_ptr since the thread might continue (and thus could be killed)
 			// immediately after we set the done flag.
 			smarter::shared_ptr<Thread> thread;
+			WorkQueue *wq;
 			// Acquire-release semantics to publish the result of the async operation.
 			std::atomic<bool> done{false};
 			frg::optional<ValueType> value{};
-		} bls{.thread = thisThread.lock()};
+		} bls{.thread = thisThread.lock(), .wq = wq};
+
+		struct Env {
+			WorkQueue *get_work_queue() {
+				return blsp->wq;
+			}
+
+			BlockingState *blsp;
+		};
 
 		struct Receiver {
 			void set_value_inline(ValueType value) { blsp->value.emplace(std::move(value)); }
@@ -206,6 +228,10 @@ public:
 				blsp->value.emplace(std::move(value));
 				blsp->done.store(true, std::memory_order_release);
 				Thread::unblockOther(thread);
+			}
+
+			auto get_env() {
+				return Env{.blsp = blsp};
 			}
 
 			BlockingState *blsp;

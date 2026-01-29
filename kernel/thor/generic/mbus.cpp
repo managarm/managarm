@@ -62,7 +62,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	mbusId_ = resp->id();
 	mgmtLane_ = descriptor.get<LaneDescriptor>().handle;
 
-	async::detach_with_allocator(*kernelAlloc, handleMbusComms_());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), handleMbusComms_());
 
 	co_return resp->id();
 }

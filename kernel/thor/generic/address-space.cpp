@@ -257,7 +257,7 @@ void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
 		}
 		node->resume();
 	};
-	async::detach_with_allocator(*kernelAlloc,
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 			async::transform(view->asyncLockRange(viewOffset + offset, size, wq),
 					transformError));
 }
@@ -371,7 +371,7 @@ void VirtualSpace::retire() {
 	}
 
 	// TODO: It would be less ugly to run this in a non-detached way.
-	async::detach_with_allocator(*kernelAlloc, [] (smarter::shared_ptr<VirtualSpace> self)
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
 		co_await self->_ops->retire(WorkQueue::generalQueue().get());
 
@@ -512,7 +512,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	// Since eviction is not yet enabled in that loop, we do not have
 	// to take the evictionMutex.
 	if(mapping->view->canEvictMemory())
-		async::detach_with_allocator(*kernelAlloc, mapping->runEvictionLoop());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), mapping->runEvictionLoop());
 
 	co_return actualAddress;
 }
@@ -956,13 +956,13 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			leftMapping.ctr()->increment();
 			leftMapping->view->addObserver(&leftMapping->observer);
 			if (leftMapping->view->canEvictMemory())
-				async::detach_with_allocator(*kernelAlloc, leftMapping->runEvictionLoop());
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), leftMapping->runEvictionLoop());
 
 			// We keep one reference until the detach the observer.
 			rightMapping.ctr()->increment();
 			rightMapping->view->addObserver(&rightMapping->observer);
 			if (rightMapping->view->canEvictMemory())
-				async::detach_with_allocator(*kernelAlloc, rightMapping->runEvictionLoop());
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rightMapping->runEvictionLoop());
 
 			assert(mapping->state == MappingState::zombie);
 			mapping->state = MappingState::retired;
@@ -1143,9 +1143,6 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 			// Since we have locked the MemoryView, the physical address remains valid here.
 			assert(physical != PhysicalAddr(-1));
 
-			// Do heavy copying on the WQ.
-			co_await wq->schedule();
-
 			PageAccessor accessor{physical};
 			auto misalign = offsetInMapping & (kPageSize - 1);
 			auto chunk = frg::min(size - progress, kPageSize - misalign);
@@ -1216,9 +1213,6 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 					offsetInMapping & ~(kPageSize - 1));
 			// Since we have locked the MemoryView, the physical address remains valid here.
 			assert(physical != PhysicalAddr(-1));
-
-			// Do heavy copying on the WQ.
-			co_await wq->schedule();
 
 			PageAccessor accessor{physical};
 			auto misalign = offsetInMapping & (kPageSize - 1);

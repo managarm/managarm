@@ -266,7 +266,7 @@ namespace {
 			auto channel = solicitIoChannel("kernel-alloc-trace");
 			if(channel) {
 				infoLogger() << "thor: Connecting alloc-trace to I/O channel" << frg::endlog;
-				async::detach_with_allocator(*kernelAlloc,
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 						dumpRingToChannel(allocLog.get(), std::move(channel), 2048));
 			}
 		}

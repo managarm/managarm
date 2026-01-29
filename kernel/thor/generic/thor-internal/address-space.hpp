@@ -249,6 +249,8 @@ struct VirtualOperations {
 	};
 
 	struct RetireSender {
+		using value_type = void;
+
 		template<typename R>
 		RetireOperation<R> connect(R receiver) {
 			return {self, wq, std::move(receiver)};
@@ -416,6 +418,8 @@ public:
 	struct LockVirtualRangeOperation;
 
 	struct [[nodiscard]] LockVirtualRangeSender {
+		using value_type = frg::expected<Error>;
+
 		template<typename R>
 		friend LockVirtualRangeOperation<R>
 		connect(LockVirtualRangeSender sender, R receiver) {

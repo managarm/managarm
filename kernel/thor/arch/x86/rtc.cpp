@@ -149,7 +149,7 @@ static initgraph::Task initRtcTask{&globalInitEngine, "x86.init-rtc",
 		// Create a fiber to manage requests to the RTC mbus object.
 		KernelFiber::run([=] {
 			auto rtc = frg::construct<RtcBusObject>(*kernelAlloc);
-			async::detach_with_allocator(*kernelAlloc, rtc->run());
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rtc->run());
 		});
 	}
 };
