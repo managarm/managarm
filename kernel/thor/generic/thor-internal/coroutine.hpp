@@ -113,17 +113,6 @@ protected:
 	~coroutine_continuation() = default;
 };
 
-// "Control flow path" that the coroutine takes. This state is used to distinguish inline
-// completion from asynchronous completion. In contrast to other state machines, the states
-// are not significant only their own; only transitions matter:
-// On past_suspend -> past_start transitions, we continue inline.
-// On past_start -> past_suspend transitions, we call resume().
-enum class coroutine_cfp {
-	indeterminate,
-	past_start, // We are past start_inline().
-	past_suspend // We are past final_suspend.
-};
-
 template<typename T, typename R>
 struct coroutine_operation;
 
@@ -191,13 +180,7 @@ struct coroutine {
 				}
 
 				void await_suspend(std::coroutine_handle<void>) noexcept {
-					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
-							std::memory_order_release);
-					if(cfp == coroutine_cfp::past_start) {
-						// We do not need to synchronize with the thread that started the
-						// coroutine here, as that thread is already done on its part.
-						promise_->cont_->resume();
-					}
+					promise_->cont_->resume();
 				}
 
 				void await_resume() noexcept {
@@ -218,7 +201,6 @@ struct coroutine {
 	private:
 		thor::WorkQueue *wq_{nullptr};
 		coroutine_continuation<T> *cont_ = nullptr;
-		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
 
 	coroutine()
@@ -314,13 +296,7 @@ struct coroutine<void> {
 				}
 
 				void await_suspend(std::coroutine_handle<void>) noexcept {
-					auto cfp = promise_->cfp_.exchange(coroutine_cfp::past_suspend,
-							std::memory_order_release);
-					if(cfp == coroutine_cfp::past_start) {
-						// We do not need to synchronize with the thread that started the
-						// coroutine here, as that thread is already done on its part.
-						promise_->cont_->resume();
-					}
+					promise_->cont_->resume();
 				}
 
 				void await_resume() noexcept {
@@ -341,7 +317,6 @@ struct coroutine<void> {
 	private:
 		thor::WorkQueue *wq_{nullptr};
 		coroutine_continuation<void> *cont_ = nullptr;
-		std::atomic<coroutine_cfp> cfp_{coroutine_cfp::indeterminate};
 	};
 
 	coroutine()
@@ -386,12 +361,6 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
 		promise->cont_ = this;
 		h.resume();
-		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
-		if(cfp == coroutine_cfp::past_suspend) {
-			// Synchronize with the thread that complete the coroutine.
-			std::atomic_thread_fence(std::memory_order_acquire);
-			return async::execution::set_value(receiver_, std::move(value()));
-		}
 	}
 
 private:
@@ -422,12 +391,6 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
 		promise->cont_ = this;
 		h.resume();
-		auto cfp = promise->cfp_.exchange(coroutine_cfp::past_start, std::memory_order_relaxed);
-		if(cfp == coroutine_cfp::past_suspend) {
-			// Synchronize with the thread that complete the coroutine.
-			std::atomic_thread_fence(std::memory_order_acquire);
-			return async::execution::set_value(receiver_);
-		}
 	}
 
 private:
