@@ -1,8 +1,14 @@
 #include <frg/bitops.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/ipl.hpp>
 
 namespace thor {
+
+void panicOnIllegalIplEntry(Ipl newIpl, Ipl currentIpl) {
+	panicLogger() << "thor: Cannot enter IPL " << newIpl << " context from IPL " << currentIpl << frg::endlog;
+	__builtin_trap();
+}
 
 // Run handlers scheduled by deferToIplLowerThan(L) where: current < L <= ceiling.
 // Precondition: no calls are currently scheduled by deferToIplLowerThan(L') where L' > ceiling.

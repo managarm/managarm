@@ -9,6 +9,40 @@ inline Ipl currentIpl() {
 	return state.current;
 }
 
+[[noreturn]] void panicOnIllegalIplEntry(Ipl newIpl, Ipl currentIpl);
+
+inline void iplSave(IplState &savedIpl) {
+	auto cpuData = getCpuData();
+	savedIpl = cpuData->iplState.load(std::memory_order_relaxed);
+}
+
+// Raise context IPL. Takes saved IPL for error checking.
+inline void iplEnterContext(Ipl newIpl, IplState savedIpl) {
+	if(newIpl < ipl::maximal) {
+		if (!(savedIpl.current < newIpl)) [[unlikely]]
+			panicOnIllegalIplEntry(newIpl, savedIpl.current);
+	}
+	auto cpuData = getCpuData();
+	cpuData->iplState.store(
+		IplState{
+			.context = newIpl,
+			.current = newIpl,
+		},
+		std::memory_order_relaxed);
+	// Perform (w, rw) fence to prevent re-ordering of future accesses with the iplState store.
+	std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
+// Restore (= lowering) context + current IPL.
+inline void iplLeaveContext(IplState savedIpl) {
+	auto cpuData = getCpuData();
+	// Perform (rw, w) fence to prevent re-ordering of past accesses with the iplState store.
+	std::atomic_signal_fence(std::memory_order_release);
+	cpuData->iplState.store(savedIpl, std::memory_order_relaxed);
+	// Perform (w, rw) fence to prevent re-ordering of the iplState store with future accesses.
+	std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
 inline void deferToIplLowerThan(Ipl l) {
 	assert(l > 0);
 	getCpuData()->iplDeferred.fetch_or(

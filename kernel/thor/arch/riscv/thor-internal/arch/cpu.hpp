@@ -28,6 +28,7 @@ struct Frame {
 	//       Care must be taken when synthesizing a value for this from kernel space.
 	//       For example, to ensure that interrupts are disabled, "spie" (not "sie") must be set.
 	uint64_t sstatus;
+	IplState iplState;
 
 	constexpr uint64_t &x(unsigned int n) {
 		assert(n > 0 && n <= 31);
@@ -47,7 +48,7 @@ struct Frame {
 	bool sie() { return sstatus & riscv::sstatus::spieBit; }
 };
 static_assert(offsetof(Frame, ip) == 0xF8);
-static_assert(sizeof(Frame) == 0x108);
+static_assert(sizeof(Frame) == 0x110);
 
 struct Executor;
 
@@ -80,6 +81,8 @@ struct SyscallImageAccessor {
 	Word *out0() { return &frame()->xs[11 - 1]; }
 	Word *out1() { return &frame()->xs[12 - 1]; }
 
+	IplState *iplState() { return &frame()->iplState; }
+
 	Frame *frame() { return _pointer; }
 
 	void *frameBase() { return reinterpret_cast<char *>(_pointer) + sizeof(Frame); }
@@ -99,6 +102,8 @@ struct FaultImageAccessor {
 	bool inKernelDomain() { return !frame()->umode(); }
 
 	bool allowUserPages() { return frame()->sstatus & riscv::sstatus::sumBit; }
+
+	IplState *iplState() { return &frame()->iplState; }
 
 	Frame *frame() { return _pointer; }
 
@@ -125,6 +130,8 @@ struct IrqImageAccessor {
 	bool inFiberDomain() { unimplementedOnRiscv(); }
 
 	bool inIdleDomain() { unimplementedOnRiscv(); }
+
+	IplState *iplState() { return &frame()->iplState; }
 
 	Frame *frame() { return _pointer; }
 

@@ -49,7 +49,7 @@ thorExceptionEntry:
 2:
 	# Both user + kernel traps continue here.
 
-	addi sp, sp, -0x108 # Size of frame.
+	addi sp, sp, -0x110 # Size of frame.
 	.cfi_def_cfa sp, 0
 
 	sd           x1,  0x0(sp) # ra
@@ -213,14 +213,14 @@ thorRestoreExecutorRegs:
 	ld x10, 0x48(a0)
 	sret
 
-.global doForkExecutor
+.global forkExecutorRegisters
 
 # ABI:
 # a0: Executor pointer.
 # a1: Function pointer.
 # a2: Argument for function.
 .p2align 2
-doForkExecutor:
+forkExecutorRegisters:
 	# Load pointer to frame.
 	# TODO: Move this into C++ code.
 	ld a0, (a0)

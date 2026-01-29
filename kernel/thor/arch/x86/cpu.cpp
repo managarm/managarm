@@ -139,6 +139,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->ss = accessor._frame()->ss;
 	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
@@ -172,7 +173,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->ss = accessor._frame()->ss;
 	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
-
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
@@ -206,12 +207,21 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->ss = kSelClientUserData;
 	executor->general()->clientFs = common::x86::rdmsr(common::x86::kMsrIndexFsBase);
 	executor->general()->clientGs = common::x86::rdmsr(common::x86::kMsrIndexKernelGsBase);
+	executor->general()->iplState = accessor._frame()->iplState;
 
 	if(getGlobalCpuFeatures()->haveXsave){
 		common::x86::xsave((uint8_t*)executor->_fxState(), ~0);
 	}else{
 		asm volatile ("fxsaveq %0" : : "m" (*executor->_fxState()));
 	}
+}
+
+extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
+
+void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
+	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+
+	forkExecutorRegisters(executor, functor, context);
 }
 
 extern "C" void workStub();
@@ -260,6 +270,8 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	}else{
 		asm volatile ("fxrstorq %0" : : "m" (*executor->_fxState()));
 	}
+
+	iplLeaveContext(executor->general()->iplState);
 
 	uint16_t cs = executor->general()->cs;
 	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
