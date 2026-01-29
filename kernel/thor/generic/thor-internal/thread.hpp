@@ -66,8 +66,8 @@ struct Thread final : smarter::crtp_counter<Thread, ActiveHandle>, ScheduleEntit
 
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
-		AssociatedWorkQueue(Thread *thread)
-		: WorkQueue{&thread->_executorContext}, _thread{thread} { }
+		AssociatedWorkQueue(Thread *thread, Ipl wqIpl)
+		: WorkQueue{&thread->_executorContext, wqIpl}, _thread{thread} { }
 
 		void wakeup() override;
 

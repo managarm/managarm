@@ -30,8 +30,8 @@ struct WorkQueue {
 	void post(Worklet *worklet);
 	bool enter(Worklet *worklet);
 
-	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
-	: _executorContext{executorContext}, _localPosted{false}, _lockedPosted{false} { }
+	WorkQueue(ExecutorContext *executorContext, Ipl wqIpl)
+	: _executorContext{executorContext}, _wqIpl{wqIpl}, _localPosted{false}, _lockedPosted{false} { }
 
 	bool check();
 
@@ -130,7 +130,20 @@ protected:
 	~WorkQueue() = default;
 
 private:
+	using Queue = frg::intrusive_list<
+		Worklet,
+		frg::locate_member<
+			Worklet,
+			frg::default_list_hook<Worklet>,
+			&Worklet::_hook
+		>
+	>;
+
 	ExecutorContext *_executorContext;
+	// The WorkQueue can only run at currentIpl() <= _wqIpl.
+	Ipl _wqIpl;
+
+	Queue _pending;
 
 	frg::intrusive_list<
 		Worklet,

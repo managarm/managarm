@@ -31,7 +31,7 @@ struct KernelFiber final : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: WorkQueue{&fiber->_executorContext}, fiber_{fiber} { }
+		: WorkQueue{&fiber->_executorContext, ipl::exceptional}, fiber_{fiber} { }
 
 		void wakeup() override;
 

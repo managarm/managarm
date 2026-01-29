@@ -12,11 +12,32 @@ smarter::borrowed_ptr<WorkQueue> WorkQueue::generalQueue() {
 void WorkQueue::post(Worklet *worklet) {
 	bool invokeWakeup;
 	if(_executorContext == currentExecutorContext()) {
-		auto irqLock = frg::guard(&irqMutex());
+		// If we are not in interrupt context,
+		// we can push directly to the pending queue without running into races.
+		if (contextIpl() < ipl::interrupt) [[likely]] {
+			auto pendingEmpty = !_pending.empty();
 
-		invokeWakeup = _localQueue.empty();
-		_localQueue.push_back(worklet);
-		_localPosted.store(true, std::memory_order_relaxed);
+			if (_inRun.load(std::memory_order_relaxed)) {
+				// If a worklet posts another worklet, we proceed in LIFO order,
+				// i.e., in the same order that a call stack would also proceed.
+				_pending.push_front(worklet);
+				return;
+			}
+			_pending.push_back(worklet);
+
+			if (currentIpl() <= _wqIpl) {
+				run();
+				return;
+			}
+
+			invokeWakeup = pendingEmpty;
+		} else {
+			assert(!intsAreEnabled());
+
+			invokeWakeup = _localQueue.empty();
+			_localQueue.push_back(worklet);
+			_localPosted.store(true, std::memory_order_relaxed);
+		}
 	}else{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -63,7 +84,8 @@ bool WorkQueue::enter(Worklet *worklet) {
 bool WorkQueue::check() {
 	// _localPosted is only accessed from the thread/fiber that runs the WQ.
 	// For _lockedPosted, see the comment in the header file.
-	return _localPosted.load(std::memory_order_relaxed)
+	return !_pending.empty()
+			|| _localPosted.load(std::memory_order_relaxed)
 			|| _lockedPosted.load(std::memory_order_relaxed);
 }
 
@@ -74,30 +96,24 @@ void WorkQueue::run() {
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(true, std::memory_order_relaxed);
 
-	frg::intrusive_list<
-		Worklet,
-		frg::locate_member<
-			Worklet,
-			frg::default_list_hook<Worklet>,
-			&Worklet::_hook
-		>
-	> pending;
-	{
+	auto checkLocal = _localPosted.load(std::memory_order_relaxed);
+	auto checkLocked = _lockedPosted.load(std::memory_order_relaxed);
+	if (checkLocal || checkLocked) {
 		auto irqLock = frg::guard(&irqMutex());
 
-		pending.splice(pending.end(), _localQueue);
+		_pending.splice(_pending.end(), _localQueue);
 		_localPosted.store(false, std::memory_order_relaxed);
 
-		if(_lockedPosted.load(std::memory_order_relaxed)) {
+		if(checkLocked) {
 			auto lock = frg::guard(&_mutex);
 
-			pending.splice(pending.end(), _lockedQueue);
+			_pending.splice(_pending.end(), _lockedQueue);
 			_lockedPosted.store(false, std::memory_order_relaxed);
 		}
 	}
 
-	while(!pending.empty()) {
-		auto worklet = pending.pop_front();
+	while(!_pending.empty()) {
+		auto worklet = _pending.pop_front();
 		worklet->_run(worklet);
 	}
 
