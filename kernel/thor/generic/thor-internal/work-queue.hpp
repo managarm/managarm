@@ -28,7 +28,9 @@ struct WorkQueue {
 	static smarter::borrowed_ptr<WorkQueue> generalQueue();
 
 	void post(Worklet *worklet);
-	bool enter(Worklet *worklet);
+
+	// Returns true if a Worklet posted using post() would run immediately.
+	bool immediatelyDispatchable();
 
 	WorkQueue(ExecutorContext *executorContext, Ipl wqIpl)
 	: _executorContext{executorContext}, _wqIpl{wqIpl}, _localPosted{false}, _lockedPosted{false} { }
@@ -89,12 +91,14 @@ struct WorkQueue {
 		: wq_{wq}, r_{std::move(r)} { }
 
 		void start() {
+			if (wq_->immediatelyDispatchable())
+				return async::execution::set_value(r_, true);
+
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
 				async::execution::set_value(self->r_, true);
 			});
-			if(wq_->enter(&worklet_))
-				return async::execution::set_value(r_, true);
+			wq_->post(&worklet_);
 		}
 
 	private:

@@ -51,34 +51,16 @@ void WorkQueue::post(Worklet *worklet) {
 		wakeup();
 }
 
-bool WorkQueue::enter(Worklet *worklet) {
-	bool invokeWakeup;
-	if(_executorContext == currentExecutorContext()) {
-		// Fast-track if we are on the right executor and the WQ is being drained.
-		if(_inRun.load(std::memory_order_relaxed)) {
-			std::atomic_signal_fence(std::memory_order_acquire);
-			return true;
-		}
-
-		// Same logic as in post().
-		auto irqLock = frg::guard(&irqMutex());
-
-		invokeWakeup = _localQueue.empty();
-		_localQueue.push_back(worklet);
-		_localPosted.store(true, std::memory_order_relaxed);
-	}else{
-		// Same logic as in post().
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_mutex);
-
-		invokeWakeup = _lockedQueue.empty();
-		_lockedQueue.push_back(worklet);
-		_lockedPosted.store(true, std::memory_order_relaxed);
-	}
-
-	if(invokeWakeup)
-		wakeup();
-	return false;
+// immediatelyDispatchable() only returns true if we are already in run();
+// otherwise, WQ entry and exit logic in run() would be skipped.
+// However, immediatelyDispatchable() is more strict than the _inRun code path in post().
+// In particular, it only returns true if run() was not interrupted by anything,
+// i.e., the IPL also has to be correct to continue running the WQ immediately.
+bool WorkQueue::immediatelyDispatchable() {
+	// Note: post() checks for contextIpl() < ipl::interrupt but that is implied by currentIpl() < _wqIpl.
+	return _executorContext == currentExecutorContext()
+		&& _inRun.load(std::memory_order_relaxed)
+		&& currentIpl() <= _wqIpl;
 }
 
 bool WorkQueue::check() {
