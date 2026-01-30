@@ -19,6 +19,7 @@
 #include "interval-timer.hpp"
 #include "vfs.hpp"
 #include "procfs.hpp"
+#include "sysv-shm.hpp"
 
 struct Generation;
 struct Process;
@@ -28,6 +29,73 @@ struct TerminalSession;
 struct ControllingTerminalState;
 
 typedef int ProcessId;
+
+struct Area {
+	bool copyOnWrite;
+	size_t areaSize;
+	uint32_t nativeFlags;
+	helix::UniqueDescriptor fileView;
+	helix::UniqueDescriptor copyView;
+	smarter::shared_ptr<File, FileHandle> file;
+	intptr_t offset;
+	intptr_t effectiveOffset = 0;
+	// For SysV SHM mappings, tracks the segment (nullptr for non-SHM)
+	std::shared_ptr<shm::ShmSegment> shmSegment;
+
+	static Area makeAnonymous(size_t size, bool copyOnWrite) {
+		Area area;
+		area.areaSize = (size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = copyOnWrite;
+		area.offset = 0;
+		area.effectiveOffset = 0;
+
+		if (copyOnWrite) {
+			HelHandle handle;
+			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, 0, area.areaSize, &handle));
+			area.copyView = helix::UniqueDescriptor{handle};
+		} else {
+			HelHandle handle;
+			HEL_CHECK(helAllocateMemory(area.areaSize, 0, nullptr, &handle));
+			area.fileView = helix::UniqueDescriptor{handle};
+		}
+		return area;
+	}
+
+	static async::result<Area> makeFile(smarter::shared_ptr<File, FileHandle> file,
+			intptr_t offset, size_t size, bool copyOnWrite) {
+		Area area;
+		area.areaSize = (size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = copyOnWrite;
+		area.file = std::move(file);
+		area.offset = offset;
+
+		auto memory = co_await area.file->accessMemory();
+
+		if (copyOnWrite) {
+			HelHandle handle;
+			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, area.areaSize, &handle));
+			area.copyView = helix::UniqueDescriptor{handle};
+			area.effectiveOffset = 0;
+		} else {
+			area.effectiveOffset = offset;
+		}
+
+		area.fileView = std::move(memory);
+		co_return area;
+	}
+
+	// Factory for SysV shared memory mappings
+	static Area makeShm(std::shared_ptr<shm::ShmSegment> segment) {
+		Area area;
+		area.areaSize = (segment->size + 0xFFF) & ~size_t(0xFFF);
+		area.copyOnWrite = false;  // SHM is always shared, never COW
+		area.fileView = segment->memory.dup();
+		area.offset = 0;
+		area.effectiveOffset = 0;
+		area.shmSegment = std::move(segment);
+		return area;
+	}
+};
 
 // TODO: This struct should store the process' VMAs once we implement them.
 // TODO: We need a clarification here: Does mmap() keep file descriptions open (e.g. for flock())?
@@ -42,9 +110,7 @@ struct VmContext {
 	}
 
 	// TODO: Pass abstract instead of hel flags to this function?
-	async::result<frg::expected<Error, void *>> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
-			smarter::shared_ptr<File, FileHandle> file,
-			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
+	frg::expected<Error, void *> mapArea(uintptr_t hint, uint32_t nativeFlags, Area area);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
@@ -52,22 +118,28 @@ struct VmContext {
 
 	void unmapFile(void *pointer, size_t size);
 
-private:
-	struct Area {
-		bool copyOnWrite;
-		size_t areaSize;
-		uint32_t nativeFlags;
-		helix::UniqueDescriptor fileView;
-		helix::UniqueDescriptor copyView;
-		smarter::shared_ptr<File, FileHandle> file;
-		intptr_t offset;
-		intptr_t effectiveOffset = 0;
-	};
+	// SysV shared memory operations
+	frg::expected<Error, void *> mapShm(
+			std::shared_ptr<shm::ShmSegment> segment,
+			uintptr_t hint,
+			uint32_t nativeFlags,
+			pid_t pid);
 
+	frg::expected<Error> unmapShm(void *pointer, pid_t pid);
+
+private:
 	std::pair<
 		std::map<uintptr_t, Area>::iterator,
 		std::map<uintptr_t, Area>::iterator
 	> splitAreaOn_(uintptr_t addr, size_t size);
+
+	// Common backend for mapFile/mapShm - performs mapping and area tracking
+	frg::expected<Error, void *> mapArea_(uintptr_t hint, size_t alignedSize,
+			helix::UniqueDescriptor memory, intptr_t offset, uint32_t nativeFlags,
+			Area area);
+
+	// Common backend for unmapFile/unmapShm - performs unmap and area removal
+	void unmapArea_(uintptr_t address, size_t alignedSize);
 
 	helix::UniqueDescriptor _space;
 
