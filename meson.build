@@ -39,8 +39,11 @@ build_uefi = get_option('build_uefi')
 build_drivers = get_option('build_drivers')
 build_tools = get_option('build_tools')
 build_testsuite = get_option('build_testsuite')
+build_headers = get_option('build_headers')
 provide_deps = get_option('provide_deps')
 any_userspace = build_drivers or build_tools
+
+pkgconfig = import('pkgconfig')
 
 if build_kernel
 	add_project_link_arguments(['-Wl,--orphan-handling=warn', '-Wl,-znoexecstack'], language: ['c', 'cpp'])
@@ -51,7 +54,7 @@ if build_kernel or build_drivers
 endif
 
 if build_tools or build_testsuite
-	add_languages('c', 'cpp')
+	add_languages('c', 'cpp', native: host_machine.system() == 'managarm')
 endif
 
 if build_kernel and any_userspace
@@ -80,7 +83,7 @@ elif flavor == 'userspace'
 		section : 'Userspace Components', bool_yn : true)
 endif
 
-if not build_kernel and not build_drivers and not build_tools and not provide_deps
+if not build_kernel and not build_drivers and not build_tools and not build_headers and not provide_deps
 	subdir_done()
 endif
 
@@ -88,18 +91,7 @@ if provide_deps and (build_kernel or any_userspace)
 	error('The \'provide_deps\' option cannot be used with any \'build_*\' option')
 endif
 
-# declare constants that subdirs are going to use
-if not provide_deps
-	c = meson.get_compiler('cpp')
-	cxx = meson.get_compiler('cpp')
-endif
 arch = host_machine.cpu_family()
-protos = meson.project_source_root()/'protocols'
-server = get_option('libdir')/'managarm/server'
-kasan = get_option('kernel_kasan')
-ubsan = get_option('kernel_ubsan')
-log_alloc = get_option('kernel_log_allocations')
-frame_pointers = get_option('kernel_frame_pointers')
 
 supported_archs = [
 	'aarch64',
@@ -109,6 +101,37 @@ supported_archs = [
 if not supported_archs.contains(arch)
 	error('unknown architecture ' + arch)
 endif
+
+if build_headers
+	subdir('hel')
+
+	protocol_pc_files = []
+
+	subdir('protocols/posix')
+	subdir('protocols/fs')
+
+	pkgconfig.generate(
+		name: 'managarm_protocols',
+		description: 'Metapackage for all installed Managarm protocols',
+		requires: protocol_pc_files,
+		dataonly: true
+	)
+
+	subdir_done()
+endif
+
+# declare constants that subdirs are going to use
+if not provide_deps
+	c = meson.get_compiler('cpp')
+	cxx = meson.get_compiler('cpp')
+endif
+
+protos = meson.project_source_root()/'protocols'
+server = get_option('libdir')/'managarm/server'
+kasan = get_option('kernel_kasan')
+ubsan = get_option('kernel_ubsan')
+log_alloc = get_option('kernel_log_allocations')
+frame_pointers = get_option('kernel_frame_pointers')
 
 bragi = find_program('bragi')
 
