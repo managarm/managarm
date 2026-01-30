@@ -2074,9 +2074,11 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 			);
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
-		}else if(req.req_type() == managarm::fs::CntReqType::NODE_OPEN) {
+		}else if(preamble.id() == managarm::fs::NodeOpenRequest::message_id) {
+			auto req = bragi::parse_head_only<managarm::fs::NodeOpenRequest>(recv_req);
 			recv_req.reset();
-			auto result = co_await node_ops->open(node, req.append());
+
+			auto result = co_await node_ops->open(node, req->write(), req->read(), req->append());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
