@@ -3,6 +3,7 @@
 #include <async/result.hpp>
 #include <dtb.hpp>
 #include <helix/ipc.hpp>
+#include <frg/expected.hpp>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -26,6 +27,12 @@ enum IoType {
 	kIoTypeNone = 0,
 	kIoTypePort = 1,
 	kIoTypeMemory = 2
+};
+
+enum class Error {
+	success,
+	illegalArguments,
+	illegalOperation
 };
 
 struct BarInfo {
@@ -162,6 +169,28 @@ struct Device {
 	async::result<std::vector<std::pair<std::string, DtProperty>>> getDtProperties();
 	async::result<helix::UniqueDescriptor> accessDtRegister(uint32_t index);
 	async::result<helix::UniqueDescriptor> installDtIrq(uint32_t index);
+
+	// Clock API usage
+	//
+	// Enable the clock by calling enableClock() on the clock device.
+	// If desired set the clock frequency using setClockFrequency().
+	// Disable the clock using disableClock() when no longer needed.
+
+	// Regulator API usage
+	//
+	// Enable the regulator by calling enableRegulator() on the regulator device.
+	// If desired set the regulator voltage using setRegulatorVoltage().
+	// Disable the regulator using disableRegulator() when no longer needed.
+
+	async::result<frg::expected<Error>> enableClock(uint32_t id);
+	async::result<frg::expected<Error>> disableClock(uint32_t id);
+	// NOTE: The clock frequency can only be set on an enabled clock, an error is returned otherwise.
+	async::result<frg::expected<Error>> setClockFrequency(uint32_t id, uint64_t frequency);
+
+	async::result<frg::expected<Error>> enableRegulator(uint32_t id);
+	async::result<frg::expected<Error>> disableRegulator(uint32_t id);
+	// NOTE: The regulator voltage can only be set on an enabled regulator, an error is returned otherwise.
+	async::result<frg::expected<Error>> setRegulatorVoltage(uint32_t id, uint64_t microvolts);
 
 	async::result<void> claimDevice();
 	async::result<void> enableBusIrq();
