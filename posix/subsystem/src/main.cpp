@@ -11,6 +11,8 @@
 #include "devices/null.hpp"
 #include "devices/random.hpp"
 #include "devices/tty.hpp"
+#include "devices/tty0.hpp"
+#include "devices/ttyn.hpp"
 #include "devices/urandom.hpp"
 #include "devices/zero.hpp"
 #include "firmware/dmi.hpp"
@@ -26,6 +28,7 @@
 #include "subsystem/nvme.hpp"
 #include "subsystem/pci.hpp"
 #include "subsystem/power_supply.hpp"
+#include "subsystem/tty.hpp"
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
 #include "observations.hpp"
@@ -202,12 +205,16 @@ int main() {
 	charRegistry.install(createZeroDevice());
 	charRegistry.install(createKmsgDevice());
 	charRegistry.install(createTtyDevice());
+	charRegistry.install(createTTY0Device());
+	charRegistry.install(createTTYNDevice(1));
+	charRegistry.install(createTTYNDevice(2));
 
 	acpi_subsystem::run();
 	drm_subsystem::run();
 	input_subsystem::run();
 	net_subsystem::run();
 	nvme_subsystem::run();
+	tty_subsystem::run();
 	usbmisc_subsystem::run();
 	power_supply_subsystem::run();
 
