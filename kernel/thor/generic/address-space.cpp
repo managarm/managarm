@@ -246,26 +246,6 @@ uint32_t Mapping::compilePageFlags() {
 	return pageFlags;
 }
 
-void Mapping::lockVirtualRange(uintptr_t offset, size_t size,
-		WorkQueue *wq, LockVirtualRangeNode *node) {
-	// This can be removed if we change the return type of asyncLockRange to frg::expected.
-	auto transformError = [node] (Error e) {
-		if(e == Error::success) {
-			node->result = {};
-		}else{
-			node->result = e;
-		}
-		node->resume();
-	};
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-			async::transform(view->asyncLockRange(viewOffset + offset, size, wq),
-					transformError));
-}
-
-void Mapping::unlockVirtualRange(uintptr_t offset, size_t size) {
-	view->unlockRange(viewOffset + offset, size);
-}
-
 frg::tuple<PhysicalAddr, CachingMode>
 Mapping::resolveRange(ptrdiff_t offset) {
 	assert(state == MappingState::active);
