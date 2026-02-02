@@ -269,11 +269,21 @@ public:
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
-			WorkQueue *wq);
+			FetchFlags flags, WorkQueue *wq);
 
 	virtual coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
 			void *pointer, size_t size,
-			WorkQueue *wq);
+			FetchFlags flags, WorkQueue *wq);
+
+	coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
+			const void *pointer, size_t size, WorkQueue *wq) {
+		return copyTo(offset, pointer, size, 0, wq);
+	}
+
+	coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
+			void *pointer, size_t size, WorkQueue *wq) {
+		return copyFrom(offset, pointer, size, 0, wq);
+	}
 
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() and fetchRange() stay consistent.

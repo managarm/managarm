@@ -201,12 +201,13 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::for
 // In addition to what copyFrom() does, we also have to mark the memory as dirty.
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
-		WorkQueue *wq) {
+		FetchFlags flags, WorkQueue *wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		const void *pointer;
 		size_t size;
+		FetchFlags flags;
 		WorkQueue *wq;
 
 		uintptr_t progress = 0;
@@ -214,7 +215,7 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 	};
 
 	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = wq};
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -226,7 +227,7 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+						async::transform(nd.view->fetchRange(fetchOffset, nd.flags, nd.wq),
 								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
 							assert(resultOrError);
 							auto range = resultOrError.value();
@@ -264,12 +265,13 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 
 coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		void *pointer, size_t size,
-		WorkQueue *wq) {
+		FetchFlags flags, WorkQueue *wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		void *pointer;
 		size_t size;
+		FetchFlags flags;
 		WorkQueue *wq;
 
 		uintptr_t progress = 0;
@@ -277,7 +279,7 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 	};
 
 	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = wq};
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
 			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
@@ -289,7 +291,7 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
+						async::transform(nd.view->fetchRange(fetchOffset, nd.flags, nd.wq),
 								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
 							assert(resultOrError);
 							auto range = resultOrError.value();
@@ -368,7 +370,7 @@ struct ZeroMemory final : MemoryView {
 	}
 
 	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
-			WorkQueue *wq) override {
+			FetchFlags, WorkQueue *) override {
 		memset(buffer, 0, size);
 		co_return {};
 	}

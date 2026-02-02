@@ -1112,53 +1112,19 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		// Otherwise, _findMapping() would have returned garbage.
 		assert(limitInMapping);
 
-		auto lockOutcome = co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq);
-		if(!lockOutcome)
-			co_return progress;
-
 		FetchFlags fetchFlags = 0;
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
-		// This loop iterates until we hit the end of the mapping.
-		bool success = true;
-		while(progress < size) {
-			auto offsetInMapping = address + progress - mapping->address;
-			if(offsetInMapping == mapping->length)
-				break;
-			assert(offsetInMapping < mapping->length);
-
-			// Ensure that the page is available.
-			// TODO: there is no real reason why we need to page aligned here; however, the
-			//       fetchRange() code does not handle the unaligned code correctly so far.
-			auto touchOutcome = co_await mapping->view->fetchRange(
-					(mapping->viewOffset + offsetInMapping) & ~(kPageSize - 1), fetchFlags, wq);
-			if(!touchOutcome) {
-				success = false;
-				break;
-			}
-
-			auto [physical, cacheMode] = mapping->resolveRange(
-					offsetInMapping & ~(kPageSize - 1));
-			// Since we have locked the MemoryView, the physical address remains valid here.
-			assert(physical != PhysicalAddr(-1));
-
-			PageAccessor accessor{physical};
-			auto misalign = offsetInMapping & (kPageSize - 1);
-			auto chunk = frg::min(size - progress, kPageSize - misalign);
-			assert(chunk); // Otherwise, we would have finished already.
-			memcpy(reinterpret_cast<std::byte *>(buffer) + progress,
-					reinterpret_cast<const std::byte *>(accessor.get()) + misalign,
-					chunk);
-			progress += chunk;
-		}
-
-		mapping->unlockVirtualRange(startInMapping, limitInMapping);
-
-		if(!success)
+		auto copyOutcome = co_await mapping->view->copyFrom(
+				mapping->viewOffset + startInMapping,
+				reinterpret_cast<std::byte *>(buffer) + progress,
+				limitInMapping, fetchFlags, wq);
+		if(!copyOutcome)
 			co_return progress;
-	}
 
+		progress += limitInMapping;
+	}
 	co_return progress;
 }
 
@@ -1183,53 +1149,19 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		// Otherwise, _findMapping() would have returned garbage.
 		assert(limitInMapping);
 
-		auto lockOutcome = co_await mapping->lockVirtualRange(startInMapping, limitInMapping, wq);
-		if(!lockOutcome)
-			co_return progress;
-
 		FetchFlags fetchFlags = 0;
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
-		// This loop iterates until we hit the end of the mapping.
-		bool success = true;
-		while(progress < size) {
-			auto offsetInMapping = address + progress - mapping->address;
-			if(offsetInMapping == mapping->length)
-				break;
-			assert(offsetInMapping < mapping->length);
-
-			// Ensure that the page is available.
-			// TODO: there is no real reason why we need to page aligned here; however, the
-			//       fetchRange() code does not handle the unaligned code correctly so far.
-			auto touchOutcome = co_await mapping->view->fetchRange(
-					(mapping->viewOffset + offsetInMapping) & ~(kPageSize - 1), fetchFlags, wq);
-			if(!touchOutcome) {
-				success = false;
-				break;
-			}
-
-			auto [physical, cacheMode] = mapping->resolveRange(
-					offsetInMapping & ~(kPageSize - 1));
-			// Since we have locked the MemoryView, the physical address remains valid here.
-			assert(physical != PhysicalAddr(-1));
-
-			PageAccessor accessor{physical};
-			auto misalign = offsetInMapping & (kPageSize - 1);
-			auto chunk = frg::min(size - progress, kPageSize - misalign);
-			assert(chunk); // Otherwise, we would have finished already.
-			memcpy(reinterpret_cast<std::byte *>(accessor.get()) + misalign,
-					reinterpret_cast<const std::byte *>(buffer) + progress,
-					chunk);
-			progress += chunk;
-		}
-
-		mapping->unlockVirtualRange(startInMapping, limitInMapping);
-
-		if(!success)
+		auto copyOutcome = co_await mapping->view->copyTo(
+				mapping->viewOffset + startInMapping,
+				reinterpret_cast<const std::byte *>(buffer) + progress,
+				limitInMapping, fetchFlags, wq);
+		if(!copyOutcome)
 			co_return progress;
-	}
 
+		progress += limitInMapping;
+	}
 	co_return progress;
 }
 
