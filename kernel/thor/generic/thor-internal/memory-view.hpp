@@ -145,16 +145,6 @@ using MonitorList = frg::intrusive_list<
 	>
 >;
 
-struct LockRangeNode {
-protected:
-	 ~LockRangeNode() = default;
-
-public:
-	virtual void resume() = 0;
-
-	Error result;
-};
-
 using FetchFlags = uint32_t;
 inline constexpr FetchFlags fetchDisallowBacking = 1;
 
@@ -269,19 +259,27 @@ public:
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
-			WorkQueue *wq);
+			FetchFlags flags, WorkQueue *wq);
 
 	virtual coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
 			void *pointer, size_t size,
-			WorkQueue *wq);
+			FetchFlags flags, WorkQueue *wq);
+
+	coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
+			const void *pointer, size_t size, WorkQueue *wq) {
+		return copyTo(offset, pointer, size, 0, wq);
+	}
+
+	coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
+			void *pointer, size_t size, WorkQueue *wq) {
+		return copyFrom(offset, pointer, size, 0, wq);
+	}
 
 	// Acquire/release a lock on a memory range.
-	// While a lock is active, results of peekRange() and fetchRange() stay consistent.
+	// While a lock is active, results of peekRange() stay consistent.
 	// Locks do *not* force all pages to be available, but once a page is available
-	// (e.g. due to fetchRange()), it cannot be evicted until the lock is released.
+	// (e.g. due to touchRange()), it cannot be evicted until the lock is released.
 	virtual Error lockRange(uintptr_t offset, size_t size) = 0;
-	virtual bool asyncLockRange(uintptr_t offset, size_t size,
-			WorkQueue *wq, LockRangeNode *node);
 	virtual void unlockRange(uintptr_t offset, size_t size) = 0;
 
 	// Optimistically returns the physical memory that backs a range of memory.
@@ -289,14 +287,10 @@ public:
 	virtual frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
 
 	// Makes a range of memory available for peekRange().
-	virtual coroutine<frg::expected<Error>>
-	touchRange(uintptr_t offset, size_t size, FetchFlags flags, WorkQueue *wq);
-
-	// Returns the physical memory that backs a range of memory.
-	// Ensures that the range is present before returning.
-	// Result stays valid until the range is evicted.
-	virtual coroutine<frg::expected<Error, PhysicalRange>>
-	fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *wq) = 0;
+	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
+	// Returns the number of bytes that were actually affected.
+	virtual coroutine<frg::expected<Error, size_t>>
+	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags, WorkQueue *wq) = 0;
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
@@ -308,6 +302,9 @@ public:
 
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size, CachingFlags flags);
+
+	coroutine<frg::expected<Error>>
+	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags, WorkQueue *wq);
 
 	// ----------------------------------------------------------------------------------
 	// Memory eviction.
@@ -323,64 +320,6 @@ public:
 				return Eviction{std::move(handle)};
 			}
 		);
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for asyncLockRange()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct [[nodiscard]] LockRangeOperation final : LockRangeNode {
-		LockRangeOperation(MemoryView *self, uintptr_t offset, size_t size,
-				WorkQueue *wq, R receiver)
-		: self_{self}, offset_{offset}, size_{size}, wq_{wq},
-				receiver_{std::move(receiver)} { }
-
-		LockRangeOperation(const LockRangeOperation &) = delete;
-
-		LockRangeOperation &operator= (const LockRangeOperation &) = delete;
-
-		void start() {
-			if(self_->asyncLockRange(offset_, size_, wq_, this))
-				return async::execution::set_value(std::move(receiver_), result);
-		}
-
-	private:
-		void resume() override {
-			async::execution::set_value(std::move(receiver_), result);
-		}
-
-		MemoryView *self_;
-		uintptr_t offset_;
-		size_t size_;
-		WorkQueue *wq_;
-		R receiver_;
-	};
-
-	struct [[nodiscard]] LockRangeSender {
-		using value_type = Error;
-
-		template<typename R>
-		friend LockRangeOperation<R>
-		connect(LockRangeSender sender, R receiver) {
-			return {sender.self, sender.offset, sender.size,
-					sender.wq, std::move(receiver)};
-		}
-
-		MemoryView *self;
-		uintptr_t offset;
-		size_t size;
-		WorkQueue *wq;
-	};
-
-	LockRangeSender asyncLockRange(uintptr_t offset, size_t size,
-			WorkQueue *wq) {
-		return {this, offset, size, wq};
-	}
-
-	friend async::sender_awaiter<LockRangeSender, Error>
-	operator co_await(LockRangeSender sender) {
-		return {sender};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -485,42 +424,48 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 		WorkQueue *wq;
 
 		uintptr_t progress = 0;
-		PhysicalRange destRange = {};
-		PhysicalRange srcRange = {};
+		PhysicalAddr destPhysical = {};
+		PhysicalAddr srcPhysical = {};
 	};
 
 	return async::let([=] {
 		return Node{.destView = destView, .srcView = srcView, .destOffset = destOffset, .srcOffset = srcOffset, .size = size, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.destView->asyncLockRange(nd.destOffset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::invocable([&nd] {
+				auto err = nd.destView->lockRange(nd.destOffset, nd.size);
+				assert(err == Error::success);
 			}),
-			async::transform(nd.srcView->asyncLockRange(nd.srcOffset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::transform(nd.destView->touchFullRange(nd.destOffset, nd.size, 0, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
+			async::invocable([&nd] {
+				auto err = nd.srcView->lockRange(nd.srcOffset, nd.size);
+				assert(err == Error::success);
 			}),
+			async::transform(nd.srcView->touchFullRange(nd.srcOffset, nd.size, 0, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto destFetchOffset = (nd.destOffset + nd.progress) & ~(kPageSize - 1);
 					auto srcFetchOffset = (nd.srcOffset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.destView->fetchRange(destFetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+						async::transform(nd.destView->touchRange(destFetchOffset, kPageSize, 0, nd.wq),
+								[&nd, destFetchOffset] (frg::expected<Error, size_t> resultOrError) {
 							assert(resultOrError);
-							auto range = resultOrError.value();
-							assert(range.get<1>() >= kPageSize);
-							nd.destRange = range;
+							auto range = nd.destView->peekRange(destFetchOffset);
+							assert(range.get<0>() != PhysicalAddr(-1));
+							nd.destPhysical = range.get<0>();
 						}),
-						async::transform(nd.srcView->fetchRange(srcFetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+						async::transform(nd.srcView->touchRange(srcFetchOffset, kPageSize, 0, nd.wq),
+								[&nd, srcFetchOffset] (frg::expected<Error, size_t> resultOrError) {
 							assert(resultOrError);
-							auto range = resultOrError.value();
-							assert(range.get<1>() >= kPageSize);
-							nd.srcRange = range;
+							auto range = nd.srcView->peekRange(srcFetchOffset);
+							assert(range.get<0>() != PhysicalAddr(-1));
+							nd.srcPhysical = range.get<0>();
 						}),
 						// Do heavy copying on the WQ.
 						// TODO: This could use wq->enter() but we want to keep stack depth low.
@@ -531,8 +476,8 @@ inline auto copyBetweenViews(MemoryView *destView, uintptr_t destOffset,
 							size_t chunk = frg::min(frg::min(kPageSize - destMisalign,
 									kPageSize - srcMisalign), nd.size - nd.progress);
 
-							auto destPhysical = nd.destRange.get<0>();
-							auto srcPhysical = nd.srcRange.get<0>();
+							auto destPhysical = nd.destPhysical;
+							auto srcPhysical = nd.srcPhysical;
 							assert(destPhysical != PhysicalAddr(-1));
 							assert(srcPhysical != PhysicalAddr(-1));
 
@@ -578,8 +523,8 @@ struct ImmediateMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -646,8 +591,8 @@ struct HardwareMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -670,8 +615,8 @@ struct AllocatedMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -800,8 +745,8 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitManage(ManageNode *handle) override;
@@ -824,8 +769,8 @@ public:
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -847,8 +792,8 @@ struct IndirectMemory final : MemoryView {
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
@@ -915,12 +860,10 @@ public:
 	size_t getLength() override;
 	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
-	bool asyncLockRange(uintptr_t offset, size_t size,
-			WorkQueue *wq, LockRangeNode *node) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
-	coroutine<frg::expected<Error, PhysicalRange>>
-			fetchRange(uintptr_t offset, FetchFlags flags,
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
 			WorkQueue *wq) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 

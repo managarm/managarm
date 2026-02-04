@@ -391,80 +391,8 @@ struct Mapping {
 
 	void protect(MappingFlags flags);
 
-	void unlockVirtualRange(uintptr_t offset, size_t length);
-
 	frg::tuple<PhysicalAddr, CachingMode>
 	resolveRange(ptrdiff_t offset);
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for lockVirtualRange()
-	// ----------------------------------------------------------------------------------
-private:
-	struct LockVirtualRangeNode {
-		virtual void resume() = 0;
-
-		frg::expected<Error> result;
-
-	protected:
-		~LockVirtualRangeNode() = default;
-	};
-
-	// Makes sure that pages are not evicted from virtual memory.
-	void lockVirtualRange(uintptr_t offset, size_t length,
-			WorkQueue *wq, LockVirtualRangeNode *node);
-
-public:
-	template<typename R>
-	struct LockVirtualRangeOperation;
-
-	struct [[nodiscard]] LockVirtualRangeSender {
-		using value_type = frg::expected<Error>;
-
-		template<typename R>
-		friend LockVirtualRangeOperation<R>
-		connect(LockVirtualRangeSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		Mapping *self;
-		uintptr_t offset;
-		size_t size;
-		WorkQueue *wq;
-	};
-
-	LockVirtualRangeSender lockVirtualRange(uintptr_t offset, size_t size,
-			WorkQueue *wq) {
-		return {this, offset, size, wq};
-	}
-
-	template<typename R>
-	struct LockVirtualRangeOperation final : private LockVirtualRangeNode {
-		LockVirtualRangeOperation(LockVirtualRangeSender s, R receiver)
-		: s_{s}, receiver_{std::move(receiver)} { }
-
-		LockVirtualRangeOperation(const LockVirtualRangeOperation &) = delete;
-
-		LockVirtualRangeOperation &operator= (const LockVirtualRangeOperation &) = delete;
-
-		void start() {
-			s_.self->lockVirtualRange(s_.offset, s_.size, s_.wq, this);
-		}
-
-	private:
-		void resume() override {
-			async::execution::set_value(receiver_, result);
-		}
-
-		LockVirtualRangeSender s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<LockVirtualRangeSender, frg::expected<Error>>
-	operator co_await(LockVirtualRangeSender sender) {
-		return {sender};
-	}
-
-	// ----------------------------------------------------------------------------------
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
@@ -822,7 +750,7 @@ struct MemoryViewLockHandle {
 	MemoryViewLockHandle() = default;
 
 	MemoryViewLockHandle(smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t size)
-	: _view{view}, _offset{offset}, _size{size}, _active{true} { }
+	: _view{view}, _offset{offset}, _size{size}, _active{false} { }
 
 	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
 
@@ -842,9 +770,13 @@ struct MemoryViewLockHandle {
 		return _active;
 	}
 
-	auto acquire(WorkQueue *wq) {
-		return async::transform(_view->asyncLockRange(_offset, _size, wq),
-			[&] (Error e) { _active = e == Error::success; });
+	void acquire() {
+		assert(!_active);
+
+		auto err = _view->lockRange(_offset, _size);
+		if(err != Error::success)
+			return;
+		_active = true;
 	}
 
 private:

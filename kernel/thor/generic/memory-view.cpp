@@ -201,12 +201,13 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::for
 // In addition to what copyFrom() does, we also have to mark the memory as dirty.
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
-		WorkQueue *wq) {
+		FetchFlags flags, WorkQueue *wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		const void *pointer;
 		size_t size;
+		FetchFlags flags;
 		WorkQueue *wq;
 
 		uintptr_t progress = 0;
@@ -214,24 +215,26 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 	};
 
 	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = wq};
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::invocable([&nd] {
+				auto err = nd.view->lockRange(nd.offset, nd.size);
+				assert(err == Error::success);
 			}),
+			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+						async::transform(nd.view->touchRange(fetchOffset, kPageSize, nd.flags, nd.wq),
+								[&nd, fetchOffset] (frg::expected<Error, size_t> resultOrError) {
 							assert(resultOrError);
-							auto range = resultOrError.value();
+							auto range = nd.view->peekRange(fetchOffset);
 							assert(range.get<0>() != PhysicalAddr(-1));
-							assert(range.get<1>() >= kPageSize);
 							nd.physical = range.get<0>();
 						}),
 						// Do heavy copying on the WQ.
@@ -264,12 +267,13 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 
 coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		void *pointer, size_t size,
-		WorkQueue *wq) {
+		FetchFlags flags, WorkQueue *wq) {
 	struct Node {
 		MemoryView *view;
 		uintptr_t offset;
 		void *pointer;
 		size_t size;
+		FetchFlags flags;
 		WorkQueue *wq;
 
 		uintptr_t progress = 0;
@@ -277,24 +281,26 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 	};
 
 	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .wq = wq};
+		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::invocable([&nd] {
+				auto err = nd.view->lockRange(nd.offset, nd.size);
+				assert(err == Error::success);
 			}),
+			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
 					return async::sequence(
-						async::transform(nd.view->fetchRange(fetchOffset, 0, nd.wq),
-								[&nd] (frg::expected<Error, PhysicalRange> resultOrError) {
+						async::transform(nd.view->touchRange(fetchOffset, kPageSize, nd.flags, nd.wq),
+								[&nd, fetchOffset] (frg::expected<Error, size_t> resultOrError) {
 							assert(resultOrError);
-							auto range = resultOrError.value();
+							auto range = nd.view->peekRange(fetchOffset);
 							assert(range.get<0>() != PhysicalAddr(-1));
-							assert(range.get<1>() >= kPageSize);
 							nd.physical = range.get<0>();
 						}),
 						// Do heavy copying on the WQ.
@@ -320,19 +326,12 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 	co_return {};
 }
 
-bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		WorkQueue *, LockRangeNode *node) {
-	node->result = lockRange(offset, size);
-	return true;
-}
-
 coroutine<frg::expected<Error>>
-MemoryView::touchRange(uintptr_t offset, size_t size,
-		FetchFlags flags, WorkQueue *wq) {
+MemoryView::touchFullRange(uintptr_t offset, size_t size, FetchFlags flags, WorkQueue *wq) {
 	size_t progress = 0;
-	while(progress < size) {
-		FRG_CO_TRY(co_await fetchRange(offset + progress, flags, wq));
-		progress += kPageSize;
+	while (progress < size) {
+		auto chunk = FRG_CO_TRY(co_await touchRange(offset + progress, size - progress, flags, wq));
+		progress += chunk;
 	}
 	co_return {};
 }
@@ -368,7 +367,7 @@ struct ZeroMemory final : MemoryView {
 	}
 
 	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
-			WorkQueue *wq) override {
+			FetchFlags, WorkQueue *) override {
 		memset(buffer, 0, size);
 		co_return {};
 	}
@@ -386,9 +385,9 @@ struct ZeroMemory final : MemoryView {
 		__builtin_unreachable();
 	}
 
-	coroutine<frg::expected<Error, PhysicalRange>>
-	fetchRange(uintptr_t, FetchFlags, WorkQueue *) override {
-		assert(!"ZeroMemory::fetchRange() should not be called");
+	coroutine<frg::expected<Error, size_t>>
+	touchRange(uintptr_t, size_t, FetchFlags, WorkQueue *) override {
+		assert(!"ZeroMemory::touchRange() should not be called");
 		__builtin_unreachable();
 	}
 
@@ -477,8 +476,8 @@ frg::tuple<PhysicalAddr, CachingMode> ImmediateMemory::peekRange(uintptr_t offse
 	return {_physicalPages[index], CachingMode::null};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-ImmediateMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
+coroutine<frg::expected<Error, size_t>>
+ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -486,7 +485,7 @@ ImmediateMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
 	auto disp = offset & (kPageSize - 1);
 	if(index >= _physicalPages.size())
 		co_return Error::fault;
-	co_return PhysicalRange{_physicalPages[index] + disp, kPageSize - disp, CachingMode::null};
+	co_return kPageSize - disp;
 }
 
 void ImmediateMemory::markDirty(uintptr_t, size_t) {
@@ -528,11 +527,10 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-HardwareMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
-	assert(offset % kPageSize == 0);
-
-	co_return PhysicalRange{_base + offset, _length - offset, _cacheMode};
+coroutine<frg::expected<Error, size_t>>
+HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *) {
+	auto misalign = offset & (kPageSize - 1);
+	co_return kPageSize - misalign;
 }
 
 void HardwareMemory::markDirty(uintptr_t, size_t) {
@@ -622,8 +620,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 			CachingMode::null};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-AllocatedMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
+coroutine<frg::expected<Error, size_t>>
+AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -644,7 +642,7 @@ AllocatedMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	co_return PhysicalRange{_physicalChunks[index] + disp, _chunkSize - disp, CachingMode::null};
+	co_return _chunkSize - disp;
 }
 
 void AllocatedMemory::markDirty(uintptr_t, size_t) {
@@ -946,8 +944,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-BackingMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
+coroutine<frg::expected<Error, size_t>>
+BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
@@ -966,7 +964,7 @@ BackingMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *) {
 		pit->physical = physical;
 	}
 
-	co_return PhysicalRange{pit->physical + misalign, kPageSize - misalign, CachingMode::null};
+	co_return kPageSize - misalign;
 }
 
 void BackingMemory::markDirty(uintptr_t, size_t) {
@@ -1098,10 +1096,11 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	}
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *) {
+coroutine<frg::expected<Error, size_t>>
+FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags, WorkQueue *) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
+	auto alignedOffset = offset & ~(kPageSize - 1);
 
 	ManageList pendingManagement;
 	MonitorList pendingMonitors;
@@ -1120,8 +1119,7 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *) {
 				|| pit->loadState == ManagedSpace::kStateWriteback
 				|| pit->loadState == ManagedSpace::kStateAnotherWriteback
 				|| pit->loadState == ManagedSpace::kStateEvicting) {
-			auto physical = pit->physical;
-			assert(physical != PhysicalAddr(-1));
+			assert(pit->physical != PhysicalAddr(-1));
 
 			if(pit->loadState == ManagedSpace::kStatePresent) {
 				if(!pit->lockCount)
@@ -1132,7 +1130,7 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *) {
 				globalReclaimer->addPage(&pit->cachePage);
 			}
 
-			co_return PhysicalRange{physical + misalign, kPageSize - misalign, CachingMode::null};
+			co_return kPageSize - misalign;
 		}else{
 			assert(pit->loadState == ManagedSpace::kStateMissing
 					|| pit->loadState == ManagedSpace::kStateWantInitialization
@@ -1166,7 +1164,7 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *) {
 
 		_managed->_progressManagement(pendingManagement);
 
-		fetchMonitor.setup(ManageRequest::initialize, offset, kPageSize);
+		fetchMonitor.setup(ManageRequest::initialize, alignedOffset, kPageSize);
 		fetchMonitor.progress = 0;
 		_managed->_monitorQueue.push_back(&fetchMonitor);
 		_managed->_progressMonitors(pendingMonitors);
@@ -1184,19 +1182,7 @@ FrontalMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *) {
 	co_await fetchMonitor.event.wait();
 	assert(fetchMonitor.error() == Error::success);
 
-	PhysicalAddr physical;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_managed->mutex);
-
-		auto pit = _managed->pages.find(index);
-		assert(pit);
-		assert(pit->loadState == ManagedSpace::kStatePresent);
-		physical = pit->physical;
-		assert(physical != PhysicalAddr(-1));
-	}
-
-	co_return PhysicalRange{physical + misalign, kPageSize - misalign, CachingMode::null};
+	co_return kPageSize - misalign;
 }
 
 void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1303,8 +1289,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 		cachingMode)};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-IndirectMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *wq) {
+coroutine<frg::expected<Error, size_t>>
+IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags, WorkQueue *wq) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
@@ -1313,18 +1299,8 @@ IndirectMemory::fetchRange(uintptr_t offset, FetchFlags flags, WorkQueue *wq) {
 	assert(slot < indirections_.size()); // TODO: Return Error::fault.
 	assert(indirections_[slot]); // TODO: Return Error::fault.
 
-	auto physicalRange = co_await indirections_[slot]->memory->fetchRange(indirections_[slot]->offset
-		+ inSlotOffset, flags, wq);
-
-	if(!physicalRange)
-		co_return physicalRange;
-
-	CachingMode cachingMode = CachingMode::null;
-	if(indirections_[slot]->flags & cacheWriteCombine)
-		cachingMode = CachingMode::writeCombine;
-
-	co_return frg::tuple{physicalRange.value().get<0>(), physicalRange.value().get<1>(),
-		determineCachingMode(physicalRange.value().template get<2>(), cachingMode)};
+	co_return co_await indirections_[slot]->memory->touchRange(indirections_[slot]->offset
+		+ inSlotOffset, sizeHint, flags, wq);
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
@@ -1364,6 +1340,8 @@ Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView
 // --------------------------------------------------------
 
 CowPage::~CowPage() {
+	if(state == CowState::null)
+		return;
 	assert(state == CowState::hasCopy);
 	assert(physical != PhysicalAddr(-1));
 	physicalAllocator->free(physical, kPageSize);
@@ -1464,7 +1442,9 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			}
 
 			auto page = *it;
-			if(page->state == CowState::inProgress) {
+			if(page->state == CowState::null) {
+				continue;
+			}else if(page->state == CowState::inProgress) {
 				// We wait for the in progress pages later, as we
 				// need to drop the locks we're holding before
 				// suspending, but they are ensuring consistency
@@ -1509,136 +1489,24 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
-Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
-	panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
-			<< frg::endlog;
-	__builtin_unreachable();
-}
+Error CopyOnWriteMemory::lockRange(uintptr_t offset, size_t size) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
-bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		WorkQueue *wq, LockRangeNode *node) {
-	// For now, it is enough to populate the range, as pages can only be evicted from
-	// the root of the CoW chain, but copies are never evicted.
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			WorkQueue *wq, LockRangeNode *node) -> coroutine<void> {
-		size_t progress = 0;
-		while(progress < size) {
-			auto offset = overallOffset + progress;
-
-			smarter::shared_ptr<CowChain> chain;
-			smarter::shared_ptr<MemoryView> view;
-			uintptr_t viewOffset;
-			smarter::shared_ptr<CowPage> cowPage;
-			bool waitForCopy = false;
-			{
-				// If the page is present in our private chain, we just return it.
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->_mutex);
-
-				auto cowIt = self->_ownedPages.find(offset >> kPageShift);
-				if(cowIt) {
-					cowPage = *cowIt;
-					if(cowPage->state == CowState::hasCopy) {
-						assert(cowPage->physical != PhysicalAddr(-1));
-
-						cowPage->lockCount++;
-						progress += kPageSize;
-						continue;
-					}else{
-						assert(cowPage->state == CowState::inProgress);
-						waitForCopy = true;
-					}
-				}else{
-					chain = self->_copyChain;
-					view = self->_view;
-					viewOffset = self->_viewOffset;
-
-					// Otherwise we need to copy from the chain or from the root view.
-					cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-					cowPage->state = CowState::inProgress;
-					cowIt = self->_ownedPages.insert(offset >> kPageShift);
-					*cowIt = cowPage;
-				}
-			}
-
-			if(waitForCopy) {
-				bool stillWaiting;
-				do {
-					stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
-						// TODO: this could be faster if cowPage->state was atomic.
-						auto irqLock = frg::guard(&irqMutex());
-						auto lock = frg::guard(&self->_mutex);
-
-						if(cowPage->state == CowState::inProgress)
-							return true;
-						assert(cowPage->state == CowState::hasCopy);
-						return false;
-					});
-				} while(stillWaiting);
-
-				{
-					auto irqLock = frg::guard(&irqMutex());
-					auto lock = frg::guard(&self->_mutex);
-
-					assert(cowPage->state == CowState::hasCopy);
-					cowPage->lockCount++;
-				}
-				progress += kPageSize;
-				continue;
-			}
-
-			PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-			assert(physical != PhysicalAddr(-1) && "OOM");
-			PageAccessor accessor{physical};
-
-			// Try to copy from a descendant CoW chain.
-			auto pageOffset = viewOffset + offset;
-			bool chainHasCopy = false;
-			if(chain) {
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&chain->_mutex);
-
-				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
-					auto page = *it;
-					// We can just copy synchronously here -- the descendant is not evicted.
-					assert(page->state == CowState::hasCopy);
-					auto srcPhysical = page->physical;
-					assert(srcPhysical != PhysicalAddr(-1));
-					auto srcAccessor = PageAccessor{srcPhysical};
-					memcpy(accessor.get(), srcAccessor.get(), kPageSize);
-					chainHasCopy = true;
-				}
-			}
-
-			// Copy from the root view.
-			if(!chainHasCopy) {
-				// TODO: Handle errors here -- we need to drop the lock again.
-				auto copyOutcome = co_await view->copyFrom(pageOffset & ~(kPageSize - 1),
-						accessor.get(), kPageSize, wq);
-				assert(copyOutcome);
-			}
-
-			// To make CoW unobservable, we first need to evict the page here.
-			// TODO: enable read-only eviction.
-			co_await self->_evictQueue.evictRange(offset & ~(kPageSize - 1), kPageSize);
-
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->_mutex);
-
-				assert(cowPage->state == CowState::inProgress);
-				cowPage->state = CowState::hasCopy;
-				cowPage->physical = physical;
-				cowPage->lockCount++;
-			}
-			self->_copyEvent.raise();
-			progress += kPageSize;
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		auto it = _ownedPages.find((offset + pg) >> kPageShift);
+		if(it) {
+			auto page = *it;
+			page->lockCount++;
+		}else{
+			auto cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+			cowPage->lockCount = 1;
+			it = _ownedPages.insert((offset + pg) >> kPageShift);
+			*it = cowPage;
 		}
+	}
 
-		node->result = Error::success;
-		node->resume();
-	}(this, offset, size, wq, node));
-	return false;
+	return Error::success;
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -1649,7 +1517,6 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
 		assert(it);
 		auto page = *it;
-		assert(page->state == CowState::hasCopy);
 		assert(page->lockCount > 0);
 		page->lockCount--;
 	}
@@ -1661,15 +1528,18 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		auto page = *it;
-		assert(page->state == CowState::hasCopy);
-		return frg::tuple<PhysicalAddr, CachingMode>{page->physical, CachingMode::null};
+		if(page->state == CowState::hasCopy)
+			return frg::tuple<PhysicalAddr, CachingMode>{page->physical, CachingMode::null};
 	}
 
 	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
 }
 
-coroutine<frg::expected<Error, PhysicalRange>>
-CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
+coroutine<frg::expected<Error, size_t>>
+CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *wq) {
+	auto misalign = offset & (kPageSize - 1);
+	auto alignedOffset = offset & ~(kPageSize - 1);
+
 	smarter::shared_ptr<CowChain> chain;
 	smarter::shared_ptr<MemoryView> view;
 	uintptr_t viewOffset;
@@ -1686,10 +1556,15 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 			if(cowPage->state == CowState::hasCopy) {
 				assert(cowPage->physical != PhysicalAddr(-1));
 
-				co_return PhysicalRange{cowPage->physical, kPageSize, CachingMode::null};
-			}else{
-				assert(cowPage->state == CowState::inProgress);
+				co_return kPageSize - misalign;
+			}else if(cowPage->state == CowState::inProgress) {
 				waitForCopy = true;
+			}else{
+				assert(cowPage->state == CowState::null);
+				chain = _copyChain;
+				view = _view;
+				viewOffset = _viewOffset;
+				cowPage->state = CowState::inProgress;
 			}
 		}else{
 			chain = _copyChain;
@@ -1719,7 +1594,7 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 			});
 		} while(stillWaiting);
 
-		co_return PhysicalRange{cowPage->physical, kPageSize, CachingMode::null};
+		co_return kPageSize - misalign;
 	}
 
 	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
@@ -1727,7 +1602,7 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 	PageAccessor accessor{physical};
 
 	// Try to copy from a descendant CoW chain.
-	auto pageOffset = viewOffset + offset;
+	auto pageOffset = viewOffset + alignedOffset;
 	bool chainHasCopy = false;
 	if(chain) {
 		auto irqLock = frg::guard(&irqMutex());
@@ -1753,7 +1628,7 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 
 	// To make CoW unobservable, we first need to evict the page here.
 	// TODO: enable read-only eviction.
-	co_await _evictQueue.evictRange(offset, kPageSize);
+	co_await _evictQueue.evictRange(alignedOffset, kPageSize);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -1764,7 +1639,7 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 		cowPage->physical = physical;
 	}
 	_copyEvent.raise();
-	co_return PhysicalRange{cowPage->physical, kPageSize, CachingMode::null};
+	co_return kPageSize - misalign;
 }
 
 void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
