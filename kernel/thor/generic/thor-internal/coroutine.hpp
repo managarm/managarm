@@ -413,14 +413,6 @@ async::sender_awaiter<coroutine<T>, T> operator co_await(coroutine<T> s) {
 	return {std::move(s)};
 }
 
-namespace detail {
-	template<typename T>
-	constexpr T &lastArg(T &t) { return t; }
-
-	template<typename Head, typename... Tail>
-	constexpr auto &lastArg(Head &, Tail &... tail) { return lastArg(tail...); }
-}
-
 // Helper type that marks void-returning functions as detached coroutines.
 // Must be passed as last argument to the function.
 // Example usage: [] (enable_detached_coroutine) -> void { co_await foobar(); }
@@ -439,7 +431,7 @@ struct detached_coroutine_promise {
 
 	template<typename... Args>
 	detached_coroutine_promise(Args &... args)
-	: wq_{detail::lastArg(args...).wq.get()} { }
+	: wq_{args...[sizeof...(Args) - 1].wq.get()} { }
 
 	void get_return_object() {
 		// Our return object is void.
