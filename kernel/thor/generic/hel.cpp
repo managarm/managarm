@@ -228,11 +228,12 @@ HelError helNop() {
 
 HelError doSubmitAsyncNop(smarter::shared_ptr<IpcQueue> queue, uintptr_t context) {
 	[] (smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(queue), context);
+	}(std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -575,7 +576,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 
 	[](smarter::shared_ptr<MemoryView> memory, size_t newSize,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto outcome = co_await memory->resize(newSize);
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
@@ -583,7 +584,8 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 			helResult.error = translateError(outcome.error());
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(memory), newSize, std::move(queue), context);
+	}(std::move(memory), newSize, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -809,7 +811,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	[](smarter::weak_ptr<Universe> weakUniverse,
 			smarter::shared_ptr<MemoryView> view,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto outcome = co_await view->fork();
 
 		if(!outcome) {
@@ -839,7 +841,8 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(this_universe.lock(), std::move(view), std::move(queue), context);
+	}(this_universe.lock(), std::move(view), std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -1127,7 +1130,7 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 			smarter::shared_ptr<IpcQueue> queue,
 			VirtualAddr pointer, size_t length,
 			uint32_t protectFlags, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto outcome = co_await space->protect(pointer, length, protectFlags,
 				thisThread->mainWorkQueue().get());
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
@@ -1137,7 +1140,8 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(this_thread.lock(), std::move(space), std::move(queue), reinterpret_cast<VirtualAddr>(pointer),
-			length, protectFlags, context);
+			length, protectFlags, context,
+			enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -1199,7 +1203,7 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 			smarter::shared_ptr<AddressSpace, BindableHandle> space,
 			void *pointer, size_t length,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length,
 				thisThread->mainWorkQueue().get());
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
@@ -1208,7 +1212,8 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(thisThread.lock(), std::move(space), pointer, length, std::move(queue), context);
+	}(thisThread.lock(), std::move(space), pointer, length, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -1252,7 +1257,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			smarter::shared_ptr<MemoryView> view,
 			uintptr_t address, size_t length, void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
@@ -1276,9 +1281,6 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 					break;
 				}
 
-				// Enter the submitter's work-queue so that we can access memory directly.
-				co_await submitThread->mainWorkQueue()->schedule();
-
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
 					error = Error::fault;
 					break;
@@ -1297,7 +1299,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
@@ -1322,9 +1324,6 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 					break;
 				}
 
-				// Enter the submitter's work-queue so that we can access memory directly.
-				co_await submitThread->mainWorkQueue()->schedule();
-
 				if(!writeUserMemory(reinterpret_cast<char *>(buffer) + progress, temp, chunk)) {
 					error = Error::fault;
 					break;
@@ -1341,20 +1340,24 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	if(descriptor.is<MemoryViewDescriptor>()) {
 		auto view = descriptor.get<MemoryViewDescriptor>().memory;
 		readMemoryView(thisThread.lock(),
-				std::move(view), address, length, buffer, std::move(queue), context);
+				std::move(view), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
 		readVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
 		readVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
 		readVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
 	}
@@ -1382,7 +1385,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			smarter::shared_ptr<MemoryView> view,
 			uintptr_t address, size_t length, const void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
@@ -1399,9 +1402,6 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
-
-				// Enter the submitter's work-queue so that we can access memory directly.
-				co_await submitThread->mainWorkQueue()->schedule();
 
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
@@ -1428,7 +1428,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, const void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
 		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
@@ -1446,8 +1446,6 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
 
-				// Enter the submitter's work-queue so that we can access memory directly.
-				co_await submitThread->mainWorkQueue()->schedule();
 				if(!readUserMemory(temp,
 						reinterpret_cast<const char *>(buffer) + progress, chunk)) {
 					error = Error::fault;
@@ -1472,20 +1470,24 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 	if(descriptor.is<MemoryViewDescriptor>()) {
 		auto view = descriptor.get<MemoryViewDescriptor>().memory;
 		writeMemoryView(thisThread.lock(),
-				std::move(view), address, length, buffer, std::move(queue), context);
+				std::move(view), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
 		writeVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
 		writeVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
 		writeVirtualSpace(thisThread.lock(),
-				std::move(space), address, length, buffer, std::move(queue), context);
+				std::move(space), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
 	}
@@ -1537,7 +1539,7 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	[](smarter::shared_ptr<IpcQueue> queue,
 			smarter::shared_ptr<MemoryView> memory,
 			uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto [error, type, offset, size] = co_await memory->submitManage();
 
 		int helType;
@@ -1553,7 +1555,8 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 				helType, offset, size};
 		QueueSource ipcSource{&helResult, sizeof(HelManageResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(queue), std::move(memory), context);
+	}(std::move(queue), std::move(memory), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -1627,10 +1630,10 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 			smarter::shared_ptr<MemoryView> memory,
 			smarter::shared_ptr<IpcQueue> queue,
 			uintptr_t offset, size_t size,
-			uintptr_t context, smarter::shared_ptr<WorkQueue> wq,
-			enable_detached_coroutine = {}) -> void {
+			uintptr_t context,
+			enable_detached_coroutine edc) -> void {
 		MemoryViewLockHandle lockHandle{memory, offset, size};
-		co_await lockHandle.acquire(wq.get());
+		co_await lockHandle.acquire(edc.wq.get());
 		if(!lockHandle) {
 			// TODO: Return a better error.
 			HelHandleResult helResult{.error = kHelErrFault};
@@ -1641,7 +1644,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await memory->touchRange(offset, size, 0, wq.get());
+		auto touchOutcome = co_await memory->touchRange(offset, size, 0, edc.wq.get());
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -1673,7 +1676,8 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(this_universe.lock(), std::move(memory), std::move(queue),
-		offset, size, context, this_thread->mainWorkQueue().lock());
+		offset, size, context,
+		enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -1859,7 +1863,7 @@ HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 
 	[] (smarter::shared_ptr<Thread> thread, uint64_t inSeq,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		auto [error, sequence, interrupt] = co_await thread->observe(inSeq);
 
 		HelObserveResult helResult{translateError(error), 0, sequence};
@@ -1887,7 +1891,8 @@ HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 		}
 		QueueSource ipcSource{&helResult, sizeof(HelObserveResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(thread), inSeq, std::move(queue), context);
+	}(std::move(thread), inSeq, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -2405,7 +2410,7 @@ HelError doSubmitAwaitClock(smarter::shared_ptr<IpcQueue> queue, uint64_t counte
 
 	[](smarter::shared_ptr<IpcQueue> queue, uint64_t counter, uintptr_t context,
 			CancelGuard cg,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		bool succeeded = co_await generalTimerEngine()->sleep(counter, cg.token());
 
 		queue->unregisterTag(std::move(cg));
@@ -2414,7 +2419,8 @@ HelError doSubmitAwaitClock(smarter::shared_ptr<IpcQueue> queue, uint64_t counte
 		HelSimpleResult helResult{.error = error, .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(queue), counter, context, std::move(cg));
+	}(std::move(queue), counter, context, std::move(cg),
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -2647,7 +2653,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 			smarter::weak_ptr<Universe> weakUniverse,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			LaneHandle lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
-			enable_detached_coroutine = {}) -> void {
+			enable_detached_coroutine) -> void {
 		StreamPacket packet;
 		packet.setup(count);
 
@@ -2706,15 +2712,6 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 						&& node->tag() == kTagSendFlow
 						&& peer->tag() == kTagRecvKernelBuffer) {
 					frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, recipe->length);
-
-					auto res = co_await thread->mainWorkQueue()->enter();
-					if (!res) {
-						peer->_error = Error::threadExited;
-						node->_error = Error::threadExited;
-						peer->complete();
-						node->complete();
-						continue;
-					}
 
 					auto outcome = readUserMemory(buffer.data(), recipe->buffer, recipe->length);
 					if(!outcome) {
@@ -2792,23 +2789,6 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 						auto chunkSize = frg::min(recipe->length - progress, xb.size());
 						assert(chunkSize);
 
-						auto res = co_await thread->mainWorkQueue()->enter();
-						if (!res) {
-							peer->flowQueue.put({ .terminate = true, .fault = true });
-							++numSent;
-
-							// Retrieve but ignore all acks.
-							assert(numSent > numAcked);
-							while(numSent != numAcked) {
-								auto ackPacket = co_await node->flowQueue.async_get();
-								assert(ackPacket);
-								++numAcked;
-							}
-
-							node->_error = Error::threadExited;
-							break;
-						}
-
 						auto outcome = readUserMemory(xb.data(),
 								reinterpret_cast<std::byte *>(recipe->buffer) + progress, chunkSize);
 						if(!outcome) {
@@ -2842,14 +2822,6 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					node->complete();
 				}else if(recipe->type == kHelActionRecvToBuffer
 						&& peer->tag() == kTagSendKernelBuffer) {
-					auto res = co_await thread->mainWorkQueue()->enter();
-					if (!res) {
-						peer->_error = Error::threadExited;
-						node->_error = Error::threadExited;
-						peer->complete();
-						node->complete();
-						continue;
-					}
 					auto outcome = writeUserMemory(recipe->buffer,
 							peer->_inBuffer.data(), peer->_inBuffer.size());
 					if(!outcome) {
@@ -2881,7 +2853,6 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 							// Otherwise, there would have been a transmission error.
 							assert(progress + xferPacket->size <= recipe->length);
 
-							co_await thread->mainWorkQueue()->enter();
 							auto outcome = writeUserMemory(
 									reinterpret_cast<std::byte *>(recipe->buffer) + progress,
 									xferPacket->data, xferPacket->size);
@@ -3044,7 +3015,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 
 		co_await queue->submit(&items[0].mainSource, context);
 	}(std::move(items), count, thisUniverse.lock(), std::move(queue), context,
-			lane, numFlows, thisThread.lock());
+			lane, numFlows, thisThread.lock(),
+			enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
 }
@@ -3277,17 +3249,14 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	if(!queue->validSize(ipcSourceSize(sizeof(HelEventResult))))
 		return kHelErrQueueTooSmall;
 
-	auto wq = this_thread->mainWorkQueue().lock();
-
 	if(descriptor.is<IrqDescriptor>()) {
 		auto irq = descriptor.get<IrqDescriptor>().irq;
 
 		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
-				smarter::shared_ptr<WorkQueue> wq,
-				enable_detached_coroutine = {}) -> void {
-			auto result = co_await irq->awaitIrq(sequence, wq.get());
+				enable_detached_coroutine edc) -> void {
+			auto result = co_await irq->awaitIrq(sequence, edc.wq.get());
 
 			queue->unregisterTag(std::move(cg));
 
@@ -3303,16 +3272,16 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			}
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(irq), sequence, std::move(queue), context, std::move(cg), std::move(wq));
+		}(std::move(irq), sequence, std::move(queue), context, std::move(cg),
+			enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
 
 		[](smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
-				smarter::shared_ptr<WorkQueue> wq,
-				enable_detached_coroutine = {}) -> void {
-			auto result = co_await event->awaitEvent(sequence, cg.token(), wq.get());
+				enable_detached_coroutine edc) -> void {
+			auto result = co_await event->awaitEvent(sequence, cg.token(), edc.wq.get());
 
 			queue->unregisterTag(std::move(cg));
 
@@ -3323,17 +3292,16 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(event), sequence, std::move(queue), context,
-				std::move(cg), std::move(wq));
+		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
+				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else if(descriptor.is<BitsetEventDescriptor>()) {
 		auto event = descriptor.get<BitsetEventDescriptor>().event;
 
 		[](smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 				CancelGuard cg,
-				smarter::shared_ptr<WorkQueue> wq,
-				enable_detached_coroutine = {}) -> void {
-			auto result = co_await event->awaitEvent(sequence, cg.token(), wq.get());
+				enable_detached_coroutine edc) -> void {
+			auto result = co_await event->awaitEvent(sequence, cg.token(), edc.wq.get());
 
 			queue->unregisterTag(std::move(cg));
 
@@ -3344,8 +3312,8 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(event), sequence, std::move(queue), context,
-				std::move(cg), std::move(wq));
+		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
+				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
 	}
@@ -3892,10 +3860,11 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		// TODO: Return the correct context but use the HelElement opcode field to distinguish
 		//       submission failures and genuine completions.
 		infoLogger() << "thor: Submission failure with error: " << error << frg::endlog;
-		[] (smarter::shared_ptr<IpcQueue> queue, HelError error, enable_detached_coroutine = {}) -> void {
+		[] (smarter::shared_ptr<IpcQueue> queue, HelError error, enable_detached_coroutine) -> void {
 			HelSimpleResult helResult{.error = error, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, ~uintptr_t{0});
-		}(std::move(queue), error);
+		}(std::move(queue), error,
+			enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}
 }

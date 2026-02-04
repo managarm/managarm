@@ -125,7 +125,7 @@ void initializePmInterface() {
 	// Create a fiber to manage requests to the PM interface mbus object.
 	KernelFiber::run([=] {
 		auto pmIf = frg::construct<PmInterfaceBusObject>(*kernelAlloc);
-		async::detach_with_allocator(*kernelAlloc, pmIf->run());
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), pmIf->run());
 	});
 }
 

@@ -465,7 +465,7 @@ Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 
 Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
-: flags{0}, _mainWorkQueue{this}, _pagingWorkQueue{this},
+: flags{0}, _mainWorkQueue{this, ipl::passive}, _pagingWorkQueue{this, ipl::exceptional},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
 		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
 		_executor{&_userContext, abi},

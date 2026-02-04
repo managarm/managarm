@@ -472,7 +472,7 @@ void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
 
 	auto svr = frg::construct<GdbServer>(*kernelAlloc,
 			std::move(thread), path, std::move(channel), wq);
-	async::detach_with_allocator(*kernelAlloc,
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
 		async::transform(svr->run(), [] (auto outcome) {
 			if(!outcome)
 				infoLogger() << "thor: Internal error in gdbserver" << frg::endlog;

@@ -77,13 +77,9 @@ struct MemoryReclaimer {
 	}
 
 	auto awaitReclaim(CacheBundle *bundle, async::cancellation_token ct = {}) {
-		return async::sequence(
-			async::transform(
-				bundle->_reclaimEvent.async_wait(ct),
-				[] (auto) { }
-			),
-			// TODO: Use the reclaim fiber, not WorkQueue::generalQueue().
-			WorkQueue::generalQueue()->schedule()
+		return async::transform(
+			bundle->_reclaimEvent.async_wait(ct),
+			[] (auto) { }
 		);
 	}
 
@@ -373,7 +369,6 @@ struct ZeroMemory final : MemoryView {
 
 	coroutine<frg::expected<Error>> copyFrom(uintptr_t, void *buffer, size_t size,
 			WorkQueue *wq) override {
-		co_await wq->enter();
 		memset(buffer, 0, size);
 		co_return {};
 	}
@@ -671,7 +666,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 : pages{*kernelAlloc}, numPages{length >> kPageShift}, readahead{readahead} {
 	assert(!(length & (kPageSize - 1)));
 
-	[] (ManagedSpace *self, enable_detached_coroutine = {}) -> void {
+	[] (ManagedSpace *self, enable_detached_coroutine) -> void {
 		while(true) {
 			// TODO: Cancel awaitReclaim() when the ManagedSpace is destructed.
 			co_await globalReclaimer->awaitReclaim(self);
@@ -716,7 +711,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				warningLogger() << "Evicting physical page" << frg::endlog;
 			physicalAllocator->free(physical, kPageSize);
 		}
-	}(this);
+	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -1497,7 +1492,6 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 
 			return false;
 		});
-		co_await WorkQueue::generalQueue()->schedule();
 	}
 
 	{
@@ -1525,7 +1519,7 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 		WorkQueue *wq, LockRangeNode *node) {
 	// For now, it is enough to populate the range, as pages can only be evicted from
 	// the root of the CoW chain, but copies are never evicted.
-	async::detach_with_allocator(*kernelAlloc, [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
 			WorkQueue *wq, LockRangeNode *node) -> coroutine<void> {
 		size_t progress = 0;
 		while(progress < size) {
@@ -1580,7 +1574,6 @@ bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
 						assert(cowPage->state == CowState::hasCopy);
 						return false;
 					});
-					co_await wq->schedule();
 				} while(stillWaiting);
 
 				{
@@ -1724,7 +1717,6 @@ CopyOnWriteMemory::fetchRange(uintptr_t offset, FetchFlags, WorkQueue *wq) {
 				assert(cowPage->state == CowState::hasCopy);
 				return false;
 			});
-			co_await wq->schedule();
 		} while(stillWaiting);
 
 		co_return PhysicalRange{cowPage->physical, kPageSize, CachingMode::null};

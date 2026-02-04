@@ -28,10 +28,12 @@ struct WorkQueue {
 	static smarter::borrowed_ptr<WorkQueue> generalQueue();
 
 	void post(Worklet *worklet);
-	bool enter(Worklet *worklet);
 
-	WorkQueue(ExecutorContext *executorContext = illegalExecutorContext())
-	: _executorContext{executorContext}, _localPosted{false}, _lockedPosted{false} { }
+	// Returns true if a Worklet posted using post() would run immediately.
+	bool immediatelyDispatchable();
+
+	WorkQueue(ExecutorContext *executorContext, Ipl wqIpl)
+	: _executorContext{executorContext}, _wqIpl{wqIpl}, _localPosted{false}, _lockedPosted{false} { }
 
 	bool check();
 
@@ -89,12 +91,14 @@ struct WorkQueue {
 		: wq_{wq}, r_{std::move(r)} { }
 
 		void start() {
+			if (wq_->immediatelyDispatchable())
+				return async::execution::set_value(r_, true);
+
 			worklet_.setup([] (Worklet *base) {
 				auto self = frg::container_of(base, &EnterOperation::worklet_);
 				async::execution::set_value(self->r_, true);
 			});
-			if(wq_->enter(&worklet_))
-				return async::execution::set_value(r_, true);
+			wq_->post(&worklet_);
 		}
 
 	private:
@@ -130,7 +134,20 @@ protected:
 	~WorkQueue() = default;
 
 private:
+	using Queue = frg::intrusive_list<
+		Worklet,
+		frg::locate_member<
+			Worklet,
+			frg::default_list_hook<Worklet>,
+			&Worklet::_hook
+		>
+	>;
+
 	ExecutorContext *_executorContext;
+	// The WorkQueue can only run at currentIpl() <= _wqIpl.
+	Ipl _wqIpl;
+
+	Queue _pending;
 
 	frg::intrusive_list<
 		Worklet,

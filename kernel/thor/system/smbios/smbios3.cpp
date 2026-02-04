@@ -192,10 +192,10 @@ namespace smbios {
 
 void publish() {
 	if (smbios3) {
-		KernelFiber::run([=] { async::detach_with_allocator(*kernelAlloc, smbios3->run()); });
+		KernelFiber::run([=] { spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), smbios3->run()); });
 	} else {
 		noSmbios.initialize();
-		KernelFiber::run([=] { async::detach_with_allocator(*kernelAlloc, noSmbios->run()); });
+		KernelFiber::run([=] { spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), noSmbios->run()); });
 	}
 }
 
