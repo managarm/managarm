@@ -13,20 +13,27 @@ jobs:
             bootstrap-commit: ${{ steps.head.outputs.bootstrap-commit }}
             mlibc-commit: ${{ steps.head.outputs.mlibc-commit }}
             caching-key: ${{ steps.head.outputs.caching-key }}
-            corresponding-bootstrap: ${{ steps.bootstrap-check.outputs.corresponding-bootstrap }}
         steps:
           - id: head
             name: Get HEAD of bootstrap-managarm
+            env:
+              PR_BODY: ${{ github.event.pull_request.body }}
             run: |
-                remote="$(git ls-remote https://github.com/managarm/bootstrap-managarm.git refs/heads/master)"
-                head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $remote)"
-                echo "git ls-remote on bootstrap-managarm: $head"
-                echo "bootstrap-commit=$head" > "$GITHUB_OUTPUT"
+                pr_num=$(echo "$PR_BODY" | grep -Po '(?<=^Depends on managarm\/bootstrap-managarm#)([0-9]+)' | head -n1)
+                if [ ! -z "${pr_num}" ]; then
+                  head="refs/pull/$pr_num/head"
+                  echo "Using bootstrap-managarm PR#$pr_num"
+                else
+                  remote="$(git ls-remote https://github.com/managarm/bootstrap-managarm.git refs/heads/master)"
+                  head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $remote)"
+                  echo "git ls-remote on bootstrap-managarm: $head"
+                fi
+                echo "bootstrap-commit=$head" >> "$GITHUB_OUTPUT"
                 mlibc_remote="$(git ls-remote https://github.com/managarm/mlibc.git refs/heads/master)"
                 mlibc_head="$(grep -Po '[0-9a-z]+(?=\t+refs/heads/master$)' <<< $mlibc_remote)"
                 echo "git ls-remote on mlibc: $mlibc_head"
-                echo "mlibc-commit=$mlibc_head" > "$GITHUB_OUTPUT"
-                echo "caching-key=$head-$mlibc_head" > "$GITHUB_OUTPUT"
+                echo "mlibc-commit=$mlibc_head" >> "$GITHUB_OUTPUT"
+                echo "caching-key=$head-$mlibc_head" >> "$GITHUB_OUTPUT"
           - id: cache-rootfs
             name: Cache rootfs
             uses: actions/cache@v4
@@ -40,17 +47,6 @@ jobs:
                 set -x
                 curl -o rootfs.tar.gz https://repos.managarm.org/buildenv/managarm-buildenv.tar.gz
                 tar -xzf rootfs.tar.gz
-          - id: bootstrap-check
-            name: Check for corresponding bootstrap-managarm PR
-            env:
-              PR_BODY: ${{ github.event.pull_request.body }}
-            run: |
-              pr_num=$(echo "$PR_BODY" | grep -Po '(?<=^Depends on managarm\/bootstrap-managarm#)([0-9]+)$' | head -n1)
-              pr_ref=""
-              if [ ! -z "${pr_num}" ]; then
-                pr_ref="refs/pull/$pr_num/head"
-              fi
-              echo "corresponding-bootstrap=${pr_ref}" > "$GITHUB_OUTPUT"
 
     cache-arch:
         strategy:
@@ -146,7 +142,7 @@ jobs:
             uses: actions/checkout@v2
             with:
                 repository: managarm/bootstrap-managarm
-                ref: ${{ needs.cache-generic.outputs.corresponding-bootstrap }}
+                ref: ${{ needs.cache-generic.outputs.bootstrap-commit }}
                 path: src/
           - name: Checkout Managarm
             uses: actions/checkout@v2
@@ -248,7 +244,7 @@ jobs:
             uses: actions/checkout@v2
             with:
                 repository: managarm/bootstrap-managarm
-                ref: ${{ needs.cache-generic.outputs.corresponding-bootstrap }}
+                ref: ${{ needs.cache-generic.outputs.bootstrap-commit }}
                 path: src/
           - name: Checkout Managarm
             uses: actions/checkout@v2
@@ -359,7 +355,7 @@ jobs:
             uses: actions/checkout@v2
             with:
                 repository: managarm/bootstrap-managarm
-                ref: ${{ needs.cache-generic.outputs.corresponding-bootstrap }}
+                ref: ${{ needs.cache-generic.outputs.bootstrap-commit }}
                 path: src/
           - name: Checkout Managarm
             uses: actions/checkout@v2
