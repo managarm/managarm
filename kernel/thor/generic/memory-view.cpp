@@ -529,9 +529,8 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 
 coroutine<frg::expected<Error, size_t>>
 HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *) {
-	assert(offset % kPageSize == 0);
-
-	co_return kPageSize;
+	auto misalign = offset & (kPageSize - 1);
+	co_return kPageSize - misalign;
 }
 
 void HardwareMemory::markDirty(uintptr_t, size_t) {
@@ -1101,6 +1100,7 @@ coroutine<frg::expected<Error, size_t>>
 FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags, WorkQueue *) {
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
+	auto alignedOffset = offset & ~(kPageSize - 1);
 
 	ManageList pendingManagement;
 	MonitorList pendingMonitors;
@@ -1164,7 +1164,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags, WorkQueue 
 
 		_managed->_progressManagement(pendingManagement);
 
-		fetchMonitor.setup(ManageRequest::initialize, offset, kPageSize);
+		fetchMonitor.setup(ManageRequest::initialize, alignedOffset, kPageSize);
 		fetchMonitor.progress = 0;
 		_managed->_monitorQueue.push_back(&fetchMonitor);
 		_managed->_progressMonitors(pendingMonitors);
@@ -1647,6 +1647,7 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 coroutine<frg::expected<Error, size_t>>
 CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *wq) {
 	auto misalign = offset & (kPageSize - 1);
+	auto alignedOffset = offset & ~(kPageSize - 1);
 
 	smarter::shared_ptr<CowChain> chain;
 	smarter::shared_ptr<MemoryView> view;
@@ -1705,7 +1706,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *w
 	PageAccessor accessor{physical};
 
 	// Try to copy from a descendant CoW chain.
-	auto pageOffset = viewOffset + offset;
+	auto pageOffset = viewOffset + alignedOffset;
 	bool chainHasCopy = false;
 	if(chain) {
 		auto irqLock = frg::guard(&irqMutex());
@@ -1731,7 +1732,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *w
 
 	// To make CoW unobservable, we first need to evict the page here.
 	// TODO: enable read-only eviction.
-	co_await _evictQueue.evictRange(offset, kPageSize);
+	co_await _evictQueue.evictRange(alignedOffset, kPageSize);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
