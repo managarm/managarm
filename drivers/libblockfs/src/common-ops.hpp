@@ -260,12 +260,12 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 
 template <FileSystem T>
 async::result<protocols::fs::OpenResult>
-doOpen(std::shared_ptr<void> object, bool append) {
+doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	using File = typename T::File;
 	using Inode = typename T::Inode;
 
 	auto self = std::static_pointer_cast<Inode>(object);
-	auto file = smarter::make_shared<File>(self, append);
+	auto file = smarter::make_shared<File>(self, write, read, append);
 	co_await self->readyEvent.wait();
 
 	auto [localCtrl, remoteCtrl] = helix::createStream();
