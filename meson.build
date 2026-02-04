@@ -2,7 +2,7 @@ project('managarm',
 	license : 'MIT',
 	meson_version : '>=1.4.0',
 	default_options : [
-		'cpp_std=gnu++23',
+		'cpp_std=gnu++26',
 		'c_std=gnu11',
 		'warning_level=2'
 	]
