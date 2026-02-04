@@ -750,7 +750,7 @@ struct MemoryViewLockHandle {
 	MemoryViewLockHandle() = default;
 
 	MemoryViewLockHandle(smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t size)
-	: _view{view}, _offset{offset}, _size{size}, _active{true} { }
+	: _view{view}, _offset{offset}, _size{size}, _active{false} { }
 
 	MemoryViewLockHandle(const MemoryViewLockHandle &) = delete;
 
@@ -770,9 +770,13 @@ struct MemoryViewLockHandle {
 		return _active;
 	}
 
-	auto acquire(WorkQueue *wq) {
-		return async::transform(_view->asyncLockRange(_offset, _size, wq),
-			[&] (Error e) { _active = e == Error::success; });
+	void acquire() {
+		assert(!_active);
+
+		auto err = _view->lockRange(_offset, _size);
+		if(err != Error::success)
+			return;
+		_active = true;
 	}
 
 private:

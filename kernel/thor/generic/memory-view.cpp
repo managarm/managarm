@@ -218,11 +218,14 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::invocable([&nd] {
+				auto err = nd.view->lockRange(nd.offset, nd.size);
+				assert(err == Error::success);
 			}),
+			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
@@ -281,11 +284,14 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
 	}, [] (Node &nd) {
 		return async::sequence(
-			async::transform(nd.view->asyncLockRange(nd.offset, nd.size,
-					nd.wq), [] (Error e) {
-				// TODO: properly propagate the error.
-				assert(e == Error::success);
+			async::invocable([&nd] {
+				auto err = nd.view->lockRange(nd.offset, nd.size);
+				assert(err == Error::success);
 			}),
+			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
+				[] (frg::expected<Error> outcome) {
+					assert(outcome);
+				}),
 			async::repeat_while([&nd] { return nd.progress < nd.size; },
 				[&nd] {
 					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
@@ -318,12 +324,6 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		);
 	});
 	co_return {};
-}
-
-bool MemoryView::asyncLockRange(uintptr_t offset, size_t size,
-		WorkQueue *, LockRangeNode *node) {
-	node->result = lockRange(offset, size);
-	return true;
 }
 
 coroutine<frg::expected<Error>>
@@ -1340,6 +1340,8 @@ Error IndirectMemory::setIndirection(size_t slot, smarter::shared_ptr<MemoryView
 // --------------------------------------------------------
 
 CowPage::~CowPage() {
+	if(state == CowState::null)
+		return;
 	assert(state == CowState::hasCopy);
 	assert(physical != PhysicalAddr(-1));
 	physicalAllocator->free(physical, kPageSize);
@@ -1440,7 +1442,9 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			}
 
 			auto page = *it;
-			if(page->state == CowState::inProgress) {
+			if(page->state == CowState::null) {
+				continue;
+			}else if(page->state == CowState::inProgress) {
 				// We wait for the in progress pages later, as we
 				// need to drop the locks we're holding before
 				// suspending, but they are ensuring consistency
@@ -1485,136 +1489,24 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
-Error CopyOnWriteMemory::lockRange(uintptr_t, size_t) {
-	panicLogger() << "CopyOnWriteMemory does not support synchronous lockRange()"
-			<< frg::endlog;
-	__builtin_unreachable();
-}
+Error CopyOnWriteMemory::lockRange(uintptr_t offset, size_t size) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_mutex);
 
-bool CopyOnWriteMemory::asyncLockRange(uintptr_t offset, size_t size,
-		WorkQueue *wq, LockRangeNode *node) {
-	// For now, it is enough to populate the range, as pages can only be evicted from
-	// the root of the CoW chain, but copies are never evicted.
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (CopyOnWriteMemory *self, uintptr_t overallOffset, size_t size,
-			WorkQueue *wq, LockRangeNode *node) -> coroutine<void> {
-		size_t progress = 0;
-		while(progress < size) {
-			auto offset = overallOffset + progress;
-
-			smarter::shared_ptr<CowChain> chain;
-			smarter::shared_ptr<MemoryView> view;
-			uintptr_t viewOffset;
-			smarter::shared_ptr<CowPage> cowPage;
-			bool waitForCopy = false;
-			{
-				// If the page is present in our private chain, we just return it.
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->_mutex);
-
-				auto cowIt = self->_ownedPages.find(offset >> kPageShift);
-				if(cowIt) {
-					cowPage = *cowIt;
-					if(cowPage->state == CowState::hasCopy) {
-						assert(cowPage->physical != PhysicalAddr(-1));
-
-						cowPage->lockCount++;
-						progress += kPageSize;
-						continue;
-					}else{
-						assert(cowPage->state == CowState::inProgress);
-						waitForCopy = true;
-					}
-				}else{
-					chain = self->_copyChain;
-					view = self->_view;
-					viewOffset = self->_viewOffset;
-
-					// Otherwise we need to copy from the chain or from the root view.
-					cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-					cowPage->state = CowState::inProgress;
-					cowIt = self->_ownedPages.insert(offset >> kPageShift);
-					*cowIt = cowPage;
-				}
-			}
-
-			if(waitForCopy) {
-				bool stillWaiting;
-				do {
-					stillWaiting = co_await self->_copyEvent.async_wait_if([&] () -> bool {
-						// TODO: this could be faster if cowPage->state was atomic.
-						auto irqLock = frg::guard(&irqMutex());
-						auto lock = frg::guard(&self->_mutex);
-
-						if(cowPage->state == CowState::inProgress)
-							return true;
-						assert(cowPage->state == CowState::hasCopy);
-						return false;
-					});
-				} while(stillWaiting);
-
-				{
-					auto irqLock = frg::guard(&irqMutex());
-					auto lock = frg::guard(&self->_mutex);
-
-					assert(cowPage->state == CowState::hasCopy);
-					cowPage->lockCount++;
-				}
-				progress += kPageSize;
-				continue;
-			}
-
-			PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-			assert(physical != PhysicalAddr(-1) && "OOM");
-			PageAccessor accessor{physical};
-
-			// Try to copy from a descendant CoW chain.
-			auto pageOffset = viewOffset + offset;
-			bool chainHasCopy = false;
-			if(chain) {
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&chain->_mutex);
-
-				if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
-					auto page = *it;
-					// We can just copy synchronously here -- the descendant is not evicted.
-					assert(page->state == CowState::hasCopy);
-					auto srcPhysical = page->physical;
-					assert(srcPhysical != PhysicalAddr(-1));
-					auto srcAccessor = PageAccessor{srcPhysical};
-					memcpy(accessor.get(), srcAccessor.get(), kPageSize);
-					chainHasCopy = true;
-				}
-			}
-
-			// Copy from the root view.
-			if(!chainHasCopy) {
-				// TODO: Handle errors here -- we need to drop the lock again.
-				auto copyOutcome = co_await view->copyFrom(pageOffset & ~(kPageSize - 1),
-						accessor.get(), kPageSize, wq);
-				assert(copyOutcome);
-			}
-
-			// To make CoW unobservable, we first need to evict the page here.
-			// TODO: enable read-only eviction.
-			co_await self->_evictQueue.evictRange(offset & ~(kPageSize - 1), kPageSize);
-
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->_mutex);
-
-				assert(cowPage->state == CowState::inProgress);
-				cowPage->state = CowState::hasCopy;
-				cowPage->physical = physical;
-				cowPage->lockCount++;
-			}
-			self->_copyEvent.raise();
-			progress += kPageSize;
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		auto it = _ownedPages.find((offset + pg) >> kPageShift);
+		if(it) {
+			auto page = *it;
+			page->lockCount++;
+		}else{
+			auto cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+			cowPage->lockCount = 1;
+			it = _ownedPages.insert((offset + pg) >> kPageShift);
+			*it = cowPage;
 		}
+	}
 
-		node->result = Error::success;
-		node->resume();
-	}(this, offset, size, wq, node));
-	return false;
+	return Error::success;
 }
 
 void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
@@ -1625,7 +1517,6 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 		auto it = _ownedPages.find((offset + pg) >> kPageShift);
 		assert(it);
 		auto page = *it;
-		assert(page->state == CowState::hasCopy);
 		assert(page->lockCount > 0);
 		page->lockCount--;
 	}
@@ -1637,8 +1528,8 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		auto page = *it;
-		assert(page->state == CowState::hasCopy);
-		return frg::tuple<PhysicalAddr, CachingMode>{page->physical, CachingMode::null};
+		if(page->state == CowState::hasCopy)
+			return frg::tuple<PhysicalAddr, CachingMode>{page->physical, CachingMode::null};
 	}
 
 	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
@@ -1666,9 +1557,14 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags, WorkQueue *w
 				assert(cowPage->physical != PhysicalAddr(-1));
 
 				co_return kPageSize - misalign;
-			}else{
-				assert(cowPage->state == CowState::inProgress);
+			}else if(cowPage->state == CowState::inProgress) {
 				waitForCopy = true;
+			}else{
+				assert(cowPage->state == CowState::null);
+				chain = _copyChain;
+				view = _view;
+				viewOffset = _viewOffset;
+				cowPage->state = CowState::inProgress;
 			}
 		}else{
 			chain = _copyChain;
