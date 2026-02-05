@@ -9,7 +9,6 @@
 #include <thor-internal/arch/stack.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
-#include <thor-internal/kernel-locks.hpp>
 
 namespace thor {
 

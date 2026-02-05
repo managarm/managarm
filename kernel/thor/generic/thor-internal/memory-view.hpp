@@ -13,7 +13,6 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
 #include <thor-internal/types.hpp>
-#include <thor-internal/kernel-locks.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
