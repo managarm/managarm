@@ -44,7 +44,11 @@ async::result<void> handleChroot(RequestContext& ctx) {
 		}
 	}
 	auto path = pathResult.value();
-	ctx.self->fsContext()->changeRoot(path);
+	auto rootResult = ctx.self->fsContext()->changeRoot(path);
+	if(!rootResult) {
+		co_await sendErrorResponse<managarm::posix::ChrootResponse>(ctx, rootResult.error() | toPosixProtoError);
+		co_return;
+	}
 
 	managarm::posix::ChrootResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -90,7 +94,11 @@ async::result<void> handleChdir(RequestContext& ctx) {
 		}
 	}
 	auto path = pathResult.value();
-	ctx.self->fsContext()->changeWorkingDirectory(path);
+	auto cwdResult = ctx.self->fsContext()->changeWorkingDirectory(path);
+	if(!cwdResult) {
+		co_await sendErrorResponse<managarm::posix::ChdirResponse>(ctx, cwdResult.error() | toPosixProtoError);
+		co_return;
+	}
 
 	managarm::posix::ChdirResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);

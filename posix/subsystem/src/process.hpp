@@ -151,8 +151,8 @@ struct FsContext {
 	ViewPath getWorkingDirectory();
 	mode_t getUmask();
 
-	void changeRoot(ViewPath root);
-	void changeWorkingDirectory(ViewPath root);
+	std::expected<void, Error> changeRoot(ViewPath root);
+	std::expected<void, Error> changeWorkingDirectory(ViewPath path);
 	mode_t setUmask(mode_t mask);
 
 private:

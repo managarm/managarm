@@ -431,8 +431,17 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 				continue;
 			}
 
-			self->fsContext()->changeWorkingDirectory({file->associatedMount(),
+			auto cwdResult = self->fsContext()->changeWorkingDirectory({file->associatedMount(),
 					file->associatedLink()});
+			if(!cwdResult) {
+				resp.set_error(cwdResult.error() | toPosixProtoError);
+
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				continue;
+			}
 
 			resp.set_error(managarm::posix::Errors::SUCCESS);
 
