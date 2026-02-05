@@ -3,7 +3,6 @@
 #include <eir/interface.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/arch-generic/cpu-data.hpp>
-#include <thor-internal/kernel-locks.hpp>
 
 #include <new>
 #include <tuple>
@@ -75,7 +74,8 @@ struct CpuData : public PlatformCpuData {
 	std::atomic<Ipl> contextIpl{ipl::passive};
 	std::atomic<Ipl> currentIpl{ipl::passive};
 	std::atomic<uint32_t> iplDeferred{0};
-	IrqMutex irqMutex;
+	// Used by IrqMutex.
+	std::atomic<unsigned int> intState{0};
 	UniqueKernelStack detachedStack;
 	UniqueKernelStack idleStack;
 	bool haveVirtualization;
@@ -209,10 +209,6 @@ inline CpuData *getCpuData(size_t cpu) {
 }
 
 size_t getCpuCount();
-
-inline IrqMutex &irqMutex() {
-	return getCpuData()->irqMutex;
-}
 
 inline ExecutorContext *currentExecutorContext() {
 	return getCpuData()->executorContext;
