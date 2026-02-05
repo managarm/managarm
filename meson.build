@@ -153,11 +153,15 @@ endif
 
 if build_kernel
 	cralgo = subproject('cralgo')
-	uacpi = subproject('uacpi')
+	uacpi = dependency('uacpi', method: 'pkg-config')
 	cralgo_sources = cralgo.get_variable('sources')
 	cralgo_includes = cralgo.get_variable('includes')
-	uacpi_sources = uacpi.get_variable('sources')
-	uacpi_includes = uacpi.get_variable('includes')
+	uacpi_includes = include_directories(uacpi.get_variable('includedir'))
+
+	uacpi_sources = files()
+	foreach f : uacpi.get_variable('sourcefiles').split(';')
+		uacpi_sources += files(uacpi.get_variable('installdir') / f)
+	endforeach
 
 	subdir('hel')
 	subdir('core/arch')
