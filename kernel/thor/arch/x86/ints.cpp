@@ -382,6 +382,7 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 	}
 
 	disableInts();
+	iplRaise(ipl::maximal);
 
 	// This fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.
@@ -485,10 +486,13 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	handleSyscall(image);
 
 	disableInts();
+	iplRaise(ipl::interrupt);
 
 	// This syscall may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.
 	checkThreadPreemption(image);
+
+	iplLower(ipl::passive);
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {

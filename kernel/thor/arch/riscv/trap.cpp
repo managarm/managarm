@@ -224,10 +224,11 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 
 	switch (code) {
 		case codeEcallUmode:
-			assert(frame->iplState.current == ipl::passive);
-
 			// We need to skip over the ecall instruction (since sepc points to ecall on entry).
 			frame->ip += 4;
+
+			assert(frame->iplState.current == ipl::passive);
+			enableInts();
 
 			handleRiscvSyscall(frame);
 			break;
@@ -267,6 +268,9 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 			              << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
 			              << frg::endlog;
 	}
+
+	disableInts();
+	iplRaise(ipl::maximal);
 
 	// This syscall/fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.

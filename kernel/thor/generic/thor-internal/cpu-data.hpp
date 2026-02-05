@@ -61,6 +61,11 @@ struct IplState {
 	Ipl current{ipl::passive};
 };
 
+struct alignas(8) IntState {
+	std::atomic<unsigned int> nesting{0};
+	Ipl outerIpl{ipl::bad};
+};
+
 struct CpuData : public PlatformCpuData {
 	static constexpr unsigned int RS_EMITTING = 1;
 	static constexpr unsigned int RS_PENDING = 2;
@@ -72,10 +77,11 @@ struct CpuData : public PlatformCpuData {
 	CpuData &operator= (const CpuData &) = delete;
 
 	std::atomic<Ipl> contextIpl{ipl::passive};
-	std::atomic<Ipl> currentIpl{ipl::passive};
+	// CPUs boot with interrupts disabled, so we initialize to ipl::interrupt.
+	std::atomic<Ipl> currentIpl{ipl::interrupt};
 	std::atomic<uint32_t> iplDeferred{0};
 	// Used by IrqMutex.
-	std::atomic<unsigned int> intState{0};
+	IntState intState;
 	UniqueKernelStack detachedStack;
 	UniqueKernelStack idleStack;
 	bool haveVirtualization;

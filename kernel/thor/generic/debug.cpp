@@ -130,7 +130,7 @@ namespace {
 	// If expedited is true, this function always emits logs within this context,
 	// using LogHandler::emitUrgent() as necessary.
 	void postLogRecord(frg::string_view record, bool expedited) {
-		StatelessIrqLock irqLock;
+		RobustIrqLock irqLock;
 		auto *cpuData = getCpuData();
 
 		// If true, the usual logging path (i.e., emitLogsFromRing()) is bypassed;
@@ -324,7 +324,7 @@ void PanicSink::operator() (const char *msg) {
 }
 
 void PanicSink::finalize(bool) {
-	StatelessIrqLock irqLock;
+	RobustIrqLock irqLock;
 
 #ifdef THOR_HAS_FRAME_POINTERS
 	urgentLogger() << "Stacktrace:" << frg::endlog;

@@ -14,7 +14,10 @@ inline Ipl currentIpl() {
 	return getCpuData()->currentIpl.load(std::memory_order_relaxed);
 }
 
+[[noreturn]] void panicOnIplStateCorruption();
 [[noreturn]] void panicOnIllegalIplEntry(Ipl newIpl, Ipl currentIpl);
+[[noreturn]] void panicOnIplScopeNesting(Ipl expectedIpl);
+[[noreturn]] void panicOnInterruptIplDesync();
 
 inline void iplSave(IplState &savedIpl) {
 	auto cpuData = getCpuData();
@@ -128,92 +131,123 @@ private:
 };
 
 struct IrqMutex {
-private:
-	static constexpr unsigned int enableBit = 0x8000'0000;
-
-public:
 	IrqMutex() = default;
 
 	IrqMutex(const IrqMutex &) = delete;
 
 	void lock() {
 		auto cpuData = getCpuData();
-		// We maintain the following invariants:
-		// * Properly nested lock()/unlock() pairs restore IRQs to the original state.
-		// * If we observe cpuData->intState > 0 then IRQs are disabled.
-		//
-		// NMIs and faults can always interrupt us but that is
-		// not a problem because of the first invariant.
-		auto s = cpuData->intState.load(std::memory_order_acquire);
-		if(!s) {
-			auto e = intsAreEnabled();
-			if(e) {
-				disableInts();
-				cpuData->intState.store(enableBit | 1, std::memory_order_relaxed);
-			}else{
-				cpuData->intState.store(1, std::memory_order_relaxed);
-			}
-		}else{
-			// Because of the second invariant we do not need to examine the IRQ state here.
-			assert(s & ~enableBit);
-			cpuData->intState.store(s + 1, std::memory_order_release);
+		auto intState = &cpuData->intState;
+
+		auto outerIpl = cpuData->currentIpl.load(std::memory_order_relaxed);
+		if (outerIpl < ipl::interrupt) {
+			if (!intsAreEnabled()) [[unlikely]]
+				panicOnInterruptIplDesync();
+
+			// Update IPL, then IrqMutex nesting.
+			disableInts();
+			cpuData->currentIpl.store(ipl::interrupt, std::memory_order_relaxed);
+			std::atomic_signal_fence(std::memory_order_release);
+			intState->nesting.store(1, std::memory_order_relaxed);
+
+			// (w, rw) fence to keep following accesses after the intState store.
+			std::atomic_signal_fence(std::memory_order_seq_cst);
+
+			intState->outerIpl = outerIpl;
+		} else {
+			auto n = intState->nesting.load(std::memory_order_relaxed);
+			intState->nesting.store(n + 1, std::memory_order_relaxed);
 		}
 	}
 
 	void unlock() {
 		auto cpuData = getCpuData();
-		auto s = cpuData->intState.load(std::memory_order_relaxed);
-		assert(s & ~enableBit);
-		if((s & ~enableBit) == 1) {
-			cpuData->intState.store(0, std::memory_order_release);
-			if(s & enableBit)
+		auto intState = &cpuData->intState;
+
+		auto n = intState->nesting.load(std::memory_order_relaxed);
+		if (n == 1) {
+			auto outerIpl = intState->outerIpl;
+			intState->outerIpl = ipl::bad;
+
+			// (rw, w) fence to keep preceeding accesses before the intState store.
+			std::atomic_signal_fence(std::memory_order_release);
+
+			// Update IrqMutex nesting, then IPL.
+			intState->nesting.store(0, std::memory_order_relaxed);
+			if (outerIpl != ipl::bad) {
+				std::atomic_signal_fence(std::memory_order_release);
+				if (cpuData->currentIpl.load(std::memory_order_relaxed) != ipl::interrupt) [[unlikely]]
+					panicOnIplScopeNesting(ipl::interrupt);
+				cpuData->currentIpl.store(outerIpl, std::memory_order_relaxed);
 				enableInts();
-		}else{
-			cpuData->intState.store(s - 1, std::memory_order_release);
+			}
+		} else {
+			if (!n) [[unlikely]]
+				panicOnIplStateCorruption();
+			intState->nesting.store(n - 1, std::memory_order_relaxed);
 		}
 	}
 
 	unsigned int nesting() {
 		auto cpuData = getCpuData();
-		return cpuData->intState.load(std::memory_order_relaxed) & ~enableBit;
+		auto intState = &cpuData->intState;
+		return intState->nesting.load(std::memory_order_relaxed);
 	}
 };
 
 struct StatelessIrqLock {
-	StatelessIrqLock()
-	: _locked{false} {
+	StatelessIrqLock() {
 		lock();
 	}
 
-	StatelessIrqLock(frg::dont_lock_t)
-	: _locked{false} { }
+	StatelessIrqLock(frg::dont_lock_t) { }
 
 	StatelessIrqLock(const StatelessIrqLock &) = delete;
 
 	~StatelessIrqLock() {
-		if(_locked)
+		if(_outerIpl != ipl::bad)
 			unlock();
 	}
 
 	StatelessIrqLock &operator= (const StatelessIrqLock &) = delete;
 
 	void lock() {
-		assert(!_locked);
-		_enabled = intsAreEnabled();
-		disableInts();
-		_locked = true;
+		if (_outerIpl != ipl::bad) [[unlikely]]
+			panicOnIplStateCorruption();
+
+		auto cpuData = getCpuData();
+		auto outerIpl = cpuData->currentIpl.load(std::memory_order_relaxed);
+		if (outerIpl < ipl::interrupt) {
+			if (!intsAreEnabled()) [[unlikely]]
+				panicOnInterruptIplDesync();
+
+			disableInts();
+			cpuData->currentIpl.store(ipl::interrupt, std::memory_order_relaxed);
+
+			// (w, rw) fence to keep following accesses after the IPL store.
+			std::atomic_signal_fence(std::memory_order_seq_cst);
+
+			_outerIpl = outerIpl;
+		}
 	}
 
 	void unlock() {
-		assert(_locked);
-		if(_enabled)
+		auto cpuData = getCpuData();
+		if (_outerIpl != ipl::bad) {
+			// (rw, w) fence to keep preceeding accesses before the IPL store.
+			std::atomic_signal_fence(std::memory_order_release);
+
+			if (cpuData->currentIpl.load(std::memory_order_relaxed) != ipl::interrupt) [[unlikely]]
+				panicOnIplScopeNesting(ipl::interrupt);
+			cpuData->currentIpl.store(_outerIpl, std::memory_order_relaxed);
 			enableInts();
-		_locked = false;
+
+			_outerIpl = ipl::bad;
+		}
 	}
 
 private:
-	bool _locked;
-	bool _enabled;
+	Ipl _outerIpl{ipl::bad};
 };
 
 inline IrqMutex globalIrqMutex;
@@ -221,5 +255,46 @@ inline IrqMutex globalIrqMutex;
 inline IrqMutex &irqMutex() {
 	return globalIrqMutex;
 }
+
+// Saves and restore both IPL and hardware IRQ state.
+// In contrast to StatelessIrqLock, this class does not assert() or panic on broken invariants.
+// This is used by the logging code (e.g., when logging kernel panics).
+struct RobustIrqLock {
+	RobustIrqLock() {
+		auto cpuData = getCpuData();
+
+		_outerInts = intsAreEnabled();
+		if (_outerInts)
+			disableInts();
+		auto currentIpl = cpuData->currentIpl.load(std::memory_order_relaxed);
+		if (currentIpl < ipl::interrupt) {
+			_outerIpl = currentIpl;
+			cpuData->currentIpl.store(ipl::interrupt, std::memory_order_relaxed);
+		}
+
+		// (w, rw) fence to keep following accesses after the IPL store.
+		std::atomic_signal_fence(std::memory_order_seq_cst);
+	}
+
+	RobustIrqLock(const RobustIrqLock &) = delete;
+
+	~RobustIrqLock() {
+		auto cpuData = getCpuData();
+
+		// (rw, w) fence to keep preceeding accesses before the IPL store.
+		std::atomic_signal_fence(std::memory_order_release);
+
+		if (_outerIpl != ipl::bad)
+			cpuData->currentIpl.store(_outerIpl, std::memory_order_relaxed);
+		if (_outerInts)
+			enableInts();
+	}
+
+	RobustIrqLock &operator= (const RobustIrqLock &) = delete;
+
+private:
+	bool _outerInts{false};
+	Ipl _outerIpl{ipl::bad};
+};
 
 } // namespace thor
