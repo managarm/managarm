@@ -2,6 +2,8 @@ if host_machine.cpu_family() != 'x86_64'
 	subdir_done()
 endif
 
+lil_dep = dependency('lil', method: 'pkg-config')
+
 src = files(
 	'src/gfx.cpp',
 	'src/main.cpp',
