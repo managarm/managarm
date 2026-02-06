@@ -3,6 +3,7 @@
 #include <async/basic.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/work-queue.hpp>
+#include <type_traits>
 
 namespace thor {
 

@@ -138,6 +138,8 @@ tail:
 
 		tag(11) DtRegister[] dt_regs;
 		tag(12) uint32 num_dt_irqs;
+
+		tag(14) uint32 vbt_size;
 	}
 }
 
@@ -257,4 +259,8 @@ head(128):
 
 tail:
 	string path;
+}
+
+message GetVbtRequest 35 {
+head(128):
 }

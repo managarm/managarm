@@ -8,6 +8,9 @@ ENV{plainfb.force}=="1", GOTO="managarm_vga_forceplain"
 
 ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/gfx-nvidia-open.bin", GOTO="managarm_vga_end"
 
+ATTR{vendor}=="0x8086", ATTR{class}=="0x030000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/gfx-intel-lil.bin", GOTO="managarm_vga_end"
+ATTR{vendor}=="0x8086", ATTR{class}=="0x038000", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/gfx-intel-lil.bin", GOTO="managarm_vga_end"
+
 ENV{gfx.vm}=="0", GOTO="managarm_vga_forceplain"
 ATTR{vendor}=="0x1234", ATTR{device}=="0x1111", RUN+="/usr/bin/runsvr --fork run /usr/lib/managarm/server/gfx-bochs.bin", GOTO="managarm_vga_end"
 ATTR{vendor}=="0x1af4", ATTR{device}=="0x1050", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/gfx-virtio.bin", GOTO="managarm_vga_end"

@@ -348,7 +348,7 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logDrmRequests)
-				std::cout << "core/drm: GETPLANE()" << std::endl;
+				std::println("core/drm: GETPLANE({})", req->drm_plane_id());
 
 			resp.set_drm_encoder_type(0);
 
@@ -366,13 +366,17 @@ drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			auto crtc = plane->drmState()->crtc;
 			if(crtc != nullptr) {
 				resp.set_drm_crtc_id(crtc->id());
+				if(logDrmRequests)
+					std::println("\tCRTC {}", crtc->id());
 			} else {
 				resp.set_drm_crtc_id(0);
 			}
 
 			auto fb = plane->getFrameBuffer();
-			if(fb) {
+			if(fb != nullptr) {
 				resp.set_drm_fb_id(fb->id());
+				if(logDrmRequests)
+					std::println("\tFB {}", fb->id());
 			} else {
 				resp.set_drm_fb_id(0);
 			}
