@@ -571,4 +571,55 @@ void spawnOnWorkQueue(A allocator, smarter::shared_ptr<WorkQueue> wq, S sender) 
 	cb->spawn();
 }
 
+template<async::Sender S>
+struct OnExceptionalWqSender {
+	using value_type = S::value_type;
+
+	template<typename E>
+	struct Env {
+		WorkQueue *get_work_queue() {
+			auto ec = workQueueFromEnv(base)->executorContext();
+			auto exceptionalWq = ec->exceptionalWq;
+			assert(exceptionalWq);
+			return exceptionalWq;
+		}
+
+		E base;
+	};
+
+	template<typename R>
+	struct IntermediateReceiver {
+		template<typename... Args>
+		void set_value(Args &&... args) {
+			return async::execution::set_value(std::move(dr), std::forward<Args>(args)...);
+		}
+
+		auto get_env() {
+			auto base = async::execution::get_env(dr);
+			return Env{.base = base};
+		}
+
+		R dr;
+	};
+
+	template<typename R>
+	auto connect(R dr) {
+		return async::execution::connect(
+			std::move(sender),
+			IntermediateReceiver{
+				.dr = std::move(dr),
+			}
+		);
+	}
+
+	S sender;
+};
+
+template<async::Sender S>
+OnExceptionalWqSender<S> onExceptionalWq(S sender) {
+	return {
+		.sender = std::move(sender),
+	};
+}
+
 } // namespace thor

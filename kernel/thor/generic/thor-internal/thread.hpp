@@ -81,6 +81,7 @@ public:
 			AbiParameters abi) {
 		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
 				std::move(universe), std::move(address_space), abi);
+		thread->_executorContext.exceptionalWq = &thread->_pagingWorkQueue;
 
 		// The kernel owns one reference to the thread until the thread finishes execution.
 		thread.ctr()->increment();
