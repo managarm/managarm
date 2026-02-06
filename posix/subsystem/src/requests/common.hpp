@@ -196,4 +196,10 @@ async::result<void> handleTimerSet(RequestContext& ctx);
 async::result<void> handleTimerGet(RequestContext& ctx);
 async::result<void> handleTimerDelete(RequestContext& ctx);
 
+// From shm.cpp
+async::result<void> handleShmGet(RequestContext& ctx);
+async::result<void> handleShmAt(RequestContext& ctx);
+async::result<void> handleShmDt(RequestContext& ctx);
+async::result<void> handleShmCtl(RequestContext& ctx);
+
 } // namespace requests
