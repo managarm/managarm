@@ -168,8 +168,7 @@ public:
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
-				wq->run();
+			if(runWqs()) {
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
 				continue;
@@ -245,8 +244,7 @@ public:
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
-				wq->run();
+			if(runWqs()) {
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
 				continue;
@@ -258,6 +256,25 @@ public:
 			}
 		}
 		return std::move(*bls.value);
+	}
+
+	// Run the current thread's WQs. Returns true if there was any work to do.
+	static bool runWqs() {
+		auto ipl = currentIpl();
+		auto thisThread = getCurrentThread();
+		if (ipl <= ipl::exceptional) {
+			if (thisThread->_pagingWorkQueue.check()) {
+				thisThread->_pagingWorkQueue.run();
+				return true;
+			}
+		}
+		if (ipl == ipl::passive) {
+			if (thisThread->_mainWorkQueue.check()) {
+				thisThread->_mainWorkQueue.run();
+				return true;
+			}
+		}
+		return false;
 	}
 
 	// State transitions that apply to the current thread only.
