@@ -177,7 +177,6 @@ if build_drivers
 	bakesvr = find_program('bakesvr')
 
 	libudev_dep = dependency('libudev')
-	lil_dep = dependency('lil', method: 'pkg-config')
 endif
 
 if build_drivers or build_testsuite
