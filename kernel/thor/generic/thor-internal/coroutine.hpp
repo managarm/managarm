@@ -347,7 +347,7 @@ private:
 };
 
 template<typename T, typename R>
-struct coroutine_operation final : private coroutine_continuation<T> {
+struct coroutine_operation final : private thor::Worklet, coroutine_continuation<T> {
 	coroutine_operation(coroutine<T> s, R receiver)
 	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
 
@@ -358,9 +358,17 @@ struct coroutine_operation final : private coroutine_continuation<T> {
 	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
-		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
+		auto wq = thor::workQueueFromEnv(async::execution::get_env(receiver_));
+		promise->wq_ = wq;
 		promise->cont_ = this;
-		h.resume();
+		if (wq->immediatelyDispatchable())
+			return h.resume();
+		Worklet::setup([] (Worklet *base) {
+			auto self = static_cast<coroutine_operation *>(base);
+			auto h = self->s_.h_;
+			h.resume();
+		});
+		wq->post(this);
 	}
 
 private:
@@ -377,7 +385,7 @@ private:
 
 // Specialization for coroutines without results.
 template<typename R>
-struct coroutine_operation<void, R> final : private coroutine_continuation<void> {
+struct coroutine_operation<void, R> final : private thor::Worklet, coroutine_continuation<void> {
 	coroutine_operation(coroutine<void> s, R receiver)
 	: s_{std::move(s)}, receiver_{std::move(receiver)} { }
 
@@ -388,9 +396,17 @@ struct coroutine_operation<void, R> final : private coroutine_continuation<void>
 	void start() {
 		auto h = s_.h_;
 		auto promise = &h.promise();
-		promise->wq_ = thor::workQueueFromEnv(async::execution::get_env(receiver_));
+		auto wq = thor::workQueueFromEnv(async::execution::get_env(receiver_));
+		promise->wq_ = wq;
 		promise->cont_ = this;
-		h.resume();
+		if (wq->immediatelyDispatchable())
+			return h.resume();
+		Worklet::setup([] (Worklet *base) {
+			auto self = static_cast<coroutine_operation *>(base);
+			auto h = self->s_.h_;
+			h.resume();
+		});
+		wq->post(this);
 	}
 
 private:
@@ -420,6 +436,8 @@ struct enable_detached_coroutine {
 	smarter::shared_ptr<thor::WorkQueue> wq;
 };
 
+// TODO: We could potentially fold this into coroutine::promise to avoid duplicating behavior.
+//       For example, this could be done by parameterizing coroutine::promise with a template parameter.
 struct detached_coroutine_promise {
 	void *operator new(size_t size) {
 		return thor::kernelAlloc->allocate(size);
@@ -446,7 +464,29 @@ struct detached_coroutine_promise {
 	}
 
 	auto initial_suspend() {
-		return std::suspend_never{};
+		struct Awaiter : thor::Worklet {
+			bool await_ready() { return false; }
+
+			void await_suspend(std::coroutine_handle<detached_coroutine_promise> h) {
+				h_ = h;
+				auto wq = h.promise().wq_;
+				if (wq->immediatelyDispatchable())
+					return h_.resume();
+				Worklet::setup([] (thor::Worklet *base) {
+					auto self = static_cast<Awaiter *>(base);
+					auto h = self->h_;
+					h.resume();
+				});
+				h.promise().wq_->post(this);
+			}
+
+			void await_resume() { }
+
+		private:
+			std::coroutine_handle<detached_coroutine_promise> h_;
+		};
+
+		return Awaiter{};
 	}
 
 	auto final_suspend() noexcept {
