@@ -272,10 +272,10 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 				addRootBus(rootBus);
 
 				rootBus->acpiNode = frg::construct<acpi::AcpiObject>(*kernelAlloc, node, uid);
-				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [&](PciBus *bus) -> coroutine<void> {
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [](PciBus *bus, frg::optional<uint64_t> uid) -> coroutine<void> {
 					Properties props;
-					if(uid_status == UACPI_STATUS_OK)
-						props.decStringProperty("acpi.uid", uid, 1);
+					if(uid)
+						props.decStringProperty("acpi.uid", *uid, 1);
 					co_await bus->acpiNode->run(std::move(props));
 
 					co_await bus->mbusPublished.wait();
@@ -283,7 +283,7 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 					updateProps.stringProperty("unix.subsystem", frg::string<KernelAlloc>{*kernelAlloc, "acpi"});
 					updateProps.decStringProperty("acpi.physical_node", bus->mbusId, 1);
 					co_await bus->acpiNode->updateProperties(updateProps);
-				}(rootBus));
+				}(rootBus, (uid_status == UACPI_STATUS_OK) ? frg::optional<uint64_t>(uid) : frg::null_opt));
 
 				return UACPI_ITERATION_DECISION_CONTINUE;
 		}, nullptr);
