@@ -25,6 +25,8 @@ namespace {
 // --------------------------------------------------------
 
 void Thread::migrateCurrent() {
+	assert(currentIpl() < ipl::schedule);
+
 	auto this_thread = getCurrentThread().get();
 	auto maskSize = LbControlBlock::affinityMaskSize();
 
@@ -74,6 +76,8 @@ void Thread::migrateCurrent() {
 }
 
 bool Thread::blockCurrent(bool interruptible) {
+	assert(currentIpl() < ipl::schedule);
+
 	auto thisThread = getCurrentThread();
 
 	// Optimistically clear the unblock latch before entering the mutex.
@@ -116,6 +120,8 @@ bool Thread::blockCurrent(bool interruptible) {
 }
 
 void Thread::deferCurrent() {
+	assert(currentIpl() < ipl::schedule);
+
 	auto thisThread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&thisThread->_mutex);
@@ -141,6 +147,8 @@ void Thread::deferCurrent() {
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
+	assert(image.iplState()->current < ipl::schedule);
+
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -165,6 +173,8 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 }
 
 void Thread::suspendCurrent(IrqImageAccessor image) {
+	assert(image.iplState()->current < ipl::schedule);
+
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -189,6 +199,8 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info) {
+	assert(image.iplState()->current < ipl::schedule);
+
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -235,6 +247,8 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, Int
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info) {
+	assert(image.iplState()->current < ipl::schedule);
+
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
@@ -280,6 +294,8 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
+	assert(image.iplState()->current < ipl::schedule);
+
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
 	auto lock = frg::guard(&this_thread->_mutex);
