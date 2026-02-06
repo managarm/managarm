@@ -476,7 +476,8 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 			auto outcome = Thread::asyncBlockCurrentInterruptible(
 				async::lambda([&](async::cancellation_token ct) {
 					return queue->waitUserEvent(ct);
-				})
+				}),
+				thisThread->mainWorkQueue().get()
 			);
 			if (!outcome) {
 				return kHelErrCancelled;
@@ -1068,13 +1069,15 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		if(map_flags & AddressSpace::kMapFixed && !pointer)
 			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
 
-		mapResult = Thread::asyncBlockCurrent(space->map(slice,
-				(VirtualAddr)pointer, offset, length, map_flags,
-				getCurrentThread()->mainWorkQueue().get()));
+		mapResult = Thread::asyncBlockCurrent(
+			space->map(slice, (VirtualAddr)pointer, offset, length, map_flags, getCurrentThread()->pagingWorkQueue().get()),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
 	} else {
-		mapResult = Thread::asyncBlockCurrent(vspace->map(slice,
-				(VirtualAddr)pointer, offset, length, map_flags,
-				getCurrentThread()->mainWorkQueue().get()));
+		mapResult = Thread::asyncBlockCurrent(
+			vspace->map(slice, (VirtualAddr)pointer, offset, length, map_flags, getCurrentThread()->pagingWorkQueue().get()),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
 	}
 
 	if(!mapResult) {
@@ -1131,8 +1134,8 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 			VirtualAddr pointer, size_t length,
 			uint32_t protectFlags, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await space->protect(pointer, length, protectFlags,
-				thisThread->mainWorkQueue().get());
+		auto outcome = co_await onExceptionalWq(space->protect(pointer, length, protectFlags,
+				thisThread->pagingWorkQueue().get()));
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
 		assert(outcome);
 
@@ -1167,8 +1170,10 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 		}
 	}
 
-	auto outcome = Thread::asyncBlockCurrent(space->unmap((VirtualAddr)pointer, length,
-			getCurrentThread()->mainWorkQueue().get()));
+	auto outcome = Thread::asyncBlockCurrent(
+		space->unmap((VirtualAddr)pointer, length, getCurrentThread()->pagingWorkQueue().get()),
+		getCurrentThread()->pagingWorkQueue().get()
+	);
 	if(!outcome) {
 		assert(outcome.error() == Error::illegalArgs);
 		return kHelErrIllegalArgs;
@@ -1204,8 +1209,8 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 			void *pointer, size_t length,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await space->synchronize((VirtualAddr)pointer, length,
-				thisThread->mainWorkQueue().get());
+		auto outcome = co_await onExceptionalWq(space->synchronize((VirtualAddr)pointer, length,
+				thisThread->pagingWorkQueue().get()));
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
 		assert(outcome);
 
@@ -1225,8 +1230,10 @@ HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
 	auto pageAddress = reinterpret_cast<VirtualAddr>(pointer) - disp;
 
-	auto physicalOrError = Thread::asyncBlockCurrent(space->retrievePhysical(pageAddress,
-			thisThread->mainWorkQueue().get()));
+	auto physicalOrError = Thread::asyncBlockCurrent(
+		space->retrievePhysical(pageAddress, thisThread->pagingWorkQueue().get()),
+		thisThread->pagingWorkQueue().get()
+	);
 	if(!physicalOrError) {
 		assert(physicalOrError.error() == Error::fault);
 		return kHelErrFault;
@@ -1644,7 +1651,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await memory->touchFullRange(offset, size, 0, edc.wq.get());
+		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, 0, edc.wq.get()));
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -3055,9 +3062,10 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		return translateError(Thread::asyncBlockCurrentInterruptible(
 			async::lambda([&](async::cancellation_token ct) {
 				return getGlobalFutexRealm()->wait(
-					space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue().get(), ct
+					space->globalFutexSpace(), address, expected, thisThread->pagingWorkQueue().get(), ct
 				);
-			})
+			}),
+			thisThread->pagingWorkQueue().get()
 		));
 	}else{
 		Error waitErr;
@@ -3066,9 +3074,9 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		Thread::asyncBlockCurrentInterruptible(async::lambda([&](async::cancellation_token ct) {
 			return async::race_and_cancel(
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
-				    waitErr = co_await getGlobalFutexRealm()->wait(
-				        space->globalFutexSpace(), address, expected, thisThread->mainWorkQueue().get(), cancellation
-				    );
+				    waitErr = co_await onExceptionalWq(getGlobalFutexRealm()->wait(
+				        space->globalFutexSpace(), address, expected, thisThread->pagingWorkQueue().get(), cancellation
+				    ));
 			    }),
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
 				    timeout = co_await generalTimerEngine()->sleep(deadline, cancellation);
@@ -3077,7 +3085,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 				    return async::suspend_indefinitely(ct, cancellation);
 			    })
 			);
-		}));
+		}), thisThread->pagingWorkQueue().get());
 
 		if (waitErr == Error::cancelled)
 			return timeout ? kHelErrTimeout : kHelErrCancelled;
@@ -3094,9 +3102,10 @@ HelError helFutexWake(int *pointer, unsigned int count) {
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
 	auto result = Thread::asyncBlockCurrent(
-			getGlobalFutexRealm()->wake(
-				space->globalFutexSpace(), address, count, thisThread->mainWorkQueue().get()
-			)
+		getGlobalFutexRealm()->wake(
+			space->globalFutexSpace(), address, count, thisThread->pagingWorkQueue().get()
+		),
+		thisThread->pagingWorkQueue().get()
 	);
 	if(!result)
 		return kHelErrFault;

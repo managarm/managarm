@@ -95,11 +95,6 @@ public:
 	}
 
 	template <typename Sender>
-	static auto asyncBlockCurrent(Sender s) {
-		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue);
-	}
-
-	template <typename Sender>
 	static auto asyncBlockCurrent(Sender s, WorkQueue *wq) {
 		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
 			return std::move(s);
@@ -108,8 +103,8 @@ public:
 
 	template <typename SenderFactory>
 	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
-	static auto asyncBlockCurrentInterruptible(SenderFactory s) {
-		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue, AsyncBlockCurrentInterruptibleTag{});
+	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq) {
+		return asyncBlockCurrent(std::move(s), wq, AsyncBlockCurrentInterruptibleTag{});
 	}
 
 	template <typename SenderFactory, AnyTag Tag>

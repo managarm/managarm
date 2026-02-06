@@ -155,7 +155,7 @@ void IpcQueue::processSq() {
 		return;
 
 	if (!_sqMutex.try_lock())
-		Thread::asyncBlockCurrent(_sqMutex.async_lock());
+		Thread::asyncBlockCurrent(_sqMutex.async_lock(), getCurrentThread()->mainWorkQueue().get());
 	frg::unique_lock lock{frg::adopt_lock, _sqMutex};
 
 	// Process SQ elements.
