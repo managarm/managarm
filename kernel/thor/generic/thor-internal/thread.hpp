@@ -277,6 +277,12 @@ public:
 		return false;
 	}
 
+	// Run the current thread's WQ until they are empty.
+	static void drainWqs() {
+		while (runWqs())
+			;
+	}
+
 	// State transitions that apply to the current thread only.
 
 	// returns false if the block was interrupted
