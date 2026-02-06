@@ -74,6 +74,9 @@ bool WorkQueue::check() {
 void WorkQueue::run() {
 	assert(_executorContext == currentExecutorContext());
 	assert(!_inRun.load(std::memory_order_relaxed));
+	assert(currentIpl() <= _wqIpl);
+
+	auto previousIpl = iplRaise(_wqIpl);
 
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(true, std::memory_order_relaxed);
@@ -101,6 +104,9 @@ void WorkQueue::run() {
 
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(false, std::memory_order_relaxed);
+
+	if (previousIpl != ipl::bad)
+		iplLower(previousIpl);
 }
 
 } // namespace thor
