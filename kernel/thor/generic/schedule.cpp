@@ -30,6 +30,8 @@ namespace {
 			runOnStack([] (Continuation) {
 				if(logIdle)
 					infoLogger() << "System is idle" << frg::endlog;
+				// Restore IPL (as in restoreExecutor() for threads/fibers).
+				iplLeaveContext(IplState{.context = ipl::passive, .current = ipl::exceptional});
 				suspendSelf();
 				__builtin_trap();
 			}, getCpuData()->idleStack.base());
