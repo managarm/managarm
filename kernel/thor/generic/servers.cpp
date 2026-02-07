@@ -204,9 +204,10 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			
 			auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, virt_length);
 			memory->selfPtr = memory;
-			co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
+			auto copyResult = co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
 					image.get(), phdr.p_offset, phdr.p_filesz,
 					WorkQueue::generalQueue().get());
+			assert(copyResult);
 
 			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					std::move(memory), 0, virt_length);

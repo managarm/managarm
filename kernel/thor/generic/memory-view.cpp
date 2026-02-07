@@ -1,3 +1,4 @@
+#include <frg/scope_exit.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
@@ -198,131 +199,74 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::for
 	co_return Error::illegalObject;
 }
 
-// In addition to what copyFrom() does, we also have to mark the memory as dirty.
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
 		FetchFlags flags, WorkQueue *wq) {
-	struct Node {
-		MemoryView *view;
-		uintptr_t offset;
-		const void *pointer;
-		size_t size;
-		FetchFlags flags;
-		WorkQueue *wq;
+	if (auto err = lockRange(offset, size); err != Error::success)
+		co_return err;
+	frg::scope_exit unlockOnExit{[&] {
+		unlockRange(offset, size);
+	}};
 
-		uintptr_t progress = 0;
-		PhysicalAddr physical = {};
-	};
+	size_t progress = 0;
+	while(progress < size) {
+		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
+		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags, wq));
+		auto range = peekRange(fetchOffset);
+		assert(range.get<0>() != PhysicalAddr(-1));
+		auto physical = range.get<0>();
 
-	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
-	}, [] (Node &nd) {
-		return async::sequence(
-			async::invocable([&nd] {
-				auto err = nd.view->lockRange(nd.offset, nd.size);
-				assert(err == Error::success);
-			}),
-			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
-				[] (frg::expected<Error> outcome) {
-					assert(outcome);
-				}),
-			async::repeat_while([&nd] { return nd.progress < nd.size; },
-				[&nd] {
-					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::sequence(
-						async::transform(nd.view->touchRange(fetchOffset, kPageSize, nd.flags, nd.wq),
-								[&nd, fetchOffset] (frg::expected<Error, size_t> resultOrError) {
-							assert(resultOrError);
-							auto range = nd.view->peekRange(fetchOffset);
-							assert(range.get<0>() != PhysicalAddr(-1));
-							nd.physical = range.get<0>();
-						}),
-						// Do heavy copying on the WQ.
-						// TODO: This could use wq->enter() but we want to keep stack depth low.
-						nd.wq->schedule(),
-						async::invocable([&nd] {
-							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
+		auto misalign = (offset + progress) & (kPageSize - 1);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
-							PageAccessor accessor{nd.physical};
-							memcpy(reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
-									reinterpret_cast<const uint8_t *>(nd.pointer) + nd.progress,
-									chunk);
-							nd.progress += chunk;
-						})
-					);
-				}
-			),
-			async::invocable([&nd] {
-				auto misalign = nd.offset & (kPageSize - 1);
-				nd.view->markDirty(nd.offset & ~(kPageSize - 1),
-						(nd.size + misalign + kPageSize - 1) & ~(kPageSize - 1));
-
-				nd.view->unlockRange(nd.offset, nd.size);
-			})
+		PageAccessor accessor{physical};
+		memcpy(
+			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
+			reinterpret_cast<const uint8_t *>(pointer) + progress,
+			chunk
 		);
-	});
+		progress += chunk;
+	}
+
+	// In addition to what copyFrom() does, we also have to mark the memory as dirty.
+	auto misalign = offset & (kPageSize - 1);
+	markDirty(
+		offset & ~(kPageSize - 1),
+		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
+	);
+
 	co_return {};
 }
 
 coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		void *pointer, size_t size,
 		FetchFlags flags, WorkQueue *wq) {
-	struct Node {
-		MemoryView *view;
-		uintptr_t offset;
-		void *pointer;
-		size_t size;
-		FetchFlags flags;
-		WorkQueue *wq;
+	if (auto err = lockRange(offset, size); err != Error::success)
+		co_return err;
+	frg::scope_exit unlockOnExit{[&] {
+		unlockRange(offset, size);
+	}};
 
-		uintptr_t progress = 0;
-		PhysicalAddr physical = {};
-	};
+	size_t progress = 0;
+	while(progress < size) {
+		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
+		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags, wq));
+		auto range = peekRange(fetchOffset);
+		assert(range.get<0>() != PhysicalAddr(-1));
+		auto physical = range.get<0>();
 
-	co_await async::let([=, this] {
-		return Node{.view = this, .offset = offset, .pointer = pointer, .size = size, .flags = flags, .wq = wq};
-	}, [] (Node &nd) {
-		return async::sequence(
-			async::invocable([&nd] {
-				auto err = nd.view->lockRange(nd.offset, nd.size);
-				assert(err == Error::success);
-			}),
-			async::transform(nd.view->touchFullRange(nd.offset, nd.size, nd.flags, nd.wq),
-				[] (frg::expected<Error> outcome) {
-					assert(outcome);
-				}),
-			async::repeat_while([&nd] { return nd.progress < nd.size; },
-				[&nd] {
-					auto fetchOffset = (nd.offset + nd.progress) & ~(kPageSize - 1);
-					return async::sequence(
-						async::transform(nd.view->touchRange(fetchOffset, kPageSize, nd.flags, nd.wq),
-								[&nd, fetchOffset] (frg::expected<Error, size_t> resultOrError) {
-							assert(resultOrError);
-							auto range = nd.view->peekRange(fetchOffset);
-							assert(range.get<0>() != PhysicalAddr(-1));
-							nd.physical = range.get<0>();
-						}),
-						// Do heavy copying on the WQ.
-						// TODO: This could use wq->enter() but we want to keep stack depth low.
-						nd.wq->schedule(),
-						async::invocable([&nd] {
-							auto misalign = (nd.offset + nd.progress) & (kPageSize - 1);
-							size_t chunk = frg::min(kPageSize - misalign, nd.size - nd.progress);
+		auto misalign = (offset + progress) & (kPageSize - 1);
+		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
-							PageAccessor accessor{nd.physical};
-							memcpy(reinterpret_cast<uint8_t *>(nd.pointer) + nd.progress,
-									reinterpret_cast<uint8_t *>(accessor.get()) + misalign, chunk);
-							nd.progress += chunk;
-						})
-					);
-				}
-			),
-			async::invocable([&nd] {
-				nd.view->unlockRange(nd.offset, nd.size);
-			})
+		PageAccessor accessor{physical};
+		memcpy(
+			reinterpret_cast<uint8_t *>(pointer) + progress,
+			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
+			chunk
 		);
-	});
+		progress += chunk;
+	}
+
 	co_return {};
 }
 
@@ -347,6 +291,62 @@ void MemoryView::submitManage(ManageNode *) {
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
 		uintptr_t, size_t, CachingFlags) {
 	return Error::illegalObject;
+}
+
+coroutine<frg::expected<Error>> copyBetweenViews(
+		MemoryView *destView, uintptr_t destOffset,
+		MemoryView *srcView, uintptr_t srcOffset, size_t size,
+		WorkQueue *wq) {
+	if (auto err = destView->lockRange(destOffset, size); err != Error::success)
+		co_return err;
+	frg::scope_exit unlockDestOnExit{[&] {
+		destView->unlockRange(destOffset, size);
+	}};
+
+	if (auto err = srcView->lockRange(srcOffset, size); err != Error::success)
+		co_return err;
+	frg::scope_exit unlockSrcOnExit{[&] {
+		srcView->unlockRange(srcOffset, size);
+	}};
+
+	size_t progress = 0;
+	while(progress < size) {
+		auto destFetchOffset = (destOffset + progress) & ~(kPageSize - 1);
+		auto srcFetchOffset = (srcOffset + progress) & ~(kPageSize - 1);
+
+		FRG_CO_TRY(co_await destView->touchRange(destFetchOffset, kPageSize, 0, wq));
+		auto destRange = destView->peekRange(destFetchOffset);
+		assert(destRange.get<0>() != PhysicalAddr(-1));
+
+		FRG_CO_TRY(co_await srcView->touchRange(srcFetchOffset, kPageSize, 0, wq));
+		auto srcRange = srcView->peekRange(srcFetchOffset);
+		assert(srcRange.get<0>() != PhysicalAddr(-1));
+
+		auto destMisalign = (destOffset + progress) & (kPageSize - 1);
+		auto srcMisalign = (srcOffset + progress) & (kPageSize - 1);
+		size_t chunk = frg::min(
+			frg::min(kPageSize - destMisalign,
+			kPageSize - srcMisalign), size - progress
+		);
+
+		PageAccessor destAccessor{destRange.get<0>()};
+		PageAccessor srcAccessor{srcRange.get<0>()};
+		memcpy(
+			(uint8_t *)destAccessor.get() + destMisalign,
+			(uint8_t *)srcAccessor.get() + srcMisalign,
+			chunk
+		);
+		progress += chunk;
+	}
+
+	// In addition to what copyFromView() does, we also have to mark the memory as dirty.
+	auto misalign = destOffset & (kPageSize - 1);
+	destView->markDirty(
+		destOffset & ~(kPageSize - 1),
+		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
+	);
+
+	co_return {};
 }
 
 // --------------------------------------------------------
