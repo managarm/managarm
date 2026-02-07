@@ -230,11 +230,12 @@ struct VirtualOperations {
 
 	template<typename R>
 	struct RetireOperation final : private RetireNode {
-		RetireOperation(VirtualOperations *self, WorkQueue *wq, R receiver)
-		: self_{self}, wq_{wq}, receiver_{std::move(receiver)} { }
+		RetireOperation(VirtualOperations *self, R receiver)
+		: self_{self}, receiver_{std::move(receiver)} { }
 
 		void start() {
-			RetireNode::wq_ = wq_;
+			auto wq = workQueueFromEnv(async::execution::get_env(receiver_));
+			RetireNode::wq_ = wq;
 			Worklet::setup([] (Worklet *base) {
 				auto op = static_cast<RetireOperation *>(base);
 				async::execution::set_value(op->receiver_);
@@ -244,7 +245,6 @@ struct VirtualOperations {
 
 	private:
 		VirtualOperations *self_;
-		WorkQueue *wq_;
 		R receiver_;
 	};
 
@@ -253,7 +253,7 @@ struct VirtualOperations {
 
 		template<typename R>
 		RetireOperation<R> connect(R receiver) {
-			return {self, wq, std::move(receiver)};
+			return {self, std::move(receiver)};
 		}
 
 		async::sender_awaiter<RetireSender> operator co_await() {
@@ -261,11 +261,10 @@ struct VirtualOperations {
 		}
 
 		VirtualOperations *self;
-		WorkQueue *wq;
 	};
 
-	RetireSender retire(WorkQueue *wq) {
-		return {this, wq};
+	RetireSender retire() {
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -287,11 +286,10 @@ struct VirtualOperations {
 		VirtualOperations *self;
 		VirtualAddr address;
 		size_t size;
-		WorkQueue *wq;
 	};
 
-	ShootdownSender shootdown(VirtualAddr address, size_t size, WorkQueue *wq) {
-		return {this, address, size, wq};
+	ShootdownSender shootdown(VirtualAddr address, size_t size) {
+		return {this, address, size};
 	}
 
 	template<typename R>
@@ -304,9 +302,10 @@ struct VirtualOperations {
 		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
 		void start() {
+			auto wq = workQueueFromEnv(async::execution::get_env(receiver_));
 			ShootNode::address = s_.address;
 			ShootNode::size = s_.size;
-			ShootNode::wq_ = s_.wq;
+			ShootNode::wq_ = wq;
 			Worklet::setup([] (Worklet *base) {
 				auto op = static_cast<ShootdownOperation *>(base);
 				async::execution::set_value(op->receiver_);

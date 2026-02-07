@@ -288,8 +288,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 				view.get(), viewOffset + shootOffset, shootSize);
 		assert(unmapOutcome);
 
-		co_await owner->_ops->shootdown(address + shootOffset, shootSize,
-				WorkQueue::generalQueue().get());
+		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 
 		eviction.done();
 
@@ -355,7 +354,7 @@ void VirtualSpace::retire() {
 	// TODO: It would be less ugly to run this in a non-detached way.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
-		co_await self->_ops->retire(WorkQueue::generalQueue().get());
+		co_await self->_ops->retire();
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
@@ -489,7 +488,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	}
 
 	if (needsShootdown)
-		co_await _ops->shootdown(actualAddress, length, wq);
+		co_await _ops->shootdown(actualAddress, length);
 
 	// Only enable eviction after the peekRange() loop above.
 	// Since eviction is not yet enabled in that loop, we do not have
@@ -561,7 +560,7 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags, WorkQu
 		assert(remapOutcome);
 	}
 
-	co_await _ops->shootdown(address, length, wq);
+	co_await _ops->shootdown(address, length);
 	co_return {};
 }
 
@@ -576,7 +575,7 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	auto needsShootdown = co_await _unmapMappings(address, length, start, end);
 
 	if (needsShootdown)
-		co_await _ops->shootdown(address, length, wq);
+		co_await _ops->shootdown(address, length);
 
 	co_return {};
 }
@@ -615,7 +614,7 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
 
 		overallProgress += mappingChunk;
 	}
-	co_await _ops->shootdown(alignedAddress, alignedSize, wq);
+	co_await _ops->shootdown(alignedAddress, alignedSize);
 
 	co_return {};
 }
