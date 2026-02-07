@@ -4,6 +4,7 @@
 #include <dtb.hpp>
 #include <helix/ipc.hpp>
 #include <frg/expected.hpp>
+#include <protocols/mbus/client.hpp>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -216,5 +217,7 @@ struct Device {
 private:
 	helix::UniqueLane _lane;
 };
+
+async::result<mbus_ng::Entity> getEntityByPhandle(uint32_t phandle);
 
 } } // namespace protocols::hw

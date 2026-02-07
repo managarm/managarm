@@ -5,10 +5,12 @@
 
 #include <frg/std_compat.hpp>
 
+#include <core/logging.hpp>
 #include <helix/ipc.hpp>
 #include <hw.bragi.hpp>
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
+#include <protocols/mbus/client.hpp>
 #include "protocols/hw/client.hpp"
 
 namespace protocols::hw {
@@ -1185,6 +1187,21 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 
 	auto desc = pull_desc.descriptor();
 	co_return { std::move(desc), resp.vbt_size() };
+}
+
+async::result<mbus_ng::Entity> getEntityByPhandle(uint32_t phandle) {
+	auto filter = mbus_ng::EqualsFilter{"dt.phandle", std::to_string(phandle)};
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+	for (auto &event : events) {
+		if (event.type != mbus_ng::EnumerationEvent::Type::created)
+			continue;
+
+		co_return co_await mbus_ng::Instance::global().getEntity(event.id);
+	}
+
+	logPanic("protocols::hw::getEntityByPhandle({}) failed to find entity", phandle);
 }
 
 } // namespace protocols::hw
