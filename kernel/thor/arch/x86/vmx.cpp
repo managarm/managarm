@@ -373,8 +373,10 @@ namespace thor::vmx {
 				if(exitFlags & (1 << 2))
 					flags |= AddressSpace::kFaultExecute;
 
-				auto faultOutcome = Thread::asyncBlockCurrent(space->handleFault(address, flags,
-						getCurrentThread()->mainWorkQueue().get()));
+				auto faultOutcome = Thread::asyncBlockCurrent(
+					space->handleFault(address, flags, getCurrentThread()->pagingWorkQueue().get()),
+					getCurrentThread()->pagingWorkQueue().get()
+				);
 				if(!faultOutcome) {
 					exitInfo.exitReason = kHelVmexitTranslationFault;
 					exitInfo.address = address;

@@ -164,8 +164,10 @@ namespace thor::svm {
 				if(exitFlags & (1 << 4))
 					flags |= AddressSpace::kFaultExecute;
 
-				auto faultOutcome = Thread::asyncBlockCurrent(space->handleFault(address, flags,
-						getCurrentThread()->mainWorkQueue().get()));
+				auto faultOutcome = Thread::asyncBlockCurrent(
+					space->handleFault(address, flags, getCurrentThread()->pagingWorkQueue().get()),
+					getCurrentThread()->pagingWorkQueue().get()
+				);
 				if(!faultOutcome) {
 					reason.exitReason = kHelVmexitTranslationFault;
 					reason.address = address;

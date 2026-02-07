@@ -81,6 +81,7 @@ public:
 			AbiParameters abi) {
 		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
 				std::move(universe), std::move(address_space), abi);
+		thread->_executorContext.exceptionalWq = &thread->_pagingWorkQueue;
 
 		// The kernel owns one reference to the thread until the thread finishes execution.
 		thread.ctr()->increment();
@@ -94,11 +95,6 @@ public:
 	}
 
 	template <typename Sender>
-	static auto asyncBlockCurrent(Sender s) {
-		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue);
-	}
-
-	template <typename Sender>
 	static auto asyncBlockCurrent(Sender s, WorkQueue *wq) {
 		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
 			return std::move(s);
@@ -107,8 +103,8 @@ public:
 
 	template <typename SenderFactory>
 	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
-	static auto asyncBlockCurrentInterruptible(SenderFactory s) {
-		return asyncBlockCurrent(std::move(s), &getCurrentThread()->_mainWorkQueue, AsyncBlockCurrentInterruptibleTag{});
+	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq) {
+		return asyncBlockCurrent(std::move(s), wq, AsyncBlockCurrentInterruptibleTag{});
 	}
 
 	template <typename SenderFactory, AnyTag Tag>
@@ -168,8 +164,7 @@ public:
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
-				wq->run();
+			if(runWqs()) {
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
 				continue;
@@ -245,8 +240,7 @@ public:
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
-			if(wq->check()) {
-				wq->run();
+			if(runWqs()) {
 				// Re-check the done flag since nested blocking (triggered by the WQ)
 				// might have consumed the unblock latch.
 				continue;
@@ -258,6 +252,31 @@ public:
 			}
 		}
 		return std::move(*bls.value);
+	}
+
+	// Run the current thread's WQs. Returns true if there was any work to do.
+	static bool runWqs() {
+		auto ipl = currentIpl();
+		auto thisThread = getCurrentThread();
+		if (ipl <= ipl::exceptional) {
+			if (thisThread->_pagingWorkQueue.check()) {
+				thisThread->_pagingWorkQueue.run();
+				return true;
+			}
+		}
+		if (ipl == ipl::passive) {
+			if (thisThread->_mainWorkQueue.check()) {
+				thisThread->_mainWorkQueue.run();
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Run the current thread's WQ until they are empty.
+	static void drainWqs() {
+		while (runWqs())
+			;
 	}
 
 	// State transitions that apply to the current thread only.

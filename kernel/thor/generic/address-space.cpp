@@ -257,6 +257,8 @@ Mapping::resolveRange(ptrdiff_t offset) {
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
+	assert(currentIpl() == ipl::exceptional);
+
 	while(true) {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
@@ -376,6 +378,7 @@ coroutine<frg::expected<Error, VirtualAddr>>
 VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
 		WorkQueue *wq) {
+	assert(currentIpl() == ipl::exceptional);
 	assert(length);
 	assert(!(length % kPageSize));
 
@@ -499,6 +502,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 
 coroutine<frg::expected<Error>>
 VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags, WorkQueue *wq) {
+	assert(currentIpl() == ipl::exceptional);
+
 	std::underlying_type_t<MappingFlags> mappingFlags = 0;
 
 	// TODO: The upgrading mechanism needs to be arch-specific:
@@ -561,6 +566,8 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags, WorkQu
 }
 
 coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length, WorkQueue *wq) {
+	assert(currentIpl() == ipl::exceptional);
+
 	co_await _consistencyMutex.async_lock();
 	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 
@@ -576,6 +583,8 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 
 coroutine<frg::expected<Error>>
 VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
+	assert(currentIpl() == ipl::exceptional);
+
 	co_await _consistencyMutex.async_lock_shared();
 	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 
@@ -614,6 +623,8 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
 coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 		WorkQueue *wq) {
+	assert(currentIpl() == ipl::exceptional);
+
 	co_await _consistencyMutex.async_lock_shared();
 	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
 

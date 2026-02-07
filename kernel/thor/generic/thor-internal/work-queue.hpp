@@ -35,6 +35,10 @@ struct WorkQueue {
 	WorkQueue(ExecutorContext *executorContext, Ipl wqIpl)
 	: _executorContext{executorContext}, _wqIpl{wqIpl}, _localPosted{false}, _lockedPosted{false} { }
 
+	ExecutorContext *executorContext() {
+		return _executorContext;
+	}
+
 	bool check();
 
 	void run();

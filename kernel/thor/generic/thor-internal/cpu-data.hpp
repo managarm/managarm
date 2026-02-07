@@ -3,7 +3,6 @@
 #include <eir/interface.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/arch-generic/cpu-data.hpp>
-#include <thor-internal/executor-context.hpp>
 #include <thor-internal/kernel-locks.hpp>
 
 #include <new>
@@ -14,6 +13,7 @@ namespace thor {
 extern ManagarmElfNote<CpuConfig> cpuConfigNote;
 
 // Forward defined for pointers that are part of CpuData.
+struct ExecutorContext;
 struct Thread;
 struct KernelFiber;
 struct SingleContextRecordRing;
