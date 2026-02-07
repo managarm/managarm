@@ -259,21 +259,11 @@ public:
 
 	virtual coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
 			const void *pointer, size_t size,
-			FetchFlags flags, WorkQueue *wq);
+			FetchFlags flags = 0);
 
 	virtual coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
 			void *pointer, size_t size,
-			FetchFlags flags, WorkQueue *wq);
-
-	coroutine<frg::expected<Error>> copyTo(uintptr_t offset,
-			const void *pointer, size_t size, WorkQueue *wq) {
-		return copyTo(offset, pointer, size, 0, wq);
-	}
-
-	coroutine<frg::expected<Error>> copyFrom(uintptr_t offset,
-			void *pointer, size_t size, WorkQueue *wq) {
-		return copyFrom(offset, pointer, size, 0, wq);
-	}
+			FetchFlags flags = 0);
 
 	// Acquire/release a lock on a memory range.
 	// While a lock is active, results of peekRange() stay consistent.
@@ -290,7 +280,7 @@ public:
 	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
 	// Returns the number of bytes that were actually affected.
 	virtual coroutine<frg::expected<Error, size_t>>
-	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags, WorkQueue *wq) = 0;
+	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags = 0) = 0;
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
@@ -304,7 +294,7 @@ public:
 			uintptr_t offset, size_t size, CachingFlags flags);
 
 	coroutine<frg::expected<Error>>
-	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags, WorkQueue *wq);
+	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags = 0);
 
 	// ----------------------------------------------------------------------------------
 	// Memory eviction.
@@ -409,8 +399,7 @@ private:
 
 coroutine<frg::expected<Error>> copyBetweenViews(
 		MemoryView *destView, uintptr_t destOffset,
-		MemoryView *srcView, uintptr_t srcOffset, size_t size,
-		WorkQueue *wq);
+		MemoryView *srcView, uintptr_t srcOffset, size_t size);
 
 // ----------------------------------------------------------------------------------
 
@@ -433,8 +422,7 @@ struct ImmediateMemory final : MemoryView {
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	template<typename T>
@@ -501,8 +489,7 @@ struct HardwareMemory final : MemoryView {
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
@@ -525,8 +512,7 @@ struct AllocatedMemory final : MemoryView {
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 public:
@@ -655,8 +641,7 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 	void submitManage(ManageNode *handle) override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
@@ -679,8 +664,7 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 public:
@@ -702,8 +686,7 @@ struct IndirectMemory final : MemoryView {
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
@@ -772,8 +755,7 @@ public:
 	void unlockRange(uintptr_t offset, size_t size) override;
 	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
 	coroutine<frg::expected<Error, size_t>>
-			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags,
-			WorkQueue *wq) override;
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
 
 public:

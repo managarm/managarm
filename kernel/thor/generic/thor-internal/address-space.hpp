@@ -554,7 +554,7 @@ public:
 
 	struct GlobalFutexSpace {
 		template<typename F>
-		coroutine<frg::expected<Error>> withFutex(uintptr_t address, WorkQueue *wq, F &&f) {
+		coroutine<frg::expected<Error>> withFutex(uintptr_t address, WorkQueue *, F &&f) {
 			assert(currentIpl() == ipl::exceptional);
 
 			if (address & (sizeof(int) - 1))
@@ -597,7 +597,7 @@ public:
 
 				// Otherwise, try to make the page available.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					alignedOffset, kPageSize, 0, wq
+					alignedOffset, kPageSize
 				));
 			}
 		}

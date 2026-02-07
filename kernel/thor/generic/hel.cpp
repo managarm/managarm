@@ -1281,8 +1281,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
-				auto copyOutcome = co_await view->copyFrom(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto copyOutcome = co_await view->copyFrom(address + progress, temp, chunk);
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1416,8 +1415,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto copyOutcome = co_await view->copyTo(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto copyOutcome = co_await view->copyTo(address + progress, temp, chunk);
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1638,7 +1636,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 			smarter::shared_ptr<IpcQueue> queue,
 			uintptr_t offset, size_t size,
 			uintptr_t context,
-			enable_detached_coroutine edc) -> void {
+			enable_detached_coroutine) -> void {
 		MemoryViewLockHandle lockHandle{memory, offset, size};
 		lockHandle.acquire();
 		if(!lockHandle) {
@@ -1651,7 +1649,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, 0, edc.wq.get()));
+		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size));
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};

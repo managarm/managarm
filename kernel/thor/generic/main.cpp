@@ -338,8 +338,7 @@ extern "C" void thorMain() {
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					memory->selfPtr = memory;
 					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
-							data, file_size,
-							thisFiber()->associatedWorkQueue().get()));
+							data, file_size));
 					assert(copyOutcome);
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,

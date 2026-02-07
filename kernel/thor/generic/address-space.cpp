@@ -655,7 +655,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 			fetchFlags |= fetchDisallowBacking;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
+				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
 		auto caching = CachingMode::null;
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
@@ -707,7 +707,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address, WorkQueue *wq) {
 			fetchFlags |= fetchDisallowBacking;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
+				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
 		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
@@ -1110,7 +1110,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		auto copyOutcome = co_await mapping->view->copyFrom(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags, wq);
+				limitInMapping, fetchFlags);
 		if(!copyOutcome)
 			co_return progress;
 
@@ -1147,7 +1147,7 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		auto copyOutcome = co_await mapping->view->copyTo(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<const std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags, wq);
+				limitInMapping, fetchFlags);
 		if(!copyOutcome)
 			co_return progress;
 
