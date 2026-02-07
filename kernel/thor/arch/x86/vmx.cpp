@@ -374,7 +374,7 @@ namespace thor::vmx {
 					flags |= AddressSpace::kFaultExecute;
 
 				auto faultOutcome = Thread::asyncBlockCurrent(
-					space->handleFault(address, flags, getCurrentThread()->pagingWorkQueue().get()),
+					space->handleFault(address, flags),
 					getCurrentThread()->pagingWorkQueue().get()
 				);
 				if(!faultOutcome) {

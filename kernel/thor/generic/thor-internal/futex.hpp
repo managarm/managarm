@@ -50,9 +50,9 @@ concept Futex = requires(F f) {
 };
 
 template<typename S>
-concept FutexSpace = requires(S s, WorkQueue *wq) {
+concept FutexSpace = requires(S s) {
 	// Provides temporary access to a Futex.
-	{ s.withFutex(uintptr_t{}, wq, [] (Futex auto) {}) } -> std::same_as<coroutine<frg::expected<Error>>>;
+	{ s.withFutex(uintptr_t{}, [] (Futex auto) {}) } -> std::same_as<coroutine<frg::expected<Error>>>;
 };
 
 struct FutexRealm {
@@ -95,13 +95,12 @@ public:
 
 	template<FutexSpace S>
 	coroutine<Error> wait(S space, uintptr_t address, unsigned int expected,
-			WorkQueue *wq,
 			async::cancellation_token ct = {}) {
 		Node node{};
 		FutexIdentity id;
 
 		bool futexRace = false;
-		auto result = co_await space.withFutex(address, wq, [&](auto futex) {
+		auto result = co_await space.withFutex(address, [&](auto futex) {
 			id = futex.getIdentity();
 
 			auto irqLock = frg::guard(&irqMutex());
@@ -168,11 +167,10 @@ public:
 	// ----------------------------------------------------------------------------------
 
 	template<FutexSpace S>
-	coroutine<frg::expected<Error>> wake(S space, uintptr_t address, uint32_t count,
-			WorkQueue *wq) {
+	coroutine<frg::expected<Error>> wake(S space, uintptr_t address, uint32_t count) {
 		FutexIdentity id;
 
-		auto result = co_await space.withFutex(address, wq, [&](auto futex) {
+		auto result = co_await space.withFutex(address, [&](auto futex) {
 			id = futex.getIdentity();
 		});
 
