@@ -230,11 +230,12 @@ struct VirtualOperations {
 
 	template<typename R>
 	struct RetireOperation final : private RetireNode {
-		RetireOperation(VirtualOperations *self, WorkQueue *wq, R receiver)
-		: self_{self}, wq_{wq}, receiver_{std::move(receiver)} { }
+		RetireOperation(VirtualOperations *self, R receiver)
+		: self_{self}, receiver_{std::move(receiver)} { }
 
 		void start() {
-			RetireNode::wq_ = wq_;
+			auto wq = workQueueFromEnv(async::execution::get_env(receiver_));
+			RetireNode::wq_ = wq;
 			Worklet::setup([] (Worklet *base) {
 				auto op = static_cast<RetireOperation *>(base);
 				async::execution::set_value(op->receiver_);
@@ -244,7 +245,6 @@ struct VirtualOperations {
 
 	private:
 		VirtualOperations *self_;
-		WorkQueue *wq_;
 		R receiver_;
 	};
 
@@ -253,7 +253,7 @@ struct VirtualOperations {
 
 		template<typename R>
 		RetireOperation<R> connect(R receiver) {
-			return {self, wq, std::move(receiver)};
+			return {self, std::move(receiver)};
 		}
 
 		async::sender_awaiter<RetireSender> operator co_await() {
@@ -261,11 +261,10 @@ struct VirtualOperations {
 		}
 
 		VirtualOperations *self;
-		WorkQueue *wq;
 	};
 
-	RetireSender retire(WorkQueue *wq) {
-		return {this, wq};
+	RetireSender retire() {
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -287,11 +286,10 @@ struct VirtualOperations {
 		VirtualOperations *self;
 		VirtualAddr address;
 		size_t size;
-		WorkQueue *wq;
 	};
 
-	ShootdownSender shootdown(VirtualAddr address, size_t size, WorkQueue *wq) {
-		return {this, address, size, wq};
+	ShootdownSender shootdown(VirtualAddr address, size_t size) {
+		return {this, address, size};
 	}
 
 	template<typename R>
@@ -304,9 +302,10 @@ struct VirtualOperations {
 		ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
 		void start() {
+			auto wq = workQueueFromEnv(async::execution::get_env(receiver_));
 			ShootNode::address = s_.address;
 			ShootNode::size = s_.size;
-			ShootNode::wq_ = s_.wq;
+			ShootNode::wq_ = wq;
 			Worklet::setup([] (Worklet *base) {
 				auto op = static_cast<ShootdownOperation *>(base);
 				async::execution::set_value(op->receiver_);
@@ -491,23 +490,22 @@ public:
 
 	coroutine<frg::expected<Error, VirtualAddr>>
 	map(smarter::borrowed_ptr<MemorySlice> view,
-			VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-			WorkQueue *wq);
+			VirtualAddr address, size_t offset, size_t length, uint32_t flags);
 
 	coroutine<frg::expected<Error>>
-	protect(VirtualAddr address, size_t length, uint32_t flags, WorkQueue *wq);
+	protect(VirtualAddr address, size_t length, uint32_t flags);
 
 	coroutine<frg::expected<Error>>
-	synchronize(VirtualAddr address, size_t length, WorkQueue *wq);
+	synchronize(VirtualAddr address, size_t length);
 
 	coroutine<frg::expected<Error>>
-	unmap(VirtualAddr address, size_t length, WorkQueue *wq);
+	unmap(VirtualAddr address, size_t length);
 
 	coroutine<frg::expected<Error>>
-	handleFault(VirtualAddr address, uint32_t flags, WorkQueue *wq);
+	handleFault(VirtualAddr address, uint32_t flags);
 
 	coroutine<frg::expected<Error, PhysicalAddr>>
-	retrievePhysical(VirtualAddr address, WorkQueue *wq);
+	retrievePhysical(VirtualAddr address);
 
 	size_t rss() {
 		return _ops->getRss();
@@ -519,15 +517,12 @@ public:
 
 	// These functions read as much data as possible;
 	// on error, they read/write a partially filled buffer.
-	coroutine<size_t> readPartialSpace(uintptr_t address, void *buffer, size_t size,
-			WorkQueue *wq);
-	coroutine<size_t> writePartialSpace(uintptr_t address, const void *buffer, size_t size,
-			WorkQueue *wq);
+	coroutine<size_t> readPartialSpace(uintptr_t address, void *buffer, size_t size);
+	coroutine<size_t> writePartialSpace(uintptr_t address, const void *buffer, size_t size);
 
-	auto readSpace(uintptr_t address, void *buffer, size_t size,
-			WorkQueue *wq) {
+	auto readSpace(uintptr_t address, void *buffer, size_t size) {
 		return async::transform(
-			readPartialSpace(address, buffer, size, wq),
+			readPartialSpace(address, buffer, size),
 			[=] (size_t actualSize) -> frg::expected<Error> {
 				if(actualSize != size)
 					return Error::fault;
@@ -536,10 +531,9 @@ public:
 		);
 	}
 
-	auto writeSpace(uintptr_t address, const void *buffer, size_t size,
-			WorkQueue *wq) {
+	auto writeSpace(uintptr_t address, const void *buffer, size_t size) {
 		return async::transform(
-			writePartialSpace(address, buffer, size, wq),
+			writePartialSpace(address, buffer, size),
 			[=] (size_t actualSize) -> frg::expected<Error> {
 				if(actualSize != size)
 					return Error::fault;
@@ -554,7 +548,7 @@ public:
 
 	struct GlobalFutexSpace {
 		template<typename F>
-		coroutine<frg::expected<Error>> withFutex(uintptr_t address, WorkQueue *wq, F &&f) {
+		coroutine<frg::expected<Error>> withFutex(uintptr_t address, F &&f) {
 			assert(currentIpl() == ipl::exceptional);
 
 			if (address & (sizeof(int) - 1))
@@ -597,7 +591,7 @@ public:
 
 				// Otherwise, try to make the page available.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					alignedOffset, kPageSize, 0, wq
+					alignedOffset, kPageSize
 				));
 			}
 		}

@@ -578,7 +578,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	[](smarter::shared_ptr<MemoryView> memory, size_t newSize,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await memory->resize(newSize);
+		auto outcome = co_await onExceptionalWq(memory->resize(newSize));
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		if (!outcome)
@@ -813,7 +813,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			smarter::shared_ptr<MemoryView> view,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await view->fork();
+		auto outcome = co_await onExceptionalWq(view->fork());
 
 		if(!outcome) {
 			HelHandleResult helResult{.error = translateError(outcome.error())};
@@ -1070,12 +1070,12 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			return kHelErrIllegalArgs; // Non-vspaces aren't allowed to map at NULL
 
 		mapResult = Thread::asyncBlockCurrent(
-			space->map(slice, (VirtualAddr)pointer, offset, length, map_flags, getCurrentThread()->pagingWorkQueue().get()),
+			space->map(slice, (VirtualAddr)pointer, offset, length, map_flags),
 			getCurrentThread()->pagingWorkQueue().get()
 		);
 	} else {
 		mapResult = Thread::asyncBlockCurrent(
-			vspace->map(slice, (VirtualAddr)pointer, offset, length, map_flags, getCurrentThread()->pagingWorkQueue().get()),
+			vspace->map(slice, (VirtualAddr)pointer, offset, length, map_flags),
 			getCurrentThread()->pagingWorkQueue().get()
 		);
 	}
@@ -1134,8 +1134,7 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 			VirtualAddr pointer, size_t length,
 			uint32_t protectFlags, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await onExceptionalWq(space->protect(pointer, length, protectFlags,
-				thisThread->pagingWorkQueue().get()));
+		auto outcome = co_await onExceptionalWq(space->protect(pointer, length, protectFlags));
 		// TODO: handle errors after propagating them through VirtualSpace::protect.
 		assert(outcome);
 
@@ -1171,7 +1170,7 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	}
 
 	auto outcome = Thread::asyncBlockCurrent(
-		space->unmap((VirtualAddr)pointer, length, getCurrentThread()->pagingWorkQueue().get()),
+		space->unmap((VirtualAddr)pointer, length),
 		getCurrentThread()->pagingWorkQueue().get()
 	);
 	if(!outcome) {
@@ -1209,8 +1208,7 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 			void *pointer, size_t length,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await onExceptionalWq(space->synchronize((VirtualAddr)pointer, length,
-				thisThread->pagingWorkQueue().get()));
+		auto outcome = co_await onExceptionalWq(space->synchronize((VirtualAddr)pointer, length));
 		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
 		assert(outcome);
 
@@ -1231,7 +1229,7 @@ HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
 	auto pageAddress = reinterpret_cast<VirtualAddr>(pointer) - disp;
 
 	auto physicalOrError = Thread::asyncBlockCurrent(
-		space->retrievePhysical(pageAddress, thisThread->pagingWorkQueue().get()),
+		space->retrievePhysical(pageAddress),
 		thisThread->pagingWorkQueue().get()
 	);
 	if(!physicalOrError) {
@@ -1281,8 +1279,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
-				auto copyOutcome = co_await view->copyFrom(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto copyOutcome = co_await onExceptionalWq(view->copyFrom(address + progress, temp, chunk));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1302,7 +1299,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto readVirtualSpace = []<typename Space, typename Token> (smarter::shared_ptr<Thread> submitThread,
+	auto readVirtualSpace = []<typename Space, typename Token> (
 			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -1324,8 +1321,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
 
-				auto outcome = co_await space->readSpace(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto outcome = co_await onExceptionalWq(space->readSpace(address + progress, temp, chunk));
 				if(!outcome) {
 					error = Error::fault;
 					break;
@@ -1351,18 +1347,18 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
-		readVirtualSpace(thisThread.lock(),
+		readVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
-		readVirtualSpace(thisThread.lock(),
+		readVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		readVirtualSpace(thisThread.lock(),
+		readVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
@@ -1416,8 +1412,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto copyOutcome = co_await view->copyTo(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto copyOutcome = co_await onExceptionalWq(view->copyTo(address + progress, temp, chunk));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1431,7 +1426,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	auto writeVirtualSpace = []<typename Space, typename Token> (smarter::shared_ptr<Thread> submitThread,
+	auto writeVirtualSpace = []<typename Space, typename Token> (
 			smarter::shared_ptr<Space, Token> space,
 			uintptr_t address, size_t length, const void *buffer,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -1459,8 +1454,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto outcome = co_await space->writeSpace(address + progress, temp, chunk,
-						submitThread->mainWorkQueue().get());
+				auto outcome = co_await onExceptionalWq(space->writeSpace(address + progress, temp, chunk));
 				if(!outcome) {
 					error = Error::fault;
 					break;
@@ -1481,18 +1475,18 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<AddressSpaceDescriptor>()) {
 		auto space = descriptor.get<AddressSpaceDescriptor>().space;
-		writeVirtualSpace(thisThread.lock(),
+		writeVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<ThreadDescriptor>()) {
 		auto thread = descriptor.get<ThreadDescriptor>().thread;
 		auto space = thread->getAddressSpace().lock();
-		writeVirtualSpace(thisThread.lock(),
+		writeVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
 		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		writeVirtualSpace(thisThread.lock(),
+		writeVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
@@ -1638,7 +1632,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 			smarter::shared_ptr<IpcQueue> queue,
 			uintptr_t offset, size_t size,
 			uintptr_t context,
-			enable_detached_coroutine edc) -> void {
+			enable_detached_coroutine) -> void {
 		MemoryViewLockHandle lockHandle{memory, offset, size};
 		lockHandle.acquire();
 		if(!lockHandle) {
@@ -1651,7 +1645,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, 0, edc.wq.get()));
+		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size));
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -3062,7 +3056,7 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		return translateError(Thread::asyncBlockCurrentInterruptible(
 			async::lambda([&](async::cancellation_token ct) {
 				return getGlobalFutexRealm()->wait(
-					space->globalFutexSpace(), address, expected, thisThread->pagingWorkQueue().get(), ct
+					space->globalFutexSpace(), address, expected, ct
 				);
 			}),
 			thisThread->pagingWorkQueue().get()
@@ -3074,9 +3068,9 @@ HelError helFutexWait(int *pointer, int expected, int64_t deadline) {
 		Thread::asyncBlockCurrentInterruptible(async::lambda([&](async::cancellation_token ct) {
 			return async::race_and_cancel(
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
-				    waitErr = co_await onExceptionalWq(getGlobalFutexRealm()->wait(
-				        space->globalFutexSpace(), address, expected, thisThread->pagingWorkQueue().get(), cancellation
-				    ));
+				    waitErr = co_await getGlobalFutexRealm()->wait(
+				        space->globalFutexSpace(), address, expected, cancellation
+				    );
 			    }),
 			    async::lambda([&](async::cancellation_token cancellation) -> coroutine<void> {
 				    timeout = co_await generalTimerEngine()->sleep(deadline, cancellation);
@@ -3103,7 +3097,7 @@ HelError helFutexWake(int *pointer, unsigned int count) {
 
 	auto result = Thread::asyncBlockCurrent(
 		getGlobalFutexRealm()->wake(
-			space->globalFutexSpace(), address, count, thisThread->pagingWorkQueue().get()
+			space->globalFutexSpace(), address, count
 		),
 		thisThread->pagingWorkQueue().get()
 	);

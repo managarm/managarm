@@ -338,8 +338,7 @@ extern "C" void thorMain() {
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
 					memory->selfPtr = memory;
 					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
-							data, file_size,
-							thisFiber()->associatedWorkQueue().get()));
+							data, file_size));
 					assert(copyOutcome);
 
 					auto name = frg::string<KernelAlloc>{*kernelAlloc,
@@ -462,7 +461,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 	auto wq = this_thread->pagingWorkQueue();
 	auto handledError =
-	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags, wq.get()), wq.get());
+	    Thread::asyncBlockCurrent(address_space->handleFault(address, flags), wq.get());
 	// if the page fault was handled, return.
 	if(handledError)
 		return;

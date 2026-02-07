@@ -180,7 +180,7 @@ namespace initrd {
 				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc,
 						frg::min(size_t(req.size()), file->module->size() - file->offset)};
 				auto copyOutcome = co_await file->module->getMemory()->copyFrom(file->offset,
-					dataBuffer.data(), dataBuffer.size(), WorkQueue::generalQueue().get());
+					dataBuffer.data(), dataBuffer.size());
 				assert(copyOutcome);
 				file->offset += dataBuffer.size();
 
@@ -352,8 +352,7 @@ namespace posix {
 					fileTableMemory, 0, 0x1000);
 			auto result = co_await thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
-					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead,
-					WorkQueue::generalQueue().get());
+					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
 			assert(result);
 			clientFileTable = result.value();
 		}
@@ -422,7 +421,7 @@ namespace posix {
 					continue;
 				openFiles[fd] = file;
 				auto copyOutcome = co_await fileTableMemory->copyTo(sizeof(Handle) * fd,
-						&handle, sizeof(Handle), WorkQueue::generalQueue().get());
+						&handle, sizeof(Handle));
 				assert(copyOutcome);
 				co_return fd;
 			}
@@ -430,7 +429,7 @@ namespace posix {
 			int fd = openFiles.size();
 			openFiles.push(file);
 			auto copyOutcome = co_await fileTableMemory->copyTo(sizeof(Handle) * fd,
-					&handle, sizeof(Handle), WorkQueue::generalQueue().get());
+					&handle, sizeof(Handle));
 			assert(copyOutcome);
 			co_return fd;
 		}
@@ -500,8 +499,7 @@ namespace posix {
 
 						auto space = info.thread->getAddressSpace();
 						auto result = co_await space->protect(
-							req->address(), req->size(), native_flags,
-							WorkQueue::generalQueue().get());
+							req->address(), req->size(), native_flags);
 						// TODO: improve error handling here.
 						assert(result);
 
@@ -784,8 +782,7 @@ namespace posix {
 
 				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
-						req->address_hint(), 0, req->size(), protFlags,
-						WorkQueue::generalQueue().get());
+						req->address_hint(), 0, req->size(), protFlags);
 				// TODO: improve error handling here.
 				assert(mapResult);
 
@@ -841,14 +838,14 @@ namespace posix {
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Panic in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Fault in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
@@ -865,8 +862,7 @@ namespace posix {
 				auto mapResult = co_await space->map(std::move(slice),
 						0, 0, size,
 						AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead
-						| AddressSpace::kMapProtWrite,
-						WorkQueue::generalQueue().get());
+						| AddressSpace::kMapProtWrite);
 				// TODO: improve error handling here.
 				assert(mapResult);
 
@@ -878,8 +874,7 @@ namespace posix {
 				auto address = *info.thread->_executor.arg0();
 				auto size = *info.thread->_executor.arg1();
 				auto space = info.thread->getAddressSpace();
-				auto unmapOutcome = co_await space->unmap(address, size,
-						WorkQueue::generalQueue().get());
+				auto unmapOutcome = co_await space->unmap(address, size);
 
 				if(!unmapOutcome) {
 					assert(unmapOutcome.error() == Error::illegalArgs);
@@ -900,8 +895,7 @@ namespace posix {
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData),
-						WorkQueue::generalQueue().get());
+						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData));
 				if(!outcome) {
 					*info.thread->_executor.result0() = kHelErrFault;
 				}else{
@@ -915,8 +909,7 @@ namespace posix {
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData),
-						WorkQueue::generalQueue().get());
+						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData));
 				if(!outcome) {
 					*info.thread->_executor.result0() = kHelErrFault;
 				}else{
@@ -964,7 +957,7 @@ namespace posix {
 			}else if(interrupt == kIntrSuperCall + ::posix::superSigKill) {
 				urgentLogger() << "thor: Signal sent by server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else{
 				panicLogger() << "thor: Unexpected observation "

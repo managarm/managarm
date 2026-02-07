@@ -72,8 +72,8 @@ uint8_t computeCsum(frg::span<uint8_t> s) {
 
 struct GdbServer {
 	GdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread, frg::string_view path,
-		smarter::shared_ptr<KernelIoChannel> channel, WorkQueue *wq)
-	: thread_{std::move(thread)}, path_{path}, channel_{std::move(channel)}, wq_{wq} { }
+		smarter::shared_ptr<KernelIoChannel> channel)
+	: thread_{std::move(thread)}, path_{path}, channel_{std::move(channel)} { }
 
 	coroutine<frg::expected<Error>> run();
 
@@ -83,7 +83,6 @@ private:
 	smarter::shared_ptr<Thread, ActiveHandle> thread_;
 	frg::string_view path_;
 	smarter::shared_ptr<KernelIoChannel> channel_;
-	WorkQueue *wq_;
 
 	// Internal buffer for parsing / emitting packets.
 	frg::vector<uint8_t, KernelAlloc> inBuffer_{*kernelAlloc};
@@ -369,7 +368,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		frg::vector<uint8_t, KernelAlloc> mem{*kernelAlloc};
 		mem.resize(length);
 		auto actualLength = co_await thread_->getAddressSpace()->readPartialSpace(
-				address, mem.data(), length, wq_);
+				address, mem.data(), length);
 
 		for(size_t i = 0; i < actualLength; ++i)
 			resp.appendHexByte(mem[i]);
@@ -458,7 +457,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 static bool launched = false;
 
 void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
-		frg::string_view path, WorkQueue *wq) {
+		frg::string_view path, smarter::borrowed_ptr<WorkQueue> wq) {
 	if(launched)
 		return;
 	launched = true;
@@ -471,8 +470,8 @@ void launchGdbServer(smarter::shared_ptr<Thread, ActiveHandle> thread,
 			<< channel->descriptiveTag() << frg::endlog;
 
 	auto svr = frg::construct<GdbServer>(*kernelAlloc,
-			std::move(thread), path, std::move(channel), wq);
-	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+			std::move(thread), path, std::move(channel));
+	spawnOnWorkQueue(*kernelAlloc, wq.lock(),
 		async::transform(svr->run(), [] (auto outcome) {
 			if(!outcome)
 				infoLogger() << "thor: Internal error in gdbserver" << frg::endlog;

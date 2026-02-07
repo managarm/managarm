@@ -288,8 +288,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 				view.get(), viewOffset + shootOffset, shootSize);
 		assert(unmapOutcome);
 
-		co_await owner->_ops->shootdown(address + shootOffset, shootSize,
-				WorkQueue::generalQueue().get());
+		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 
 		eviction.done();
 
@@ -355,7 +354,7 @@ void VirtualSpace::retire() {
 	// TODO: It would be less ugly to run this in a non-detached way.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
-		co_await self->_ops->retire(WorkQueue::generalQueue().get());
+		co_await self->_ops->retire();
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
@@ -376,8 +375,7 @@ void VirtualSpace::retire() {
 
 coroutine<frg::expected<Error, VirtualAddr>>
 VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
-		VirtualAddr address, size_t offset, size_t length, uint32_t flags,
-		WorkQueue *wq) {
+		VirtualAddr address, size_t offset, size_t length, uint32_t flags) {
 	assert(currentIpl() == ipl::exceptional);
 	assert(length);
 	assert(!(length % kPageSize));
@@ -489,7 +487,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	}
 
 	if (needsShootdown)
-		co_await _ops->shootdown(actualAddress, length, wq);
+		co_await _ops->shootdown(actualAddress, length);
 
 	// Only enable eviction after the peekRange() loop above.
 	// Since eviction is not yet enabled in that loop, we do not have
@@ -501,7 +499,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 }
 
 coroutine<frg::expected<Error>>
-VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags, WorkQueue *wq) {
+VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 	assert(currentIpl() == ipl::exceptional);
 
 	std::underlying_type_t<MappingFlags> mappingFlags = 0;
@@ -561,11 +559,11 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags, WorkQu
 		assert(remapOutcome);
 	}
 
-	co_await _ops->shootdown(address, length, wq);
+	co_await _ops->shootdown(address, length);
 	co_return {};
 }
 
-coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length, WorkQueue *wq) {
+coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t length) {
 	assert(currentIpl() == ipl::exceptional);
 
 	co_await _consistencyMutex.async_lock();
@@ -576,13 +574,13 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 	auto needsShootdown = co_await _unmapMappings(address, length, start, end);
 
 	if (needsShootdown)
-		co_await _ops->shootdown(address, length, wq);
+		co_await _ops->shootdown(address, length);
 
 	co_return {};
 }
 
 coroutine<frg::expected<Error>>
-VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
+VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 	assert(currentIpl() == ipl::exceptional);
 
 	co_await _consistencyMutex.async_lock_shared();
@@ -615,14 +613,13 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size, WorkQueue *wq) {
 
 		overallProgress += mappingChunk;
 	}
-	co_await _ops->shootdown(alignedAddress, alignedSize, wq);
+	co_await _ops->shootdown(alignedAddress, alignedSize);
 
 	co_return {};
 }
 
 coroutine<frg::expected<Error>>
-VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
-		WorkQueue *wq) {
+VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 	assert(currentIpl() == ipl::exceptional);
 
 	co_await _consistencyMutex.async_lock_shared();
@@ -655,7 +652,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 			fetchFlags |= fetchDisallowBacking;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
+				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
 		auto caching = CachingMode::null;
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
@@ -685,7 +682,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags,
 }
 
 coroutine<frg::expected<Error, PhysicalAddr>>
-VirtualSpace::retrievePhysical(VirtualAddr address, WorkQueue *wq) {
+VirtualSpace::retrievePhysical(VirtualAddr address) {
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	smarter::shared_ptr<Mapping> mapping;
@@ -707,7 +704,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address, WorkQueue *wq) {
 			fetchFlags |= fetchDisallowBacking;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
-				mapping->viewOffset + offset, kPageSize, fetchFlags, wq));
+				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
 		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
@@ -1083,7 +1080,9 @@ coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
-		void *buffer, size_t size, WorkQueue *wq) {
+		void *buffer, size_t size) {
+	assert(currentIpl() == ipl::exceptional);
+
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;
@@ -1110,7 +1109,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		auto copyOutcome = co_await mapping->view->copyFrom(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags, wq);
+				limitInMapping, fetchFlags);
 		if(!copyOutcome)
 			co_return progress;
 
@@ -1120,7 +1119,9 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 }
 
 coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
-		const void *buffer, size_t size, WorkQueue *wq) {
+		const void *buffer, size_t size) {
+	assert(currentIpl() == ipl::exceptional);
+
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;
@@ -1147,7 +1148,7 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		auto copyOutcome = co_await mapping->view->copyTo(
 				mapping->viewOffset + startInMapping,
 				reinterpret_cast<const std::byte *>(buffer) + progress,
-				limitInMapping, fetchFlags, wq);
+				limitInMapping, fetchFlags);
 		if(!copyOutcome)
 			co_return progress;
 
