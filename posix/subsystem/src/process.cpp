@@ -312,12 +312,18 @@ ViewPath FsContext::getWorkingDirectory() {
 	return _workDir;
 }
 
-void FsContext::changeRoot(ViewPath root) {
+std::expected<void, Error> FsContext::changeRoot(ViewPath root) {
+	if(root.second->getTarget()->getType() != VfsType::directory)
+		return std::unexpected(Error::notDirectory);
 	_root = std::move(root);
+	return {};
 }
 
-void FsContext::changeWorkingDirectory(ViewPath workdir) {
+std::expected<void, Error> FsContext::changeWorkingDirectory(ViewPath workdir) {
+	if(workdir.second->getTarget()->getType() != VfsType::directory)
+		return std::unexpected(Error::notDirectory);
 	_workDir = std::move(workdir);
+	return {};
 }
 
 mode_t FsContext::getUmask() {
