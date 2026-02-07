@@ -4,7 +4,7 @@ incs = [ 'include', '../../kernel/common' ]
 src = [ 'src/client.cpp', hw_bragi ]
 
 if not provide_deps
-	deps = [ helix_dep, libarch, frigg ]
+	deps = [ helix_dep, mbus_proto_dep, core_dep, libarch, frigg ]
 
 	libhw = shared_library('hw_protocol', src,
 		dependencies : deps,
