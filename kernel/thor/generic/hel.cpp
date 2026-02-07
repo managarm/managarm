@@ -578,7 +578,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	[](smarter::shared_ptr<MemoryView> memory, size_t newSize,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await memory->resize(newSize);
+		auto outcome = co_await onExceptionalWq(memory->resize(newSize));
 
 		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
 		if (!outcome)
@@ -813,7 +813,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			smarter::shared_ptr<MemoryView> view,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto outcome = co_await view->fork();
+		auto outcome = co_await onExceptionalWq(view->fork());
 
 		if(!outcome) {
 			HelHandleResult helResult{.error = translateError(outcome.error())};
@@ -1279,7 +1279,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			size_t progress = 0;
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
-				auto copyOutcome = co_await view->copyFrom(address + progress, temp, chunk);
+				auto copyOutcome = co_await onExceptionalWq(view->copyFrom(address + progress, temp, chunk));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1321,7 +1321,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			while(progress < length) {
 				auto chunk = frg::min(length - progress, size_t{4096});
 
-				auto outcome = co_await space->readSpace(address + progress, temp, chunk);
+				auto outcome = co_await onExceptionalWq(space->readSpace(address + progress, temp, chunk));
 				if(!outcome) {
 					error = Error::fault;
 					break;
@@ -1412,7 +1412,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto copyOutcome = co_await view->copyTo(address + progress, temp, chunk);
+				auto copyOutcome = co_await onExceptionalWq(view->copyTo(address + progress, temp, chunk));
 				if(!copyOutcome) {
 					error = copyOutcome.error();
 					break;
@@ -1454,7 +1454,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 					break;
 				}
 
-				auto outcome = co_await space->writeSpace(address + progress, temp, chunk);
+				auto outcome = co_await onExceptionalWq(space->writeSpace(address + progress, temp, chunk));
 				if(!outcome) {
 					error = Error::fault;
 					break;

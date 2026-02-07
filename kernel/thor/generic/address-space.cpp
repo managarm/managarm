@@ -1081,6 +1081,8 @@ coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		void *buffer, size_t size) {
+	assert(currentIpl() == ipl::exceptional);
+
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;
@@ -1118,6 +1120,8 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 
 coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		const void *buffer, size_t size) {
+	assert(currentIpl() == ipl::exceptional);
+
 	// We do not take _consistencyMutex here since we are only interested in a snapshot.
 
 	size_t progress = 0;

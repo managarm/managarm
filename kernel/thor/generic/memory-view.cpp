@@ -191,17 +191,21 @@ static initgraph::Task initReclaim{&globalInitEngine, "generic.init-reclaim",
 // --------------------------------------------------------
 
 coroutine<frg::expected<Error>> MemoryView::resize(size_t newSize) {
+	assert(currentIpl() == ipl::exceptional);
 	(void)newSize;
 	co_return Error::illegalObject;
 }
 
 coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> MemoryView::fork() {
+	assert(currentIpl() == ipl::exceptional);
 	co_return Error::illegalObject;
 }
 
 coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		const void *pointer, size_t size,
 		FetchFlags flags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	if (auto err = lockRange(offset, size); err != Error::success)
 		co_return err;
 	frg::scope_exit unlockOnExit{[&] {
@@ -241,6 +245,8 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		void *pointer, size_t size,
 		FetchFlags flags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	if (auto err = lockRange(offset, size); err != Error::success)
 		co_return err;
 	frg::scope_exit unlockOnExit{[&] {
@@ -435,6 +441,8 @@ ImmediateMemory::~ImmediateMemory() {
 }
 
 coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
+	assert(currentIpl() == ipl::exceptional);
+
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -477,6 +485,8 @@ frg::tuple<PhysicalAddr, CachingMode> ImmediateMemory::peekRange(uintptr_t offse
 
 coroutine<frg::expected<Error, size_t>>
 ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -528,6 +538,8 @@ frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset
 
 coroutine<frg::expected<Error, size_t>>
 HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto misalign = offset & (kPageSize - 1);
 	co_return kPageSize - misalign;
 }
@@ -582,6 +594,8 @@ AllocatedMemory::~AllocatedMemory() {
 }
 
 coroutine<frg::expected<Error>> AllocatedMemory::resize(size_t newSize) {
+	assert(currentIpl() == ipl::exceptional);
+
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
@@ -621,6 +635,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 
 coroutine<frg::expected<Error, size_t>>
 AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -897,6 +913,7 @@ void ManagedSpace::_progressMonitors(MonitorList &pending) {
 // --------------------------------------------------------
 
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
+	assert(currentIpl() == ipl::exceptional);
 	assert(!(newSize & (kPageSize - 1)));
 	auto newPages = newSize >> kPageShift;
 
@@ -945,6 +962,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 
 coroutine<frg::expected<Error, size_t>>
 BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_managed->mutex);
 
@@ -1097,6 +1116,8 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 
 coroutine<frg::expected<Error, size_t>>
 FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
 	auto alignedOffset = offset & ~(kPageSize - 1);
@@ -1290,6 +1311,8 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 
 coroutine<frg::expected<Error, size_t>>
 IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&mutex_);
 
@@ -1365,6 +1388,8 @@ size_t CopyOnWriteMemory::getLength() {
 }
 
 coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemory::fork() {
+	assert(currentIpl() == ipl::exceptional);
+
 	// Note that locked pages require special attention during CoW: as we cannot
 	// replace them by copies, we have to copy them eagerly.
 	// Therefore, they are special-cased below.
@@ -1536,6 +1561,8 @@ frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t off
 
 coroutine<frg::expected<Error, size_t>>
 CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto misalign = offset & (kPageSize - 1);
 	auto alignedOffset = offset & ~(kPageSize - 1);
 
