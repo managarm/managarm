@@ -838,14 +838,14 @@ namespace posix {
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Panic in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else if(interrupt == kIntrPageFault) {
 				// Do nothing and stop observing.
 				// TODO: Make sure the server is destructed here.
 				urgentLogger() << "thor: Fault in server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
@@ -957,7 +957,7 @@ namespace posix {
 			}else if(interrupt == kIntrSuperCall + ::posix::superSigKill) {
 				urgentLogger() << "thor: Signal sent by server "
 						<< name().data() << frg::endlog;
-				launchGdbServer(info.thread, _name, WorkQueue::generalQueue().get());
+				launchGdbServer(info.thread, _name, WorkQueue::generalQueue());
 				break;
 			}else{
 				panicLogger() << "thor: Unexpected observation "
