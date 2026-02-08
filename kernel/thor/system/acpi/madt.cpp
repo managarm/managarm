@@ -174,6 +174,10 @@ void bootOtherProcessors() {
 		}
 		offset += generic->length;
 	}
+
+	if (apCpuIndex != cpuConfigNote->totalCpus)
+		panicLogger() << "thor: Booted " << apCpuIndex << " CPUs but Eir detected "
+		              << cpuConfigNote->totalCpus << frg::endlog;
 #endif
 }
 
@@ -466,10 +470,6 @@ static initgraph::Task bootApsTask{
 		    return;
 
 	    bootOtherProcessors();
-
-	    if (getCpuCount() != cpuConfigNote->totalCpus)
-		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
-		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
 
