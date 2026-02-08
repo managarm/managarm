@@ -416,7 +416,12 @@ void GicV2::sendIpi(int cpuId, uint8_t id) {
 }
 
 void GicV2::sendIpiToOthers(uint8_t id) {
-	dist->sendIpiToOthers(id);
+	size_t self = getCpuData()->cpuIndex;
+	for (size_t i = 0; i < getCpuCount(); ++i) {
+		if (i == self)
+			continue;
+		sendIpi(static_cast<int>(i), id);
+	}
 }
 
 Gic::CpuIrq GicV2::getIrq() {
