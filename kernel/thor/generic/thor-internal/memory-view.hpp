@@ -14,6 +14,7 @@
 #include <thor-internal/futex.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/kernel-locks.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
@@ -595,7 +596,7 @@ struct ManagedSpace : CacheBundle {
 
 	frg::ticket_spinlock mutex;
 
-	frg::rcu_radixtree<ManagedPage, KernelAlloc> pages;
+	frg::rcu_radixtree<ManagedPage, KernelAlloc, RcuPolicy> pages;
 
 	size_t numPages;
 	bool readahead;
@@ -735,7 +736,7 @@ struct CowChain {
 // TODO: Either this private again or make this class POD-like.
 	frg::ticket_spinlock _mutex;
 
-	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc> _pages;
+	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _pages;
 };
 
 struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
@@ -768,7 +769,7 @@ private:
 	uintptr_t _viewOffset;
 	size_t _length;
 	smarter::shared_ptr<CowChain> _copyChain;
-	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc> _ownedPages;
+	frg::rcu_radixtree<smarter::shared_ptr<CowPage>, KernelAlloc, RcuPolicy> _ownedPages;
 	async::recurring_event _copyEvent;
 	EvictionQueue _evictQueue;
 };
