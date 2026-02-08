@@ -98,7 +98,7 @@ static initgraph::Task setupRegions{
 	    setupRegionStructs();
 
 	    eir::infoLogger() << "Kernel memory regions:" << frg::endlog;
-	    for (size_t i = 0; i < numRegions; ++i) {
+	    for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		    if (regions[i].regionType == RegionType::null)
 			    continue;
 		    eir::infoLogger() << "    Memory region [" << i << "]."

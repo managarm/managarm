@@ -38,10 +38,10 @@ CpuConfig cpuConfig{0};
 // Memory region management.
 // ----------------------------------------------------------------------------
 
-Region regions[numRegions];
+Region regions[eirMaxMemoryRegions];
 
 Region *obtainRegion() {
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::null)
 			continue;
 		regions[i].regionType = RegionType::unconstructed;
@@ -122,7 +122,7 @@ void createInitialRegions(InitialRegion region, frg::span<InitialRegion> reserve
 }
 
 address_t cutFromRegion(size_t size) {
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 
@@ -143,7 +143,7 @@ address_t cutFromRegion(size_t size) {
 }
 
 void setupRegionStructs() {
-	for (size_t j = numRegions; j > 0; j--) {
+	for (size_t j = eirMaxMemoryRegions; j > 0; j--) {
 		size_t i = j - 1;
 
 		if (regions[i].regionType != RegionType::allocatable)
@@ -161,7 +161,7 @@ void setupRegionStructs() {
 		regions[i].buddyOverhead = overhead;
 	}
 
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 
@@ -187,7 +187,7 @@ physaddr_t bootReserve(size_t length, size_t alignment) {
 	assert(length <= pageSize);
 	assert(alignment <= pageSize);
 
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 
@@ -206,7 +206,7 @@ physaddr_t bootReserve(size_t length, size_t alignment) {
 }
 
 physaddr_t allocPage() {
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 
@@ -329,7 +329,7 @@ void mapRegionsAndStructs() {
 	mapKasanShadow(ml.directPhysical + 0x8000, 0x80000);
 	unpoisonKasanShadow(ml.directPhysical + 0x8000, 0x80000);
 
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 
@@ -631,7 +631,7 @@ void generateInfo() {
 
 	// Pass all memory regions to thor.
 	int n = 0;
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType == RegionType::allocatable)
 			n++;
 	}
@@ -640,7 +640,7 @@ void generateInfo() {
 	info_ptr->numRegions = n;
 	info_ptr->regionInfo = mapBootstrapData(regionInfos);
 	int j = 0;
-	for (size_t i = 0; i < numRegions; ++i) {
+	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
 		if (regions[i].regionType != RegionType::allocatable)
 			continue;
 

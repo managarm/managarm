@@ -30,8 +30,7 @@ struct Region {
 	address_t buddyMap;
 };
 
-static constexpr size_t numRegions = 64;
-extern Region regions[numRegions];
+extern Region regions[eirMaxMemoryRegions];
 extern address_t allocatedMemory;
 extern address_t physOffset;
 
