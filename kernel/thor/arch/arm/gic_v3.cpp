@@ -24,6 +24,9 @@ static frg::manual_box<GicV3> gicV3;
 
 static constexpr uint8_t defaultPrio = 0xA0;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+
 namespace dist_reg {
 	static constexpr arch::bit_register<uint32_t> control{0x0};
 	static constexpr arch::bit_register<uint32_t> type{0x4};
@@ -89,6 +92,8 @@ namespace cpu_sgi1r {
 	static constexpr arch::field<uint64_t, bool> irm{40, 1};
 	static constexpr arch::field<uint64_t, uint8_t> aff3{48, 8};
 }
+
+#pragma GCC diagnostic pop // -Wunused-const-variable
 
 static GicRedistributorV3& getRedistForThisCpu() {
 	auto cpuData = getCpuData();
@@ -370,12 +375,20 @@ void GicV3::sendIpi(int cpuId, uint8_t id) {
 		cpu_sgi1r::aff2(aff2) |
 		cpu_sgi1r::aff3(aff3) |
 		cpu_sgi1r::intId(id);
-	asm volatile("msr icc_sgi1r_el1, %0" : : "r"(v));
+	asm volatile("msr icc_sgi1r_el1, %0; isb" : : "r"(v));
 }
 
 void GicV3::sendIpiToOthers(uint8_t id) {
-	arch::bit_value<uint64_t> v = cpu_sgi1r::irm(true) | cpu_sgi1r::intId(id);
-	asm volatile("msr icc_sgi1r_el1, %0" : : "r"(v));
+	// The all-excluding-self icc_sgi1r_el1 bit (IRM) is not always implemented correctly when running under a hypervisor
+	// which is why it's not used here.
+	// An example of this is the QCM6490 platform and probably other Qualcomm platforms where an old version of the Gunyah hypervisor is used
+	// which ignores icc_sgi1r_el1 writes that have IRM set.
+	size_t self = getCpuData()->cpuIndex;
+	for (size_t i = 0; i < getCpuCount(); ++i) {
+		if (i == self)
+			continue;
+		sendIpi(static_cast<int>(i), id);
+	}
 }
 
 Gic::CpuIrq GicV3::getIrq() {
