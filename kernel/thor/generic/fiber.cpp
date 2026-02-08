@@ -103,8 +103,28 @@ void KernelFiber::invoke() {
 	restoreExecutor(&_executor);
 }
 
-void KernelFiber::handlePreemption(IrqImageAccessor) {
-	// Do nothing (do not preempt fibers for now).
+void KernelFiber::handlePreemption(IrqImageAccessor image) {
+	assert(!intsAreEnabled());
+	assert(thisFiber() == this);
+
+	auto *scheduler = &localScheduler.get();
+
+	scheduler->update();
+	if(scheduler->maybeReschedule()) {
+		auto lock = frg::guard(&_mutex);
+
+		saveExecutor(&_executor, image);
+		getCpuData()->executorContext = nullptr;
+		getCpuData()->activeFiber = nullptr;
+
+		runOnStack([] (Continuation cont, IrqImageAccessor image, frg::unique_lock<frg::ticket_spinlock> lock) {
+			scrubStack(image, cont);
+			lock.unlock();
+			localScheduler.get().commitReschedule();
+		}, getCpuData()->detachedStack.base(), image, std::move(lock));
+	}else{
+		scheduler->renewSchedule();
+	}
 }
 
 void KernelFiber::AssociatedWorkQueue::wakeup() {
