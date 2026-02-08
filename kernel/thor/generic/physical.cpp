@@ -32,9 +32,9 @@ PhysicalChunkAllocator::PhysicalChunkAllocator() {
 
 void PhysicalChunkAllocator::bootstrapRegion(PhysicalAddr address,
 		int order, size_t numRoots, int8_t *buddyTree) {
-	if(_numRegions >= 8) {
-		infoLogger() << "thor: Ignoring memory region (can only handle 8 regions)"
-				<< frg::endlog;
+	if(_numRegions >= static_cast<int>(eirMaxMemoryRegions)) {
+		infoLogger() << "thor: Ignoring memory region (can only handle "
+				<< eirMaxMemoryRegions << " regions)" << frg::endlog;
 		return;
 	}
 
