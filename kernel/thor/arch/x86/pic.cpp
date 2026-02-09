@@ -20,6 +20,7 @@ namespace thor {
 
 namespace {
 	constexpr bool debugTimer = false;
+	constexpr bool debugIoApicMasking = false;
 }
 
 inline constexpr arch::bit_register<uint32_t> lApicId(0x0020);
@@ -565,11 +566,13 @@ namespace {
 		IrqPin *accessPin(size_t n);
 
 	private:
+		// Must only be called with _mutex taken.
 		uint32_t _loadRegister(uint32_t index) {
 			_space.store(apicIndex, index);
 			return _space.load(apicData);
 		}
 
+		// Must only be called with _mutex taken.
 		void _storeRegister(uint32_t index, uint32_t value) {
 			_space.store(apicIndex, index);
 			_space.store(apicData, value);
@@ -580,6 +583,9 @@ namespace {
 		size_t _numPins;
 		// TODO: Replace by dyn_array?
 		Pin **_pins;
+
+		// Protects the I/O APIC MMIO registers.
+		frg::ticket_spinlock _mutex;
 	};
 
 	static frg::string<KernelAlloc> buildName(int apic_id, unsigned int index) {
@@ -593,6 +599,9 @@ namespace {
 	: IrqPin{buildName(chip->_apicId, index)}, _chip{chip}, _index{index} { }
 
 	void IoApic::Pin::dumpHardwareState() {
+		assert(!intsAreEnabled());
+		auto lock = frg::guard(&_chip->_mutex);
+
 		infoLogger() << "thor: Local APIC state of vector " << _vector << ":"
 				<< " ISR: " << (int)getLocalApicIsr(_vector)
 				<< ", TMR: " << (getLocalApicTmr(_vector) ? "level" : "edge")
@@ -620,20 +629,25 @@ namespace {
 
 	IrqStrategy IoApic::Pin::program(TriggerMode mode, Polarity polarity) {
 		IrqStrategy strategy;
-		if(mode == TriggerMode::edge) {
-			_levelTriggered = false;
-			strategy = irq_strategy::maskable | irq_strategy::endOfInterrupt;
-		}else{
-			assert(mode == TriggerMode::level);
-			_levelTriggered = true;
-			strategy = irq_strategy::maskable | irq_strategy::maskInService | irq_strategy::endOfInterrupt;
-		}
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_chip->_mutex);
 
-		if(polarity == Polarity::high) {
-			_activeLow = false;
-		}else{
-			assert(polarity == Polarity::low);
-			_activeLow = true;
+			if(mode == TriggerMode::edge) {
+				_levelTriggered = false;
+				strategy = irq_strategy::maskable | irq_strategy::endOfInterrupt;
+			}else{
+				assert(mode == TriggerMode::level);
+				_levelTriggered = true;
+				strategy = irq_strategy::maskable | irq_strategy::maskInService | irq_strategy::endOfInterrupt;
+			}
+
+			if(polarity == Polarity::high) {
+				_activeLow = false;
+			}else{
+				assert(polarity == Polarity::low);
+				_activeLow = true;
+			}
 		}
 
 		// Allocate an IRQ vector for the I/O APIC pin.
@@ -654,17 +668,26 @@ namespace {
 			panicLogger() << "thor: Could not allocate interrupt vector for "
 					<< name() << frg::endlog;
 
-		_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
-				static_cast<uint32_t>(pin_word2::destination(0)));
-		_chip->_storeRegister(kIoApicInts + _index * 2,
-				static_cast<uint32_t>(pin_word1::vector(_vector)
-				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
-				| pin_word1::activeLow(_activeLow)));
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_chip->_mutex);
+
+			_chip->_storeRegister(kIoApicInts + _index * 2 + 1,
+					static_cast<uint32_t>(pin_word2::destination(0)));
+			_chip->_storeRegister(kIoApicInts + _index * 2,
+					static_cast<uint32_t>(pin_word1::vector(_vector)
+					| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
+					| pin_word1::activeLow(_activeLow)));
+		}
 		return strategy;
 	}
 
 	void IoApic::Pin::mask() {
-//		infoLogger() << "thor: Masking pin " << _index << frg::endlog;
+		if (debugIoApicMasking)
+			infoLogger() << "thor: Masking pin " << _index << frg::endlog;
+		assert(!intsAreEnabled());
+		auto lock = frg::guard(&_chip->_mutex);
+
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
@@ -679,7 +702,11 @@ namespace {
 	}
 
 	void IoApic::Pin::unmask() {
-//		infoLogger() << "thor: Unmasking pin " << _index << frg::endlog;
+		if (debugIoApicMasking)
+			infoLogger() << "thor: Unmasking pin " << _index << frg::endlog;
+		assert(!intsAreEnabled());
+		auto lock = frg::guard(&_chip->_mutex);
+
 		_chip->_storeRegister(kIoApicInts + _index * 2,
 				static_cast<uint32_t>(pin_word1::vector(_vector)
 				| pin_word1::deliveryMode(0) | pin_word1::levelTriggered(_levelTriggered)
