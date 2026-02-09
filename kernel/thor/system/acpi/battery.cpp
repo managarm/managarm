@@ -135,7 +135,9 @@ coroutine<void> BatteryBusObject::run() {
 	// TODO(qookie): Better error handling here.
 	(co_await createObject("battery", std::move(properties))).unwrap();
 
-	uacpi_install_notify_handler(_node, BatteryBusObject::notification, this);
+	co_await onAcpiFiber([&] {
+		uacpi_install_notify_handler(_node, BatteryBusObject::notification, this);
+	});
 }
 
 coroutine<frg::expected<Error>> BatteryBusObject::handleRequest(LaneHandle lane) {

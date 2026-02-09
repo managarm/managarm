@@ -59,12 +59,7 @@ void initEc();
 void initEvents();
 
 struct AcpiObject final : public KernelBusObject {
-	AcpiObject(uacpi_namespace_node *node, unsigned int id) : node{node}, instance{id} {
-		if (node) {
-			uacpi_eval_hid(node, &hid_name);
-			uacpi_eval_cid(node, &cid_name);
-		}
-	}
+	AcpiObject(uacpi_namespace_node *node, unsigned int id) : node{node}, instance{id} {}
 
 	~AcpiObject() {
 		if (hid_name)
