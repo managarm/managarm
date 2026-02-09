@@ -11,12 +11,23 @@
 namespace thor::acpi {
 
 coroutine<void> AcpiObject::run(Properties acpi_properties) {
-	auto path = uacpi_namespace_node_generate_absolute_path(node);
+	frg::string<KernelAlloc> path{*kernelAlloc};
+
+	co_await onAcpiFiber([&] {
+		if (node) {
+			uacpi_eval_hid(node, &hid_name);
+			uacpi_eval_cid(node, &cid_name);
+		}
+
+		auto uacpiPath = uacpi_namespace_node_generate_absolute_path(node);
+		path = frg::string<KernelAlloc>{uacpiPath, *kernelAlloc};
+		uacpi_free_absolute_path(uacpiPath);
+	});
 
 	acpi_properties.stringProperty(
 	    "unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "acpi")
 	);
-	acpi_properties.stringProperty("acpi.path", frg::string<KernelAlloc>(path, *kernelAlloc));
+	acpi_properties.stringProperty("acpi.path", std::move(path));
 	if (hid_name)
 		acpi_properties.stringProperty(
 		    "acpi.hid", frg::string<KernelAlloc>(*kernelAlloc, hid_name->value)
@@ -28,8 +39,6 @@ coroutine<void> AcpiObject::run(Properties acpi_properties) {
 	acpi_properties.stringProperty(
 	    "acpi.instance", frg::to_allocated_string(*kernelAlloc, instance)
 	);
-
-	uacpi_free_absolute_path(path);
 
 	mbus_id = (co_await createObject("acpi-object", std::move(acpi_properties))).unwrap();
 
