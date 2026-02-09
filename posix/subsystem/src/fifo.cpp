@@ -136,6 +136,9 @@ public:
 		if (!isWriter_)
 			co_return Error::insufficientPermissions;
 
+		if (!maxLength)
+			co_return 0;
+
 		Packet packet;
 		packet.buffer.resize(maxLength);
 		memcpy(packet.buffer.data(), data, maxLength);
