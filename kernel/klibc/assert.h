@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 // NOTE: This is not ISO C. Declared in LSB.
-void __assert_fail(const char *assertion, const char *file, unsigned int line,
+__attribute__((noreturn)) void __assert_fail(const char *assertion, const char *file, unsigned int line,
 		const char *function);
 
 #ifdef __cplusplus
@@ -26,7 +26,11 @@ void __assert_fail(const char *assertion, const char *file, unsigned int line,
 #else // NDEBUG
 
 #undef assert
-#define assert(assertion) ((void)((assertion) \
-		|| (__assert_fail(#assertion, __FILE__, __LINE__, __func__), 0)))
+#define assert(assertion) ( \
+	(void)(\
+		__builtin_expect((bool)(assertion), 1) \
+		|| (__assert_fail(#assertion, __FILE__, __LINE__, __func__), 0) \
+	) \
+)
 
 #endif // NDEBUG

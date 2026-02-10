@@ -338,11 +338,12 @@ void PanicSink::finalize(bool) {
 
 } // namespace thor
 
-extern "C" void __assert_fail(const char *assertion, const char *file,
+extern "C" [[gnu::noreturn]] void __assert_fail(const char *assertion, const char *file,
 		unsigned int line, const char *function) {
 	thor::panicLogger() << "Assertion failed: " << assertion << "\n"
 			<< "In function " << function
 			<< " at " << file << ":" << line << frg::endlog;
+	__builtin_trap();
 }
 
 // This is required for virtual destructors. It should not be called though.
