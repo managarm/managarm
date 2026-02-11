@@ -11,6 +11,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
@@ -92,6 +93,7 @@ namespace {
 		Scheduler::resume(cpuContext->wqFiber);
 
 		LoadBalancer::singleton().setOnline(cpuContext);
+		setRcuOnline(cpuContext);
 		auto *scheduler = &localScheduler.get();
 		scheduler->update();
 		scheduler->forceReschedule();

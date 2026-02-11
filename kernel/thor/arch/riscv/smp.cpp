@@ -9,6 +9,7 @@
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <uacpi/acpi.h>
 #include <uacpi/tables.h>
@@ -87,6 +88,7 @@ void smpMain(StatusBlock *statusBlock) {
 		    Scheduler::resume(getCpuData()->wqFiber);
 
 		    LoadBalancer::singleton().setOnline(getCpuData());
+		    setRcuOnline(cpuContext);
 		    auto *scheduler = &localScheduler.get();
 		    scheduler->update();
 		    scheduler->forceReschedule();
