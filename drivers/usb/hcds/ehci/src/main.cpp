@@ -289,9 +289,6 @@ async::result<frg::expected<proto::UsbError>>
 Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
 	(void) port;
 
-	// TODO(qookie): Hub support
-	assert(hub.get() == _rootHub.get());
-
 	// Requires split TX support
 	if (speed != proto::DeviceSpeed::highSpeed)
 		co_return proto::UsbError::other;
@@ -394,6 +391,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 
 	char name[3];
 	snprintf(name, 3, "%.2x", address);
+
+	if(descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
+		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
+		auto newHub = (co_await createHubFromDevice(hub, proto::Device{std::move(state)}, port)).unwrap();
+		_enumerator.observeHub(std::move(newHub));
+	}
 
 	mbus_ng::Properties mbusDescriptor{
 		{"usb.type", mbus_ng::StringItem{"device"}},
