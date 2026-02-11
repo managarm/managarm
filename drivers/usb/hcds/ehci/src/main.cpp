@@ -1012,6 +1012,11 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			|| (active->transfers[current].status.load() & td_status::dataBufferError)) {
 		printf("Transfer error!\n");
 
+		if (active->transfers[current].status.load() & td_status::babbleDetected)
+			active->promise.set_value(proto::UsbError::babble);
+		else
+			active->promise.set_value(proto::UsbError::stall);
+
 		_dump(entity);
 
 		// Clean up the Queue.
