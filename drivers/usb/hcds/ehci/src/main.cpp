@@ -1174,6 +1174,9 @@ async::detached bindController(mbus_ng::Entity entity) {
 	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await device.accessBar(0);
+	co_await device.enableBusmaster();
+	co_await device.enableDma();
+
 	auto irq = co_await device.accessIrq();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
@@ -1222,7 +1225,7 @@ async::detached observeControllers() {
 // --------------------------------------------------------
 
 int main() {
-	std::cout << "ehci: Starting driver";
+	std::cout << "ehci: Starting driver" << std::endl;
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 
