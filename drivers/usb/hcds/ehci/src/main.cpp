@@ -795,6 +795,8 @@ auto Controller::_buildControl(proto::XferFlags dir,
 
 	// TODO: This code is horribly broken if the setup packet or
 	// one of the data packets crosses a page boundary.
+	auto setupAddr = reinterpret_cast<uintptr_t>(setup.data());
+	assert((setupAddr & ~0xFFFULL) == ((setupAddr + sizeof(*setup) - 1) & ~0xFFFULL));
 
 	transfers[0].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[1]))
 			| td_ptr::terminate(false));
@@ -807,6 +809,10 @@ auto Controller::_buildControl(proto::XferFlags dir,
 	transfers[0].extendedPtr0.store(0);
 
 	size_t progress = 0;
+
+	auto dataAddr = reinterpret_cast<uintptr_t>(buffer.data());
+	assert(!num_data || (dataAddr & ~0xFFFULL) == ((dataAddr + buffer.size() - 1) & ~0xFFFULL));
+
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
 		assert(chunk);
