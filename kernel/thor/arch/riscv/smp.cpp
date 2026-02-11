@@ -87,7 +87,8 @@ void smpMain(StatusBlock *statusBlock) {
 
 		    Scheduler::resume(getCpuData()->wqFiber);
 
-		    LoadBalancer::singleton().setOnline(getCpuData());
+		    auto cpuContext = getCpuData();
+		    LoadBalancer::singleton().setOnline(cpuContext);
 		    setRcuOnline(cpuContext);
 		    auto *scheduler = &localScheduler.get();
 		    scheduler->update();
