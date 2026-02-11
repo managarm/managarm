@@ -5,20 +5,19 @@
 namespace thor {
 
 inline Ipl contextIpl() {
-	auto state = getCpuData()->iplState.load(std::memory_order_relaxed);
-	return state.context;
+	return getCpuData()->contextIpl.load(std::memory_order_relaxed);
 }
 
 inline Ipl currentIpl() {
-	auto state = getCpuData()->iplState.load(std::memory_order_relaxed);
-	return state.current;
+	return getCpuData()->currentIpl.load(std::memory_order_relaxed);
 }
 
 [[noreturn]] void panicOnIllegalIplEntry(Ipl newIpl, Ipl currentIpl);
 
 inline void iplSave(IplState &savedIpl) {
 	auto cpuData = getCpuData();
-	savedIpl = cpuData->iplState.load(std::memory_order_relaxed);
+	savedIpl.current = cpuData->currentIpl.load(std::memory_order_relaxed);
+	savedIpl.context = cpuData->contextIpl.load(std::memory_order_relaxed);
 }
 
 // Raise context IPL. Takes saved IPL for error checking.
@@ -28,23 +27,22 @@ inline void iplEnterContext(Ipl newIpl, IplState savedIpl) {
 			panicOnIllegalIplEntry(newIpl, savedIpl.current);
 	}
 	auto cpuData = getCpuData();
-	cpuData->iplState.store(
-		IplState{
-			.context = newIpl,
-			.current = newIpl,
-		},
-		std::memory_order_relaxed);
-	// Perform (w, rw) fence to prevent re-ordering of future accesses with the iplState store.
+	cpuData->currentIpl.store(newIpl, std::memory_order_relaxed);
+	std::atomic_signal_fence(std::memory_order_release);
+	cpuData->contextIpl.store(newIpl, std::memory_order_relaxed);
+	// Perform (w, rw) fence to prevent re-ordering of future accesses with the IPL stores.
 	std::atomic_signal_fence(std::memory_order_seq_cst);
 }
 
 // Restore (= lowering) context + current IPL.
 inline void iplLeaveContext(IplState savedIpl) {
 	auto cpuData = getCpuData();
-	// Perform (rw, w) fence to prevent re-ordering of past accesses with the iplState store.
+	// Perform (rw, w) fence to prevent re-ordering of past accesses with the IPL stores.
 	std::atomic_signal_fence(std::memory_order_release);
-	cpuData->iplState.store(savedIpl, std::memory_order_relaxed);
-	// Perform (w, rw) fence to prevent re-ordering of the iplState store with future accesses.
+	cpuData->contextIpl.store(savedIpl.context, std::memory_order_relaxed);
+	std::atomic_signal_fence(std::memory_order_release);
+	cpuData->currentIpl.store(savedIpl.current, std::memory_order_relaxed);
+	// Perform (w, rw) fence to prevent re-ordering of the IPL stores with future accesses.
 	std::atomic_signal_fence(std::memory_order_seq_cst);
 }
 
@@ -61,39 +59,29 @@ void handleIplDeferred(Ipl current, Ipl ceiling);
 // Return the previous IPL or ipl::bad if the IPL was not raised.
 inline Ipl iplRaise(Ipl raisedIpl) {
 	auto cpuData = getCpuData();
-	auto state = cpuData->iplState.load(std::memory_order_relaxed);
+	auto current = cpuData->currentIpl.load(std::memory_order_relaxed);
 
-	if (state.current >= raisedIpl)
+	if (current >= raisedIpl)
 		return ipl::bad;
 
-	cpuData->iplState.store(
-		IplState{
-			.context = state.context,
-			.current = raisedIpl,
-		},
-		std::memory_order_relaxed);
+	cpuData->currentIpl.store(raisedIpl, std::memory_order_relaxed);
 
 	// Perform (w, rw) fence to prevent re-ordering of future accesses with the iplState store.
 	std::atomic_signal_fence(std::memory_order_seq_cst);
 
-	return state.current;
+	return current;
 }
 
 inline void iplLower(Ipl lowerIpl) {
 	auto cpuData = getCpuData();
-	auto state = cpuData->iplState.load(std::memory_order_relaxed);
+	auto current = cpuData->currentIpl.load(std::memory_order_relaxed);
 
 	assert(lowerIpl != ipl::bad);
-	assert(lowerIpl <= state.current);
+	assert(lowerIpl <= current);
 
 	// Perform (rw, w) fence to prevent re-ordering of past accesses with the iplState store.
 	std::atomic_signal_fence(std::memory_order_release);
-	cpuData->iplState.store(
-		IplState{
-			.context = state.context,
-			.current = lowerIpl,
-		},
-		std::memory_order_relaxed);
+	cpuData->currentIpl.store(lowerIpl, std::memory_order_relaxed);
 
 	// Perform (w, rw) fence to prevent re-ordering of iplState store and iplDeferred load.
 	std::atomic_signal_fence(std::memory_order_seq_cst);
@@ -103,10 +91,10 @@ template<Ipl L>
 struct IplGuard {
 	IplGuard() {
 		auto cpuData = getCpuData();
-		auto state = cpuData->iplState.load(std::memory_order_relaxed);
+		auto context = cpuData->contextIpl.load(std::memory_order_relaxed);
 
 		// Otherwise, this guard is taken in a context where it cannot be taken.
-		assert(state.context <= L);
+		assert(context <= L);
 
 		previous_ = iplRaise(L);
 	}
@@ -115,10 +103,10 @@ struct IplGuard {
 
 	~IplGuard() {
 		auto cpuData = getCpuData();
-		auto state = cpuData->iplState.load(std::memory_order_relaxed);
+		auto current = cpuData->currentIpl.load(std::memory_order_relaxed);
 
 		if (previous_ == ipl::bad) {
-			assert(state.current >= L);
+			assert(current >= L);
 			return;
 		}
 		assert(previous_ < L);

@@ -1,6 +1,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <frg/manual_box.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
@@ -120,7 +121,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
 
 void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
-	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+	iplSave(executor->general()->iplState);
 
 	forkExecutorRegisters(executor, functor, context);
 }

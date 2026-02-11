@@ -55,13 +55,12 @@ inline constexpr Ipl interrupt = 3;
 inline constexpr Ipl maximal = 4;
 } // namespace ipl
 
-struct alignas(4) IplState {
+struct IplState {
 	// Level of the current context.
 	Ipl context{ipl::passive};
 	// Level of the currenly executing code path. This is always above the context level.
 	Ipl current{ipl::passive};
 };
-static_assert(std::atomic<IplState>::is_always_lock_free);
 
 struct CpuData : public PlatformCpuData {
 	static constexpr unsigned int RS_EMITTING = 1;
@@ -73,7 +72,8 @@ struct CpuData : public PlatformCpuData {
 
 	CpuData &operator= (const CpuData &) = delete;
 
-	std::atomic<IplState> iplState;
+	std::atomic<Ipl> contextIpl{ipl::passive};
+	std::atomic<Ipl> currentIpl{ipl::passive};
 	std::atomic<uint32_t> iplDeferred{0};
 	IrqMutex irqMutex;
 	UniqueKernelStack detachedStack;

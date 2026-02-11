@@ -8,6 +8,7 @@
 #include <thor-internal/arch/unimplemented.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/ring-buffer.hpp>
@@ -54,7 +55,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
 
 void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
-	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+	iplSave(executor->general()->iplState);
 
 	forkExecutorRegisters(executor, functor, context);
 }

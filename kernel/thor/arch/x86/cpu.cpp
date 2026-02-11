@@ -10,6 +10,7 @@
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
 
 namespace thor {
@@ -220,7 +221,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
 
 void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
-	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+	iplSave(executor->general()->iplState);
 
 	forkExecutorRegisters(executor, functor, context);
 }
