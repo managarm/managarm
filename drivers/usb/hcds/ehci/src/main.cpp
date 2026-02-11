@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <print>
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
@@ -332,8 +333,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	get_header->length = 8;
 
 	arch::dma_object<proto::DeviceDescriptor> descriptor{&schedulePool};
-	(co_await _directTransfer(proto::ControlTransfer{proto::kXferToHost,
-			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8)).unwrap();
+	auto transfer0 = co_await _directTransfer(proto::ControlTransfer{proto::kXferToHost,
+			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
+	if (!transfer0) {
+		std::println("ehci: failed to get device descriptor header");
+		co_return transfer0.error();
+	}
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
@@ -350,8 +355,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	get_descriptor->index = 0;
 	get_descriptor->length = sizeof(proto::DeviceDescriptor);
 
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			get_descriptor, descriptor.view_buffer()})).unwrap();
+	auto transfer1 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			get_descriptor, descriptor.view_buffer()});
+	if (!transfer1) {
+		std::println("ehci: failed to get device descriptor");
+		co_return transfer1.error();
+	}
 	assert(descriptor->length == sizeof(proto::DeviceDescriptor));
 
 	// Read the configuration descriptor
@@ -365,8 +374,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	getConfigDescriptor->index = 0;
 	getConfigDescriptor->length = sizeof(proto::ConfigDescriptor);
 
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			getConfigDescriptor, configDescriptor.view_buffer()})).unwrap();
+	auto transfer2 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			getConfigDescriptor, configDescriptor.view_buffer()});
+	if (!transfer2) {
+		std::println("ehci: failed to get configuration descriptor");
+		co_return transfer2.error();
+	}
 	assert(configDescriptor->length == sizeof(proto::ConfigDescriptor));
 
 	// Select the first configuration in order to exit the addressing state
@@ -377,8 +390,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	setConfig->value = configDescriptor->configValue;
 	setConfig->index = 0;
 	setConfig->length = 0;
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToDevice,
-			setConfig, {}})).unwrap();
+	auto transfer3 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToDevice,
+			setConfig, {}});
+	if (!transfer3) {
+		std::println("ehci: failed to set device configuration");
+		co_return transfer3.error();
+	}
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
