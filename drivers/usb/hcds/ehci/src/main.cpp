@@ -291,8 +291,10 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 
 	// TODO(qookie): Hub support
 	assert(hub.get() == _rootHub.get());
-	// Requires split TX when we have hub support
-	assert(speed == proto::DeviceSpeed::highSpeed);
+
+	// Requires split TX support
+	if (speed != proto::DeviceSpeed::highSpeed)
+		co_return proto::UsbError::other;
 
 	// This queue will become the default control pipe of our new device.
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
