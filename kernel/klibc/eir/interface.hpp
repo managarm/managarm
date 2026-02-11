@@ -13,6 +13,8 @@ static const uint32_t eirDebugKernelProfile = 16;
 typedef uint64_t EirPtr;
 typedef uint64_t EirSize;
 
+static const EirSize eirMaxMemoryRegions = 64;
+
 struct EirRegion {
 	EirPtr address;
 	EirSize length;

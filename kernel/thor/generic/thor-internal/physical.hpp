@@ -144,7 +144,7 @@ private:
 		BuddyAccessor buddyAccessor;
 	};
 
-	Region _allRegions[8];
+	Region _allRegions[eirMaxMemoryRegions];
 	int _numRegions = 0;
 
 	std::atomic<size_t> _totalPages{0};

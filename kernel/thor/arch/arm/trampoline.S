@@ -63,6 +63,11 @@ apEntryPoint:
 	orr x0, x0, #(1 << 12)
 	orr x0, x0, #(1 << 2)
 	msr sctlr_el1, x0
+	isb
+
+	tlbi vmalle1
+	dsb ish
+	isb
 
 	add x0, x1, statusTTBR0
 	ldp x0, x2, [x0]

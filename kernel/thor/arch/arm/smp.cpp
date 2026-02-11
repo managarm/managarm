@@ -157,7 +157,7 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 
 	auto imageSize = (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_end
 			- (uintptr_t)_binary_kernel_thor_arch_arm_trampoline_bin_start;
-	assert(imageSize <= kPageSize);
+	assert(imageSize <= kPageSize - sizeof(StatusBlock));
 
 	memcpy(codeVirtPtr, _binary_kernel_thor_arch_arm_trampoline_bin_start, imageSize);
 
@@ -289,9 +289,6 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 
 		size_t apCpuIndex = 1;
 		auto bootApFromDt = [&](DeviceTreeNode *node) {
-			if (!node->isCompatible<4>({"arm,cortex-a72", "arm,cortex-a53", "arm,arm-v8", "arm,armv8"}))
-				return;
-
 			auto affinity = node->reg()[0].addr;
 			if (affinity == bspAffinity)
 				return;
@@ -306,15 +303,20 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 			++apCpuIndex;
 		};
 
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
-			bootApFromDt(node);
-			return false;
-		});
+		auto root = getDeviceTreeRoot();
 
-		if (getCpuCount() != cpuConfigNote->totalCpus)
-			panicLogger() << "thor: Booted " << getCpuCount()
-					<< " CPUs but Eir detected " << cpuConfigNote->totalCpus
-					<< frg::endlog;
+		if (auto it = root->children().find("cpus"); it != root->children().end()) {
+			auto cpus = it->get<1>();
+			cpus->forEach([&](DeviceTreeNode *node) {
+				if (node->name().starts_with("cpu@"))
+					bootApFromDt(node);
+				return false;
+			});
+		}
+
+	    if (apCpuIndex != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Booted " << apCpuIndex << " CPUs but Eir detected "
+		                  << cpuConfigNote->totalCpus << frg::endlog;
 	}
 };
 }
