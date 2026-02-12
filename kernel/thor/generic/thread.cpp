@@ -645,6 +645,10 @@ void Thread::_updateRunTime() {
 
 void Thread::_uninvoke() {
 	UserContext::deactivate();
+
+	auto cpuData = getCpuData();
+	cpuData->executorContext = nullptr;
+	cpuData->activeThread = {};
 }
 
 void Thread::_kill() {
