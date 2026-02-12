@@ -35,6 +35,7 @@ static const int kNextPresent = (1 << 24);
 
 static const int kProgressMask = 0xFFFFFF;
 static const int kProgressDone = (1 << 25);
+static const int kProgressFull = (1 << 26);
 
 struct ChunkStruct {
 	int next;

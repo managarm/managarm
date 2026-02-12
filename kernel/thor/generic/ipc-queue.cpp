@@ -100,6 +100,14 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 
 	// Check if we need to move to the next chunk.
 	if(static_cast<size_t>(_currentProgress) + length > _chunkSize) {
+		// Mark current chunk as full.
+		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressFull, __ATOMIC_RELEASE);
+
+		// Signal userspace.
+		auto userNotifyFull = __atomic_fetch_or(&head->userNotify, kUserNotifyCqProgress, __ATOMIC_RELEASE);
+		if(!(userNotifyFull & kUserNotifyCqProgress))
+			_userEvent.raise();
+
 		// Wait for next chunk to become available.
 		int nextWord;
 		while (true) {
@@ -118,7 +126,7 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 		}
 
 		// Mark current chunk as done.
-		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressDone, __ATOMIC_RELEASE);
+		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressFull | kProgressDone, __ATOMIC_RELEASE);
 
 		// Signal userspace.
 		auto userNotify = __atomic_fetch_or(&head->userNotify, kUserNotifyCqProgress, __ATOMIC_RELEASE);

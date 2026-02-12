@@ -380,11 +380,14 @@ private:
 
 			if (_pendingNotify & kHelUserNotifyCqProgress) {
 				auto progress = __atomic_load_n(&_chunks[_retrieveChunk]->progressFutex, __ATOMIC_ACQUIRE);
-				assert(!(progress & ~(kHelProgressMask | kHelProgressDone)));
+				assert(!(progress & ~(kHelProgressMask | kHelProgressFull | kHelProgressDone)));
+				if (progress & kHelProgressFull)
+					assert(_retrieveChunk != _tailChunk);
 				if(_lastProgress != (progress & kHelProgressMask)) {
 					*done = false;
 					return;
 				}else if(progress & kHelProgressDone) {
+					assert(progress & kHelProgressFull);
 					*done = true;
 					return;
 				}

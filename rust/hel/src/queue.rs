@@ -364,9 +364,14 @@ impl Queue {
                     .get_chunk(self.retrieve_chunk)
                     .progress_futex()
                     .load(Ordering::Acquire);
+                assert!(progress & !(hel_sys::kHelProgressMask | hel_sys::kHelProgressFull | hel_sys::kHelProgressDone) == 0);
+                if progress & hel_sys::kHelProgressFull != 0 {
+                    assert!(self.retrieve_chunk != self.tail_chunk);
+                }
                 if self.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
                     return Ok(false);
                 } else if progress & hel_sys::kHelProgressDone != 0 {
+                    assert!(progress & hel_sys::kHelProgressFull != 0);
                     return Ok(true);
                 }
             }

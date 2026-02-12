@@ -549,8 +549,10 @@ static const int kHelNextPresent = (1 << 24);
 
 //! Mask to extract the number of valid bytes in the chunk.
 static const int kHelProgressMask = 0xFFFFFF;
-//! Set by the kernel once it retires the chunk.
+//! Set by the producer once it retires the chunk.
 static const int kHelProgressDone = (1 << 25);
+//! Set by the producer once the chunk is full (i.e., no more bytes will be written).
+static const int kHelProgressFull = (1 << 26);
 
 struct HelChunk {
 	//! Index of the next chunk.
