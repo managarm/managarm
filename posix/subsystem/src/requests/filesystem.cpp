@@ -922,6 +922,7 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 
 	if (req->flags() & AT_EMPTY_PATH) {
 		target_link = file->associatedLink();
+		target_mount = file->associatedMount();
 	} else {
 		PathResolver resolver;
 		resolver.setup(ctx.self->fsContext()->getRoot(),
@@ -960,7 +961,12 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 	managarm::posix::SvrResponse resp;
 
 	if (statsResult) {
+		constexpr int statxAttrMask = STATX_ATTR_MOUNT_ROOT;
+		int attr = 0;
+		if(target_mount && target_link == target_mount->getOrigin())
+			attr |= STATX_ATTR_MOUNT_ROOT;
 		auto stats = statsResult.value();
+		assert((attr & ~statxAttrMask) == 0);
 
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -1013,6 +1019,8 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 		resp.set_ctime_nanos(stats.ctimeNanos);
 		resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
 		resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
+		resp.set_statx_attr(attr);
+		resp.set_statx_attr_mask(statxAttrMask);
 	} else {
 		resp.set_error(statsResult.error() | toPosixProtoError);
 	}
