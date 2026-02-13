@@ -39,6 +39,10 @@ struct WorkQueue {
 		return _executorContext;
 	}
 
+	Ipl wqIpl() {
+		return _wqIpl;
+	}
+
 	bool check();
 
 	void run();

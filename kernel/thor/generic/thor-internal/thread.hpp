@@ -113,6 +113,7 @@ public:
 	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	                 void>)
 	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
 
@@ -187,6 +188,7 @@ public:
 	             void>)
 	    )
 	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
 
@@ -258,13 +260,13 @@ public:
 	static bool runWqs() {
 		auto ipl = currentIpl();
 		auto thisThread = getCurrentThread();
-		if (ipl <= ipl::exceptional) {
+		if (ipl < ipl::exceptionalWork) {
 			if (thisThread->_pagingWorkQueue.check()) {
 				thisThread->_pagingWorkQueue.run();
 				return true;
 			}
 		}
-		if (ipl == ipl::passive) {
+		if (ipl < ipl::passiveWork) {
 			if (thisThread->_mainWorkQueue.check()) {
 				thisThread->_mainWorkQueue.run();
 				return true;

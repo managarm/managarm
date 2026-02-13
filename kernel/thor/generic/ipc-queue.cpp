@@ -61,6 +61,8 @@ bool IpcQueue::validSize(size_t size) {
 }
 
 coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
+	assert(currentIpl() == ipl::passiveWork);
+
 	size_t length = 0;
 	for(const QueueSource *sgSource = source; sgSource; sgSource = sgSource->link)
 		length += (sgSource->size + 7) & ~size_t(7);
@@ -144,6 +146,8 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 }
 
 void IpcQueue::processSq() {
+	assert(currentIpl() == ipl::passive);
+
 	if(!_numSqChunks)
 		return;
 

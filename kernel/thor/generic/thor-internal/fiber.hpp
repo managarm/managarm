@@ -31,7 +31,7 @@ struct KernelFiber final : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: WorkQueue{&fiber->_executorContext, ipl::exceptional}, fiber_{fiber} { }
+		: WorkQueue{&fiber->_executorContext, ipl::exceptionalWork}, fiber_{fiber} { }
 
 		void wakeup() override;
 
@@ -45,6 +45,8 @@ public:
 	template<typename Sender>
 	requires std::is_same_v<typename Sender::value_type, void>
 	static void asyncBlockCurrent(Sender s) {
+		assert(currentIpl() < ipl::exceptionalWork);
+
 		struct Closure {
 			FiberBlocker blocker;
 			WorkQueue *wq;
@@ -84,6 +86,8 @@ public:
 	template<typename Sender>
 	requires (!std::is_same_v<typename Sender::value_type, void>)
 	static typename Sender::value_type asyncBlockCurrent(Sender s) {
+		assert(currentIpl() < ipl::exceptionalWork);
+
 		struct Closure {
 			frg::optional<typename Sender::value_type> value;
 			FiberBlocker blocker;
