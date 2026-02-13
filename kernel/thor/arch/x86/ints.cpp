@@ -492,7 +492,7 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 	// See Scheduler::resume() for details.
 	checkThreadPreemption(image);
 
-	iplLower(ipl::passive);
+	iplLower(ipl::interrupt, ipl::passive);
 }
 
 extern "C" void onPlatformShootdown(IrqImageAccessor image) {

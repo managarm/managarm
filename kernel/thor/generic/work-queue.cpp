@@ -107,8 +107,7 @@ void WorkQueue::run() {
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(false, std::memory_order_relaxed);
 
-	if (previousIpl != ipl::bad)
-		iplLower(previousIpl);
+	iplLower(_wqIpl, previousIpl);
 }
 
 } // namespace thor

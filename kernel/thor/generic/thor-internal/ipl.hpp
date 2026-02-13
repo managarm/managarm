@@ -77,12 +77,14 @@ inline Ipl iplRaise(Ipl raisedIpl) {
 	return current;
 }
 
-inline void iplLower(Ipl lowerIpl) {
+// expectedIpl is useful for error checking.
+inline void iplLower(Ipl expectedIpl, Ipl lowerIpl) {
 	auto cpuData = getCpuData();
 	auto current = cpuData->currentIpl.load(std::memory_order_relaxed);
 
 	assert(lowerIpl != ipl::bad);
-	assert(lowerIpl <= current);
+	if (current != expectedIpl)
+		panicOnIplScopeNesting(current);
 
 	// Perform (rw, w) fence to prevent re-ordering of past accesses with the iplState store.
 	std::atomic_signal_fence(std::memory_order_release);
@@ -116,7 +118,7 @@ struct IplGuard {
 		}
 		assert(previous_ < L);
 
-		iplLower(previous_);
+		iplLower(L, previous_);
 
 		auto deferred = cpuData->iplDeferred.load(std::memory_order_relaxed);
 		auto mask = (~static_cast<IplMask>(0)) << previous_;
