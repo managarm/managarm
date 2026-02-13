@@ -896,7 +896,7 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 
 	logRequest(logRequests, ctx, "FSTATAT");
 
-	if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT)) {
+	if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_STATX_DONT_SYNC)) {
 		std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req->flags()) << std::endl;
 		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return;
