@@ -983,6 +983,7 @@ namespace posix {
 
 				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
 				Scheduler::associate(new_thread.get(), &localScheduler.get());
+				Scheduler::resume(new_thread.get());
 
 				if(auto e = Thread::resumeOther(remove_tag_cast(new_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;

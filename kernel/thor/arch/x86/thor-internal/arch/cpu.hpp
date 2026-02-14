@@ -411,6 +411,11 @@ struct Executor {
 
 	Executor();
 
+private:
+	explicit Executor(UserContext *context);
+
+public:
+	explicit Executor(UserContext *context, void (*launch)());
 	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
 

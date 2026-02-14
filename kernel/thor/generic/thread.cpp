@@ -205,95 +205,131 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 	}, getCpuData()->detachedStack.base(), image, std::move(lock));
 }
 
-void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info) {
+template<typename ImageAccessor>
+void Thread::genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, InterruptInfo info) {
 	assert(image.iplState()->current < ipl::schedule);
+	auto thisThread = getCurrentThread();
 
-	auto this_thread = getCurrentThread();
-	StatelessIrqLock irq_lock;
-	auto lock = frg::guard(&this_thread->_mutex);
+	ObserveQueue queue;
+	{
+		StatelessIrqLock irqLock;
+		auto lock = frg::guard(&thisThread->_mutex);
 
-	if(logRunStates)
-		infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is (synchronously) interrupted" << frg::endlog;
+		// States other than IntrState::none are only valid while we are in this function.
+		assert(thisThread->intrState_ == IntrState::none);
+		thisThread->intrState_ = IntrState::inInterrupt;
+		thisThread->_lastInterrupt = interrupt;
+		thisThread->interruptInfo = info;
+		saveExecutor(&thisThread->intrImage_, image);
 
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunInterrupted;
-	this_thread->_lastInterrupt = interrupt;
-	saveExecutor(&this_thread->_executor, image);
-	this_thread->_uninvoke();
+		queue.splice(queue.end(), thisThread->_observeQueue);
+	}
 
-	localScheduler.get().updateState();
-	Scheduler::suspendCurrent();
+	while(!queue.empty()) {
+		auto node = queue.pop_front();
+		async::execution::set_value(node->receiver,
+				frg::make_tuple(Error::success, interrupt));
+	}
 
-	this_thread->interruptInfo = info;
+	bool done = false;
+	while(!done) {
+		auto outcome = asyncBlockCurrentInterruptible(
+			async::lambda([&] (async::cancellation_token ct) {
+				return thisThread->resumeEvent_.async_wait_if(
+					[&] () -> bool {
+						StatelessIrqLock irqLock;
+						auto lock = frg::guard(&thisThread->_mutex);
 
-	runOnStack([] (Continuation cont, FaultImageAccessor image,
-			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
-		scrubStack(image, cont);
-		auto *scheduler = &localScheduler.get();
+						if (thisThread->intrState_ == IntrState::inInterrupt)
+							return true;
+						assert(thisThread->intrState_ == IntrState::resumeFromInterrupt);
 
-		ObserveQueue queue;
-		queue.splice(queue.end(), thread->_observeQueue);
+						thisThread->intrState_ = IntrState::none;
+						done = true;
+						return false;
+					},
+					ct
+				);
+			}),
+			thisThread->pagingWorkQueue().get(),
+			~condition::terminate
+		);
+		if (!outcome)
+			break;
+	}
 
-		lock.unlock();
+	if (!done) {
+		auto pending = thisThread->_pendingConditions.fetch_and(
+			~condition::terminate,
+			std::memory_order_relaxed
+		);
+		assert(pending & condition::terminate);
+		terminateCurrent_();
+		return;
+	}
 
-		// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
-		while(!queue.empty()) {
-			auto node = queue.pop_front();
-			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::success, interrupt));
-		}
+	StatelessIrqLock irqLock;
+	// Use runOnStack() to be able to scrub the stack if KASAN is used.
+	runOnStack([] (Continuation cont, smarter::borrowed_ptr<Thread> thisThread) {
+		scrubStackFrom(thisThread->_userContext.kernelStack.baseAddress(), cont);
+		restoreExecutor(&thisThread->intrImage_);
+	}, getCpuData()->detachedStack.base(), thisThread);
+}
 
-		scheduler->updateQueue();
-		scheduler->forceReschedule();
-		scheduler->commitReschedule();
-	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
+void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info) {
+	genericInterruptCurrent(interrupt, image, info);
 }
 
 void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info) {
-	assert(image.iplState()->current < ipl::schedule);
+	genericInterruptCurrent(interrupt, image, info);
+}
 
-	auto this_thread = getCurrentThread();
-	StatelessIrqLock irq_lock;
-	auto lock = frg::guard(&this_thread->_mutex);
-	
-	if(logRunStates)
-		infoLogger() << "thor: " << (void *)this_thread.get()
-				<< " is (synchronously) interrupted" << frg::endlog;
+void Thread::launchCurrent_() {
+	auto thisThread = getCurrentThread();
 
-	assert(this_thread->_runState == kRunActive);
-	this_thread->_updateRunTime();
-	this_thread->_runState = kRunInterrupted;
-	this_thread->_lastInterrupt = interrupt;
-	saveExecutor(&this_thread->_executor, image);
-	this_thread->_uninvoke();
-	this_thread->interruptInfo = info;
+	bool done = false;
+	while(!done) {
+		auto outcome = asyncBlockCurrentInterruptible(
+			async::lambda([&] (async::cancellation_token ct) {
+				return thisThread->resumeEvent_.async_wait_if(
+					[&] () -> bool {
+						StatelessIrqLock irqLock;
+						auto lock = frg::guard(&thisThread->_mutex);
 
-	localScheduler.get().updateState();
-	Scheduler::suspendCurrent();
+						if (thisThread->intrState_ == IntrState::inInterrupt)
+							return true;
+						assert(thisThread->intrState_ == IntrState::resumeFromInterrupt);
 
-	runOnStack([] (Continuation cont, SyscallImageAccessor image,
-			Interrupt interrupt, Thread *thread, frg::unique_lock<Mutex> lock) {
-		scrubStack(image, cont);
-		auto *scheduler = &localScheduler.get();
+						thisThread->intrState_ = IntrState::none;
+						done = true;
+						return false;
+					},
+					ct
+				);
+			}),
+			thisThread->pagingWorkQueue().get(),
+			~condition::terminate
+		);
+		if (!outcome)
+			break;
+	}
 
-		ObserveQueue queue;
-		queue.splice(queue.end(), thread->_observeQueue);
+	if (!done) {
+		auto pending = thisThread->_pendingConditions.fetch_and(
+			~condition::terminate,
+			std::memory_order_relaxed
+		);
+		assert(pending & condition::terminate);
+		terminateCurrent_();
+		return;
+	}
 
-		lock.unlock();
-
-		// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
-		while(!queue.empty()) {
-			auto node = queue.pop_front();
-			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::success, interrupt));
-		}
-
-		scheduler->updateQueue();
-		scheduler->forceReschedule();
-		scheduler->commitReschedule();
-	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
+	StatelessIrqLock irqLock;
+	// Use runOnStack() to be able to scrub the stack if KASAN is used.
+	runOnStack([] (Continuation cont, smarter::borrowed_ptr<Thread> thisThread) {
+		scrubStackFrom(thisThread->_userContext.kernelStack.baseAddress(), cont);
+		restoreExecutor(&thisThread->intrImage_);
+	}, getCpuData()->detachedStack.base(), thisThread);
 }
 
 void Thread::terminateCurrent_() {
@@ -442,21 +478,20 @@ void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 }
 
 Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&thread->_mutex);
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&thread->_mutex);
 
-	if(thread->_runState == kRunTerminated)
-		return Error::threadExited;
-	if(thread->_runState != kRunInterrupted)
-		return Error::illegalState;
-	
-	if(logRunStates)
-		infoLogger() << "thor: " << (void *)thread.get()
-				<< " is suspended (via resume)" << frg::endlog;
+		if(thread->_runState == kRunTerminated)
+			return Error::threadExited;
+		if(thread->intrState_ != IntrState::inInterrupt)
+			return Error::illegalState;
 
-	thread->_updateRunTime();
-	thread->_runState = kRunSuspended;
-	Scheduler::resume(thread.get());
+		thread->intrState_ = IntrState::resumeFromInterrupt;
+	}
+
+	thread->resumeEvent_.raise();
+
 	return Error::success;
 }
 
@@ -486,11 +521,13 @@ void Thread::raiseCondition_(Condition c) {
 Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
-		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull},
+		_runState{kRunDeferred}, _lastInterrupt{kIntrNull},
 		_runCount{1},
-		_executor{&_userContext, abi},
+		_executor{&_userContext, &Thread::launchCurrent_},
+		intrImage_{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
 	_lastRunTimeUpdate = getClockNanos();
+	intrState_ = IntrState::inInterrupt;
 }
 
 Thread::~Thread() {
@@ -504,36 +541,34 @@ Thread::~Thread() {
 void Thread::dispose(ActiveHandle) {
 	if(logCleanup)
 		infoLogger() << "thor: Killing thread after no more handles keep it alive" << frg::endlog;
-	_kill();
+	raiseCondition_(condition::terminate);
 }
 
 void Thread::observe_(ObserveNode *node) {
-	RunState state;
-	Interrupt interrupt;
+	bool terminated{false};
+	Interrupt interrupt{kIntrNull};
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		if(_runState == kRunInterrupted) {
-			state = _runState;
+		if (_runState == kRunTerminated) {
+			terminated = true;
+		} else if(intrState_ == IntrState::inInterrupt) {
 			interrupt = _lastInterrupt;
-		}else if(_runState == kRunTerminated) {
-			state = _runState;
-			interrupt = kIntrNull;
 		}else{
 			_observeQueue.push_back(node);
 			return;
 		}
 	}
 
-	if(state == kRunInterrupted) {
-		async::execution::set_value(node->receiver,
-				frg::make_tuple(Error::success, interrupt));
-	}else{
-		assert(state == kRunTerminated);
+	if (terminated) {
 		async::execution::set_value(node->receiver,
 				frg::make_tuple(Error::threadExited, kIntrNull));
+		return;
 	}
+
+	async::execution::set_value(node->receiver,
+			frg::make_tuple(Error::success, interrupt));
 }
 
 UserContext &Thread::getContext() {
@@ -635,7 +670,7 @@ void Thread::_updateRunTime() {
 	} else {
 		// TODO: Terminated counts as not runnable; we may want to revisit this.
 		assert(
-		    _runState == kRunBlocked || _runState == kRunInterrupted || _runState == kRunTerminated
+		    _runState == kRunBlocked || _runState == kRunTerminated
 		    || _runState == kRunInterruptableBlocked
 		);
 		_loadNotRunnable += elapsed;
@@ -649,40 +684,6 @@ void Thread::_uninvoke() {
 	auto cpuData = getCpuData();
 	cpuData->executorContext = nullptr;
 	cpuData->activeThread = {};
-}
-
-void Thread::_kill() {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
-
-	if(_runState == kRunTerminated)
-		return;
-
-	if(_runState == kRunSuspended || _runState == kRunInterrupted) {
-		_updateRunTime();
-		_runState = kRunTerminated;
-		Scheduler::unassociate(this);
-
-		ObserveQueue queue;
-		queue.splice(queue.end(), _observeQueue);
-
-		lock.unlock();
-
-		// Release the kernel's reference to the thread after it finished execution.
-		auto threadSelf = self;
-		threadSelf.ctr()->decrement();
-
-		while(!queue.empty()) {
-			auto node = queue.pop_front();
-			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::threadExited, kIntrNull));
-		}
-	}else{
-		// TODO: Wake up blocked threads.
-		// TODO: Use a common Thread::raiseCondition_() function for this purpose.
-		_pendingConditions.fetch_or(condition::terminate, std::memory_order_relaxed);
-
-	}
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {

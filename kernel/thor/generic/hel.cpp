@@ -1768,6 +1768,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	auto *cpu = getCpuData(cpuIndex);
 	LoadBalancer::singleton().connect(new_thread.get(), cpu);
 	Scheduler::associate(new_thread.get(), &localScheduler.get(cpu));
+	Scheduler::resume(new_thread.get());
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(remove_tag_cast(new_thread));
 

@@ -71,25 +71,37 @@ size_t Executor::determineSize() {
 Executor::Executor()
 : _pointer{nullptr}, _syscallStack{nullptr}, _tss{nullptr} { }
 
-Executor::Executor(UserContext *context, AbiParameters abi) {
+Executor::Executor(UserContext *context) {
 	_pointer = (char *)kernelAlloc->allocate(determineSize());
 	memset(_pointer, 0, determineSize());
 
-	// Assert assumptions about xsave
+	// Assert assumptions about xsave.
 	assert(!((uintptr_t)_pointer & 0x3F));
 	assert(!((uintptr_t)this->_fxState() & 0x3F));
 
 	_fxState()->mxcsr |= mxcsrInitializer;
 	_fxState()->fcw |= fcwInitializer;
 
+	_tss = &context->tss;
+	_syscallStack = context->kernelStack.basePtr();
+}
+
+Executor::Executor(UserContext *context, void (*launch)())
+: Executor{context} {
+	general()->rip = reinterpret_cast<uintptr_t>(launch);
+	general()->rflags = 0x200;
+	general()->rsp = reinterpret_cast<uintptr_t>(_syscallStack);
+	general()->cs = kSelExecutorSyscallCode;
+	general()->ss = 0;
+}
+
+Executor::Executor(UserContext *context, AbiParameters abi)
+: Executor{context} {
 	general()->rip = abi.ip;
 	general()->rflags = 0x200;
 	general()->rsp = abi.sp;
 	general()->cs = kSelClientUserCode;
 	general()->ss = kSelClientUserData;
-
-	_tss = &context->tss;
-	_syscallStack = context->kernelStack.basePtr();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)

@@ -406,11 +406,16 @@ public:
 		{ f(executor) } -> std::same_as<void>;
 	}
 	void accessRegisters(F &&f) {
-		f(&_executor);
+		assert(intrState_ == IntrState::inInterrupt);
+		f(&intrImage_);
 	}
 
 private:
+	static void launchCurrent_();
 	static void terminateCurrent_();
+
+	template<typename ImageAccessor>
+	static void genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, InterruptInfo info);
 
 	template<typename ImageAccessor>
 	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
@@ -419,7 +424,6 @@ private:
 
 	void _updateRunTime();
 	void _uninvoke();
-	void _kill();
 
 public:
 	// TODO: Tidy this up.
@@ -451,10 +455,6 @@ private:
 		// it is not scheduled, but it can be interrupted.
 		kRunInterruptableBlocked,
 
-		// the thread was manually stopped from userspace.
-		// it is not scheduled.
-		kRunInterrupted,
-
 		// Thread terminated (i.e., it will never be scheduled again).
 		// If a thread is in kRunTerminated, then:
 		// * mainWorkQueue() and pagingWorkQueue() must be empty.
@@ -464,6 +464,12 @@ private:
 		//   For example, it must not hold any mutexes anymore etc.
 		// The thread's data structures must not be destructed until we reach this state.
 		kRunTerminated
+	};
+
+	enum class IntrState {
+		none,
+		inInterrupt,
+		resumeFromInterrupt,
 	};
 
 	AssociatedWorkQueue _mainWorkQueue;
@@ -480,7 +486,12 @@ private:
 	// (i.e., that we never block when we should not).
 	std::atomic<bool> _unblockLatch{false};
 
+	// Whether the thread is currently interrupted (e.g., due to an unhandled fault) or not.
+	IntrState intrState_{IntrState::none};
+	// Only valid if intrState_ == IntrState::inInterrupt;
 	Interrupt _lastInterrupt;
+	// Raised after intrState_ becomes IntrState::resumeFromInterrupt.
+	async::recurring_event resumeEvent_;
 
 	// Conditions are raised while holding the thread mutex.
 	// In particular, functions like blockCurrent() can be sure that no conditions
@@ -495,7 +506,12 @@ private:
 
 	UserContext _userContext;
 	ExecutorContext _executorContext;
+	// Depends on _userContext, MUST come after it in the struct due to initialization order.
 	Executor _executor;
+	// Register image that is saved/restored by the interrupt state.
+	// Only valid if intrState_ == IntrState::inInterrupt;
+	// Depends on _userContext, MUST come after it in the struct due to initialization order.
+	Executor intrImage_;
 
 public:
 	// Timestamp at which _updateRunTime() was last called.

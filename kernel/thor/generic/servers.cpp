@@ -373,6 +373,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	LoadBalancer::singleton().connect(thread.get(), getCpuData());
 	Scheduler::associate(thread.get(), scheduler);
+	Scheduler::resume(thread.get());
 	Thread::resumeOther(remove_tag_cast(thread));
 }
 
