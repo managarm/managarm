@@ -398,6 +398,17 @@ public:
 
 	InterruptInfo interruptInfo;
 
+	// Access a thread's registers while the thread is interrupted.
+	// TODO: This needs to lock the thread.
+	// TODO: This needs to fail if we are not in interrupted state.
+	template<typename F>
+	requires requires(F f, Executor *executor) {
+		{ f(executor) } -> std::same_as<void>;
+	}
+	void accessRegisters(F &&f) {
+		f(&_executor);
+	}
+
 private:
 	static void terminateCurrent_();
 
@@ -484,10 +495,9 @@ private:
 
 	UserContext _userContext;
 	ExecutorContext _executorContext;
-public:
-	// TODO: This should be private.
 	Executor _executor;
 
+public:
 	// Timestamp at which _updateRunTime() was last called.
 	uint64_t _lastRunTimeUpdate{0};
 	// Contributions to the load factor due to time during which the thread was (not) runnable.

@@ -314,48 +314,50 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(!req.fullyConsumed())
 			co_return ProtocolError::malformedPacket;
 
+		thread_->accessRegisters([&](Executor *executor) {
 #if defined(__x86_64__)
-		resp.appendLeHex64(thread_->_executor.general()->rax);
-		resp.appendLeHex64(thread_->_executor.general()->rbx);
-		resp.appendLeHex64(thread_->_executor.general()->rcx);
-		resp.appendLeHex64(thread_->_executor.general()->rdx);
-		resp.appendLeHex64(thread_->_executor.general()->rsi);
-		resp.appendLeHex64(thread_->_executor.general()->rdi);
-		resp.appendLeHex64(thread_->_executor.general()->rbp);
-		resp.appendLeHex64(thread_->_executor.general()->rsp);
-		resp.appendLeHex64(thread_->_executor.general()->r8);
-		resp.appendLeHex64(thread_->_executor.general()->r9);
-		resp.appendLeHex64(thread_->_executor.general()->r10);
-		resp.appendLeHex64(thread_->_executor.general()->r11);
-		resp.appendLeHex64(thread_->_executor.general()->r12);
-		resp.appendLeHex64(thread_->_executor.general()->r13);
-		resp.appendLeHex64(thread_->_executor.general()->r14);
-		resp.appendLeHex64(thread_->_executor.general()->r15);
-		resp.appendLeHex64(thread_->_executor.general()->rip);
-		resp.appendLeHex32(thread_->_executor.general()->rflags);
-		resp.appendLeHex32(thread_->_executor.general()->cs);
-		resp.appendLeHex32(thread_->_executor.general()->ss);
-		resp.appendLeHex32(thread_->_executor.general()->ss); // DS
-		resp.appendLeHex32(thread_->_executor.general()->ss); // ES
-		resp.appendLeHex32(thread_->_executor.general()->clientFs);
-		resp.appendLeHex32(thread_->_executor.general()->clientGs);
-		for(int i = 0; i < 8; ++i) // 8 FPU registers.
-			for(int j = 0; j < 10; ++j) // 80 bits in size.
-				resp.appendString("xx");
-		for(int i = 0; i < 8; ++i) // 8 FPU control registers.
-			for(int j = 0; j < 4; ++j)
-				resp.appendString("xx");
+			resp.appendLeHex64(executor->general()->rax);
+			resp.appendLeHex64(executor->general()->rbx);
+			resp.appendLeHex64(executor->general()->rcx);
+			resp.appendLeHex64(executor->general()->rdx);
+			resp.appendLeHex64(executor->general()->rsi);
+			resp.appendLeHex64(executor->general()->rdi);
+			resp.appendLeHex64(executor->general()->rbp);
+			resp.appendLeHex64(*executor->sp());
+			resp.appendLeHex64(executor->general()->r8);
+			resp.appendLeHex64(executor->general()->r9);
+			resp.appendLeHex64(executor->general()->r10);
+			resp.appendLeHex64(executor->general()->r11);
+			resp.appendLeHex64(executor->general()->r12);
+			resp.appendLeHex64(executor->general()->r13);
+			resp.appendLeHex64(executor->general()->r14);
+			resp.appendLeHex64(executor->general()->r15);
+			resp.appendLeHex64(*executor->ip());
+			resp.appendLeHex32(*executor->rflags());
+			resp.appendLeHex32(*executor->cs());
+			resp.appendLeHex32(*executor->ss());
+			resp.appendLeHex32(*executor->ss()); // DS
+			resp.appendLeHex32(*executor->ss()); // ES
+			resp.appendLeHex32(executor->general()->clientFs);
+			resp.appendLeHex32(executor->general()->clientGs);
+			for(int i = 0; i < 8; ++i) // 8 FPU registers.
+				for(int j = 0; j < 10; ++j) // 80 bits in size.
+					resp.appendString("xx");
+			for(int i = 0; i < 8; ++i) // 8 FPU control registers.
+				for(int j = 0; j < 4; ++j)
+					resp.appendString("xx");
 #elif defined (__aarch64__)
-		for (int i = 0; i < 31; i++)
-			resp.appendLeHex64(thread_->_executor.general()->x[i]);
-		resp.appendLeHex64(thread_->_executor.general()->sp);
-		resp.appendLeHex64(thread_->_executor.general()->elr);
-		resp.appendLeHex32(thread_->_executor.general()->spsr);
+			for (int i = 0; i < 31; i++)
+				resp.appendLeHex64(executor->general()->x[i]);
+			resp.appendLeHex64(executor->general()->sp);
+			resp.appendLeHex64(executor->general()->elr);
+			resp.appendLeHex32(executor->general()->spsr);
 #elif defined(__riscv) && __riscv_xlen == 64
-		warningLogger() << "GDB server is unimplemented for RISC-V" << frg::endlog;
+			warningLogger() << "GDB server is unimplemented for RISC-V" << frg::endlog;
 #else
 #	error Unknown architecture
 #endif
+		});
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;
 		uint64_t length;
