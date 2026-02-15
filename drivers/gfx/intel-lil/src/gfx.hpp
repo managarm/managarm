@@ -22,7 +22,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 private:
 	protocols::hw::Device _hwDevice;
 	range_allocator _vramAllocator;
-	LilGpu _gpu;
+	LilGpu *_gpu;
 	uint16_t _pchDevId;
 	helix::UniqueDescriptor apertureHandle_;
 	arch::contiguous_pool _pool = {};

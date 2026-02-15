@@ -1,4 +1,5 @@
 #include <span>
+#include <print>
 
 #include <arch/dma_structs.hpp>
 #include <frg/bitops.hpp>
@@ -56,17 +57,20 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 
 	apertureHandle_ = co_await _hwDevice.accessBar(2);
 
-	lil_init_gpu(&_gpu, &_hwDevice, _pchDevId);
+	std::println("gfx/intel-lil: attempting GPU init");
+	auto success = lil_init_gpu(&_gpu, &_hwDevice, _pchDevId);
+	assert(success);
+	std::println("gfx/intel-lil: GPU init done");
 
 	gttScratch_ = arch::dma_buffer{&_pool, 0x1000};
 	uintptr_t phys = helix::ptrToPhysical(gttScratch_.data());
 
-	for (size_t i = 0; i < _gpu.gtt_size / 8; i++) {
-		_gpu.vmem_map(&_gpu, phys, i << 12);
+	for (size_t i = 0; i < _gpu->gtt_size / 8; i++) {
+		_gpu->vmem_map(_gpu, phys, i << 12);
 	}
 
-	for (size_t i = 0; i < _gpu.num_connectors; i++) {
-		LilConnector *lil_con = &_gpu.connectors[i];
+	for (size_t i = 0; i < _gpu->num_connectors; i++) {
+		LilConnector *lil_con = &_gpu->connectors[i];
 
 		if constexpr (logLilVerbose) {
 			printf("gfx/intel-lil: Connector %zd, ID: %u\n", i, lil_con->id);
@@ -115,7 +119,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 		setupMinDimensions(0, 0);
 		setupMaxDimensions(16384, 16384);
 
-		if (lil_con->is_connected(&_gpu, lil_con) && lil_con->get_connector_info) {
+		if (lil_con->is_connected(_gpu, lil_con) && lil_con->get_connector_info) {
 			auto encoder = std::make_shared<Encoder>(this);
 			encoder->setupWeakPtr(encoder);
 			registerObject(encoder.get());
@@ -162,7 +166,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			std::vector<drm_mode_modeinfo> supported_modes;
 
 			LilConnectorInfo info = {};
-			info = lil_con->get_connector_info(&_gpu, lil_con);
+			info = lil_con->get_connector_info(_gpu, lil_con);
 
 			for (size_t j = 0; j < info.num_modes; j++) {
 				if (!info.modes[j].hactive || !info.modes[j].vactive || !info.modes[j].clock) {
@@ -199,7 +203,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			con->setModeList(supported_modes);
 		}
 
-		lil_crtc->shutdown(&_gpu, lil_crtc);
+		lil_crtc->shutdown(_gpu, lil_crtc);
 	}
 
 	auto config = createConfiguration();
@@ -241,7 +245,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	for (size_t page = 0; page < mappingSize; page += 0x1000) {
 		uintptr_t phys = helix::addressToPhysical(uintptr_t(cpuVaPtr) + page);
 
-		_gpu.vmem_map(&_gpu, phys, gpuVa + page);
+		_gpu->vmem_map(_gpu, phys, gpuVa + page);
 	}
 
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, cpuVaPtr, mappingSize));
@@ -349,7 +353,7 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 			LilConnectorInfo info = {};
 			int selected_mode = -1;
 
-			if (!con->is_connected || !con->is_connected(&_device->_gpu, con)) {
+			if (!con->is_connected || !con->is_connected(_device->_gpu, con)) {
 				if constexpr (logLilVerbose)
 					printf("gfx/intel-lil: Connector ID %u is disconnected!\n", con->id);
 				continue;
@@ -362,7 +366,7 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 			}
 
 			if (drm_mode) {
-				info = con->get_connector_info(&_device->_gpu, con);
+				info = con->get_connector_info(_device->_gpu, con);
 
 				for (size_t j = 0; j < 4; j++) {
 					if (*drm_mode == info.modes[j]) {
@@ -374,12 +378,12 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 
 			if (selected_mode != -1 && crtc_state->active) {
 				con->crtc->current_mode = info.modes[selected_mode];
-				lil_crtc->shutdown(&_device->_gpu, lil_crtc);
+				lil_crtc->shutdown(_device->_gpu, lil_crtc);
 
 				lil_plane->enabled = true;
 				lil_plane->pixel_format = fb->format();
 
-				lil_crtc->commit_modeset(&_device->_gpu, lil_crtc);
+				lil_crtc->commit_modeset(_device->_gpu, lil_crtc);
 
 				if constexpr (logLilVerbose)
 					printf(
@@ -389,7 +393,7 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 					    crtc->id()
 					);
 			} else if (!crtc_state->active) {
-				lil_crtc->shutdown(&_device->_gpu, lil_crtc);
+				lil_crtc->shutdown(_device->_gpu, lil_crtc);
 			} else {
 				lil_panic("no appropriate mode found");
 			}
@@ -399,7 +403,7 @@ async::detached GfxDevice::Configuration::_doCommit(std::unique_ptr<drm_core::At
 			auto pitch = frg::align_up(drm_mode->hdisplay * 4, 64);
 
 			if (!lil_plane->update_surface(
-			        &_device->_gpu, lil_plane, fb->getBufferObject()->getAddress(), pitch
+			        _device->_gpu, lil_plane, fb->getBufferObject()->getAddress(), pitch
 			    )) {
 				lil_panic("primary plane update failed");
 			}
@@ -440,7 +444,7 @@ GfxDevice::Plane::Plane(GfxDevice *device, PlaneType type, LilPlane *lil)
 : drm_core::Plane{device, device->allocator.allocate(), type},
   _lil{lil} {
 	size_t formats = 0;
-	uint32_t *base = _lil->get_formats(&device->_gpu, &formats);
+	uint32_t *base = _lil->get_formats(device->_gpu, &formats);
 
 	clearFormats();
 
