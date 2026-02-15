@@ -85,6 +85,10 @@ bool Thread::blockCurrent(bool interruptible) {
 	if(thisThread->_unblockLatch.exchange(false, std::memory_order_acquire))
 		return true;
 
+	// Avoid taking _mutex if we are interrupted anyway.
+	if (interruptible && thisThread->_pendingConditions.load(std::memory_order_relaxed))
+		return false;
+
 	StatelessIrqLock irqLock;
 	auto lock = frg::guard(&thisThread->_mutex);
 
@@ -92,6 +96,11 @@ bool Thread::blockCurrent(bool interruptible) {
 	// is ordered to the aquisition in unblockOther(), we are still correct.
 	if(thisThread->_unblockLatch.load(std::memory_order_relaxed))
 		return true;
+
+	// Conditions can only become pending if the _mutex is held,
+	// hence we never move to blocked state while conditions are pending.
+	if (interruptible && thisThread->_pendingConditions.load(std::memory_order_relaxed))
+		return false;
 
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thisThread.get()
@@ -113,9 +122,6 @@ bool Thread::blockCurrent(bool interruptible) {
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
 
-	// Check if we've been interrupted
-	if (interruptible && thisThread->_pendingSignal == kSigInterrupt)
-		return false;
 	return true;
 }
 
@@ -293,6 +299,29 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
+void Thread::handleConditions(SyscallImageAccessor image) {
+	assert(image.iplState()->current < ipl::schedule);
+	auto thisThread = getCurrentThread();
+
+	auto pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
+	while (pending) {
+		// Dequeue the highest pending bit.
+		auto c = Condition{1} << frg::floor_log2(pending);
+		pending = thisThread->_pendingConditions.fetch_and(~c);
+		if (!(pending & c))
+			continue;
+		switch (c) {
+			case condition::interrupt:
+				interruptCurrent(kIntrRequested, image, {});
+				break;
+			default:
+				panicLogger() << "Bad thread condition " << c << frg::endlog;
+		}
+		// Re-load in case new conditions were raised.
+		pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
+	}
+}
+
 void Thread::raiseSignals(SyscallImageAccessor image) {
 	assert(image.iplState()->current < ipl::schedule);
 
@@ -339,44 +368,6 @@ void Thread::raiseSignals(SyscallImageAccessor image) {
 				auto node = queue.pop_front();
 				async::execution::set_value(node->receiver,
 						frg::make_tuple(Error::threadExited, 0, kIntrNull));
-			}
-
-			scheduler->updateQueue();
-			scheduler->forceReschedule();
-			scheduler->commitReschedule();
-		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
-	}else if(this_thread->_pendingSignal == kSigInterrupt) {
-		if(logRunStates)
-			infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " was (asynchronously) interrupted" << frg::endlog;
-
-		this_thread->_updateRunTime();
-		this_thread->_runState = kRunInterrupted;
-		this_thread->_lastInterrupt = kIntrRequested;
-		++this_thread->_stateSeq;
-		this_thread->_pendingSignal = kSigNone;
-		saveExecutor(&this_thread->_executor, image);
-		this_thread->_uninvoke();
-
-		localScheduler.get().updateState();
-		Scheduler::suspendCurrent();
-
-		runOnStack([] (Continuation cont, SyscallImageAccessor image,
-				Thread *thread, frg::unique_lock<Mutex> lock) {
-			scrubStack(image, cont);
-			auto *scheduler = &localScheduler.get();
-
-			ObserveQueue queue;
-			queue.splice(queue.end(), thread->_observeQueue);
-			auto sequence = thread->_stateSeq;
-
-			lock.unlock();
-
-			// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
-			while(!queue.empty()) {
-				auto node = queue.pop_front();
-				async::execution::set_value(node->receiver,
-						frg::make_tuple(Error::success, sequence, kIntrRequested));
 			}
 
 			scheduler->updateQueue();
@@ -447,9 +438,10 @@ void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
 		auto lock = frg::guard(&thread->_mutex);
 
 		// TODO: Perform the interrupt immediately if possible.
-		// assert(thread->_pendingSignal == kSigNone);
 
-		thread->_pendingSignal = kSigInterrupt;
+		auto pending = thread->_pendingConditions.fetch_or(condition::interrupt);
+		if (pending & condition::interrupt)
+			return;
 
 		// If the thread is blocked and can be interrupted,
 		// then unblock it to notify.
@@ -483,7 +475,7 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this, ipl::passive}, _pagingWorkQueue{this, ipl::exceptional},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
-		_pendingKill{false}, _pendingSignal{kSigNone}, _runCount{1},
+		_pendingKill{false}, _runCount{1},
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
 	_lastRunTimeUpdate = getClockNanos();
