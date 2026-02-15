@@ -10,6 +10,7 @@
 #include <thor-internal/rcu.hpp>
 #include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
 
 namespace thor {
@@ -20,7 +21,7 @@ namespace {
 
 namespace {
 	void activateTss(common::x86::Tss64 *tss) {
-		common::x86::makeGdtTss64Descriptor(getCpuData()->gdt, kGdtIndexTask,
+		common::x86::makeGdtTss64Descriptor(cpuDescriptorTables.get().gdt, kGdtIndexTask,
 				tss, sizeof(common::x86::Tss64));
 		asm volatile ("ltr %w0" : : "r"(kSelTask) : "memory");
 	}
@@ -220,7 +221,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
 
 void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) {
-	executor->general()->iplState = getCpuData()->iplState.load(std::memory_order_relaxed);
+	iplSave(executor->general()->iplState);
 
 	forkExecutorRegisters(executor, functor, context);
 }
@@ -256,7 +257,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	if(executor->_tss) {
 		activateTss(executor->_tss);
 	}else{
-		activateTss(&getCpuData()->tss);
+		activateTss(&cpuDescriptorTables.get().tss);
 	}
 
 	getCpuData()->activeExecutor = executor;
@@ -308,7 +309,7 @@ void scrubStack(Executor *executor, Continuation cont) {
 // --------------------------------------------------------
 
 void UserContext::deactivate() {
-	activateTss(&getCpuData()->tss);
+	activateTss(&cpuDescriptorTables.get().tss);
 }
 
 UserContext::UserContext()
@@ -340,7 +341,20 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 // PlatformCpuData
 // --------------------------------------------------------
 
-PlatformCpuData::PlatformCpuData() {
+PlatformCpuData::PlatformCpuData() { }
+
+void enableUserAccess() {
+	if(getCpuData()->haveSmap)
+		asm volatile ("stac" : : : "memory");
+}
+void disableUserAccess() {
+	if(getCpuData()->haveSmap)
+		asm volatile ("clac" : : : "memory");
+}
+
+THOR_DEFINE_PERCPU(cpuDescriptorTables);
+
+CpuDescriptorTables::CpuDescriptorTables() {
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	common::x86::makeGdtNullSegment(gdt, kGdtIndexNull);
@@ -363,15 +377,6 @@ PlatformCpuData::PlatformCpuData() {
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(common::x86::Tss64));
 	common::x86::initializeTss64(&tss);
-}
-
-void enableUserAccess() {
-	if(getCpuData()->haveSmap)
-		asm volatile ("stac" : : : "memory");
-}
-void disableUserAccess() {
-	if(getCpuData()->haveSmap)
-		asm volatile ("clac" : : : "memory");
 }
 
 // --------------------------------------------------------
@@ -592,13 +597,14 @@ void initializeThisProcessor() {
 	cpuData->nmiStack.embed<Embedded>(embedded);
 
 	// Setup our IST after the did the embedding.
-	cpuData->tss.ist1 = (uintptr_t)cpuData->irqStack.basePtr();
-	cpuData->tss.ist2 = (uintptr_t)cpuData->dfStack.basePtr();
-	cpuData->tss.ist3 = (uintptr_t)cpuData->nmiStack.basePtr();
+	auto *tss = &cpuDescriptorTables.get().tss;
+	tss->ist1 = (uintptr_t)cpuData->irqStack.basePtr();
+	tss->ist2 = (uintptr_t)cpuData->dfStack.basePtr();
+	tss->ist3 = (uintptr_t)cpuData->nmiStack.basePtr();
 
 	common::x86::Gdtr gdtr;
 	gdtr.limit = 14 * 8;
-	gdtr.pointer = cpuData->gdt;
+	gdtr.pointer = cpuDescriptorTables.get().gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq %0\n"
@@ -607,16 +613,17 @@ void initializeThisProcessor() {
 			".L_reloadCs:" : : "i" (kSelInitialCode) );
 
 	// We need a valid TSS in case an NMI or fault happens here.
-	activateTss(&cpuData->tss);
+	activateTss(tss);
 
 	// Setup the IDT.
+	auto *idt = cpuDescriptorTables.get().idt;
 	for(int i = 0; i < 256; i++)
-		common::x86::makeIdt64NullGate(cpuData->idt, i);
-	setupIdt(cpuData->idt);
+		common::x86::makeIdt64NullGate(idt, i);
+	setupIdt(idt);
 
 	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
-	idtr.pointer = cpuData->idt;
+	idtr.pointer = idt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) );
 
 	// Enable the global page feature.

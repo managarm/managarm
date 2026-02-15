@@ -165,6 +165,7 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	}
 
 	disableInts();
+	iplRaise(ipl::maximal);
 
 	// This syscall/fault may have woken up threads on this CPU.
 	// See Scheduler::resume() for details.

@@ -59,6 +59,8 @@ struct WorkQueueAffineAwaiter : Worklet {
 	bool await_ready() { return false; }
 
 	void await_suspend(std::coroutine_handle<void> h) {
+		// Interrupts should always be enabled across suspension points.
+		assert(currentIpl() < ipl::interrupt);
 		h_ = h;
 		async::execution::start(op_);
 	}

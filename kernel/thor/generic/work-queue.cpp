@@ -25,7 +25,7 @@ void WorkQueue::post(Worklet *worklet) {
 			}
 			_pending.push_back(worklet);
 
-			if (currentIpl() <= _wqIpl) {
+			if (currentIpl() < _wqIpl) {
 				run();
 				return;
 			}
@@ -74,7 +74,7 @@ bool WorkQueue::check() {
 void WorkQueue::run() {
 	assert(_executorContext == currentExecutorContext());
 	assert(!_inRun.load(std::memory_order_relaxed));
-	assert(currentIpl() <= _wqIpl);
+	assert(currentIpl() < _wqIpl);
 
 	auto checkLocal = _localPosted.load(std::memory_order_relaxed);
 	auto checkLocked = _lockedPosted.load(std::memory_order_relaxed);
@@ -107,8 +107,7 @@ void WorkQueue::run() {
 	std::atomic_signal_fence(std::memory_order_release);
 	_inRun.store(false, std::memory_order_relaxed);
 
-	if (previousIpl != ipl::bad)
-		iplLower(previousIpl);
+	iplLower(_wqIpl, previousIpl);
 }
 
 } // namespace thor

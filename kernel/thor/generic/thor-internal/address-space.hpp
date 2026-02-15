@@ -549,7 +549,7 @@ public:
 	struct GlobalFutexSpace {
 		template<typename F>
 		coroutine<frg::expected<Error>> withFutex(uintptr_t address, F &&f) {
-			assert(currentIpl() == ipl::exceptional);
+			assert(currentIpl() == ipl::exceptionalWork);
 
 			if (address & (sizeof(int) - 1))
 				co_return Error::illegalArgs;

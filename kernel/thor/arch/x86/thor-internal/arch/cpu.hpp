@@ -72,6 +72,20 @@ enum {
 	kSelSystemNmiCode = selectorFor(kGdtIndexSystemNmiCode, 0)
 };
 
+struct CpuDescriptorTables {
+	CpuDescriptorTables();
+
+	CpuDescriptorTables(const CpuDescriptorTables &) = delete;
+
+	CpuDescriptorTables &operator= (const CpuDescriptorTables &) = delete;
+
+	uint32_t gdt[14 * 2];
+	uint32_t idt[256 * 4];
+	common::x86::Tss64 tss;
+};
+
+extern PerCpu<CpuDescriptorTables> cpuDescriptorTables;
+
 struct Executor;
 
 struct Continuation {

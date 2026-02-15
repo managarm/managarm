@@ -30,14 +30,9 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	int localApicId;
 
-	uint32_t gdt[14 * 2];
-	uint32_t idt[256 * 4];
-
 	UniqueKernelStack irqStack;
 	UniqueKernelStack dfStack;
 	UniqueKernelStack nmiStack;
-
-	common::x86::Tss64 tss;
 
 	bool havePcids = false;
 	bool haveSmap = false;

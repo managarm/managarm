@@ -3,7 +3,6 @@
 #include <eir/interface.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/arch-generic/cpu-data.hpp>
-#include <thor-internal/kernel-locks.hpp>
 
 #include <new>
 #include <tuple>
@@ -40,28 +39,38 @@ namespace ipl {
 inline constexpr Ipl bad = -1;
 // Level that threads run at (unless they raise IPL).
 inline constexpr Ipl passive = 0;
+// Level that work queues which can be entered from currentIpl() == ipl::passive run at.
+// Threads can only block on such work queues while running at currentIpl == ipl::passive.
+inline constexpr Ipl passiveWork = 1;
 // Level that page faults run at.
 // Accessing lower-half memory is only allowed at currentIpl() < ipl::exceptional.
-inline constexpr Ipl exceptional = 1;
+inline constexpr Ipl exceptional = 2;
+// Level that work queues which can be entered from currentIpl() <= ipl::exceptional run at.
+// Threads can only block on such work queues while running at currentIpl <= ipl::exceptional.
+inline constexpr Ipl exceptionalWork = 3;
 // Blocking is only allowed at currentIpl() < ipl::schedule.
 // Threads may only be scheduled out if Executor::iplState()->current < ipl::schedule.
-inline constexpr Ipl schedule = 2;
+inline constexpr Ipl schedule = 4;
 // Level that interrupts run at.
 // Also, level that the scheduler itself runs at.
-inline constexpr Ipl interrupt = 3;
+inline constexpr Ipl interrupt = 5;
 // Level that exceptions and NMIs run at.
 // This is the only level that can be entered multiple times
 // (i.e., ipl::maximal -> ipl::maximal entries are allowed).
-inline constexpr Ipl maximal = 4;
+inline constexpr Ipl maximal = 6;
 } // namespace ipl
 
-struct alignas(4) IplState {
+struct IplState {
 	// Level of the current context.
 	Ipl context{ipl::passive};
 	// Level of the currenly executing code path. This is always above the context level.
 	Ipl current{ipl::passive};
 };
-static_assert(std::atomic<IplState>::is_always_lock_free);
+
+struct alignas(8) IntState {
+	std::atomic<unsigned int> nesting{0};
+	Ipl outerIpl{ipl::bad};
+};
 
 struct CpuData : public PlatformCpuData {
 	static constexpr unsigned int RS_EMITTING = 1;
@@ -73,9 +82,12 @@ struct CpuData : public PlatformCpuData {
 
 	CpuData &operator= (const CpuData &) = delete;
 
-	std::atomic<IplState> iplState;
+	std::atomic<Ipl> contextIpl{ipl::passive};
+	// CPUs boot with interrupts disabled, so we initialize to ipl::interrupt.
+	std::atomic<Ipl> currentIpl{ipl::interrupt};
 	std::atomic<uint32_t> iplDeferred{0};
-	IrqMutex irqMutex;
+	// Used by IrqMutex.
+	IntState intState;
 	UniqueKernelStack detachedStack;
 	UniqueKernelStack idleStack;
 	bool haveVirtualization;
@@ -209,10 +221,6 @@ inline CpuData *getCpuData(size_t cpu) {
 }
 
 size_t getCpuCount();
-
-inline IrqMutex &irqMutex() {
-	return getCpuData()->irqMutex;
-}
 
 inline ExecutorContext *currentExecutorContext() {
 	return getCpuData()->executorContext;

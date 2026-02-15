@@ -5,8 +5,27 @@
 
 namespace thor {
 
+void panicOnIplStateCorruption() {
+	panicLogger() << "thor: IPL state corruption" << frg::endlog;
+	__builtin_trap();
+}
+
 void panicOnIllegalIplEntry(Ipl newIpl, Ipl currentIpl) {
 	panicLogger() << "thor: Cannot enter IPL " << newIpl << " context from IPL " << currentIpl << frg::endlog;
+	__builtin_trap();
+}
+
+void panicOnIplScopeNesting(Ipl expectedIpl) {
+	panicLogger() << "thor: IPL scope nesting violation: IPL is "
+		<< currentIpl() << " while it should be " << expectedIpl << frg::endlog;
+	__builtin_trap();
+}
+
+void panicOnInterruptIplDesync() {
+	panicLogger() << "thor: De-sync of IPL and hardware interrupt state: "
+		<< " IPL is " << currentIpl()
+		<< ", interrupt state is " << intsAreEnabled()
+		<< ", nesting level is " << irqMutex().nesting() << frg::endlog;
 	__builtin_trap();
 }
 
