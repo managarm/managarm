@@ -50,6 +50,8 @@ src = [
 	'src/requests/system.cpp',
 	'src/requests/fd.cpp',
 	'src/requests/uid-gid.cpp',
+	'src/requests/sysv-shm.cpp',
+	'src/sysv-shm.cpp',
 	'src/signalfd.cpp',
 	'src/subsystem/acpi.cpp',
 	'src/subsystem/block.cpp',

@@ -62,32 +62,13 @@ async::result<void> handleVmMap(RequestContext& ctx) {
 			co_return;
 		}
 
-		// We round up to page size
-		size_t size = req->size();
-		if(size & 0xFFF) {
-			size = (req->size() + 0xFFF) & ~0xFFF;
-		}
-
-		if(copyOnWrite) {
-			result = co_await ctx.self->vmContext()->mapFile(hint,
-					{}, nullptr,
-					0, size, true, nativeFlags);
-		}else{
-			HelHandle handle;
-			HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
-
-			result = co_await ctx.self->vmContext()->mapFile(hint,
-					helix::UniqueDescriptor{handle}, nullptr,
-					0, size, false, nativeFlags);
-		}
+		auto area = Area::makeAnonymous(req->size(), copyOnWrite);
+		result = ctx.self->vmContext()->mapArea(hint, nativeFlags, std::move(area));
 	}else{
 		auto file = ctx.self->fileContext()->getFile(req->fd());
 		assert(file && "Illegal FD for VM_MAP");
-		auto memory = co_await file->accessMemory();
-		assert(memory);
-		result = co_await ctx.self->vmContext()->mapFile(hint,
-				std::move(memory), std::move(file),
-				req->rel_offset(), req->size(), copyOnWrite, nativeFlags);
+		auto area = co_await Area::makeFile(std::move(file), req->rel_offset(), req->size(), copyOnWrite);
+		result = ctx.self->vmContext()->mapArea(hint, nativeFlags, std::move(area));
 	}
 
 	if(!result) {
