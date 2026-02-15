@@ -490,7 +490,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 	setConfig->value = configDescriptor->configValue;
 	setConfig->index = 0;
 	setConfig->length = 0;
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToDevice,
 			setConfig, {}})).unwrap();
 
 	char class_code[3], sub_class[3], protocol[3];

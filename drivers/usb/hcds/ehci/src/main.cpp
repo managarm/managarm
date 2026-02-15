@@ -5,6 +5,7 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <print>
 
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
@@ -289,10 +290,9 @@ async::result<frg::expected<proto::UsbError>>
 Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::DeviceSpeed speed) {
 	(void) port;
 
-	// TODO(qookie): Hub support
-	assert(hub.get() == _rootHub.get());
-	// Requires split TX when we have hub support
-	assert(speed == proto::DeviceSpeed::highSpeed);
+	// Requires split TX support
+	if (speed != proto::DeviceSpeed::highSpeed)
+		co_return proto::UsbError::other;
 
 	// This queue will become the default control pipe of our new device.
 	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
@@ -333,8 +333,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	get_header->length = 8;
 
 	arch::dma_object<proto::DeviceDescriptor> descriptor{&schedulePool};
-	(co_await _directTransfer(proto::ControlTransfer{proto::kXferToHost,
-			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8)).unwrap();
+	auto transfer0 = co_await _directTransfer(proto::ControlTransfer{proto::kXferToHost,
+			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
+	if (!transfer0) {
+		std::println("ehci: failed to get device descriptor header");
+		co_return transfer0.error();
+	}
 
 	_activeDevices[address].controlStates[0].queueEntity = queue;
 	_activeDevices[address].controlStates[0].maxPacketSize = descriptor->maxPacketSize;
@@ -351,8 +355,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	get_descriptor->index = 0;
 	get_descriptor->length = sizeof(proto::DeviceDescriptor);
 
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			get_descriptor, descriptor.view_buffer()})).unwrap();
+	auto transfer1 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			get_descriptor, descriptor.view_buffer()});
+	if (!transfer1) {
+		std::println("ehci: failed to get device descriptor");
+		co_return transfer1.error();
+	}
 	assert(descriptor->length == sizeof(proto::DeviceDescriptor));
 
 	// Read the configuration descriptor
@@ -366,8 +374,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	getConfigDescriptor->index = 0;
 	getConfigDescriptor->length = sizeof(proto::ConfigDescriptor);
 
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			getConfigDescriptor, configDescriptor.view_buffer()})).unwrap();
+	auto transfer2 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
+			getConfigDescriptor, configDescriptor.view_buffer()});
+	if (!transfer2) {
+		std::println("ehci: failed to get configuration descriptor");
+		co_return transfer2.error();
+	}
 	assert(configDescriptor->length == sizeof(proto::ConfigDescriptor));
 
 	// Select the first configuration in order to exit the addressing state
@@ -378,8 +390,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	setConfig->value = configDescriptor->configValue;
 	setConfig->index = 0;
 	setConfig->length = 0;
-	(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
-			setConfig, {}})).unwrap();
+	auto transfer3 = co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToDevice,
+			setConfig, {}});
+	if (!transfer3) {
+		std::println("ehci: failed to set device configuration");
+		co_return transfer3.error();
+	}
 
 	char class_code[3], sub_class[3], protocol[3];
 	char vendor[5], product[5], release[5];
@@ -392,6 +408,12 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 
 	char name[3];
 	snprintf(name, 3, "%.2x", address);
+
+	if(descriptor->deviceClass == 0x09 && descriptor->deviceSubclass == 0) {
+		auto state = std::make_shared<DeviceState>(shared_from_this(), address);
+		auto newHub = (co_await createHubFromDevice(hub, proto::Device{std::move(state)}, port)).unwrap();
+		_enumerator.observeHub(std::move(newHub));
+	}
 
 	mbus_ng::Properties mbusDescriptor{
 		{"usb.type", mbus_ng::StringItem{"device"}},
@@ -773,6 +795,8 @@ auto Controller::_buildControl(proto::XferFlags dir,
 
 	// TODO: This code is horribly broken if the setup packet or
 	// one of the data packets crosses a page boundary.
+	auto setupAddr = reinterpret_cast<uintptr_t>(setup.data());
+	assert((setupAddr & ~0xFFFULL) == ((setupAddr + sizeof(*setup) - 1) & ~0xFFFULL));
 
 	transfers[0].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[1]))
 			| td_ptr::terminate(false));
@@ -785,6 +809,10 @@ auto Controller::_buildControl(proto::XferFlags dir,
 	transfers[0].extendedPtr0.store(0);
 
 	size_t progress = 0;
+
+	auto dataAddr = reinterpret_cast<uintptr_t>(buffer.data());
+	assert(!num_data || (dataAddr & ~0xFFFULL) == ((dataAddr + buffer.size() - 1) & ~0xFFFULL));
+
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
 		assert(chunk);
@@ -1010,6 +1038,11 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			|| (active->transfers[current].status.load() & td_status::dataBufferError)) {
 		printf("Transfer error!\n");
 
+		if (active->transfers[current].status.load() & td_status::babbleDetected)
+			active->promise.set_value(proto::UsbError::babble);
+		else
+			active->promise.set_value(proto::UsbError::stall);
+
 		_dump(entity);
 
 		// Clean up the Queue.
@@ -1167,6 +1200,9 @@ async::detached bindController(mbus_ng::Entity entity) {
 	auto info = co_await device.getPciInfo();
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await device.accessBar(0);
+	co_await device.enableBusmaster();
+	co_await device.enableDma();
+
 	auto irq = co_await device.accessIrq();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
@@ -1215,7 +1251,7 @@ async::detached observeControllers() {
 // --------------------------------------------------------
 
 int main() {
-	std::cout << "ehci: Starting driver";
+	std::cout << "ehci: Starting driver" << std::endl;
 
 //	HEL_CHECK(helSetPriority(kHelThisThread, 2));
 

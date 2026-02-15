@@ -153,11 +153,11 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 			assert(!cfgNumber);
 			cfgNumber = info.configNumber;
 		}else if(type == descriptor_type::interface) {
-			assert(!intfNumber);
-			intfNumber = info.interfaceNumber;
+			if(!intfNumber)
+				intfNumber = info.interfaceNumber;
 		}else if(type == descriptor_type::endpoint) {
-			assert(!endNumber);
-			endNumber = info.endpointNumber;
+			if(!endNumber)
+				endNumber = info.endpointNumber;
 		}
 	});
 
