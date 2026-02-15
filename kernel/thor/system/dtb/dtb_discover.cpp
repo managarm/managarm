@@ -79,6 +79,7 @@ struct MbusNode final : private KernelBusObject {
 		Properties properties;
 
 		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "dt"));
+		properties.decStringProperty("dt.phandle", node->phandle(), 0);
 
 		if(parent) {
 			co_await parent->mbusPublished.wait();
@@ -111,8 +112,8 @@ struct MbusNode final : private KernelBusObject {
 		if(preamble.error())
 			co_return Error::protocolViolation;
 
-		auto sendResponse = [] (LaneHandle &conversation,
-				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
+		auto sendResponse = []<typename Resp> (LaneHandle &conversation,
+				Resp &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};
 
@@ -246,18 +247,7 @@ struct MbusNode final : private KernelBusObject {
 				resp.set_error(managarm::hw::Errors::PROPERTY_NOT_FOUND);
 			}
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
-
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPropertiesRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::GetDtPropertiesRequest>(reqBuffer, *kernelAlloc);
 			if (!req) {
@@ -281,18 +271,7 @@ struct MbusNode final : private KernelBusObject {
 
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
-
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
-
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
-
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else if(preamble.id() == bragi::message_id<managarm::hw::GetDtPathRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::GetDtPathRequest>(reqBuffer, *kernelAlloc);
 			if (!req) {
@@ -305,18 +284,119 @@ struct MbusNode final : private KernelBusObject {
 			resp.set_path(std::move(path));
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
-			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
-			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableClockRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableClockRequest>(reqBuffer, *kernelAlloc);
 
-			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
 
-			auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
-			if(respHeadError != Error::success)
-				co_return respHeadError;
+			managarm::hw::ClockResponse<KernelAlloc> resp{*kernelAlloc};
 
-			auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
-			if(respTailError != Error::success)
-				co_return respTailError;
+			if (auto *clock = node->getAssociatedClock(req->id())) {
+				clock->enable();
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::DisableClockRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::DisableClockRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::ClockResponse<KernelAlloc> resp{*kernelAlloc};
+
+			if (auto *clock = node->getAssociatedClock(req->id())) {
+				clock->disable();
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::SetClockFrequencyRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::SetClockFrequencyRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::ClockResponse<KernelAlloc> resp{*kernelAlloc};
+
+			if (auto *clock = node->getAssociatedClock(req->id())) {
+				if (clock->setFrequency(req->frequency()))
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+				else
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::EnableRegulatorRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::EnableRegulatorRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::RegulatorResponse<KernelAlloc> resp{*kernelAlloc};
+
+			if (auto *regulator = node->getAssociatedRegulator(req->id())) {
+				regulator->enable();
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::DisableRegulatorRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::DisableRegulatorRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::RegulatorResponse<KernelAlloc> resp{*kernelAlloc};
+
+			if (auto *regulator = node->getAssociatedRegulator(req->id())) {
+				regulator->disable();
+				resp.set_error(managarm::hw::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+		}else if(preamble.id() == bragi::message_id<managarm::hw::SetRegulatorVoltageRequest>) {
+			auto req = bragi::parse_head_only<managarm::hw::SetRegulatorVoltageRequest>(reqBuffer, *kernelAlloc);
+
+			if (!req) {
+				infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+				co_return Error::protocolViolation;
+			}
+
+			managarm::hw::RegulatorResponse<KernelAlloc> resp{*kernelAlloc};
+
+			if (auto *regulator = node->getAssociatedRegulator(req->id())) {
+				if (regulator->setVoltage(req->voltage()))
+					resp.set_error(managarm::hw::Errors::SUCCESS);
+				else
+					resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			} else {
+				resp.set_error(managarm::hw::Errors::ILLEGAL_OPERATION);
+			}
+
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		}else{
 			infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 			co_await dismiss(conversation);
