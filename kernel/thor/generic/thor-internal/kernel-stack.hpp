@@ -43,6 +43,9 @@ struct UniqueKernelStack {
 	void *basePtr() {
 		return _base;
 	}
+	uintptr_t baseAddress() {
+		return reinterpret_cast<uintptr_t>(_base);
+	}
 
 	template<typename T, typename... Args>
 	T *embed(Args &&... args) {

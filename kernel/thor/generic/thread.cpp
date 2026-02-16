@@ -6,6 +6,7 @@
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/load-balancing.hpp>
+#include <thor-internal/kasan.hpp>
 #include <thor-internal/stream.hpp>
 #include <thor-internal/thread.hpp>
 #include <thor-internal/timer.hpp>
@@ -299,6 +300,53 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 	}, getCpuData()->detachedStack.base(), image, interrupt, this_thread.get(), std::move(lock));
 }
 
+void Thread::terminateCurrent_() {
+	auto thisThread = getCurrentThread();
+
+	StatelessIrqLock irqLock;
+	auto lock = frg::guard(&thisThread->_mutex);
+
+	if(logTransitions)
+		infoLogger() << "thor: terminateCurrent_() in " << (void *)thisThread.get() << frg::endlog;
+	assert(thisThread->_runState == kRunActive);
+
+	thisThread->_updateRunTime();
+	thisThread->_runState = kRunTerminated;
+	++thisThread->_stateSeq;
+	thisThread->_uninvoke();
+
+	localScheduler.get().updateState();
+	Scheduler::suspendCurrent();
+	Scheduler::unassociate(thisThread.get());
+
+	runOnStack([] (Continuation cont,
+			Thread *thread, frg::unique_lock<Mutex> lock) {
+		scrubStackFrom(thread->_userContext.kernelStack.baseAddress(), cont);
+
+		auto *scheduler = &localScheduler.get();
+
+		ObserveQueue queue;
+		queue.splice(queue.end(), thread->_observeQueue);
+
+		lock.unlock();
+
+		// Release the kernel's reference to the thread after it finished execution.
+		auto threadSelf = thread->self;
+		threadSelf.ctr()->decrement();
+
+		// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
+		while(!queue.empty()) {
+			auto node = queue.pop_front();
+			async::execution::set_value(node->receiver,
+					frg::make_tuple(Error::threadExited, 0, kIntrNull));
+		}
+
+		scheduler->updateQueue();
+		scheduler->forceReschedule();
+		scheduler->commitReschedule();
+	}, getCpuData()->detachedStack.base(), thisThread.get(), std::move(lock));
+}
+
 void Thread::handleConditions(SyscallImageAccessor image) {
 	assert(image.iplState()->current < ipl::schedule);
 	auto thisThread = getCurrentThread();
@@ -314,6 +362,9 @@ void Thread::handleConditions(SyscallImageAccessor image) {
 			case condition::interrupt:
 				interruptCurrent(kIntrRequested, image, {});
 				break;
+			case condition::terminate:
+				terminateCurrent_();
+				break;
 			default:
 				panicLogger() << "Bad thread condition " << c << frg::endlog;
 		}
@@ -324,57 +375,14 @@ void Thread::handleConditions(SyscallImageAccessor image) {
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
 	assert(image.iplState()->current < ipl::schedule);
-
 	auto this_thread = getCurrentThread();
-	StatelessIrqLock irq_lock;
-	auto lock = frg::guard(&this_thread->_mutex);
 
-	if(logTransitions)
-		infoLogger() << "thor: raiseSignals() in " << (void *)this_thread.get()
-				<< frg::endlog;
-	assert(this_thread->_runState == kRunActive);
-	
-	if(this_thread->_pendingKill) {
-		if(logRunStates)
-			infoLogger() << "thor: " << (void *)this_thread.get()
-					<< " was (asynchronously) killed" << frg::endlog;
+	if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
+		StatelessIrqLock irq_lock;
+		auto lock = frg::guard(&this_thread->_mutex);
 
-		this_thread->_updateRunTime();
-		this_thread->_runState = kRunTerminated;
-		++this_thread->_stateSeq;
-		saveExecutor(&this_thread->_executor, image); // FIXME: Why do we save the state here?
-		this_thread->_uninvoke();
+		assert(this_thread->_runState == kRunActive);
 
-		localScheduler.get().updateState();
-		Scheduler::suspendCurrent();
-		Scheduler::unassociate(this_thread.get());
-
-		runOnStack([] (Continuation cont, SyscallImageAccessor image,
-				Thread *thread, frg::unique_lock<Mutex> lock) {
-			scrubStack(image, cont);
-			auto *scheduler = &localScheduler.get();
-
-			ObserveQueue queue;
-			queue.splice(queue.end(), thread->_observeQueue);
-
-			lock.unlock();
-
-			// Release the kernel's reference to the thread after it finished execution.
-			auto threadSelf = thread->self;
-			threadSelf.ctr()->decrement();
-
-			// Run observer callbacks before re-scheduling (as callbacks may unblock threads).
-			while(!queue.empty()) {
-				auto node = queue.pop_front();
-				async::execution::set_value(node->receiver,
-						frg::make_tuple(Error::threadExited, 0, kIntrNull));
-			}
-
-			scheduler->updateQueue();
-			scheduler->forceReschedule();
-			scheduler->commitReschedule();
-		}, getCpuData()->detachedStack.base(), image, this_thread.get(), std::move(lock));
-	}else if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
 		// Handle thread migration due to load balancing.
 		assert(assignedCpu);
 		if(logMigration)
@@ -426,8 +434,12 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 	Scheduler::resume(thread.get());
 }
 
-void Thread::killOther(smarter::borrowed_ptr<Thread> thread) {
-	thread->_kill();
+void Thread::killOther(smarter::borrowed_ptr<Thread>) {
+	// TODO: This function is a no-op.
+	//       We only transition to kRunTerminate when all runnable references
+	//       to this thread have been dropped.
+	//       This is necessary to ensure that WQs can be drained etc.
+	//       Remove or rework this function in the future.
 }
 
 void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
@@ -477,7 +489,7 @@ Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
 		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
-		_pendingKill{false}, _runCount{1},
+		_runCount{1},
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
 	_lastRunTimeUpdate = getClockNanos();
@@ -674,7 +686,9 @@ void Thread::_kill() {
 		}
 	}else{
 		// TODO: Wake up blocked threads.
-		_pendingKill = true;
+		// TODO: Use a common Thread::raiseCondition_() function for this purpose.
+		_pendingConditions.fetch_or(condition::terminate, std::memory_order_relaxed);
+
 	}
 }
 

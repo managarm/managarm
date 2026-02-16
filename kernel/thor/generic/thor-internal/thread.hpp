@@ -18,11 +18,12 @@ using Condition = uint32_t;
 
 // Conditions are dequeued in descending order (i.e., high condition bits take priority).
 // TODO: Integrate asynchronous WorkQueue runs into Condition.
-// TODO: Integrate thread killing into Condition.
 // TODO: Integrate CPU migration into Condition.
 namespace condition {
 // Request kIntrRequested to be raised.
 inline constexpr Condition interrupt = Condition{1} << 0;
+// Request transition to kRunTerminated.
+inline constexpr Condition terminate = Condition{1} << 1;
 } // namespace condition
 
 enum Interrupt {
@@ -397,6 +398,8 @@ public:
 	InterruptInfo interruptInfo;
 
 private:
+	static void terminateCurrent_();
+
 	template<typename ImageAccessor>
 	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
 
@@ -438,7 +441,14 @@ private:
 		// it is not scheduled.
 		kRunInterrupted,
 
-		// Thread exited or was killed.
+		// Thread terminated (i.e., it will never be scheduled again).
+		// If a thread is in kRunTerminated, then:
+		// * mainWorkQueue() and pagingWorkQueue() must be empty.
+		//   TODO: This is actually not enfored right now.
+		// * There must be no pending conditions.
+		// * The thread has retired its use of any kernel data structures.
+		//   For example, it must not hold any mutexes anymore etc.
+		// The thread's data structures must not be destructed until we reach this state.
 		kRunTerminated
 	};
 
@@ -459,8 +469,6 @@ private:
 	Interrupt _lastInterrupt;
 	uint64_t _stateSeq;
 
-	// This is set by interruptOther() and polled by raiseSignals().
-	bool _pendingKill;
 	// Conditions are raised while holding the thread mutex.
 	// In particular, functions like blockCurrent() can be sure that no conditions
 	// become pending while they are modifying the thread state.
