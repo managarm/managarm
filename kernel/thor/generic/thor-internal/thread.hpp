@@ -13,6 +13,18 @@
 
 namespace thor {
 
+// Bitwise flags that cause a thread to take some asynchronous action.
+using Condition = uint32_t;
+
+// Conditions are dequeued in descending order (i.e., high condition bits take priority).
+// TODO: Integrate asynchronous WorkQueue runs into Condition.
+// TODO: Integrate thread killing into Condition.
+// TODO: Integrate CPU migration into Condition.
+namespace condition {
+// Request kIntrRequested to be raised.
+inline constexpr Condition interrupt = Condition{1} << 0;
+} // namespace condition
+
 enum Interrupt {
 	kIntrNull,
 	kIntrDivByZero,
@@ -292,6 +304,7 @@ public:
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info);
 
+	static void handleConditions(SyscallImageAccessor image);
 	static void raiseSignals(SyscallImageAccessor image);
 
 	// State transitions that apply to arbitrary threads.
@@ -300,14 +313,6 @@ public:
 	static void killOther(smarter::borrowed_ptr<Thread> thread);
 	static void interruptOther(smarter::borrowed_ptr<Thread> thread);
 	static Error resumeOther(smarter::borrowed_ptr<Thread> thread);
-
-	// These signals let the thread change its RunState.
-	// Do not confuse them with POSIX signals!
-	// TODO: Interrupt signals should be queued.
-	enum Signal {
-		kSigNone,
-		kSigInterrupt
-	};
 
 	enum Flags : uint32_t {
 		kFlagServer = 1
@@ -456,7 +461,12 @@ private:
 
 	// This is set by interruptOther() and polled by raiseSignals().
 	bool _pendingKill;
-	Signal _pendingSignal;
+	// Conditions are raised while holding the thread mutex.
+	// In particular, functions like blockCurrent() can be sure that no conditions
+	// become pending while they are modifying the thread state.
+	// Conditions can be read and cleared without holding the mutex.
+	// Conditions can only be cleared from the thread itself.
+	std::atomic<Condition> _pendingConditions{0};
 
 	// Number of references that keep this thread running.
 	// The thread is killed when this counter reaches zero.

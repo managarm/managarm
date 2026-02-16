@@ -868,6 +868,7 @@ void handleSyscall(SyscallImageAccessor image) {
 
 	// Note: Thread::raiseSignals() only returns if nothing needs to be raised.
 	//       Otherwise, it saves the syscall image and suspends this thread.
+	Thread::handleConditions(image);
 	Thread::raiseSignals(image);
 }
 
