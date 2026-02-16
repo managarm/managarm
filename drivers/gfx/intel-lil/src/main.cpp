@@ -48,6 +48,7 @@ async::result<void> setupDevice(mbus_ng::Entity entity) {
 }
 
 std::set<std::string> supported_pci_devices{
+	"0166",
 	"3184",
 	"3185",
 	"3E9B",
