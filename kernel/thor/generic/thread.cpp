@@ -443,27 +443,7 @@ void Thread::killOther(smarter::borrowed_ptr<Thread>) {
 }
 
 void Thread::interruptOther(smarter::borrowed_ptr<Thread> thread) {
-	auto irq_lock = frg::guard(&irqMutex());
-	bool unblock;
-
-	{
-		auto lock = frg::guard(&thread->_mutex);
-
-		// TODO: Perform the interrupt immediately if possible.
-
-		auto pending = thread->_pendingConditions.fetch_or(
-			condition::interrupt, std::memory_order_relaxed
-		);
-		if (pending & condition::interrupt)
-			return;
-
-		// If the thread is blocked and can be interrupted,
-		// then unblock it to notify.
-		unblock = (thread->_runState == kRunInterruptableBlocked);
-	}
-
-	if(unblock)
-		unblockOther(thread);
+	thread->raiseCondition_(condition::interrupt);
 }
 
 Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
@@ -483,6 +463,29 @@ Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 	thread->_runState = kRunSuspended;
 	Scheduler::resume(thread.get());
 	return Error::success;
+}
+
+void Thread::raiseCondition_(Condition c) {
+	auto irqLock = frg::guard(&irqMutex());
+
+	bool unblock;
+	{
+		auto lock = frg::guard(&_mutex);
+
+		// TODO: Send an IPI for expedited condition handling.
+
+		auto pending = _pendingConditions.fetch_or(
+			c, std::memory_order_relaxed
+		);
+		if (pending & c)
+			return;
+
+		// If the thread is blocked and can be interrupted, then unblock it to notify.
+		unblock = (_runState == kRunInterruptableBlocked);
+	}
+
+	if(unblock)
+		unblockOther(self);
 }
 
 Thread::Thread(smarter::shared_ptr<Universe> universe,

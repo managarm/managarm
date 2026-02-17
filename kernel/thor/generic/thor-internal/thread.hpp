@@ -403,6 +403,8 @@ private:
 	template<typename ImageAccessor>
 	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
 
+	void raiseCondition_(Condition c);
+
 	void _updateRunTime();
 	void _uninvoke();
 	void _kill();
