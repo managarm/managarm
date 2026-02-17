@@ -670,8 +670,6 @@ struct HelSqLockMemoryView {
 struct HelSqObserve {
 	//! Handle to the thread.
 	HelHandle handle;
-	//! Input sequence number.
-	uint64_t sequence;
 };
 
 //! SQ data for kHelSubmitResizeMemory.
@@ -709,7 +707,6 @@ struct HelManageResult {
 struct HelObserveResult {
 	HelError error;
 	unsigned int observation;
-	uint64_t sequence;
 };
 
 struct HelInlineResult {

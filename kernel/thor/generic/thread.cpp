@@ -220,7 +220,6 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, Int
 	this_thread->_updateRunTime();
 	this_thread->_runState = kRunInterrupted;
 	this_thread->_lastInterrupt = interrupt;
-	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 	this_thread->_uninvoke();
 
@@ -236,7 +235,6 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, Int
 
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
-		auto sequence = thread->_stateSeq;
 
 		lock.unlock();
 
@@ -244,7 +242,7 @@ void Thread::interruptCurrent(Interrupt interrupt, FaultImageAccessor image, Int
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::success, sequence, interrupt));
+					frg::make_tuple(Error::success, interrupt));
 		}
 
 		scheduler->updateQueue();
@@ -268,7 +266,6 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 	this_thread->_updateRunTime();
 	this_thread->_runState = kRunInterrupted;
 	this_thread->_lastInterrupt = interrupt;
-	++this_thread->_stateSeq;
 	saveExecutor(&this_thread->_executor, image);
 	this_thread->_uninvoke();
 	this_thread->interruptInfo = info;
@@ -283,7 +280,6 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 
 		ObserveQueue queue;
 		queue.splice(queue.end(), thread->_observeQueue);
-		auto sequence = thread->_stateSeq;
 
 		lock.unlock();
 
@@ -291,7 +287,7 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::success, sequence, interrupt));
+					frg::make_tuple(Error::success, interrupt));
 		}
 
 		scheduler->updateQueue();
@@ -312,7 +308,6 @@ void Thread::terminateCurrent_() {
 
 	thisThread->_updateRunTime();
 	thisThread->_runState = kRunTerminated;
-	++thisThread->_stateSeq;
 	thisThread->_uninvoke();
 
 	localScheduler.get().updateState();
@@ -338,7 +333,7 @@ void Thread::terminateCurrent_() {
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::threadExited, 0, kIntrNull));
+					frg::make_tuple(Error::threadExited, kIntrNull));
 		}
 
 		scheduler->updateQueue();
@@ -491,7 +486,7 @@ void Thread::raiseCondition_(Condition c) {
 Thread::Thread(smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
-		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull}, _stateSeq{1},
+		_runState{kRunInterrupted}, _lastInterrupt{kIntrNull},
 		_runCount{1},
 		_executor{&_userContext, abi},
 		_universe{std::move(universe)}, _addressSpace{std::move(address_space)} {
@@ -512,36 +507,32 @@ void Thread::dispose(ActiveHandle) {
 	_kill();
 }
 
-void Thread::observe_(uint64_t inSeq, ObserveNode *node) {
+void Thread::observe_(ObserveNode *node) {
 	RunState state;
 	Interrupt interrupt;
-	uint64_t sequence;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		assert(inSeq <= _stateSeq);
-		if(inSeq == _stateSeq && _runState != kRunTerminated) {
-			_observeQueue.push_back(node);
-			return;
-		}else{
+		if(_runState == kRunInterrupted) {
 			state = _runState;
 			interrupt = _lastInterrupt;
-			sequence = _stateSeq;
+		}else if(_runState == kRunTerminated) {
+			state = _runState;
+			interrupt = kIntrNull;
+		}else{
+			_observeQueue.push_back(node);
+			return;
 		}
 	}
 
-	switch(state) {
-	case kRunInterrupted:
+	if(state == kRunInterrupted) {
 		async::execution::set_value(node->receiver,
-				frg::make_tuple(Error::success, sequence, interrupt));
-		break;
-	case kRunTerminated:
+				frg::make_tuple(Error::success, interrupt));
+	}else{
+		assert(state == kRunTerminated);
 		async::execution::set_value(node->receiver,
-				frg::make_tuple(Error::threadExited, 0, kIntrNull));
-		break;
-	default:
-		panicLogger() << "thor: Unexpected RunState" << frg::endlog;
+				frg::make_tuple(Error::threadExited, kIntrNull));
 	}
 }
 
@@ -670,7 +661,6 @@ void Thread::_kill() {
 	if(_runState == kRunSuspended || _runState == kRunInterrupted) {
 		_updateRunTime();
 		_runState = kRunTerminated;
-		++_stateSeq;
 		Scheduler::unassociate(this);
 
 		ObserveQueue queue;
@@ -685,7 +675,7 @@ void Thread::_kill() {
 		while(!queue.empty()) {
 			auto node = queue.pop_front();
 			async::execution::set_value(node->receiver,
-					frg::make_tuple(Error::threadExited, 0, kIntrNull));
+					frg::make_tuple(Error::threadExited, kIntrNull));
 		}
 	}else{
 		// TODO: Wake up blocked threads.

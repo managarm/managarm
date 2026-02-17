@@ -827,11 +827,9 @@ namespace posix {
 	}
 
 	coroutine<void> Process::runObserveLoop(ThreadInfo info) {
-		uint64_t currentSeq = 1;
 		while(true) {
-			auto [error, observedSeq, interrupt] = co_await info.thread->observe(currentSeq);
+			auto [error, interrupt] = co_await info.thread->observe();
 			assert(error == Error::success);
-			currentSeq = observedSeq;
 
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.

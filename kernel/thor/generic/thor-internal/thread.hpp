@@ -343,47 +343,45 @@ public:
 	// ----------------------------------------------------------------------------------
 private:
 	struct ObserveNode {
-		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
+		async::any_receiver<frg::tuple<Error, Interrupt>> receiver;
 		frg::default_list_hook<ObserveNode> hook = {};
 	};
 
-	void observe_(uint64_t inSeq, ObserveNode *node);
+	void observe_(ObserveNode *node);
 
 public:
 	template<typename Receiver>
 	struct [[nodiscard]] ObserveOperation {
-		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
-		: self_{self}, inSeq_{inSeq}, node_{.receiver = std::move(receiver)} { }
+		ObserveOperation(Thread *self, Receiver receiver)
+		: self_{self}, node_{.receiver = std::move(receiver)} { }
 
 		void start() {
-			self_->observe_(inSeq_, &node_);
+			self_->observe_(&node_);
 		}
 
 	private:
 		Thread *self_;
-		uint64_t inSeq_;
 		ObserveNode node_;
 	};
 
 	struct [[nodiscard]] ObserveSender {
-		using value_type = frg::tuple<Error, uint64_t, Interrupt>;
+		using value_type = frg::tuple<Error, Interrupt>;
 
-		async::sender_awaiter<ObserveSender, frg::tuple<Error, uint64_t, Interrupt>>
+		async::sender_awaiter<ObserveSender, frg::tuple<Error, Interrupt>>
 		operator co_await() {
 			return {std::move(*this)};
 		}
 
 		template<typename Receiver>
 		ObserveOperation<Receiver> connect(Receiver receiver) {
-			return {self, inSeq, std::move(receiver)};
+			return {self, std::move(receiver)};
 		}
 
 		Thread *self;
-		uint64_t inSeq;
 	};
 
-	ObserveSender observe(uint64_t inSeq) {
-		return {this, inSeq};
+	ObserveSender observe() {
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -472,7 +470,6 @@ private:
 	std::atomic<bool> _unblockLatch{false};
 
 	Interrupt _lastInterrupt;
-	uint64_t _stateSeq;
 
 	// Conditions are raised while holding the thread mutex.
 	// In particular, functions like blockCurrent() can be sure that no conditions

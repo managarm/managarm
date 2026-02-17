@@ -1842,7 +1842,7 @@ HelError helYield() {
 }
 
 HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
-		uint64_t inSeq, uintptr_t context) {
+		uintptr_t context) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
@@ -1862,12 +1862,12 @@ HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
 		return kHelErrQueueTooSmall;
 
-	[] (smarter::shared_ptr<Thread> thread, uint64_t inSeq,
+	[] (smarter::shared_ptr<Thread> thread,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto [error, sequence, interrupt] = co_await thread->observe(inSeq);
+		auto [error, interrupt] = co_await thread->observe();
 
-		HelObserveResult helResult{translateError(error), 0, sequence};
+		HelObserveResult helResult{translateError(error), 0};
 		if(interrupt == kIntrNull) {
 			helResult.observation = kHelObserveNull;
 		}else if(interrupt == kIntrDivByZero) {
@@ -1892,7 +1892,7 @@ HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 		}
 		QueueSource ipcSource{&helResult, sizeof(HelObserveResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
-	}(std::move(thread), inSeq, std::move(queue), context,
+	}(std::move(thread), std::move(queue), context,
 		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 
 	return kHelErrNone;
@@ -3828,7 +3828,7 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		}
 		HelSqObserve sqData;
 		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
-		error = doSubmitObserve(sqData.handle, queue, sqData.sequence, context);
+		error = doSubmitObserve(sqData.handle, queue, context);
 		break;
 	}
 	case kHelSubmitResizeMemory: {
