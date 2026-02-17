@@ -76,7 +76,7 @@ void Thread::migrateCurrent() {
 	}, &this_thread->_executor);
 }
 
-bool Thread::blockCurrent(bool interruptible) {
+bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
 	assert(currentIpl() < ipl::schedule);
 
 	auto thisThread = getCurrentThread();
@@ -87,7 +87,7 @@ bool Thread::blockCurrent(bool interruptible) {
 		return true;
 
 	// Avoid taking _mutex if we are interrupted anyway.
-	if (interruptible && thisThread->_pendingConditions.load(std::memory_order_relaxed))
+	if (interruptible && (thisThread->_pendingConditions.load(std::memory_order_relaxed) & ~maskedConditions))
 		return false;
 
 	StatelessIrqLock irqLock;
@@ -100,7 +100,7 @@ bool Thread::blockCurrent(bool interruptible) {
 
 	// Conditions can only become pending if the _mutex is held,
 	// hence we never move to blocked state while conditions are pending.
-	if (interruptible && thisThread->_pendingConditions.load(std::memory_order_relaxed))
+	if (interruptible && (thisThread->_pendingConditions.load(std::memory_order_relaxed) & ~maskedConditions))
 		return false;
 
 	if(logRunStates)

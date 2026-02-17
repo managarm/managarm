@@ -108,16 +108,16 @@ public:
 	}
 
 	template <typename Sender>
-	static auto asyncBlockCurrent(Sender s, WorkQueue *wq) {
+	static auto asyncBlockCurrent(Sender s, WorkQueue *wq, Condition maskedConditions = 0) {
 		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
 			return std::move(s);
-		}, wq, AsyncBlockCurrentNormalTag{});
+		}, wq, maskedConditions, AsyncBlockCurrentNormalTag{});
 	}
 
 	template <typename SenderFactory>
 	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
-	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq) {
-		return asyncBlockCurrent(std::move(s), wq, AsyncBlockCurrentInterruptibleTag{});
+	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq, Condition maskedConditions = 0) {
+		return asyncBlockCurrent(std::move(s), wq, maskedConditions, AsyncBlockCurrentInterruptibleTag{});
 	}
 
 	template <typename SenderFactory, AnyTag Tag>
@@ -125,7 +125,7 @@ public:
 	             && std::is_same_v<
 	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	                 void>)
-	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
 		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
@@ -183,7 +183,7 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			if (!Thread::blockCurrent(interruptible)) {
+			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
 				ce.cancel();
 				interruptible = false;
 				continue;
@@ -200,7 +200,7 @@ public:
 	             typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	             void>)
 	    )
-	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
 		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
@@ -260,7 +260,7 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			if (!Thread::blockCurrent(interruptible)) {
+			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
 				ce.cancel();
 				interruptible = false;
 				continue;
@@ -296,8 +296,11 @@ public:
 
 	// State transitions that apply to the current thread only.
 
-	// returns false if the block was interrupted
-	static bool blockCurrent(bool interruptible = false);
+	// Returns false if the block was interrupted.
+	// maskedConditions allows callers to suppress interrupts due to some of the conditions.
+	// In particular, if a condition C is set in maskedConditions,
+	// then raising C will *not* interrupt the blocking.
+	static bool blockCurrent(bool interruptible, Condition maskedConditions);
 	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
