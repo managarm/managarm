@@ -207,7 +207,9 @@ ProducerRing::ProducerRing(Controller *controller)
 }
 
 uintptr_t ProducerRing::getPtr() {
-	return helix::ptrToPhysical(_ring.data());
+	auto ptr = helix::ptrToPhysical(_ring.data());
+	assert(!(ptr & 63));
+	return ptr;
 }
 
 void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {

@@ -381,6 +381,20 @@ async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 	}
 }
 
+async::detached Interrupter::pollIrqs() {
+	while(1) {
+		co_await helix::sleepFor(1'000'000);
+
+		if (!_isBusy()) {
+			continue;
+		}
+
+		_clearPending();
+		_ring->processRing();
+		_updateDequeue();
+	}
+}
+
 void Interrupter::_updateDequeue() {
 	_space.store(interrupter::erdpLow,
 			(_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));

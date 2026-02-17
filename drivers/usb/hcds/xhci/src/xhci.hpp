@@ -71,6 +71,7 @@ struct Interrupter {
 
 	void initialize();
 	async::detached handleIrqs(helix::UniqueIrq &irq);
+	async::detached pollIrqs();
 
 private:
 	bool _isBusy();
