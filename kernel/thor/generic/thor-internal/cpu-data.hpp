@@ -115,6 +115,11 @@ struct CpuData : public PlatformCpuData {
 	// Bitmask of {RS_EMITTING, RS_PENDING} to determine whether we are currently emitting logs.
 	std::atomic<unsigned int> reentrantLogState{0};
 
+	// Set at the end of each architecture's initializeThisProcessor().
+	// This allows us to check whether various per-CPU data structures are initialized,
+	// for example the CPU's interrupt controller for sending IPIs.
+	std::atomic<bool> cpuInitialized{false};
+
 	unsigned int irqEntropySeq = 0;
 	std::atomic<ProfileMechanism> profileMechanism{};
 	// TODO: This should be a unique_ptr instead.

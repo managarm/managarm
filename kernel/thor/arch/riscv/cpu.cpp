@@ -228,6 +228,8 @@ void initializeThisProcessor() {
 	});
 	cpuData->generalWorkQueue = cpuData->wqFiber->associatedWorkQueue().lock();
 	assert(cpuData->generalWorkQueue);
+
+	cpuData->cpuInitialized.store(true, std::memory_order_release);
 }
 
 void prepareCpuDataFor(CpuData *context, int cpu) {

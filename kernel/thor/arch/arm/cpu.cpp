@@ -292,6 +292,8 @@ void initializeThisProcessor() {
 	});
 	cpu_data->generalWorkQueue = cpu_data->wqFiber->associatedWorkQueue().lock();
 	assert(cpu_data->generalWorkQueue);
+
+	cpu_data->cpuInitialized.store(true, std::memory_order_release);
 }
 
 } // namespace thor
