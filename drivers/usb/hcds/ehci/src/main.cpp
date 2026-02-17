@@ -1150,12 +1150,12 @@ size_t Controller::RootHub::numPorts() {
 }
 
 async::result<proto::PortState> Controller::RootHub::pollState(int port) {
-	co_return co_await _ports[port]->pollState();
+	co_return co_await _ports[port - 1]->pollState();
 }
 
 async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
 Controller::RootHub::issueReset(int port) {
-	co_return co_await _controller->resetPort(port);
+	co_return co_await _controller->resetPort(port - 1);
 }
 
 // ----------------------------------------------------------------
