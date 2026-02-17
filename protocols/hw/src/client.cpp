@@ -111,7 +111,6 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
@@ -124,6 +123,7 @@ async::result<helix::UniqueDescriptor> Device::accessBar(int index) {
 	HEL_CHECK(pull_bar.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -149,7 +149,6 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
@@ -162,6 +161,7 @@ async::result<helix::UniqueDescriptor> Device::accessExpansionRom() {
 	HEL_CHECK(pull_bar.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -188,7 +188,6 @@ async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
@@ -201,6 +200,7 @@ async::result<helix::UniqueDescriptor> Device::accessIrq(size_t index) {
 	HEL_CHECK(pull_irq.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -226,7 +226,6 @@ async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_msi] = co_await helix_ng::exchangeMsgs(
@@ -239,6 +238,7 @@ async::result<helix::UniqueDescriptor> Device::installMsi(int index) {
 	HEL_CHECK(pull_msi.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -263,7 +263,6 @@ async::result<void> Device::claimDevice() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -274,6 +273,7 @@ async::result<void> Device::claimDevice() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
@@ -296,7 +296,6 @@ async::result<void> Device::enableBusIrq() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -307,6 +306,7 @@ async::result<void> Device::enableBusIrq() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
@@ -329,7 +329,6 @@ async::result<void> Device::enableMsi() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -340,6 +339,7 @@ async::result<void> Device::enableMsi() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
@@ -362,7 +362,6 @@ async::result<void> Device::enableBusmaster() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -373,6 +372,7 @@ async::result<void> Device::enableBusmaster() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
@@ -397,7 +397,6 @@ async::result<uint32_t> Device::loadPciSpace(size_t offset, unsigned int size) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -408,6 +407,7 @@ async::result<uint32_t> Device::loadPciSpace(size_t offset, unsigned int size) {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -435,7 +435,6 @@ async::result<void> Device::storePciSpace(size_t offset, unsigned int size, uint
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -446,6 +445,7 @@ async::result<void> Device::storePciSpace(size_t offset, unsigned int size, uint
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 }
@@ -471,7 +471,6 @@ async::result<uint32_t> Device::loadPciCapability(unsigned int index, size_t off
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -482,6 +481,7 @@ async::result<uint32_t> Device::loadPciCapability(unsigned int index, size_t off
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -506,7 +506,6 @@ async::result<FbInfo> Device::getFbInfo() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -517,6 +516,7 @@ async::result<FbInfo> Device::getFbInfo() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -549,7 +549,6 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_bar] = co_await helix_ng::exchangeMsgs(
@@ -562,6 +561,7 @@ async::result<helix::UniqueDescriptor> Device::accessFbMemory() {
 	HEL_CHECK(pull_bar.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -588,7 +588,6 @@ async::result<void> Device::getBatteryState(BatteryState &state, bool block) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -599,6 +598,7 @@ async::result<void> Device::getBatteryState(BatteryState &state, bool block) {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::BatteryStateReply>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -639,7 +639,6 @@ async::result<std::shared_ptr<AcpiResources>> Device::getResources() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -650,6 +649,7 @@ async::result<std::shared_ptr<AcpiResources>> Device::getResources() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::AcpiGetResourcesReply>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	auto res = std::make_shared<AcpiResources>();
@@ -677,7 +677,6 @@ async::result<DtInfo> Device::getDtInfo() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -688,6 +687,7 @@ async::result<DtInfo> Device::getDtInfo() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -725,7 +725,6 @@ async::result<std::string> Device::getDtPath() {
 
 	auto preamble = bragi::read_preamble(recvHead);
 	assert(!preamble.error());
-	recvHead.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recvTail] = co_await helix_ng::exchangeMsgs(
@@ -736,6 +735,7 @@ async::result<std::string> Device::getDtPath() {
 	HEL_CHECK(recvTail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::GetDtPathResponse>(recvHead, tailBuffer);
+	recvHead.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	co_return resp.path();
@@ -760,7 +760,6 @@ async::result<std::optional<DtProperty>> Device::getDtProperty(std::string_view 
 
 	auto preamble = bragi::read_preamble(recvHead);
 	assert(!preamble.error());
-	recvHead.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recvTail] = co_await helix_ng::exchangeMsgs(
@@ -771,6 +770,7 @@ async::result<std::optional<DtProperty>> Device::getDtProperty(std::string_view 
 	HEL_CHECK(recvTail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::GetDtPropertyResponse>(recvHead, tailBuffer);
+	recvHead.reset();
 
 	if (resp.error() == managarm::hw::Errors::SUCCESS)
 		co_return DtProperty{std::move(resp.data())};
@@ -798,7 +798,6 @@ async::result<std::vector<std::pair<std::string, DtProperty>>> Device::getDtProp
 
 	auto preamble = bragi::read_preamble(recvHead);
 	assert(!preamble.error());
-	recvHead.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recvTail] = co_await helix_ng::exchangeMsgs(
@@ -809,6 +808,7 @@ async::result<std::vector<std::pair<std::string, DtProperty>>> Device::getDtProp
 	HEL_CHECK(recvTail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::GetDtPropertiesResponse>(recvHead, tailBuffer);
+	recvHead.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -841,7 +841,6 @@ async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) 
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_reg] = co_await helix_ng::exchangeMsgs(
@@ -854,6 +853,7 @@ async::result<helix::UniqueDescriptor> Device::accessDtRegister(uint32_t index) 
 	HEL_CHECK(pull_reg.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -880,7 +880,6 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_irq] = co_await helix_ng::exchangeMsgs(
@@ -893,6 +892,7 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	HEL_CHECK(pull_irq.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
@@ -918,7 +918,6 @@ async::result<void> Device::enableDma() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
@@ -929,6 +928,7 @@ async::result<void> Device::enableDma() {
 	HEL_CHECK(recv_tail.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 }
 
 async::result<std::vector<uint8_t>> Device::getSmbiosHeader() {
@@ -1005,7 +1005,6 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 
 	auto preamble = bragi::read_preamble(recv_head);
 	assert(!preamble.error());
-	recv_head.reset();
 
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail, pull_desc] = co_await helix_ng::exchangeMsgs(
@@ -1018,6 +1017,7 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 	HEL_CHECK(pull_desc.error());
 
 	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(recv_head, tailBuffer);
+	recv_head.reset();
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 
