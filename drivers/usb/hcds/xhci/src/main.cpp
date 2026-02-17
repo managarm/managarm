@@ -734,8 +734,10 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 
 		auto hubDevice = std::static_pointer_cast<Device>(hub->associatedDevice()->state());
 
-		slotCtx |= SlotFields::parentHubPort(hub->port() + 1);
-		slotCtx |= SlotFields::parentHubSlot(hubDevice->_slotId);
+		if (hubDevice->_speed == proto::DeviceSpeed::highSpeed) {
+			slotCtx |= SlotFields::parentHubPort(hub->port());
+			slotCtx |= SlotFields::parentHubSlot(hubDevice->_slotId);
+		}
 	}
 
 	slotCtx |= SlotFields::rootHubPort(rootPort);
@@ -749,6 +751,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 		case highSpeed: packetSize = 64; break;
 		case superSpeed: packetSize = 512; break;
 	}
+	_speed = speed;
 
 	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control);
 

@@ -162,6 +162,8 @@ private:
 	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
 
 	std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
+
+	proto::DeviceSpeed _speed{};
 };
 
 
