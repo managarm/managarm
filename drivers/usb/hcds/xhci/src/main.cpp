@@ -223,32 +223,20 @@ void Controller::ringDoorbell(uint8_t doorbell, uint8_t target, uint16_t stream_
 async::result<frg::expected<proto::UsbError>>
 Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, proto::DeviceSpeed speed) {
 	uint32_t route = 0;
-	size_t rootPort = port;
 
-	if (parentHub->parent()) {
-		route |= port > 14 ? 14 : (port + 1);
+	std::shared_ptr<proto::Hub> curHub = parentHub;
+	int curPort = port;
+	while (curHub->parent()) {
+		route <<= 4;
+		route |= curPort > 15 ? 15 : curPort;
+
+		curPort = curHub->port();
+		curHub = curHub->parent();
 	}
 
-	std::shared_ptr<proto::Hub> h = parentHub;
+	SupportedProtocol *proto = std::static_pointer_cast<RootHub>(curHub)->protocol();
 
-	while (h->parent()) {
-		if (h->parent()->parent()) {
-			int port = h->parent()->port();
-
-			route <<= 4;
-			route |= port > 14 ? 14 : (port + 1);
-		}
-
-		h = h->parent();
-	}
-
-	if (parentHub->parent()) {
-		rootPort = h->port();
-	}
-
-	SupportedProtocol *proto = std::static_pointer_cast<RootHub>(h)->protocol();
-
-	rootPort += proto->compatiblePortStart;
+	auto rootPort = curPort + proto->compatiblePortStart - 1;
 
 	auto device = std::make_shared<Device>(this);
 	FRG_CO_TRY(co_await device->enumerate(rootPort, port, route, parentHub, speed, proto->slotType));
@@ -296,7 +284,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> parentHub, int port, pro
 
 	std::string mbps = protocols::usb::getSpeedMbps(speed);
 
-	auto entity_id = std::static_pointer_cast<RootHub>(h)->entityId();
+	auto entity_id = std::static_pointer_cast<RootHub>(curHub)->entityId();
 
 	mbus_ng::Properties mbusDescriptor{
 		{"usb.type", mbus_ng::StringItem{"device"}},
