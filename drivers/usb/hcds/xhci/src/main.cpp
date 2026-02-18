@@ -484,7 +484,7 @@ async::result<proto::PortState> Controller::Port::pollState() {
 	co_return _state;
 }
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Port::issueReset() {
+async::result<frg::expected<proto::UsbError, void>> Controller::Port::issueReset() {
 	// We know something is connected if we're here (CCS=1)
 
 	// Reset the port only for USB 2 devices.
@@ -514,8 +514,10 @@ async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Po
 	_state.status |= proto::HubStatus::enable;
 	_pollEv.raise();
 
-	// Figure out the device speed.
+	co_return frg::success;
+}
 
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::Port::querySpeed() {
 	uint8_t speedId = getSpeed();
 
 	std::optional<proto::DeviceSpeed> speed;
@@ -573,8 +575,13 @@ async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	co_return co_await _ports[port - 1]->pollState();
 }
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::RootHub::issueReset(int port) {
-	co_return FRG_CO_TRY(co_await _ports[port - 1]->issueReset());
+async::result<frg::expected<proto::UsbError, void>> Controller::RootHub::issueReset(int port) {
+        FRG_CO_TRY(co_await _ports[port - 1]->issueReset());
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> Controller::RootHub::querySpeed(int port) {
+	co_return FRG_CO_TRY(co_await _ports[port - 1]->querySpeed());
 }
 
 // ------------------------------------------------------------------------

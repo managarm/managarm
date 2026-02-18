@@ -1024,7 +1024,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 // ----------------------------------------------------------------------------
 
 // TODO: This should be async.
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+async::result<frg::expected<proto::UsbError, void>>
 Controller::resetPort(int number) {
 	auto offset = _space.load(cap_regs::caplength);
 	auto port_space = _space.subspace(offset + 0x44 + (4 * number));
@@ -1059,7 +1059,7 @@ Controller::resetPort(int number) {
 		port.state.status |= proto::HubStatus::enable;
 		port.pollEv.raise();
 
-		co_return proto::DeviceSpeed::highSpeed;
+		co_return frg::success;
 	}else{
 		std::cout << "ehci: Device on port " << number << " is not high-speed" << std::endl;
 		port_space.store(port_regs::sc, portsc::portOwner(true));
@@ -1153,9 +1153,16 @@ async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	co_return co_await _ports[port - 1]->pollState();
 }
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+async::result<frg::expected<proto::UsbError, void>>
 Controller::RootHub::issueReset(int port) {
-	co_return co_await _controller->resetPort(port - 1);
+	FRG_CO_TRY(co_await _controller->resetPort(port - 1));
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+Controller::RootHub::querySpeed(int port) {
+	(void)port;
+	co_return proto::DeviceSpeed::highSpeed;
 }
 
 // ----------------------------------------------------------------

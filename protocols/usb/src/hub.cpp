@@ -38,14 +38,10 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
 
-	DeviceSpeed speed;
-
 	if (auto v = co_await hub->issueReset(port); !v) {
 		std::cout << "usb: Device on port " << port << " failed to reset: "
 			<< (int)v.error() << std::endl;
 		co_return;
-	} else {
-		speed = v.value();
 	}
 
 	std::cout << "usb: Waiting for device to become enabled on port " << port << std::endl;
@@ -60,6 +56,15 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	}
 
 	std::cout << "usb: Enumerating device on port " << port << std::endl;
+
+	DeviceSpeed speed;
+	if (auto v = co_await hub->querySpeed(port); !v) {
+		std::cout << "usb: Failed to query speed of device on port " << port << ": "
+			<< (int)v.error() << std::endl;
+		co_return;
+	} else {
+		speed = v.value();
+	}
 
 	if (auto v = co_await controller_->enumerateDevice(hub, port, speed); !v) {
 		std::cout << "usb: Device on port " << port << " failed to enumerate: "
@@ -123,7 +128,8 @@ private:
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
-	async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
+	async::result<frg::expected<UsbError, void>> issueReset(int port) override;
+	async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) override;
 
 	frg::expected<UsbError, HubCharacteristics> getCharacteristics() override {
 		return characteristics_;
@@ -317,7 +323,7 @@ async::result<PortState> StandardHub::pollState(int port) {
 	}
 }
 
-async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::issueReset(int port) {
+async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> resetReq{device_.setupPool()};
 	resetReq->type = setup_type::targetOther | setup_type::byClass
@@ -330,7 +336,11 @@ async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::issueReset(int 
 	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
 			resetReq, arch::dma_buffer_view{}}));
 
-	// Issue a GetPortStatus request to determine if the device is low-speed.
+	co_return frg::success;
+}
+
+async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::querySpeed(int port) {
+	// Issue a GetPortStatus request to determine the device speed.
 	arch::dma_object<SetupPacket> statusReq{device_.setupPool()};
 	statusReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toHost;

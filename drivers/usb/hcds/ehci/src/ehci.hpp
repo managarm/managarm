@@ -112,7 +112,8 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
 
 		Port &port(int portnr) {
 			assert(portnr < _controller->_numPorts);
@@ -185,7 +186,7 @@ private:
 	void _checkPorts();
 
 public:
-	async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+	async::result<frg::expected<proto::UsbError, void>>
 	resetPort(int number);
 
 	// ----------------------------------------------------------------------------
