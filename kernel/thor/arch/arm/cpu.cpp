@@ -48,16 +48,27 @@ size_t Executor::determineSize() {
 Executor::Executor()
 : _pointer{nullptr}, _exceptionStack{nullptr} {  }
 
-Executor::Executor(UserContext *context, AbiParameters abi) {
+Executor::Executor(UserContext *context) {
 	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
 	memset(_pointer, 0, getStateSize());
 
+	_exceptionStack = context->kernelStack.basePtr();
+}
+
+Executor::Executor(UserContext *context, void (*launch)())
+: Executor{context} {
+	general()->elr = reinterpret_cast<uintptr_t>(launch);
+	general()->sp = reinterpret_cast<uintptr_t>(_exceptionStack);
+	general()->spsr = isKernelInEl2() ? 9 : 5;
+	general()->domain = Domain::fault;
+}
+
+Executor::Executor(UserContext *context, AbiParameters abi)
+: Executor{context} {
 	general()->elr = abi.ip;
 	general()->sp = abi.sp;
 	general()->spsr = 0;
 	general()->domain = Domain::user;
-
-	_exceptionStack = context->kernelStack.basePtr();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)

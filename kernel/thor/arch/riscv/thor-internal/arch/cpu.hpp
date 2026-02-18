@@ -200,6 +200,11 @@ struct Executor {
 	// Offset (relative to _pointer) of f0-f31 and fcsr (in this order).
 	static size_t fsOffset() { return sizeof(Frame); }
 
+private:
+	explicit Executor(UserContext *context);
+
+public:
+	explicit Executor(UserContext *context, void (*launch)());
 	explicit Executor(UserContext *context, AbiParameters abi);
 	explicit Executor(FiberContext *context, AbiParameters abi);
 

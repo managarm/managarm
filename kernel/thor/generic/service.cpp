@@ -827,11 +827,9 @@ namespace posix {
 	}
 
 	coroutine<void> Process::runObserveLoop(ThreadInfo info) {
-		uint64_t currentSeq = 1;
 		while(true) {
-			auto [error, observedSeq, interrupt] = co_await info.thread->observe(currentSeq);
+			auto [error, interrupt] = co_await info.thread->observe();
 			assert(error == Error::success);
-			currentSeq = observedSeq;
 
 			if(interrupt == kIntrPanic) {
 				// Do nothing and stop observing.
@@ -849,7 +847,10 @@ namespace posix {
 				break;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
-				auto size = *info.thread->_executor.arg0();
+				uintptr_t size;
+				info.thread->accessRegisters([&](Executor *executor) {
+					size = *executor->arg0();
+				});
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
 				fileMemory->selfPtr = fileMemory;
 				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
@@ -866,26 +867,39 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				*info.thread->_executor.result0() = kHelErrNone;
-				*info.thread->_executor.result1() = mapResult.value();
+				info.thread->accessRegisters([&](Executor *executor) {
+					*executor->result0() = kHelErrNone;
+					*executor->result1() = mapResult.value();
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonDeallocate) { // ANON_FREE.
-				auto address = *info.thread->_executor.arg0();
-				auto size = *info.thread->_executor.arg1();
+				uintptr_t address;
+				uintptr_t size;
+				info.thread->accessRegisters([&](Executor *executor) {
+					address = *executor->arg0();
+					size = *executor->arg1();
+				});
 				auto space = info.thread->getAddressSpace();
 				auto unmapOutcome = co_await space->unmap(address, size);
 
-				if(!unmapOutcome) {
-					assert(unmapOutcome.error() == Error::illegalArgs);
-					*info.thread->_executor.result0() = kHelErrIllegalArgs;
-				}else{
-					*info.thread->_executor.result0() = kHelErrNone;
-				}
-				*info.thread->_executor.result1() = 0;
+				info.thread->accessRegisters([&](Executor *executor) {
+					if(!unmapOutcome) {
+						assert(unmapOutcome.error() == Error::illegalArgs);
+						*executor->result0() = kHelErrIllegalArgs;
+					}else{
+						*executor->result0() = kHelErrNone;
+					}
+					*executor->result1() = 0;
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetProcessData) {
+				uintptr_t dataAddr;
+				info.thread->accessRegisters([&](Executor *executor) {
+					dataAddr = *executor->arg0();
+				});
+
 				::posix::ManagarmProcessData data = {
 					info.posixHandle,
 					mbusHandle,
@@ -895,42 +909,62 @@ namespace posix {
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmProcessData));
-				if(!outcome) {
-					*info.thread->_executor.result0() = kHelErrFault;
-				}else{
-					*info.thread->_executor.result0() = kHelErrNone;
-				}
+						dataAddr, &data, sizeof(::posix::ManagarmProcessData));
+				info.thread->accessRegisters([&](Executor *executor) {
+					if(!outcome) {
+						*executor->result0() = kHelErrFault;
+					}else{
+						*executor->result0() = kHelErrNone;
+					}
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetServerData) {
+				uintptr_t dataAddr;
+				info.thread->accessRegisters([&](Executor *executor) {
+					dataAddr = *executor->arg0();
+				});
+
 				::posix::ManagarmServerData data = {
 					controlHandle
 				};
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
-						*info.thread->_executor.arg0(), &data, sizeof(::posix::ManagarmServerData));
-				if(!outcome) {
-					*info.thread->_executor.result0() = kHelErrFault;
-				}else{
-					*info.thread->_executor.result0() = kHelErrNone;
-				}
+						dataAddr, &data, sizeof(::posix::ManagarmServerData));
+				info.thread->accessRegisters([&](Executor *executor) {
+					if(!outcome) {
+						*executor->result0() = kHelErrFault;
+					}else{
+						*executor->result0() = kHelErrNone;
+					}
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superSigMask) { // sigprocmask.
-				*info.thread->_executor.result0() = kHelErrNone;
-				*info.thread->_executor.result1() = 0;
+				info.thread->accessRegisters([&](Executor *executor) {
+					*executor->result0() = kHelErrNone;
+					*executor->result1() = 0;
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetTid) {
-				*info.thread->_executor.result0() = kHelErrNone;
-				*info.thread->_executor.result1() = info.tid;
+				info.thread->accessRegisters([&](Executor *executor) {
+					*executor->result0() = kHelErrNone;
+					*executor->result1() = info.tid;
+				});
 				if(auto e = Thread::resumeOther(remove_tag_cast(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superClone) {
+				uintptr_t argIp;
+				uintptr_t argSp;
+				info.thread->accessRegisters([&](Executor *executor) {
+					argIp = *executor->arg0();
+					argSp = *executor->arg1();
+				});
+
 				AbiParameters params;
-				params.ip = *info.thread->_executor.arg0();
-				params.sp = *info.thread->_executor.arg1();
+				params.ip = argIp;
+				params.sp = argSp;
 				params.argument = 0;
 
 				auto new_thread = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
@@ -942,11 +976,14 @@ namespace posix {
 				new_thread.ctr()->increment();
 				new_thread.ctr()->increment();
 
-				*info.thread->_executor.result0() = kHelErrNone;
-				*info.thread->_executor.result1() = new_info.tid;
+				info.thread->accessRegisters([&](Executor *executor) {
+					*executor->result0() = kHelErrNone;
+					*executor->result1() = new_info.tid;
+				});
 
 				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
 				Scheduler::associate(new_thread.get(), &localScheduler.get());
+				Scheduler::resume(new_thread.get());
 
 				if(auto e = Thread::resumeOther(remove_tag_cast(new_thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;

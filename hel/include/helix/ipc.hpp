@@ -518,10 +518,6 @@ struct Observe : Operation {
 		return result_.observation;
 	}
 
-	uint64_t sequence() {
-		return result_.sequence;
-	}
-
 private:
 	void parse(const void *ptr) override {
 		memcpy(&result_, ptr, sizeof(result_));
@@ -599,11 +595,10 @@ struct Submission : private Context {
 	}
 
 	Submission(BorrowedDescriptor thread, Observe *operation,
-			uint64_t in_seq, Dispatcher &dispatcher)
+			Dispatcher &dispatcher)
 	: _result(operation) {
 		HelSqObserve header;
 		header.handle = thread.getHandle();
-		header.sequence = in_seq;
 
 		std::array segments{
 			std::as_bytes(std::span{&header, 1})
@@ -658,8 +653,8 @@ inline Submission submitLockMemoryView(BorrowedDescriptor memory, LockMemoryView
 }
 
 inline Submission submitObserve(BorrowedDescriptor thread, Observe *operation,
-		uint64_t in_seq, Dispatcher &dispatcher) {
-	return {thread, operation, in_seq, dispatcher};
+		Dispatcher &dispatcher) {
+	return {thread, operation, dispatcher};
 }
 
 } // namespace helix

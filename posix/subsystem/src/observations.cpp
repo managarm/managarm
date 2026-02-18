@@ -57,14 +57,13 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		std::shared_ptr<Generation> generation) {
 	auto thread = self->threadDescriptor();
 
-	uint64_t sequence = 1;
 	while(true) {
 		if(generation->inTermination)
 			break;
 
 		helix::Observe observe;
 		auto &&submit = helix::submitObserve(thread, &observe,
-				sequence, helix::Dispatcher::global());
+				helix::Dispatcher::global());
 		co_await submit.async_wait();
 
 		// Usually, we should terminate via the generation->inTermination check above.
@@ -74,7 +73,6 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 		}
 
 		HEL_CHECK(observe.error());
-		sequence = observe.sequence();
 
 		protocols::ostrace::Timer timer;
 

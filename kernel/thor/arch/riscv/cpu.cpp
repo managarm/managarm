@@ -78,18 +78,26 @@ void workOnExecutor(Executor *executor) {
 	kernelFrame->sstatus &= ~(riscv::sstatus::extMask << riscv::sstatus::fsShift);
 }
 
-Executor::Executor(UserContext *context, AbiParameters abi) {
+Executor::Executor(UserContext *context) {
 	size_t size = determineSize();
 	_pointer = reinterpret_cast<char *>(kernelAlloc->allocate(size));
 	memset(_pointer, 0, size);
 
+	_exceptionStack = context->kernelStack.basePtr();
+}
+
+Executor::Executor(UserContext *context, void (*launch)()) : Executor{context} {
+	general()->ip = reinterpret_cast<uintptr_t>(launch);
+	general()->sp() = reinterpret_cast<uintptr_t>(_exceptionStack);
+	general()->sstatus = riscv::sstatus::sppBit | riscv::sstatus::spieBit;
+}
+
+Executor::Executor(UserContext *context, AbiParameters abi) : Executor{context} {
 	general()->ip = abi.ip;
 	general()->sp() = abi.sp;
 	// Note: we could use extInitial here.
 	//       However, that would require changes in the restore code path to zero the registers.
 	general()->sstatus = riscv::sstatus::extClean << riscv::sstatus::fsShift;
-
-	_exceptionStack = context->kernelStack.basePtr();
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi) {

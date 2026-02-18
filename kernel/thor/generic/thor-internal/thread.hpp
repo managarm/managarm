@@ -18,11 +18,12 @@ using Condition = uint32_t;
 
 // Conditions are dequeued in descending order (i.e., high condition bits take priority).
 // TODO: Integrate asynchronous WorkQueue runs into Condition.
-// TODO: Integrate thread killing into Condition.
 // TODO: Integrate CPU migration into Condition.
 namespace condition {
 // Request kIntrRequested to be raised.
 inline constexpr Condition interrupt = Condition{1} << 0;
+// Request transition to kRunTerminated.
+inline constexpr Condition terminate = Condition{1} << 1;
 } // namespace condition
 
 enum Interrupt {
@@ -107,16 +108,16 @@ public:
 	}
 
 	template <typename Sender>
-	static auto asyncBlockCurrent(Sender s, WorkQueue *wq) {
+	static auto asyncBlockCurrent(Sender s, WorkQueue *wq, Condition maskedConditions = 0) {
 		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
 			return std::move(s);
-		}, wq, AsyncBlockCurrentNormalTag{});
+		}, wq, maskedConditions, AsyncBlockCurrentNormalTag{});
 	}
 
 	template <typename SenderFactory>
 	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
-	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq) {
-		return asyncBlockCurrent(std::move(s), wq, AsyncBlockCurrentInterruptibleTag{});
+	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq, Condition maskedConditions = 0) {
+		return asyncBlockCurrent(std::move(s), wq, maskedConditions, AsyncBlockCurrentInterruptibleTag{});
 	}
 
 	template <typename SenderFactory, AnyTag Tag>
@@ -124,7 +125,7 @@ public:
 	             && std::is_same_v<
 	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	                 void>)
-	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
 		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
@@ -182,7 +183,7 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			if (!Thread::blockCurrent(interruptible)) {
+			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
 				ce.cancel();
 				interruptible = false;
 				continue;
@@ -199,7 +200,7 @@ public:
 	             typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
 	             void>)
 	    )
-	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Tag tag) {
+	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
 		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
@@ -259,7 +260,7 @@ public:
 				// might have consumed the unblock latch.
 				continue;
 			}
-			if (!Thread::blockCurrent(interruptible)) {
+			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
 				ce.cancel();
 				interruptible = false;
 				continue;
@@ -295,8 +296,11 @@ public:
 
 	// State transitions that apply to the current thread only.
 
-	// returns false if the block was interrupted
-	static bool blockCurrent(bool interruptible = false);
+	// Returns false if the block was interrupted.
+	// maskedConditions allows callers to suppress interrupts due to some of the conditions.
+	// In particular, if a condition C is set in maskedConditions,
+	// then raising C will *not* interrupt the blocking.
+	static bool blockCurrent(bool interruptible, Condition maskedConditions);
 	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
@@ -339,47 +343,45 @@ public:
 	// ----------------------------------------------------------------------------------
 private:
 	struct ObserveNode {
-		async::any_receiver<frg::tuple<Error, uint64_t, Interrupt>> receiver;
+		async::any_receiver<frg::tuple<Error, Interrupt>> receiver;
 		frg::default_list_hook<ObserveNode> hook = {};
 	};
 
-	void observe_(uint64_t inSeq, ObserveNode *node);
+	void observe_(ObserveNode *node);
 
 public:
 	template<typename Receiver>
 	struct [[nodiscard]] ObserveOperation {
-		ObserveOperation(Thread *self, uint64_t inSeq, Receiver receiver)
-		: self_{self}, inSeq_{inSeq}, node_{.receiver = std::move(receiver)} { }
+		ObserveOperation(Thread *self, Receiver receiver)
+		: self_{self}, node_{.receiver = std::move(receiver)} { }
 
 		void start() {
-			self_->observe_(inSeq_, &node_);
+			self_->observe_(&node_);
 		}
 
 	private:
 		Thread *self_;
-		uint64_t inSeq_;
 		ObserveNode node_;
 	};
 
 	struct [[nodiscard]] ObserveSender {
-		using value_type = frg::tuple<Error, uint64_t, Interrupt>;
+		using value_type = frg::tuple<Error, Interrupt>;
 
-		async::sender_awaiter<ObserveSender, frg::tuple<Error, uint64_t, Interrupt>>
+		async::sender_awaiter<ObserveSender, frg::tuple<Error, Interrupt>>
 		operator co_await() {
 			return {std::move(*this)};
 		}
 
 		template<typename Receiver>
 		ObserveOperation<Receiver> connect(Receiver receiver) {
-			return {self, inSeq, std::move(receiver)};
+			return {self, std::move(receiver)};
 		}
 
 		Thread *self;
-		uint64_t inSeq;
 	};
 
-	ObserveSender observe(uint64_t inSeq) {
-		return {this, inSeq};
+	ObserveSender observe() {
+		return {this};
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -396,13 +398,32 @@ public:
 
 	InterruptInfo interruptInfo;
 
+	// Access a thread's registers while the thread is interrupted.
+	// TODO: This needs to lock the thread.
+	// TODO: This needs to fail if we are not in interrupted state.
+	template<typename F>
+	requires requires(F f, Executor *executor) {
+		{ f(executor) } -> std::same_as<void>;
+	}
+	void accessRegisters(F &&f) {
+		assert(intrState_ == IntrState::inInterrupt);
+		f(&intrImage_);
+	}
+
 private:
+	static void launchCurrent_();
+	static void terminateCurrent_();
+
+	template<typename ImageAccessor>
+	static void genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, InterruptInfo info);
+
 	template<typename ImageAccessor>
 	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
 
+	void raiseCondition_(Condition c);
+
 	void _updateRunTime();
 	void _uninvoke();
-	void _kill();
 
 public:
 	// TODO: Tidy this up.
@@ -434,12 +455,21 @@ private:
 		// it is not scheduled, but it can be interrupted.
 		kRunInterruptableBlocked,
 
-		// the thread was manually stopped from userspace.
-		// it is not scheduled.
-		kRunInterrupted,
-
-		// Thread exited or was killed.
+		// Thread terminated (i.e., it will never be scheduled again).
+		// If a thread is in kRunTerminated, then:
+		// * mainWorkQueue() and pagingWorkQueue() must be empty.
+		//   TODO: This is actually not enfored right now.
+		// * There must be no pending conditions.
+		// * The thread has retired its use of any kernel data structures.
+		//   For example, it must not hold any mutexes anymore etc.
+		// The thread's data structures must not be destructed until we reach this state.
 		kRunTerminated
+	};
+
+	enum class IntrState {
+		none,
+		inInterrupt,
+		resumeFromInterrupt,
 	};
 
 	AssociatedWorkQueue _mainWorkQueue;
@@ -456,11 +486,13 @@ private:
 	// (i.e., that we never block when we should not).
 	std::atomic<bool> _unblockLatch{false};
 
+	// Whether the thread is currently interrupted (e.g., due to an unhandled fault) or not.
+	IntrState intrState_{IntrState::none};
+	// Only valid if intrState_ == IntrState::inInterrupt;
 	Interrupt _lastInterrupt;
-	uint64_t _stateSeq;
+	// Raised after intrState_ becomes IntrState::resumeFromInterrupt.
+	async::recurring_event resumeEvent_;
 
-	// This is set by interruptOther() and polled by raiseSignals().
-	bool _pendingKill;
 	// Conditions are raised while holding the thread mutex.
 	// In particular, functions like blockCurrent() can be sure that no conditions
 	// become pending while they are modifying the thread state.
@@ -474,10 +506,14 @@ private:
 
 	UserContext _userContext;
 	ExecutorContext _executorContext;
-public:
-	// TODO: This should be private.
+	// Depends on _userContext, MUST come after it in the struct due to initialization order.
 	Executor _executor;
+	// Register image that is saved/restored by the interrupt state.
+	// Only valid if intrState_ == IntrState::inInterrupt;
+	// Depends on _userContext, MUST come after it in the struct due to initialization order.
+	Executor intrImage_;
 
+public:
 	// Timestamp at which _updateRunTime() was last called.
 	uint64_t _lastRunTimeUpdate{0};
 	// Contributions to the load factor due to time during which the thread was (not) runnable.

@@ -80,9 +80,11 @@ static_assert(ValidFiberContext<FiberContext>);
 template <typename T>
 concept ValidExecutor = requires(T *ex,
 		FaultImageAccessor f, IrqImageAccessor i, SyscallImageAccessor s,
-		AbiParameters abi, UserContext *user, FiberContext *fiber) {
+		AbiParameters abi, UserContext *user, FiberContext *fiber,
+		void (*launch)()) {
 	// Constructors
-	T{user, abi};
+	T{user, launch}; // In kernel, IRQs enabled, passive IPL.
+	T{user, abi};    // In userspace, based on AbiParameters.
 	T{fiber, abi};
 	// Register state accessors
 	{ ex->arg0() } -> std::same_as<Word *>;
