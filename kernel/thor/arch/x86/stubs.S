@@ -127,6 +127,7 @@
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
+	cld
 	call onPlatformFault
 
 	add $8, %rsp
@@ -246,6 +247,7 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
+	cld
 	call onPlatformIrq
 
 	add $8, %rsp
@@ -307,6 +309,7 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	mov %rsp, %rdi
 	mov $\number, %rsi
 	xor %ebp, %ebp
+	cld
 	call onPlatformLegacyIrq
 
 	add $8, %rsp
@@ -366,6 +369,7 @@ MAKE_FAULT_STUB .L_typeFaultNoCode, faultStubSimdException, 19
 	sub $8, %rsp
 
 	mov %rsp, %rdi
+	cld
 	call \handler
 
 	add $8, %rsp
@@ -509,6 +513,7 @@ syscallStub:
 
 	mov %rsp, %rdi
 	xor %ebp, %ebp
+	cld
 	call onPlatformSyscall
 
 	# debugging: disallow use of the FPU in kernel code
@@ -621,6 +626,7 @@ nmiStub:
 
 	mov %rsp, %rdi
 	xor %ebp, %ebp
+	cld
 	call onPlatformNmi
 
 	add $8, %rsp

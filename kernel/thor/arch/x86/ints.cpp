@@ -342,7 +342,8 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 	switch(number) {
 	case 0: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrDivByZero);
 	} break;
@@ -352,17 +353,20 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handleDebugFault(image);
 	} break;
 	case 3: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
 	case 6: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrIllegalInstruction);
 	} break;
 	case 13: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
@@ -480,8 +484,8 @@ extern "C" void onPlatformSyscall(SyscallImageAccessor image) {
 
 	assert(!irqMutex().nesting());
 	enableInts();
-	// TODO: User-access should already be disabled here.
-	disableUserAccess();
+
+	// Note that user access is disabled here since it is set in the FMASK MSR.
 
 	handleSyscall(image);
 
@@ -583,8 +587,8 @@ extern "C" void onPlatformWork() {
 //				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	assert(!irqMutex().nesting());
-	// TODO: User-access should already be disabled here.
-	disableUserAccess();
+
+	// Note that user access is disabled here by workOnExecutor().
 
 	enableInts();
 	getCurrentThread()->mainWorkQueue()->run();

@@ -246,7 +246,10 @@ void workOnExecutor(Executor *executor) {
 	void *stub = reinterpret_cast<void *>(&workStub);
 	*executor->ip() = reinterpret_cast<uintptr_t>(stub);
 	*executor->cs() = kSelExecutorSyscallCode;
-	*executor->rflags() &= ~uint64_t(0x200); // Disable IRQs.
+	*executor->rflags() &= ~uint64_t(0x100); // Disable TF.
+	*executor->rflags() &= ~uint64_t(0x200); // Disable IF.
+	*executor->rflags() &= ~uint64_t(0x400); // Disable DF.
+	*executor->rflags() &= ~uint64_t(0x40000); // Disable AC.
 	*executor->sp() = reinterpret_cast<uintptr_t>(nsp);
 	*executor->ss() = 0;
 }
@@ -750,7 +753,13 @@ void initializeThisProcessor() {
 	common::x86::wrmsr(common::x86::kMsrStar, (uint64_t(kSelClientUserCompat) << 48)
 			| (uint64_t(kSelExecutorSyscallCode) << 32));
 	// Mask interrupt and trap flag.
-	common::x86::wrmsr(common::x86::kMsrFmask, 0x300);
+	common::x86::wrmsr(
+		common::x86::kMsrFmask,
+		0x100   // TF.
+		| 0x200 // IF.
+		| 0x400 // DF.
+		| 0x40000 // AC.
+	);
 
 	// Setup the per-CPU work queue.
 	cpuData->wqFiber = KernelFiber::post([] {

@@ -203,6 +203,10 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 void handleRiscvException(Frame *frame, uint64_t code) {
 	iplSave(frame->iplState);
 
+	if (!frame->sie())
+		panicLogger() << "thor: Synchronous exception with interrupts disabled"
+		              << " at IP 0x" << frg::hex_fmt{frame->ip} << frg::endlog;
+
 	auto trapValue = riscv::readCsr<riscv::Csr::stval>();
 
 	const char *string = "unknown";
@@ -242,12 +246,14 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 			handleRiscvPageFault(frame, code, trapValue);
 			break;
 		case codeIllegalInstruction:
-			iplEnterContext(ipl::maximal, frame->iplState);
+			iplEnterContext(ipl::exceptional, frame->iplState);
+			enableInts();
 
 			handleOtherFault(FaultImageAccessor{frame}, kIntrIllegalInstruction);
 			break;
 		case codeBreakpoint:
-			iplEnterContext(ipl::maximal, frame->iplState);
+			iplEnterContext(ipl::exceptional, frame->iplState);
+			enableInts();
 
 			handleOtherFault(FaultImageAccessor{frame}, kIntrBreakpoint);
 			break;
@@ -257,7 +263,8 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 		case codeLoadAccessFault:
 		case codeStoreMisaligned:
 		case codeStoreAccessFault:
-			iplEnterContext(ipl::maximal, frame->iplState);
+			iplEnterContext(ipl::exceptional, frame->iplState);
+			enableInts();
 
 			infoLogger() << "thor: Exception with code " << code << ", trap value 0x"
 			             << frg::hex_fmt{trapValue} << " at IP 0x" << frg::hex_fmt{frame->ip}
