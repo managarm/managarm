@@ -343,9 +343,9 @@ size_t Controller::RootHub::numPorts() {
 
 async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	while(true) {
-		auto state = _controller->_portState[port];
+		auto state = _controller->_portState[port - 1];
 		if(state.changes) {
-			_controller->_portState[port].changes = 0;
+			_controller->_portState[port - 1].changes = 0;
 			co_return state;
 		}
 
@@ -353,12 +353,12 @@ async::result<proto::PortState> Controller::RootHub::pollState(int port) {
 	}
 }
 
-async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+async::result<frg::expected<proto::UsbError, void>>
 Controller::RootHub::issueReset(int port) {
 	using proto::UsbError;
 	using proto::DeviceSpeed;
 
-	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * port));
+	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * (port - 1)));
 
 	// Reset the port for 50 ms.
 	port_space.store(port_regs::statusCtrl, port_status_ctrl::portReset(true));
@@ -396,16 +396,25 @@ Controller::RootHub::issueReset(int port) {
 		}
 	}
 
+	// Similar to USB standard hubs we do not reset the enable-change bit.
+	_controller->_portState[port - 1].status |= proto::HubStatus::enable;
+	_controller->_portState[port - 1].changes |= proto::HubStatus::reset;
+	_controller->_portDoorbell.raise();
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>>
+Controller::RootHub::querySpeed(int port) {
+	using proto::DeviceSpeed;
+
+	auto port_space = _controller->_ioSpace.subspace(0x10 + (2 * (port - 1)));
+
 	auto sc = port_space.load(port_regs::statusCtrl);
 
 	DeviceSpeed speed = (sc & port_status_ctrl::lowSpeed)
 				? DeviceSpeed::lowSpeed
 				: DeviceSpeed::fullSpeed;
-
-	// Similar to USB standard hubs we do not reset the enable-change bit.
-	_controller->_portState[port].status |= proto::HubStatus::enable;
-	_controller->_portState[port].changes |= proto::HubStatus::reset;
-	_controller->_portDoorbell.raise();
 
 	co_return speed;
 }

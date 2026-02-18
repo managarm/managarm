@@ -13,7 +13,7 @@ namespace protocols::usb {
 // ----------------------------------------------------------------
 
 void Enumerator::observeHub(std::shared_ptr<Hub> hub) {
-	for (size_t port = 0; port < hub->numPorts(); port++)
+	for (size_t port = 1; port <= hub->numPorts(); port++)
 		observePort_(hub, port);
 }
 
@@ -38,14 +38,10 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 
 	std::cout << "usb: Issuing reset on port " << port << std::endl;
 
-	DeviceSpeed speed;
-
 	if (auto v = co_await hub->issueReset(port); !v) {
 		std::cout << "usb: Device on port " << port << " failed to reset: "
 			<< (int)v.error() << std::endl;
 		co_return;
-	} else {
-		speed = v.value();
 	}
 
 	std::cout << "usb: Waiting for device to become enabled on port " << port << std::endl;
@@ -60,6 +56,15 @@ async::result<void> Enumerator::observationCycle_(std::shared_ptr<Hub> hub, int 
 	}
 
 	std::cout << "usb: Enumerating device on port " << port << std::endl;
+
+	DeviceSpeed speed;
+	if (auto v = co_await hub->querySpeed(port); !v) {
+		std::cout << "usb: Failed to query speed of device on port " << port << ": "
+			<< (int)v.error() << std::endl;
+		co_return;
+	} else {
+		speed = v.value();
+	}
 
 	if (auto v = co_await controller_->enumerateDevice(hub, port, speed); !v) {
 		std::cout << "usb: Device on port " << port << " failed to enumerate: "
@@ -123,7 +128,8 @@ private:
 public:
 	size_t numPorts() override;
 	async::result<PortState> pollState(int port) override;
-	async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) override;
+	async::result<frg::expected<UsbError, void>> issueReset(int port) override;
+	async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) override;
 
 	frg::expected<UsbError, HubCharacteristics> getCharacteristics() override {
 		return characteristics_;
@@ -189,14 +195,14 @@ async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	auto rawThinkTime = (hubDescriptor->hubCharacteristics >> 5) & 0b11;
 	characteristics_.ttThinkTime = 8 * (1 + rawThinkTime);
 
-	for (size_t port = 0; port < hubDescriptor->numPorts; port++) {
+	for (size_t port = 1; port <= hubDescriptor->numPorts; port++) {
 		// Issue a SetPortFeature request to power on the port.
 		arch::dma_object<SetupPacket> powerReq{device_.setupPool()};
 		powerReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toDevice;
 		powerReq->request = ClassRequests::setFeature;
 		powerReq->value = PortFeatures::power;
-		powerReq->index = port + 1;
+		powerReq->index = port;
 		powerReq->length = 0;
 
 		FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
@@ -222,8 +228,8 @@ async::detached StandardHub::run_() {
 				report.view_buffer()})).unwrap();
 
 //		std::cout << "usb: Hub report: " << (unsigned int)report[0] << std::endl;
-		for(size_t port = 0; port < state_.size(); port++) {
-			if(!(report[(port + 1) / 8] & (1 << ((port + 1) % 8))))
+		for(size_t port = 1; port <= state_.size(); port++) {
+			if(!(report[port / 8] & (1 << (port % 8))))
 				continue;
 
 			// Query issue a GetPortStatus request and inspect the status.
@@ -232,7 +238,7 @@ async::detached StandardHub::run_() {
 					| setup_type::toHost;
 			statusReq->request = ClassRequests::getStatus;
 			statusReq->value = 0;
-			statusReq->index = port + 1;
+			statusReq->index = port;
 			statusReq->length = 4;
 
 			arch::dma_array<uint16_t> result{device_.bufferPool(), 2};
@@ -241,17 +247,17 @@ async::detached StandardHub::run_() {
 //			std::cout << "usb: Port " << port << " status: "
 //					<< result[0] << ", " << result[1] << std::endl;
 
-			state_[port].status = 0;
+			state_[port - 1].status = 0;
 			if(result[0] & PortBits::connect)
-				state_[port].status |= HubStatus::connect;
+				state_[port - 1].status |= HubStatus::connect;
 			if(result[0] & PortBits::enable)
-				state_[port].status |= HubStatus::enable;
+				state_[port - 1].status |= HubStatus::enable;
 			if(result[0] & PortBits::reset)
-				state_[port].status |= HubStatus::reset;
+				state_[port - 1].status |= HubStatus::reset;
 
 			// Inspect the status change bits and reset them.
 			if(result[1] & PortBits::connect) {
-				state_[port].changes |= HubStatus::connect;
+				state_[port - 1].changes |= HubStatus::connect;
 				doorbell_.raise();
 
 				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
@@ -259,7 +265,7 @@ async::detached StandardHub::run_() {
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
 				clearReq->value = PortFeatures::connectChange;
-				clearReq->index = port + 1;
+				clearReq->index = port;
 				clearReq->length = 0;
 
 				(co_await device_.transfer(ControlTransfer{kXferToDevice,
@@ -267,7 +273,7 @@ async::detached StandardHub::run_() {
 			}
 
 			if(result[1] & PortBits::enable) {
-				state_[port].changes |= HubStatus::enable;
+				state_[port - 1].changes |= HubStatus::enable;
 				doorbell_.raise();
 
 				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
@@ -275,7 +281,7 @@ async::detached StandardHub::run_() {
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
 				clearReq->value = PortFeatures::enableChange;
-				clearReq->index = port + 1;
+				clearReq->index = port;
 				clearReq->length = 0;
 
 				(co_await device_.transfer(ControlTransfer{kXferToDevice,
@@ -283,7 +289,7 @@ async::detached StandardHub::run_() {
 			}
 
 			if(result[1] & PortBits::reset) {
-				state_[port].changes |= HubStatus::reset;
+				state_[port - 1].changes |= HubStatus::reset;
 				doorbell_.raise();
 
 				arch::dma_object<SetupPacket> clearReq{device_.setupPool()};
@@ -291,7 +297,7 @@ async::detached StandardHub::run_() {
 						| setup_type::toDevice;
 				clearReq->request = ClassRequests::clearFeature;
 				clearReq->value = PortFeatures::resetChange;
-				clearReq->index = port + 1;
+				clearReq->index = port;
 				clearReq->length = 0;
 
 				(co_await device_.transfer(ControlTransfer{kXferToDevice,
@@ -307,9 +313,9 @@ size_t StandardHub::numPorts() {
 
 async::result<PortState> StandardHub::pollState(int port) {
 	while(true) {
-		auto state = state_[port];
+		auto state = state_[port - 1];
 		if(state.changes) {
-			state_[port].changes = 0;
+			state_[port - 1].changes = 0;
 			co_return state;
 		}
 
@@ -317,26 +323,30 @@ async::result<PortState> StandardHub::pollState(int port) {
 	}
 }
 
-async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::issueReset(int port) {
+async::result<frg::expected<UsbError, void>> StandardHub::issueReset(int port) {
 	// Issue a SetPortFeature request to reset the port.
 	arch::dma_object<SetupPacket> resetReq{device_.setupPool()};
 	resetReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toDevice;
 	resetReq->request = ClassRequests::setFeature;
 	resetReq->value = PortFeatures::reset;
-	resetReq->index = port + 1;
+	resetReq->index = port;
 	resetReq->length = 0;
 
 	FRG_CO_TRY(co_await device_.transfer(ControlTransfer{kXferToDevice,
 			resetReq, arch::dma_buffer_view{}}));
 
-	// Issue a GetPortStatus request to determine if the device is low-speed.
+	co_return frg::success;
+}
+
+async::result<frg::expected<UsbError, DeviceSpeed>> StandardHub::querySpeed(int port) {
+	// Issue a GetPortStatus request to determine the device speed.
 	arch::dma_object<SetupPacket> statusReq{device_.setupPool()};
 	statusReq->type = setup_type::targetOther | setup_type::byClass
 			| setup_type::toHost;
 	statusReq->request = ClassRequests::getStatus;
 	statusReq->value = 0;
-	statusReq->index = port + 1;
+	statusReq->index = port;
 	statusReq->length = 4;
 
 	arch::dma_array<uint16_t> result{device_.bufferPool(), 2};

@@ -28,7 +28,8 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
 
 	private:
 		Controller *_controller;

@@ -41,7 +41,8 @@ public:
 
 	virtual size_t numPorts() = 0;
 	virtual async::result<PortState> pollState(int port) = 0;
-	virtual async::result<frg::expected<UsbError, DeviceSpeed>> issueReset(int port) = 0;
+	virtual async::result<frg::expected<UsbError, void>> issueReset(int port) = 0;
+	virtual async::result<frg::expected<UsbError, DeviceSpeed>> querySpeed(int port) = 0;
 
 	virtual frg::expected<UsbError, HubCharacteristics> getCharacteristics() {
 		return UsbError::unsupported;

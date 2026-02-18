@@ -71,6 +71,7 @@ struct Interrupter {
 
 	void initialize();
 	async::detached handleIrqs(helix::UniqueIrq &irq);
+	async::detached pollIrqs();
 
 private:
 	bool _isBusy();
@@ -162,6 +163,8 @@ private:
 	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
 
 	std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
+
+	proto::DeviceSpeed _speed{};
 };
 
 
@@ -325,7 +328,8 @@ private:
 		async::recurring_event _doorbell;
 
 		async::result<proto::PortState> pollState();
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset();
+		async::result<frg::expected<proto::UsbError, void>> issueReset();
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed();
 
 	private:
 		uint8_t getLinkStatus();
@@ -346,7 +350,8 @@ private:
 
 		size_t numPorts() override;
 		async::result<proto::PortState> pollState(int port) override;
-		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, void>> issueReset(int port) override;
+		async::result<frg::expected<proto::UsbError, proto::DeviceSpeed>> querySpeed(int port) override;
 
 		SupportedProtocol *protocol() {
 			return _proto;

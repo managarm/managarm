@@ -760,11 +760,18 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 }
 
 void PciEntity::enableBusmaster() {
-	// enable busmastering
-	auto command = parentBus->io->readConfigHalf(parentBus, slot, function,
-		kPciCommand);
-	parentBus->io->writeConfigHalf(parentBus, slot, function, kPciCommand,
-		command | 0x0004);
+	// Enable busmastering for the whole tree
+	auto entity = this;
+	while (entity) {
+		auto *bus = entity->parentBus;
+		auto *io = bus->io;
+
+		auto cmd = io->readConfigHalf(bus, entity->slot, entity->function, kPciCommand);
+		cmd |= 0x0004;
+		io->writeConfigHalf(bus, entity->slot, entity->function, kPciCommand, cmd);
+
+		entity = bus->associatedBridge;
+	}
 }
 
 namespace {
