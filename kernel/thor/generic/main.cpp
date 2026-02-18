@@ -379,6 +379,8 @@ extern "C" void thorMain() {
 }
 
 void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode) {
+	assert(currentIpl() == ipl::exceptional);
+
 	auto logFault = [&] {
 		auto msg = infoLogger();
 		msg << "thor: Page fault at " << (void *)address
@@ -513,6 +515,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 }
 
 void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
+	assert(currentIpl() == ipl::exceptional);
 	smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
 
 	const char *name;

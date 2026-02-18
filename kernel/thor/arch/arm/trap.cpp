@@ -103,11 +103,16 @@ constexpr bool logUpdatePageAccess = false;
 extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 	iplSave(*image.iplState());
 
+	if (*image.rflags() & ((1 << 6) | (1 << 7) | (1 << 8) | (1 << 9))) // DAIF.
+		panicLogger() << "thor: Synchronous fault with interrupts disabled"
+		              << " at IP 0x" << frg::hex_fmt{*image.ip()} << frg::endlog;
+
 	auto ec = *image.code() >> 26;
 	switch (ec) {
 		case 0x00: // Invalid
 		case 0x18: // Trapped MSR, MRS, or System instruction
-			iplEnterContext(ipl::maximal, *image.iplState());
+			iplEnterContext(ipl::exceptional, *image.iplState());
+			enableInts();
 
 			handleOtherFault(image, kIntrIllegalInstruction);
 			break;
@@ -140,19 +145,22 @@ extern "C" void onPlatformSyncFault(FaultImageAccessor image) {
 			break;
 		case 0x30: // Breakpoint, lower EL
 		case 0x31: // Breakpoint, same EL
-			iplEnterContext(ipl::maximal, *image.iplState());
+			iplEnterContext(ipl::exceptional, *image.iplState());
+			enableInts();
 
 			handleOtherFault(image, kIntrBreakpoint);
 			break;
 		case 0x0E: // Illegal Execution fault
 		case 0x22: // IP alignment fault
 		case 0x26: // SP alignment fault
-			iplEnterContext(ipl::maximal, *image.iplState());
+			iplEnterContext(ipl::exceptional, *image.iplState());
+			enableInts();
 
 			handleOtherFault(image, kIntrGeneralFault);
 			break;
 		case 0x3C: // BRK instruction
-			iplEnterContext(ipl::maximal, *image.iplState());
+			iplEnterContext(ipl::exceptional, *image.iplState());
+			enableInts();
 
 			handleOtherFault(image, kIntrBreakpoint);
 			break;

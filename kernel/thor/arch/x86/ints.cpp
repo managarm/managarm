@@ -342,7 +342,8 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 
 	switch(number) {
 	case 0: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrDivByZero);
 	} break;
@@ -352,17 +353,20 @@ extern "C" void onPlatformFault(FaultImageAccessor image, int number) {
 		handleDebugFault(image);
 	} break;
 	case 3: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrBreakpoint);
 	} break;
 	case 6: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrIllegalInstruction);
 	} break;
 	case 13: {
-		iplEnterContext(ipl::maximal, *image.iplState());
+		iplEnterContext(ipl::exceptional, *image.iplState());
+		enableInts();
 
 		handleOtherFault(image, kIntrGeneralFault);
 	} break;
