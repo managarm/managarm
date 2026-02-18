@@ -237,6 +237,7 @@ void handleRiscvException(Frame *frame, uint64_t code) {
 		case codeLoadPageFault:
 		case codeStorePageFault:
 			iplEnterContext(ipl::exceptional, frame->iplState);
+			enableInts();
 
 			handleRiscvPageFault(frame, code, trapValue);
 			break;

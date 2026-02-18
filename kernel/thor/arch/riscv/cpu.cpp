@@ -100,7 +100,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi) {
 	general()->ip = abi.ip;
 	general()->sp() = (uintptr_t)context->stack.basePtr();
 	general()->a(0) = abi.argument;
-	general()->sstatus = riscv::sstatus::sppBit;
+	general()->sstatus = riscv::sstatus::sppBit | riscv::sstatus::spieBit;
 }
 
 Executor::~Executor() { kernelAlloc->free(_pointer); }
