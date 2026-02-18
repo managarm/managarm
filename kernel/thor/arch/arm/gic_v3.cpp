@@ -387,6 +387,8 @@ void GicV3::sendIpiToOthers(uint8_t id) {
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		if (i == self)
 			continue;
+		if (!getCpuData(i)->cpuInitialized.load(std::memory_order_acquire))
+			continue;
 		sendIpi(static_cast<int>(i), id);
 	}
 }
