@@ -730,14 +730,34 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	slotCtx |= SlotFields::ctxEntries(1);
 	slotCtx |= SlotFields::speed(getHcdSpeedId(speed));
 
-	if ((speed == proto::DeviceSpeed::lowSpeed || speed == proto::DeviceSpeed::fullSpeed)
-			&& hub->parent()) {
-		// We need to fill these fields out for split transactions.
+	// For LS/FS devices not on the root hub ...
+	if ((speed == proto::DeviceSpeed::lowSpeed || speed == proto::DeviceSpeed::fullSpeed) && hub->parent()) {
+		// ... look for a hub with a TT.
 
-		auto hubDevice = std::static_pointer_cast<Device>(hub->associatedDevice()->state());
+		// TODO(qookie): This could probably be tracked by the generic hub code.
+		auto curHub = hub;
+		while (curHub->parent()) {
+			auto hubDevice = std::static_pointer_cast<Device>(
+				curHub->associatedDevice()->state());
 
-		if (hubDevice->_speed == proto::DeviceSpeed::highSpeed) {
-			slotCtx |= SlotFields::parentHubPort(hub->port());
+			if (hubDevice->_speed == proto::DeviceSpeed::highSpeed)
+				break;
+
+			assert(hubDevice->_speed == proto::DeviceSpeed::lowSpeed
+					|| hubDevice->_speed == proto::DeviceSpeed::fullSpeed);
+
+			curHub = curHub->parent();
+		}
+
+		// Non-root high speed hub found in the path.
+		if (curHub->parent()) {
+			auto hubDevice = std::static_pointer_cast<Device>(
+				curHub->associatedDevice()->state());
+
+			assert(hubDevice->_speed == proto::DeviceSpeed::highSpeed);
+
+			// We need to fill these fields out for split transactions.
+			slotCtx |= SlotFields::parentHubPort(curHub->port());
 			slotCtx |= SlotFields::parentHubSlot(hubDevice->_slotId);
 		}
 	}
