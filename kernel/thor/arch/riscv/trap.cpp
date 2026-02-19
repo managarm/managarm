@@ -203,7 +203,9 @@ void handleRiscvInterrupt(Frame *frame, uint64_t code) {
 void handleRiscvException(Frame *frame, uint64_t code) {
 	iplSave(frame->iplState);
 
-	if (!frame->sie())
+	// Note: U-mode always runs with interrupts enabled, so also check for U-mode.
+	//       We could alternatively always set spie when launching an Executor in U-mode.
+	if (!frame->umode() && !frame->sie())
 		panicLogger() << "thor: Synchronous exception with interrupts disabled"
 		              << " at IP 0x" << frg::hex_fmt{frame->ip} << frg::endlog;
 
