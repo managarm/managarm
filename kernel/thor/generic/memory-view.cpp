@@ -1289,9 +1289,10 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
-		assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
+		// Otherwise, lockRange() would have faulted.
+		assert(slot < indirections_.size());
+		assert(indirections_[slot]);
+		assert(inSlotOffset + size <= indirections_[slot]->size);
 		indirection = indirections_[slot];
 	}
 
@@ -1335,8 +1336,12 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
+		if (slot > indirections_.size())
+			co_return Error::fault;
+		if (indirections_[slot])
+			co_return Error::fault;
+		if (inSlotOffset >= indirections_[slot]->size)
+			co_return Error::fault;
 
 		indirection = indirections_[slot];
 	}
