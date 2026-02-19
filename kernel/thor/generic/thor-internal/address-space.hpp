@@ -591,7 +591,7 @@ public:
 
 				// Otherwise, try to make the page available.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					alignedOffset, kPageSize
+					mapping->viewOffset + alignedOffset, kPageSize
 				));
 			}
 		}
