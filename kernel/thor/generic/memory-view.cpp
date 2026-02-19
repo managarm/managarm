@@ -1260,48 +1260,63 @@ IndirectMemory::~IndirectMemory() {
 }
 
 Error IndirectMemory::lockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex_);
-
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	if(slot >= indirections_.size())
-		return Error::fault;
-	if(!indirections_[slot])
-		return Error::fault;
-	if(inSlotOffset + size > indirections_[slot]->size)
-		return Error::fault;
-	return indirections_[slot]->memory->lockRange(indirections_[slot]->offset
-			+ inSlotOffset, size);
+
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		if(slot >= indirections_.size())
+			return Error::fault;
+		if(!indirections_[slot])
+			return Error::fault;
+		if(inSlotOffset + size > indirections_[slot]->size)
+			return Error::fault;
+		indirection = indirections_[slot];
+	}
+
+	return indirection->memory->lockRange(indirection->offset + inSlotOffset, size);
 }
 
 void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex_);
-
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return Error::fault.
-	assert(indirections_[slot]); // TODO: Return Error::fault.
-	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
-	return indirections_[slot]->memory->unlockRange(indirections_[slot]->offset
-			+ inSlotOffset, size);
+
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		// Otherwise, lockRange() would have faulted.
+		assert(slot < indirections_.size());
+		assert(indirections_[slot]);
+		assert(inSlotOffset + size <= indirections_[slot]->size);
+		indirection = indirections_[slot];
+	}
+
+	indirection->memory->unlockRange(indirection->offset + inSlotOffset, size);
 }
 
 frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex_);
-
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return Error::fault.
-	assert(indirections_[slot]); // TODO: Return Error::fault.
 
-	auto physicalRange = indirections_[slot]->memory->peekRange(indirections_[slot]->offset
-		+ inSlotOffset);
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		assert(slot < indirections_.size()); // TODO: Return Error::fault.
+		assert(indirections_[slot]); // TODO: Return Error::fault.
+		indirection = indirections_[slot];
+	}
+
+	auto physicalRange = indirection->memory->peekRange(indirection->offset + inSlotOffset);
 
 	CachingMode cachingMode = CachingMode::null;
-	if(indirections_[slot]->flags & cacheWriteCombine)
+	if(indirection->flags & cacheWriteCombine)
 		cachingMode = CachingMode::writeCombine;
 
 	return {physicalRange.get<0>(), determineCachingMode(
@@ -1313,29 +1328,44 @@ coroutine<frg::expected<Error, size_t>>
 IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex_);
-
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return Error::fault.
-	assert(indirections_[slot]); // TODO: Return Error::fault.
 
-	co_return co_await indirections_[slot]->memory->touchRange(indirections_[slot]->offset
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		if (slot > indirections_.size())
+			co_return Error::fault;
+		if (indirections_[slot])
+			co_return Error::fault;
+		if (inSlotOffset >= indirections_[slot]->size)
+			co_return Error::fault;
+
+		indirection = indirections_[slot];
+	}
+
+	co_return co_await indirection->memory->touchRange(indirection->offset
 		+ inSlotOffset, sizeHint, flags);
 }
 
 void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex_);
-
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-	assert(slot < indirections_.size()); // TODO: Return Error::fault.
-	assert(indirections_[slot]); // TODO: Return Error::fault.
-	assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
-	indirections_[slot]->memory->markDirty(indirections_[slot]->offset
-			+ inSlotOffset, size);
+
+	smarter::shared_ptr<IndirectionSlot> indirection;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex_);
+
+		assert(slot < indirections_.size()); // TODO: Return Error::fault.
+		assert(indirections_[slot]); // TODO: Return Error::fault.
+		assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
+		indirection = indirections_[slot];
+	}
+
+	indirection->memory->markDirty(indirection->offset + inSlotOffset, size);
 }
 
 size_t IndirectMemory::getLength() {
