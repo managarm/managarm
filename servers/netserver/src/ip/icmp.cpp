@@ -5,6 +5,7 @@
 
 #include <arch/bit.hpp>
 #include <arpa/inet.h>
+#include <async/algorithm.hpp>
 #include <async/basic.hpp>
 #include <async/queue.hpp>
 #include <async/recurring-event.hpp>
@@ -359,13 +360,16 @@ static async::result<void> serveLanes(
 	helix::UniqueLane ptLane,
 	smarter::shared_ptr<IcmpSocket> sock
 ) {
-	async::cancellation_event cancelPt;
-	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
-			sock.get(), &IcmpSocket::ops), [&] {
-		cancelPt.cancel();
-	});
-
-	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &IcmpSocket::ops, cancelPt);
+	co_await async::race_and_cancel(
+		[&](async::cancellation_token) {
+			return protocols::fs::serveFile(std::move(ctrlLane),
+					sock.get(), &IcmpSocket::ops);
+		},
+		[&](async::cancellation_token ct) {
+			return protocols::fs::servePassthrough(std::move(ptLane),
+					sock, &IcmpSocket::ops, ct);
+		}
+	);
 	sock->handleClose();
 }
 

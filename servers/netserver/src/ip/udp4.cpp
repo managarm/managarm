@@ -3,6 +3,7 @@
 #include "ip4.hpp"
 #include "checksum.hpp"
 
+#include <async/algorithm.hpp>
 #include <async/basic.hpp>
 #include <async/recurring-event.hpp>
 #include <async/result.hpp>
@@ -761,14 +762,16 @@ static async::result<void> serveLanes(
 	helix::UniqueLane ptLane,
 	smarter::shared_ptr<Udp4Socket> sock
 ) {
-	// TODO: This could use race_and_cancel().
-	async::cancellation_event cancelPt;
-	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
-			sock.get(), &Udp4Socket::ops), [&] {
-		cancelPt.cancel();
-	});
-
-	co_await protocols::fs::servePassthrough(std::move(ptLane), sock, &Udp4Socket::ops, cancelPt);
+	co_await async::race_and_cancel(
+		[&](async::cancellation_token) {
+			return protocols::fs::serveFile(std::move(ctrlLane),
+					sock.get(), &Udp4Socket::ops);
+		},
+		[&](async::cancellation_token ct) {
+			return protocols::fs::servePassthrough(std::move(ptLane),
+					sock, &Udp4Socket::ops, ct);
+		}
+	);
 	sock->handleClose();
 }
 

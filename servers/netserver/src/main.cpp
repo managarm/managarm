@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <async/algorithm.hpp>
 #include <async/result.hpp>
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
@@ -498,13 +499,16 @@ static async::result<void> serveNetlinkLanes(
 	helix::UniqueLane ptLane,
 	smarter::shared_ptr<nl::NetlinkSocket> sock
 ) {
-	async::cancellation_event cancelPt;
-	async::detach(protocols::fs::serveFile(std::move(ctrlLane),
-			sock.get(), &nl::NetlinkSocket::ops), [&] {
-		cancelPt.cancel();
-	});
-
-	co_await servePassthrough(std::move(ptLane), sock, &nl::NetlinkSocket::ops, cancelPt);
+	co_await async::race_and_cancel(
+		[&](async::cancellation_token) {
+			return protocols::fs::serveFile(std::move(ctrlLane),
+					sock.get(), &nl::NetlinkSocket::ops);
+		},
+		[&](async::cancellation_token ct) {
+			return protocols::fs::servePassthrough(std::move(ptLane),
+					sock, &nl::NetlinkSocket::ops, ct);
+		}
+	);
 	sock->handleClose();
 }
 
