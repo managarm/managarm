@@ -179,8 +179,9 @@ void IpcQueue::processSq() {
 
 			// Dispatch the SQ element.
 			auto dataOffset = chunkOffset + elementOffset + sizeof(ElementStruct);
-			submitFromSq(selfPtr.lock(), element.opcode, _memory.get(), dataOffset,
-					element.length, reinterpret_cast<uintptr_t>(element.context));
+			submitFromSq(selfPtr.lock(), element.opcode,
+					{_mapping.bytes_data(dataOffset), element.length},
+					reinterpret_cast<uintptr_t>(element.context));
 
 			_sqCurrentProgress += sizeof(ElementStruct) + element.length;
 		}

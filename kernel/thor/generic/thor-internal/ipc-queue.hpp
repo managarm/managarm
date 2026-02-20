@@ -1,5 +1,7 @@
 #pragma once
 
+#include <span>
+
 #include <async/mutex.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/arch/ints.hpp>
@@ -45,7 +47,7 @@ struct IpcQueue;
 // Called from IpcQueue::processSq() to handle SQ elements.
 // Implemented in hel.cpp.
 void submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
-		ImmediateMemory *memory, size_t dataOffset, size_t length, uintptr_t context);
+		std::span<std::byte> sqSpan, uintptr_t context);
 
 struct ElementStruct {
 	unsigned int length;

@@ -1,3 +1,4 @@
+#include <span>
 #include <string.h>
 #include <cstddef>
 
@@ -2523,12 +2524,17 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 }
 
 HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue> queue,
-		ImmediateMemory *sqMemory, size_t sqActionsOffset,
+		std::span<std::byte> payloadSpan,
 		size_t count, uintptr_t context, uint32_t flags) {
 	if(flags)
 		return kHelErrIllegalArgs;
 	if(!count)
 		return kHelErrIllegalArgs;
+
+	if(payloadSpan.size() < count * sizeof(HelAction)) {
+		infoLogger() << "Bad length for kSubmitExchangeMsgs payload" << frg::endlog;
+		return kHelErrBufferTooSmall;
+	}
 
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
@@ -2579,8 +2585,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 		HelAction *recipe = &items[i].recipe;
 		auto node = &items[i].transmit;
 
-		sqMemory->readImmediate(sqActionsOffset + i * sizeof(HelAction),
-				recipe, sizeof(HelAction));
+		// Note: this is in-bounds due to the check at function entry.
+		memcpy(recipe, payloadSpan.data() + i * sizeof(HelAction), sizeof(HelAction));
 
 		switch(recipe->type) {
 			case kHelActionDismiss:
@@ -3774,18 +3780,17 @@ HelError helCreateToken(HelHandle *handle) {
 
 // Called from IpcQueue::processSq() to handle SQ elements.
 void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
-		ImmediateMemory *memory, size_t dataOffset, size_t length,
-		uintptr_t context) {
+		std::span<std::byte> sqSpan, uintptr_t context) {
 	HelError error;
 	switch(opcode) {
 	case kHelSubmitCancel: {
-		if(length < sizeof(HelSqCancel)) {
+		if(sqSpan.size() < sizeof(HelSqCancel)) {
 			infoLogger() << "Bad length for kSubmitCancel" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqCancel sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		queue->cancel(sqData.cancellationTag);
 		error = kHelErrNone;
 		break;
@@ -3794,143 +3799,143 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		error = doSubmitAsyncNop(queue, context);
 		break;
 	case kHelSubmitExchangeMsgs: {
-		if(length < sizeof(HelSqExchangeMsgs)) {
+		if(sqSpan.size() < sizeof(HelSqExchangeMsgs)) {
 			infoLogger() << "Bad length for kSubmitExchangeMsgs" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqExchangeMsgs sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
-		auto actionsOffset = dataOffset + sizeof(HelSqExchangeMsgs);
-		error = doSubmitExchangeMsgs(sqData.lane, queue, memory, actionsOffset,
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitExchangeMsgs(sqData.lane, queue,
+				sqSpan.subspan(sizeof(HelSqExchangeMsgs)),
 				sqData.count, context, sqData.flags);
 		break;
 	}
 	case kHelSubmitAwaitClock: {
-		if(length < sizeof(HelSqAwaitClock)) {
+		if(sqSpan.size() < sizeof(HelSqAwaitClock)) {
 			infoLogger() << "Bad length for kSubmitAwaitClock" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqAwaitClock sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		auto cg = queue->registerTag(sqData.cancellationTag);
 		error = doSubmitAwaitClock(queue, sqData.counter, context, std::move(cg));
 		break;
 	}
 	case kHelSubmitAwaitEvent: {
-		if(length < sizeof(HelSqAwaitEvent)) {
+		if(sqSpan.size() < sizeof(HelSqAwaitEvent)) {
 			infoLogger() << "Bad length for kHelSubmitAwaitEvent" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqAwaitEvent sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		auto cg = queue->registerTag(sqData.cancellationTag);
 		error = doSubmitAwaitEvent(sqData.handle, queue, sqData.sequence, context, std::move(cg));
 		break;
 	}
 	case kHelSubmitProtectMemory: {
-		if(length < sizeof(HelSqProtectMemory)) {
+		if(sqSpan.size() < sizeof(HelSqProtectMemory)) {
 			infoLogger() << "Bad length for kHelSubmitProtectMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqProtectMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitProtectMemory(sqData.spaceHandle, queue,
 				sqData.pointer, sqData.size, sqData.flags, context);
 		break;
 	}
 	case kHelSubmitSynchronizeSpace: {
-		if(length < sizeof(HelSqSynchronizeSpace)) {
+		if(sqSpan.size() < sizeof(HelSqSynchronizeSpace)) {
 			infoLogger() << "Bad length for kHelSubmitSynchronizeSpace" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqSynchronizeSpace sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitSynchronizeSpace(sqData.spaceHandle, queue,
 				sqData.pointer, sqData.size, context);
 		break;
 	}
 	case kHelSubmitReadMemory: {
-		if(length < sizeof(HelSqReadMemory)) {
+		if(sqSpan.size() < sizeof(HelSqReadMemory)) {
 			infoLogger() << "Bad length for kHelSubmitReadMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqReadMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitReadMemory(sqData.handle, queue,
 				sqData.address, sqData.length, sqData.buffer, context);
 		break;
 	}
 	case kHelSubmitWriteMemory: {
-		if(length < sizeof(HelSqWriteMemory)) {
+		if(sqSpan.size() < sizeof(HelSqWriteMemory)) {
 			infoLogger() << "Bad length for kHelSubmitWriteMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqWriteMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitWriteMemory(sqData.handle, queue,
 				sqData.address, sqData.length, sqData.buffer, context);
 		break;
 	}
 	case kHelSubmitManageMemory: {
-		if(length < sizeof(HelSqManageMemory)) {
+		if(sqSpan.size() < sizeof(HelSqManageMemory)) {
 			infoLogger() << "Bad length for kHelSubmitManageMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqManageMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitManageMemory(sqData.handle, queue, context);
 		break;
 	}
 	case kHelSubmitLockMemoryView: {
-		if(length < sizeof(HelSqLockMemoryView)) {
+		if(sqSpan.size() < sizeof(HelSqLockMemoryView)) {
 			infoLogger() << "Bad length for kHelSubmitLockMemoryView" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqLockMemoryView sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitLockMemoryView(sqData.handle, queue,
 				sqData.offset, sqData.size, context);
 		break;
 	}
 	case kHelSubmitObserve: {
-		if(length < sizeof(HelSqObserve)) {
+		if(sqSpan.size() < sizeof(HelSqObserve)) {
 			infoLogger() << "Bad length for kHelSubmitObserve" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqObserve sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitObserve(sqData.handle, queue, context);
 		break;
 	}
 	case kHelSubmitResizeMemory: {
-		if(length < sizeof(HelSqResizeMemory)) {
+		if(sqSpan.size() < sizeof(HelSqResizeMemory)) {
 			infoLogger() << "Bad length for kHelSubmitResizeMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqResizeMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitResizeMemory(sqData.handle, queue, sqData.newSize, context);
 		break;
 	}
 	case kHelSubmitForkMemory: {
-		if(length < sizeof(HelSqForkMemory)) {
+		if(sqSpan.size() < sizeof(HelSqForkMemory)) {
 			infoLogger() << "Bad length for kHelSubmitForkMemory" << frg::endlog;
 			error = kHelErrBufferTooSmall;
 			break;
 		}
 		HelSqForkMemory sqData;
-		memory->readImmediate(dataOffset, &sqData, sizeof(sqData));
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitForkMemory(sqData.handle, queue, context);
 		break;
 	}
