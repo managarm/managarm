@@ -1,5 +1,6 @@
 #pragma once
 
+#include <async/algorithm.hpp>
 #include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
 #include "fs.hpp"
@@ -275,19 +276,18 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 
 	[] (smarter::shared_ptr<File> file, BaseFileSystem &fs, helix::UniqueLane localCtrl,
 			helix::UniqueLane localPt) -> async::detached {
-		async::cancellation_event cancelPt;
 		auto fileOps = fs.fileOps();
 
-		// Cancel the passthrough lane once the file line is closed.
-		async::detach(
-			protocols::fs::serveFile(std::move(localCtrl),
-					file.get(), fileOps),
-			[&] {
-				cancelPt.cancel();
-			});
-
-		co_await protocols::fs::servePassthrough(std::move(localPt),
-				file, fileOps, cancelPt);
+		co_await async::race_and_cancel(
+			[&](async::cancellation_token) {
+				return protocols::fs::serveFile(std::move(localCtrl),
+						file.get(), fileOps);
+			},
+			[&](async::cancellation_token ct) {
+				return protocols::fs::servePassthrough(std::move(localPt),
+						file, fileOps, ct);
+			}
+		);
 	}(file, self->fs, std::move(localCtrl), std::move(localPt));
 
 	co_return protocols::fs::OpenResult{std::move(remoteCtrl), std::move(remotePt)};
