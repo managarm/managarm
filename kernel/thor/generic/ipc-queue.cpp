@@ -23,18 +23,19 @@ IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqC
 	// Setup internal state.
 	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, overallSize);
 	_memory->selfPtr = _memory;
+	_mapping = ImmediateWindow{_memory};
 	_chunkOffsets.resize(totalChunks);
 	for(unsigned int i = 0; i < totalChunks; ++i)
 		_chunkOffsets[i] = chunksOffset + i * reservedPerChunk;
 
 	// Initialize SQ chunks if configured.
 	if(numSqChunks > 0) {
-		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto head = _mapping.access<QueueStruct>(0);
 
 		// Reset all SQ chunks.
 		for(unsigned int i = numChunks; i < totalChunks; ++i) {
 			auto chunkOffset = _chunkOffsets[i];
-			auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
+			auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
 			chunkHead->next = 0;
 			chunkHead->progressFutex = 0;
 		}
@@ -42,7 +43,7 @@ IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqC
 		// Link SQ chunks together.
 		for(unsigned int i = numChunks; i < totalChunks - 1; ++i) {
 			auto chunkOffset = _chunkOffsets[i];
-			auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
+			auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
 			chunkHead->next = (i + 1) | kNextPresent;
 		}
 
@@ -71,7 +72,7 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 	co_await _cqMutex.async_lock();
 	frg::unique_lock submitLock{frg::adopt_lock, _cqMutex};
 
-	auto head = _memory->accessImmediate<QueueStruct>(0);
+	auto head = _mapping.access<QueueStruct>(0);
 
 	// Get the initial CQ chunk.
 	if (!_haveCqChunk) {
@@ -88,7 +89,7 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 	}
 
 	size_t chunkOffset = _chunkOffsets[_currentChunk];
-	auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
+	auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
 
 	// Check if we need to move to the next chunk.
 	if(static_cast<size_t>(_currentProgress) + length > _chunkSize) {
@@ -113,7 +114,7 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 		_currentChunk = nextWord & ~kNextPresent;
 		_currentProgress = 0;
 		chunkOffset = _chunkOffsets[_currentChunk];
-		chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
+		chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
 	}
 
 	ElementStruct element{
@@ -121,11 +122,11 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 		.context = reinterpret_cast<void *>(context),
 	};
 	auto elementOffset = offsetof(ChunkStruct, buffer) + _currentProgress;
-	_memory->writeImmediate(chunkOffset + elementOffset, &element, sizeof(ElementStruct));
+	memcpy(_mapping.bytes_data(chunkOffset + elementOffset), &element, sizeof(ElementStruct));
 
 	size_t sgOffset = sizeof(ElementStruct);
 	for(const QueueSource *sgSource = source; sgSource; sgSource = sgSource->link) {
-		_memory->writeImmediate(chunkOffset + elementOffset + sgOffset,
+		memcpy(_mapping.bytes_data(chunkOffset + elementOffset + sgOffset),
 				sgSource->pointer, sgSource->size);
 		sgOffset += (sgSource->size + 7) & ~size_t(7);
 	}
@@ -151,7 +152,7 @@ void IpcQueue::processSq() {
 	if(!_numSqChunks)
 		return;
 
-	auto head = _memory->accessImmediate<QueueStruct>(0);
+	auto head = _mapping.access<QueueStruct>(0);
 
 	// Acknowledge the notification.
 	auto notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_ACQUIRE);
@@ -165,7 +166,7 @@ void IpcQueue::processSq() {
 	// Process SQ elements.
 	while(true) {
 		auto chunkOffset = _chunkOffsets[_sqCurrentChunk];
-		auto chunkHead = _memory->accessImmediate<ChunkStruct>(chunkOffset);
+		auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
 
 		auto progressWord = __atomic_load_n(&chunkHead->progressFutex, __ATOMIC_ACQUIRE);
 		auto progress = progressWord & kProgressMask;
@@ -174,7 +175,7 @@ void IpcQueue::processSq() {
 		while(_sqCurrentProgress < static_cast<int>(progress)) {
 			ElementStruct element;
 			auto elementOffset = offsetof(ChunkStruct, buffer) + _sqCurrentProgress;
-			_memory->readImmediate(chunkOffset + elementOffset, &element, sizeof(ElementStruct));
+			memcpy(&element, _mapping.bytes_data(chunkOffset + elementOffset), sizeof(ElementStruct));
 
 			// Dispatch the SQ element.
 			auto dataOffset = chunkOffset + elementOffset + sizeof(ElementStruct);
@@ -198,7 +199,7 @@ void IpcQueue::processSq() {
 
 			// Link it to the tail of the chain.
 			auto tailChunkOffset = _chunkOffsets[_sqTailChunk];
-			auto tailChunkHead = _memory->accessImmediate<ChunkStruct>(tailChunkOffset);
+			auto tailChunkHead = _mapping.access<ChunkStruct>(tailChunkOffset);
 			__atomic_store_n(&tailChunkHead->next, _sqCurrentChunk | kNextPresent, __ATOMIC_RELEASE);
 			_sqTailChunk = _sqCurrentChunk;
 

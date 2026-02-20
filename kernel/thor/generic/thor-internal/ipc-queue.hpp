@@ -41,7 +41,6 @@ struct ChunkStruct {
 };
 
 struct IpcQueue;
-struct ImmediateMemory;
 
 // Called from IpcQueue::processSq() to handle SQ elements.
 // Implemented in hel.cpp.
@@ -97,21 +96,21 @@ public:
 	}
 
 	bool checkUserNotify() {
-		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto head = _mapping.access<QueueStruct>(0);
 		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
 		return userNotify & (kUserNotifyCqProgress | kUserNotifyAlert);
 	}
 
 	auto waitUserEvent(async::cancellation_token ct) {
 		return _userEvent.async_wait_if([this] () -> bool {
-			auto head = _memory->accessImmediate<QueueStruct>(0);
+			auto head = _mapping.access<QueueStruct>(0);
 			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
 			return !(userNotify & (kUserNotifyCqProgress | kUserNotifyAlert));
 		}, ct);
 	}
 
 	void alert() {
-		auto head = _memory->accessImmediate<QueueStruct>(0);
+		auto head = _mapping.access<QueueStruct>(0);
 		auto userNotify = __atomic_fetch_or(&head->userNotify,
 				kUserNotifyAlert, __ATOMIC_RELEASE);
 		if(!(userNotify & kUserNotifyAlert)) {
@@ -121,6 +120,7 @@ public:
 
 private:
 	smarter::shared_ptr<ImmediateMemory> _memory;
+	ImmediateWindow _mapping;
 
 	size_t _chunkSize;
 
