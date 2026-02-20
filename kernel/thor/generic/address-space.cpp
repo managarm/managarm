@@ -225,21 +225,23 @@ void VirtualSpace::retire() {
 	if(logCleanup)
 		debugLogger() << "thor: VirtualSpace is cleared" << frg::endlog;
 
-	// TODO: Set some flag to make sure that no mappings are added/deleted.
-	auto mapping = _mappings.first();
-	while(mapping) {
-		assert(mapping->state == MappingState::active);
-		mapping->state = MappingState::zombie;
-
-		auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
-		assert(unmapOutcome);
-
-		mapping = MappingTree::successor(mapping);
-	}
-
 	// TODO: It would be less ugly to run this in a non-detached way.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
+		co_await self->_consistencyMutex.async_lock();
+		frg::unique_lock consistencyLock{frg::adopt_lock, self->_consistencyMutex};
+
+		auto mapping = self->_mappings.first();
+		while(mapping) {
+			assert(mapping->state == MappingState::active);
+			mapping->state = MappingState::zombie;
+
+			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length);
+			assert(unmapOutcome);
+
+			mapping = MappingTree::successor(mapping);
+		}
+
 		co_await self->_ops->retire();
 
 		while(self->_mappings.get_root()) {
