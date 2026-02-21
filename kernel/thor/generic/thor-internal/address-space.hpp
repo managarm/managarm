@@ -61,14 +61,14 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 		auto physicalRange = view->peekRange(offset + progress);
-		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+		if(physicalRange.physical == PhysicalAddr(-1)) {
 			c.advance4k();
 			continue;
 		}
-		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
+		assert(!(physicalRange.physical & (kPageSize - 1)));
 
-		c.map4k(physicalRange.template get<0>(), flags,
-			determineCachingMode(physicalRange.template get<1>(), mode));
+		c.map4k(physicalRange.physical, flags,
+			determineCachingMode(physicalRange.cachingMode, mode));
 		c.advance4k();
 	}
 	return {};
@@ -86,7 +86,7 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		auto progress = c.virtualAddress() - va;
 
 		auto physicalRange = view->peekRange(offset + progress);
-		if(physicalRange.template get<0>() == PhysicalAddr(-1)) {
+		if(physicalRange.physical == PhysicalAddr(-1)) {
 			auto [status, _] = c.unmap4k();
 			if((status & page_status::present) && (status & page_status::dirty)) {
 				view->markDirty(offset + progress, kPageSize);
@@ -95,10 +95,10 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 			c.advance4k();
 			continue;
 		}
-		assert(!(physicalRange.template get<0>() & (kPageSize - 1)));
+		assert(!(physicalRange.physical & (kPageSize - 1)));
 
-		auto status = c.remap4k(physicalRange.template get<0>(), flags,
-			determineCachingMode(physicalRange.template get<1>(), mode));
+		auto status = c.remap4k(physicalRange.physical, flags,
+			determineCachingMode(physicalRange.cachingMode, mode));
 		c.advance4k();
 
 		if((status & page_status::present) && (status & page_status::dirty)) {
@@ -117,11 +117,11 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 	Cursor c{ps, va};
 
 	auto physicalRange = view->peekRange(offset);
-	if(physicalRange.get<0>() == PhysicalAddr(-1))
+	if(physicalRange.physical == PhysicalAddr(-1))
 		return Error::fault;
 
-	auto status = c.remap4k(physicalRange.template get<0>(), flags,
-		determineCachingMode(physicalRange.template get<1>(), mode));
+	auto status = c.remap4k(physicalRange.physical, flags,
+		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
 		if(status & page_status::dirty)
 			view->markDirty(offset, kPageSize);
@@ -390,8 +390,7 @@ struct Mapping {
 
 	void protect(MappingFlags flags);
 
-	frg::tuple<PhysicalAddr, CachingMode>
-	resolveRange(ptrdiff_t offset);
+	PhysicalRange resolveRange(ptrdiff_t offset);
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
@@ -582,9 +581,9 @@ public:
 					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
 					// Complete the operation if the memory page is available.
-					auto [physical, caching] = mapping->view->peekRange(mapping->viewOffset + alignedOffset);
-					if(physical != PhysicalAddr(-1)) {
-						f(GlobalFutex{id, physical + offsetMisalign});
+					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset);
+					if(physicalRange.physical != PhysicalAddr(-1)) {
+						f(GlobalFutex{id, physicalRange.physical + offsetMisalign});
 						co_return {};
 					}
 				}

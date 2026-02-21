@@ -3551,9 +3551,9 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 
 			for(size_t off = 0; off < memory->getLength(); off += kPageSize) {
 				auto range = memory->peekRange(off);
-				assert(range.get<0>() != PhysicalAddr(-1));
+				assert(range.physical != PhysicalAddr(-1));
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(window + off),
-						range.get<0>(), page_access::write, range.get<1>());
+						range.physical, page_access::write, range.cachingMode);
 			}
 
 			bound->setupMemoryViewBinding(i, window);

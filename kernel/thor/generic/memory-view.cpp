@@ -217,13 +217,12 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
 		auto range = peekRange(fetchOffset);
-		assert(range.get<0>() != PhysicalAddr(-1));
-		auto physical = range.get<0>();
+		assert(range.physical != PhysicalAddr(-1));
 
 		auto misalign = (offset + progress) & (kPageSize - 1);
 		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
-		PageAccessor accessor{physical};
+		PageAccessor accessor{range.physical};
 		memcpy(
 			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
 			reinterpret_cast<const uint8_t *>(pointer) + progress,
@@ -258,13 +257,12 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
 		auto range = peekRange(fetchOffset);
-		assert(range.get<0>() != PhysicalAddr(-1));
-		auto physical = range.get<0>();
+		assert(range.physical != PhysicalAddr(-1));
 
 		auto misalign = (offset + progress) & (kPageSize - 1);
 		size_t chunk = frg::min(kPageSize - misalign, size - progress);
 
-		PageAccessor accessor{physical};
+		PageAccessor accessor{range.physical};
 		memcpy(
 			reinterpret_cast<uint8_t *>(pointer) + progress,
 			reinterpret_cast<uint8_t *>(accessor.get()) + misalign,
@@ -321,11 +319,11 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 
 		FRG_CO_TRY(co_await destView->touchRange(destFetchOffset, kPageSize));
 		auto destRange = destView->peekRange(destFetchOffset);
-		assert(destRange.get<0>() != PhysicalAddr(-1));
+		assert(destRange.physical != PhysicalAddr(-1));
 
 		FRG_CO_TRY(co_await srcView->touchRange(srcFetchOffset, kPageSize));
 		auto srcRange = srcView->peekRange(srcFetchOffset);
-		assert(srcRange.get<0>() != PhysicalAddr(-1));
+		assert(srcRange.physical != PhysicalAddr(-1));
 
 		auto destMisalign = (destOffset + progress) & (kPageSize - 1);
 		auto srcMisalign = (srcOffset + progress) & (kPageSize - 1);
@@ -334,8 +332,8 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 			kPageSize - srcMisalign), size - progress
 		);
 
-		PageAccessor destAccessor{destRange.get<0>()};
-		PageAccessor srcAccessor{srcRange.get<0>()};
+		PageAccessor destAccessor{destRange.physical};
+		PageAccessor srcAccessor{srcRange.physical};
 		memcpy(
 			(uint8_t *)destAccessor.get() + destMisalign,
 			(uint8_t *)srcAccessor.get() + srcMisalign,
@@ -385,7 +383,7 @@ struct ZeroMemory final : MemoryView {
 		// Do nothing.
 	}
 
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t) override {
+	PhysicalRange peekRange(uintptr_t) override {
 		assert(!"ZeroMemory::peekRange() should not be called");
 		__builtin_unreachable();
 	}
@@ -473,14 +471,14 @@ void ImmediateMemory::unlockRange(uintptr_t, size_t) {
 	// Do nothing.
 }
 
-frg::tuple<PhysicalAddr, CachingMode> ImmediateMemory::peekRange(uintptr_t offset) {
+PhysicalRange ImmediateMemory::peekRange(uintptr_t offset) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
 	auto index = offset >> kPageShift;
 	if(index >= _physicalPages.size())
-		return {PhysicalAddr(-1), CachingMode::null};
-	return {_physicalPages[index], CachingMode::null};
+		return {.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
+	return {.physical = _physicalPages[index], .size = kPageSize, .cachingMode = CachingMode::null};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -531,9 +529,9 @@ void HardwareMemory::unlockRange(uintptr_t, size_t) {
 	// Hardware memory is "always locked".
 }
 
-frg::tuple<PhysicalAddr, CachingMode> HardwareMemory::peekRange(uintptr_t offset) {
+PhysicalRange HardwareMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
-	return frg::tuple<PhysicalAddr, CachingMode>{_base + offset, _cacheMode};
+	return PhysicalRange{.physical = _base + offset, .size = kPageSize, .cachingMode = _cacheMode};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -617,7 +615,7 @@ void AllocatedMemory::unlockRange(uintptr_t, size_t) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
-frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offset) {
+PhysicalRange AllocatedMemory::peekRange(uintptr_t offset) {
 	assert(offset % kPageSize == 0);
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -628,9 +626,8 @@ frg::tuple<PhysicalAddr, CachingMode> AllocatedMemory::peekRange(uintptr_t offse
 	assert(index < _physicalChunks.size());
 
 	if(_physicalChunks[index] == PhysicalAddr(-1))
-		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frg::tuple<PhysicalAddr, CachingMode>{_physicalChunks[index] + disp,
-			CachingMode::null};
+		return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
+	return PhysicalRange{.physical = _physicalChunks[index] + disp, .size = kPageSize, .cachingMode = CachingMode::null};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -945,7 +942,7 @@ void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset) {
+PhysicalRange BackingMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -956,8 +953,8 @@ frg::tuple<PhysicalAddr, CachingMode> BackingMemory::peekRange(uintptr_t offset)
 	auto pit = _managed->pages.find(index);
 
 	if(!pit)
-		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
-	return frg::tuple<PhysicalAddr, CachingMode>{pit->physical, CachingMode::null};
+		return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
+	return PhysicalRange{.physical = pit->physical, .size = kPageSize, .cachingMode = CachingMode::null};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -1079,7 +1076,7 @@ void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset) {
+PhysicalRange FrontalMemory::peekRange(uintptr_t offset) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -1089,7 +1086,7 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 	assert(index < _managed->numPages);
 	auto pit = _managed->pages.find(index);
 	if(!pit)
-		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+		return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 
 	if(pit->loadState == ManagedSpace::kStatePresent
 			|| pit->loadState == ManagedSpace::kStateWantWriteback
@@ -1105,12 +1102,12 @@ frg::tuple<PhysicalAddr, CachingMode> FrontalMemory::peekRange(uintptr_t offset)
 			globalReclaimer->addPage(&pit->cachePage);
 		}
 
-		return frg::tuple<PhysicalAddr, CachingMode>{physical, CachingMode::null};
+		return PhysicalRange{.physical = physical, .size = kPageSize, .cachingMode = CachingMode::null};
 	}else{
 		assert(pit->loadState == ManagedSpace::kStateMissing
 				|| pit->loadState == ManagedSpace::kStateWantInitialization
 				|| pit->loadState == ManagedSpace::kStateInitialization);
-		return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+		return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 	}
 }
 
@@ -1299,7 +1296,7 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 	indirection->memory->unlockRange(indirection->offset + inSlotOffset, size);
 }
 
-frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset) {
+PhysicalRange IndirectMemory::peekRange(uintptr_t offset) {
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 
@@ -1319,9 +1316,10 @@ frg::tuple<PhysicalAddr, CachingMode> IndirectMemory::peekRange(uintptr_t offset
 	if(indirection->flags & cacheWriteCombine)
 		cachingMode = CachingMode::writeCombine;
 
-	return {physicalRange.get<0>(), determineCachingMode(
-		determineCachingMode(physicalRange.template get<1>(), cachingMode),
-		cachingMode)};
+	return {.physical = physicalRange.physical, .size = physicalRange.size,
+		.cachingMode = determineCachingMode(
+			determineCachingMode(physicalRange.cachingMode, cachingMode),
+			cachingMode)};
 }
 
 coroutine<frg::expected<Error, size_t>>
@@ -1576,17 +1574,17 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 	}
 }
 
-frg::tuple<PhysicalAddr, CachingMode> CopyOnWriteMemory::peekRange(uintptr_t offset) {
+PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
 	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
 		auto page = *it;
 		if(page->state == CowState::hasCopy)
-			return frg::tuple<PhysicalAddr, CachingMode>{page->physical, CachingMode::null};
+			return PhysicalRange{.physical = page->physical, .size = kPageSize, .cachingMode = CachingMode::null};
 	}
 
-	return frg::tuple<PhysicalAddr, CachingMode>{PhysicalAddr(-1), CachingMode::null};
+	return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 }
 
 coroutine<frg::expected<Error, size_t>>

@@ -52,12 +52,12 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 		auto physicalRange = view->peekRange(offset + progress);
 
 		assert(!isMapped(va + progress));
-		if(physicalRange.get<0>() == PhysicalAddr(-1))
+		if(physicalRange.physical == PhysicalAddr(-1))
 			continue;
-		assert(!(physicalRange.get<0>() & (kPageSize - 1)));
+		assert(!(physicalRange.physical & (kPageSize - 1)));
 
-		mapSingle4k(va + progress, physicalRange.get<0>(),
-				flags, determineCachingMode(physicalRange.get<1>(), mode));
+		mapSingle4k(va + progress, physicalRange.physical,
+				flags, determineCachingMode(physicalRange.cachingMode, mode));
 	}
 	return {};
 }
@@ -75,10 +75,10 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 		auto physicalRange = view->peekRange(offset + progress);
 
 		auto status = unmapSingle4k(va + progress);
-		if(physicalRange.get<0>() != PhysicalAddr(-1)) {
-			assert(!(physicalRange.get<0>() & (kPageSize - 1)));
-			mapSingle4k(va + progress, physicalRange.get<0>(),
-					flags, determineCachingMode(physicalRange.get<1>(), mode));
+		if(physicalRange.physical != PhysicalAddr(-1)) {
+			assert(!(physicalRange.physical & (kPageSize - 1)));
+			mapSingle4k(va + progress, physicalRange.physical,
+					flags, determineCachingMode(physicalRange.cachingMode, mode));
 		}
 
 		if(status & page_status::present) {
@@ -92,13 +92,13 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, PageFlags flags, CachingMode mode) {
 	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
-	if(physicalRange.get<0>() == PhysicalAddr(-1))
+	if(physicalRange.physical == PhysicalAddr(-1))
 		return Error::fault;
 
 	// TODO: detect spurious page faults.
 	PageStatus status = unmapSingle4k(va & ~(kPageSize - 1));
-	mapSingle4k(va & ~(kPageSize - 1), physicalRange.get<0>() & ~(kPageSize - 1),
-			flags, determineCachingMode(physicalRange.get<1>(), mode));
+	mapSingle4k(va & ~(kPageSize - 1), physicalRange.physical & ~(kPageSize - 1),
+			flags, determineCachingMode(physicalRange.cachingMode, mode));
 
 	if(status & page_status::present) {
 		if(status & page_status::dirty)
@@ -246,14 +246,13 @@ uint32_t Mapping::compilePageFlags() {
 	return pageFlags;
 }
 
-frg::tuple<PhysicalAddr, CachingMode>
+PhysicalRange
 Mapping::resolveRange(ptrdiff_t offset) {
 	assert(state == MappingState::active);
 
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length);
-	auto bundle_range = view->peekRange(viewOffset + offset);
-	return frg::tuple<PhysicalAddr, CachingMode>{bundle_range.get<0>(), bundle_range.get<1>()};
+	return view->peekRange(viewOffset + offset);
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -707,12 +706,12 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
-		if(physicalRange.get<0>() == PhysicalAddr(-1)) {
+		if(physicalRange.physical == PhysicalAddr(-1)) {
 			warningLogger() << "thor: Page still not available after touchRange()" << frg::endlog;
 			continue;
 		}
 
-		co_return physicalRange.get<0>();
+		co_return physicalRange.physical;
 	}
 }
 
