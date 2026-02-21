@@ -537,6 +537,20 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	scheduler->forcePreemptionCall();
 	scheduler->checkPreemption(image);
 
+	if (image.inManipulableDomain()) {
+		auto thisThread = getCurrentThread();
+		assert(thisThread);
+
+		if (thisThread->checkConditions()) {
+			iplDemoteContext(ipl::passive);
+			enableInts();
+
+			Thread::handleConditions(image);
+
+			disableInts();
+		}
+	}
+
 	iplLeaveContext(*image.iplState());
 }
 

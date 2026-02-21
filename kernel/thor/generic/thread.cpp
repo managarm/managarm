@@ -282,6 +282,10 @@ void Thread::interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, I
 	genericInterruptCurrent(interrupt, image, info);
 }
 
+void Thread::interruptCurrent(Interrupt interrupt, IrqImageAccessor image, InterruptInfo info) {
+	genericInterruptCurrent(interrupt, image, info);
+}
+
 void Thread::launchCurrent_() {
 	auto thisThread = getCurrentThread();
 
@@ -376,7 +380,8 @@ void Thread::terminateCurrent_() {
 	}, getCpuData()->detachedStack.base(), thisThread.get(), std::move(lock));
 }
 
-void Thread::handleConditions(SyscallImageAccessor image) {
+template<typename ImageAccessor>
+void Thread::genericHandleConditions(ImageAccessor image) {
 	assert(image.iplState()->current < ipl::schedule);
 	auto thisThread = getCurrentThread();
 
@@ -412,6 +417,14 @@ void Thread::handleConditions(SyscallImageAccessor image) {
 		// Re-load in case new conditions were raised.
 		pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
 	}
+}
+
+void Thread::handleConditions(SyscallImageAccessor image) {
+	genericHandleConditions(image);
+}
+
+void Thread::handleConditions(IrqImageAccessor image) {
+	genericHandleConditions(image);
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {

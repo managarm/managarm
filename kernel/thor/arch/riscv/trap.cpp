@@ -103,6 +103,7 @@ void restoreStaleExtendedState(Executor *executor, Frame *frame) {
 }
 
 void handleRiscvIpi(Frame *frame) {
+	IrqImageAccessor image{frame};
 	auto *cpuData = getCpuData();
 
 	// Clear the IPI.This must happen before clearing pendingIpis,
@@ -125,7 +126,22 @@ void handleRiscvIpi(Frame *frame) {
 	if (mask & PlatformCpuData::ipiSelfCall)
 		SelfIntCallBase::runScheduledCalls();
 
-	localScheduler.get(cpuData).checkPreemption(IrqImageAccessor{frame});
+	localScheduler.get(cpuData).checkPreemption(image);
+
+	if (image.inManipulableDomain()) {
+		auto thisThread = getCurrentThread();
+		assert(thisThread);
+
+		if (thisThread->checkConditions()) {
+			iplDemoteContext(ipl::passive);
+			enableInts();
+
+			Thread::handleConditions(image);
+
+			disableInts();
+		}
+	}
+
 }
 
 void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }
