@@ -365,7 +365,13 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 namespace {
 
 struct ZeroMemory final : MemoryView {
-	ZeroMemory() = default;
+	ZeroMemory() {
+		_zeroPage = physicalAllocator->allocate(kPageSize);
+		if (_zeroPage == PhysicalAddr(-1))
+			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
+		PageAccessor accessor{_zeroPage};
+		memset(accessor.get(), 0, kPageSize);
+	}
 	ZeroMemory(const ZeroMemory &) = delete;
 	~ZeroMemory() = default;
 
@@ -389,15 +395,21 @@ struct ZeroMemory final : MemoryView {
 		// Do nothing.
 	}
 
-	PhysicalRange peekRange(uintptr_t, FetchFlags) override {
-		assert(!"ZeroMemory::peekRange() should not be called");
-		__builtin_unreachable();
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override {
+		assert(!(offset & (kPageSize - 1)));
+		if(flags & fetchRequireMutable)
+			return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0,
+					.cachingMode = CachingMode::null};
+		return PhysicalRange{.physical = _zeroPage, .size = kPageSize,
+				.cachingMode = CachingMode::null, .isMutable = false};
 	}
 
 	coroutine<frg::expected<Error, size_t>>
-	touchRange(uintptr_t, size_t, FetchFlags) override {
-		assert(!"ZeroMemory::touchRange() should not be called");
-		__builtin_unreachable();
+	touchRange(uintptr_t offset, size_t, FetchFlags flags) override {
+		if(flags & fetchRequireMutable)
+			co_return Error::badPermissions;
+		auto misalign = offset & (kPageSize - 1);
+		co_return kPageSize - misalign;
 	}
 
 	void markDirty(uintptr_t, size_t) override {
@@ -407,6 +419,9 @@ struct ZeroMemory final : MemoryView {
 public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<ZeroMemory> selfPtr;
+
+private:
+	PhysicalAddr _zeroPage;
 };
 
 }
