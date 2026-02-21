@@ -125,9 +125,9 @@ frg::expected<Error> NptOperations::remapPresentPages(VirtualAddr va, MemoryView
 }
 
 frg::expected<Error> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, PageFlags flags, CachingMode mode) {
+		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	return faultPageByCursor<NptCursor>(pageSpace_,
-			va, view, offset, flags, mode);
+			va, view, offset, fetchFlags, flags, mode);
 }
 
 frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, MemoryView *view,

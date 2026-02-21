@@ -43,7 +43,7 @@ struct EptOperations final : VirtualOperations {
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, PageFlags flags, CachingMode mode) override;
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size) override;

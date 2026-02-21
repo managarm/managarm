@@ -39,108 +39,6 @@ namespace {
 // Generic VirtualOperation implementation.
 // --------------------------------------------------------
 
-frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
-	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
-	assert(!(size & (kPageSize - 1)));
-
-	if (!flags)
-		return {};
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto physicalRange = view->peekRange(offset + progress, 0);
-
-		assert(!isMapped(va + progress));
-		if(physicalRange.physical == PhysicalAddr(-1))
-			continue;
-		assert(!(physicalRange.physical & (kPageSize - 1)));
-
-		mapSingle4k(va + progress, physicalRange.physical,
-				flags, determineCachingMode(physicalRange.cachingMode, mode));
-	}
-	return {};
-}
-
-frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
-	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
-	assert(!(size & (kPageSize - 1)));
-
-	if (!flags)
-		return {};
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto physicalRange = view->peekRange(offset + progress, 0);
-
-		auto status = unmapSingle4k(va + progress);
-		if(physicalRange.physical != PhysicalAddr(-1)) {
-			assert(!(physicalRange.physical & (kPageSize - 1)));
-			mapSingle4k(va + progress, physicalRange.physical,
-					flags, determineCachingMode(physicalRange.cachingMode, mode));
-		}
-
-		if(status & page_status::present) {
-			if(status & page_status::dirty)
-				view->markDirty(offset + progress, kPageSize);
-		}
-	}
-	return {};
-}
-
-frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, PageFlags flags, CachingMode mode) {
-	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1), 0);
-	if(physicalRange.physical == PhysicalAddr(-1))
-		return Error::fault;
-
-	// TODO: detect spurious page faults.
-	PageStatus status = unmapSingle4k(va & ~(kPageSize - 1));
-	mapSingle4k(va & ~(kPageSize - 1), physicalRange.physical & ~(kPageSize - 1),
-			flags, determineCachingMode(physicalRange.cachingMode, mode));
-
-	if(status & page_status::present) {
-		if(status & page_status::dirty)
-			view->markDirty(offset & ~(kPageSize - 1), kPageSize);
-	}
-	return {};
-}
-
-frg::expected<Error> VirtualOperations::cleanPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size) {
-	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
-	assert(!(size & (kPageSize - 1)));
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto status = cleanSingle4k(va + progress);
-		if(!(status & page_status::present))
-			continue;
-
-		if(status & page_status::dirty)
-			view->markDirty(offset + progress, kPageSize);
-	}
-	return {};
-}
-
-frg::expected<Error> VirtualOperations::unmapPages(VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size) {
-	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
-	assert(!(size & (kPageSize - 1)));
-
-	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto status = unmapSingle4k(va + progress);
-		if(!(status & page_status::present))
-			continue;
-
-		if(status & page_status::dirty)
-			view->markDirty(offset + progress, kPageSize);
-	}
-	return {};
-}
-
 size_t VirtualOperations::getRss() {
 	// Derived classes should track RSS; the generic implementaton does not.
 	// TODO: As soon as all derived classes implement this, we should make it pure virtual.
@@ -244,15 +142,6 @@ uint32_t Mapping::compilePageFlags() {
 	if(flags & MappingFlags::protExecute)
 		pageFlags |= page_access::execute;
 	return pageFlags;
-}
-
-PhysicalRange
-Mapping::resolveRange(ptrdiff_t offset) {
-	assert(state == MappingState::active);
-
-	// TODO: This function should be rewritten.
-	assert((size_t)offset + kPageSize <= length);
-	return view->peekRange(viewOffset + offset, 0);
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -649,6 +538,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 		FetchFlags fetchFlags = 0;
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
+		if(faultFlags & VirtualSpace::kFaultWrite)
+			fetchFlags |= fetchRequireMutable;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
 				mapping->viewOffset + offset, kPageSize, fetchFlags));
@@ -662,6 +553,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 
 		auto remapOutcome = _ops->faultPage(address & ~(kPageSize - 1),
 				mapping->view.get(), mapping->viewOffset + offset,
+				fetchFlags,
 				mapping->compilePageFlags(), caching);
 		if(!remapOutcome) {
 			if(remapOutcome.error() == Error::spuriousOperation) {
@@ -698,7 +590,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 	auto offset = (address - mapping->address) & ~(kPageSize - 1);
 
 	while(true) {
-		FetchFlags fetchFlags = 0;
+		FetchFlags fetchFlags = fetchRequireMutable;
 		if(mapping->flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 

@@ -60,14 +60,17 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	Cursor c{ps, va};
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
-		auto physicalRange = view->peekRange(offset + progress, 0);
+		auto physicalRange = view->peekRange(offset + progress, fetchNone);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			c.advance4k();
 			continue;
 		}
 		assert(!(physicalRange.physical & (kPageSize - 1)));
 
-		c.map4k(physicalRange.physical, flags,
+		auto effectiveFlags = flags;
+		if (!physicalRange.isMutable)
+			effectiveFlags &= ~page_access::write;
+		c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		c.advance4k();
 	}
@@ -85,7 +88,7 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 
-		auto physicalRange = view->peekRange(offset + progress, 0);
+		auto physicalRange = view->peekRange(offset + progress, fetchNone);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			auto [status, _] = c.unmap4k();
 			if((status & page_status::present) && (status & page_status::dirty)) {
@@ -97,7 +100,10 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		}
 		assert(!(physicalRange.physical & (kPageSize - 1)));
 
-		auto status = c.remap4k(physicalRange.physical, flags,
+		auto effectiveFlags = flags;
+		if (!physicalRange.isMutable)
+			effectiveFlags &= ~page_access::write;
+		auto status = c.remap4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		c.advance4k();
 
@@ -110,17 +116,20 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, PageFlags flags, CachingMode mode) {
+		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 
 	Cursor c{ps, va};
 
-	auto physicalRange = view->peekRange(offset, 0);
+	auto physicalRange = view->peekRange(offset, fetchFlags);
 	if(physicalRange.physical == PhysicalAddr(-1))
 		return Error::fault;
 
-	auto status = c.remap4k(physicalRange.physical, flags,
+	auto effectiveFlags = flags;
+	if (!physicalRange.isMutable)
+		effectiveFlags &= ~page_access::write;
+	auto status = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
 		if(status & page_status::dirty)
@@ -208,19 +217,19 @@ struct VirtualOperations {
 	// The advantage of this approach is that we do not need on virtual call per page anymore.
 
 	virtual frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode);
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
 	virtual frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode);
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, PageFlags flags, CachingMode mode);
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 
 	virtual frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size);
+			uintptr_t offset, size_t size) = 0;
 
 	virtual frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size);
+			uintptr_t offset, size_t size) = 0;
 
 	virtual size_t getRss();
 
@@ -389,8 +398,6 @@ struct Mapping {
 	void tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address);
 
 	void protect(MappingFlags flags);
-
-	PhysicalRange resolveRange(ptrdiff_t offset);
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
 
@@ -581,7 +588,7 @@ public:
 					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
 					// Complete the operation if the memory page is available.
-					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, 0);
+					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, fetchNone);
 					if(physicalRange.physical != PhysicalAddr(-1)) {
 						f(GlobalFutex{id, physicalRange.physical + offsetMisalign});
 						co_return {};
@@ -590,7 +597,7 @@ public:
 
 				// Otherwise, try to make the page available.
 				FRG_CO_TRY(co_await mapping->view->touchRange(
-					mapping->viewOffset + alignedOffset, kPageSize
+					mapping->viewOffset + alignedOffset, kPageSize, fetchNone
 				));
 			}
 		}
@@ -677,9 +684,9 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 		}
 
 		frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, PageFlags flags, CachingMode mode) override {
+				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
 			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, flags, mode);
+					va, view, offset, fetchFlags, flags, mode);
 		}
 
 		frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
