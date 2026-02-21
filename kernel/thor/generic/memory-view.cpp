@@ -1596,21 +1596,57 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 	}
 }
 
-PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_mutex);
+PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags flags) {
+	smarter::shared_ptr<CowChain> chain;
+	smarter::shared_ptr<MemoryView> view;
+	uintptr_t viewOffset;
+	// Note: the passthrough cases here have to match touchRange() since
+	//       callers expect touchRange() to make the page available to peekRange().
+	bool passthrough = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
 
-	if(auto it = _ownedPages.find(offset >> kPageShift); it) {
-		auto page = *it;
-		if(page->state == CowState::hasCopy)
-			return PhysicalRange{.physical = page->physical, .size = kPageSize, .cachingMode = CachingMode::null, .isMutable = true};
+		if(auto it = _ownedPages.find(offset >> kPageShift); it) {
+			auto page = *it;
+			if(page->state == CowState::hasCopy) {
+				assert(page->physical != PhysicalAddr(-1));
+				return PhysicalRange{.physical = page->physical, .size = kPageSize, .cachingMode = CachingMode::null, .isMutable = true};
+			}
+		} else {
+			if (!(flags & fetchRequireMutable)) {
+				passthrough = true;
+			}
+		}
+
+		chain = _copyChain;
+		view = _view;
+		viewOffset = _viewOffset;
+	}
+
+	auto pageOffset = viewOffset + offset;
+	if (passthrough) {
+		if (chain) {
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
+
+			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+				auto page = *it;
+				return PhysicalRange{.physical = page->physical, .size = kPageSize, .cachingMode = CachingMode::null, .isMutable = false};
+			}
+		}
+
+		auto range = view->peekRange(pageOffset, flags);
+		// Note: passthrough caching mode etc. but clamp the size to kPageSize.
+		if(range.physical != PhysicalAddr(-1))
+			return PhysicalRange{.physical = range.physical, .size = kPageSize, .cachingMode = range.cachingMode, .isMutable = false};
 	}
 
 	return PhysicalRange{.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 }
 
 coroutine<frg::expected<Error, size_t>>
-CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
+CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
 	auto misalign = offset & (kPageSize - 1);
@@ -1620,6 +1656,9 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	smarter::shared_ptr<MemoryView> view;
 	uintptr_t viewOffset;
 	smarter::shared_ptr<CowPage> cowPage;
+	// Note: the passthrough cases here have to match peekRange() since
+	//       callers expect touchRange() to make the page available to peekRange().
+	bool passthrough = false;
 	bool waitForCopy = false;
 	{
 		// If the page is present in our private chain, we just return it.
@@ -1631,28 +1670,46 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 			cowPage = *cowIt;
 			if(cowPage->state == CowState::hasCopy) {
 				assert(cowPage->physical != PhysicalAddr(-1));
-
 				co_return kPageSize - misalign;
 			}else if(cowPage->state == CowState::inProgress) {
 				waitForCopy = true;
 			}else{
 				assert(cowPage->state == CowState::null);
-				chain = _copyChain;
-				view = _view;
-				viewOffset = _viewOffset;
 				cowPage->state = CowState::inProgress;
 			}
 		}else{
-			chain = _copyChain;
-			view = _view;
-			viewOffset = _viewOffset;
-
-			// Otherwise we need to copy from the chain or from the root view.
-			cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-			cowPage->state = CowState::inProgress;
-			cowIt = _ownedPages.insert(offset >> kPageShift);
-			*cowIt = cowPage;
+			if (!(flags & fetchRequireMutable)) {
+				passthrough = true;
+			} else {
+				// Otherwise we need to copy from the chain or from the root view.
+				cowPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+				cowPage->state = CowState::inProgress;
+				cowIt = _ownedPages.insert(offset >> kPageShift);
+				*cowIt = cowPage;
+			}
 		}
+
+		chain = _copyChain;
+		view = _view;
+		viewOffset = _viewOffset;
+	}
+
+	// Passthrough and waitForCopy are mutually exclusive:
+	// if waitForCopy is set, we may need to wait for eviction to finish
+	// and we must not return passed through pages after eviction started.
+	assert(!(passthrough && waitForCopy));
+
+	auto pageOffset = viewOffset + alignedOffset;
+	if(passthrough) {
+		if (chain) {
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
+
+			if(chain->_pages.find(pageOffset >> kPageShift))
+				co_return kPageSize - misalign;
+		}
+
+		co_return co_await view->touchRange(pageOffset, sizeHint, flags);
 	}
 
 	if(waitForCopy) {
@@ -1678,7 +1735,6 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	PageAccessor accessor{physical};
 
 	// Try to copy from a descendant CoW chain.
-	auto pageOffset = viewOffset + alignedOffset;
 	bool chainHasCopy = false;
 	if(chain) {
 		auto irqLock = frg::guard(&irqMutex());
@@ -1703,7 +1759,6 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	// TODO: enable read-only eviction.
 	co_await _evictQueue.evictRange(alignedOffset, kPageSize);
 
 	{
