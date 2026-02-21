@@ -189,7 +189,7 @@ void setupIdt(uint32_t *table) {
 	using common::x86::makeIdt64IntSystemGate;
 	using common::x86::makeIdt64IntUserGate;
 	
-	int fault_selector = kSelExecutorFaultCode;
+	int fault_selector = kSelExecutorSyscallCode;
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
@@ -210,7 +210,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 18, fault_selector, (void *)&faultStubMachineCheck, 0);
 	makeIdt64IntSystemGate(table, 19, fault_selector, (void *)&faultStubSimdException, 0);
 
-	int irq_selector = kSelSystemIrqCode;
+	int irq_selector = kSelExecutorSyscallCode;
 	makeIdt64IntSystemGate(table, 39, irq_selector, (void *)&thorRtIsrLegacyIrq7, 1);
 	makeIdt64IntSystemGate(table, 47, irq_selector, (void *)&thorRtIsrLegacyIrq15, 1);
 
@@ -284,7 +284,7 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 0xF2, irq_selector, (void *)&thorRtIpiCall, 1);
 	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
 	
-	int nmi_selector = kSelSystemNmiCode;
+	int nmi_selector = kSelExecutorSyscallCode;
 	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 3);
 
 	//FIXME
@@ -405,9 +405,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -427,9 +425,7 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -460,9 +456,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 				<< "]: Preemption from cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -509,9 +503,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -538,9 +530,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -564,9 +554,7 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();

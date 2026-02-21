@@ -27,27 +27,18 @@ namespace thor {
 
 enum {
 	kGdtIndexNull = 0,
-
-	kGdtIndexInitialCode = 1,
-
-	// note that the TSS consumes two entries in the GDT.
-	// we put it into the second GDT entry so that it is properly aligned.
+	// Padding for the TSS.
+	kGdtIndexPadding = 1,
+	// Note that the TSS consumes two entries in the GDT.
+	// We put it into the second GDT entry so that it is properly aligned.
 	kGdtIndexTask = 2,
-
-	kGdtIndexSystemIrqCode = 4,
-
-	kGdtIndexExecutorFaultCode = 5,
-	// the order of the following segments should not change
-	// because syscall/sysret demands this layout
-	kGdtIndexExecutorSyscallCode = 6,
-	kGdtIndexExecutorKernelData = 7,
-	kGdtIndexClientUserCompat = 8,
-	kGdtIndexClientUserData = 9,
-	kGdtIndexClientUserCode = 10,
-	kGdtIndexSystemIdleCode = 11,
-	kGdtIndexSystemFiberCode = 12,
-
-	kGdtIndexSystemNmiCode = 13
+	// The order of the following segments is dictated by syscall/sysret.
+	kGdtIndexExecutorSyscallCode = 4,
+	kGdtIndexExecutorKernelData = 5,
+	// The order of the following segments is dictated by syscall/sysret.
+	kGdtIndexClientUserCompat = 6,
+	kGdtIndexClientUserData = 7,
+	kGdtIndexClientUserCode = 8,
 };
 
 constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
@@ -55,21 +46,13 @@ constexpr uint16_t selectorFor(uint16_t segment, uint16_t rpl) {
 }
 
 enum {
-	kSelInitialCode = selectorFor(kGdtIndexInitialCode, 0),
-
 	kSelTask = selectorFor(kGdtIndexTask, 0),
-	kSelSystemIrqCode = selectorFor(kGdtIndexSystemIrqCode, 0),
 
-	kSelExecutorFaultCode = selectorFor(kGdtIndexExecutorFaultCode, 0),
 	kSelExecutorSyscallCode = selectorFor(kGdtIndexExecutorSyscallCode, 0),
 	kSelExecutorKernelData = selectorFor(kGdtIndexExecutorKernelData, 0),
 	kSelClientUserCompat = selectorFor(kGdtIndexClientUserCompat, 3),
 	kSelClientUserData = selectorFor(kGdtIndexClientUserData, 3),
 	kSelClientUserCode = selectorFor(kGdtIndexClientUserCode, 3),
-	kSelSystemIdleCode = selectorFor(kGdtIndexSystemIdleCode, 0),
-	kSelSystemFiberCode = selectorFor(kGdtIndexSystemFiberCode, 0),
-
-	kSelSystemNmiCode = selectorFor(kGdtIndexSystemNmiCode, 0)
 };
 
 struct CpuDescriptorTables {
@@ -79,7 +62,7 @@ struct CpuDescriptorTables {
 
 	CpuDescriptorTables &operator= (const CpuDescriptorTables &) = delete;
 
-	uint32_t gdt[14 * 2];
+	uint32_t gdt[9 * 2];
 	uint32_t idt[256 * 4];
 	common::x86::Tss64 tss;
 };
@@ -105,11 +88,7 @@ struct FaultImageAccessor {
 	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inKernelDomain() {
-		if(*cs() == kSelSystemIrqCode
-				|| *cs() == kSelSystemIdleCode
-				|| *cs() == kSelSystemFiberCode
-				|| *cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode) {
+		if(*cs() == kSelExecutorSyscallCode) {
 			return true;
 		}else{
 			assert(*cs() == kSelClientUserCompat
@@ -172,10 +151,7 @@ struct IrqImageAccessor {
 	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inPreemptibleDomain() {
-		assert(*cs() == kSelSystemIdleCode
-				|| *cs() == kSelSystemFiberCode
-				|| *cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode
+		assert(*cs() == kSelExecutorSyscallCode
 				|| *cs() == kSelClientUserCompat
 				|| *cs() == kSelClientUserCode);
 		return true;
@@ -183,14 +159,7 @@ struct IrqImageAccessor {
 
 	bool inThreadDomain() {
 		assert(inPreemptibleDomain());
-		if(*cs() == kSelExecutorFaultCode
-				|| *cs() == kSelExecutorSyscallCode
-				|| *cs() == kSelClientUserCompat
-				|| *cs() == kSelClientUserCode) {
-			return true;
-		}else{
-			return false;
-		}
+		return true;
 	}
 
 	bool inManipulableDomain() {
@@ -205,12 +174,12 @@ struct IrqImageAccessor {
 
 	bool inFiberDomain() {
 		assert(inPreemptibleDomain());
-		return *cs() == kSelSystemFiberCode;
+		return false;
 	}
 
 	bool inIdleDomain() {
 		assert(inPreemptibleDomain());
-		return *cs() == kSelSystemIdleCode;
+		return false;
 	}
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
