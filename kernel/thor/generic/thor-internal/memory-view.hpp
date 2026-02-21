@@ -278,7 +278,7 @@ public:
 
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
-	virtual PhysicalRange peekRange(uintptr_t offset) = 0;
+	virtual PhysicalRange peekRange(uintptr_t offset, FetchFlags flags = 0) = 0;
 
 	// Makes a range of memory available for peekRange().
 	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
@@ -424,7 +424,7 @@ struct ImmediateMemory final : MemoryView {
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -491,7 +491,7 @@ struct HardwareMemory final : MemoryView {
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -514,7 +514,7 @@ struct AllocatedMemory final : MemoryView {
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -643,7 +643,7 @@ public:
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -666,7 +666,7 @@ public:
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -688,7 +688,7 @@ struct IndirectMemory final : MemoryView {
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -757,7 +757,7 @@ public:
 	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	PhysicalRange peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;

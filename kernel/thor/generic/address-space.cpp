@@ -49,7 +49,7 @@ frg::expected<Error> VirtualOperations::mapPresentPages(VirtualAddr va, MemoryVi
 		return {};
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto physicalRange = view->peekRange(offset + progress);
+		auto physicalRange = view->peekRange(offset + progress, 0);
 
 		assert(!isMapped(va + progress));
 		if(physicalRange.physical == PhysicalAddr(-1))
@@ -72,7 +72,7 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 		return {};
 
 	for(size_t progress = 0; progress < size; progress += kPageSize) {
-		auto physicalRange = view->peekRange(offset + progress);
+		auto physicalRange = view->peekRange(offset + progress, 0);
 
 		auto status = unmapSingle4k(va + progress);
 		if(physicalRange.physical != PhysicalAddr(-1)) {
@@ -91,7 +91,7 @@ frg::expected<Error> VirtualOperations::remapPresentPages(VirtualAddr va, Memory
 
 frg::expected<Error> VirtualOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, PageFlags flags, CachingMode mode) {
-	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1));
+	auto physicalRange = view->peekRange(offset & ~(kPageSize - 1), 0);
 	if(physicalRange.physical == PhysicalAddr(-1))
 		return Error::fault;
 
@@ -252,7 +252,7 @@ Mapping::resolveRange(ptrdiff_t offset) {
 
 	// TODO: This function should be rewritten.
 	assert((size_t)offset + kPageSize <= length);
-	return view->peekRange(viewOffset + offset);
+	return view->peekRange(viewOffset + offset, 0);
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -705,7 +705,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 		FRG_CO_TRY(co_await mapping->view->touchRange(
 				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
-		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset);
+		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset, fetchFlags);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			warningLogger() << "thor: Page still not available after touchRange()" << frg::endlog;
 			continue;

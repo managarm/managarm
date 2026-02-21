@@ -60,7 +60,7 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	Cursor c{ps, va};
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
-		auto physicalRange = view->peekRange(offset + progress);
+		auto physicalRange = view->peekRange(offset + progress, 0);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			c.advance4k();
 			continue;
@@ -85,7 +85,7 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 
-		auto physicalRange = view->peekRange(offset + progress);
+		auto physicalRange = view->peekRange(offset + progress, 0);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			auto [status, _] = c.unmap4k();
 			if((status & page_status::present) && (status & page_status::dirty)) {
@@ -116,7 +116,7 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 
 	Cursor c{ps, va};
 
-	auto physicalRange = view->peekRange(offset);
+	auto physicalRange = view->peekRange(offset, 0);
 	if(physicalRange.physical == PhysicalAddr(-1))
 		return Error::fault;
 
@@ -581,7 +581,7 @@ public:
 					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
 					// Complete the operation if the memory page is available.
-					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset);
+					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, 0);
 					if(physicalRange.physical != PhysicalAddr(-1)) {
 						f(GlobalFutex{id, physicalRange.physical + offsetMisalign});
 						co_return {};

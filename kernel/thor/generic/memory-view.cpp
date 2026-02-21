@@ -216,7 +216,7 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 	while(progress < size) {
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
-		auto range = peekRange(fetchOffset);
+		auto range = peekRange(fetchOffset, flags);
 		assert(range.physical != PhysicalAddr(-1));
 
 		auto misalign = (offset + progress) & (kPageSize - 1);
@@ -256,7 +256,7 @@ coroutine<frg::expected<Error>> MemoryView::copyFrom(uintptr_t offset,
 	while(progress < size) {
 		auto fetchOffset = (offset + progress) & ~(kPageSize - 1);
 		FRG_CO_TRY(co_await touchRange(fetchOffset, kPageSize, flags));
-		auto range = peekRange(fetchOffset);
+		auto range = peekRange(fetchOffset, flags);
 		assert(range.physical != PhysicalAddr(-1));
 
 		auto misalign = (offset + progress) & (kPageSize - 1);
@@ -318,11 +318,11 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 		auto srcFetchOffset = (srcOffset + progress) & ~(kPageSize - 1);
 
 		FRG_CO_TRY(co_await destView->touchRange(destFetchOffset, kPageSize));
-		auto destRange = destView->peekRange(destFetchOffset);
+		auto destRange = destView->peekRange(destFetchOffset, 0);
 		assert(destRange.physical != PhysicalAddr(-1));
 
 		FRG_CO_TRY(co_await srcView->touchRange(srcFetchOffset, kPageSize));
-		auto srcRange = srcView->peekRange(srcFetchOffset);
+		auto srcRange = srcView->peekRange(srcFetchOffset, 0);
 		assert(srcRange.physical != PhysicalAddr(-1));
 
 		auto destMisalign = (destOffset + progress) & (kPageSize - 1);
@@ -383,7 +383,7 @@ struct ZeroMemory final : MemoryView {
 		// Do nothing.
 	}
 
-	PhysicalRange peekRange(uintptr_t) override {
+	PhysicalRange peekRange(uintptr_t, FetchFlags) override {
 		assert(!"ZeroMemory::peekRange() should not be called");
 		__builtin_unreachable();
 	}
@@ -471,7 +471,7 @@ void ImmediateMemory::unlockRange(uintptr_t, size_t) {
 	// Do nothing.
 }
 
-PhysicalRange ImmediateMemory::peekRange(uintptr_t offset) {
+PhysicalRange ImmediateMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
@@ -529,7 +529,7 @@ void HardwareMemory::unlockRange(uintptr_t, size_t) {
 	// Hardware memory is "always locked".
 }
 
-PhysicalRange HardwareMemory::peekRange(uintptr_t offset) {
+PhysicalRange HardwareMemory::peekRange(uintptr_t offset, FetchFlags) {
 	assert(offset % kPageSize == 0);
 	return PhysicalRange{.physical = _base + offset, .size = kPageSize, .cachingMode = _cacheMode};
 }
@@ -615,7 +615,7 @@ void AllocatedMemory::unlockRange(uintptr_t, size_t) {
 	// For now, we do not evict "anonymous" memory. TODO: Implement eviction here.
 }
 
-PhysicalRange AllocatedMemory::peekRange(uintptr_t offset) {
+PhysicalRange AllocatedMemory::peekRange(uintptr_t offset, FetchFlags) {
 	assert(offset % kPageSize == 0);
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -942,7 +942,7 @@ void BackingMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-PhysicalRange BackingMemory::peekRange(uintptr_t offset) {
+PhysicalRange BackingMemory::peekRange(uintptr_t offset, FetchFlags) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -1076,7 +1076,7 @@ void FrontalMemory::unlockRange(uintptr_t offset, size_t size) {
 	_managed->unlockPages(offset, size);
 }
 
-PhysicalRange FrontalMemory::peekRange(uintptr_t offset) {
+PhysicalRange FrontalMemory::peekRange(uintptr_t offset, FetchFlags) {
 	assert(!(offset % kPageSize));
 
 	auto irq_lock = frg::guard(&irqMutex());
@@ -1296,7 +1296,7 @@ void IndirectMemory::unlockRange(uintptr_t offset, size_t size) {
 	indirection->memory->unlockRange(indirection->offset + inSlotOffset, size);
 }
 
-PhysicalRange IndirectMemory::peekRange(uintptr_t offset) {
+PhysicalRange IndirectMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 	auto slot = offset >> 32;
 	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
 
@@ -1310,7 +1310,7 @@ PhysicalRange IndirectMemory::peekRange(uintptr_t offset) {
 		indirection = indirections_[slot];
 	}
 
-	auto physicalRange = indirection->memory->peekRange(indirection->offset + inSlotOffset);
+	auto physicalRange = indirection->memory->peekRange(indirection->offset + inSlotOffset, flags);
 
 	CachingMode cachingMode = CachingMode::null;
 	if(indirection->flags & cacheWriteCombine)
@@ -1574,7 +1574,7 @@ void CopyOnWriteMemory::unlockRange(uintptr_t offset, size_t size) {
 	}
 }
 
-PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset) {
+PhysicalRange CopyOnWriteMemory::peekRange(uintptr_t offset, FetchFlags) {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
