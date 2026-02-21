@@ -339,7 +339,6 @@ void UserContext::enableIoPort(uintptr_t port) {
 
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
-	tss.ist1 = (Word)cpu_data->irqStack.basePtr();
 	tss.ist2 = (Word)cpu_data->dfStack.basePtr();
 	tss.ist3 = (Word)cpu_data->nmiStack.basePtr();
 }
@@ -587,7 +586,6 @@ void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
 	// Allocate per-CPU areas.
-	cpuData->irqStack = UniqueKernelStack::make();
 	cpuData->dfStack = UniqueKernelStack::make();
 	cpuData->nmiStack = UniqueKernelStack::make();
 	cpuData->detachedStack = UniqueKernelStack::make();
@@ -604,7 +602,6 @@ void initializeThisProcessor() {
 
 	// Setup our IST after the did the embedding.
 	auto *tss = &cpuDescriptorTables.get().tss;
-	tss->ist1 = (uintptr_t)cpuData->irqStack.basePtr();
 	tss->ist2 = (uintptr_t)cpuData->dfStack.basePtr();
 	tss->ist3 = (uintptr_t)cpuData->nmiStack.basePtr();
 
