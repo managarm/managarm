@@ -88,6 +88,52 @@ private:
 		Thread *_thread;
 	};
 
+	template<typename T>
+	struct BlockingState {
+		struct Empty { };
+		using MaybeT = std::conditional_t<
+			std::is_same_v<T, void>,
+			Empty,
+			T
+		>;
+
+		// We need a shared_ptr since the thread might continue (and thus could be killed)
+		// immediately after we set the done flag.
+		smarter::shared_ptr<Thread> thread;
+		WorkQueue *wq;
+		// Acquire-release semantics to publish the result of the async operation.
+		std::atomic<bool> done{false};
+		frg::optional<MaybeT> value{};
+	};
+
+	template<typename T>
+	struct BlockingEnv {
+		WorkQueue *get_work_queue() {
+			return blsp->wq;
+		}
+
+		BlockingState<T> *blsp;
+	};
+
+	template<typename T>
+	struct BlockingReceiver {
+		template<typename... Args>
+		void set_value(Args &&... args) {
+			// The blsp pointer may become invalid as soon as we set blsp->done.
+			auto thread = std::move(blsp->thread);
+			assert(!blsp->done.load(std::memory_order_relaxed));
+			blsp->value.emplace(std::forward<Args>(args)...);
+			blsp->done.store(true, std::memory_order_release);
+			Thread::unblockOther(thread);
+		}
+
+		auto get_env() {
+			return BlockingEnv<T>{.blsp = blsp};
+		}
+
+		BlockingState<T> *blsp;
+	};
+
 public:
 	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
@@ -121,137 +167,25 @@ public:
 	}
 
 	template <typename SenderFactory, AnyTag Tag>
-	    requires(std::is_invocable_v<SenderFactory, async::cancellation_token>
-	             && std::is_same_v<
-	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
-	                 void>)
-	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
-		assert(currentIpl() < wq->wqIpl());
-		(void)tag;
-		auto thisThread = getCurrentThread();
-
-		async::cancellation_event ce;
-		auto sv = std::move(s(async::cancellation_token{ce}));
-
-		struct BlockingState {
-			// We need a shared_ptr since the thread might continue (and thus could be killed)
-			// immediately after we set the done flag.
-			smarter::shared_ptr<Thread> thread;
-			WorkQueue *wq;
-			// Acquire-release semantics to publish the result of the async operation.
-			std::atomic<bool> done{false};
-		} bls {.thread = thisThread.lock(), .wq = wq};
-
-		struct Env {
-			WorkQueue *get_work_queue() {
-				return blsp->wq;
-			}
-
-			BlockingState *blsp;
-		};
-
-		struct Receiver {
-			void set_value_inline() {
-				// Do nothing (there is no value to store).
-			}
-
-			void set_value_noinline() {
-				// The blsp pointer may become invalid as soon as we set blsp->done.
-				auto thread = std::move(blsp->thread);
-				assert(!blsp->done.load(std::memory_order_relaxed));
-				blsp->done.store(true, std::memory_order_release);
-				Thread::unblockOther(thread);
-			}
-
-			auto get_env() {
-				return Env{.blsp = blsp};
-			}
-
-			BlockingState *blsp;
-		};
-
-		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
-
-		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
-		if(async::execution::start_inline(operation))
-			return;
-		while(true) {
-			if(bls.done.load(std::memory_order_acquire))
-				break;
-			if(runWqs()) {
-				// Re-check the done flag since nested blocking (triggered by the WQ)
-				// might have consumed the unblock latch.
-				continue;
-			}
-			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
-				ce.cancel();
-				interruptible = false;
-				continue;
-			}
-		}
-
-		return;
-	}
-
-	template <typename SenderFactory, AnyTag Tag>
-	    requires(
-	        (std::is_invocable_v<SenderFactory, async::cancellation_token>
-	         && !std::is_same_v<
-	             typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
-	             void>)
-	    )
+	requires std::is_invocable_v<SenderFactory, async::cancellation_token>
 	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
+		using ValueType = std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type;
+
 		assert(currentIpl() < wq->wqIpl());
 		(void)tag;
 		auto thisThread = getCurrentThread();
 
 		async::cancellation_event ce;
-		auto sv = std::move(s(async::cancellation_token{ce}));
+		BlockingState<ValueType> bls{.thread = thisThread.lock(), .wq = wq};
 
-		using ValueType = typename decltype(sv)::value_type;
+		// Start the operation.
+		auto operation = async::execution::connect(
+			s(async::cancellation_token{ce}), BlockingReceiver<ValueType>{&bls}
+		);
+		async::execution::start(operation);
 
-		struct BlockingState {
-			// We need a shared_ptr since the thread might continue (and thus could be killed)
-			// immediately after we set the done flag.
-			smarter::shared_ptr<Thread> thread;
-			WorkQueue *wq;
-			// Acquire-release semantics to publish the result of the async operation.
-			std::atomic<bool> done{false};
-			frg::optional<ValueType> value{};
-		} bls{.thread = thisThread.lock(), .wq = wq};
-
-		struct Env {
-			WorkQueue *get_work_queue() {
-				return blsp->wq;
-			}
-
-			BlockingState *blsp;
-		};
-
-		struct Receiver {
-			void set_value_inline(ValueType value) { blsp->value.emplace(std::move(value)); }
-
-			void set_value_noinline(ValueType value) {
-				// The blsp pointer may become invalid as soon as we set blsp->done.
-				auto thread = std::move(blsp->thread);
-				assert(!blsp->done.load(std::memory_order_relaxed));
-				blsp->value.emplace(std::move(value));
-				blsp->done.store(true, std::memory_order_release);
-				Thread::unblockOther(thread);
-			}
-
-			auto get_env() {
-				return Env{.blsp = blsp};
-			}
-
-			BlockingState *blsp;
-		};
-
+		// Wait for completion.
 		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
-
-		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
-		if(async::execution::start_inline(operation))
-			return std::move(*bls.value);
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
@@ -266,7 +200,9 @@ public:
 				continue;
 			}
 		}
-		return std::move(*bls.value);
+
+		if constexpr (!std::is_same_v<ValueType, void>)
+			return std::move(*bls.value);
 	}
 
 	// Run the current thread's WQs. Returns true if there was any work to do.
