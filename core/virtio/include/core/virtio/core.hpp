@@ -183,7 +183,7 @@ struct DeviceSpace {
 		} else {
 			static_assert(sizeof(typename RT::rep_type) == 4,
 					"Unsupported size for DeviceSpace::load()");
-			auto v = _transport->loadConfig16(r.offset());
+			auto v = _transport->loadConfig32(r.offset());
 			return static_cast<typename RT::rep_type>(v);
 		}
 	}
