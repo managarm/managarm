@@ -295,25 +295,21 @@ void ProducerRing::updateLink() {
 //    TRB, hence we do not need to wait for any other TRB and can
 //    bail out early via FRG_CO_TRY.
 
-// XXX(qookie): We could probably optimize control transfers a tiny
-// bit by not setting IOC on each of the stages, but doing so
-// simplifies the logic here and I don't think it hurts too much, as
-// control transfers are not that common (and I wouldn't be surprised
-// if the controller batches them in the happy case).
 async::result<frg::expected<protocols::usb::UsbError, size_t>>
-ProducerRing::Transaction::control(bool hasData) {
-	// Setup stage
-	FRG_CO_TRY(co_await nextEvent_());
+ProducerRing::Transaction::control() {
+	// This will either be a short packet completion for the data stage,
+	// the success completion for the status stage, or an error completion.
+	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
-	// Data stage
-	auto txSize = hasData
-		? FRG_CO_TRY(co_await normal())
-		: 0;
+	// Short packets are not allowed for control transfers.
+	// In case of a short packet completion, two events are posted:
+	// one for data stage and one for status stage.
+	if (ev.completionCode == 13) {
+		FRG_CO_TRY(co_await nextEvent_());
+		co_return proto::UsbError::shortPacket;
+	}
 
-	// Status stage
-	FRG_CO_TRY(co_await nextEvent_());
-
-	co_return txSize;
+	co_return 0;
 }
 
 // TODO(qookie): The logic in normal() might not work for isochronous

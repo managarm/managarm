@@ -1025,7 +1025,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 
 	_device->submit(_endpointId);
 
-	auto maybeResidue = co_await tx.control(info.buffer.size() != 0);
+	auto maybeResidue = co_await tx.control();
 
 	if (info.flags == proto::kXferToHost)
 		_device->controller()->barrier.invalidate(info.buffer);

@@ -16,6 +16,7 @@ enum class UsbError {
 	babble,
 	timeout,
 	unsupported,
+	shortPacket,
 	other
 };
 

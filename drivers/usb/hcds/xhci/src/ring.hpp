@@ -101,7 +101,7 @@ struct ProducerRing {
 
 	struct Transaction {
 		async::result<frg::expected<protocols::usb::UsbError, size_t>>
-		control(bool hasData);
+		control();
 
 		async::result<frg::expected<protocols::usb::UsbError, size_t>>
 		normal();

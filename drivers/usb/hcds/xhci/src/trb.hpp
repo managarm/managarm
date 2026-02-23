@@ -166,7 +166,7 @@ namespace Transfer {
 		return trb;
 	}
 
-	inline void buildTransferChain(std::vector<RawTrb> &trbs, size_t maxPacketSize, arch::dma_buffer_view view, auto build) {
+	inline void buildTransferChain(std::vector<RawTrb> &trbs, size_t maxPacketSize, arch::dma_buffer_view view, bool setIoc, auto build) {
 		assert(std::popcount(maxPacketSize) == 1);
 		size_t tdPacketCount = (view.size() + maxPacketSize - 1) / maxPacketSize;
 
@@ -186,7 +186,7 @@ namespace Transfer {
 				tdSize = 0;
 
 			auto trb = build(pptr, chunk, chain, tdSize);
-			if (!chain)
+			if (!chain && setIoc)
 				trb = withInterrupt(trb);
 
 			trbs.push_back(trb);
@@ -196,7 +196,7 @@ namespace Transfer {
 
 	inline std::vector<RawTrb> buildNormalChain(arch::dma_buffer_view view, size_t maxPacketSize) {
 		std::vector<RawTrb> trbs;
-		buildTransferChain(trbs, maxPacketSize, view, normal);
+		buildTransferChain(trbs, maxPacketSize, view, true, normal);
 		return trbs;
 	}
 
@@ -204,14 +204,12 @@ namespace Transfer {
 		std::vector<RawTrb> trbs;
 		bool statusIn = !(view.size() && dataIn);
 
-		trbs.push_back(
-			withInterrupt(setupStage(setup, view.size(), dataIn)));
+		trbs.push_back(setupStage(setup, view.size(), dataIn));
 
 		auto build = [&] (auto ...ts) { return dataStage(dataIn, ts...); };
-		buildTransferChain(trbs, maxPacketSize, view, build);
+		buildTransferChain(trbs, maxPacketSize, view, false, build);
 
-		trbs.push_back(
-			withInterrupt(statusStage(statusIn)));
+		trbs.push_back(withInterrupt(statusStage(statusIn)));
 
 		return trbs;
 	}
