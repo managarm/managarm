@@ -1010,13 +1010,13 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::ControlTransfer info) {
 	ProducerRing::Transaction tx;
 
-	Transfer::buildControlChain([&] (RawTrb trb) {
-		_transferRing.pushRawTrb(trb, &tx);
-	}, *info.setup.data(), info.buffer, info.flags == proto::kXferToHost,
-			_maxPacketSize);
+	auto trbs = Transfer::buildControlChain(
+		*info.setup.data(),
+		info.buffer,
+		info.flags == proto::kXferToHost,
+		_maxPacketSize);
 
-	size_t nextDequeue = _transferRing.enqueuePtr();
-	bool nextCycle = _transferRing.producerCycle();
+	auto [nextDequeue, nextCycle] = co_await _transferRing.pushTrbs(trbs, &tx);
 
 	if (info.flags == proto::kXferToHost)
 		_device->controller()->barrier.clean_or_invalidate(info.buffer);
@@ -1045,12 +1045,9 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
 	ProducerRing::Transaction tx;
 
-	Transfer::buildNormalChain([&] (RawTrb trb) {
-		_transferRing.pushRawTrb(trb, &tx);
-	}, buffer, _maxPacketSize);
+	auto trbs = Transfer::buildNormalChain(buffer, _maxPacketSize);
 
-	size_t nextDequeue = _transferRing.enqueuePtr();
-	bool nextCycle = _transferRing.producerCycle();
+	auto [nextDequeue, nextCycle] = co_await _transferRing.pushTrbs(trbs, &tx);
 
 	if (toHost)
 		_device->controller()->barrier.clean_or_invalidate(buffer);

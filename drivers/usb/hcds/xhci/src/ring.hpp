@@ -8,6 +8,7 @@
 
 #include <arch/dma_pool.hpp>
 
+#include <async/mutex.hpp>
 #include <async/result.hpp>
 #include <async/sequenced-event.hpp>
 
@@ -95,6 +96,8 @@ private:
 
 struct ProducerRing {
 	constexpr static size_t ringSize = 128;
+	// Last ring entry has to be a link TRB.
+	constexpr static size_t usableRingSize = ringSize - 1;
 
 	struct Transaction {
 		async::result<frg::expected<protocols::usb::UsbError, size_t>>
@@ -126,10 +129,11 @@ struct ProducerRing {
 
 	ProducerRing(Controller *controller);
 	uintptr_t getPtr();
-	size_t enqueuePtr() const { return _enqueuePtr; }
-	bool producerCycle() const { return _pcs; }
 
 	void pushRawTrb(RawTrb cmd, Transaction *tx);
+
+	// Returns the position in the ring immediately after the newly added TRBs.
+	async::result<std::tuple<size_t, bool>> pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx);
 
 	void processEvent(Event ev);
 
@@ -140,6 +144,8 @@ private:
 	size_t _enqueuePtr;
 
 	bool _pcs;
+
+	async::mutex _mutex;
 
 	void updateLink();
 };

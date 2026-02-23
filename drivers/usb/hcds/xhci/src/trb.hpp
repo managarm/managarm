@@ -11,6 +11,8 @@
 
 #include <protocols/usb/usb.hpp>
 
+namespace proto = protocols::usb;
+
 struct RawTrb {
 	uint32_t val[4];
 };
@@ -129,13 +131,13 @@ namespace Transfer {
 				| (static_cast<uint32_t>(TrbType::setupStage) << 10)};
 	}
 
-	constexpr RawTrb dataStage(uintptr_t address, size_t size, bool chain, uint32_t tdSize, bool dataIn) {
+	constexpr RawTrb dataStage(bool dataIn, uintptr_t address, size_t size, bool chain, size_t tdSize) {
 		if (tdSize > 31)
 			tdSize = 31;
 		return RawTrb{
 			static_cast<uint32_t>(address),
 			static_cast<uint32_t>(address >> 32),
-			static_cast<uint32_t>(size) | (tdSize << 17),
+			static_cast<uint32_t>(size) | static_cast<uint32_t>(tdSize << 17),
 			(1 << 2) | ((dataIn ? 1 : 0) << 16)
 				| ((chain ? 1 : 0) << 4)
 				| (static_cast<uint32_t>(TrbType::dataStage) << 10)};
@@ -148,13 +150,13 @@ namespace Transfer {
 				| (static_cast<uint32_t>(TrbType::statusStage) << 10)};
 	}
 
-	constexpr RawTrb normal(uintptr_t address, size_t size, bool chain, uint32_t tdSize) {
+	constexpr RawTrb normal(uintptr_t address, size_t size, bool chain, size_t tdSize) {
 		if (tdSize > 31)
 			tdSize = 31;
 		return RawTrb{
 			static_cast<uint32_t>(address),
 			static_cast<uint32_t>(address >> 32),
-			static_cast<uint32_t>(size) | (tdSize << 17),
+			static_cast<uint32_t>(size) | static_cast<uint32_t>(tdSize << 17),
 			(1 << 2) | ((chain ? 1 : 0) << 4)
 				| (static_cast<uint32_t>(TrbType::normal) << 10)};
 	}
@@ -164,8 +166,7 @@ namespace Transfer {
 		return trb;
 	}
 
-	template <typename FU, typename FB, typename ...Ts>
-	inline void buildTransferChain(size_t maxPacketSize, FU use, arch::dma_buffer_view view, FB build, Ts ...ts) {
+	inline void buildTransferChain(std::vector<RawTrb> &trbs, size_t maxPacketSize, arch::dma_buffer_view view, auto build) {
 		assert(std::popcount(maxPacketSize) == 1);
 		size_t tdPacketCount = (view.size() + maxPacketSize - 1) / maxPacketSize;
 
@@ -184,29 +185,34 @@ namespace Transfer {
 			if ((progress + chunk) == view.size())
 				tdSize = 0;
 
-			auto trb = build(pptr, chunk, chain, tdSize, ts...);
+			auto trb = build(pptr, chunk, chain, tdSize);
 			if (!chain)
 				trb = withInterrupt(trb);
 
-			use(trb);
+			trbs.push_back(trb);
 			progress += chunk;
 		}
 	}
 
-	template <typename FU>
-	inline void buildNormalChain(FU use, arch::dma_buffer_view view, size_t maxPacketSize) {
-		buildTransferChain(maxPacketSize, use, view, normal);
+	inline std::vector<RawTrb> buildNormalChain(arch::dma_buffer_view view, size_t maxPacketSize) {
+		std::vector<RawTrb> trbs;
+		buildTransferChain(trbs, maxPacketSize, view, normal);
+		return trbs;
 	}
 
-	template <typename FU>
-	inline void buildControlChain(FU use, protocols::usb::SetupPacket setup, arch::dma_buffer_view view, bool dataIn, size_t maxPacketSize) {
-		bool statusIn = true;
+	inline std::vector<RawTrb> buildControlChain(proto::SetupPacket setup, arch::dma_buffer_view view, bool dataIn, size_t maxPacketSize) {
+		std::vector<RawTrb> trbs;
+		bool statusIn = !(view.size() && dataIn);
 
-		if (view.size() && dataIn)
-			statusIn = false;
+		trbs.push_back(
+			withInterrupt(setupStage(setup, view.size(), dataIn)));
 
-		use(withInterrupt(setupStage(setup, view.size(), dataIn)));
-		buildTransferChain(maxPacketSize, use, view, dataStage, dataIn);
-		use(withInterrupt(statusStage(statusIn)));
+		auto build = [&] (auto ...ts) { return dataStage(dataIn, ts...); };
+		buildTransferChain(trbs, maxPacketSize, view, build);
+
+		trbs.push_back(
+			withInterrupt(statusStage(statusIn)));
+
+		return trbs;
 	}
 } // namespace Transfer

@@ -247,6 +247,53 @@ void ProducerRing::processEvent(Event ev) {
 	}
 }
 
+async::result<std::tuple<size_t, bool>> ProducerRing::pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx) {
+	assert(trbs.size() <= usableRingSize);
+
+	// TODO(qookie): Wait for space in the ring
+	// while(usableRingSize - inFlight() < trbs.size())
+	//     co_await progressEvent.async_wait();
+
+	co_await _mutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _mutex};
+
+	auto initialEnqueue = _enqueuePtr;
+	auto initialPcs = _pcs;
+	for (size_t i = 0; i < trbs.size(); i++) {
+		auto trb = trbs[i];
+		// Post all TRBs, except use the incorrect cycle bit for the first.
+		// This is to prevent the controller from potentially starting a TD we
+		// are still writing TRBs for (and failing because it finishes early).
+		trb.val[3] |= i > 0 ? uint32_t{_pcs} : uint32_t{!_pcs};
+
+		_transactions[_enqueuePtr] = tx;
+		_ring->ent[_enqueuePtr] = trb;
+
+		_enqueuePtr++;
+
+		if (_enqueuePtr >= ringSize - 1) {
+			updateLink();
+			_pcs = !_pcs;
+			_enqueuePtr = 0;
+		}
+	}
+
+	// Make sure this is all visible to the controller.
+	_controller->barrier.writeback(_ring.view_buffer());
+
+	// TODO(qookie): Write barrier here.
+
+	// Now, update the first TRB to the correct cycle state.
+	auto v = _ring->ent[initialEnqueue].val[3];
+	v &= ~uint32_t{1};
+	v |= uint32_t{initialPcs};
+	_ring->ent[initialEnqueue].val[3] = v;
+
+	_controller->barrier.writeback(_ring.view_buffer());
+
+	co_return {_enqueuePtr, _pcs};
+}
+
 void ProducerRing::updateLink() {
 	_ring->ent[ringSize - 1] = {{
 		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
