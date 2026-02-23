@@ -1645,7 +1645,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		// Touch the memory range.
 		// TODO: this should be optional (it is only really useful for no-backing mappings).
-		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size));
+		auto touchOutcome = co_await onExceptionalWq(memory->touchFullRange(offset, size, fetchRequireMutable));
 		if(!touchOutcome) {
 			HelHandleResult helResult{.error = translateError(touchOutcome.error())};
 			QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -3550,10 +3550,13 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 			assert(memory->getLength() <= 0x10000);
 
 			for(size_t off = 0; off < memory->getLength(); off += kPageSize) {
-				auto range = memory->peekRange(off);
-				assert(range.get<0>() != PhysicalAddr(-1));
+				auto range = memory->peekRange(off, fetchNone);
+				assert(range.physical != PhysicalAddr(-1));
+				PageFlags pageFlags = page_access::read;
+				if (range.isMutable)
+					pageFlags |= page_access::write;
 				KernelPageSpace::global().mapSingle4k(reinterpret_cast<uintptr_t>(window + off),
-						range.get<0>(), page_access::write, range.get<1>());
+						range.physical, pageFlags, range.cachingMode);
 			}
 
 			bound->setupMemoryViewBinding(i, window);

@@ -137,9 +137,9 @@ frg::expected<Error> EptOperations::remapPresentPages(VirtualAddr va, MemoryView
 }
 
 frg::expected<Error> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, PageFlags flags, CachingMode mode) {
+		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	return faultPageByCursor<EptCursor>(pageSpace_,
-			va, view, offset, flags, mode);
+			va, view, offset, fetchFlags, flags, mode);
 }
 
 frg::expected<Error> EptOperations::cleanPages(VirtualAddr va, MemoryView *view,

@@ -69,7 +69,15 @@ private:
 	async::recurring_event _reclaimEvent;
 };
 
-using PhysicalRange = frg::tuple<PhysicalAddr, size_t, CachingMode>;
+struct PhysicalRange {
+	PhysicalAddr physical;
+	size_t size;
+	CachingMode cachingMode;
+	// Whether pages returned by peekRange() are mutable or not.
+	// If fetchRequireMutable is set, this must be set to true.
+	// If fetchRequireMutable is clear, this may either be true or false.
+	bool isMutable;
+};
 
 struct ManageNode {
 	Error error() { return _error; }
@@ -146,7 +154,15 @@ using MonitorList = frg::intrusive_list<
 >;
 
 using FetchFlags = uint32_t;
-inline constexpr FetchFlags fetchDisallowBacking = 1;
+inline constexpr FetchFlags fetchNone = 0;
+// Require mutable pages to be returned.
+// * For peekRange(): on success, the result must have PhysicalRange::isMutable set.
+//   If this is not possible, this flag lets peekRange() fail instead.
+// * For touchRange(): forces the MemoryView to make mutable pages available from future peekRange() calls.
+inline constexpr FetchFlags fetchRequireMutable = 1;
+// Fail touchRange() calls that need to block on unavailable pages.
+// This is useful for userspace page caches that want to detect deadlocks.
+inline constexpr FetchFlags fetchDisallowBacking = 2;
 
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
@@ -274,13 +290,13 @@ public:
 
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
-	virtual frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) = 0;
+	virtual PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) = 0;
 
 	// Makes a range of memory available for peekRange().
 	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
 	// Returns the number of bytes that were actually affected.
 	virtual coroutine<frg::expected<Error, size_t>>
-	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags = 0) = 0;
+	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
 
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
@@ -294,7 +310,7 @@ public:
 			uintptr_t offset, size_t size, CachingFlags flags);
 
 	coroutine<frg::expected<Error>>
-	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags = 0);
+	touchFullRange(uintptr_t offset, size_t size, FetchFlags flags);
 
 	// ----------------------------------------------------------------------------------
 	// Memory eviction.
@@ -420,7 +436,7 @@ struct ImmediateMemory final : MemoryView {
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -487,7 +503,7 @@ struct HardwareMemory final : MemoryView {
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -510,7 +526,7 @@ struct AllocatedMemory final : MemoryView {
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -639,7 +655,7 @@ public:
 	coroutine<frg::expected<Error>> resize(size_t newLength) override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -662,7 +678,7 @@ public:
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -684,7 +700,7 @@ struct IndirectMemory final : MemoryView {
 	size_t getLength() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
@@ -753,7 +769,7 @@ public:
 	coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> fork() override;
 	Error lockRange(uintptr_t offset, size_t size) override;
 	void unlockRange(uintptr_t offset, size_t size) override;
-	frg::tuple<PhysicalAddr, CachingMode> peekRange(uintptr_t offset) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
