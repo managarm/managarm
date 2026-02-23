@@ -1050,7 +1050,12 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 
 	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
 
-	_device->submit(_endpointId);
+	{
+		co_await _submissionMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, _submissionMutex};
+
+		_device->submit(_endpointId);
+	}
 
 	auto maybeResidue = co_await tx.transfer(allowShortPacket);
 
@@ -1070,6 +1075,11 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 
 async::result<frg::expected<proto::UsbError>>
 EndpointState::_resetAfterError(RingPointer nextDequeue) {
+	// Hold submission mutex for the entire duration of this method to prevent races
+	// with newer submissions while we skip the failed TD.
+	co_await _submissionMutex.async_lock();
+	frg::unique_lock lock{frg::adopt_lock, _submissionMutex};
+
 	// Issue the Reset Endpoint command to reset the xHC state
 	auto event = co_await _device->controller()->submitCommand(
 		Command::resetEndpoint(_device->slot(), _endpointId));

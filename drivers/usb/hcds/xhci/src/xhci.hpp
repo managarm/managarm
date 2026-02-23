@@ -196,6 +196,8 @@ private:
 	size_t _maxPacketSize;
 	ProducerRing _transferRing;
 
+	async::mutex _submissionMutex;
+
 	async::result<frg::expected<proto::UsbError, size_t>>
 	_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost, bool allowShortPacket);
 
