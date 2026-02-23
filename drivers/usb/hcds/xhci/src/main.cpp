@@ -347,6 +347,12 @@ void Controller::processEvent(Event ev) {
 async::result<frg::expected<proto::UsbError, uint32_t>>
 Controller::enableSlot(uint8_t slotType) {
 	auto event = co_await submitCommand(Command::enableSlot(slotType));
+
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "enableSlot(" << (int)slotType << ") failed: "
+			<< event.completionCodeName() << std::endl;
+
 	FRG_CO_TRY(completionToError(event));
 	co_return event.slotId;
 }
@@ -357,8 +363,12 @@ Controller::addressDevice(uint32_t slotId, InputContext &ctx) {
 	auto event = co_await submitCommand(
 			Command::addressDevice(slotId, helix::ptrToPhysical(ctx.rawData())));
 
-	FRG_CO_TRY(completionToError(event));
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "addressDevice(" << slotId << ", ctx) failed: "
+			<< event.completionCodeName() << std::endl;
 
+	FRG_CO_TRY(completionToError(event));
 	co_return frg::success;
 }
 
@@ -368,8 +378,12 @@ Controller::configureEndpoint(uint32_t slotId, InputContext &ctx) {
 	auto event = co_await submitCommand(
 			Command::configureEndpoint(slotId, helix::ptrToPhysical(ctx.rawData())));
 
-	FRG_CO_TRY(completionToError(event));
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "configureEndpoint(" << slotId << ", ctx) failed: "
+			<< event.completionCodeName() << std::endl;
 
+	FRG_CO_TRY(completionToError(event));
 	co_return frg::success;
 }
 
@@ -379,8 +393,12 @@ Controller::evaluateContext(uint32_t slotId, InputContext &ctx) {
 	auto event = co_await submitCommand(
 			Command::evaluateContext(slotId, helix::ptrToPhysical(ctx.rawData())));
 
-	FRG_CO_TRY(completionToError(event));
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "evaluateContext(" << slotId << ", ctx) failed: "
+			<< event.completionCodeName() << std::endl;
 
+	FRG_CO_TRY(completionToError(event));
 	co_return frg::success;
 }
 
@@ -388,8 +406,12 @@ async::result<frg::expected<proto::UsbError>>
 Controller::resetEndpoint(uint32_t slotId, uint32_t endpointId) {
 	auto event = co_await submitCommand(Command::resetEndpoint(slotId, endpointId));
 
-	FRG_CO_TRY(completionToError(event));
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "resetEndpoint(" << slotId << ", " << endpointId << ") failed: "
+			<< event.completionCodeName() << std::endl;
 
+	FRG_CO_TRY(completionToError(event));
 	co_return frg::success;
 }
 
@@ -400,8 +422,15 @@ Controller::setTransferRingDequeue(uint32_t slotId, uint32_t endpointId, Produce
 	auto event = co_await submitCommand(
 		Command::setTransferRingDequeue(slotId, endpointId, dequeue));
 
-	FRG_CO_TRY(completionToError(event));
+	if (event.completionCode != CompletionCode::success)
+		std::cout
+			<< this << "setTransferRingDequeue(" << slotId << ", " << endpointId << ", ring, {"
+			<< pointer.index << ", " << pointer.cycle << "}) (dequeue = "
+			<< std::hex << dequeue << std::dec
+			<< ") failed: "
+			<< event.completionCodeName() << std::endl;
 
+	FRG_CO_TRY(completionToError(event));
 	co_return frg::success;
 }
 
