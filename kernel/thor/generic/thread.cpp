@@ -109,6 +109,7 @@ void Thread::blockCurrent(Condition checkedConditions) {
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_updateRunTime();
 	thisThread->_runState = kRunBlocked;
+	thisThread->unblockConditions_ = checkedConditions;
 	localScheduler.get().update();
 	Scheduler::suspendCurrent();
 	localScheduler.get().forceReschedule();
@@ -519,6 +520,8 @@ void Thread::raiseCondition_(Condition c) {
 			c, std::memory_order_acq_rel
 		);
 		if (pending & c)
+			return;
+		if (!(unblockConditions_ & c))
 			return;
 
 		// If the thread is blocked and can be interrupted, then unblock it to notify.

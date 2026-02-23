@@ -440,6 +440,8 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+	// Conditions that unblock the thread while in kRunBlocked.
+	Condition unblockConditions_{0};
 
 	// If this flag is set, blockCurrent() returns immediately.
 	// In blockCurrent(), the flag is checked within _mutex.
