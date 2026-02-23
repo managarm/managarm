@@ -212,27 +212,6 @@ uintptr_t ProducerRing::getPtr() {
 	return ptr;
 }
 
-void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
-	_ring->ent[_enqueuePtr] = cmd;
-	_transactions[_enqueuePtr] = tx;
-
-	if (_pcs) {
-		_ring->ent[_enqueuePtr].val[3] |= 1;
-	} else {
-		_ring->ent[_enqueuePtr].val[3] &= ~1;
-	}
-
-	_enqueuePtr++;
-
-	if (_enqueuePtr >= ringSize - 1) {
-		updateLink();
-		_pcs = !_pcs;
-		_enqueuePtr = 0;
-	}
-
-	_controller->barrier.writeback(_ring.view_buffer());
-}
-
 void ProducerRing::processEvent(Event ev) {
 	assert(ev.type == TrbType::commandCompletionEvent
 			|| ev.type == TrbType::transferEvent);

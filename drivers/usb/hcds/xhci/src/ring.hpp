@@ -130,8 +130,6 @@ struct ProducerRing {
 	ProducerRing(Controller *controller);
 	uintptr_t getPtr();
 
-	void pushRawTrb(RawTrb cmd, Transaction *tx);
-
 	// Returns the position in the ring immediately after the newly added TRBs.
 	async::result<std::tuple<size_t, bool>> pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx);
 

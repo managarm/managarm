@@ -258,7 +258,9 @@ struct Controller final : proto::BaseController {
 
 	async::result<Event> submitCommand(RawTrb trb) {
 		ProducerRing::Transaction tx;
-		_cmdRing.pushRawTrb(trb, &tx);
+		std::vector<RawTrb> trbs{trb};
+
+		co_await _cmdRing.pushTrbs(trbs, &tx);
 
 		ringDoorbell(0, 0);
 
