@@ -113,10 +113,7 @@ struct ProducerRing {
 
 	struct Transaction {
 		async::result<frg::expected<protocols::usb::UsbError, size_t>>
-		control();
-
-		async::result<frg::expected<protocols::usb::UsbError, size_t>>
-		normal();
+		transfer(bool allowShortPacket);
 
 		async::result<Event> command();
 

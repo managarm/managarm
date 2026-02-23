@@ -1008,55 +1008,55 @@ ConfigurationState::useInterface(int number, int alternative) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::ControlTransfer info) {
-	ProducerRing::Transaction tx;
-
 	auto trbs = Transfer::buildControlChain(
 		*info.setup.data(),
 		info.buffer,
 		info.flags == proto::kXferToHost,
 		_maxPacketSize);
 
-	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
-
-	if (info.flags == proto::kXferToHost)
-		_device->controller()->barrier.clean_or_invalidate(info.buffer);
-	else
-		_device->controller()->barrier.writeback(info.buffer);
-
-	_device->submit(_endpointId);
-
-	auto maybeResidue = co_await tx.control();
-
-	if (info.flags == proto::kXferToHost)
-		_device->controller()->barrier.invalidate(info.buffer);
-
-	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
-		auto res = co_await _resetAfterError(nextDequeue);
-		if (!res) {
-			std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-				<< " after stall: " << (int)res.error() << std::endl;
-		}
-	}
-
-	co_return info.buffer.size() - FRG_CO_TRY(maybeResidue);
+	co_return FRG_CO_TRY(co_await _postTd(
+				std::move(trbs),
+				info.buffer,
+				info.flags == proto::kXferToHost,
+				true));
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
+EndpointState::transfer(proto::InterruptTransfer info) {
+	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	co_return FRG_CO_TRY(co_await _postTd(
+				std::move(trbs),
+				info.buffer,
+				info.flags == proto::kXferToHost,
+				true));
+}
+
+async::result<frg::expected<proto::UsbError, size_t>>
+EndpointState::transfer(proto::BulkTransfer info) {
+	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	co_return FRG_CO_TRY(co_await _postTd(
+				std::move(trbs),
+				info.buffer,
+				info.flags == proto::kXferToHost,
+				true));
+}
+
+async::result<frg::expected<proto::UsbError, size_t>>
+EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost, bool allowShortPacket) {
 	ProducerRing::Transaction tx;
 
-	auto trbs = Transfer::buildNormalChain(buffer, _maxPacketSize);
-
-	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
-
+	// Invalidate the buffer before posting the TD in case the ring is already running.
 	if (toHost)
 		_device->controller()->barrier.clean_or_invalidate(buffer);
 	else
 		_device->controller()->barrier.writeback(buffer);
 
+
+	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
+
 	_device->submit(_endpointId);
 
-	auto maybeResidue = co_await tx.normal();
+	auto maybeResidue = co_await tx.transfer(allowShortPacket);
 
 	if (toHost)
 		_device->controller()->barrier.invalidate(buffer);
@@ -1070,16 +1070,6 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
 	}
 
 	co_return buffer.size() - FRG_CO_TRY(maybeResidue);
-}
-
-async::result<frg::expected<proto::UsbError, size_t>>
-EndpointState::transfer(proto::InterruptTransfer info) {
-	co_return co_await _bulkOrInterruptXfer(info.buffer, info.flags == proto::kXferToHost);
-}
-
-async::result<frg::expected<proto::UsbError, size_t>>
-EndpointState::transfer(proto::BulkTransfer info) {
-	co_return co_await _bulkOrInterruptXfer(info.buffer, info.flags == proto::kXferToHost);
 }
 
 async::result<frg::expected<proto::UsbError>>

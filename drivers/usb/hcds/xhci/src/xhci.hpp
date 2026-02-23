@@ -197,7 +197,7 @@ private:
 	ProducerRing _transferRing;
 
 	async::result<frg::expected<proto::UsbError, size_t>>
-	_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost);
+	_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost, bool allowShortPacket);
 
 	async::result<frg::expected<proto::UsbError>>
 	_resetAfterError(RingPointer nextDequeue);
