@@ -182,7 +182,7 @@ struct ProducerRing {
 	ProducerRing(Controller *controller);
 	uintptr_t getPtr();
 
-	// Returns the position in the ring immediately after the newly added TRBs.
+	// Returns the position of the last TRB that was inserted.
 	async::result<RingPointer> pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx);
 	void retire(RingPointer newDequeue);
 

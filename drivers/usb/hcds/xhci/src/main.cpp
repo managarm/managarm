@@ -344,6 +344,67 @@ void Controller::processEvent(Event ev) {
 	}
 }
 
+async::result<frg::expected<proto::UsbError, uint32_t>>
+Controller::enableSlot(uint8_t slotType) {
+	auto event = co_await submitCommand(Command::enableSlot(slotType));
+	FRG_CO_TRY(completionToError(event));
+	co_return event.slotId;
+}
+
+async::result<frg::expected<proto::UsbError>>
+Controller::addressDevice(uint32_t slotId, InputContext &ctx) {
+	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	auto event = co_await submitCommand(
+			Command::addressDevice(slotId, helix::ptrToPhysical(ctx.rawData())));
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError>>
+Controller::configureEndpoint(uint32_t slotId, InputContext &ctx) {
+	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	auto event = co_await submitCommand(
+			Command::configureEndpoint(slotId, helix::ptrToPhysical(ctx.rawData())));
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError>>
+Controller::evaluateContext(uint32_t slotId, InputContext &ctx) {
+	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	auto event = co_await submitCommand(
+			Command::evaluateContext(slotId, helix::ptrToPhysical(ctx.rawData())));
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError>>
+Controller::resetEndpoint(uint32_t slotId, uint32_t endpointId) {
+	auto event = co_await submitCommand(Command::resetEndpoint(slotId, endpointId));
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
+}
+
+async::result<frg::expected<proto::UsbError>>
+Controller::setTransferRingDequeue(uint32_t slotId, uint32_t endpointId, ProducerRing &ring, RingPointer pointer) {
+	uint64_t dequeue = (ring.getPtr() + pointer.index * sizeof(RawTrb)) | pointer.cycle;
+
+	auto event = co_await submitCommand(
+		Command::setTransferRingDequeue(slotId, endpointId, dequeue));
+
+	FRG_CO_TRY(completionToError(event));
+
+	co_return frg::success;
+}
+
 // ------------------------------------------------------------------------
 // Interrutper
 // ------------------------------------------------------------------------
@@ -709,17 +770,12 @@ static inline uint8_t getHcdSpeedId(proto::DeviceSpeed speed) {
 
 async::result<frg::expected<proto::UsbError>>
 Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed, int slotType) {
-	auto event = co_await _controller->submitCommand(
-			Command::enableSlot(slotType));
-
-	FRG_CO_TRY(completionToError(event));
-
-	_slotId = event.slotId;
+	_slotId = FRG_CO_TRY(co_await _controller->enableSlot(slotType));
 
 	std::cout << _controller << "Slot " << _slotId << " allocated for port " << port
 		<< " (route " << std::hex << route << std::dec << ")" << std::endl;
 
-	// initialize slot
+	// Initialize slot context
 
 	_devCtx = DeviceContext{_controller->largeCtx(), _controller->memoryPool()};
 	_controller->barrier.writeback(_devCtx.rawData(), _devCtx.rawSize());
@@ -782,16 +838,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 
 	_controller->setDeviceContext(_slotId, _devCtx);
 
-	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
-	event = co_await _controller->submitCommand(
-			Command::addressDevice(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _controller << "Failed to address device on slot " << _slotId
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
+	FRG_CO_TRY(co_await _controller->addressDevice(_slotId, inputCtx));
 
 	std::cout << _controller << "Device successfully addressed" << std::endl;
 
@@ -855,16 +902,7 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 
 	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
 
-	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
-	auto event = co_await _controller->submitCommand(
-			Command::configureEndpoint(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _controller << "Failed to configure endpoint " << endpoint
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
+	FRG_CO_TRY(co_await _controller->configureEndpoint(_slotId, inputCtx));
 
 	std::cout << _controller << "Endpoint " << endpoint << " configured" << std::endl;
 
@@ -887,16 +925,7 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 		inputCtx.get(inputCtxSlot) |= SlotFields::ttThinkTime(
 				hub->getCharacteristics().unwrap().ttThinkTime / 8 - 1);
 
-	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
-	auto event = co_await _controller->submitCommand(
-			Command::evaluateContext(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
+	FRG_CO_TRY(co_await _controller->evaluateContext(_slotId, inputCtx));
 
 	std::cout << _controller << "Hub setup done" << std::endl;
 
@@ -958,16 +987,7 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 
 	_endpoints[endpointId - 1]->_maxPacketSize = maxPacketSize;
 
-	_controller->barrier.writeback(inputCtx.rawData(), inputCtx.rawSize());
-	auto event = co_await _controller->submitCommand(
-		Command::evaluateContext(_slotId,
-				helix::ptrToPhysical(inputCtx.rawData())));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
+	FRG_CO_TRY(co_await _controller->evaluateContext(_slotId, inputCtx));
 
 	co_return frg::success;
 }
@@ -1047,7 +1067,6 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 	else
 		_device->controller()->barrier.writeback(buffer);
 
-
 	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
 
 	{
@@ -1080,15 +1099,9 @@ EndpointState::_resetAfterError(RingPointer nextDequeue) {
 	co_await _submissionMutex.async_lock();
 	frg::unique_lock lock{frg::adopt_lock, _submissionMutex};
 
-	// Issue the Reset Endpoint command to reset the xHC state
-	auto event = co_await _device->controller()->submitCommand(
-		Command::resetEndpoint(_device->slot(), _endpointId));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
+	// Issue the Reset Endpoint command to move the endpoint from
+	// the halted state to the stopped state
+	FRG_CO_TRY(co_await _device->controller()->resetEndpoint(_device->slot(), _endpointId));
 
 	// TODO(qookie): If behind a TT, and this is a control or bulk
 	// EP, issue ClearFeature(CLEAR_TT_BUFFER)
@@ -1110,20 +1123,15 @@ EndpointState::_resetAfterError(RingPointer nextDequeue) {
 		FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, clearHalt, {}}));
 	}
 
+	_transferRing.retire(nextDequeue);
+
+	nextDequeue.advance(1, ProducerRing::ringSize);
+
 	// Issue the Set TR Dequeue Pointer command to skip the failed
 	// transfer
-	auto dequeue = _transferRing.getPtr() + nextDequeue.index * sizeof(RawTrb);
-	event = co_await _device->controller()->submitCommand(
-		Command::setTransferRingDequeue(_device->slot(), _endpointId,
-				dequeue | nextDequeue.cycle));
-
-	if (event.completionCode != CompletionCode::success)
-		std::cout << _device->controller() << "Failed to set TR dequeue pointer"
-			<< ", completion code: " << event.completionCodeName() << std::endl;
-
-	FRG_CO_TRY(completionToError(event));
-
-	_transferRing.retire(nextDequeue);
+	FRG_CO_TRY(co_await _device->controller()->setTransferRingDequeue(
+				_device->slot(), _endpointId,
+				_transferRing, nextDequeue));
 
 	// Ring the doorbell to restart the pipe
 	_device->submit(_endpointId);

@@ -246,6 +246,7 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 	std::unique_lock lock{_mutex, std::adopt_lock};
 
 	auto initialPtr = _enqueue;
+	auto finalPtr = _enqueue;
 	for (size_t i = 0; i < trbs.size(); i++) {
 		auto trb = trbs[i];
 		// Post all TRBs, except use the incorrect cycle bit for the first.
@@ -256,6 +257,7 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 		_transactions[_enqueue.index] = tx;
 		_ring->ent[_enqueue.index] = trb;
 
+		finalPtr = _enqueue;
 		_enqueue.advance(1, usableRingSize);
 	}
 
@@ -274,7 +276,7 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 
 	_controller->barrier.writeback(_ring.view_buffer());
 
-	co_return _enqueue;
+	co_return finalPtr;
 }
 
 void ProducerRing::retire(RingPointer newDequeue) {

@@ -300,6 +300,26 @@ struct Controller final : proto::BaseController {
 #endif
 	};
 
+	// Controller commands -----------------------------------------------------------
+
+	async::result<frg::expected<proto::UsbError, uint32_t>>
+	enableSlot(uint8_t slotType);
+
+	async::result<frg::expected<proto::UsbError>>
+	addressDevice(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	configureEndpoint(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	evaluateContext(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	resetEndpoint(uint32_t slotId, uint32_t endpointId);
+
+	async::result<frg::expected<proto::UsbError>>
+	setTransferRingDequeue(uint32_t slotId, uint32_t endpointId, ProducerRing &ring, RingPointer pointer);
+
 private:
 	struct SupportedProtocol;
 
