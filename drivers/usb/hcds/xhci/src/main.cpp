@@ -1016,7 +1016,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 		info.flags == proto::kXferToHost,
 		_maxPacketSize);
 
-	auto [nextDequeue, nextCycle] = co_await _transferRing.pushTrbs(trbs, &tx);
+	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
 
 	if (info.flags == proto::kXferToHost)
 		_device->controller()->barrier.clean_or_invalidate(info.buffer);
@@ -1031,7 +1031,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 		_device->controller()->barrier.invalidate(info.buffer);
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
-		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
+		auto res = co_await _resetAfterError(nextDequeue);
 		if (!res) {
 			std::cout << _device->controller() << "Failed to reset EP " << _endpointId
 				<< " after stall: " << (int)res.error() << std::endl;
@@ -1047,7 +1047,7 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
 
 	auto trbs = Transfer::buildNormalChain(buffer, _maxPacketSize);
 
-	auto [nextDequeue, nextCycle] = co_await _transferRing.pushTrbs(trbs, &tx);
+	auto nextDequeue = co_await _transferRing.pushTrbs(trbs, &tx);
 
 	if (toHost)
 		_device->controller()->barrier.clean_or_invalidate(buffer);
@@ -1062,7 +1062,7 @@ EndpointState::_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost) {
 		_device->controller()->barrier.invalidate(buffer);
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
-		auto res = co_await _resetAfterError(nextDequeue, nextCycle);
+		auto res = co_await _resetAfterError(nextDequeue);
 		if (!res) {
 			std::cout << _device->controller() << "Failed to reset EP " << _endpointId
 				<< " after stall: " << (int)res.error() << std::endl;
@@ -1083,7 +1083,7 @@ EndpointState::transfer(proto::BulkTransfer info) {
 }
 
 async::result<frg::expected<proto::UsbError>>
-EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
+EndpointState::_resetAfterError(RingPointer nextDequeue) {
 	// Issue the Reset Endpoint command to reset the xHC state
 	auto event = co_await _device->controller()->submitCommand(
 		Command::resetEndpoint(_device->slot(), _endpointId));
@@ -1116,16 +1116,18 @@ EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 
 	// Issue the Set TR Dequeue Pointer command to skip the failed
 	// transfer
-	auto dequeue = _transferRing.getPtr() + nextDequeue * sizeof(RawTrb);
+	auto dequeue = _transferRing.getPtr() + nextDequeue.index * sizeof(RawTrb);
 	event = co_await _device->controller()->submitCommand(
 		Command::setTransferRingDequeue(_device->slot(), _endpointId,
-				dequeue | cycle));
+				dequeue | nextDequeue.cycle));
 
 	if (event.completionCode != 1)
 		std::cout << _device->controller() << "Failed to set TR dequeue pointer"
 			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
+
+	_transferRing.retire(nextDequeue);
 
 	// Ring the doorbell to restart the pipe
 	_device->submit(_endpointId);

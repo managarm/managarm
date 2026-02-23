@@ -61,6 +61,20 @@ inline frg::expected<protocols::usb::UsbError> completionToError(Event ev) {
 
 struct Controller;
 
+struct RingPointer {
+	size_t index = 0;
+	bool cycle = true;
+
+	void advance(size_t n, size_t ringSize) {
+		assert(n <= ringSize);
+		index += n;
+		if (index >= ringSize) {
+			index -= ringSize;
+			cycle = !cycle;
+		}
+	}
+};
+
 struct EventRing {
 	constexpr static size_t eventRingSize = 128;
 
@@ -87,11 +101,9 @@ struct EventRing {
 private:
 	arch::dma_object<EventRingEntries> _eventRing;
 	arch::dma_array<ErstEntry> _erst;
-
-	size_t _dequeuePtr;
 	Controller *_controller;
 
-	int _ccs;
+	RingPointer _dequeue;
 };
 
 struct ProducerRing {
@@ -131,19 +143,28 @@ struct ProducerRing {
 	uintptr_t getPtr();
 
 	// Returns the position in the ring immediately after the newly added TRBs.
-	async::result<std::tuple<size_t, bool>> pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx);
+	async::result<RingPointer> pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx);
+	void retire(RingPointer newDequeue);
 
 	void processEvent(Event ev);
+
+	size_t inFlight() {
+		if (_enqueue.cycle == _dequeue.cycle) {
+			return _enqueue.index - _dequeue.index;
+		} else {
+			return _enqueue.index + usableRingSize - _dequeue.index;
+		}
+	}
 
 private:
 	std::array<Transaction *, ringSize> _transactions;
 	arch::dma_object<RingEntries> _ring;
 	Controller *_controller;
-	size_t _enqueuePtr;
-
-	bool _pcs;
-
 	async::mutex _mutex;
 
-	void updateLink();
+	RingPointer _enqueue;
+	RingPointer _dequeue;
+	async::recurring_event _progressEvent;
+
+	void _updateLink(bool initialCycle);
 };

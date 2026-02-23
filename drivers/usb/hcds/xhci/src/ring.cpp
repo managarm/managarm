@@ -143,9 +143,8 @@ void Event::printInfo() {
 // ------------------------------------------------------------------------
 
 EventRing::EventRing(Controller *controller)
-: _eventRing{controller->memoryPool()}, _erst{controller->memoryPool(), 1},
-	_dequeuePtr{0}, _controller{controller}, _ccs{1} {
-
+: _eventRing{controller->memoryPool()}, _erst{controller->memoryPool(), 1}
+, _controller{controller}, _dequeue{0, true} {
 	for (size_t i = 0; i < eventRingSize; i++) {
 		_eventRing->ent[i] = {{0, 0, 0, 0}};
 	}
@@ -164,7 +163,7 @@ uintptr_t EventRing::getErstPtr() {
 }
 
 uintptr_t EventRing::getEventRingPtr() {
-	return helix::ptrToPhysical(_eventRing.data()) + _dequeuePtr * sizeof(RawTrb);
+	return helix::ptrToPhysical(_eventRing.data()) + _dequeue.index * sizeof(RawTrb);
 }
 
 size_t EventRing::getErstSize() {
@@ -173,19 +172,10 @@ size_t EventRing::getErstSize() {
 
 void EventRing::processRing() {
 	_controller->barrier.invalidate(_eventRing.view_buffer());
-	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
-		RawTrb rawEv = _eventRing->ent[_dequeuePtr];
+	while((_eventRing->ent[_dequeue.index].val[3] & 1) == _dequeue.cycle) {
+		RawTrb rawEv = _eventRing->ent[_dequeue.index];
 
-		int oldCcs = _ccs;
-
-		_dequeuePtr++;
-		if (_dequeuePtr >= eventRingSize) {
-			_dequeuePtr = 0; // Wrap around
-			_ccs = !_ccs; // Invert cycle state
-		}
-
-		if ((rawEv.val[3] & 1) != oldCcs)
-			break; // Not the proper cycle state
+		_dequeue.advance(1, eventRingSize);
 
 		Event ev = Event::fromRawTrb(rawEv);
 		_controller->processEvent(ev);
@@ -197,12 +187,12 @@ void EventRing::processRing() {
 // ------------------------------------------------------------------------
 
 ProducerRing::ProducerRing(Controller *controller)
-: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}, _enqueuePtr{0}, _pcs{true} {
-	for (uint32_t i = 0; i < ringSize; i++) {
+: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}
+, _enqueue{0, true}, _dequeue{0, true} {
+	for (size_t i = 0; i < ringSize; i++) {
 		_ring->ent[i] = {{0, 0, 0, 0}};
 	}
 
-	updateLink();
 	_controller->barrier.writeback(_ring.view_buffer());
 }
 
@@ -219,43 +209,40 @@ void ProducerRing::processEvent(Event ev) {
 	size_t idx = (ev.trbPointer - getPtr()) / sizeof(RawTrb);
 	assert(idx < ringSize);
 
+	auto trb = _ring->ent[idx];
 	auto tx = std::exchange(_transactions[idx], nullptr);
 
+	retire({idx, bool(trb.val[3] & 1)});
+
 	if (tx) {
-		tx->onEvent(_controller, ev, _ring->ent[idx]);
+		tx->onEvent(_controller, ev, trb);
 	}
 }
 
-async::result<std::tuple<size_t, bool>> ProducerRing::pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx) {
+async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx) {
 	assert(trbs.size() <= usableRingSize);
 
-	// TODO(qookie): Wait for space in the ring
-	// while(usableRingSize - inFlight() < trbs.size())
-	//     co_await progressEvent.async_wait();
+	while(usableRingSize - inFlight() < trbs.size())
+		co_await _progressEvent.async_wait();
 
 	co_await _mutex.async_lock();
 	frg::unique_lock lock{frg::adopt_lock, _mutex};
 
-	auto initialEnqueue = _enqueuePtr;
-	auto initialPcs = _pcs;
+	auto initialPtr = _enqueue;
 	for (size_t i = 0; i < trbs.size(); i++) {
 		auto trb = trbs[i];
 		// Post all TRBs, except use the incorrect cycle bit for the first.
 		// This is to prevent the controller from potentially starting a TD we
 		// are still writing TRBs for (and failing because it finishes early).
-		trb.val[3] |= i > 0 ? uint32_t{_pcs} : uint32_t{!_pcs};
+		trb.val[3] |= i > 0 ? uint32_t{_enqueue.cycle} : uint32_t{!_enqueue.cycle};
 
-		_transactions[_enqueuePtr] = tx;
-		_ring->ent[_enqueuePtr] = trb;
+		_transactions[_enqueue.index] = tx;
+		_ring->ent[_enqueue.index] = trb;
 
-		_enqueuePtr++;
-
-		if (_enqueuePtr >= ringSize - 1) {
-			updateLink();
-			_pcs = !_pcs;
-			_enqueuePtr = 0;
-		}
+		_enqueue.advance(1, usableRingSize);
 	}
+
+	_updateLink(initialPtr.cycle);
 
 	// Make sure this is all visible to the controller.
 	_controller->barrier.writeback(_ring.view_buffer());
@@ -263,22 +250,34 @@ async::result<std::tuple<size_t, bool>> ProducerRing::pushTrbs(const std::vector
 	// TODO(qookie): Write barrier here.
 
 	// Now, update the first TRB to the correct cycle state.
-	auto v = _ring->ent[initialEnqueue].val[3];
+	auto v = _ring->ent[initialPtr.index].val[3];
 	v &= ~uint32_t{1};
-	v |= uint32_t{initialPcs};
-	_ring->ent[initialEnqueue].val[3] = v;
+	v |= uint32_t{initialPtr.cycle};
+	_ring->ent[initialPtr.index].val[3] = v;
 
 	_controller->barrier.writeback(_ring.view_buffer());
 
-	co_return {_enqueuePtr, _pcs};
+	co_return _enqueue;
 }
 
-void ProducerRing::updateLink() {
+void ProducerRing::retire(RingPointer newDequeue) {
+	// Make sure we don't accidentally rewind the dequeue.
+	assert(newDequeue.cycle != _dequeue.cycle || newDequeue.index >= _dequeue.index);
+	// Make sure the dequeue is at or before enqueue.
+	assert(newDequeue.cycle != _enqueue.cycle || newDequeue.index <= _enqueue.index);
+
+	_dequeue = newDequeue;
+	_progressEvent.raise();
+}
+
+void ProducerRing::_updateLink(bool initialCycle) {
+	if (_enqueue.cycle == initialCycle) return;
+
 	_ring->ent[ringSize - 1] = {{
 		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
 		static_cast<uint32_t>(getPtr() >> 32),
 		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
+		static_cast<uint32_t>(initialCycle | (1 << 1) | (1 << 5) | (6 << 10))
 	}};
 }
 

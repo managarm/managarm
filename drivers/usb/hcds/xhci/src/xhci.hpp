@@ -200,7 +200,7 @@ private:
 	_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost);
 
 	async::result<frg::expected<proto::UsbError>>
-	_resetAfterError(size_t nextDequeue, bool nextCycle);
+	_resetAfterError(RingPointer nextDequeue);
 };
 
 
