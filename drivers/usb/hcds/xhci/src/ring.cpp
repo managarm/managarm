@@ -228,11 +228,22 @@ void ProducerRing::processEvent(Event ev) {
 async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx) {
 	assert(trbs.size() <= usableRingSize);
 
-	while(usableRingSize - inFlight() < trbs.size())
-		co_await _progressEvent.async_wait();
+	while (true) {
+		co_await _progressEvent.async_wait_if([&] {
+			std::unique_lock lock{_mutex};
+			return usableRingSize - inFlight() < trbs.size();
+		});
 
-	co_await _mutex.async_lock();
-	frg::unique_lock lock{frg::adopt_lock, _mutex};
+		std::unique_lock lock{_mutex};
+
+		if (usableRingSize - inFlight() < trbs.size())
+			continue;
+
+		lock.release();
+		break;
+	}
+
+	std::unique_lock lock{_mutex, std::adopt_lock};
 
 	auto initialPtr = _enqueue;
 	for (size_t i = 0; i < trbs.size(); i++) {
@@ -267,6 +278,8 @@ async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trb
 }
 
 void ProducerRing::retire(RingPointer newDequeue) {
+	std::unique_lock lock{_mutex};
+
 	// Make sure we don't accidentally rewind the dequeue.
 	assert(newDequeue.cycle != _dequeue.cycle || newDequeue.index >= _dequeue.index);
 	// Make sure the dequeue is at or before enqueue.

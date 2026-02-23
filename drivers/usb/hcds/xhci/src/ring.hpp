@@ -200,10 +200,12 @@ private:
 	std::array<Transaction *, ringSize> _transactions;
 	arch::dma_object<RingEntries> _ring;
 	Controller *_controller;
-	async::mutex _mutex;
+	std::mutex _mutex;
 
+	// Protected by _mutex
 	RingPointer _enqueue;
 	RingPointer _dequeue;
+
 	async::recurring_event _progressEvent;
 
 	void _updateLink(bool initialCycle);
