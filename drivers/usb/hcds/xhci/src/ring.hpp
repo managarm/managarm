@@ -16,10 +16,50 @@
 
 #include "trb.hpp"
 
+enum class CompletionCode {
+	invalid,
+	success,
+	dataBufferError,
+	babbleDetected,
+	usbTransactionError,
+	trbError,
+	stallError,
+	resourceError,
+	bandwidthError,
+	noSlotsAvailable,
+	invalidStreamType,
+	slotNotEnabled,
+	endpointNotEnabled,
+	shortPacket,
+	ringUnderrun,
+	ringOverrun,
+	vfEventRingFull,
+	parameterError,
+	bandwidthOverrun,
+	contextStateError,
+	noPingResponse,
+	eventRingFull,
+	incompatibleDevice,
+	missedService,
+	commandRingStopped,
+	commandAborted,
+	stopped,
+	stoppedInvalidLength,
+	stoppedShortPacket,
+	maxExitLatencyTooHigh,
+	reserved,
+	isochBufferOverrun,
+	eventLost,
+	undefinedError,
+	invalidStreamId,
+	secondaryBandwidthError,
+	splitTransactionError,
+};
+
 struct Event {
 	TrbType type;
 	int slotId;
-	int completionCode;
+	CompletionCode completionCode;
 
 	// Transfer and command completion events
 	uintptr_t trbPointer;
@@ -44,17 +84,20 @@ struct Event {
 
 	static Event fromRawTrb(RawTrb trb);
 	void printInfo();
+
+	const char *completionCodeName() const;
 };
 
 inline frg::expected<protocols::usb::UsbError> completionToError(Event ev) {
 	using protocols::usb::UsbError;
 
 	switch (ev.completionCode) {
-		case 1: return frg::success;
-		case 13: return frg::success;
-		case 3: return UsbError::babble;
-		case 6: return UsbError::stall;
-		case 22: return UsbError::unsupported;
+		using enum CompletionCode;
+		case success: return frg::success;
+		case shortPacket: return frg::success;
+		case babbleDetected: return UsbError::babble;
+		case stallError: return UsbError::stall;
+		case incompatibleDevice: return UsbError::unsupported;
 		default: return UsbError::other;
 	}
 }

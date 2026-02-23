@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <optional>
-#include <functional>
 #include <memory>
 #include <bit>
 #include <format>
@@ -715,9 +714,6 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 
 	FRG_CO_TRY(completionToError(event));
 
-	assert(event.completionCode != 9); // TODO: handle running out of device slots
-	assert(event.completionCode == 1); // success
-
 	_slotId = event.slotId;
 
 	std::cout << _controller << "Slot " << _slotId << " allocated for port " << port
@@ -791,9 +787,9 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 			Command::addressDevice(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _controller << "Failed to address device on slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -864,9 +860,9 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 			Command::configureEndpoint(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _controller << "Failed to configure endpoint " << endpoint
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -896,9 +892,9 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 			Command::evaluateContext(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -967,9 +963,9 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 		Command::evaluateContext(_slotId,
 				helix::ptrToPhysical(inputCtx.rawData())));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _controller << "Failed to evaluate context for slot " << _slotId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -1078,9 +1074,9 @@ EndpointState::_resetAfterError(RingPointer nextDequeue) {
 	auto event = co_await _device->controller()->submitCommand(
 		Command::resetEndpoint(_device->slot(), _endpointId));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _device->controller() << "Failed to reset EP " << _endpointId
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 
@@ -1111,9 +1107,9 @@ EndpointState::_resetAfterError(RingPointer nextDequeue) {
 		Command::setTransferRingDequeue(_device->slot(), _endpointId,
 				dequeue | nextDequeue.cycle));
 
-	if (event.completionCode != 1)
+	if (event.completionCode != CompletionCode::success)
 		std::cout << _device->controller() << "Failed to set TR dequeue pointer"
-			<< ", completion code: " << completionCodeNames[event.completionCode] << std::endl;
+			<< ", completion code: " << event.completionCodeName() << std::endl;
 
 	FRG_CO_TRY(completionToError(event));
 

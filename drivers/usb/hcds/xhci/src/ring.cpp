@@ -56,7 +56,7 @@ Event Event::fromRawTrb(RawTrb trb) {
 	Event ev;
 
 	ev.type = static_cast<TrbType>((trb.val[3] >> 10) & 63);
-	ev.completionCode = (trb.val[2] >> 24) & 0xFF;
+	ev.completionCode = static_cast<CompletionCode>((trb.val[2] >> 24) & 0xFF);
 	ev.slotId = (trb.val[3] >> 24) & 0xFF;
 	ev.raw = trb;
 
@@ -99,11 +99,13 @@ void Event::printInfo() {
 	printf("xhci: --- Event dump ---\n");
 	printf("xhci: Raw: %08x %08x %08x %08x\n",
 			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: Type: %s (%u)\n", trbTypeNames[static_cast<unsigned int>(type)], static_cast<unsigned int>(type));
+	printf("xhci: Type: %s (%u)\n",
+			trbTypeNames[static_cast<unsigned int>(type)],
+			static_cast<unsigned int>(type));
 	printf("xhci: Slot ID: %d\n", slotId);
 	printf("xhci: Completion code: %s (%d)\n",
-			completionCodeNames[completionCode],
-			completionCode);
+			completionCodeName(),
+			static_cast<int>(completionCode));
 
 	switch(type) {
 		case TrbType::transferEvent:
@@ -136,6 +138,10 @@ void Event::printInfo() {
 	}
 
 	printf("xhci: --- End of event dump ---\n");
+}
+
+const char *Event::completionCodeName() const {
+	return completionCodeNames[static_cast<int>(completionCode)];
 }
 
 // ------------------------------------------------------------------------
@@ -308,7 +314,7 @@ ProducerRing::Transaction::transfer(bool allowShortCompletion) {
 	// the success completion for the final TRB in the TD, or an error completion.
 	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
-	if (ev.completionCode == 13) {
+	if (ev.completionCode == CompletionCode::shortPacket) {
 		if (allowShortCompletion) {
 			assert(trb.val[3] & (1 << 4));
 		}
@@ -329,17 +335,17 @@ async::result<Event> ProducerRing::Transaction::command() {
 }
 
 void ProducerRing::Transaction::onEvent(Controller *controller, Event event, RawTrb associatedTrb) {
-	if (event.completionCode != 1) {
+	if (event.completionCode != CompletionCode::success) {
 		auto associatedTrbType = static_cast<TrbType>((associatedTrb.val[3] >> 10) & 63);
 
 		// Ignore short packet completions for transfers
-		if (event.type == TrbType::transferEvent && event.completionCode != 13) {
+		if (event.type == TrbType::transferEvent && event.completionCode != CompletionCode::shortPacket) {
 			std::cout << controller << "Transfer TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'"
+				<< " completed with '" << event.completionCodeName() << "'"
 				<< " (Slot " << event.slotId << ", EP " << event.endpointId << ")" << std::endl;
 		} else if (event.type == TrbType::commandCompletionEvent) {
 			std::cout << controller << "Command TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'" << std::endl;
+				<< " completed with '" << event.completionCodeName() << "'" << std::endl;
 		}
 	}
 
