@@ -72,10 +72,6 @@ private:
 						infoLogger() << "thor: Preparing to enter sleep state S5 failed: "
 						             << uacpi_status_to_string(ret) << frg::endlog;
 
-					// uACPI Documentation states that you must call uacpi_enter_sleep_state with
-					// interrupts disabled.
-					disableInts();
-
 					ret = uacpi_enter_sleep_state(UACPI_SLEEP_STATE_S5);
 					if (uacpi_unlikely_error(ret))
 						infoLogger() << "thor: Entering sleep state S5 failed: "
@@ -92,8 +88,6 @@ private:
 						infoLogger()
 						    << "thor: Preparing for reboot failed: " << uacpi_status_to_string(ret)
 						    << frg::endlog;
-
-					disableInts();
 
 					ret = uacpi_reboot();
 					if (uacpi_unlikely_error(ret))

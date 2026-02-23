@@ -565,6 +565,18 @@ void uacpi_kernel_reset_event(uacpi_handle opaque) {
 
 uacpi_thread_id uacpi_kernel_get_thread_id(void) { return thisFiber(); }
 
+uacpi_interrupt_state uacpi_kernel_disable_interrupts(void) {
+	auto state = intsAreEnabled();
+	irqMutex().lock();
+	return state;
+}
+
+void uacpi_kernel_restore_interrupts(uacpi_interrupt_state state) {
+	irqMutex().unlock();
+	if (state)
+		assert(intsAreEnabled());
+}
+
 uacpi_handle uacpi_kernel_create_spinlock(void) {
 	return frg::construct<IrqSpinlock>(*kernelAlloc);
 }
