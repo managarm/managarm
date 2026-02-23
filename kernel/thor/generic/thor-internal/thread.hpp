@@ -17,14 +17,19 @@ namespace thor {
 using Condition = uint32_t;
 
 // Conditions are dequeued in descending order (i.e., high condition bits take priority).
-// TODO: Integrate asynchronous WorkQueue runs into Condition.
 // TODO: Integrate CPU migration into Condition.
 namespace condition {
+// One of the WQs is non-empty.
+inline constexpr Condition passiveWq = Condition{1} << 0;
+inline constexpr Condition exceptionalWq = Condition{1} << 1;
 // Request kIntrRequested to be raised.
-inline constexpr Condition interrupt = Condition{1} << 0;
+inline constexpr Condition interrupt = Condition{1} << 2;
 // Request transition to kRunTerminated.
-inline constexpr Condition terminate = Condition{1} << 1;
+inline constexpr Condition terminate = Condition{1} << 3;
 } // namespace condition
+
+// Conditions that cancel blocking operations.
+inline constexpr Condition cancelConditions = condition::interrupt | condition::terminate;
 
 enum Interrupt {
 	kIntrNull,
@@ -88,6 +93,52 @@ private:
 		Thread *_thread;
 	};
 
+	template<typename T>
+	struct BlockingState {
+		struct Empty { };
+		using MaybeT = std::conditional_t<
+			std::is_same_v<T, void>,
+			Empty,
+			T
+		>;
+
+		// We need a shared_ptr since the thread might continue (and thus could be killed)
+		// immediately after we set the done flag.
+		smarter::shared_ptr<Thread> thread;
+		WorkQueue *wq;
+		// Acquire-release semantics to publish the result of the async operation.
+		std::atomic<bool> done{false};
+		frg::optional<MaybeT> value{};
+	};
+
+	template<typename T>
+	struct BlockingEnv {
+		WorkQueue *get_work_queue() {
+			return blsp->wq;
+		}
+
+		BlockingState<T> *blsp;
+	};
+
+	template<typename T>
+	struct BlockingReceiver {
+		template<typename... Args>
+		void set_value(Args &&... args) {
+			// The blsp pointer may become invalid as soon as we set blsp->done.
+			auto thread = std::move(blsp->thread);
+			assert(!blsp->done.load(std::memory_order_relaxed));
+			blsp->value.emplace(std::forward<Args>(args)...);
+			blsp->done.store(true, std::memory_order_release);
+			Thread::unblockOther(thread);
+		}
+
+		auto get_env() {
+			return BlockingEnv<T>{.blsp = blsp};
+		}
+
+		BlockingState<T> *blsp;
+	};
+
 public:
 	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
@@ -108,180 +159,98 @@ public:
 	}
 
 	template <typename Sender>
-	static auto asyncBlockCurrent(Sender s, WorkQueue *wq, Condition maskedConditions = 0) {
+	static auto asyncBlockCurrent(Sender s, WorkQueue *wq, Condition maskedCancelConditions = 0) {
 		return asyncBlockCurrent([s = std::move(s)](async::cancellation_token) mutable -> Sender {
 			return std::move(s);
-		}, wq, maskedConditions, AsyncBlockCurrentNormalTag{});
+		}, wq, maskedCancelConditions, AsyncBlockCurrentNormalTag{});
 	}
 
 	template <typename SenderFactory>
 	requires(std::is_invocable_v<SenderFactory, async::cancellation_token>)
-	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq, Condition maskedConditions = 0) {
-		return asyncBlockCurrent(std::move(s), wq, maskedConditions, AsyncBlockCurrentInterruptibleTag{});
+	static auto asyncBlockCurrentInterruptible(SenderFactory s, WorkQueue *wq, Condition maskedCancelConditions = 0) {
+		return asyncBlockCurrent(std::move(s), wq, maskedCancelConditions, AsyncBlockCurrentInterruptibleTag{});
 	}
 
+	// maskedCancelConditions allows callers to suppress interrupts due to some of the conditions.
+	// In particular, if a condition C is set in maskedCancelConditions,
+	// then raising C will *not* interrupt the blocking.
 	template <typename SenderFactory, AnyTag Tag>
-	    requires(std::is_invocable_v<SenderFactory, async::cancellation_token>
-	             && std::is_same_v<
-	                 typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
-	                 void>)
-	static void asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
-		assert(currentIpl() < wq->wqIpl());
+	requires std::is_invocable_v<SenderFactory, async::cancellation_token>
+	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedCancelConditions, Tag tag) {
+		using ValueType = std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type;
+
+		auto ipl = currentIpl();
+		assert(ipl < wq->wqIpl());
+		assert(!(maskedCancelConditions & ~cancelConditions));
 		(void)tag;
 		auto thisThread = getCurrentThread();
 
+		// Conditions that indicate that a runnable WQ is non-empty.
+		Condition wqConditions = 0;
+		if (ipl < ipl::passiveWork)
+			wqConditions |= condition::passiveWq;
+		if (ipl < ipl::exceptionalWork)
+			wqConditions |= condition::exceptionalWq;
+
+		// Conditions that cause us to cancel the operation.
+		auto effectiveCancelConditions = cancelConditions & ~maskedCancelConditions;
+
 		async::cancellation_event ce;
-		auto sv = std::move(s(async::cancellation_token{ce}));
+		BlockingState<ValueType> bls{.thread = thisThread.lock(), .wq = wq};
 
-		struct BlockingState {
-			// We need a shared_ptr since the thread might continue (and thus could be killed)
-			// immediately after we set the done flag.
-			smarter::shared_ptr<Thread> thread;
-			WorkQueue *wq;
-			// Acquire-release semantics to publish the result of the async operation.
-			std::atomic<bool> done{false};
-		} bls {.thread = thisThread.lock(), .wq = wq};
+		// Start the operation.
+		auto operation = async::execution::connect(
+			s(async::cancellation_token{ce}), BlockingReceiver<ValueType>{&bls}
+		);
+		async::execution::start(operation);
 
-		struct Env {
-			WorkQueue *get_work_queue() {
-				return blsp->wq;
-			}
-
-			BlockingState *blsp;
-		};
-
-		struct Receiver {
-			void set_value_inline() {
-				// Do nothing (there is no value to store).
-			}
-
-			void set_value_noinline() {
-				// The blsp pointer may become invalid as soon as we set blsp->done.
-				auto thread = std::move(blsp->thread);
-				assert(!blsp->done.load(std::memory_order_relaxed));
-				blsp->done.store(true, std::memory_order_release);
-				Thread::unblockOther(thread);
-			}
-
-			auto get_env() {
-				return Env{.blsp = blsp};
-			}
-
-			BlockingState *blsp;
-		};
-
+		// Wait for completion.
 		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
-
-		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
-		if(async::execution::start_inline(operation))
-			return;
 		while(true) {
 			if(bls.done.load(std::memory_order_acquire))
 				break;
-			if(runWqs()) {
-				// Re-check the done flag since nested blocking (triggered by the WQ)
-				// might have consumed the unblock latch.
+			auto pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
+			if (pending & wqConditions) {
+				runWqs();
 				continue;
 			}
-			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
+			if (interruptible && (pending & effectiveCancelConditions)) {
 				ce.cancel();
 				interruptible = false;
 				continue;
 			}
+			auto checkedConditions = wqConditions;
+			if (interruptible)
+				checkedConditions |= effectiveCancelConditions;
+			Thread::blockCurrent(checkedConditions);
 		}
 
-		return;
-	}
-
-	template <typename SenderFactory, AnyTag Tag>
-	    requires(
-	        (std::is_invocable_v<SenderFactory, async::cancellation_token>
-	         && !std::is_same_v<
-	             typename std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type,
-	             void>)
-	    )
-	static auto asyncBlockCurrent(SenderFactory s, WorkQueue *wq, Condition maskedConditions, Tag tag) {
-		assert(currentIpl() < wq->wqIpl());
-		(void)tag;
-		auto thisThread = getCurrentThread();
-
-		async::cancellation_event ce;
-		auto sv = std::move(s(async::cancellation_token{ce}));
-
-		using ValueType = typename decltype(sv)::value_type;
-
-		struct BlockingState {
-			// We need a shared_ptr since the thread might continue (and thus could be killed)
-			// immediately after we set the done flag.
-			smarter::shared_ptr<Thread> thread;
-			WorkQueue *wq;
-			// Acquire-release semantics to publish the result of the async operation.
-			std::atomic<bool> done{false};
-			frg::optional<ValueType> value{};
-		} bls{.thread = thisThread.lock(), .wq = wq};
-
-		struct Env {
-			WorkQueue *get_work_queue() {
-				return blsp->wq;
-			}
-
-			BlockingState *blsp;
-		};
-
-		struct Receiver {
-			void set_value_inline(ValueType value) { blsp->value.emplace(std::move(value)); }
-
-			void set_value_noinline(ValueType value) {
-				// The blsp pointer may become invalid as soon as we set blsp->done.
-				auto thread = std::move(blsp->thread);
-				assert(!blsp->done.load(std::memory_order_relaxed));
-				blsp->value.emplace(std::move(value));
-				blsp->done.store(true, std::memory_order_release);
-				Thread::unblockOther(thread);
-			}
-
-			auto get_env() {
-				return Env{.blsp = blsp};
-			}
-
-			BlockingState *blsp;
-		};
-
-		bool interruptible = std::is_same_v<Tag, AsyncBlockCurrentInterruptibleTag>;
-
-		auto operation = async::execution::connect(std::move(sv), Receiver{&bls});
-		if(async::execution::start_inline(operation))
+		if constexpr (!std::is_same_v<ValueType, void>)
 			return std::move(*bls.value);
-		while(true) {
-			if(bls.done.load(std::memory_order_acquire))
-				break;
-			if(runWqs()) {
-				// Re-check the done flag since nested blocking (triggered by the WQ)
-				// might have consumed the unblock latch.
-				continue;
-			}
-			if (!Thread::blockCurrent(interruptible, maskedConditions)) {
-				ce.cancel();
-				interruptible = false;
-				continue;
-			}
-		}
-		return std::move(*bls.value);
 	}
 
 	// Run the current thread's WQs. Returns true if there was any work to do.
 	static bool runWqs() {
 		auto ipl = currentIpl();
 		auto thisThread = getCurrentThread();
+		auto pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
 		if (ipl < ipl::exceptionalWork) {
-			if (thisThread->_pagingWorkQueue.check()) {
+			if (pending & condition::exceptionalWq) {
 				thisThread->_pagingWorkQueue.run();
+				thisThread->_pendingConditions.fetch_and(~condition::exceptionalWq, std::memory_order_acq_rel);
+				// Re-check after clearing the condition as work may have been queued.
+				if (thisThread->_pagingWorkQueue.check())
+					thisThread->_pagingWorkQueue.run();
 				return true;
 			}
 		}
 		if (ipl < ipl::passiveWork) {
-			if (thisThread->_mainWorkQueue.check()) {
+			if (pending & condition::passiveWq) {
 				thisThread->_mainWorkQueue.run();
+				thisThread->_pendingConditions.fetch_and(~condition::passiveWq, std::memory_order_acq_rel);
+				// Re-check after clearing the condition as work may have been queued.
+				if (thisThread->_mainWorkQueue.check())
+					thisThread->_mainWorkQueue.run();
 				return true;
 			}
 		}
@@ -296,11 +265,8 @@ public:
 
 	// State transitions that apply to the current thread only.
 
-	// Returns false if the block was interrupted.
-	// maskedConditions allows callers to suppress interrupts due to some of the conditions.
-	// In particular, if a condition C is set in maskedConditions,
-	// then raising C will *not* interrupt the blocking.
-	static bool blockCurrent(bool interruptible, Condition maskedConditions);
+	// If any conditions in checkedConditions is set, we do not block.
+	static void blockCurrent(Condition checkedConditions);
 	static void migrateCurrent();
 	static void deferCurrent();
 	static void deferCurrent(IrqImageAccessor image);
@@ -451,10 +417,6 @@ private:
 		// it is not scheduled.
 		kRunBlocked,
 
-		// thread is waiting for progress inside the kernel.
-		// it is not scheduled, but it can be interrupted.
-		kRunInterruptableBlocked,
-
 		// Thread terminated (i.e., it will never be scheduled again).
 		// If a thread is in kRunTerminated, then:
 		// * mainWorkQueue() and pagingWorkQueue() must be empty.
@@ -478,6 +440,8 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+	// Conditions that unblock the thread while in kRunBlocked.
+	Condition unblockConditions_{0};
 
 	// If this flag is set, blockCurrent() returns immediately.
 	// In blockCurrent(), the flag is checked within _mutex.

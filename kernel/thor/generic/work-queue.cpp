@@ -15,7 +15,7 @@ void WorkQueue::post(Worklet *worklet) {
 		// If we are not in interrupt context,
 		// we can push directly to the pending queue without running into races.
 		if (contextIpl() < ipl::interrupt) [[likely]] {
-			auto pendingEmpty = !_pending.empty();
+			auto pendingEmpty = _pending.empty();
 
 			if (_inRun.load(std::memory_order_relaxed)) {
 				// If a worklet posts another worklet, we proceed in LIFO order,

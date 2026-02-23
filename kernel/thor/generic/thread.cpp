@@ -76,7 +76,7 @@ void Thread::migrateCurrent() {
 	}, &this_thread->_executor);
 }
 
-bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
+void Thread::blockCurrent(Condition checkedConditions) {
 	assert(currentIpl() < ipl::schedule);
 
 	auto thisThread = getCurrentThread();
@@ -84,11 +84,10 @@ bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
 	// Optimistically clear the unblock latch before entering the mutex.
 	// We need acquire semantics to synchronize with unblockOther().
 	if(thisThread->_unblockLatch.exchange(false, std::memory_order_acquire))
-		return true;
+		return;
 
-	// Avoid taking _mutex if we are interrupted anyway.
-	if (interruptible && (thisThread->_pendingConditions.load(std::memory_order_relaxed) & ~maskedConditions))
-		return false;
+	// Note: for performance reasons, callers should check that checkedConditions
+	//       are not already set in _pendingConditions before calling this function.
 
 	StatelessIrqLock irqLock;
 	auto lock = frg::guard(&thisThread->_mutex);
@@ -96,12 +95,12 @@ bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
 	// We do not need any memory barrier here: no matter how our aquisition of _mutex
 	// is ordered to the aquisition in unblockOther(), we are still correct.
 	if(thisThread->_unblockLatch.load(std::memory_order_relaxed))
-		return true;
+		return;
 
 	// Conditions can only become pending if the _mutex is held,
 	// hence we never move to blocked state while conditions are pending.
-	if (interruptible && (thisThread->_pendingConditions.load(std::memory_order_relaxed) & ~maskedConditions))
-		return false;
+	if (thisThread->_pendingConditions.load(std::memory_order_relaxed) & checkedConditions)
+		return;
 
 	if(logRunStates)
 		infoLogger() << "thor: " << (void *)thisThread.get()
@@ -109,7 +108,8 @@ bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
 
 	assert(thisThread->_runState == kRunActive);
 	thisThread->_updateRunTime();
-	thisThread->_runState = interruptible ? kRunInterruptableBlocked : kRunBlocked;
+	thisThread->_runState = kRunBlocked;
+	thisThread->unblockConditions_ = checkedConditions;
 	localScheduler.get().update();
 	Scheduler::suspendCurrent();
 	localScheduler.get().forceReschedule();
@@ -122,8 +122,6 @@ bool Thread::blockCurrent(bool interruptible, Condition maskedConditions) {
 			localScheduler.get().commitReschedule();
 		}, getCpuData()->detachedStack.base(), &thisThread->_executor, std::move(lock));
 	}, &thisThread->_executor);
-
-	return true;
 }
 
 void Thread::deferCurrent() {
@@ -252,7 +250,7 @@ void Thread::genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, I
 				);
 			}),
 			thisThread->pagingWorkQueue().get(),
-			~condition::terminate
+			condition::interrupt
 		);
 		if (!outcome)
 			break;
@@ -308,7 +306,7 @@ void Thread::launchCurrent_() {
 				);
 			}),
 			thisThread->pagingWorkQueue().get(),
-			~condition::terminate
+			condition::interrupt
 		);
 		if (!outcome)
 			break;
@@ -382,18 +380,30 @@ void Thread::handleConditions(SyscallImageAccessor image) {
 	assert(image.iplState()->current < ipl::schedule);
 	auto thisThread = getCurrentThread();
 
+	auto clearPending = [&] (Condition c) {
+		auto pending = thisThread->_pendingConditions.fetch_and(~c, std::memory_order_acq_rel);
+		// Holds because only the thread itself can clear _pendingConditions.
+		assert(pending & c);
+	};
+
 	auto pending = thisThread->_pendingConditions.load(std::memory_order_relaxed);
 	while (pending) {
 		// Dequeue the highest pending bit.
 		auto c = Condition{1} << frg::floor_log2(pending);
-		pending = thisThread->_pendingConditions.fetch_and(~c, std::memory_order_relaxed);
-		// Holds because only the thread itself can clear _pendingConditions.
-		assert(pending & c);
+
 		switch (c) {
+			case condition::passiveWq:
+				[[fallthrough]];
+			case condition::exceptionalWq:
+				// No clearPending(), this is handled by runWq().
+				drainWqs();
+				break;
 			case condition::interrupt:
+				clearPending(c);
 				interruptCurrent(kIntrRequested, image, {});
 				break;
 			case condition::terminate:
+				clearPending(c);
 				terminateCurrent_();
 				break;
 			default:
@@ -453,7 +463,7 @@ void Thread::unblockOther(smarter::borrowed_ptr<Thread> thread) {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&thread->_mutex);
 
-	if (thread->_runState != kRunBlocked && thread->_runState != kRunInterruptableBlocked)
+	if (thread->_runState != kRunBlocked)
 		return;
 	
 	if(logRunStates)
@@ -504,14 +514,18 @@ void Thread::raiseCondition_(Condition c) {
 
 		// TODO: Send an IPI for expedited condition handling.
 
+		// acq_rel ordering to synchronize with code running on the thread that does not take _mutex.
+		// For example, this applies to runWqs().
 		auto pending = _pendingConditions.fetch_or(
-			c, std::memory_order_relaxed
+			c, std::memory_order_acq_rel
 		);
 		if (pending & c)
 			return;
+		if (!(unblockConditions_ & c))
+			return;
 
 		// If the thread is blocked and can be interrupted, then unblock it to notify.
-		unblock = (_runState == kRunInterruptableBlocked);
+		unblock = (_runState == kRunBlocked);
 	}
 
 	if(unblock)
@@ -671,7 +685,6 @@ void Thread::_updateRunTime() {
 		// TODO: Terminated counts as not runnable; we may want to revisit this.
 		assert(
 		    _runState == kRunBlocked || _runState == kRunTerminated
-		    || _runState == kRunInterruptableBlocked
 		);
 		_loadNotRunnable += elapsed;
 	}
@@ -687,7 +700,12 @@ void Thread::_uninvoke() {
 }
 
 void Thread::AssociatedWorkQueue::wakeup() {
-	unblockOther(_thread->self);
+	if (wqIpl() == ipl::passiveWork) {
+		_thread->raiseCondition_(condition::passiveWq);
+	} else {
+		assert(wqIpl() == ipl::exceptionalWork);
+		_thread->raiseCondition_(condition::exceptionalWq);
+	}
 }
 
 void Thread::updateLoad() {

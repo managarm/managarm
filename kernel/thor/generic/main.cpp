@@ -866,9 +866,6 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.error() = kHelErrIllegalSyscall;
 	}
 
-	// Run more worklets that were posted by the syscall.
-	Thread::drainWqs();
-
 	// Note: Thread::raiseSignals() only returns if nothing needs to be raised.
 	//       Otherwise, it saves the syscall image and suspends this thread.
 	Thread::handleConditions(image);
