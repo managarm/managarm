@@ -69,7 +69,9 @@ void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t 
 
 // Power-of-two that is used for a particular allocation.
 int contiguous_pool::shift_of_(size_t size, size_t count, size_t align) {
-	return frg::ceil_log2(std::max({size * count, align, min_size_class}));
+	return frg::ceil_log2(
+		std::max({size * count, align, min_size_class, options_.minAllocationGap})
+	);
 }
 
 void *contiguous_pool::allocate_pages_(size_t region_size) {
