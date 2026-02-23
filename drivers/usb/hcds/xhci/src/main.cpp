@@ -1107,7 +1107,8 @@ EndpointState::_resetAfterError(size_t nextDequeue, bool cycle) {
 		clearHalt->type = proto::setup_type::targetEndpoint | proto::setup_type::byStandard | proto::setup_type::toDevice;
 		clearHalt->request = proto::request_type::clearFeature;
 		clearHalt->value = proto::features::endpointHalt;
-		clearHalt->index = _endpointId >> 1; // Our ID is EP no. * 2 + direction
+		// Our ID is EP no. * 2 + direction, while USB's EP address uses bit 7 for direction instead.
+		clearHalt->index = ((_endpointId & 1) ? 0x80 : 0x00) | (_endpointId >> 1);
 		clearHalt->length = 0;
 
 		FRG_CO_TRY(co_await _device->transfer({protocols::usb::kXferToDevice, clearHalt, {}}));
