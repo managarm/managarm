@@ -1,5 +1,6 @@
 #include <frg/scope_exit.hpp>
 #include <thor-internal/address-space.hpp>
+#include <thor-internal/arch-generic/asid.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
@@ -525,6 +526,49 @@ size_t ImmediateMemory::getLength() {
 	auto lock = frg::guard(&_mutex);
 
 	return _physicalPages.size() * kPageSize;
+}
+
+// --------------------------------------------------------
+// ImmediateWindow
+// --------------------------------------------------------
+
+ImmediateWindow::ImmediateWindow(smarter::shared_ptr<ImmediateMemory> memory)
+: _memory{std::move(memory)} {
+	_size = _memory->getLength();
+	_base = KernelVirtualMemory::global().allocate(_size);
+	assert(_base);
+	for(size_t offset = 0; offset < _size; offset += kPageSize) {
+		auto physicalRange = _memory->peekRange(offset, fetchRequireMutable);
+		assert(physicalRange.isMutable);
+		KernelPageSpace::global().mapSingle4k(
+			reinterpret_cast<VirtualAddr>(_base) + offset,
+			physicalRange.physical,
+			page_access::write,
+			CachingMode::null
+		);
+	}
+}
+
+ImmediateWindow::~ImmediateWindow() {
+	if(!_base)
+		return;
+	for(size_t offset = 0; offset < _size; offset += kPageSize)
+		KernelPageSpace::global().unmapSingle4k(reinterpret_cast<VirtualAddr>(_base) + offset);
+	spawnOnWorkQueue(
+		*kernelAlloc,
+		WorkQueue::generalQueue().lock(),
+		[](smarter::shared_ptr<ImmediateMemory> memory, void *base, size_t size) -> coroutine<void> {
+			// The pages are still accessible until shootdown completes, so keep the shared_ptr around.
+			(void)memory;
+			co_await shootdown(
+				&KernelPageSpace::global(),
+				reinterpret_cast<VirtualAddr>(base),
+				size,
+				WorkQueue::generalQueue().get()
+			);
+			KernelVirtualMemory::global().deallocate(base, size);
+		}(std::move(_memory), _base, _size)
+	);
 }
 
 // --------------------------------------------------------

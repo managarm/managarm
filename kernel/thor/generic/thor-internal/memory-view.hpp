@@ -493,6 +493,47 @@ private:
 	frg::vector<PhysicalAddr, KernelAlloc> _physicalPages;
 };
 
+struct ImmediateWindow {
+	friend void swap(ImmediateWindow &x, ImmediateWindow &y) {
+		using std::swap;
+		swap(x._memory, y._memory);
+		swap(x._base, y._base);
+		swap(x._size, y._size);
+	}
+
+	ImmediateWindow() : _base{nullptr}, _size{0} { }
+
+	ImmediateWindow(smarter::shared_ptr<ImmediateMemory> memory);
+
+	ImmediateWindow(const ImmediateWindow &) = delete;
+
+	ImmediateWindow(ImmediateWindow &&other)
+	: ImmediateWindow{} {
+		swap(*this, other);
+	}
+
+	ImmediateWindow &operator=(ImmediateWindow other) {
+		swap(*this, other);
+		return *this;
+	}
+
+	~ImmediateWindow();
+
+	std::byte *bytes_data(size_t offset = 0) {
+		return reinterpret_cast<std::byte *>(_base) + offset;
+	}
+
+	template<typename T>
+	T *access(uintptr_t offset) {
+		return std::launder(reinterpret_cast<T *>(bytes_data(offset)));
+	}
+
+private:
+	smarter::shared_ptr<ImmediateMemory> _memory;
+	void *_base;
+	size_t _size;
+};
+
 struct HardwareMemory final : MemoryView {
 	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
 	HardwareMemory(const HardwareMemory &) = delete;
