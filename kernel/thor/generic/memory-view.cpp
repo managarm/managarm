@@ -857,29 +857,6 @@ void ManagedSpace::submitManagement(ManageNode *node) {
 	}
 }
 
-void ManagedSpace::submitMonitor(MonitorNode *node) {
-	node->progress = 0;
-
-	MonitorList pending;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex);
-
-		assert(node->offset % kPageSize == 0);
-		assert(node->length % kPageSize == 0);
-		assert((node->offset + node->length) / kPageSize <= numPages);
-
-		_monitorQueue.push_back(node);
-		_progressMonitors(pending);
-	}
-
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
-		node->event.raise();
-	}
-
-}
-
 void ManagedSpace::_progressManagement(ManageList &pending) {
 	// For now, we prefer writeback to initialization.
 	// "Proper" priorization should probably be done in the userspace driver
@@ -936,39 +913,6 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 	}
 }
 
-void ManagedSpace::_progressMonitors(MonitorList &pending) {
-	// TODO: Accelerate this by storing the monitors in a RB tree ordered by their progress.
-	auto progressNode = [&] (MonitorNode *node) -> bool {
-		while(node->progress < node->length) {
-			size_t index = (node->offset + node->progress) >> kPageShift;
-			auto pit = pages.find(index);
-			assert(pit);
-			if(pit->loadState == kStateMissing
-					|| pit->loadState == kStateWantInitialization
-					|| pit->loadState == kStateInitialization)
-				return false;
-
-			assert(pit->loadState == kStatePresent
-					|| pit->loadState == kStateWantWriteback
-					|| pit->loadState == kStateWriteback
-					|| pit->loadState == kStateAnotherWriteback
-					|| pit->loadState == kStateEvicting);
-			node->progress += kPageSize;
-		}
-		return true;
-	};
-
-	for(auto it = _monitorQueue.begin(); it != _monitorQueue.end(); ) {
-		auto it_copy = it;
-		auto node = *it++;
-		assert(node->type == ManageRequest::initialize);
-		if(progressNode(node)) {
-			_monitorQueue.erase(it_copy);
-			node->setup(Error::success);
-			pending.push_back(node);
-		}
-	}
-}
 
 // --------------------------------------------------------
 // BackingMemory
@@ -1069,7 +1013,14 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	assert((offset % kPageSize) == 0);
 	assert((length % kPageSize) == 0);
 
-	MonitorList pending;
+	frg::intrusive_list<
+		ManagedSpace::TransactionMonitor,
+		frg::locate_member<
+			ManagedSpace::TransactionMonitor,
+			frg::default_list_hook<ManagedSpace::TransactionMonitor>,
+			&ManagedSpace::TransactionMonitor::pendingHook
+		>
+	> pendingMonitors;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
@@ -1104,6 +1055,9 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				pit->loadState = ManagedSpace::kStatePresent;
 				if(!pit->lockCount)
 					globalReclaimer->addPage(&pit->cachePage);
+				ref_rc(pit->monitor.get());
+				pendingMonitors.push_back(pit->monitor.get());
+				pit->monitor = {};
 			}
 		}else{
 			for(size_t pg = 0; pg < length; pg += kPageSize) {
@@ -1115,20 +1069,27 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 					pit->loadState = ManagedSpace::kStatePresent;
 					if(!pit->lockCount)
 						globalReclaimer->addPage(&pit->cachePage);
+					ref_rc(pit->monitor.get());
+					pendingMonitors.push_back(pit->monitor.get());
+					pit->monitor = {};
 				}else{
 					assert(pit->loadState == ManagedSpace::kStateAnotherWriteback);
 					pit->loadState = ManagedSpace::kStateWantWriteback;
 					_managed->_writebackList.push_back(&pit->cachePage);
+					ref_rc(pit->monitor.get());
+					pendingMonitors.push_back(pit->monitor.get());
+					pit->monitor = {};
+					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
 				}
 			}
 		}
-
-		_managed->_progressMonitors(pending);
 	}
 
-	while(!pending.empty()) {
-		auto node = pending.pop_front();
-		node->event.raise();
+	while(!pendingMonitors.empty()) {
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor{
+			frg::adopt_rc, pendingMonitors.pop_front()
+		};
+		monitor->event.raise();
 	}
 
 	return Error::success;
@@ -1187,11 +1148,9 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
-	auto alignedOffset = offset & ~(kPageSize - 1);
 
 	ManageList pendingManagement;
-	MonitorList pendingMonitors;
-	MonitorNode fetchMonitor;
+	frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
@@ -1233,6 +1192,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		if(pit->loadState == ManagedSpace::kStateMissing) {
 			pit->loadState = ManagedSpace::kStateWantInitialization;
 			_managed->_initializationList.push_back(&pit->cachePage);
+			pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
 		}
 
 		// Perform readahead.
@@ -1246,28 +1206,21 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 				if(pit->loadState == ManagedSpace::kStateMissing) {
 					pit->loadState = ManagedSpace::kStateWantInitialization;
 					_managed->_initializationList.push_back(&pit->cachePage);
+					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
 				}
 			}
 
 		_managed->_progressManagement(pendingManagement);
 
-		fetchMonitor.setup(ManageRequest::initialize, alignedOffset, kPageSize);
-		fetchMonitor.progress = 0;
-		_managed->_monitorQueue.push_back(&fetchMonitor);
-		_managed->_progressMonitors(pendingMonitors);
+		fetchMonitor = pit->monitor;
 	}
 
 	while(!pendingManagement.empty()) {
 		auto node = pendingManagement.pop_front();
 		node->completionEvent.raise();
 	}
-	while(!pendingMonitors.empty()) {
-		auto node = pendingMonitors.pop_front();
-		node->event.raise();
-	}
 
-	co_await fetchMonitor.event.wait();
-	assert(fetchMonitor.error() == Error::success);
+	co_await fetchMonitor->event.wait();
 
 	co_return kPageSize - misalign;
 }
@@ -1290,10 +1243,12 @@ void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
 				if(!pit->lockCount)
 					globalReclaimer->removePage(&pit->cachePage);
 				_managed->_writebackList.push_back(&pit->cachePage);
+				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
 			}else if(pit->loadState == ManagedSpace::kStateEvicting) {
 				pit->loadState = ManagedSpace::kStateWantWriteback;
 				assert(!pit->lockCount);
 				_managed->_writebackList.push_back(&pit->cachePage);
+				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
 			}else if(pit->loadState == ManagedSpace::kStateWriteback) {
 				pit->loadState = ManagedSpace::kStateAnotherWriteback;
 			}else{

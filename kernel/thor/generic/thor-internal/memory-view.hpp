@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 
 #include <async/algorithm.hpp>
@@ -7,6 +8,7 @@
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
 #include <frg/expected.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
@@ -118,42 +120,6 @@ struct MemoryNotification {
 	size_t size;
 };
 
-struct MonitorNode {
-	void setup(ManageRequest type_, uintptr_t offset_, size_t length_) {
-		type = type_;
-		offset = offset_;
-		length = length_;
-	}
-
-	Error error() { return _error; }
-
-	void setup(Error error) {
-		_error = error;
-	}
-
-	ManageRequest type;
-	uintptr_t offset;
-	size_t length;
-	async::oneshot_event event;
-
-private:
-	Error _error;
-
-public:
-	frg::default_list_hook<MonitorNode> processQueueItem;
-
-	// Current progress in bytes.
-	size_t progress;
-};
-
-using MonitorList = frg::intrusive_list<
-	MonitorNode,
-	frg::locate_member<
-		MonitorNode,
-		frg::default_list_hook<MonitorNode>,
-		&MonitorNode::processQueueItem
-	>
->;
 
 using FetchFlags = uint32_t;
 inline constexpr FetchFlags fetchNone = 0;
@@ -544,6 +510,19 @@ struct ManagedSpace : CacheBundle {
 		kStateEvicting
 	};
 
+	// Struct that is attached to ManagedPage for the duration of
+	// a single transaction (i.e., initialization or writeback).
+	// For initialization:
+	// * Attached when entering kStateWantInitialization.
+	// * Completed when leaving kStateInitialization.
+	// For writeback:
+	// * Attached when entering kStateWantWriteback.
+	// * Detached when leaving kStateWriteback.
+	struct TransactionMonitor final : frg::intrusive_rc {
+		async::oneshot_primitive event;
+		frg::default_list_hook<TransactionMonitor> pendingHook;
+	};
+
 	struct ManagedPage {
 		ManagedPage(ManagedSpace *bundle, uint64_t identity) {
 			cachePage.bundle = bundle;
@@ -558,6 +537,7 @@ struct ManagedSpace : CacheBundle {
 		LoadState loadState = kStateMissing;
 		unsigned int lockCount = 0;
 		CachePage cachePage;
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
 
 	// Calls management callbacks from a WQ; required to implement markDirty().
@@ -593,9 +573,7 @@ struct ManagedSpace : CacheBundle {
 	void unlockPages(uintptr_t offset, size_t size);
 
 	void submitManagement(ManageNode *node);
-	void submitMonitor(MonitorNode *node);
 	void _progressManagement(ManageList &pending);
-	void _progressMonitors(MonitorList &pending);
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
@@ -627,7 +605,6 @@ struct ManagedSpace : CacheBundle {
 	> _writebackList;
 
 	ManageList _managementQueue;
-	MonitorList _monitorQueue;
 
 	DeferredWork<DeferredManagement> _deferredManagement{{this}};
 };
