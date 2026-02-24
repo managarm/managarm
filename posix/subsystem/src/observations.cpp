@@ -513,6 +513,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(check) {
 				if(infoPtr) {
 					siginfo_t siginfo{};
+					siginfo.si_signo = check->signalNumber;
 					std::visit(CompileSignalInfo{&siginfo}, check->info);
 					auto store = co_await helix_ng::writeMemory(
 						self->vmContext()->getSpace(),
