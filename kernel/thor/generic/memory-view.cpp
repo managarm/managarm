@@ -294,6 +294,10 @@ Error MemoryView::updateRange(ManageRequest, size_t, size_t) {
 	return Error::illegalObject;
 }
 
+coroutine<frg::expected<Error>> MemoryView::writebackFence(uintptr_t, size_t) {
+	co_return {};
+}
+
 coroutine<frg::expected<Error, MemoryNotification>> MemoryView::pollNotification() {
 	co_return Error::illegalObject;
 }
@@ -1093,6 +1097,68 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 	}
 
 	return Error::success;
+}
+
+coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, size_t size) {
+	if (offset & (kPageSize - 1))
+		co_return Error::illegalArgs;
+	if (size & (kPageSize - 1))
+		co_return Error::illegalArgs;
+
+	size_t pg = 0;
+	while(pg < size) {
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor;
+		bool needSecond = false;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_managed->mutex);
+
+			while(pg < size) {
+				size_t index = (offset + pg) >> kPageShift;
+				auto pit = _managed->pages.find(index);
+				if(pit) {
+					if(pit->loadState == ManagedSpace::kStateWantWriteback) {
+						monitor = pit->monitor;
+						break;
+					} else if(pit->loadState == ManagedSpace::kStateWriteback
+							|| pit->loadState == ManagedSpace::kStateAnotherWriteback) {
+						monitor = pit->monitor;
+						needSecond = true;
+						break;
+					}
+				}
+				pg += kPageSize;
+			}
+		}
+
+		if(!monitor)
+			break;
+
+		co_await monitor->event.wait();
+
+		// If the writeback was already in progress, it is not guaranteed that it did write
+		// back the latest state before the writebackFence().
+		// In this case, we may need to wait for another writeback.
+		if(needSecond) {
+			monitor = {};
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_managed->mutex);
+
+				size_t index = (offset + pg) >> kPageShift;
+				auto pit = _managed->pages.find(index);
+				if(pit && pit->monitor)
+					monitor = pit->monitor;
+			}
+
+			if(monitor)
+				co_await monitor->event.wait();
+		}
+
+		pg += kPageSize;
+	}
+
+	co_return {};
 }
 
 // --------------------------------------------------------
