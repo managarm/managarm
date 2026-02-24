@@ -1,42 +1,65 @@
 #pragma once
 
 #include <arch/dma_structs.hpp>
-#include <frg/slab.hpp>
+#include <array>
 #include <mutex>
 #include <stddef.h>
 #include <stdint.h>
+#include <vector>
 
 namespace arch {
 
 struct contiguous_pool_options {
 	size_t addressBits{32};
-};
-
-struct contiguous_policy {
-public:
-	contiguous_policy(contiguous_pool_options options = {})
-	: _options{std::move(options)} { }
-
-	uintptr_t map(size_t length);
-	void unmap(uintptr_t address, size_t length);
-
-private:
-	contiguous_pool_options _options;
+	// Gap in bytes between the base addresses of two allocations.
+	// When doing non-coherent DMA, this is needed to ensure that different allocations
+	// end up on different cache lines (such that writes to an allocation cannot cause
+	// adjacent cache lines to become dirty).
+	size_t minAllocationGap{64};
 };
 
 struct contiguous_pool : dma_pool {
+private:
+	// log2 of the min/max size classes.
+	static constexpr int min_shift = 3;
+	static constexpr int max_shift = 14;
+
+	static constexpr size_t min_size_class = size_t{1} << min_shift;
+	static constexpr size_t max_size_class = size_t{1} << max_shift;
+	static constexpr size_t num_size_classes = max_shift - min_shift + 1;
+
+	// Size of regions that store objects of size <= max_size_class.
+	static constexpr int small_region_size = size_t{1} << 16;
+
+public:
 	contiguous_pool(contiguous_pool_options options = {});
 
-	void *allocate(size_t size, size_t count, size_t align) override;
-	void deallocate(void *pointer, size_t size, size_t count, size_t align) override;
+	dma_ptr allocate(size_t size, size_t count, size_t align) override;
+	void deallocate(dma_ptr ptr, size_t size, size_t count, size_t align) override;
 
 private:
-	contiguous_policy _policy;
+	struct region : dma_region {
+		region(contiguous_pool *pool, void *p)
+		: dma_region{pool} {
+			base_va = reinterpret_cast<uintptr_t>(p);
+		}
+	};
 
-	frg::slab_pool<
-		contiguous_policy,
-		std::mutex
-	> _slab;
+	struct bucket {
+		std::vector<dma_ptr> freelist;
+	};
+
+	int shift_of_(size_t size, size_t count, size_t align);
+
+	void *allocate_pages_(size_t region_size);
+	void deallocate_pages_(void *p, size_t region_size);
+
+	contiguous_pool_options options_;
+
+	std::mutex mutex_;
+
+	// Protected by mutex_.
+	std::array<bucket, num_size_classes> buckets_;
 };
 
 } // namespace arch
