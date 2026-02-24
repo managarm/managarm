@@ -92,12 +92,8 @@ struct ManageNode {
 		_size = size;
 	}
 
-	virtual void complete() = 0;
-
 	frg::default_list_hook<ManageNode> processQueueItem;
-
-protected:
-	~ManageNode() = default;
+	async::oneshot_primitive completionEvent;
 
 private:
 	// Results of the operation.
@@ -115,6 +111,12 @@ using ManageList = frg::intrusive_list<
 		&ManageNode::processQueueItem
 	>
 >;
+
+struct MemoryNotification {
+	ManageRequest type;
+	uintptr_t offset;
+	size_t size;
+};
 
 struct MonitorNode {
 	void setup(ManageRequest type_, uintptr_t offset_, size_t length_) {
@@ -301,7 +303,7 @@ public:
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
 
-	virtual void submitManage(ManageNode *handle);
+	virtual coroutine<frg::expected<Error, MemoryNotification>> pollNotification();
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
@@ -326,59 +328,6 @@ public:
 				return Eviction{std::move(handle)};
 			}
 		);
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for submitManage()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct SubmitManageOperation;
-
-	struct [[nodiscard]] SubmitManageSender {
-		using value_type = frg::tuple<Error, ManageRequest, uintptr_t, size_t>;
-
-		template<typename R>
-		friend SubmitManageOperation<R>
-		connect(SubmitManageSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-	};
-
-	SubmitManageSender submitManage() {
-		return {this};
-	}
-
-	template<typename R>
-	struct SubmitManageOperation final : private ManageNode {
-		SubmitManageOperation(SubmitManageSender s, R receiver)
-		: s_{s.self}, receiver_{std::move(receiver)} { }
-
-		SubmitManageOperation(const SubmitManageOperation &) = delete;
-
-		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
-
-		void start() {
-			s_->submitManage(this);
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, ManageRequest, uintptr_t, size_t>{error(),
-							type(), offset(), size()});
-		}
-
-		MemoryView *s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<SubmitManageSender,
-			frg::tuple<Error, ManageRequest, uintptr_t, size_t>>
-	operator co_await(SubmitManageSender sender) {
-		return {sender};
 	}
 
 private:
@@ -628,7 +577,7 @@ struct ManagedSpace : CacheBundle {
 
 			while(!pending.empty()) {
 				auto node = pending.pop_front();
-				node->complete();
+				node->completionEvent.raise();
 			}
 
 			self->selfPtr.ctr()->decrement();
@@ -700,7 +649,7 @@ public:
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-	void submitManage(ManageNode *handle) override;
+	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 
 private:

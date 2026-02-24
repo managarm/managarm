@@ -1542,19 +1542,32 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 			smarter::shared_ptr<MemoryView> memory,
 			uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto [error, type, offset, size] = co_await memory->submitManage();
+		auto resultOrError = co_await memory->pollNotification();
 
-		int helType;
-		switch (type) {
-			case ManageRequest::initialize: helType = kHelManageInitialize; break;
-			case ManageRequest::writeback: helType = kHelManageWriteback; break;
-			default:
-				assert(!"unexpected ManageRequest");
-				__builtin_trap();
+		HelManageResult helResult;
+		if(!resultOrError) {
+			helResult = HelManageResult{
+				translateError(resultOrError.error()), 0, 0, 0
+			};
+		} else {
+			auto result = resultOrError.value();
+			int manageRequest = 0;
+			switch (result.type) {
+				case ManageRequest::null:
+					// This should not be returned from pollNotification().
+					break;
+				case ManageRequest::initialize:
+					manageRequest = kHelManageInitialize;
+					break;
+				case ManageRequest::writeback:
+					manageRequest = kHelManageWriteback;
+					break;
+			}
+			assert(manageRequest); // The switch needs to be exhaustive.
+			helResult = HelManageResult{
+				translateError(Error::success), manageRequest, result.offset, result.size
+			};
 		}
-
-		HelManageResult helResult{translateError(error),
-				helType, offset, size};
 		QueueSource ipcSource{&helResult, sizeof(HelManageResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(queue), std::move(memory), context,

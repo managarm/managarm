@@ -294,8 +294,8 @@ Error MemoryView::updateRange(ManageRequest, size_t, size_t) {
 	return Error::illegalObject;
 }
 
-void MemoryView::submitManage(ManageNode *) {
-	panicLogger() << "MemoryView does not support management!" << frg::endlog;
+coroutine<frg::expected<Error, MemoryNotification>> MemoryView::pollNotification() {
+	co_return Error::illegalObject;
 }
 
 Error MemoryView::setIndirection(size_t, smarter::shared_ptr<MemoryView>,
@@ -853,7 +853,7 @@ void ManagedSpace::submitManagement(ManageNode *node) {
 
 	while(!pending.empty()) {
 		auto node = pending.pop_front();
-		node->complete();
+		node->completionEvent.raise();
 	}
 }
 
@@ -1056,8 +1056,13 @@ size_t BackingMemory::getLength() {
 	return _managed->numPages << kPageShift;
 }
 
-void BackingMemory::submitManage(ManageNode *node) {
-	_managed->submitManagement(node);
+coroutine<frg::expected<Error, MemoryNotification>> BackingMemory::pollNotification() {
+	ManageNode node;
+	_managed->submitManagement(&node);
+	co_await node.completionEvent.wait();
+	if(node.error() != Error::success)
+		co_return node.error();
+	co_return MemoryNotification{node.type(), node.offset(), node.size()};
 }
 
 Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t length) {
@@ -1254,7 +1259,7 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 
 	while(!pendingManagement.empty()) {
 		auto node = pendingManagement.pop_front();
-		node->complete();
+		node->completionEvent.raise();
 	}
 	while(!pendingMonitors.empty()) {
 		auto node = pendingMonitors.pop_front();
