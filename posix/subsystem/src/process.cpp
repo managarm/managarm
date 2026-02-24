@@ -503,9 +503,10 @@ void FileContext::closeOnExec() {
 // ----------------------------------------------------------------------------
 
 void CompileSignalInfo::operator() (const UserSignal &info) const {
-	//si->si_code = SI_USER;
+	si->si_code = info.code;
 	si->si_pid = info.pid;
 	si->si_uid = info.uid;
+	si->si_value = info.val;
 }
 
 void CompileSignalInfo::operator() (const TimerSignal &info) const {
