@@ -354,7 +354,9 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			uintptr_t gprs[kHelNumGprs];
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			auto pid = (intptr_t)gprs[kHelRegArg0];
-			auto sn = gprs[kHelRegArg1];
+			int sn = gprs[kHelRegArg1];
+			int sicode = gprs[kHelRegArg2];
+			sigval sival = { .sival_ptr = reinterpret_cast<void *>(gprs[kHelRegArg3]) };
 
 			std::shared_ptr<Process> target;
 			std::shared_ptr<ProcessGroup> targetGroup;
@@ -377,10 +379,20 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				targetGroup = ProcessGroup::findProcessGroup(-pid);
 			}
 
+			std::array permittedSiCodes = {
+				SI_USER,
+				SI_QUEUE,
+			};
+
 			gprs[kHelRegError] = 0;
 			gprs[kHelRegOut0] = 0;
 			if(!target && !targetGroup) {
 				gprs[kHelRegOut0] = ESRCH;
+				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+				HEL_CHECK(helResume(thread.getHandle()));
+				continue;
+			} else if (!std::ranges::contains(permittedSiCodes, sicode)) {
+				gprs[kHelRegOut0] = EPERM;
 				HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 				HEL_CHECK(helResume(thread.getHandle()));
 				continue;
@@ -389,7 +401,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 			UserSignal info;
 			info.pid = self->pid();
-			info.uid = 0;
+			info.uid = self->threadGroup()->uid();
+			info.code = sicode;
+			info.val = sival;
+
 			if(sn) {
 				if(targetGroup) {
 					targetGroup->issueSignalToGroup(sn, info);
@@ -513,6 +528,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if(check) {
 				if(infoPtr) {
 					siginfo_t siginfo{};
+					siginfo.si_signo = check->signalNumber;
 					std::visit(CompileSignalInfo{&siginfo}, check->info);
 					auto store = co_await helix_ng::writeMemory(
 						self->vmContext()->getSpace(),

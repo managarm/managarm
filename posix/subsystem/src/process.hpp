@@ -230,6 +230,8 @@ private:
 struct UserSignal {
 	int pid = 0;
 	int uid = 0;
+	int code = SI_USER;
+	sigval val = { .sival_ptr = nullptr };
 };
 
 struct TimerSignal {
