@@ -1271,4 +1271,89 @@ inline auto forkMemory(BorrowedDescriptor memory) {
 	return ForkMemorySender{std::move(memory)};
 }
 
+// --------------------------------------------------------------------
+// WritebackFence
+// --------------------------------------------------------------------
+
+struct WritebackFenceResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct WritebackFenceOperation : private Context {
+	WritebackFenceOperation(BorrowedDescriptor memory, uintptr_t offset, size_t size, Receiver r)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqWritebackFence header;
+		header.handle = memory_.getHandle();
+		header.offset = offset_;
+		header.size = size_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitWritebackFence,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	WritebackFenceOperation(const WritebackFenceOperation &) = delete;
+	WritebackFenceOperation &operator= (const WritebackFenceOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		WritebackFenceResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor memory_;
+	uintptr_t offset_;
+	size_t size_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] WritebackFenceSender {
+	using value_type = WritebackFenceResult;
+
+	WritebackFenceSender(BorrowedDescriptor memory, uintptr_t offset, size_t size)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size} { }
+
+	template<typename Receiver>
+	WritebackFenceOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(memory_), offset_, size_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor memory_;
+	uintptr_t offset_;
+	size_t size_;
+};
+
+inline async::sender_awaiter<WritebackFenceSender, WritebackFenceResult>
+operator co_await (WritebackFenceSender sender) {
+	return {std::move(sender)};
+}
+
+inline auto writebackFence(BorrowedDescriptor memory, uintptr_t offset, size_t size) {
+	return WritebackFenceSender{std::move(memory), offset, size};
+}
+
 } // namespace helix_ng
