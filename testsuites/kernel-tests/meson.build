@@ -2,8 +2,9 @@ executable('kernel-tests',
 	[
 		'src/main.cpp',
 		'src/faults.cpp',
-		'src/mapping.cpp'
+		'src/mapping.cpp',
+		'src/memory.cpp',
 	],
-	dependencies: [ hel_dep ],
+	dependencies: [ helix_dep ],
 	install : true
 )
