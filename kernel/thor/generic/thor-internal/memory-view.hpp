@@ -276,6 +276,8 @@ public:
 
 	virtual coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size);
 
+	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size);
+
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size, CachingFlags flags);
 
@@ -533,13 +535,16 @@ struct ManagedSpace : CacheBundle {
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
-	// a single transaction (i.e., initialization or writeback).
+	// a single transaction (i.e., initialization, writeback, or forced eviction).
 	// For initialization:
 	// * Attached when entering TxState::wantInitialization.
 	// * Completed when leaving TxState::initialization.
 	// For writeback:
 	// * Attached when entering TxState::wantWriteback.
-	// * Detached when leaving TxState::writeback.
+	// * Completed when leaving TxState::writeback.
+	// For forced eviction (invalidateRange() on a page already in LoadState::evicting):
+	// * Attached by invalidateRange() while the page is in LoadState::evicting.
+	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
 	struct TransactionMonitor final : frg::intrusive_rc {
 		async::oneshot_primitive event;
 		frg::default_list_hook<TransactionMonitor> pendingHook;
@@ -562,6 +567,10 @@ struct ManagedSpace : CacheBundle {
 		// Can only be true in LoadState::present and TxState::writeback.
 		// If set in LoadState::evicting, causes transition to LoadState::present.
 		bool stillDirty{false};
+		// Set by invalidateRange() when the page is already in LoadState::evicting,
+		// to request that the eviction coroutine raise monitor after completing
+		// the transition to LoadState::missing.
+		bool forceInvalidation{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
@@ -656,6 +665,7 @@ public:
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
+	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size) override;
 
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;

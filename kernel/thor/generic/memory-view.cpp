@@ -298,6 +298,10 @@ coroutine<frg::expected<Error>> MemoryView::writebackFence(uintptr_t, size_t) {
 	co_return {};
 }
 
+coroutine<frg::expected<Error>> MemoryView::invalidateRange(uintptr_t, size_t) {
+	co_return {};
+}
+
 coroutine<frg::expected<Error, MemoryNotification>> MemoryView::pollNotification() {
 	co_return Error::illegalObject;
 }
@@ -774,6 +778,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 			co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
 
 			PhysicalAddr physical;
+			frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> invalidateMonitor;
 			{
 				auto irqLock = frg::guard(&irqMutex());
 				auto lock = frg::guard(&self->mutex);
@@ -787,11 +792,18 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				pit->loadState = LoadState::missing;
 				pit->transactionState = TxState::none;
 				pit->physical = PhysicalAddr(-1);
+
+				if(pit->forceInvalidation) {
+					invalidateMonitor = std::move(pit->monitor);
+					pit->forceInvalidation = false;
+				}
 			}
 
 			if(logUncaching)
 				warningLogger() << "Evicting physical page" << frg::endlog;
 			physicalAllocator->free(physical, kPageSize);
+			if(invalidateMonitor)
+				invalidateMonitor->event.raise();
 		}
 	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
@@ -1169,6 +1181,80 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 		}
 
 		pg += kPageSize;
+	}
+
+	co_return {};
+}
+
+coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset, size_t size) {
+	if (offset & (kPageSize - 1))
+		co_return Error::illegalArgs;
+	if (size & (kPageSize - 1))
+		co_return Error::illegalArgs;
+
+	size_t pg = 0;
+	while(pg < size) {
+		size_t index = (offset + pg) >> kPageShift;
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor;
+		bool shouldEvict = false;
+		ManagedSpace::ManagedPage *pit = nullptr;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_managed->mutex);
+
+			pit = _managed->pages.find(index);
+			if(!pit || pit->loadState == ManagedSpace::LoadState::missing) {
+				pg += kPageSize;
+				continue;
+			}
+
+			if(pit->loadState == ManagedSpace::LoadState::present) {
+				if(pit->monitor) {
+					monitor = pit->monitor;
+				} else if(!pit->lockCount) {
+					if(pit->transactionState == ManagedSpace::TxState::inReclaim)
+						globalReclaimer->removePage(&pit->cachePage);
+					pit->transactionState = ManagedSpace::TxState::none;
+					pit->loadState = ManagedSpace::LoadState::evicting;
+					shouldEvict = true;
+				} else {
+					co_return Error::illegalArgs;
+				}
+			} else {
+				assert(pit->loadState == ManagedSpace::LoadState::evicting);
+				pit->forceInvalidation = true;
+				if(!pit->monitor)
+					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+				monitor = pit->monitor;
+			}
+		}
+
+		if(shouldEvict) {
+			co_await _managed->_evictQueue.evictRange(index << kPageShift, kPageSize);
+			PhysicalAddr physical;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&_managed->mutex);
+
+				if(pit->loadState == ManagedSpace::LoadState::evicting) {
+					physical = pit->physical;
+					pit->loadState = ManagedSpace::LoadState::missing;
+					pit->physical = PhysicalAddr(-1);
+				} else {
+					physical = PhysicalAddr(-1);
+				}
+			}
+			if(physical != PhysicalAddr(-1))
+				physicalAllocator->free(physical, kPageSize);
+			if(physical != PhysicalAddr(-1))
+				pg += kPageSize;
+			continue;
+		}
+
+		if(monitor)
+			co_await monitor->event.wait();
+		else
+			pg += kPageSize;
 	}
 
 	co_return {};
