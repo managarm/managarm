@@ -14,12 +14,19 @@
 namespace {
 
 async::result<bool> handlePendingSignalsFromObservation(Process *self) {
+	if constexpr (logSignals)
+		std::println("posix: checking if we should raise pending signals; delayedSignal={}", bool(self->delayedSignal));
+
 	if (!self->delayedSignal) {
 		auto active =
 		    co_await self->threadGroup()->signalContext()->fetchSignal(~self->signalMask(), true);
+		if constexpr (logSignals)
+			std::println("posix: active SignalItem={}", bool(active));
 
 		if (active) {
 			auto handling = self->threadGroup()->signalContext()->determineHandling(active, self);
+			if constexpr (logSignals)
+				std::println("posix: signal={} handling={}", active->signalNumber, handling);
 
 			if (handling.ignored) {
 				co_await self->threadGroup()->signalContext()->raiseContext(active, self, handling);
@@ -35,12 +42,16 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 				HEL_CHECK(helAlertQueue(handle));
 				HEL_CHECK(helCloseDescriptor(kHelThisUniverse, handle));
 				if (self->checkOrRequestSignalRaise()) {
+					if constexpr (logSignals)
+						std::println("posix: raising signal");
 					co_await self->threadGroup()->signalContext()->raiseContext(
 					    active, self, handling
 					);
 					if (handling.killed)
 						co_return false;
 				} else {
+					if constexpr (logSignals)
+						std::println("posix: making signal delayed");
 					self->delayedSignal = active;
 					self->delayedSignalHandling = handling;
 				}
@@ -346,6 +357,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				std::cout << "posix: SIG_RESTORE supercall" << std::endl;
 
 			co_await self->threadGroup()->signalContext()->restoreContext(thread, self.get());
+
+			if (!co_await handlePendingSignalsFromObservation(self.get()))
+				break;
+
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superSigKill) {
 			if(logRequests || logSignals)
