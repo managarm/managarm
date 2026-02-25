@@ -501,25 +501,45 @@ private:
 };
 
 struct ManagedSpace : CacheBundle {
-	enum LoadState {
-		kStateMissing,
-		kStatePresent,
-		kStateWantInitialization,
-		kStateInitialization,
-		kStateWantWriteback,
-		kStateWriteback,
-		kStateAnotherWriteback,
-		kStateEvicting
+	enum class LoadState : uint8_t {
+		// Page contents are not valid.
+		missing,
+		// Page contents are valid and page is returned from peekRange().
+		present,
+		// Page contents are valid but page is not returned from peekRange().
+		evicting,
+	};
+
+	enum class TxState : uint8_t {
+		// Page is not in a queue.
+		// Valid in LoadState::missing. Valid in LoadState::present with lockCount > 0.
+		// Valid in LoadState::evicting.
+		none,
+		// Page is in _initializationList.
+		// Valid in LoadState::missing.
+		wantInitialization,
+		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
+		// Valid in LoadState::missing.
+		initialization,
+		// Page is in _writebackList.
+		// Valid in LoadState::present.
+		wantWriteback,
+		// Page is not in a queue but waiting for updateRange() to mark it as clean.
+		// Valid in LoadState::present.
+		writeback,
+		// Page is in the memory reclaimer's LRU queue.
+		// Valid in LoadState::present with lockCount == 0.
+		inReclaim,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
 	// a single transaction (i.e., initialization or writeback).
 	// For initialization:
-	// * Attached when entering kStateWantInitialization.
-	// * Completed when leaving kStateInitialization.
+	// * Attached when entering TxState::wantInitialization.
+	// * Completed when leaving TxState::initialization.
 	// For writeback:
-	// * Attached when entering kStateWantWriteback.
-	// * Detached when leaving kStateWriteback.
+	// * Attached when entering TxState::wantWriteback.
+	// * Detached when leaving TxState::writeback.
 	struct TransactionMonitor final : frg::intrusive_rc {
 		async::oneshot_primitive event;
 		frg::default_list_hook<TransactionMonitor> pendingHook;
@@ -536,7 +556,12 @@ struct ManagedSpace : CacheBundle {
 		ManagedPage &operator= (const ManagedPage &) = delete;
 
 		PhysicalAddr physical = PhysicalAddr(-1);
-		LoadState loadState = kStateMissing;
+		LoadState loadState{LoadState::missing};
+		TxState transactionState{TxState::none};
+		// Whether the page is dirty even after a pending writeback completes.
+		// Can only be true in LoadState::present and TxState::writeback.
+		// If set in LoadState::evicting, causes transition to LoadState::present.
+		bool stillDirty{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
