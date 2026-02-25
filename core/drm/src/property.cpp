@@ -1,3 +1,4 @@
+#include <print>
 #include <vector>
 
 #include <helix/memory.hpp>
@@ -27,7 +28,7 @@ std::vector<drm_core::Assignment> drm_core::ModeObject::getAssignments(std::shar
 			return plane->getAssignments(dev);
 		}
 		default: {
-			std::cout << "core/drm: ModeObj " << this->id() << " doesn't support querying DRM properties (yet)" << std::endl;
+			std::println("core/drm: ModeObj {} doesn't support querying DRM properties (yet)", this->id());
 			break;
 		}
 	}

@@ -4,7 +4,7 @@
 #include <deque>
 #include <optional>
 #include <optional>
-#include <iostream>
+#include <print>
 #include <memory>
 #include <sys/epoll.h>
 
@@ -61,7 +61,7 @@ uint32_t drm_core::File::createHandle(std::shared_ptr<BufferObject> bo) {
 	assert(ret.second);
 
 	if(logDrmRequests)
-		std::cout << "core/drm: createHandle for BufferObject " << bo.get() << " -> handle " << handle << std::endl;
+		std::println("core/drm: createHandle for BufferObject {} -> handle {}", static_cast<void *>(bo.get()), handle);
 
 	auto [boMemory, boOffset] = bo->getMemory();
 	HEL_CHECK(helAlterMemoryIndirection(_memory.getHandle(),
@@ -277,8 +277,7 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			if(req.flags() & ~(managarm::fs::OpenFlags::OF_NONBLOCK)) {
-				std::cout << "\e[31m" "core/drm: Illegal flags " << req.flags()
-						<< " for DEV_OPEN" "\e[39m" << std::endl;
+				std::println("\e[31mcore/drm: Illegal flags {} for DEV_OPEN\e[39m", req.flags());
 
 				managarm::fs::SvrResponse resp;
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
