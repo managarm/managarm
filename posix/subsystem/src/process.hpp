@@ -268,10 +268,56 @@ inline constexpr SignalFlags signalReentrant = (1 << 2);
 inline constexpr SignalFlags signalOnStack = (1 << 3);
 inline constexpr SignalFlags signalNoChildWait = (1 << 4);
 
+struct SignalFlagsView {
+	SignalFlags flags;
+};
+
+template <>
+struct std::formatter<SignalFlagsView> : std::formatter<string_view> {
+	auto format(SignalFlagsView f, format_context &ctx) const {
+		std::string joined;
+
+		if (f.flags & signalInfo)
+			joined += "signalInfo|";
+		if (f.flags & signalOnce)
+			joined += "signalOnce|";
+		if (f.flags & signalReentrant)
+			joined += "signalReentrant|";
+		if (f.flags & signalOnStack)
+			joined += "signalOnStack|";
+		if (f.flags & signalNoChildWait)
+			joined += "signalNoChildWait|";
+		if (joined.empty())
+			joined = "none|";
+
+		joined.pop_back(); // Remove trailing '|'
+		return std::formatter<string_view>::format(joined, ctx);
+	}
+};
+
 enum class SignalDisposition {
 	none,
 	ignore,
 	handle
+};
+
+template <>
+struct std::formatter<SignalDisposition> : std::formatter<string_view> {
+	auto format(SignalDisposition d, format_context &ctx) const {
+		string_view name = "invalid";
+		switch (d) {
+			case SignalDisposition::none:
+				name = "none";
+				break;
+			case SignalDisposition::ignore:
+				name = "ignore";
+				break;
+			case SignalDisposition::handle:
+				name = "handle";
+				break;
+		}
+		return std::formatter<string_view>::format(name, ctx);
+	}
 };
 
 struct SignalHandler {
@@ -280,6 +326,22 @@ struct SignalHandler {
 	uint64_t mask;
 	uintptr_t handlerIp;
 	uintptr_t restorerIp;
+};
+
+template <>
+struct std::formatter<SignalHandler> : std::formatter<string_view> {
+	auto format(const SignalHandler &sh, format_context &ctx) const {
+		return std::format_to(
+		    ctx.out(),
+		    "SignalHandler(disposition={}, flags={}, mask={:#x}, handlerIp={:#x}, "
+		    "restorerIp={:#x})",
+		    sh.disposition,
+		    SignalFlagsView{sh.flags},
+		    sh.mask,
+		    sh.handlerIp,
+		    sh.restorerIp
+		);
+	}
 };
 
 struct SignalItem {
@@ -362,6 +424,19 @@ private:
 	async::recurring_event _signalBell;
 	uint64_t _currentSeq;
 	uint64_t _activeSet;
+};
+
+template <>
+struct std::formatter<SignalContext::SignalHandling> : std::formatter<string_view> {
+	auto format(const SignalContext::SignalHandling &sh, format_context &ctx) const {
+		return std::format_to(
+		    ctx.out(),
+		    "SignalHandling(killed={}, ignored={}, handler={})",
+		    sh.killed,
+		    sh.ignored,
+		    sh.handler
+		);
+	}
 };
 
 enum class NotifyType {
