@@ -332,12 +332,15 @@ ProducerRing::Transaction::transfer() {
 	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
 	if (ev.completionCode == CompletionCode::shortPacket) {
-		// This either has to be a chain normal TRB, or a data stage TRB.
+		// This either has to be a data stage or normal TRB.
 		auto trbType = static_cast<TrbType>((trb.val[3] >> 10) & 0x3F);
 		bool trbChain = trb.val[3] & (1 << 4);
-		assert(trbType == TrbType::dataStage || (trbType == TrbType::normal && trbChain));
+		assert(trbType == TrbType::dataStage || trbType == TrbType::normal);
 
-		std::tie(trb, ev) = FRG_CO_TRY(co_await nextEvent_());
+		// If it's a TRB in the middle of a chain, or the data stage of a
+		// control transfer, there's one more event for the full TD.
+		if (trbType == TrbType::dataStage || trbChain)
+			std::tie(trb, ev) = FRG_CO_TRY(co_await nextEvent_());
 	}
 
 	co_return ev.transferLen;
