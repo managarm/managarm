@@ -199,7 +199,7 @@ private:
 	async::mutex _submissionMutex;
 
 	async::result<frg::expected<proto::UsbError, size_t>>
-	_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost, bool allowShortPacket);
+	_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost);
 
 	async::result<frg::expected<proto::UsbError>>
 	_resetAfterError(RingPointer nextDequeue);

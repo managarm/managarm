@@ -324,21 +324,18 @@ void ProducerRing::_updateLink(bool initialCycle) {
 // event is generated for the final TRB in the chain (the one with IOC
 // set). Other controllers do generate two events though.
 async::result<frg::expected<protocols::usb::UsbError, size_t>>
-ProducerRing::Transaction::transfer(bool allowShortCompletion) {
+ProducerRing::Transaction::transfer() {
 	// This will either be a short packet completion for a data stage/normal TRB,
 	// the success completion for the final TRB in the TD, or an error completion.
 	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
 	if (ev.completionCode == CompletionCode::shortPacket) {
-		if (allowShortCompletion) {
-			assert(trb.val[3] & (1 << 4));
-		}
+		// This either has to be a chain normal TRB, or a data stage TRB.
+		auto trbType = static_cast<TrbType>((trb.val[3] >> 10) & 0x3F);
+		bool trbChain = trb.val[3] & (1 << 4);
+		assert(trbType == TrbType::dataStage || (trbType == TrbType::normal && trbChain));
 
 		std::tie(trb, ev) = FRG_CO_TRY(co_await nextEvent_());
-
-		if (!allowShortCompletion) {
-			co_return proto::UsbError::shortPacket;
-		}
 	}
 
 	co_return ev.transferLen;

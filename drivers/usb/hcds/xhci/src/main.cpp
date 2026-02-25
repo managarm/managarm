@@ -1062,8 +1062,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
-				info.flags == proto::kXferToHost,
-				true));
+				info.flags == proto::kXferToHost));
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
@@ -1072,8 +1071,7 @@ EndpointState::transfer(proto::InterruptTransfer info) {
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
-				info.flags == proto::kXferToHost,
-				true));
+				info.flags == proto::kXferToHost));
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
@@ -1082,12 +1080,11 @@ EndpointState::transfer(proto::BulkTransfer info) {
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
-				info.flags == proto::kXferToHost,
-				true));
+				info.flags == proto::kXferToHost));
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
-EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost, bool allowShortPacket) {
+EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost) {
 	ProducerRing::Transaction tx;
 
 	// Invalidate the buffer before posting the TD in case the ring is already running.
@@ -1105,7 +1102,7 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 		_device->submit(_endpointId);
 	}
 
-	auto maybeResidue = co_await tx.transfer(allowShortPacket);
+	auto maybeResidue = co_await tx.transfer();
 
 	if (toHost)
 		_device->controller()->barrier.invalidate(buffer);
