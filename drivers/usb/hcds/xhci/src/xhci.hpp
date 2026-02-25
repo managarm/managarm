@@ -196,11 +196,13 @@ private:
 	size_t _maxPacketSize;
 	ProducerRing _transferRing;
 
+	async::mutex _submissionMutex;
+
 	async::result<frg::expected<proto::UsbError, size_t>>
-	_bulkOrInterruptXfer(arch::dma_buffer_view buffer, bool toHost);
+	_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost);
 
 	async::result<frg::expected<proto::UsbError>>
-	_resetAfterError(size_t nextDequeue, bool nextCycle);
+	_resetAfterError(RingPointer nextDequeue);
 };
 
 
@@ -258,7 +260,9 @@ struct Controller final : proto::BaseController {
 
 	async::result<Event> submitCommand(RawTrb trb) {
 		ProducerRing::Transaction tx;
-		_cmdRing.pushRawTrb(trb, &tx);
+		std::vector<RawTrb> trbs{trb};
+
+		co_await _cmdRing.pushTrbs(trbs, &tx);
 
 		ringDoorbell(0, 0);
 
@@ -278,14 +282,6 @@ struct Controller final : proto::BaseController {
 		return _name;
 	}
 
-	friend std::ostream &operator<<(std::ostream &os, Controller *controller) {
-		return os << "xhci " << (controller ? controller->name() : "(null)") << ": ";
-	}
-
-	friend std::ostream &operator<<(std::ostream &os, Controller &controller) {
-		return os << &controller;
-	}
-
 	arch::dma_barrier barrier{
 		// TODO(qookie): This can be found out properly via device tree properties
 		// (either of the PCIe RC, or device itself, depending on how it's found).
@@ -295,6 +291,26 @@ struct Controller final : proto::BaseController {
 		false
 #endif
 	};
+
+	// Controller commands -----------------------------------------------------------
+
+	async::result<frg::expected<proto::UsbError, uint32_t>>
+	enableSlot(uint8_t slotType);
+
+	async::result<frg::expected<proto::UsbError>>
+	addressDevice(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	configureEndpoint(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	evaluateContext(uint32_t slotId, InputContext &ctx);
+
+	async::result<frg::expected<proto::UsbError>>
+	resetEndpoint(uint32_t slotId, uint32_t endpointId);
+
+	async::result<frg::expected<proto::UsbError>>
+	setTransferRingDequeue(uint32_t slotId, uint32_t endpointId, ProducerRing &ring, RingPointer pointer);
 
 private:
 	struct SupportedProtocol;
@@ -414,4 +430,30 @@ private:
 	bool _largeCtx;
 
 	mbus_ng::Entity _entity;
+};
+
+template<>
+struct std::formatter<Controller *, char> {
+	template<class Ctx>
+	constexpr Ctx::iterator parse(Ctx &ctx) {
+		return ctx.begin();
+	}
+
+	template<class Ctx>
+	Ctx::iterator format(Controller *controller, Ctx &ctx) const {
+		return std::format_to(ctx.out(), "xhci {}:", controller->name());
+	}
+};
+
+template<>
+struct std::formatter<Controller &, char> {
+	template<class Ctx>
+	constexpr Ctx::iterator parse(Ctx &ctx) {
+		return ctx.begin();
+	}
+
+	template<class Ctx>
+	Ctx::iterator format(const Controller &controller, Ctx &ctx) const {
+		return std::format_to(ctx.out(), "xhci {}:", controller.name());
+	}
 };

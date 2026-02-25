@@ -1,6 +1,8 @@
 #include "ring.hpp"
 #include "xhci.hpp"
 
+#include <print>
+
 // ------------------------------------------------------------------------
 // Event
 // ------------------------------------------------------------------------
@@ -56,7 +58,7 @@ Event Event::fromRawTrb(RawTrb trb) {
 	Event ev;
 
 	ev.type = static_cast<TrbType>((trb.val[3] >> 10) & 63);
-	ev.completionCode = (trb.val[2] >> 24) & 0xFF;
+	ev.completionCode = static_cast<CompletionCode>((trb.val[2] >> 24) & 0xFF);
 	ev.slotId = (trb.val[3] >> 24) & 0xFF;
 	ev.raw = trb;
 
@@ -88,7 +90,7 @@ Event Event::fromRawTrb(RawTrb trb) {
 			break;
 
 		default:
-			printf("xhci: Unexpected event 0x%02x in Event::fromRawTrb, ignoring...\n",
+			std::println("xhci: Unexpected event {:#02x} in Event::fromRawTrb, ignoring...",
 					static_cast<uint32_t>(ev.type));
 	}
 
@@ -96,29 +98,31 @@ Event Event::fromRawTrb(RawTrb trb) {
 }
 
 void Event::printInfo() {
-	printf("xhci: --- Event dump ---\n");
-	printf("xhci: Raw: %08x %08x %08x %08x\n",
+	std::println("xhci: --- Event dump ---");
+	std::println("xhci: Raw: {:08x} {:08x} {:08x} {:08x}",
 			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: Type: %s (%u)\n", trbTypeNames[static_cast<unsigned int>(type)], static_cast<unsigned int>(type));
-	printf("xhci: Slot ID: %d\n", slotId);
-	printf("xhci: Completion code: %s (%d)\n",
-			completionCodeNames[completionCode],
-			completionCode);
+	std::println("xhci: Type: {} ({})",
+			trbTypeNames[static_cast<unsigned int>(type)],
+			static_cast<unsigned int>(type));
+	std::println("xhci: Slot ID: {}", slotId);
+	std::println("xhci: Completion code: {} ({})\n",
+			completionCodeName(),
+			static_cast<int>(completionCode));
 
 	switch(type) {
 		case TrbType::transferEvent:
-			printf("xhci: TRB pointer: %016lx, transfer length %lu\n", trbPointer,
+			std::println("xhci: TRB pointer: {:#016x}, transfer length {}\n", trbPointer,
 					transferLen);
-			printf("xhci: Endpoint ID: %lu, has event data? %s\n",
-					endpointId, eventData ? "yes" : "no");
+			std::println("xhci: Endpoint ID: {}, has event data? {}\n",
+					endpointId, eventData);
 			break;
 		case TrbType::commandCompletionEvent:
-			printf("xhci: TRB pointer: %016lx\n", trbPointer);
-			printf("xhci: Command completion parameter: %d\n",
+			std::println("xhci: TRB pointer: {:#016x}", trbPointer);
+			std::println("xhci: Command completion parameter: {}",
 					commandCompletionParameter);
 			break;
 		case TrbType::portStatusChangeEvent:
-			printf("xhci: Port ID: %lu\n", portId);
+			std::println("xhci: Port ID: {}", portId);
 			break;
 		case TrbType::bandwidthRequestEvent:
 		case TrbType::doorbellEvent:
@@ -126,16 +130,20 @@ void Event::printInfo() {
 		case TrbType::mfindexWrapEvent:
 			break;
 		case TrbType::deviceNotificationEvent:
-			printf("xhci: Notification data: %lx\n",
+			std::println("xhci: Notification data: {:#x}",
 					notificationData);
-			printf("xhci: Notification type: %lu\n",
+			std::println("xhci: Notification type: {}",
 					notificationType);
 			break;
 		default:
-			printf("xhci: Invalid event\n");
+			std::println("xhci: Invalid event");
 	}
 
-	printf("xhci: --- End of event dump ---\n");
+	std::println("xhci: --- End of event dump ---");
+}
+
+const char *Event::completionCodeName() const {
+	return completionCodeNames[static_cast<int>(completionCode)];
 }
 
 // ------------------------------------------------------------------------
@@ -143,9 +151,8 @@ void Event::printInfo() {
 // ------------------------------------------------------------------------
 
 EventRing::EventRing(Controller *controller)
-: _eventRing{controller->memoryPool()}, _erst{controller->memoryPool(), 1},
-	_dequeuePtr{0}, _controller{controller}, _ccs{1} {
-
+: _eventRing{controller->memoryPool()}, _erst{controller->memoryPool(), 1}
+, _controller{controller}, _dequeue{0, true} {
 	for (size_t i = 0; i < eventRingSize; i++) {
 		_eventRing->ent[i] = {{0, 0, 0, 0}};
 	}
@@ -164,7 +171,7 @@ uintptr_t EventRing::getErstPtr() {
 }
 
 uintptr_t EventRing::getEventRingPtr() {
-	return helix::ptrToPhysical(_eventRing.data()) + _dequeuePtr * sizeof(RawTrb);
+	return helix::ptrToPhysical(_eventRing.data()) + _dequeue.index * sizeof(RawTrb);
 }
 
 size_t EventRing::getErstSize() {
@@ -173,19 +180,10 @@ size_t EventRing::getErstSize() {
 
 void EventRing::processRing() {
 	_controller->barrier.invalidate(_eventRing.view_buffer());
-	while((_eventRing->ent[_dequeuePtr].val[3] & 1) == _ccs) {
-		RawTrb rawEv = _eventRing->ent[_dequeuePtr];
+	while((_eventRing->ent[_dequeue.index].val[3] & 1) == _dequeue.cycle) {
+		RawTrb rawEv = _eventRing->ent[_dequeue.index];
 
-		int oldCcs = _ccs;
-
-		_dequeuePtr++;
-		if (_dequeuePtr >= eventRingSize) {
-			_dequeuePtr = 0; // Wrap around
-			_ccs = !_ccs; // Invert cycle state
-		}
-
-		if ((rawEv.val[3] & 1) != oldCcs)
-			break; // Not the proper cycle state
+		_dequeue.advance(1, eventRingSize);
 
 		Event ev = Event::fromRawTrb(rawEv);
 		_controller->processEvent(ev);
@@ -197,12 +195,12 @@ void EventRing::processRing() {
 // ------------------------------------------------------------------------
 
 ProducerRing::ProducerRing(Controller *controller)
-: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}, _enqueuePtr{0}, _pcs{true} {
-	for (uint32_t i = 0; i < ringSize; i++) {
+: _transactions{}, _ring{controller->memoryPool()}, _controller{controller}
+, _enqueue{0, true}, _dequeue{0, true} {
+	for (size_t i = 0; i < ringSize; i++) {
 		_ring->ent[i] = {{0, 0, 0, 0}};
 	}
 
-	updateLink();
 	_controller->barrier.writeback(_ring.view_buffer());
 }
 
@@ -212,27 +210,6 @@ uintptr_t ProducerRing::getPtr() {
 	return ptr;
 }
 
-void ProducerRing::pushRawTrb(RawTrb cmd, Transaction *tx) {
-	_ring->ent[_enqueuePtr] = cmd;
-	_transactions[_enqueuePtr] = tx;
-
-	if (_pcs) {
-		_ring->ent[_enqueuePtr].val[3] |= 1;
-	} else {
-		_ring->ent[_enqueuePtr].val[3] &= ~1;
-	}
-
-	_enqueuePtr++;
-
-	if (_enqueuePtr >= ringSize - 1) {
-		updateLink();
-		_pcs = !_pcs;
-		_enqueuePtr = 0;
-	}
-
-	_controller->barrier.writeback(_ring.view_buffer());
-}
-
 void ProducerRing::processEvent(Event ev) {
 	assert(ev.type == TrbType::commandCompletionEvent
 			|| ev.type == TrbType::transferEvent);
@@ -240,19 +217,90 @@ void ProducerRing::processEvent(Event ev) {
 	size_t idx = (ev.trbPointer - getPtr()) / sizeof(RawTrb);
 	assert(idx < ringSize);
 
+	auto trb = _ring->ent[idx];
 	auto tx = std::exchange(_transactions[idx], nullptr);
 
+	retire({idx, bool(trb.val[3] & 1)});
+
 	if (tx) {
-		tx->onEvent(_controller, ev, _ring->ent[idx]);
+		tx->onEvent(_controller, ev, trb);
 	}
 }
 
-void ProducerRing::updateLink() {
+async::result<RingPointer> ProducerRing::pushTrbs(const std::vector<RawTrb> &trbs, Transaction *tx) {
+	assert(trbs.size() <= usableRingSize);
+
+	while (true) {
+		co_await _progressEvent.async_wait_if([&] {
+			std::unique_lock lock{_mutex};
+			return usableRingSize - inFlight() < trbs.size();
+		});
+
+		std::unique_lock lock{_mutex};
+
+		if (usableRingSize - inFlight() < trbs.size())
+			continue;
+
+		lock.release();
+		break;
+	}
+
+	std::unique_lock lock{_mutex, std::adopt_lock};
+
+	auto initialPtr = _enqueue;
+	auto finalPtr = _enqueue;
+	for (size_t i = 0; i < trbs.size(); i++) {
+		auto trb = trbs[i];
+		// Post all TRBs, except use the incorrect cycle bit for the first.
+		// This is to prevent the controller from potentially starting a TD we
+		// are still writing TRBs for (and failing because it finishes early).
+		trb.val[3] |= i > 0 ? uint32_t{_enqueue.cycle} : uint32_t{!_enqueue.cycle};
+
+		_transactions[_enqueue.index] = tx;
+		_ring->ent[_enqueue.index] = trb;
+
+		finalPtr = _enqueue;
+		_enqueue.advance(1, usableRingSize);
+	}
+
+	_updateLink(initialPtr.cycle);
+
+	// Make sure this is all visible to the controller.
+	_controller->barrier.writeback(_ring.view_buffer());
+
+	// TODO(qookie): Write barrier here.
+
+	// Now, update the first TRB to the correct cycle state.
+	auto v = _ring->ent[initialPtr.index].val[3];
+	v &= ~uint32_t{1};
+	v |= uint32_t{initialPtr.cycle};
+	_ring->ent[initialPtr.index].val[3] = v;
+
+	_controller->barrier.writeback(_ring.view_buffer());
+
+	co_return finalPtr;
+}
+
+void ProducerRing::retire(RingPointer newDequeue) {
+	std::unique_lock lock{_mutex};
+
+	// Make sure we don't accidentally rewind the dequeue.
+	assert(newDequeue.cycle != _dequeue.cycle || newDequeue.index >= _dequeue.index);
+	// Make sure the dequeue is at or before enqueue.
+	assert(newDequeue.cycle != _enqueue.cycle || newDequeue.index <= _enqueue.index);
+
+	_dequeue = newDequeue;
+	_progressEvent.raise();
+}
+
+void ProducerRing::_updateLink(bool initialCycle) {
+	if (_enqueue.cycle == initialCycle) return;
+
 	_ring->ent[ringSize - 1] = {{
 		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
 		static_cast<uint32_t>(getPtr() >> 32),
 		0,
-		static_cast<uint32_t>(_pcs | (1 << 1) | (1 << 5) | (6 << 10))
+		static_cast<uint32_t>(initialCycle | (1 << 1) | (1 << 5) | (6 << 10))
 	}};
 }
 
@@ -264,48 +312,31 @@ void ProducerRing::updateLink() {
 //    produced: one for the TRB that got the short packet, and one
 //    for the final TRB that has IOC, so we also need to wait for the
 //    latter one in that case.
+//    TODO: The second packet not be generated by controllers
+//          implementing xHCI 0.96 or older.
 // 3. Other error completion. This causes the endpoint to go into the
 //    halted state, and only one event is produced for the failing
 //    TRB, hence we do not need to wait for any other TRB and can
 //    bail out early via FRG_CO_TRY.
 
-// XXX(qookie): We could probably optimize control transfers a tiny
-// bit by not setting IOC on each of the stages, but doing so
-// simplifies the logic here and I don't think it hurts too much, as
-// control transfers are not that common (and I wouldn't be surprised
-// if the controller batches them in the happy case).
-async::result<frg::expected<protocols::usb::UsbError, size_t>>
-ProducerRing::Transaction::control(bool hasData) {
-	// Setup stage
-	FRG_CO_TRY(co_await nextEvent_());
-
-	// Data stage
-	auto txSize = hasData
-		? FRG_CO_TRY(co_await normal())
-		: 0;
-
-	// Status stage
-	FRG_CO_TRY(co_await nextEvent_());
-
-	co_return txSize;
-}
-
-// TODO(qookie): The logic in normal() might not work for isochronous
+// TODO(qookie): The logic in transfer() might not work for isochronous
 // endpoints (which we don't support yet) on some controllers (e.g.
 // NEC ones). According to the Linux driver, if a TRB in the middle of
 // an isoch TD fails, the controller carries on (as it should), but no
 // event is generated for the final TRB in the chain (the one with IOC
 // set). Other controllers do generate two events though.
 async::result<frg::expected<protocols::usb::UsbError, size_t>>
-ProducerRing::Transaction::normal() {
+ProducerRing::Transaction::transfer() {
+	// This will either be a short packet completion for a data stage/normal TRB,
+	// the success completion for the final TRB in the TD, or an error completion.
 	auto [trb, ev] = FRG_CO_TRY(co_await nextEvent_());
 
-	// If we are in the middle of a chain, wait for the final
-	// event for the TRB marked IOC.
-	if (trb.val[3] & (1 << 4)) {
-		// If this is not a short packet completion, something
-		// went wrong...
-		assert(ev.completionCode == 13);
+	if (ev.completionCode == CompletionCode::shortPacket) {
+		// This either has to be a chain normal TRB, or a data stage TRB.
+		auto trbType = static_cast<TrbType>((trb.val[3] >> 10) & 0x3F);
+		bool trbChain = trb.val[3] & (1 << 4);
+		assert(trbType == TrbType::dataStage || (trbType == TrbType::normal && trbChain));
+
 		std::tie(trb, ev) = FRG_CO_TRY(co_await nextEvent_());
 	}
 
@@ -318,17 +349,21 @@ async::result<Event> ProducerRing::Transaction::command() {
 }
 
 void ProducerRing::Transaction::onEvent(Controller *controller, Event event, RawTrb associatedTrb) {
-	if (event.completionCode != 1) {
+	if (event.completionCode != CompletionCode::success) {
 		auto associatedTrbType = static_cast<TrbType>((associatedTrb.val[3] >> 10) & 63);
 
 		// Ignore short packet completions for transfers
-		if (event.type == TrbType::transferEvent && event.completionCode != 13) {
-			std::cout << controller << "Transfer TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'"
-				<< " (Slot " << event.slotId << ", EP " << event.endpointId << ")" << std::endl;
+		if (event.type == TrbType::transferEvent && event.completionCode != CompletionCode::shortPacket) {
+			std::println("{} Transfer TRB '{}' completed with '{}' (Slot {}, EP {})",
+					controller,
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					event.completionCodeName(),
+					event.slotId, event.endpointId);
 		} else if (event.type == TrbType::commandCompletionEvent) {
-			std::cout << controller << "Command TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << completionCodeNames[event.completionCode] << "'" << std::endl;
+			std::println("{} Command TRB '{}' completed with '{}'",
+					controller,
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					event.completionCodeName());
 		}
 	}
 
