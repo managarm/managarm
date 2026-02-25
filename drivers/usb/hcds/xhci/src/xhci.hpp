@@ -282,14 +282,6 @@ struct Controller final : proto::BaseController {
 		return _name;
 	}
 
-	friend std::ostream &operator<<(std::ostream &os, Controller *controller) {
-		return os << "xhci " << (controller ? controller->name() : "(null)") << ": ";
-	}
-
-	friend std::ostream &operator<<(std::ostream &os, Controller &controller) {
-		return os << &controller;
-	}
-
 	arch::dma_barrier barrier{
 		// TODO(qookie): This can be found out properly via device tree properties
 		// (either of the PCIe RC, or device itself, depending on how it's found).
@@ -438,4 +430,30 @@ private:
 	bool _largeCtx;
 
 	mbus_ng::Entity _entity;
+};
+
+template<>
+struct std::formatter<Controller *, char> {
+	template<class Ctx>
+	constexpr Ctx::iterator parse(Ctx &ctx) {
+		return ctx.begin();
+	}
+
+	template<class Ctx>
+	Ctx::iterator format(Controller *controller, Ctx &ctx) const {
+		return std::format_to(ctx.out(), "xhci {}:", controller->name());
+	}
+};
+
+template<>
+struct std::formatter<Controller &, char> {
+	template<class Ctx>
+	constexpr Ctx::iterator parse(Ctx &ctx) {
+		return ctx.begin();
+	}
+
+	template<class Ctx>
+	Ctx::iterator format(const Controller &controller, Ctx &ctx) const {
+		return std::format_to(ctx.out(), "xhci {}:", controller.name());
+	}
 };

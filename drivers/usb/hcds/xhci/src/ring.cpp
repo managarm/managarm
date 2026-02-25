@@ -1,6 +1,8 @@
 #include "ring.hpp"
 #include "xhci.hpp"
 
+#include <print>
+
 // ------------------------------------------------------------------------
 // Event
 // ------------------------------------------------------------------------
@@ -88,7 +90,7 @@ Event Event::fromRawTrb(RawTrb trb) {
 			break;
 
 		default:
-			printf("xhci: Unexpected event 0x%02x in Event::fromRawTrb, ignoring...\n",
+			std::println("xhci: Unexpected event {:#02x} in Event::fromRawTrb, ignoring...",
 					static_cast<uint32_t>(ev.type));
 	}
 
@@ -96,31 +98,31 @@ Event Event::fromRawTrb(RawTrb trb) {
 }
 
 void Event::printInfo() {
-	printf("xhci: --- Event dump ---\n");
-	printf("xhci: Raw: %08x %08x %08x %08x\n",
+	std::println("xhci: --- Event dump ---");
+	std::println("xhci: Raw: {:08x} {:08x} {:08x} {:08x}",
 			raw.val[0], raw.val[1], raw.val[2], raw.val[3]);
-	printf("xhci: Type: %s (%u)\n",
+	std::println("xhci: Type: {} ({})",
 			trbTypeNames[static_cast<unsigned int>(type)],
 			static_cast<unsigned int>(type));
-	printf("xhci: Slot ID: %d\n", slotId);
-	printf("xhci: Completion code: %s (%d)\n",
+	std::println("xhci: Slot ID: {}", slotId);
+	std::println("xhci: Completion code: {} ({})\n",
 			completionCodeName(),
 			static_cast<int>(completionCode));
 
 	switch(type) {
 		case TrbType::transferEvent:
-			printf("xhci: TRB pointer: %016lx, transfer length %lu\n", trbPointer,
+			std::println("xhci: TRB pointer: {:#016x}, transfer length {}\n", trbPointer,
 					transferLen);
-			printf("xhci: Endpoint ID: %lu, has event data? %s\n",
-					endpointId, eventData ? "yes" : "no");
+			std::println("xhci: Endpoint ID: {}, has event data? {}\n",
+					endpointId, eventData);
 			break;
 		case TrbType::commandCompletionEvent:
-			printf("xhci: TRB pointer: %016lx\n", trbPointer);
-			printf("xhci: Command completion parameter: %d\n",
+			std::println("xhci: TRB pointer: {:#016x}", trbPointer);
+			std::println("xhci: Command completion parameter: {}",
 					commandCompletionParameter);
 			break;
 		case TrbType::portStatusChangeEvent:
-			printf("xhci: Port ID: %lu\n", portId);
+			std::println("xhci: Port ID: {}", portId);
 			break;
 		case TrbType::bandwidthRequestEvent:
 		case TrbType::doorbellEvent:
@@ -128,16 +130,16 @@ void Event::printInfo() {
 		case TrbType::mfindexWrapEvent:
 			break;
 		case TrbType::deviceNotificationEvent:
-			printf("xhci: Notification data: %lx\n",
+			std::println("xhci: Notification data: {:#x}",
 					notificationData);
-			printf("xhci: Notification type: %lu\n",
+			std::println("xhci: Notification type: {}",
 					notificationType);
 			break;
 		default:
-			printf("xhci: Invalid event\n");
+			std::println("xhci: Invalid event");
 	}
 
-	printf("xhci: --- End of event dump ---\n");
+	std::println("xhci: --- End of event dump ---");
 }
 
 const char *Event::completionCodeName() const {
@@ -352,12 +354,16 @@ void ProducerRing::Transaction::onEvent(Controller *controller, Event event, Raw
 
 		// Ignore short packet completions for transfers
 		if (event.type == TrbType::transferEvent && event.completionCode != CompletionCode::shortPacket) {
-			std::cout << controller << "Transfer TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << event.completionCodeName() << "'"
-				<< " (Slot " << event.slotId << ", EP " << event.endpointId << ")" << std::endl;
+			std::println("{} Transfer TRB '{}' completed with '{}' (Slot {}, EP {})",
+					controller,
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					event.completionCodeName(),
+					event.slotId, event.endpointId);
 		} else if (event.type == TrbType::commandCompletionEvent) {
-			std::cout << controller << "Command TRB '" << trbTypeNames[static_cast<int>(associatedTrbType)] << "'"
-				<< " completed with '" << event.completionCodeName() << "'" << std::endl;
+			std::println("{} Command TRB '{}' completed with '{}'",
+					controller,
+					trbTypeNames[static_cast<int>(associatedTrbType)],
+					event.completionCodeName());
 		}
 	}
 
