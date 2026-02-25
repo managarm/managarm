@@ -520,6 +520,8 @@ static const uint32_t kHelSubmitResizeMemory = 12;
 static const uint32_t kHelSubmitForkMemory = 13;
 //! SQ opcode: writeback fence.
 static const uint32_t kHelSubmitWritebackFence = 14;
+//! SQ opcode: invalidate memory.
+static const uint32_t kHelSubmitInvalidateMemory = 15;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -690,6 +692,16 @@ struct HelSqForkMemory {
 
 //! SQ data for kHelSubmitWritebackFence.
 struct HelSqWritebackFence {
+	//! Handle to the memory object.
+	HelHandle handle;
+	//! Offset within the memory object.
+	uintptr_t offset;
+	//! Size of the range.
+	size_t size;
+};
+
+//! SQ data for kHelSubmitInvalidateMemory.
+struct HelSqInvalidateMemory {
 	//! Handle to the memory object.
 	HelHandle handle;
 	//! Offset within the memory object.

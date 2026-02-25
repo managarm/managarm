@@ -886,6 +886,43 @@ HelError doSubmitWritebackFence(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	return kHelErrNone;
 }
 
+HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t offset, size_t size, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	smarter::shared_ptr<MemoryView> memory;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<MemoryViewDescriptor>())
+			return kHelErrBadDescriptor;
+		memory = wrapper->get<MemoryViewDescriptor>().memory;
+	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<MemoryView> memory, uintptr_t offset, size_t size,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await onExceptionalWq(memory->invalidateRange(offset, size));
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(memory), offset, size, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
 HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -3998,6 +4035,17 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqWritebackFence sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitWritebackFence(sqData.handle, queue, sqData.offset, sqData.size, context);
+		break;
+	}
+	case kHelSubmitInvalidateMemory: {
+		if(sqSpan.size() < sizeof(HelSqInvalidateMemory)) {
+			infoLogger() << "Bad length for kHelSubmitInvalidateMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqInvalidateMemory sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size, context);
 		break;
 	}
 	default:

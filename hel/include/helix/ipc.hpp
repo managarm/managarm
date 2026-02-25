@@ -1356,4 +1356,89 @@ inline auto writebackFence(BorrowedDescriptor memory, uintptr_t offset, size_t s
 	return WritebackFenceSender{std::move(memory), offset, size};
 }
 
+// --------------------------------------------------------------------
+// InvalidateMemory
+// --------------------------------------------------------------------
+
+struct InvalidateMemoryResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct InvalidateMemoryOperation : private Context {
+	InvalidateMemoryOperation(BorrowedDescriptor memory, uintptr_t offset, size_t size, Receiver r)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqInvalidateMemory header;
+		header.handle = memory_.getHandle();
+		header.offset = offset_;
+		header.size = size_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitInvalidateMemory,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	InvalidateMemoryOperation(const InvalidateMemoryOperation &) = delete;
+	InvalidateMemoryOperation &operator= (const InvalidateMemoryOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		InvalidateMemoryResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor memory_;
+	uintptr_t offset_;
+	size_t size_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] InvalidateMemorySender {
+	using value_type = InvalidateMemoryResult;
+
+	InvalidateMemorySender(BorrowedDescriptor memory, uintptr_t offset, size_t size)
+	: memory_{std::move(memory)}, offset_{offset}, size_{size} { }
+
+	template<typename Receiver>
+	InvalidateMemoryOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(memory_), offset_, size_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor memory_;
+	uintptr_t offset_;
+	size_t size_;
+};
+
+inline async::sender_awaiter<InvalidateMemorySender, InvalidateMemoryResult>
+operator co_await (InvalidateMemorySender sender) {
+	return {std::move(sender)};
+}
+
+inline auto invalidateMemory(BorrowedDescriptor memory, uintptr_t offset, size_t size) {
+	return InvalidateMemorySender{std::move(memory), offset, size};
+}
+
 } // namespace helix_ng
