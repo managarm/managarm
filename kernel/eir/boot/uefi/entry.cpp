@@ -511,13 +511,17 @@ initgraph::Task exitBootServices{
 		    overallocation *= 2;
 
 		    // Now, get the actual memory map.
-		    EFI_CHECK(bs->get_memory_map(
+		    status = bs->get_memory_map(
 		        &memMapSize,
 		        reinterpret_cast<efi_memory_descriptor *>(memMap),
 		        &mapKey,
 		        &descriptorSize,
 		        &descriptorVersion
-		    ));
+		    );
+		    if (status == EFI_BUFFER_TOO_SMALL)
+			    continue;
+
+		    EFI_CHECK(status);
 
 		    // Exit boot services.
 		    status = bs->exit_boot_services(handle, mapKey);
