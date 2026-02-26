@@ -449,6 +449,8 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+	// For kRunActive: CPU that we are running on.
+	CpuData *activeCpu_{nullptr};
 	// Conditions that unblock the thread while in kRunBlocked.
 	Condition unblockConditions_{0};
 

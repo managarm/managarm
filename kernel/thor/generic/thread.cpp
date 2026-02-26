@@ -3,6 +3,7 @@
 
 #include <frg/container_of.hpp>
 
+#include <thor-internal/arch-generic/ints.hpp>
 #include <thor-internal/credentials.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/load-balancing.hpp>
@@ -521,7 +522,8 @@ Error Thread::resumeOther(smarter::borrowed_ptr<Thread> thread) {
 void Thread::raiseCondition_(Condition c) {
 	auto irqLock = frg::guard(&irqMutex());
 
-	bool unblock;
+	CpuData *cpuToPing = nullptr;
+	bool unblock = false;
 	{
 		auto lock = frg::guard(&_mutex);
 
@@ -534,15 +536,29 @@ void Thread::raiseCondition_(Condition c) {
 		);
 		if (pending & c)
 			return;
-		if (!(unblockConditions_ & c))
-			return;
 
-		// If the thread is blocked and can be interrupted, then unblock it to notify.
-		unblock = (_runState == kRunBlocked);
+		if (_runState == kRunActive) {
+			// Suppress IPIs if any condition is already active.
+			if (pending)
+				return;
+			// If the thread is running on another CPU, we ping the other CPU.
+			// If it is running on the current CPU, we rely on handleConditions_() on kernel exit code paths.
+			if (activeCpu_ == getCpuData())
+				return;
+			cpuToPing = activeCpu_;
+		} else if(_runState == kRunBlocked) {
+			// If the thread is blocked and can be interrupted, then unblock it to notify.
+			if (!(unblockConditions_ & c))
+				return;
+			unblock = true;
+		}
 	}
 
-	if(unblock)
+	if (cpuToPing) {
+		sendPingIpi(cpuToPing);
+	} else if (unblock) {
 		unblockOther(self);
+	}
 }
 
 Thread::Thread(smarter::shared_ptr<Universe> universe,
@@ -633,6 +649,7 @@ void Thread::invoke() {
 	assert(_runState == kRunSuspended || _runState == kRunDeferred);
 	_updateRunTime();
 	_runState = kRunActive;
+	activeCpu_ = cpuData;
 
 	lock.unlock();
 
