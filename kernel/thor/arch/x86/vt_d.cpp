@@ -1,3 +1,4 @@
+#include <frg/scope_exit.hpp>
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
 #include <frg/cmdline.hpp>
@@ -815,6 +816,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 			infoLogger() << "thor: No DMAR table!" << frg::endlog;
 			return;
 		}
+		frg::scope_exit finish {[&] {uacpi_table_unref(&dmarTbl);}};
 
 		auto hdr = reinterpret_cast<DmarHeader *>(dmarTbl.ptr);
 

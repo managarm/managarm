@@ -1,3 +1,4 @@
+#include <frg/scope_exit.hpp>
 #include <arch/bits.hpp>
 #include <arch/io_space.hpp>
 #include <arch/mem_space.hpp>
@@ -235,6 +236,7 @@ static initgraph::Task initHpetTask{&globalInitEngine, "x86.init-hpet",
 			urgentLogger() << "thor: No HPET table!" << frg::endlog;
 			return;
 		}
+		frg::scope_exit finish {[&] {uacpi_table_unref(&hpetTbl);}};
 		if(hpetTbl.hdr->length < sizeof(acpi_sdt_hdr) + sizeof(HpetEntry)) {
 			urgentLogger() << "thor: HPET table has no entries!" << frg::endlog;
 			return;

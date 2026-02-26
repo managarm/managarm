@@ -2,6 +2,7 @@
 #include <eir/interface.hpp>
 #include <frg/manual_box.hpp>
 #include <frg/optional.hpp>
+#include <frg/scope_exit.hpp>
 #include <frg/vector.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/pm-interface.hpp>
@@ -146,6 +147,7 @@ void bootOtherProcessors() {
 
 	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
+	frg::scope_exit finish{[&] { uacpi_table_unref(&madtTbl); }};
 	auto *madt = madtTbl.hdr;
 
 	infoLogger() << "thor: Booting APs." << frg::endlog;
@@ -188,6 +190,7 @@ void dumpMadt() {
 
 	auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	assert(ret == UACPI_STATUS_OK);
+	frg::scope_exit finish{[&] { uacpi_table_unref(&madtTbl); }};
 	auto *madt = madtTbl.hdr;
 
 	infoLogger() << "thor: Dumping MADT" << frg::endlog;
@@ -347,6 +350,7 @@ static initgraph::Task discoverIoApicsTask{
 
 	    auto ret = uacpi_table_find_by_signature("APIC", &madtTbl);
 	    assert(ret == UACPI_STATUS_OK);
+	    frg::scope_exit finish{[&] { uacpi_table_unref(&madtTbl); }};
 	    auto *madt = madtTbl.hdr;
 
 	    // Configure all interrupt controllers.
