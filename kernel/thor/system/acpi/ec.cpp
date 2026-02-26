@@ -1,10 +1,13 @@
+#include <async/sequenced-event.hpp>
 #include <stdlib.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/ints.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/main.hpp>
 
 #include <frg/optional.hpp>
+#include <frg/scope_exit.hpp>
 
 #include <uacpi/acpi.h>
 #include <uacpi/event.h>
@@ -61,6 +64,7 @@ struct ECDevice {
 	frg::optional<uint16_t> gpeIdx;
 	bool initialized = false;
 	IrqSpinlock lock;
+	async::sequenced_event irqEvent;
 
 	acpi_gas control;
 	acpi_gas data;
@@ -156,48 +160,9 @@ static uacpi_status handleEcRegion(uacpi_region_op op, uacpi_handle op_data) {
 	}
 }
 
-struct ECQuery {
-	uint8_t idx;
-	ECDevice *device;
-};
-
-void handleEcQuery(uacpi_handle opaque) {
-	static const char *hexChars = "0123456789ABCDEF";
-
-	auto *query = reinterpret_cast<ECQuery *>(opaque);
-	char methodName[5] = {'_', 'Q', hexChars[(query->idx >> 4) & 0xF], hexChars[query->idx & 0xF]};
-
-	infoLogger() << "thor: evaluating EC query " << methodName << frg::endlog;
-
-	uacpi_eval(query->device->node, methodName, UACPI_NULL, UACPI_NULL);
-	uacpi_finish_handling_gpe(query->device->gpeNode, *query->device->gpeIdx);
-
-	frg::destruct(*kernelAlloc, query);
-}
-
 uacpi_interrupt_ret handleEcEvent(uacpi_handle ctx, uacpi_namespace_node *, uacpi_u16) {
 	auto *ecDevice = reinterpret_cast<ECDevice *>(ctx);
-	uacpi_interrupt_ret ret = UACPI_GPE_REENABLE | UACPI_INTERRUPT_HANDLED;
-
-	auto guard = frg::guard(&ecDevice->lock);
-
-	uint8_t idx;
-	if (!ecDevice->checkEvent(idx))
-		return ret;
-
-	if (idx == 0) {
-		infoLogger() << "thor: EC indicates no outstanding events" << frg::endlog;
-		return ret;
-	}
-
-	infoLogger() << "thor: scheduling EC event " << idx << " for execution" << frg::endlog;
-
-	auto *query = frg::construct<ECQuery>(*kernelAlloc);
-	query->device = ecDevice;
-	query->idx = idx;
-	uacpi_kernel_schedule_work(UACPI_WORK_GPE_EXECUTION, handleEcQuery, query);
-
-	// Don't re-enable the event handling here, it will be enabled asynchronously
+	ecDevice->irqEvent.raise();
 	return UACPI_INTERRUPT_HANDLED;
 }
 
@@ -312,6 +277,38 @@ static void installEcHandlers() {
 	    nullptr, *ecDevice->gpeIdx, UACPI_GPE_TRIGGERING_EDGE, handleEcEvent, ecDevice.get()
 	);
 	assert(ret == UACPI_STATUS_OK);
+
+	[](ECDevice *dev, enable_detached_coroutine) -> void {
+		uint64_t irqSeq = 0;
+		while (true) {
+			co_await dev->irqEvent.async_wait(irqSeq);
+
+			co_await onAcpiFiber([&] {
+				frg::scope_exit finish{[&] {
+					uacpi_finish_handling_gpe(dev->gpeNode, *dev->gpeIdx);
+				}};
+
+				uint8_t idx;
+				{
+					auto guard = frg::guard(&dev->lock);
+					if (!dev->checkEvent(idx))
+						return;
+				}
+				if (!idx) {
+					infoLogger() << "thor: EC indicates no outstanding events" << frg::endlog;
+					return;
+				}
+
+				static const char *hexChars = "0123456789ABCDEF";
+				char methodName[5] = {'_', 'Q', hexChars[(idx >> 4) & 0xF], hexChars[idx & 0xF]};
+
+				infoLogger() << "thor: evaluating EC query " << methodName << frg::endlog;
+				uacpi_eval(dev->node, methodName, UACPI_NULL, UACPI_NULL);
+			});
+
+			++irqSeq;
+		}
+	}(ecDevice.get(), enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 
 	ecDevice->initialized = true;
 }
