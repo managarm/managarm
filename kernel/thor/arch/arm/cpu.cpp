@@ -32,6 +32,7 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
+	getCpuData()->activeExecutor = executor;
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 	restoreFpSimdRegisters(&executor->general()->fp);
 
