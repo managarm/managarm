@@ -13,7 +13,6 @@ struct UserAccessRegion;
 // Do not change the field offsets!
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
-	uint64_t currentDomain;
 	Executor *activeExecutor{nullptr};
 	void *exceptionStackPtr;
 	// TODO: This is unused for now but required to be in PlatformCpuData by generic code.
@@ -22,7 +21,6 @@ struct AssemblyCpuData {
 };
 
 static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
-static_assert(offsetof(AssemblyCpuData, currentDomain) == THOR_TP_DOMAIN);
 static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_TP_EXECUTOR);
 static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);

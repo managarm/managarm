@@ -31,13 +31,9 @@ thorExcVectors:
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 fiq
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 error
 
-.set .L_excStateSize, 840
+.set .L_excStateSize, 832
 
-.set .L_irqDomain, 0
-.set .L_faultDomain, 1
-.set .L_userDomain, 3
-
-.macro MAKE_STUB name, handler, el, domain, stack
+.macro MAKE_STUB name, handler, el, stack
 \name:
 	.cfi_startproc simple
 	.cfi_signal_frame
@@ -136,19 +132,10 @@ thorExcVectors:
 	mrs x0, far_el1
 	str x0, [sp, #280]
 
-	// Save domain
-	mrs x0, tpidr_el1
-	ldr x1, [x0, THOR_TP_DOMAIN]
-	str x1, [sp, #288]
-
-	// Set new domain
-	mov x1, \domain
-	str x1, [x0, #8]
-
 	// Save TPIDR_EL0
 	mrs x0, tpidr_el0
-	str x0, [sp, #296]
-	.cfi_offset tpidr_el0, 296
+	str x0, [sp, #288]
+	.cfi_offset tpidr_el0, 288
 
 	// Enter handler
 	mov x29, xzr
@@ -157,14 +144,9 @@ thorExcVectors:
 	bl \handler
 
 	// Restore TPIDR_EL0
-	ldr x0, [sp, #296]
+	ldr x0, [sp, #288]
 	msr tpidr_el0, x0
-	.cfi_restore tpidr_el0, 296
-
-	// Restore domain
-	mrs x0, tpidr_el1
-	ldr x1, [sp, #288]
-	str x1, [x0, #8]
+	.cfi_restore tpidr_el0, 288
 
 	// Restore exception state
 	ldr x0, [sp, #256]
@@ -243,16 +225,16 @@ thorExcVectors:
 	.cfi_endproc
 .endm
 
-MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, THOR_TP_EXCEPTION_STACK
 
-MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1IrqStub, onPlatformIrq, 1, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, THOR_TP_EXCEPTION_STACK
 
-MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0IrqStub, onPlatformIrq, 0, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, THOR_TP_EXCEPTION_STACK
 
 .global workStub
 workStub:
@@ -282,9 +264,6 @@ workStub:
 	msr elr_el1, x0
 	ldr x0, [sp, #288] // #288
 	msr sp_el0, x0
-	ldr x0, [sp, #304] // #304
-	mrs x1, tpidr_el1
-	str x0, [x1, #8]
 
 	ldr x30, [sp], #16
 	ldp x28, x29, [sp], #16
@@ -307,9 +286,9 @@ workStub:
 
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:
-	ldr x1, [x0, #288]
+	ldr x1, [x0, #264]
 	ldr x2, [x0, #248]
-	cmp x1, .L_userDomain
+	ands x1, x1, #0x1f
 	b.eq .L2
 	mov sp, x2
 	b .L1
@@ -317,7 +296,7 @@ _restoreExecutorRegisters:
 	msr sp_el0, x2
 .L1:
 	// Restore TPIDR_EL0
-	ldr x1, [x0, #296]
+	ldr x1, [x0, #288]
 	msr tpidr_el0, x1
 
 	// Restore exception state
@@ -374,14 +353,9 @@ forkExecutorRegisters:
 	orr x4, x4, x5
 	str x4, [x0, #264]
 
-	// Set new domain
-	mrs x4, tpidr_el1
-	ldr x4, [x4, #8]
-	str x4, [x0, #288]
-
 	// Save TPIDR_EL0
 	mrs x4, tpidr_el0
-	str x4, [x0, #296]
+	str x4, [x0, #288]
 
 	mov x0, x2
 	blr x1

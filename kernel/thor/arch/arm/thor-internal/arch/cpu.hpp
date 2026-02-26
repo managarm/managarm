@@ -21,14 +21,6 @@
 
 namespace thor {
 
-enum class Domain : uint64_t {
-	irq = 0,
-	fault,
-	fiber,
-	user,
-	idle
-};
-
 struct FpRegisters {
 	uint64_t v[64]; // V0-V31 are 128 bits
 	uint64_t fpcr;
@@ -42,13 +34,12 @@ struct Frame {
 	uint64_t spsr;
 	uint64_t esr;
 	uint64_t far;
-	Domain domain;
 	uint64_t tpidr_el0;
 	IplState iplState;
 
 	FpRegisters fp;
 };
-static_assert(sizeof(Frame) == 840, "Invalid exception frame size");
+static_assert(sizeof(Frame) == 832, "Invalid exception frame size");
 
 struct Executor;
 
@@ -139,32 +130,28 @@ struct IrqImageAccessor {
 	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inPreemptibleDomain() {
-		return _frame()->domain == Domain::fault
-			|| _frame()->domain == Domain::fiber
-			|| _frame()->domain == Domain::idle
-			|| _frame()->domain == Domain::user;
+		return ((_frame()->spsr & 0b1111) == 0b0000)
+			|| ((_frame()->spsr & 0x3c0) == 0x000);
 		return true;
 	}
 
 	bool inThreadDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::fault
-			|| _frame()->domain == Domain::user;
+		return false;
 	}
 
 	bool inManipulableDomain() {
-		assert(inThreadDomain());
-		return _frame()->domain == Domain::user;
+		return (_frame()->spsr & 0b1111) == 0b0000;
 	}
 
 	bool inFiberDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::fiber;
+		return false;
 	}
 
 	bool inIdleDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::idle;
+		return false;
 	}
 
 	void *frameBase() { return _pointer + sizeof(Frame); }

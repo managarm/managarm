@@ -32,7 +32,6 @@ FiberContext::FiberContext(UniqueKernelStack stack)
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
-	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
 	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 	restoreFpSimdRegisters(&executor->general()->fp);
 
@@ -60,7 +59,6 @@ Executor::Executor(UserContext *context, void (*launch)())
 	general()->elr = reinterpret_cast<uintptr_t>(launch);
 	general()->sp = reinterpret_cast<uintptr_t>(_exceptionStack);
 	general()->spsr = isKernelInEl2() ? 9 : 5;
-	general()->domain = Domain::fault;
 }
 
 Executor::Executor(UserContext *context, AbiParameters abi)
@@ -68,7 +66,6 @@ Executor::Executor(UserContext *context, AbiParameters abi)
 	general()->elr = abi.ip;
 	general()->sp = abi.sp;
 	general()->spsr = 0;
-	general()->domain = Domain::user;
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
@@ -80,7 +77,6 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	general()->sp = (uintptr_t)context->stack.basePtr();
 	general()->x[0] = abi.argument;
 	general()->spsr = isKernelInEl2() ? 9 : 5;
-	general()->domain = Domain::fiber;
 }
 
 Executor::~Executor() {
@@ -93,7 +89,6 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
@@ -107,7 +102,6 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
@@ -121,7 +115,6 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
@@ -146,16 +139,11 @@ void workOnExecutor(Executor *executor) {
 		memcpy(sp, &v, 8);
 	};
 
-	assert(executor->general()->domain == Domain::user);
-	assert(getCpuData()->currentDomain != static_cast<uint64_t>(Domain::user));
-
-	push(static_cast<uint64_t>(executor->general()->domain));
 	push(executor->general()->sp);
 	push(executor->general()->elr);
 	push(executor->general()->spsr);
 
 	void *stub = reinterpret_cast<void *>(&workStub);
-	executor->general()->domain = Domain::fault;
 	executor->general()->elr = reinterpret_cast<uintptr_t>(stub);
 	executor->general()->sp = reinterpret_cast<uintptr_t>(sp);
 	executor->general()->spsr = 0x3c0 | (isKernelInEl2() ? 9 : 5);
