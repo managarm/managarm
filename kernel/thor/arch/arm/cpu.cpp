@@ -292,11 +292,8 @@ void initializeThisProcessor() {
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = (mpidr & 0xFFFFFF) | (mpidr >> 32 & 0xFF) << 24;
 
-	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
 	cpu_data->idleStack = UniqueKernelStack::make();
-
-	cpu_data->irqStackPtr = cpu_data->irqStack.basePtr();
 
 	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.

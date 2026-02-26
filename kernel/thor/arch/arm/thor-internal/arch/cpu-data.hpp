@@ -16,7 +16,6 @@ struct AssemblyCpuData {
 	uint64_t currentDomain;
 	Executor *activeExecutor{nullptr};
 	void *exceptionStackPtr;
-	void *irqStackPtr;
 	// TODO: This is unused for now but required to be in PlatformCpuData by generic code.
 	// 		 We need to make use of this once we use NMIs on ARM.
 	IseqContext *iseqPtr{nullptr};
@@ -26,7 +25,6 @@ static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
 static_assert(offsetof(AssemblyCpuData, currentDomain) == THOR_TP_DOMAIN);
 static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_TP_EXECUTOR);
 static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
-static_assert(offsetof(AssemblyCpuData, irqStackPtr) == THOR_TP_IRQ_STACK);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);
 
 struct GicCpuInterfaceV2;
@@ -37,8 +35,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	int cpuIndex;
 	int archCpuIndex;
-
-	UniqueKernelStack irqStack;
 
 	uint32_t profileFlags = 0;
 

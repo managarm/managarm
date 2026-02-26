@@ -247,11 +247,11 @@ MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, .L_faultDomain, THOR
 MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
 MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, THOR_TP_IRQ_STACK
+MAKE_STUB el1IrqStub, onPlatformIrq, 1, .L_irqDomain, THOR_TP_EXCEPTION_STACK
 MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
 MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, THOR_TP_IRQ_STACK
+MAKE_STUB el0IrqStub, onPlatformIrq, 0, .L_irqDomain, THOR_TP_EXCEPTION_STACK
 MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, .L_faultDomain, THOR_TP_EXCEPTION_STACK
 
 .global workStub
