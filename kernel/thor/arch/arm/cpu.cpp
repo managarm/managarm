@@ -21,24 +21,30 @@ void UserContext::deactivate() { }
 UserContext::UserContext()
 : kernelStack(UniqueKernelStack::make()) { }
 
-void UserContext::migrate(CpuData *cpu_data) {
+void UserContext::migrate(CpuData *) {
 	assert(!intsAreEnabled());
-	cpu_data->exceptionStackPtr = kernelStack.basePtr();
 }
 
 FiberContext::FiberContext(UniqueKernelStack stack)
 : stack{std::move(stack)} { }
 
-extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
+extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, void *el1Stack);
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
 	getCpuData()->activeExecutor = executor;
-	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
 	restoreFpSimdRegisters(&executor->general()->fp);
 
 	iplLeaveContext(executor->general()->iplState);
 
-	_restoreExecutorRegisters(executor->general());
+	void *el1Stack = nullptr;
+	if ((executor->general()->spsr & 0b1111) == 0b0000) {
+		el1Stack = executor->_exceptionStack;
+		asm volatile ("msr sp_el0, %0" :: "r"(executor->general()->sp) : "memory");
+	} else {
+		el1Stack = reinterpret_cast<void *>(executor->general()->sp);
+	}
+
+	_restoreExecutorRegisters(executor->general(), el1Stack);
 }
 
 size_t Executor::determineSize() {

@@ -14,7 +14,6 @@ struct UserAccessRegion;
 struct AssemblyCpuData {
 	AssemblyCpuData *selfPointer;
 	Executor *activeExecutor{nullptr};
-	void *exceptionStackPtr;
 	// TODO: This is unused for now but required to be in PlatformCpuData by generic code.
 	// 		 We need to make use of this once we use NMIs on ARM.
 	IseqContext *iseqPtr{nullptr};
@@ -22,7 +21,6 @@ struct AssemblyCpuData {
 
 static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
 static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_TP_EXECUTOR);
-static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);
 
 struct GicCpuInterfaceV2;

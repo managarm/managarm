@@ -33,109 +33,84 @@ thorExcVectors:
 
 .set .L_excStateSize, 832
 
-.macro MAKE_STUB name, handler, el, stack
+.macro MAKE_STUB name, handler, el
 \name:
 	.cfi_startproc simple
 	.cfi_signal_frame
 
-	msr tpidrro_el0, x0
-	.if \el == 0
-	mrs x0, tpidr_el1
-	ldr x0, [x0, \stack]
-	.else
-	mov x0, sp
-	.endif
+	.cfi_def_cfa sp, -.L_excStateSize
+	sub sp, sp, .L_excStateSize
+	.cfi_def_cfa_offset 0
 
-	sub x0, x0, .L_excStateSize
-	.cfi_def_cfa x0, 0
-
-	// Save x1-x30
-	str x1, [x0, #8]
+	// Save x0-x29
+	stp x0, x1, [sp, #0]
+	.cfi_offset x0, 0
 	.cfi_offset x1, 8
-	stp x2, x3, [x0, #16]
+	stp x2, x3, [sp, #16]
 	.cfi_offset x2, 16
 	.cfi_offset x3, 24
-	stp x4, x5, [x0, #32]
+	stp x4, x5, [sp, #32]
 	.cfi_offset x4, 32
 	.cfi_offset x5, 40
-	stp x6, x7, [x0, #48]
+	stp x6, x7, [sp, #48]
 	.cfi_offset x6, 48
 	.cfi_offset x7, 56
-	stp x8, x9, [x0, #64]
+	stp x8, x9, [sp, #64]
 	.cfi_offset x8, 64
 	.cfi_offset x9, 72
-	stp x10, x11, [x0, #80]
+	stp x10, x11, [sp, #80]
 	.cfi_offset x10, 80
 	.cfi_offset x11, 88
-	stp x12, x13, [x0, #96]
+	stp x12, x13, [sp, #96]
 	.cfi_offset x12, 96
 	.cfi_offset x13, 104
-	stp x14, x15, [x0, #112]
+	stp x14, x15, [sp, #112]
 	.cfi_offset x14, 112
 	.cfi_offset x15, 120
-	stp x16, x17, [x0, #128]
+	stp x16, x17, [sp, #128]
 	.cfi_offset x16, 128
 	.cfi_offset x17, 136
-	stp x18, x19, [x0, #144]
+	stp x18, x19, [sp, #144]
 	.cfi_offset x18, 144
 	.cfi_offset x19, 152
-	stp x20, x21, [x0, #160]
+	stp x20, x21, [sp, #160]
 	.cfi_offset x20, 160
 	.cfi_offset x21, 168
-	stp x22, x23, [x0, #176]
+	stp x22, x23, [sp, #176]
 	.cfi_offset x22, 176
 	.cfi_offset x23, 184
-	stp x24, x25, [x0, #192]
+	stp x24, x25, [sp, #192]
 	.cfi_offset x24, 192
 	.cfi_offset x25, 200
-	stp x26, x27, [x0, #208]
+	stp x26, x27, [sp, #208]
 	.cfi_offset x26, 208
 	.cfi_offset x27, 216
-	stp x28, x29, [x0, #224]
+	stp x28, x29, [sp, #224]
 	.cfi_offset x28, 224
 	.cfi_offset x29, 232
-	str x30, [x0, #240]
-	.cfi_offset x30, 240
 
-	// Save old sp
+	// Save x30 and sp (either user's or before the new frame)
 	.if \el == 0
-	mrs x1, sp_el0
+	mrs x0, sp_el0
 	.else
-	mov x1, sp
+	add x0, sp, .L_excStateSize
 	.endif
-
-	str x1, [x0, #248]
+	stp x30, x0, [sp, #240]
+	.cfi_offset x30, 240
 	.cfi_offset sp, 248
 
-	// Set new stack
-	mov sp, x0
-	.cfi_def_cfa_register sp
-
-	// Save x0
-	mrs x0, tpidrro_el0
-	str x0, [sp, #0]
-	.cfi_offset x0, 0
-
-	// Avoid leaking x0 contents to other threads
-	mov x0, xzr
-	msr tpidrro_el0, x0
-
-	// Save exception state
+	// Save return address and processor state
 	mrs x0, elr_el1
-	str x0, [sp, #256]
-	.cfi_offset ip, 256
-	mrs x0, spsr_el1
-	str x0, [sp, #264]
-	.cfi_offset pstate, 264
-	mrs x0, esr_el1
-	str x0, [sp, #272]
-	mrs x0, far_el1
-	str x0, [sp, #280]
+	mrs x1, spsr_el1
+	stp x0, x1, [sp, #256]
+	.cfi_offset lr, 256
 
-	// Save TPIDR_EL0
+	mrs x0, esr_el1
+	mrs x1, far_el1
+	stp x0, x1, [sp, #272]
+
 	mrs x0, tpidr_el0
 	str x0, [sp, #288]
-	.cfi_offset tpidr_el0, 288
 
 	// Enter handler
 	mov x29, xzr
@@ -143,98 +118,87 @@ thorExcVectors:
 
 	bl \handler
 
-	// Restore TPIDR_EL0
 	ldr x0, [sp, #288]
 	msr tpidr_el0, x0
-	.cfi_restore tpidr_el0, 288
 
-	// Restore exception state
-	ldr x0, [sp, #256]
+	ldp x0, x1, [sp, #256]
 	msr elr_el1, x0
-	ldr x0, [sp, #264]
-	msr spsr_el1, x0
+	msr spsr_el1, x1
 
-	// Restore old stack (EL0)
 	.if \el == 0
-	ldr x1, [sp, #248]
-	msr sp_el0, x1
+	// Restore x30 and user stack
+	ldp x30, x0, [sp, #240]
+	msr sp_el0, x0
+	.else
+	// Restore x30, stack will be restored before eret
+	ldr x30, [sp, #240]
 	.endif
+	.cfi_restore x30
 
-	// Restore x2-x30
-	ldp x2, x3, [sp, #16]
-	.cfi_restore x2
-	.cfi_restore x3
-	ldp x4, x5, [sp, #32]
-	.cfi_restore x4
-	.cfi_restore x5
-	ldp x6, x7, [sp, #48]
-	.cfi_restore x6
-	.cfi_restore x7
-	ldp x8, x9, [sp, #64]
-	.cfi_restore x8
-	.cfi_restore x9
-	ldp x10, x11, [sp, #80]
-	.cfi_restore x10
-	.cfi_restore x11
-	ldp x12, x13, [sp, #96]
-	.cfi_restore x12
-	.cfi_restore x13
-	ldp x14, x15, [sp, #112]
-	.cfi_restore x14
-	.cfi_restore x15
-	ldp x16, x17, [sp, #128]
-	.cfi_restore x16
-	.cfi_restore x17
-	ldp x18, x19, [sp, #144]
-	.cfi_restore x18
-	.cfi_restore x19
-	ldp x20, x21, [sp, #160]
-	.cfi_restore x20
-	.cfi_restore x21
-	ldp x22, x23, [sp, #176]
-	.cfi_restore x22
-	.cfi_restore x23
-	ldp x24, x25, [sp, #192]
-	.cfi_restore x24
-	.cfi_restore x25
-	ldp x26, x27, [sp, #208]
-	.cfi_restore x26
-	.cfi_restore x27
+	// Restore x0-x29
 	ldp x28, x29, [sp, #224]
 	.cfi_restore x28
 	.cfi_restore x29
-	ldr x30, [sp, #240]
-	.cfi_restore x30
-
-	mov x0, sp
-	.cfi_def_cfa_register x0
-
-	// Restore old stack (EL1)
-	.if \el == 1
-	ldr x1, [x0, #248]
-	mov sp, x1
-	.endif
-
-	.cfi_restore sp
-
-	ldp x0, x1, [x0, #0]
+	ldp x26, x27, [sp, #208]
+	.cfi_restore x26
+	.cfi_restore x28
+	ldp x24, x25, [sp, #192]
+	.cfi_restore x24
+	.cfi_restore x25
+	ldp x22, x23, [sp, #176]
+	.cfi_restore x22
+	.cfi_restore x23
+	ldp x20, x21, [sp, #160]
+	.cfi_restore x20
+	.cfi_restore x21
+	ldp x18, x19, [sp, #144]
+	.cfi_restore x18
+	.cfi_restore x19
+	ldp x16, x17, [sp, #128]
+	.cfi_restore x16
+	.cfi_restore x17
+	ldp x14, x15, [sp, #112]
+	.cfi_restore x14
+	.cfi_restore x15
+	ldp x12, x13, [sp, #96]
+	.cfi_restore x12
+	.cfi_restore x13
+	ldp x10, x11, [sp, #80]
+	.cfi_restore x10
+	.cfi_restore x11
+	ldp x8, x9, [sp, #64]
+	.cfi_restore x8
+	.cfi_restore x9
+	ldp x6, x7, [sp, #48]
+	.cfi_restore x6
+	.cfi_restore x7
+	ldp x4, x5, [sp, #32]
+	.cfi_restore x4
+	.cfi_restore x5
+	ldp x2, x3, [sp, #16]
+	.cfi_restore x2
+	.cfi_restore x3
+	ldp x0, x1, [sp, #0]
 	.cfi_restore x0
 	.cfi_restore x1
+
+	add sp, sp, .L_excStateSize
+	.cfi_def_cfa_offset -.L_excStateSize
 
 	eret
 	.cfi_endproc
 .endm
 
-MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1InvalidExcStub, onPlatformInvalidException, 1
+MAKE_STUB el0InvalidExcStub, onPlatformInvalidException, 0
 
-MAKE_STUB el1SyncStub, onPlatformSyncFault, 1, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el1IrqStub, onPlatformIrq, 1, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el1SyncStub, onPlatformSyncFault, 1
+MAKE_STUB el1IrqStub, onPlatformIrq, 1
+MAKE_STUB el1SErrorStub, onPlatformAsyncFault, 1
 
-MAKE_STUB el0SyncStub, onPlatformSyncFault, 0, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0IrqStub, onPlatformIrq, 0, THOR_TP_EXCEPTION_STACK
-MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0, THOR_TP_EXCEPTION_STACK
+MAKE_STUB el0SyncStub, onPlatformSyncFault, 0
+MAKE_STUB el0IrqStub, onPlatformIrq, 0
+MAKE_STUB el0SErrorStub, onPlatformAsyncFault, 0
 
 .global workStub
 workStub:
@@ -282,19 +246,15 @@ workStub:
 	ldp x2, x3, [sp], #16
 	ldp x0, x1, [sp], #16
 
+	add sp, sp, #48
+
 	eret
 
 .global _restoreExecutorRegisters
 _restoreExecutorRegisters:
-	ldr x1, [x0, #264]
-	ldr x2, [x0, #248]
-	ands x1, x1, #0x1f
-	b.eq .L2
-	mov sp, x2
-	b .L1
-.L2:
-	msr sp_el0, x2
-.L1:
+	// Restore SP_EL1
+	mov sp, x1
+
 	// Restore TPIDR_EL0
 	ldr x1, [x0, #288]
 	msr tpidr_el0, x1
@@ -306,23 +266,23 @@ _restoreExecutorRegisters:
 	msr spsr_el1, x1
 
 	// Restore x0-x30
-	ldp x2, x3, [x0, #16]
-	ldp x4, x5, [x0, #32]
-	ldp x6, x7, [x0, #48]
-	ldp x8, x9, [x0, #64]
-	ldp x10, x11, [x0, #80]
-	ldp x12, x13, [x0, #96]
-	ldp x14, x15, [x0, #112]
-	ldp x16, x17, [x0, #128]
-	ldp x18, x19, [x0, #144]
-	ldp x20, x21, [x0, #160]
-	ldp x22, x23, [x0, #176]
-	ldp x24, x25, [x0, #192]
-	ldp x26, x27, [x0, #208]
-	ldp x28, x29, [x0, #224]
 	ldr x30, [x0, #240]
-
+	ldp x28, x29, [x0, #224]
+	ldp x26, x27, [x0, #208]
+	ldp x24, x25, [x0, #192]
+	ldp x22, x23, [x0, #176]
+	ldp x20, x21, [x0, #160]
+	ldp x18, x19, [x0, #144]
+	ldp x16, x17, [x0, #128]
+	ldp x14, x15, [x0, #112]
+	ldp x12, x13, [x0, #96]
+	ldp x10, x11, [x0, #80]
+	ldp x8, x9, [x0, #64]
+	ldp x6, x7, [x0, #48]
+	ldp x4, x5, [x0, #32]
+	ldp x2, x3, [x0, #16]
 	ldp x0, x1, [x0, #0]
+
 	eret
 
 .set .L_executorImagePtr, 0
