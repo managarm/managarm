@@ -2114,7 +2114,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 #if defined(__x86_64__)
 			memcpy(buffer.data(), executor->_fxState(), simdSize);
 #elif defined(__aarch64__)
-			memcpy(buffer.data(), &executor->general()->fp, simdSize);
+			memcpy(buffer.data(), executor->fp(), simdSize);
 #elif defined(__riscv) && __riscv_xlen == 64
 			memcpy(buffer.data(), executor->fpRegisters(), simdSize);
 #else
@@ -2361,7 +2361,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 #if defined(__x86_64__)
 			memcpy(executor->_fxState(), buffer.data(), simdSize);
 #elif defined(__aarch64__)
-			memcpy(&executor->general()->fp, buffer.data(), simdSize);
+			memcpy(executor->fp(), buffer.data(), simdSize);
 #elif defined(__riscv) && __riscv_xlen == 64
 			memcpy(executor->fpRegisters(), buffer.data(), simdSize);
 #else

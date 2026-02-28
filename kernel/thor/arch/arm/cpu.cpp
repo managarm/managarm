@@ -32,7 +32,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, void *el
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
 	getCpuData()->activeExecutor = executor;
-	restoreFpSimdRegisters(&executor->general()->fp);
+	restoreFpSimdRegisters(executor->fp());
 
 	iplLeaveContext(executor->general()->iplState);
 
@@ -47,16 +47,12 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, void *el
 	_restoreExecutorRegisters(executor->general(), el1Stack);
 }
 
-size_t Executor::determineSize() {
-	return sizeof(Frame);
-}
-
 Executor::Executor()
 : _pointer{nullptr}, _exceptionStack{nullptr} {  }
 
 Executor::Executor(UserContext *context) {
-	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
-	memset(_pointer, 0, getStateSize());
+	_pointer = static_cast<char *>(kernelAlloc->allocate(determineSize()));
+	memset(_pointer, 0, determineSize());
 
 	_exceptionStack = context->kernelStack.basePtr();
 }
@@ -77,8 +73,8 @@ Executor::Executor(UserContext *context, AbiParameters abi)
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
 : _exceptionStack{nullptr} {
-	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
-	memset(_pointer, 0, getStateSize());
+	_pointer = static_cast<char *>(kernelAlloc->allocate(determineSize()));
+	memset(_pointer, 0, determineSize());
 
 	general()->elr = abi.ip;
 	general()->sp = (uintptr_t)context->stack.basePtr();
@@ -100,7 +96,7 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -113,7 +109,7 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -126,7 +122,7 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
@@ -170,10 +166,6 @@ void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
 
 void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
-}
-
-size_t getStateSize() {
-	return Executor::determineSize();
 }
 
 PlatformCpuData::PlatformCpuData() {

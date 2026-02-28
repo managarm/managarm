@@ -36,10 +36,13 @@ struct Frame {
 	uint64_t far;
 	uint64_t tpidr_el0;
 	IplState iplState;
+};
+static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
 
+struct ExecutorState {
+	Frame general;
 	FpRegisters fp;
 };
-static_assert(sizeof(Frame) == 832, "Invalid exception frame size");
 
 struct Executor;
 
@@ -214,7 +217,7 @@ struct Executor {
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
-	static size_t determineSize();
+	static size_t determineSize() { return sizeof(ExecutorState); }
 
 	Executor();
 
@@ -246,8 +249,16 @@ public:
 	Word *result0() { return &general()->x[0]; }
 	Word *result1() { return &general()->x[1]; }
 
+	ExecutorState *state() {
+		return reinterpret_cast<ExecutorState *>(_pointer);
+	}
+
 	Frame *general() {
-		return reinterpret_cast<Frame *>(_pointer);
+		return &state()->general;
+	}
+
+	FpRegisters *fp() {
+		return &state()->fp;
 	}
 
 	void *getExceptionStack() {
@@ -273,8 +284,6 @@ private:
 	UserAccessRegion *_uar{nullptr};
 };
 
-size_t getStateSize();
-
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
@@ -286,7 +295,7 @@ extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 
 // Save the current SIMD register state into the given executor.
 inline void saveCurrentSimdState(Executor *executor) {
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void setupBootCpuContext();

@@ -31,7 +31,7 @@ thorExcVectors:
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 fiq
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 error
 
-.set .L_excStateSize, 832
+.set .L_excStateSize, 304
 
 .macro MAKE_STUB name, handler, el
 \name:
