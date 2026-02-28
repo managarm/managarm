@@ -149,14 +149,15 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 void IpcQueue::processSq() {
 	assert(currentIpl() == ipl::passive);
 
-	if(!_numSqChunks)
+	// Note that we clear kKernelNotifySqProgress only once we have processed all SQ elements;
+	// thus, we can skip all logic unless userspace has posted new SQ elements.
+	// This is an optimization that is irrelevant for correctness, hence relaxed ordering is enough.
+	auto head = _mapping.access<QueueStruct>(0);
+	auto notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_RELAXED);
+	if (!(notify & kKernelNotifySqProgress))
 		return;
 
-	auto head = _mapping.access<QueueStruct>(0);
-
-	// Acknowledge the notification.
-	auto notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_ACQUIRE);
-	if (!(notify & kKernelNotifySqProgress))
+	if(!_numSqChunks)
 		return;
 
 	if (!_sqMutex.try_lock())
@@ -213,8 +214,20 @@ void IpcQueue::processSq() {
 
 			_sqCurrentChunk = nextWord & ~kNextPresent;
 			_sqCurrentProgress = 0;
-		} else {
+			continue;
+		}
+
+		// Stop if kHelNotifySqProgress is clear.
+		// Note that the progressFutex read happens before this (due to acquire on the progressFutex read).
+		notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+		if (!(notify & kKernelNotifySqProgress)) {
 			break;
+		} else {
+			// Otherwise, clear it and check progressFutex again.
+			// This happens before the next progressFutex wait due to acquire.
+			notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_ACQUIRE);
+			// Note that no concurrent thread will clear the bit.
+			// !(notify & kKernelNotifySqProgress) would be a protocol violation.
 		}
 	}
 }

@@ -363,29 +363,49 @@ private:
 	}
 
 	void _waitProgressFutex(bool *done) {
-		auto check = [&] () -> bool {
-			auto progress = __atomic_load_n(&_chunks[_retrieveChunk]->progressFutex, __ATOMIC_ACQUIRE);
-			assert(!(progress & ~(kHelProgressMask | kHelProgressDone)));
-			if(_lastProgress != (progress & kHelProgressMask)) {
-				*done = false;
-				return true;
-			}else if(progress & kHelProgressDone) {
-				*done = true;
-				return true;
-			}
-			return false;
-		};
+		// userNotify bits checked by this function (these MUST be checked in the loop below!).
+		const auto relevantNotify = kHelUserNotifyCqProgress;
+		// userNotify bits ignored by this function.
+		const auto maskedNotify = kHelUserNotifySupplySqChunks;
 
-		if (check())
-			return;
+		// Relaxed is enough here: if a relevant bit in notify is set, we will always go through
+		// the load-acquire on the fetch_and() code path and re-check a notification afterwards
+		// before we conclude that there is truly nothing pending anymore.
+		auto notify = __atomic_load_n(&_queue->userNotify, __ATOMIC_RELAXED);
 		while(true) {
-			__atomic_fetch_and(&_queue->userNotify, ~kHelUserNotifyCqProgress, __ATOMIC_ACQUIRE);
-			if (check())
-				return;
-			auto e = helDriveQueue(_handle, kHelDriveWaitCqProgress);
-			if (e == kHelErrCancelled)
-				continue;
-			HEL_CHECK(e);
+			// Note: notify is reloaded at the end of each iteration below.
+			_pendingNotify |= notify;
+
+			if (_pendingNotify & kHelUserNotifyCqProgress) {
+				auto progress = __atomic_load_n(&_chunks[_retrieveChunk]->progressFutex, __ATOMIC_ACQUIRE);
+				assert(!(progress & ~(kHelProgressMask | kHelProgressDone)));
+				if(_lastProgress != (progress & kHelProgressMask)) {
+					*done = false;
+					return;
+				}else if(progress & kHelProgressDone) {
+					*done = true;
+					return;
+				}
+			}
+
+			// If we get here, no relevant notifications are pending.
+			// Clear all relevant bits or wait in the kernel if all of them are already clear.
+			auto notifyToClear = notify & relevantNotify;
+			_pendingNotify &= ~relevantNotify;
+			if (!notifyToClear) {
+				// The only remaining bits must be masked ones (otherwise we are missing checks above).
+				assert(!(_pendingNotify & ~maskedNotify));
+
+				auto e = helDriveQueue(_handle, kHelDriveWaitCqProgress);
+				if (e != kHelErrCancelled)
+					HEL_CHECK(e);
+				// Relaxed is enough (same reasoning as for the initial load).
+				notify = __atomic_load_n(&_queue->userNotify, __ATOMIC_RELAXED);
+			} else {
+				// Note that we will check all cleared notifications again in the next iteration.
+				// This RMW happens before the next progressFutex wait due to the load-acquire here.
+				notify = __atomic_fetch_and(&_queue->userNotify, ~notifyToClear, __ATOMIC_ACQUIRE);
+			}
 		}
 	}
 
@@ -400,6 +420,9 @@ private:
 	size_t _chunkSize;
 
 	uint64_t _nextAsyncId{0};
+
+	// General state.
+	int _pendingNotify{0};
 
 	// CQ state.
 	// Chunk that we are currently retrieving from.

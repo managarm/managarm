@@ -138,6 +138,8 @@ pub struct Queue {
     sq_current_chunk: usize,
     /// Progress into current SQ chunk.
     sq_progress: usize,
+    // Notify state.
+    pending_notify: i32,
     // Resources
     handle: Handle,
     mapping: Mapping<hel_sys::HelQueue>,
@@ -188,6 +190,7 @@ impl Queue {
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
             sq_current_chunk: 0,
             sq_progress: 0,
+            pending_notify: 0,
             handle,
             mapping,
         };
@@ -343,41 +346,53 @@ impl Queue {
     }
 
     fn wait_progress_futex(&mut self) -> Result<bool> {
-        let check = |this: &mut Self| -> Option<bool> {
-            let progress = this
-                .get_chunk(this.retrieve_chunk)
-                .progress_futex()
-                .load(Ordering::Acquire);
+        // userNotify bits checked by this function (these MUST be checked in the loop below!).
+        let relevant_notify = hel_sys::kHelUserNotifyCqProgress;
+        // userNotify bits ignored by this function.
+        let masked_notify = hel_sys::kHelUserNotifySupplySqChunks;
 
-            if this.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
-                Some(false)
-            } else if progress & hel_sys::kHelProgressDone != 0 {
-                Some(true)
-            } else {
-                None
-            }
-        };
-
-        if let Some(done) = check(self) {
-            return Ok(done);
-        }
-
+        // Relaxed is enough here: if a relevant bit in notify is set, we will always go through
+        // the load-acquire on the fetch_and() code path and re-check a notification afterwards
+        // before we conclude that there is truly nothing pending anymore.
+        let mut notify = self.user_notify().load(Ordering::Relaxed);
         loop {
-            self.user_notify()
-                .fetch_and(!hel_sys::kHelUserNotifyCqProgress, Ordering::Acquire);
+            // Note: notify is reloaded at the end of each iteration below.
+            self.pending_notify |= notify;
 
-            if let Some(done) = check(self) {
-                return Ok(done);
+            if self.pending_notify & hel_sys::kHelUserNotifyCqProgress != 0 {
+                let progress = self
+                    .get_chunk(self.retrieve_chunk)
+                    .progress_futex()
+                    .load(Ordering::Acquire);
+                if self.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
+                    return Ok(false);
+                } else if progress & hel_sys::kHelProgressDone != 0 {
+                    return Ok(true);
+                }
             }
 
-            let res = hel_check(unsafe {
-                hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
-            });
-            match res {
-                Err(crate::Error::Cancelled) => continue,
-                _ => (),
-            };
-            res?;
+            // If we get here, no relevant notifications are pending.
+            // Clear all relevant bits or wait in the kernel if all of them are already clear.
+            let notify_to_clear = notify & relevant_notify;
+            self.pending_notify &= !relevant_notify;
+            if notify_to_clear == 0 {
+                // The only remaining bits must be masked ones (otherwise we are missing checks above).
+                assert!(self.pending_notify & !masked_notify == 0);
+
+                let res = hel_check(unsafe {
+                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
+                });
+                match res {
+                    Err(crate::Error::Cancelled) => {}
+                    _ => res?,
+                }
+                // Relaxed is enough (same reasoning as for the initial load).
+                notify = self.user_notify().load(Ordering::Relaxed);
+            } else {
+                // Note that we will check all cleared notifications again in the next iteration.
+                // This RMW happens before the next progressFutex wait due to the load-acquire here.
+                notify = self.user_notify().fetch_and(!notify_to_clear, Ordering::Acquire);
+            }
         }
     }
 
