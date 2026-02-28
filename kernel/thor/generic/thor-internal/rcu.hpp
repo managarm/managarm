@@ -1,6 +1,8 @@
 #pragma once
 
 #include <optional>
+
+#include <frg/list.hpp>
 #include <thor-internal/cpu-data.hpp>
 
 namespace thor {

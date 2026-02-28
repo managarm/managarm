@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/memory-view.hpp>
+#include <thor-internal/pfn-db.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/timer.hpp>
 
@@ -380,6 +381,8 @@ struct ZeroMemory final : MemoryView {
 			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
 		PageAccessor accessor{_zeroPage};
 		memset(accessor.get(), 0, kPageSize);
+
+		globalPfnDb().insert(_zeroPage, PfnDescriptor::otherPage());
 	}
 	ZeroMemory(const ZeroMemory &) = delete;
 	~ZeroMemory() = default;
@@ -459,13 +462,16 @@ ImmediateMemory::ImmediateMemory(size_t length)
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 
+		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 		_physicalPages[i] = physical;
 	}
 }
 
 ImmediateMemory::~ImmediateMemory() {
-	for(size_t i = 0; i < _physicalPages.size(); ++i)
+	for(size_t i = 0; i < _physicalPages.size(); ++i) {
+		globalPfnDb().erase(_physicalPages[i]);
 		physicalAllocator->free(_physicalPages[i], kPageSize);
+	}
 }
 
 coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
@@ -486,6 +492,7 @@ coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
 			PageAccessor accessor{physical};
 			memset(accessor.get(), 0, kPageSize);
 
+			globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 			_physicalPages[i] = physical;
 		}
 	}
@@ -587,10 +594,26 @@ HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cac
 : _base{base}, _length{length}, _cacheMode{cache_mode} {
 	assert(!(base % kPageSize));
 	assert(!(length % kPageSize));
+
+	for(PhysicalAddr pa = _base; pa < _base + _length; pa += kPageSize)
+		globalPfnDb().insertOrExchange(pa, [](frg::optional<PfnDescriptor> descriptor) {
+			if(!descriptor)
+				return PfnDescriptor::hardwarePage(1);
+			assert(descriptor->isHardware());
+			return PfnDescriptor::hardwarePage(descriptor->hardwareRefCount() + 1);
+		});
 }
 
 HardwareMemory::~HardwareMemory() {
-	// For now we do nothing when deallocating hardware memory.
+	for(PhysicalAddr pa = _base; pa < _base + _length; pa += kPageSize)
+		globalPfnDb().exchangeOrErase(pa, [](PfnDescriptor descriptor) -> frg::optional<PfnDescriptor> {
+			assert(descriptor.isHardware());
+			auto refCount = descriptor.hardwareRefCount();
+			assert(refCount > 0);
+			if(refCount == 1)
+				return frg::null_opt;
+			return PfnDescriptor::hardwarePage(refCount - 1);
+		});
 }
 
 Error HardwareMemory::lockRange(uintptr_t, size_t) {
@@ -656,8 +679,11 @@ AllocatedMemory::~AllocatedMemory() {
 		infoLogger() << "thor: Releasing AllocatedMemory ("
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frg::endlog;
 	for(size_t i = 0; i < _physicalChunks.size(); ++i) {
-		if(_physicalChunks[i] != PhysicalAddr(-1))
+		if(_physicalChunks[i] != PhysicalAddr(-1)) {
+			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
+				globalPfnDb().erase(_physicalChunks[i] + pg);
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
+		}
 	}
 	if(logUsage)
 		infoLogger() << "thor:     ("
@@ -722,6 +748,8 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
 			PageAccessor accessor{physical + pg_progress};
 			memset(accessor.get(), 0, kPageSize);
+
+			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
 	}
@@ -801,6 +829,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 
 			if(logUncaching)
 				warningLogger() << "Evicting physical page" << frg::endlog;
+			globalPfnDb().erase(physical);
 			physicalAllocator->free(physical, kPageSize);
 			if(invalidateMonitor)
 				invalidateMonitor->event.raise();
@@ -1007,6 +1036,8 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
+
+		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
 	}
 
@@ -1244,8 +1275,10 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 					physical = PhysicalAddr(-1);
 				}
 			}
-			if(physical != PhysicalAddr(-1))
+			if(physical != PhysicalAddr(-1)) {
+				globalPfnDb().erase(physical);
 				physicalAllocator->free(physical, kPageSize);
+			}
 			if(physical != PhysicalAddr(-1))
 				pg += kPageSize;
 			continue;
@@ -1577,6 +1610,7 @@ CowPage::~CowPage() {
 		return;
 	assert(state == CowState::hasCopy);
 	assert(physical != PhysicalAddr(-1));
+	globalPfnDb().erase(physical);
 	physicalAllocator->free(physical, kPageSize);
 }
 
@@ -1624,6 +1658,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
 			copyPage->state = CowState::hasCopy;
 			copyPage->physical = copyPhysical;
+			globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
 			auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 			*copyIt = copyPage;
 		}else{
@@ -1929,6 +1964,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		assert(cowPage->state == CowState::inProgress);
 		cowPage->state = CowState::hasCopy;
 		cowPage->physical = physical;
+		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 	}
 	_copyEvent.raise();
 	co_return kPageSize - misalign;

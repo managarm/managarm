@@ -63,6 +63,7 @@ src = files(
 	'generic/mbus.cpp',
 	'generic/memory-view.cpp',
 	'generic/ostrace.cpp',
+	'generic/pfn-db.cpp',
 	'generic/physical.cpp',
 	'generic/profile.cpp',
 	'generic/random.cpp',
