@@ -144,10 +144,8 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *, uintptr_t offset, size_t size) {
+frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
@@ -164,10 +162,8 @@ frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va,
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *, uintptr_t offset, size_t size) {
+frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
@@ -228,11 +224,9 @@ struct VirtualOperations {
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) = 0;
+	virtual frg::expected<Error> cleanPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) = 0;
+	virtual frg::expected<Error> unmapPages(VirtualAddr va, size_t size) = 0;
 
 	virtual size_t getRss();
 
@@ -692,16 +686,14 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, view, offset, fetchFlags, flags, mode);
 		}
 
-		frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size) override {
+		frg::expected<Error> cleanPages(VirtualAddr va, size_t size) override {
 			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size);
+					va, size);
 		}
 
-		frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size) override {
+		frg::expected<Error> unmapPages(VirtualAddr va, size_t size) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size);
+					va, size);
 		}
 
 	private:

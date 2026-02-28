@@ -129,16 +129,12 @@ frg::expected<Error> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
 			va, view, offset, fetchFlags, flags, mode);
 }
 
-frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size) {
-	return cleanPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size);
+frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, size_t size) {
+	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size) {
-	return unmapPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size);
+frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, size_t size) {
+	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
 NptSpace::NptSpace(PhysicalAddr root)

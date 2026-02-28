@@ -172,8 +172,7 @@ coroutine<void> Mapping::runEvictionLoop() {
 		assert(!(shootSize & (kPageSize - 1)));
 
 		// Unmap the memory range.
-		auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset,
-				view.get(), viewOffset + shootOffset, shootSize);
+		auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
 		assert(unmapOutcome);
 
 		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
@@ -232,8 +231,7 @@ void VirtualSpace::retire() {
 		assert(mapping->state == MappingState::active);
 		mapping->state = MappingState::zombie;
 
-		auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length);
+		auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
 		assert(unmapOutcome);
 
 		mapping = MappingTree::successor(mapping);
@@ -495,8 +493,7 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		assert(mapping->state == MappingState::active);
 		assert(mappingOffset + mappingChunk <= mapping->length);
 
-		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mapping->view.get(),
-				mapping->viewOffset + mappingOffset, mappingChunk);
+		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
 		assert(cleanOutcome);
 
 		overallProgress += mappingChunk;
@@ -888,8 +885,7 @@ coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 			mapping->state = MappingState::zombie;
 
 			// Mark pages as dirty and unmap without holding a lock.
-			auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->view.get(),
-						mapping->viewOffset, mapping->length);
+			auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
 			assert(unmapOutcome);
 
 			_mappings.remove(mapping.get());

@@ -32,11 +32,9 @@ struct NptOperations final : VirtualOperations {
 	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) override;
+	frg::expected<Error> cleanPages(VirtualAddr va, size_t size) override;
 
-	frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) override;
+	frg::expected<Error> unmapPages(VirtualAddr va, size_t size) override;
 
 private:
 	NptPageSpace *pageSpace_;
