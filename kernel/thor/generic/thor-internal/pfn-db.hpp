@@ -2,6 +2,7 @@
 
 #include <frg/optional.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/rcu.hpp>
 
@@ -31,6 +32,10 @@ struct PfnDescriptor {
 
 	explicit operator bool() {
 		return bits_ != 0;
+	}
+
+	bool isCachePage() const {
+		return (bits_ & typeMask) == typeCache;
 	}
 
 	bool isHardware() const {
@@ -67,6 +72,17 @@ struct PfnDb {
 	PfnDb(const PfnDb &) = delete;
 
 	PfnDb &operator= (const PfnDb &) = delete;
+
+	// Lock-free but protected by RCU.
+	frg::optional<PfnDescriptor> find(uint64_t pa) {
+		assert(!(pa & (kPageSize - 1)));
+		IplGuard<ipl::schedule> guard;
+
+		auto it = tree_.find(pa);
+		if(!it)
+			return frg::null_opt;
+		return it->load(std::memory_order_relaxed);
+	}
 
 	void insert(uint64_t pa, PfnDescriptor descriptor) {
 		auto lock = frg::guard(&mutex_);

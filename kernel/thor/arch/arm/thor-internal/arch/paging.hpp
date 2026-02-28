@@ -105,10 +105,10 @@ struct ARMCursorPolicy {
 		return ps;
 	}
 
-	static PageStatus pteClean(uint64_t *ptePtr) {
+	static uint64_t pteClean(uint64_t *ptePtr) {
 		uint64_t pte = __atomic_fetch_or(ptePtr, kPageRO, __ATOMIC_RELAXED);
 		pteWriteBarrier();
-		return ptePageStatus(pte);
+		return pte;
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {

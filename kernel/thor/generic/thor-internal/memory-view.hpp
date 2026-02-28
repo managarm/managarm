@@ -15,6 +15,7 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
 #include <thor-internal/types.hpp>
+#include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
@@ -58,6 +59,8 @@ struct CachePage {
 struct CacheBundle {
 	friend struct MemoryReclaimer;
 
+	virtual void markDirty(CachePage *page) = 0;
+
 private:
 	frg::intrusive_list<
 		CachePage,
@@ -70,6 +73,13 @@ private:
 
 	async::recurring_event _reclaimEvent;
 };
+
+inline void markDirty(PfnDescriptor descriptor) {
+	if(descriptor.isCachePage()) {
+		auto *ptr = descriptor.cachePagePtr();
+		ptr->bundle->markDirty(ptr);
+	}
+}
 
 struct PhysicalRange {
 	PhysicalAddr physical;
@@ -266,9 +276,6 @@ public:
 	virtual coroutine<frg::expected<Error, size_t>>
 	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
 
-	// Marks a range of pages as dirty.
-	virtual void markDirty(uintptr_t offset, size_t size) = 0;
-
 	virtual coroutine<frg::expected<Error, MemoryNotification>> pollNotification();
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
@@ -358,7 +365,6 @@ struct ImmediateMemory final : MemoryView {
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 	template<typename T>
 	T *accessImmediate(uintptr_t offset) {
@@ -466,7 +472,6 @@ struct HardwareMemory final : MemoryView {
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 private:
 	PhysicalAddr _base;
@@ -489,7 +494,6 @@ struct AllocatedMemory final : MemoryView {
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -605,6 +609,8 @@ struct ManagedSpace : CacheBundle {
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
 
+	void markDirty(CachePage *page) override;
+
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
 
@@ -661,7 +667,6 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
 	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
@@ -686,7 +691,6 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 public:
 	// Contract: set by the code that constructs this object.
@@ -708,7 +712,6 @@ struct IndirectMemory final : MemoryView {
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 	Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> memory,
 			uintptr_t offset, size_t size, CachingFlags flags) override;
@@ -777,7 +780,6 @@ public:
 	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
-	void markDirty(uintptr_t offset, size_t size) override;
 
 public:
 	// Contract: set by the code that constructs this object.

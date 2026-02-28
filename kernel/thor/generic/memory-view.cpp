@@ -233,15 +233,10 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 			reinterpret_cast<const uint8_t *>(pointer) + progress,
 			chunk
 		);
+		if(auto descriptor = globalPfnDb().find(range.physical))
+			markDirty(*descriptor);
 		progress += chunk;
 	}
-
-	// In addition to what copyFrom() does, we also have to mark the memory as dirty.
-	auto misalign = offset & (kPageSize - 1);
-	markDirty(
-		offset & ~(kPageSize - 1),
-		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
-	);
 
 	co_return {};
 }
@@ -355,15 +350,10 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 			(uint8_t *)srcAccessor.get() + srcMisalign,
 			chunk
 		);
+		if(auto descriptor = globalPfnDb().find(destRange.physical))
+			markDirty(*descriptor);
 		progress += chunk;
 	}
-
-	// In addition to what copyFromView() does, we also have to mark the memory as dirty.
-	auto misalign = destOffset & (kPageSize - 1);
-	destView->markDirty(
-		destOffset & ~(kPageSize - 1),
-		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
-	);
 
 	co_return {};
 }
@@ -422,10 +412,6 @@ struct ZeroMemory final : MemoryView {
 			co_return Error::badPermissions;
 		auto misalign = offset & (kPageSize - 1);
 		co_return kPageSize - misalign;
-	}
-
-	void markDirty(uintptr_t, size_t) override {
-		urgentLogger() << "thor: ZeroMemory::markDirty() called," << frg::endlog;
 	}
 
 public:
@@ -532,10 +518,6 @@ ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	co_return kPageSize - disp;
 }
 
-void ImmediateMemory::markDirty(uintptr_t, size_t) {
-	// Do nothing for now.
-}
-
 size_t ImmediateMemory::getLength() {
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
@@ -636,10 +618,6 @@ HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 	auto misalign = offset & (kPageSize - 1);
 	co_return kPageSize - misalign;
-}
-
-void HardwareMemory::markDirty(uintptr_t, size_t) {
-	// We never evict memory, there is no need to track dirty pages.
 }
 
 size_t HardwareMemory::getLength() {
@@ -756,10 +734,6 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
 	co_return _chunkSize - disp;
-}
-
-void AllocatedMemory::markDirty(uintptr_t, size_t) {
-	// Do nothing for now.
 }
 
 size_t AllocatedMemory::getLength() {
@@ -965,6 +939,39 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 }
 
 
+void ManagedSpace::markDirty(CachePage *cachePage) {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+		if(page->loadState == LoadState::missing)
+			return;
+
+		if(page->loadState == LoadState::present
+				&& (page->transactionState == TxState::none
+					|| page->transactionState == TxState::inReclaim)) {
+			if(page->transactionState == TxState::inReclaim)
+				globalReclaimer->removePage(cachePage);
+			page->transactionState = TxState::wantWriteback;
+			_writebackList.push_back(cachePage);
+			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+		} else if(page->loadState == LoadState::evicting) {
+			page->loadState = LoadState::present;
+			page->transactionState = TxState::wantWriteback;
+			_writebackList.push_back(cachePage);
+			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+		} else if(page->transactionState == TxState::writeback) {
+			page->stillDirty = true;
+		} else {
+			assert(page->transactionState == TxState::wantWriteback);
+		}
+	}
+
+	_deferredManagement.invoke();
+}
+
 // --------------------------------------------------------
 // BackingMemory
 // --------------------------------------------------------
@@ -1042,10 +1049,6 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	co_return kPageSize - misalign;
-}
-
-void BackingMemory::markDirty(uintptr_t, size_t) {
-	// Writes through the BackingMemory do not affect the dirty state!
 }
 
 size_t BackingMemory::getLength() {
@@ -1416,45 +1419,6 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	co_return kPageSize - misalign;
 }
 
-void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
-	assert(!(offset % kPageSize));
-	assert(!(size % kPageSize));
-
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_managed->mutex);
-
-		// Put the pages into the dirty state.
-		for(size_t pg = 0; pg < size; pg += kPageSize) {
-			auto index = (offset + pg) >> kPageShift;
-			auto pit = _managed->pages.find(index);
-			assert(pit);
-			if(pit->loadState == ManagedSpace::LoadState::present
-					&& (pit->transactionState == ManagedSpace::TxState::none
-						|| pit->transactionState == ManagedSpace::TxState::inReclaim)) {
-				if(pit->transactionState == ManagedSpace::TxState::inReclaim)
-					globalReclaimer->removePage(&pit->cachePage);
-				pit->transactionState = ManagedSpace::TxState::wantWriteback;
-				_managed->_writebackList.push_back(&pit->cachePage);
-				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
-			}else if(pit->loadState == ManagedSpace::LoadState::evicting) {
-				pit->loadState = ManagedSpace::LoadState::present;
-				pit->transactionState = ManagedSpace::TxState::wantWriteback;
-				_managed->_writebackList.push_back(&pit->cachePage);
-				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
-			}else if(pit->transactionState == ManagedSpace::TxState::writeback) {
-				pit->stillDirty = true;
-			}else{
-				assert(pit->transactionState == ManagedSpace::TxState::wantWriteback);
-			}
-		}
-	}
-
-	// We cannot call management callbacks with locks held, but markDirty() may be called
-	// with external locks held; do it on a WorkQueue.
-	_managed->_deferredManagement.invoke();
-}
-
 size_t FrontalMemory::getLength() {
 	// Size is constant so we do not need to lock.
 	return _managed->numPages << kPageShift;
@@ -1562,24 +1526,6 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 
 	co_return co_await indirection->memory->touchRange(indirection->offset
 		+ inSlotOffset, sizeHint, flags);
-}
-
-void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
-	auto slot = offset >> 32;
-	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-
-	smarter::shared_ptr<IndirectionSlot> indirection;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex_);
-
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
-		assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
-		indirection = indirections_[slot];
-	}
-
-	indirection->memory->markDirty(indirection->offset + inSlotOffset, size);
 }
 
 size_t IndirectMemory::getLength() {
@@ -1968,10 +1914,6 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	}
 	_copyEvent.raise();
 	co_return kPageSize - misalign;
-}
-
-void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
-	// We do not need to track dirty pages.
 }
 
 // --------------------------------------------------------------------------------------
