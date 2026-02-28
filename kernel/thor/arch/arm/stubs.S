@@ -31,15 +31,13 @@ thorExcVectors:
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 fiq
 	MAKE_EXC_ENTRY el0InvalidExcStub // EL0 AArch32 error
 
-.set .L_excStateSize, 304
-
 .macro MAKE_STUB name, handler, el
 \name:
 	.cfi_startproc simple
 	.cfi_signal_frame
 
-	.cfi_def_cfa sp, -.L_excStateSize
-	sub sp, sp, .L_excStateSize
+	.cfi_def_cfa sp, -THOR_FRAME_SIZE
+	sub sp, sp, THOR_FRAME_SIZE
 	.cfi_def_cfa_offset 0
 
 	// Save x0-x29
@@ -93,24 +91,24 @@ thorExcVectors:
 	.if \el == 0
 	mrs x0, sp_el0
 	.else
-	add x0, sp, .L_excStateSize
+	add x0, sp, THOR_FRAME_SIZE
 	.endif
 	stp x30, x0, [sp, #240]
 	.cfi_offset x30, 240
-	.cfi_offset sp, 248
+	.cfi_offset sp, THOR_FRAME_SP
 
 	// Save return address and processor state
 	mrs x0, elr_el1
 	mrs x1, spsr_el1
-	stp x0, x1, [sp, #256]
-	.cfi_offset lr, 256
+	stp x0, x1, [sp, THOR_FRAME_ELR]
+	.cfi_offset lr, THOR_FRAME_ELR
 
 	mrs x0, esr_el1
 	mrs x1, far_el1
-	stp x0, x1, [sp, #272]
+	stp x0, x1, [sp, THOR_FRAME_ESR]
 
 	mrs x0, tpidr_el0
-	str x0, [sp, #288]
+	str x0, [sp, THOR_FRAME_TPIDR_EL0]
 
 	// Enter handler
 	mov x29, xzr
@@ -118,10 +116,10 @@ thorExcVectors:
 
 	bl \handler
 
-	ldr x0, [sp, #288]
+	ldr x0, [sp, THOR_FRAME_TPIDR_EL0]
 	msr tpidr_el0, x0
 
-	ldp x0, x1, [sp, #256]
+	ldp x0, x1, [sp, THOR_FRAME_ELR]
 	msr elr_el1, x0
 	msr spsr_el1, x1
 
@@ -182,8 +180,8 @@ thorExcVectors:
 	.cfi_restore x0
 	.cfi_restore x1
 
-	add sp, sp, .L_excStateSize
-	.cfi_def_cfa_offset -.L_excStateSize
+	add sp, sp, THOR_FRAME_SIZE
+	.cfi_def_cfa_offset -THOR_FRAME_SIZE
 
 	eret
 	.cfi_endproc
@@ -222,11 +220,11 @@ workStub:
 	mov x29, xzr
 	bl onPlatformWork
 
-	ldr x0, [sp, #256] // #256
+	ldr x0, [sp, #256]
 	msr spsr_el1, x0
-	ldr x0, [sp, #272] // #272
+	ldr x0, [sp, #272]
 	msr elr_el1, x0
-	ldr x0, [sp, #288] // #288
+	ldr x0, [sp, #288]
 	msr sp_el0, x0
 
 	ldr x30, [sp], #16
@@ -256,13 +254,13 @@ _restoreExecutorRegisters:
 	mov sp, x1
 
 	// Restore TPIDR_EL0
-	ldr x1, [x0, #288]
+	ldr x1, [x0, THOR_FRAME_TPIDR_EL0]
 	msr tpidr_el0, x1
 
 	// Restore exception state
-	ldr x1, [x0, #256]
+	ldr x1, [x0, THOR_FRAME_ELR]
 	msr elr_el1, x1
-	ldr x1, [x0, #264]
+	ldr x1, [x0, THOR_FRAME_SPSR]
 	msr spsr_el1, x1
 
 	// Restore x0-x30
@@ -285,11 +283,9 @@ _restoreExecutorRegisters:
 
 	eret
 
-.set .L_executorImagePtr, 0
-
 .global forkExecutorRegisters
 forkExecutorRegisters:
-	ldr x0, [x0, .L_executorImagePtr]
+	ldr x0, [x0, THOR_EXECUTOR_IMAGE]
 
 	// Save callee saved registers (and LR and FP)
 	str x19, [x0, #152]
@@ -301,21 +297,21 @@ forkExecutorRegisters:
 	str x30, [x0, #240]
 
 	// Save ip = return addr to caller
-	str x30, [x0, #256]
+	str x30, [x0, THOR_FRAME_ELR]
 
 	// Save sp
 	mov x4, sp
-	str x4, [x0, #248]
+	str x4, [x0, THOR_FRAME_SP]
 
 	// Set new PSTATE
 	mov x4, #5
 	mrs x5, daif
 	orr x4, x4, x5
-	str x4, [x0, #264]
+	str x4, [x0, THOR_FRAME_SPSR]
 
 	// Save TPIDR_EL0
 	mrs x4, tpidr_el0
-	str x4, [x0, #288]
+	str x4, [x0, THOR_FRAME_TPIDR_EL0]
 
 	mov x0, x2
 	blr x1
@@ -350,7 +346,7 @@ saveFpSimdRegisters:
 	mrs x1, fpcr
 	mrs x2, fpsr
 
-	add x0, x0, #512
+	add x0, x0, THOR_FPREGS_FPCR
 	stp x1, x2, [x0]
 
 	ret
@@ -374,7 +370,7 @@ restoreFpSimdRegisters:
 	ldp q28, q29, [x0, #448]
 	ldp q30, q31, [x0, #480]
 
-	add x0, x0, #512
+	add x0, x0, THOR_FPREGS_FPCR
 	ldp x1, x2, [x0]
 
 	msr fpcr, x1

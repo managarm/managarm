@@ -15,6 +15,8 @@
 
 #include <thor-internal/arch-generic/asid.hpp>
 
+#include <thor-internal/arch/asm.h>
+
 // NOTE: This header only provides architecture-specific structure and
 // inline function definitions. Check arch-generic/cpu.hpp for the
 // remaining function prototypes.
@@ -26,6 +28,10 @@ struct FpRegisters {
 	uint64_t fpcr;
 	uint64_t fpsr;
 };
+static_assert(offsetof(FpRegisters, v) == THOR_FPREGS_V0);
+// Note: FPSR has to follow FPCR (loaded as a pair).
+static_assert(offsetof(FpRegisters, fpcr) == THOR_FPREGS_FPCR);
+static_assert(offsetof(FpRegisters, fpsr) == THOR_FPREGS_FPSR);
 
 struct Frame {
 	uint64_t x[31];
@@ -37,12 +43,25 @@ struct Frame {
 	uint64_t tpidr_el0;
 	IplState iplState;
 };
+static_assert(offsetof(Frame, x) == THOR_FRAME_X0);
+// Note: SP has to follow X30 (loaded as a pair).
+static_assert(offsetof(Frame, sp) == THOR_FRAME_SP);
+// Note: SPSR has to follow ELR (loaded as a pair).
+static_assert(offsetof(Frame, elr) == THOR_FRAME_ELR);
+static_assert(offsetof(Frame, spsr) == THOR_FRAME_SPSR);
+// Note: FAR has to follow ESR (loaded as a pair).
+static_assert(offsetof(Frame, esr) == THOR_FRAME_ESR);
+static_assert(offsetof(Frame, far) == THOR_FRAME_FAR);
+static_assert(offsetof(Frame, tpidr_el0) == THOR_FRAME_TPIDR_EL0);
+static_assert(sizeof(Frame) == THOR_FRAME_SIZE);
 static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
 
 struct ExecutorState {
 	Frame general;
 	FpRegisters fp;
 };
+// Note: Offset assumed by _restoreExecutorRegisters.
+static_assert(offsetof(ExecutorState, general) == 0);
 
 struct Executor;
 
@@ -276,6 +295,7 @@ private:
 	// and we can't put it at the end of the struct body because the type
 	// is incomplete at that point.
 	static void staticChecks() {
+		static_assert(offsetof(Executor, _pointer) == THOR_EXECUTOR_IMAGE);
 		static_assert(offsetof(Executor, _uar) == THOR_EXECUTOR_UAR);
 	}
 
