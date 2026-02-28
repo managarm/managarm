@@ -1501,9 +1501,7 @@ PhysicalRange IndirectMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		cachingMode = CachingMode::writeCombine;
 
 	return {.physical = physicalRange.physical, .size = physicalRange.size,
-		.cachingMode = determineCachingMode(
-			determineCachingMode(physicalRange.cachingMode, cachingMode),
-			cachingMode),
+		.cachingMode = determineCachingMode(physicalRange.cachingMode, cachingMode),
 		.isMutable = physicalRange.isMutable};
 }
 
