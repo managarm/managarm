@@ -1519,9 +1519,9 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		if (slot > indirections_.size())
+		if (slot >= indirections_.size())
 			co_return Error::fault;
-		if (indirections_[slot])
+		if (!indirections_[slot])
 			co_return Error::fault;
 		if (inSlotOffset >= indirections_[slot]->size)
 			co_return Error::fault;
