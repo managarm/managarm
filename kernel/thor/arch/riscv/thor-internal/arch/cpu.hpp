@@ -244,8 +244,6 @@ private:
 	UserAccessRegion *_uar{nullptr};
 };
 
-size_t getStateSize();
-
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);

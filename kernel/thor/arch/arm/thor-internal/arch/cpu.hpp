@@ -15,25 +15,23 @@
 
 #include <thor-internal/arch-generic/asid.hpp>
 
+#include <thor-internal/arch/asm.h>
+
 // NOTE: This header only provides architecture-specific structure and
 // inline function definitions. Check arch-generic/cpu.hpp for the
 // remaining function prototypes.
 
 namespace thor {
 
-enum class Domain : uint64_t {
-	irq = 0,
-	fault,
-	fiber,
-	user,
-	idle
-};
-
 struct FpRegisters {
 	uint64_t v[64]; // V0-V31 are 128 bits
 	uint64_t fpcr;
 	uint64_t fpsr;
 };
+static_assert(offsetof(FpRegisters, v) == THOR_FPREGS_V0);
+// Note: FPSR has to follow FPCR (loaded as a pair).
+static_assert(offsetof(FpRegisters, fpcr) == THOR_FPREGS_FPCR);
+static_assert(offsetof(FpRegisters, fpsr) == THOR_FPREGS_FPSR);
 
 struct Frame {
 	uint64_t x[31];
@@ -42,13 +40,28 @@ struct Frame {
 	uint64_t spsr;
 	uint64_t esr;
 	uint64_t far;
-	Domain domain;
 	uint64_t tpidr_el0;
 	IplState iplState;
+};
+static_assert(offsetof(Frame, x) == THOR_FRAME_X0);
+// Note: SP has to follow X30 (loaded as a pair).
+static_assert(offsetof(Frame, sp) == THOR_FRAME_SP);
+// Note: SPSR has to follow ELR (loaded as a pair).
+static_assert(offsetof(Frame, elr) == THOR_FRAME_ELR);
+static_assert(offsetof(Frame, spsr) == THOR_FRAME_SPSR);
+// Note: FAR has to follow ESR (loaded as a pair).
+static_assert(offsetof(Frame, esr) == THOR_FRAME_ESR);
+static_assert(offsetof(Frame, far) == THOR_FRAME_FAR);
+static_assert(offsetof(Frame, tpidr_el0) == THOR_FRAME_TPIDR_EL0);
+static_assert(sizeof(Frame) == THOR_FRAME_SIZE);
+static_assert(sizeof(Frame) == 304, "Invalid exception frame size");
 
+struct ExecutorState {
+	Frame general;
 	FpRegisters fp;
 };
-static_assert(sizeof(Frame) == 840, "Invalid exception frame size");
+// Note: Offset assumed by _restoreExecutorRegisters.
+static_assert(offsetof(ExecutorState, general) == 0);
 
 struct Executor;
 
@@ -139,32 +152,28 @@ struct IrqImageAccessor {
 	IplState *iplState() { return &_frame()->iplState; }
 
 	bool inPreemptibleDomain() {
-		return _frame()->domain == Domain::fault
-			|| _frame()->domain == Domain::fiber
-			|| _frame()->domain == Domain::idle
-			|| _frame()->domain == Domain::user;
+		return ((_frame()->spsr & 0b1111) == 0b0000)
+			|| ((_frame()->spsr & 0x3c0) == 0x000);
 		return true;
 	}
 
 	bool inThreadDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::fault
-			|| _frame()->domain == Domain::user;
+		return false;
 	}
 
 	bool inManipulableDomain() {
-		assert(inThreadDomain());
-		return _frame()->domain == Domain::user;
+		return (_frame()->spsr & 0b1111) == 0b0000;
 	}
 
 	bool inFiberDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::fiber;
+		return false;
 	}
 
 	bool inIdleDomain() {
 		assert(inPreemptibleDomain());
-		return _frame()->domain == Domain::idle;
+		return false;
 	}
 
 	void *frameBase() { return _pointer + sizeof(Frame); }
@@ -227,7 +236,7 @@ struct Executor {
 	friend void workOnExecutor(Executor *executor);
 	friend void restoreExecutor(Executor *executor);
 
-	static size_t determineSize();
+	static size_t determineSize() { return sizeof(ExecutorState); }
 
 	Executor();
 
@@ -259,8 +268,16 @@ public:
 	Word *result0() { return &general()->x[0]; }
 	Word *result1() { return &general()->x[1]; }
 
+	ExecutorState *state() {
+		return reinterpret_cast<ExecutorState *>(_pointer);
+	}
+
 	Frame *general() {
-		return reinterpret_cast<Frame *>(_pointer);
+		return &state()->general;
+	}
+
+	FpRegisters *fp() {
+		return &state()->fp;
 	}
 
 	void *getExceptionStack() {
@@ -278,6 +295,7 @@ private:
 	// and we can't put it at the end of the struct body because the type
 	// is incomplete at that point.
 	static void staticChecks() {
+		static_assert(offsetof(Executor, _pointer) == THOR_EXECUTOR_IMAGE);
 		static_assert(offsetof(Executor, _uar) == THOR_EXECUTOR_UAR);
 	}
 
@@ -285,8 +303,6 @@ private:
 	void *_exceptionStack;
 	UserAccessRegion *_uar{nullptr};
 };
-
-size_t getStateSize();
 
 // Determine whether this address belongs to the higher half.
 inline constexpr bool inHigherHalf(uintptr_t address) {
@@ -299,7 +315,7 @@ extern "C" void saveFpSimdRegisters(FpRegisters *frame);
 
 // Save the current SIMD register state into the given executor.
 inline void saveCurrentSimdState(Executor *executor) {
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void setupBootCpuContext();

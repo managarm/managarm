@@ -21,36 +21,38 @@ void UserContext::deactivate() { }
 UserContext::UserContext()
 : kernelStack(UniqueKernelStack::make()) { }
 
-void UserContext::migrate(CpuData *cpu_data) {
+void UserContext::migrate(CpuData *) {
 	assert(!intsAreEnabled());
-	cpu_data->exceptionStackPtr = kernelStack.basePtr();
 }
 
 FiberContext::FiberContext(UniqueKernelStack stack)
 : stack{std::move(stack)} { }
 
-extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
+extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer, void *el1Stack);
 
 [[noreturn]] void restoreExecutor(Executor *executor) {
-	getCpuData()->currentDomain = static_cast<uint64_t>(executor->general()->domain);
-	getCpuData()->exceptionStackPtr = executor->_exceptionStack;
-	restoreFpSimdRegisters(&executor->general()->fp);
+	getCpuData()->activeExecutor = executor;
+	restoreFpSimdRegisters(executor->fp());
 
 	iplLeaveContext(executor->general()->iplState);
 
-	_restoreExecutorRegisters(executor->general());
-}
+	void *el1Stack = nullptr;
+	if ((executor->general()->spsr & 0b1111) == 0b0000) {
+		el1Stack = executor->_exceptionStack;
+		asm volatile ("msr sp_el0, %0" :: "r"(executor->general()->sp) : "memory");
+	} else {
+		el1Stack = reinterpret_cast<void *>(executor->general()->sp);
+	}
 
-size_t Executor::determineSize() {
-	return sizeof(Frame);
+	_restoreExecutorRegisters(executor->general(), el1Stack);
 }
 
 Executor::Executor()
 : _pointer{nullptr}, _exceptionStack{nullptr} {  }
 
 Executor::Executor(UserContext *context) {
-	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
-	memset(_pointer, 0, getStateSize());
+	_pointer = static_cast<char *>(kernelAlloc->allocate(determineSize()));
+	memset(_pointer, 0, determineSize());
 
 	_exceptionStack = context->kernelStack.basePtr();
 }
@@ -60,7 +62,6 @@ Executor::Executor(UserContext *context, void (*launch)())
 	general()->elr = reinterpret_cast<uintptr_t>(launch);
 	general()->sp = reinterpret_cast<uintptr_t>(_exceptionStack);
 	general()->spsr = isKernelInEl2() ? 9 : 5;
-	general()->domain = Domain::fault;
 }
 
 Executor::Executor(UserContext *context, AbiParameters abi)
@@ -68,19 +69,17 @@ Executor::Executor(UserContext *context, AbiParameters abi)
 	general()->elr = abi.ip;
 	general()->sp = abi.sp;
 	general()->spsr = 0;
-	general()->domain = Domain::user;
 }
 
 Executor::Executor(FiberContext *context, AbiParameters abi)
 : _exceptionStack{nullptr} {
-	_pointer = static_cast<char *>(kernelAlloc->allocate(getStateSize()));
-	memset(_pointer, 0, getStateSize());
+	_pointer = static_cast<char *>(kernelAlloc->allocate(determineSize()));
+	memset(_pointer, 0, determineSize());
 
 	general()->elr = abi.ip;
 	general()->sp = (uintptr_t)context->stack.basePtr();
 	general()->x[0] = abi.argument;
 	general()->spsr = isKernelInEl2() ? 9 : 5;
-	general()->domain = Domain::fiber;
 }
 
 Executor::~Executor() {
@@ -93,12 +92,11 @@ void saveExecutor(Executor *executor, FaultImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
@@ -107,12 +105,11 @@ void saveExecutor(Executor *executor, IrqImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
@@ -121,12 +118,11 @@ void saveExecutor(Executor *executor, SyscallImageAccessor accessor) {
 
 	executor->general()->elr = accessor._frame()->elr;
 	executor->general()->spsr = accessor._frame()->spsr;
-	executor->general()->domain = accessor._frame()->domain;
 	executor->general()->sp = accessor._frame()->sp;
 	executor->general()->tpidr_el0 = accessor._frame()->tpidr_el0;
 	executor->general()->iplState = accessor._frame()->iplState;
 
-	saveFpSimdRegisters(&executor->general()->fp);
+	saveFpSimdRegisters(executor->fp());
 }
 
 extern "C" void forkExecutorRegisters(Executor *executor, void (*functor)(void *), void *context);
@@ -146,16 +142,11 @@ void workOnExecutor(Executor *executor) {
 		memcpy(sp, &v, 8);
 	};
 
-	assert(executor->general()->domain == Domain::user);
-	assert(getCpuData()->currentDomain != static_cast<uint64_t>(Domain::user));
-
-	push(static_cast<uint64_t>(executor->general()->domain));
 	push(executor->general()->sp);
 	push(executor->general()->elr);
 	push(executor->general()->spsr);
 
 	void *stub = reinterpret_cast<void *>(&workStub);
-	executor->general()->domain = Domain::fault;
 	executor->general()->elr = reinterpret_cast<uintptr_t>(stub);
 	executor->general()->sp = reinterpret_cast<uintptr_t>(sp);
 	executor->general()->spsr = 0x3c0 | (isKernelInEl2() ? 9 : 5);
@@ -175,10 +166,6 @@ void scrubStack(SyscallImageAccessor accessor, Continuation cont) {
 
 void scrubStack(Executor *executor, Continuation cont) {
 	scrubStackFrom(reinterpret_cast<uintptr_t>(*executor->sp()), cont);
-}
-
-size_t getStateSize() {
-	return Executor::determineSize();
 }
 
 PlatformCpuData::PlatformCpuData() {
@@ -292,11 +279,8 @@ void initializeThisProcessor() {
 	asm volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
 	cpu_data->affinity = (mpidr & 0xFFFFFF) | (mpidr >> 32 & 0xFF) << 24;
 
-	cpu_data->irqStack = UniqueKernelStack::make();
 	cpu_data->detachedStack = UniqueKernelStack::make();
 	cpu_data->idleStack = UniqueKernelStack::make();
-
-	cpu_data->irqStackPtr = cpu_data->irqStack.basePtr();
 
 	cpu_data->wqFiber = KernelFiber::post([] {
 		// Do nothing. Our only purpose is to run the associated work queue.

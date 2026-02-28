@@ -10,7 +10,6 @@ extern "C" void enableIntsAndHaltForever();
 
 void suspendSelf() {
 	assert(!intsAreEnabled());
-	getCpuData()->currentDomain = static_cast<uint64_t>(Domain::idle);
 	enableIntsAndHaltForever();
 }
 

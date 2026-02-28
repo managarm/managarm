@@ -15,7 +15,7 @@
 doCopyFromUser:
 	ldr x3, =1b
 	mrs x4, tpidr_el1
-	str x4, [x4, THOR_TP_EXECUTOR]
+	ldr x4, [x4, THOR_TP_EXECUTOR]
 	str x3, [x4, THOR_EXECUTOR_UAR]
 	cbz x2, 3f
 2:
@@ -46,7 +46,7 @@ doCopyFromUser:
 doCopyToUser:
 	ldr x3, =1b
 	mrs x4, tpidr_el1
-	str x4, [x4, THOR_TP_EXECUTOR]
+	ldr x4, [x4, THOR_TP_EXECUTOR]
 	str x3, [x4, THOR_EXECUTOR_UAR]
 	cbz x2, 3f
 2:
@@ -77,7 +77,7 @@ doCopyToUser:
 doAtomicUserLoad:
 	ldr x3, =1b
 	mrs x4, tpidr_el1
-	str x4, [x4, THOR_TP_EXECUTOR]
+	ldr x4, [x4, THOR_TP_EXECUTOR]
 	str x3, [x4, THOR_EXECUTOR_UAR]
 2:
 	ldar x2, [x1]
