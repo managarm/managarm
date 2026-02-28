@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 
 #include <async/algorithm.hpp>
@@ -7,6 +8,7 @@
 #include <async/post-ack.hpp>
 #include <async/recurring-event.hpp>
 #include <frg/rcu_radixtree.hpp>
+#include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
 #include <frg/expected.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
@@ -92,12 +94,8 @@ struct ManageNode {
 		_size = size;
 	}
 
-	virtual void complete() = 0;
-
 	frg::default_list_hook<ManageNode> processQueueItem;
-
-protected:
-	~ManageNode() = default;
+	async::oneshot_primitive completionEvent;
 
 private:
 	// Results of the operation.
@@ -116,42 +114,12 @@ using ManageList = frg::intrusive_list<
 	>
 >;
 
-struct MonitorNode {
-	void setup(ManageRequest type_, uintptr_t offset_, size_t length_) {
-		type = type_;
-		offset = offset_;
-		length = length_;
-	}
-
-	Error error() { return _error; }
-
-	void setup(Error error) {
-		_error = error;
-	}
-
+struct MemoryNotification {
 	ManageRequest type;
 	uintptr_t offset;
-	size_t length;
-	async::oneshot_event event;
-
-private:
-	Error _error;
-
-public:
-	frg::default_list_hook<MonitorNode> processQueueItem;
-
-	// Current progress in bytes.
-	size_t progress;
+	size_t size;
 };
 
-using MonitorList = frg::intrusive_list<
-	MonitorNode,
-	frg::locate_member<
-		MonitorNode,
-		frg::default_list_hook<MonitorNode>,
-		&MonitorNode::processQueueItem
-	>
->;
 
 using FetchFlags = uint32_t;
 inline constexpr FetchFlags fetchNone = 0;
@@ -301,10 +269,14 @@ public:
 	// Marks a range of pages as dirty.
 	virtual void markDirty(uintptr_t offset, size_t size) = 0;
 
-	virtual void submitManage(ManageNode *handle);
+	virtual coroutine<frg::expected<Error, MemoryNotification>> pollNotification();
 
 	// Called (e.g. by user space) to update a range after loading or writeback.
 	virtual Error updateRange(ManageRequest type, size_t offset, size_t length);
+
+	virtual coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size);
+
+	virtual coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size);
 
 	virtual Error setIndirection(size_t slot, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t size, CachingFlags flags);
@@ -326,59 +298,6 @@ public:
 				return Eviction{std::move(handle)};
 			}
 		);
-	}
-
-	// ----------------------------------------------------------------------------------
-	// Sender boilerplate for submitManage()
-	// ----------------------------------------------------------------------------------
-
-	template<typename R>
-	struct SubmitManageOperation;
-
-	struct [[nodiscard]] SubmitManageSender {
-		using value_type = frg::tuple<Error, ManageRequest, uintptr_t, size_t>;
-
-		template<typename R>
-		friend SubmitManageOperation<R>
-		connect(SubmitManageSender sender, R receiver) {
-			return {sender, std::move(receiver)};
-		}
-
-		MemoryView *self;
-	};
-
-	SubmitManageSender submitManage() {
-		return {this};
-	}
-
-	template<typename R>
-	struct SubmitManageOperation final : private ManageNode {
-		SubmitManageOperation(SubmitManageSender s, R receiver)
-		: s_{s.self}, receiver_{std::move(receiver)} { }
-
-		SubmitManageOperation(const SubmitManageOperation &) = delete;
-
-		SubmitManageOperation &operator= (const SubmitManageOperation &) = delete;
-
-		void start() {
-			s_->submitManage(this);
-		}
-
-	private:
-		void complete() override {
-			async::execution::set_value(receiver_,
-					frg::tuple<Error, ManageRequest, uintptr_t, size_t>{error(),
-							type(), offset(), size()});
-		}
-
-		MemoryView *s_;
-		R receiver_;
-	};
-
-	friend async::sender_awaiter<SubmitManageSender,
-			frg::tuple<Error, ManageRequest, uintptr_t, size_t>>
-	operator co_await(SubmitManageSender sender) {
-		return {sender};
 	}
 
 private:
@@ -584,15 +503,51 @@ private:
 };
 
 struct ManagedSpace : CacheBundle {
-	enum LoadState {
-		kStateMissing,
-		kStatePresent,
-		kStateWantInitialization,
-		kStateInitialization,
-		kStateWantWriteback,
-		kStateWriteback,
-		kStateAnotherWriteback,
-		kStateEvicting
+	enum class LoadState : uint8_t {
+		// Page contents are not valid.
+		missing,
+		// Page contents are valid and page is returned from peekRange().
+		present,
+		// Page contents are valid but page is not returned from peekRange().
+		evicting,
+	};
+
+	enum class TxState : uint8_t {
+		// Page is not in a queue.
+		// Valid in LoadState::missing. Valid in LoadState::present with lockCount > 0.
+		// Valid in LoadState::evicting.
+		none,
+		// Page is in _initializationList.
+		// Valid in LoadState::missing.
+		wantInitialization,
+		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
+		// Valid in LoadState::missing.
+		initialization,
+		// Page is in _writebackList.
+		// Valid in LoadState::present.
+		wantWriteback,
+		// Page is not in a queue but waiting for updateRange() to mark it as clean.
+		// Valid in LoadState::present.
+		writeback,
+		// Page is in the memory reclaimer's LRU queue.
+		// Valid in LoadState::present with lockCount == 0.
+		inReclaim,
+	};
+
+	// Struct that is attached to ManagedPage for the duration of
+	// a single transaction (i.e., initialization, writeback, or forced eviction).
+	// For initialization:
+	// * Attached when entering TxState::wantInitialization.
+	// * Completed when leaving TxState::initialization.
+	// For writeback:
+	// * Attached when entering TxState::wantWriteback.
+	// * Completed when leaving TxState::writeback.
+	// For forced eviction (invalidateRange() on a page already in LoadState::evicting):
+	// * Attached by invalidateRange() while the page is in LoadState::evicting.
+	// * Completed by the eviction coroutine after transitioning to LoadState::missing.
+	struct TransactionMonitor final : frg::intrusive_rc {
+		async::oneshot_primitive event;
+		frg::default_list_hook<TransactionMonitor> pendingHook;
 	};
 
 	struct ManagedPage {
@@ -606,9 +561,19 @@ struct ManagedSpace : CacheBundle {
 		ManagedPage &operator= (const ManagedPage &) = delete;
 
 		PhysicalAddr physical = PhysicalAddr(-1);
-		LoadState loadState = kStateMissing;
+		LoadState loadState{LoadState::missing};
+		TxState transactionState{TxState::none};
+		// Whether the page is dirty even after a pending writeback completes.
+		// Can only be true in LoadState::present and TxState::writeback.
+		// If set in LoadState::evicting, causes transition to LoadState::present.
+		bool stillDirty{false};
+		// Set by invalidateRange() when the page is already in LoadState::evicting,
+		// to request that the eviction coroutine raise monitor after completing
+		// the transition to LoadState::missing.
+		bool forceInvalidation{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
+		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
 
 	// Calls management callbacks from a WQ; required to implement markDirty().
@@ -628,7 +593,7 @@ struct ManagedSpace : CacheBundle {
 
 			while(!pending.empty()) {
 				auto node = pending.pop_front();
-				node->complete();
+				node->completionEvent.raise();
 			}
 
 			self->selfPtr.ctr()->decrement();
@@ -644,9 +609,7 @@ struct ManagedSpace : CacheBundle {
 	void unlockPages(uintptr_t offset, size_t size);
 
 	void submitManagement(ManageNode *node);
-	void submitMonitor(MonitorNode *node);
 	void _progressManagement(ManageList &pending);
-	void _progressMonitors(MonitorList &pending);
 
 	smarter::borrowed_ptr<ManagedSpace> selfPtr;
 
@@ -678,7 +641,6 @@ struct ManagedSpace : CacheBundle {
 	> _writebackList;
 
 	ManageList _managementQueue;
-	MonitorList _monitorQueue;
 
 	DeferredWork<DeferredManagement> _deferredManagement{{this}};
 };
@@ -700,8 +662,10 @@ public:
 	coroutine<frg::expected<Error, size_t>>
 			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
 	void markDirty(uintptr_t offset, size_t size) override;
-	void submitManage(ManageNode *handle) override;
+	coroutine<frg::expected<Error, MemoryNotification>> pollNotification() override;
 	Error updateRange(ManageRequest type, size_t offset, size_t length) override;
+	coroutine<frg::expected<Error>> writebackFence(uintptr_t offset, size_t size) override;
+	coroutine<frg::expected<Error>> invalidateRange(uintptr_t offset, size_t size) override;
 
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;

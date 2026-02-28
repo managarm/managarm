@@ -849,6 +849,80 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	return kHelErrNone;
 }
 
+HelError doSubmitWritebackFence(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t offset, size_t size, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	smarter::shared_ptr<MemoryView> memory;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<MemoryViewDescriptor>())
+			return kHelErrBadDescriptor;
+		memory = wrapper->get<MemoryViewDescriptor>().memory;
+	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<MemoryView> memory, uintptr_t offset, size_t size,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await onExceptionalWq(memory->writebackFence(offset, size));
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(memory), offset, size, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
+HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t offset, size_t size, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	smarter::shared_ptr<MemoryView> memory;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		Universe::Guard universe_guard(this_universe->lock);
+
+		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
+		if(!wrapper)
+			return kHelErrNoDescriptor;
+		if(!wrapper->is<MemoryViewDescriptor>())
+			return kHelErrBadDescriptor;
+		memory = wrapper->get<MemoryViewDescriptor>().memory;
+	}
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<MemoryView> memory, uintptr_t offset, size_t size,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		auto outcome = co_await onExceptionalWq(memory->invalidateRange(offset, size));
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(memory), offset, size, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
 HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -1542,19 +1616,32 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 			smarter::shared_ptr<MemoryView> memory,
 			uintptr_t context,
 			enable_detached_coroutine) -> void {
-		auto [error, type, offset, size] = co_await memory->submitManage();
+		auto resultOrError = co_await memory->pollNotification();
 
-		int helType;
-		switch (type) {
-			case ManageRequest::initialize: helType = kHelManageInitialize; break;
-			case ManageRequest::writeback: helType = kHelManageWriteback; break;
-			default:
-				assert(!"unexpected ManageRequest");
-				__builtin_trap();
+		HelManageResult helResult;
+		if(!resultOrError) {
+			helResult = HelManageResult{
+				translateError(resultOrError.error()), 0, 0, 0
+			};
+		} else {
+			auto result = resultOrError.value();
+			int manageRequest = 0;
+			switch (result.type) {
+				case ManageRequest::null:
+					// This should not be returned from pollNotification().
+					break;
+				case ManageRequest::initialize:
+					manageRequest = kHelManageInitialize;
+					break;
+				case ManageRequest::writeback:
+					manageRequest = kHelManageWriteback;
+					break;
+			}
+			assert(manageRequest); // The switch needs to be exhaustive.
+			helResult = HelManageResult{
+				translateError(Error::success), manageRequest, result.offset, result.size
+			};
 		}
-
-		HelManageResult helResult{translateError(error),
-				helType, offset, size};
 		QueueSource ipcSource{&helResult, sizeof(HelManageResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(std::move(queue), std::move(memory), context,
@@ -3937,6 +4024,28 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqForkMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitForkMemory(sqData.handle, queue, context);
+		break;
+	}
+	case kHelSubmitWritebackFence: {
+		if(sqSpan.size() < sizeof(HelSqWritebackFence)) {
+			infoLogger() << "Bad length for kHelSubmitWritebackFence" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqWritebackFence sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitWritebackFence(sqData.handle, queue, sqData.offset, sqData.size, context);
+		break;
+	}
+	case kHelSubmitInvalidateMemory: {
+		if(sqSpan.size() < sizeof(HelSqInvalidateMemory)) {
+			infoLogger() << "Bad length for kHelSubmitInvalidateMemory" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqInvalidateMemory sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size, context);
 		break;
 	}
 	default:
