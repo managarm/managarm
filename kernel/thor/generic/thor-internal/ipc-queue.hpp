@@ -19,6 +19,7 @@ struct IpcQueue;
 
 static const int kUserNotifyCqProgress = (1 << 0);
 static const int kUserNotifySupplySqChunks = (1 << 1);
+static const int kUserNotifyError = (1 << 14);
 static const int kUserNotifyAlert = (1 << 15);
 
 static const int kKernelNotifySqProgress = (1 << 0);
@@ -122,6 +123,16 @@ public:
 	}
 
 private:
+	void notifyError();
+
+	bool isValidCqChunk(unsigned int idx) const {
+		return idx < _numCqChunks;
+	}
+
+	bool isValidSqChunk(unsigned int idx) const {
+		return idx >= _numCqChunks && idx < _numCqChunks + _numSqChunks;
+	}
+
 	smarter::shared_ptr<ImmediateMemory> _memory;
 	ImmediateWindow _mapping;
 

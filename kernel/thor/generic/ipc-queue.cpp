@@ -57,6 +57,13 @@ IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqC
 	}
 }
 
+void IpcQueue::notifyError() {
+	auto head = _mapping.access<QueueStruct>(0);
+	auto userNotify = __atomic_fetch_or(&head->userNotify, kUserNotifyError, __ATOMIC_RELEASE);
+	if(!(userNotify & kUserNotifyError))
+		_userEvent.raise();
+}
+
 bool IpcQueue::validSize(size_t size) {
 	return sizeof(ElementStruct) + size <= _chunkSize;
 }
@@ -90,6 +97,10 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 			} else {
 				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
 			}
+		}
+		if (!isValidCqChunk(cqFirst & ~kNextPresent)) {
+			notifyError();
+			co_return;
 		}
 		_currentChunk = cqFirst & ~kNextPresent;
 		_haveCqChunk = true;
@@ -133,6 +144,11 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 		if(!(userNotify & kUserNotifyCqProgress))
 			_userEvent.raise();
 
+		if (!isValidCqChunk(nextWord & ~kNextPresent)) {
+			_haveCqChunk = false;
+			notifyError();
+			co_return;
+		}
 		_currentChunk = nextWord & ~kNextPresent;
 		_currentProgress = 0;
 		chunkOffset = _chunkOffsets[_currentChunk];
@@ -196,9 +212,19 @@ void IpcQueue::processSq() {
 
 		// Process all available elements.
 		while(_sqCurrentProgress < static_cast<int>(progress)) {
+			if (static_cast<size_t>(_sqCurrentProgress) + sizeof(ElementStruct) > _chunkSize) {
+				notifyError();
+				return;
+			}
+
 			ElementStruct element;
 			auto elementOffset = offsetof(ChunkStruct, buffer) + _sqCurrentProgress;
 			memcpy(&element, _mapping.bytes_data(chunkOffset + elementOffset), sizeof(ElementStruct));
+
+			if (static_cast<size_t>(_sqCurrentProgress) + sizeof(ElementStruct) + element.length > _chunkSize) {
+				notifyError();
+				return;
+			}
 
 			// Dispatch the SQ element.
 			auto dataOffset = chunkOffset + elementOffset + sizeof(ElementStruct);
@@ -214,6 +240,13 @@ void IpcQueue::processSq() {
 			auto nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
 			if(!(nextWord & kNextPresent)) {
 				break; // No more chunks available.
+			}
+
+			// TODO: We could alternatively remember the SQ next pointer out of band
+			//       (since it is set by the kernel).
+			if (!isValidSqChunk(nextWord & ~kNextPresent)) {
+				notifyError();
+				return;
 			}
 
 			// Recycle the processed chunk by appending it to sqFirst.

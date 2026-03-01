@@ -479,6 +479,8 @@ struct HelQueueParameters {
 static const int kHelUserNotifyCqProgress = (1 << 0);
 //! Set in userNotify after kernel has supplied new SQ chunks.
 static const int kHelUserNotifySupplySqChunks = (1 << 1);
+//! Set in userNotify if the queue encounters a contract violation.
+static const int kHelUserNotifyError = (1 << 14);
 //! Set in userNotify when the queue is alerted.
 static const int kHelUserNotifyAlert = (1 << 15);
 
