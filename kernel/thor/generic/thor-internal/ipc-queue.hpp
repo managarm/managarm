@@ -97,17 +97,17 @@ public:
 		_cqEvent.raise();
 	}
 
-	bool checkUserNotify() {
+	bool checkUserNotify(int notifyMask) {
 		auto head = _mapping.access<QueueStruct>(0);
 		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-		return userNotify & (kUserNotifyCqProgress | kUserNotifyAlert);
+		return userNotify & ~notifyMask;
 	}
 
-	auto waitUserEvent(async::cancellation_token ct) {
-		return _userEvent.async_wait_if([this] () -> bool {
+	auto waitUserEvent(int notifyMask, async::cancellation_token ct) {
+		return _userEvent.async_wait_if([this, notifyMask] () -> bool {
 			auto head = _mapping.access<QueueStruct>(0);
 			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-			return !(userNotify & (kUserNotifyCqProgress | kUserNotifyAlert));
+			return !(userNotify & ~notifyMask);
 		}, ct);
 	}
 

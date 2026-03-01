@@ -339,7 +339,7 @@ impl Queue {
             .fetch_or(hel_sys::kHelKernelNotifySupplyCqChunks, Ordering::Release);
 
         if old_futex & hel_sys::kHelKernelNotifySupplyCqChunks == 0 {
-            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
         }
 
         Ok(())
@@ -380,7 +380,7 @@ impl Queue {
                 assert!(self.pending_notify & !masked_notify == 0);
 
                 let res = hel_check(unsafe {
-                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
+                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWait, masked_notify as u32)
                 });
                 match res {
                     Err(crate::Error::Cancelled) => {}
@@ -508,7 +508,7 @@ impl Queue {
                 let notify = self.user_notify().load(Ordering::Relaxed);
                 if (notify & hel_sys::kHelUserNotifySupplySqChunks) == 0 {
                     hel_check(unsafe {
-                        hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
+                        hel_sys::helDriveQueue(self.handle.handle(), 0, 0)
                     })?;
                 } else {
                     self.user_notify()
@@ -527,7 +527,7 @@ impl Queue {
                 .kernel_notify()
                 .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
             if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
-                hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+                hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
             }
 
             self.sq_current_chunk = (next & !hel_sys::kHelNextPresent) as usize;
@@ -573,7 +573,7 @@ impl Queue {
             .kernel_notify()
             .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
         if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
-            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
         }
 
         Ok(())

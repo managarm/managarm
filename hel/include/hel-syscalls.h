@@ -69,8 +69,8 @@ extern inline __attribute__ (( always_inline )) HelError helCreateQueue(
 };
 
 extern inline __attribute__ (( always_inline )) HelError helDriveQueue(HelHandle handle,
-		uint32_t flags) {
-	return helSyscall2(kHelCallDriveQueue, (HelWord)handle, (HelWord)flags);
+		uint32_t flags, uint32_t notifyMask) {
+	return helSyscall3(kHelCallDriveQueue, (HelWord)handle, (HelWord)flags, (HelWord)notifyMask);
 };
 
 extern inline __attribute__ (( always_inline )) HelError helAlertQueue(HelHandle handle) {

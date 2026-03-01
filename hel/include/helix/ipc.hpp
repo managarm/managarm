@@ -311,7 +311,7 @@ public:
 					break;
 				auto notify = __atomic_load_n(&_queue->userNotify, __ATOMIC_RELAXED);
 				if (!(notify & kHelUserNotifySupplySqChunks)) {
-					HEL_CHECK(helDriveQueue(_handle, 0));
+					HEL_CHECK(helDriveQueue(_handle, 0, 0));
 				} else {
 					__atomic_fetch_and(&_queue->userNotify, ~kHelUserNotifySupplySqChunks, __ATOMIC_ACQUIRE);
 				}
@@ -361,7 +361,7 @@ private:
 	void _wakeHeadFutex() {
 		auto futex = __atomic_fetch_or(&_queue->kernelNotify, kHelKernelNotifySupplyCqChunks, __ATOMIC_RELEASE);
 		if(!(futex & kHelKernelNotifySupplyCqChunks))
-			HEL_CHECK(helDriveQueue(_handle, 0));
+			HEL_CHECK(helDriveQueue(_handle, 0, 0));
 	}
 
 	void _waitProgressFutex(bool *done) {
@@ -398,7 +398,7 @@ private:
 				// The only remaining bits must be masked ones (otherwise we are missing checks above).
 				assert(!(_pendingNotify & ~maskedNotify));
 
-				auto e = helDriveQueue(_handle, kHelDriveWaitCqProgress);
+				auto e = helDriveQueue(_handle, kHelDriveWait, maskedNotify);
 				if (e != kHelErrCancelled)
 					HEL_CHECK(e);
 				// Relaxed is enough (same reasoning as for the initial load).

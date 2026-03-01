@@ -445,8 +445,8 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 	return kHelErrNone;
 }
 
-HelError helDriveQueue(HelHandle handle, uint32_t flags) {
-	if (flags & ~kHelDriveWaitCqProgress)
+HelError helDriveQueue(HelHandle handle, uint32_t flags, uint32_t notifyMask) {
+	if (flags & ~kHelDriveWait)
 		return kHelErrIllegalArgs;
 
 	auto thisThread = getCurrentThread();
@@ -472,11 +472,11 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags) {
 	queue->processSq();
 
 	// If requested, wait until userNotify & kNotifyProgress is non-zero.
-	if(flags & kHelDriveWaitCqProgress) {
-		if (!queue->checkUserNotify()) {
+	if(flags & kHelDriveWait) {
+		if (!queue->checkUserNotify((int)notifyMask)) {
 			auto outcome = Thread::asyncBlockCurrentInterruptible(
 				async::lambda([&](async::cancellation_token ct) {
-					return queue->waitUserEvent(ct);
+					return queue->waitUserEvent((int)notifyMask, ct);
 				}),
 				thisThread->mainWorkQueue().get()
 			);

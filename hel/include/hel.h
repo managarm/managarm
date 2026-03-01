@@ -487,8 +487,8 @@ static const int kHelKernelNotifySqProgress = (1 << 0);
 //! Set in kernelNotify after userspace has supplied new chunks.
 static const int kHelKernelNotifySupplyCqChunks = (1 << 1);
 
-//! Flag for helDriveQueue: wait until completion queue has progress.
-static const uint32_t kHelDriveWaitCqProgress = (1 << 0);
+//! Flag for helDriveQueue: wait until userNotify has any bits not in notifyMask set.
+static const uint32_t kHelDriveWait = (1 << 0);
 
 //! SQ opcode: cancel an asynchronous operation.
 static const uint32_t kHelSubmitCancel = 256;
@@ -889,13 +889,15 @@ HEL_C_LINKAGE HelError helCreateQueue(const struct HelQueueParameters *params,
 //! Drives an IPC queue.
 //!
 //! This function signals the kernel that new chunks have been supplied
-//! and optionally waits for progress on the completion queue.
+//! and optionally waits for userNotify to have any bits not in notifyMask set.
 //! @param[in] queueHandle
 //!    	Handle to the queue.
 //! @param[in] flags
 //!    	Flags controlling the behavior.
-//!    	If kHelDriveWaitCqProgress is set, the call blocks until progress is made.
-HEL_C_LINKAGE HelError helDriveQueue(HelHandle queueHandle, uint32_t flags);
+//!    	If kHelDriveWait is set, the call blocks until (userNotify & ~notifyMask) != 0.
+//! @param[in] notifyMask
+//!    	Bits to ignore when checking userNotify (only relevant when kHelDriveWait is set).
+HEL_C_LINKAGE HelError helDriveQueue(HelHandle queueHandle, uint32_t flags, uint32_t notifyMask);
 
 //! Alerts an IPC queue.
 //!
