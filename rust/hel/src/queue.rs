@@ -496,14 +496,8 @@ impl Queue {
         // Check if we need to move to the next SQ chunk.
         if self.sq_progress + element_size > self.chunk_size {
             // Wait for a new chunk to become available.
-            let mut next = self
-                .get_sq_chunk(self.sq_current_chunk)
-                .next()
-                .load(Ordering::Acquire);
-            while (next & hel_sys::kHelNextPresent) == 0 {
-                self.user_notify()
-                    .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Release);
-
+            let mut next;
+            loop {
                 next = self
                     .get_sq_chunk(self.sq_current_chunk)
                     .next()
@@ -511,10 +505,15 @@ impl Queue {
                 if (next & hel_sys::kHelNextPresent) != 0 {
                     break;
                 }
-
-                hel_check(unsafe {
-                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
-                })?;
+                let notify = self.user_notify().load(Ordering::Relaxed);
+                if (notify & hel_sys::kHelUserNotifySupplySqChunks) == 0 {
+                    hel_check(unsafe {
+                        hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
+                    })?;
+                } else {
+                    self.user_notify()
+                        .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Acquire);
+                }
             }
 
             // Mark current chunk as done.

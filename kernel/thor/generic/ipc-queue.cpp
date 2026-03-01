@@ -76,13 +76,20 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 
 	// Get the initial CQ chunk.
 	if (!_haveCqChunk) {
-		auto cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-		while(!(cqFirst & kNextPresent)) {
-			co_await _cqEvent.async_wait_if([&] () -> bool {
+		int cqFirst;
+		while (true) {
+			cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
+			if (cqFirst & kNextPresent)
+				break;
+			auto notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+			if (!(notify & kKernelNotifySupplyCqChunks)) {
+				co_await _cqEvent.async_wait_if([&] () -> bool {
+					auto n = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+					return !(n & kKernelNotifySupplyCqChunks);
+				});
+			} else {
 				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
-				cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-				return !(cqFirst & kNextPresent);
-			});
+			}
 		}
 		_currentChunk = cqFirst & ~kNextPresent;
 		_haveCqChunk = true;
@@ -94,13 +101,20 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 	// Check if we need to move to the next chunk.
 	if(static_cast<size_t>(_currentProgress) + length > _chunkSize) {
 		// Wait for next chunk to become available.
-		auto nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-		while (!(nextWord & kNextPresent)) {
-			co_await _cqEvent.async_wait_if([&] () -> bool {
+		int nextWord;
+		while (true) {
+			nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
+			if (nextWord & kNextPresent)
+				break;
+			auto notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+			if (!(notify & kKernelNotifySupplyCqChunks)) {
+				co_await _cqEvent.async_wait_if([&] () -> bool {
+					auto n = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+					return !(n & kKernelNotifySupplyCqChunks);
+				});
+			} else {
 				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
-				nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-				return !(nextWord & kNextPresent);
-			});
+			}
 		}
 
 		// Mark current chunk as done.
