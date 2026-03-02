@@ -57,6 +57,13 @@ IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqC
 	}
 }
 
+void IpcQueue::notifyError() {
+	auto head = _mapping.access<QueueStruct>(0);
+	auto userNotify = __atomic_fetch_or(&head->userNotify, kUserNotifyError, __ATOMIC_RELEASE);
+	if(!(userNotify & kUserNotifyError))
+		_userEvent.raise();
+}
+
 bool IpcQueue::validSize(size_t size) {
 	return sizeof(ElementStruct) + size <= _chunkSize;
 }
@@ -76,13 +83,24 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 
 	// Get the initial CQ chunk.
 	if (!_haveCqChunk) {
-		auto cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-		while(!(cqFirst & kNextPresent)) {
-			co_await _cqEvent.async_wait_if([&] () -> bool {
+		int cqFirst;
+		while (true) {
+			cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
+			if (cqFirst & kNextPresent)
+				break;
+			auto notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+			if (!(notify & kKernelNotifySupplyCqChunks)) {
+				co_await _cqEvent.async_wait_if([&] () -> bool {
+					auto n = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+					return !(n & kKernelNotifySupplyCqChunks);
+				});
+			} else {
 				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
-				cqFirst = __atomic_load_n(&head->cqFirst, __ATOMIC_ACQUIRE);
-				return !(cqFirst & kNextPresent);
-			});
+			}
+		}
+		if (!isValidCqChunk(cqFirst & ~kNextPresent)) {
+			notifyError();
+			co_return;
 		}
 		_currentChunk = cqFirst & ~kNextPresent;
 		_haveCqChunk = true;
@@ -93,24 +111,44 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 
 	// Check if we need to move to the next chunk.
 	if(static_cast<size_t>(_currentProgress) + length > _chunkSize) {
+		// Mark current chunk as full.
+		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressFull, __ATOMIC_RELEASE);
+
+		// Signal userspace.
+		auto userNotifyFull = __atomic_fetch_or(&head->userNotify, kUserNotifyCqProgress, __ATOMIC_RELEASE);
+		if(!(userNotifyFull & kUserNotifyCqProgress))
+			_userEvent.raise();
+
 		// Wait for next chunk to become available.
-		auto nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-		while (!(nextWord & kNextPresent)) {
-			co_await _cqEvent.async_wait_if([&] () -> bool {
+		int nextWord;
+		while (true) {
+			nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
+			if (nextWord & kNextPresent)
+				break;
+			auto notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+			if (!(notify & kKernelNotifySupplyCqChunks)) {
+				co_await _cqEvent.async_wait_if([&] () -> bool {
+					auto n = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+					return !(n & kKernelNotifySupplyCqChunks);
+				});
+			} else {
 				__atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySupplyCqChunks, __ATOMIC_ACQUIRE);
-				nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
-				return !(nextWord & kNextPresent);
-			});
+			}
 		}
 
 		// Mark current chunk as done.
-		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressDone, __ATOMIC_RELEASE);
+		__atomic_store_n(&chunkHead->progressFutex, _currentProgress | kProgressFull | kProgressDone, __ATOMIC_RELEASE);
 
 		// Signal userspace.
 		auto userNotify = __atomic_fetch_or(&head->userNotify, kUserNotifyCqProgress, __ATOMIC_RELEASE);
 		if(!(userNotify & kUserNotifyCqProgress))
 			_userEvent.raise();
 
+		if (!isValidCqChunk(nextWord & ~kNextPresent)) {
+			_haveCqChunk = false;
+			notifyError();
+			co_return;
+		}
 		_currentChunk = nextWord & ~kNextPresent;
 		_currentProgress = 0;
 		chunkOffset = _chunkOffsets[_currentChunk];
@@ -149,14 +187,15 @@ coroutine<void> IpcQueue::submit(QueueSource *source, uintptr_t context) {
 void IpcQueue::processSq() {
 	assert(currentIpl() == ipl::passive);
 
-	if(!_numSqChunks)
+	// Note that we clear kKernelNotifySqProgress only once we have processed all SQ elements;
+	// thus, we can skip all logic unless userspace has posted new SQ elements.
+	// This is an optimization that is irrelevant for correctness, hence relaxed ordering is enough.
+	auto head = _mapping.access<QueueStruct>(0);
+	auto notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_RELAXED);
+	if (!(notify & kKernelNotifySqProgress))
 		return;
 
-	auto head = _mapping.access<QueueStruct>(0);
-
-	// Acknowledge the notification.
-	auto notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_ACQUIRE);
-	if (!(notify & kKernelNotifySqProgress))
+	if(!_numSqChunks)
 		return;
 
 	if (!_sqMutex.try_lock())
@@ -173,9 +212,19 @@ void IpcQueue::processSq() {
 
 		// Process all available elements.
 		while(_sqCurrentProgress < static_cast<int>(progress)) {
+			if (static_cast<size_t>(_sqCurrentProgress) + sizeof(ElementStruct) > _chunkSize) {
+				notifyError();
+				return;
+			}
+
 			ElementStruct element;
 			auto elementOffset = offsetof(ChunkStruct, buffer) + _sqCurrentProgress;
 			memcpy(&element, _mapping.bytes_data(chunkOffset + elementOffset), sizeof(ElementStruct));
+
+			if (static_cast<size_t>(_sqCurrentProgress) + sizeof(ElementStruct) + element.length > _chunkSize) {
+				notifyError();
+				return;
+			}
 
 			// Dispatch the SQ element.
 			auto dataOffset = chunkOffset + elementOffset + sizeof(ElementStruct);
@@ -191,6 +240,13 @@ void IpcQueue::processSq() {
 			auto nextWord = __atomic_load_n(&chunkHead->next, __ATOMIC_ACQUIRE);
 			if(!(nextWord & kNextPresent)) {
 				break; // No more chunks available.
+			}
+
+			// TODO: We could alternatively remember the SQ next pointer out of band
+			//       (since it is set by the kernel).
+			if (!isValidSqChunk(nextWord & ~kNextPresent)) {
+				notifyError();
+				return;
 			}
 
 			// Recycle the processed chunk by appending it to sqFirst.
@@ -213,8 +269,20 @@ void IpcQueue::processSq() {
 
 			_sqCurrentChunk = nextWord & ~kNextPresent;
 			_sqCurrentProgress = 0;
-		} else {
+			continue;
+		}
+
+		// Stop if kHelNotifySqProgress is clear.
+		// Note that the progressFutex read happens before this (due to acquire on the progressFutex read).
+		notify = __atomic_load_n(&head->kernelNotify, __ATOMIC_RELAXED);
+		if (!(notify & kKernelNotifySqProgress)) {
 			break;
+		} else {
+			// Otherwise, clear it and check progressFutex again.
+			// This happens before the next progressFutex wait due to acquire.
+			notify = __atomic_fetch_and(&head->kernelNotify, ~kKernelNotifySqProgress, __ATOMIC_ACQUIRE);
+			// Note that no concurrent thread will clear the bit.
+			// !(notify & kKernelNotifySqProgress) would be a protocol violation.
 		}
 	}
 }

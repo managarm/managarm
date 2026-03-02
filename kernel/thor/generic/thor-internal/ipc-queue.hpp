@@ -19,6 +19,7 @@ struct IpcQueue;
 
 static const int kUserNotifyCqProgress = (1 << 0);
 static const int kUserNotifySupplySqChunks = (1 << 1);
+static const int kUserNotifyError = (1 << 14);
 static const int kUserNotifyAlert = (1 << 15);
 
 static const int kKernelNotifySqProgress = (1 << 0);
@@ -35,6 +36,7 @@ static const int kNextPresent = (1 << 24);
 
 static const int kProgressMask = 0xFFFFFF;
 static const int kProgressDone = (1 << 25);
+static const int kProgressFull = (1 << 26);
 
 struct ChunkStruct {
 	int next;
@@ -97,17 +99,17 @@ public:
 		_cqEvent.raise();
 	}
 
-	bool checkUserNotify() {
+	bool checkUserNotify(int notifyMask) {
 		auto head = _mapping.access<QueueStruct>(0);
 		auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-		return userNotify & (kUserNotifyCqProgress | kUserNotifyAlert);
+		return userNotify & ~notifyMask;
 	}
 
-	auto waitUserEvent(async::cancellation_token ct) {
-		return _userEvent.async_wait_if([this] () -> bool {
+	auto waitUserEvent(int notifyMask, async::cancellation_token ct) {
+		return _userEvent.async_wait_if([this, notifyMask] () -> bool {
 			auto head = _mapping.access<QueueStruct>(0);
 			auto userNotify = __atomic_load_n(&head->userNotify, __ATOMIC_ACQUIRE);
-			return !(userNotify & (kUserNotifyCqProgress | kUserNotifyAlert));
+			return !(userNotify & ~notifyMask);
 		}, ct);
 	}
 
@@ -121,6 +123,16 @@ public:
 	}
 
 private:
+	void notifyError();
+
+	bool isValidCqChunk(unsigned int idx) const {
+		return idx < _numCqChunks;
+	}
+
+	bool isValidSqChunk(unsigned int idx) const {
+		return idx >= _numCqChunks && idx < _numCqChunks + _numSqChunks;
+	}
+
 	smarter::shared_ptr<ImmediateMemory> _memory;
 	ImmediateWindow _mapping;
 

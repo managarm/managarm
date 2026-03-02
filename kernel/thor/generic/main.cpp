@@ -632,7 +632,7 @@ void handleSyscall(SyscallImageAccessor image) {
 		*image.out0() = handle;
 	} break;
 	case kHelCallDriveQueue: {
-		*image.error() = helDriveQueue((HelHandle)arg0, (uint32_t)arg1);
+		*image.error() = helDriveQueue((HelHandle)arg0, (uint32_t)arg1, (uint32_t)arg2);
 	} break;
 	case kHelCallAlertQueue: {
 		*image.error() = helAlertQueue((HelHandle)arg0);

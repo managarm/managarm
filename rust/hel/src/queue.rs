@@ -138,6 +138,8 @@ pub struct Queue {
     sq_current_chunk: usize,
     /// Progress into current SQ chunk.
     sq_progress: usize,
+    // Notify state.
+    pending_notify: i32,
     // Resources
     handle: Handle,
     mapping: Mapping<hel_sys::HelQueue>,
@@ -188,6 +190,7 @@ impl Queue {
             ref_counts: vec![0; num_chunks].into_boxed_slice(),
             sq_current_chunk: 0,
             sq_progress: 0,
+            pending_notify: 0,
             handle,
             mapping,
         };
@@ -336,48 +339,65 @@ impl Queue {
             .fetch_or(hel_sys::kHelKernelNotifySupplyCqChunks, Ordering::Release);
 
         if old_futex & hel_sys::kHelKernelNotifySupplyCqChunks == 0 {
-            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
         }
 
         Ok(())
     }
 
     fn wait_progress_futex(&mut self) -> Result<bool> {
-        let check = |this: &mut Self| -> Option<bool> {
-            let progress = this
-                .get_chunk(this.retrieve_chunk)
-                .progress_futex()
-                .load(Ordering::Acquire);
+        // userNotify bits checked by this function (these MUST be checked in the loop below!).
+        let relevant_notify = hel_sys::kHelUserNotifyCqProgress;
+        // userNotify bits ignored by this function.
+        let masked_notify = hel_sys::kHelUserNotifySupplySqChunks;
 
-            if this.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
-                Some(false)
-            } else if progress & hel_sys::kHelProgressDone != 0 {
-                Some(true)
-            } else {
-                None
-            }
-        };
-
-        if let Some(done) = check(self) {
-            return Ok(done);
-        }
-
+        // Relaxed is enough here: if a relevant bit in notify is set, we will always go through
+        // the load-acquire on the fetch_and() code path and re-check a notification afterwards
+        // before we conclude that there is truly nothing pending anymore.
+        let mut notify = self.user_notify().load(Ordering::Relaxed);
         loop {
-            self.user_notify()
-                .fetch_and(!hel_sys::kHelUserNotifyCqProgress, Ordering::Acquire);
+            // Note: notify is reloaded at the end of each iteration below.
+            self.pending_notify |= notify;
 
-            if let Some(done) = check(self) {
-                return Ok(done);
+            if self.pending_notify & hel_sys::kHelUserNotifyCqProgress != 0 {
+                let progress = self
+                    .get_chunk(self.retrieve_chunk)
+                    .progress_futex()
+                    .load(Ordering::Acquire);
+                assert!(progress & !(hel_sys::kHelProgressMask | hel_sys::kHelProgressFull | hel_sys::kHelProgressDone) == 0);
+                if progress & hel_sys::kHelProgressFull != 0 {
+                    assert!(self.retrieve_chunk != self.tail_chunk);
+                }
+                if self.last_progress as i32 != (progress & hel_sys::kHelProgressMask) {
+                    return Ok(false);
+                } else if progress & hel_sys::kHelProgressDone != 0 {
+                    assert!(progress & hel_sys::kHelProgressFull != 0);
+                    return Ok(true);
+                }
             }
 
-            let res = hel_check(unsafe {
-                hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
-            });
-            match res {
-                Err(crate::Error::Cancelled) => continue,
-                _ => (),
-            };
-            res?;
+            // If we get here, no relevant notifications are pending.
+            // Clear all relevant bits or wait in the kernel if all of them are already clear.
+            let notify_to_clear = notify & relevant_notify;
+            self.pending_notify &= !relevant_notify;
+            if notify_to_clear == 0 {
+                // The only remaining bits must be masked ones (otherwise we are missing checks above).
+                assert!(self.pending_notify & !masked_notify == 0);
+
+                let res = hel_check(unsafe {
+                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWait, masked_notify as u32)
+                });
+                match res {
+                    Err(crate::Error::Cancelled) => {}
+                    _ => res?,
+                }
+                // Relaxed is enough (same reasoning as for the initial load).
+                notify = self.user_notify().load(Ordering::Relaxed);
+            } else {
+                // Note that we will check all cleared notifications again in the next iteration.
+                // This RMW happens before the next progressFutex wait due to the load-acquire here.
+                notify = self.user_notify().fetch_and(!notify_to_clear, Ordering::Acquire);
+            }
         }
     }
 
@@ -481,14 +501,8 @@ impl Queue {
         // Check if we need to move to the next SQ chunk.
         if self.sq_progress + element_size > self.chunk_size {
             // Wait for a new chunk to become available.
-            let mut next = self
-                .get_sq_chunk(self.sq_current_chunk)
-                .next()
-                .load(Ordering::Acquire);
-            while (next & hel_sys::kHelNextPresent) == 0 {
-                self.user_notify()
-                    .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Release);
-
+            let mut next;
+            loop {
                 next = self
                     .get_sq_chunk(self.sq_current_chunk)
                     .next()
@@ -496,10 +510,15 @@ impl Queue {
                 if (next & hel_sys::kHelNextPresent) != 0 {
                     break;
                 }
-
-                hel_check(unsafe {
-                    hel_sys::helDriveQueue(self.handle.handle(), hel_sys::kHelDriveWaitCqProgress)
-                })?;
+                let notify = self.user_notify().load(Ordering::Relaxed);
+                if (notify & hel_sys::kHelUserNotifySupplySqChunks) == 0 {
+                    hel_check(unsafe {
+                        hel_sys::helDriveQueue(self.handle.handle(), 0, 0)
+                    })?;
+                } else {
+                    self.user_notify()
+                        .fetch_and(!hel_sys::kHelUserNotifySupplySqChunks, Ordering::Acquire);
+                }
             }
 
             // Mark current chunk as done.
@@ -513,7 +532,7 @@ impl Queue {
                 .kernel_notify()
                 .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
             if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
-                hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+                hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
             }
 
             self.sq_current_chunk = (next & !hel_sys::kHelNextPresent) as usize;
@@ -559,7 +578,7 @@ impl Queue {
             .kernel_notify()
             .fetch_or(hel_sys::kHelKernelNotifySqProgress, Ordering::Release);
         if futex & hel_sys::kHelKernelNotifySqProgress == 0 {
-            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0) })?;
+            hel_check(unsafe { hel_sys::helDriveQueue(self.handle.handle(), 0, 0) })?;
         }
 
         Ok(())
