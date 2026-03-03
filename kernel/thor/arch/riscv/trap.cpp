@@ -141,7 +141,6 @@ void handleRiscvIpi(Frame *frame) {
 			disableInts();
 		}
 	}
-
 }
 
 void handleRiscvSyscall(Frame *frame) { handleSyscall(SyscallImageAccessor{frame}); }
