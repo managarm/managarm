@@ -282,7 +282,6 @@ std::shared_ptr<FabricsCtl> fabricsSubsystemCtl;
 
 async::detached run() {
 	fabricsSubsystem = new drvcore::ClassSubsystem{"nvme-fabrics"};
-	drvcore::virtualDeviceParent()->createSymlink("nvme-fabrics", fabricsSubsystem->object());
 
 	fabricsSubsystemCtl = std::make_shared<FabricsCtl>();
 	drvcore::installDevice(fabricsSubsystemCtl);
@@ -293,7 +292,6 @@ async::detached run() {
 	nvmeSubsystem = new drvcore::ClassSubsystem{"nvme"};
 
 	subsystemSubsystem = new drvcore::ClassSubsystem{"nvme-subsystem"};
-	drvcore::virtualDeviceParent()->createSymlink("nvme-subsystem", subsystemSubsystem->object());
 
 	auto filter = mbus_ng::Disjunction{{
 		mbus_ng::EqualsFilter{"class", "nvme-subsystem"},

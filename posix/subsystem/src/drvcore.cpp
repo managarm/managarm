@@ -21,9 +21,9 @@ sysfs::Object *devicesObject() {
 	return globalDevicesObject.get();
 }
 
-sysfs::Object *virtualDeviceParent() {
+std::shared_ptr<sysfs::Object> virtualDeviceParent() {
 	assert(globalVirtualDeviceParent);
-	return globalVirtualDeviceParent.get();
+	return globalVirtualDeviceParent;
 }
 
 sysfs::Object *busObject() {
@@ -159,10 +159,12 @@ parentDevice_{parent} { }
 
 void ClassDevice::linkToSubsystem() {
 	auto subsystem_object = subsystem()->object();
+	subsystem_object->createSymlink(name(), devicePtr());
+
 	if(parentDevice_) {
-		subsystem_object->createSymlink(name(), devicePtr());
 		createSymlink("device", parentDevice_);
 	}
+
 	createSymlink("subsystem", subsystem_object);
 }
 
