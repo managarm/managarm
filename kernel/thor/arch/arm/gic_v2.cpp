@@ -273,8 +273,15 @@ uint8_t GicDistributorV2::getCurrentCpuIfaceNo_() {
 		return __builtin_ctz(mask);
 	}
 
-	panicLogger() << "thor: Unable to determine CPU interface number" << frg::endlog;
-	__builtin_unreachable();
+	// On uniprocessor systems, ITARGETSR is RAZ/WI, so assume 0 (same as Linux).
+	if (getCpuCount() > 1) {
+		panicLogger() << "thor: Unable to determine CPU interface number" << frg::endlog;
+		__builtin_unreachable();
+	}
+
+	infoLogger() << "thor: Running on uniprocessor system, assuming GIC interface number is 0" << frg::endlog;
+
+	return 0;
 }
 
 // ---------------------------------------------------------------------
