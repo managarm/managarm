@@ -184,6 +184,7 @@ struct FbMbusNode final : private KernelBusObject {
 		Properties properties;
 
 		properties.stringProperty("class", frg::string<KernelAlloc>(*kernelAlloc, "framebuffer"));
+		properties.stringProperty("unix.subsystem", frg::string<KernelAlloc>(*kernelAlloc, "graphics"));
 
 		auto ret = co_await createObject("freestanding-fb", std::move(properties));
 		assert(ret);

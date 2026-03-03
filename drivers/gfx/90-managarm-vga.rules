@@ -1,4 +1,6 @@
 
+ACTION=="add", SUBSYSTEM=="graphics", DEVPATH=="*/freestanding-fb?*", RUN+="/usr/bin/runsvr run /usr/lib/managarm/server/gfx-plainfb.bin", GOTO="managarm_vga_end"
+
 ACTION!="add", GOTO="managarm_vga_end"
 SUBSYSTEM!="pci", GOTO="managarm_vga_end"
 

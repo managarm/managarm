@@ -28,6 +28,7 @@
 #include "subsystem/power_supply.hpp"
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
+#include "subsystem/graphics.hpp"
 #include "observations.hpp"
 #include "ostrace.hpp"
 
@@ -210,6 +211,7 @@ int main() {
 	nvme_subsystem::run();
 	usbmisc_subsystem::run();
 	power_supply_subsystem::run();
+	graphics_subsystem::run();
 
 	block_subsystem::run();
 	generic_subsystem::run();

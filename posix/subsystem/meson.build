@@ -63,6 +63,7 @@ src = [
 	'src/subsystem/usbmisc.cpp',
 	'src/subsystem/usb/attributes.cpp',
 	'src/subsystem/usb/usb.cpp',
+	'src/subsystem/graphics.cpp',
 	'src/sysfs.cpp',
 	'src/timerfd.cpp',
 	'src/tmp_fs.cpp',
