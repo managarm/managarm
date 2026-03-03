@@ -11,6 +11,7 @@
 namespace drvcore {
 
 std::shared_ptr<sysfs::Object> firmwareObject();
+std::shared_ptr<sysfs::Object> virtualDeviceParent();
 
 struct UeventProperties {
 	auto begin() {
@@ -76,10 +77,6 @@ public:
 		return _unixDevice;
 	}
 
-	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> &classDirectories() {
-		return classDirectories_;
-	}
-
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> &classDevices() {
 		return _classDevices;
 	}
@@ -104,7 +101,6 @@ private:
 	std::shared_ptr<sysfs::Object> _parentDirectory;
 	Subsystem *_subsystem;
 
-	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> classDirectories_;
 	std::unordered_map<std::string, std::shared_ptr<ClassDevice>> _classDevices;
 };
 
@@ -141,16 +137,20 @@ struct ClassSubsystem : Subsystem {
 	friend ClassDevice;
 private:
 	std::shared_ptr<sysfs::Object> classDirFor(std::shared_ptr<Device> parent) {
-		if(!parent || parent->isClassDevice())
+		std::shared_ptr<sysfs::Object> parentObj = parent;
+		if(!parentObj)
+			parentObj = virtualDeviceParent();
+
+		if(parent && parent->isClassDevice())
 			return parent;
 
-		auto it = parent->classDirectories().find(object()->name());
-		if(it != parent->classDirectories().end())
+		auto it = parentObj->classDirectories().find(object()->name());
+		if(it != parentObj->classDirectories().end())
 			return it->second;
 
-		auto classDir = std::make_shared<sysfs::Object>(parent, object()->name());
+		auto classDir = std::make_shared<sysfs::Object>(parentObj, object()->name());
 		classDir->addObject();
-		parent->classDirectories().insert({object()->name(), classDir});
+		parentObj->classDirectories().insert({object()->name(), classDir});
 		return classDir;
 	}
 };
@@ -185,8 +185,6 @@ public:
 };
 
 void initialize();
-
-sysfs::Object *virtualDeviceParent();
 
 void registerMbusDevice(mbus_ng::EntityId, std::shared_ptr<Device>);
 extern async::recurring_event mbusMapUpdate;

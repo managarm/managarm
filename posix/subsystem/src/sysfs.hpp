@@ -248,11 +248,16 @@ struct Object {
 	virtual std::optional<std::string> getClassPath();
 	void addObject();
 
+	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> &classDirectories() {
+		return classDirectories_;
+	}
 private:
 	std::shared_ptr<Object> _parent;
 	std::string _name;
 
 	std::shared_ptr<Link> _dirLink;
+
+	std::unordered_map<std::string, std::shared_ptr<sysfs::Object>> classDirectories_;
 };
 
 // Hierarchy corresponds to Linux ksets.
