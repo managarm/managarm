@@ -111,17 +111,25 @@ async::detached Controller::initialize() {
 
 	std::println("{} Initializing controller", this);
 
-	// Stop the controller
+	// Stop the controller and wait for it to halt
 	operational.store(op_regs::usbcmd, usbcmd::run(false));
 
-	// Wait for the controller to halt
-	while(!(operational.load(op_regs::usbsts) & usbsts::hcHalted))
-		;
+	auto checkHalted = [&] { return operational.load(op_regs::usbsts) & usbsts::hcHalted; };
+	if (!co_await helix::kindaBusyWait(5'000'000'000, checkHalted)) {
+		std::println("{} Controller did not halt after 5s! USBSTS={:08x}", this,
+				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
+		co_return;
+	}
 
 	// Reset the controller and wait for it to complete
 	operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
-	while(operational.load(op_regs::usbsts) & usbsts::controllerNotReady)
-		;
+
+	auto checkReady = [&] { return !(operational.load(op_regs::usbsts) & usbsts::controllerNotReady); };
+	if (!co_await helix::kindaBusyWait(5'000'000'000, checkReady)) {
+		std::println("{} Controller not ready after reset after 5s! USBSTS={:08x}", this,
+				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
+		co_return;
+	}
 
 	std::println("{} Controller reset done", this);
 
@@ -182,6 +190,13 @@ async::detached Controller::initialize() {
 	operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
 
 	// Wait for the controller to start
+	auto checkRunning = [&] { return !(operational.load(op_regs::usbsts) & usbsts::hcHalted); };
+	if (!co_await helix::kindaBusyWait(5'000'000'000, checkRunning)) {
+		std::println("{} Controller did not start after 5s! USBSTS={:08x}", this,
+				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
+		co_return;
+	}
+
 	while(operational.load(op_regs::usbsts) & usbsts::hcHalted)
 		;
 
