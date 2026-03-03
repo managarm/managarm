@@ -171,14 +171,14 @@ void setupEarlyInterruptHandlers() {
 			"\rpushq $.L_reloadEarlyCs\n"
 			"\rlretq\n"
 			".L_reloadEarlyCs:" );
-	
+
 	// setup the idt
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 0, 0x8, (void *)&earlyStubDivideByZero, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 6, 0x8, (void *)&earlyStubOpcode, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 8, 0x8, (void *)&earlyStubDouble, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 13, 0x8, (void *)&earlyStubProtection, 0);
 	common::x86::makeIdt64IntSystemGate(earlyIdt, 14, 0x8, (void *)&earlyStubPage, 0);
-	
+
 	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
 	idtr.pointer = earlyIdt;
@@ -189,7 +189,7 @@ void setupIdt(uint32_t *table) {
 	using common::x86::makeIdt64IntSystemGate;
 	using common::x86::makeIdt64IntUserGate;
 	
-	int fault_selector = kSelExecutorFaultCode;
+	int fault_selector = kSelExecutorSyscallCode;
 	makeIdt64IntSystemGate(table, 0, fault_selector, (void *)&faultStubDivideByZero, 0);
 	makeIdt64IntSystemGate(table, 1, fault_selector, (void *)&faultStubDebug, 0);
 	makeIdt64IntUserGate(table, 3, fault_selector, (void *)&faultStubBreakpoint, 0);
@@ -210,86 +210,82 @@ void setupIdt(uint32_t *table) {
 	makeIdt64IntSystemGate(table, 18, fault_selector, (void *)&faultStubMachineCheck, 0);
 	makeIdt64IntSystemGate(table, 19, fault_selector, (void *)&faultStubSimdException, 0);
 
-	int irq_selector = kSelSystemIrqCode;
-	makeIdt64IntSystemGate(table, 39, irq_selector, (void *)&thorRtIsrLegacyIrq7, 1);
-	makeIdt64IntSystemGate(table, 47, irq_selector, (void *)&thorRtIsrLegacyIrq15, 1);
+	int irq_selector = kSelExecutorSyscallCode;
+	makeIdt64IntSystemGate(table, 39, irq_selector, (void *)&thorRtIsrLegacyIrq7, 0);
+	makeIdt64IntSystemGate(table, 47, irq_selector, (void *)&thorRtIsrLegacyIrq15, 0);
 
-	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 1);
-	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 1);
-	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 1);
-	makeIdt64IntSystemGate(table, 67, irq_selector, (void *)&thorRtIsrIrq3, 1);
-	makeIdt64IntSystemGate(table, 68, irq_selector, (void *)&thorRtIsrIrq4, 1);
-	makeIdt64IntSystemGate(table, 69, irq_selector, (void *)&thorRtIsrIrq5, 1);
-	makeIdt64IntSystemGate(table, 70, irq_selector, (void *)&thorRtIsrIrq6, 1);
-	makeIdt64IntSystemGate(table, 71, irq_selector, (void *)&thorRtIsrIrq7, 1);
-	makeIdt64IntSystemGate(table, 72, irq_selector, (void *)&thorRtIsrIrq8, 1);
-	makeIdt64IntSystemGate(table, 73, irq_selector, (void *)&thorRtIsrIrq9, 1);
-	makeIdt64IntSystemGate(table, 74, irq_selector, (void *)&thorRtIsrIrq10, 1);
-	makeIdt64IntSystemGate(table, 75, irq_selector, (void *)&thorRtIsrIrq11, 1);
-	makeIdt64IntSystemGate(table, 76, irq_selector, (void *)&thorRtIsrIrq12, 1);
-	makeIdt64IntSystemGate(table, 77, irq_selector, (void *)&thorRtIsrIrq13, 1);
-	makeIdt64IntSystemGate(table, 78, irq_selector, (void *)&thorRtIsrIrq14, 1);
-	makeIdt64IntSystemGate(table, 79, irq_selector, (void *)&thorRtIsrIrq15, 1);
-	makeIdt64IntSystemGate(table, 80, irq_selector, (void *)&thorRtIsrIrq16, 1);
-	makeIdt64IntSystemGate(table, 81, irq_selector, (void *)&thorRtIsrIrq17, 1);
-	makeIdt64IntSystemGate(table, 82, irq_selector, (void *)&thorRtIsrIrq18, 1);
-	makeIdt64IntSystemGate(table, 83, irq_selector, (void *)&thorRtIsrIrq19, 1);
-	makeIdt64IntSystemGate(table, 84, irq_selector, (void *)&thorRtIsrIrq20, 1);
-	makeIdt64IntSystemGate(table, 85, irq_selector, (void *)&thorRtIsrIrq21, 1);
-	makeIdt64IntSystemGate(table, 86, irq_selector, (void *)&thorRtIsrIrq22, 1);
-	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 1);
-	makeIdt64IntSystemGate(table, 88, irq_selector, (void *)&thorRtIsrIrq24, 1);
-	makeIdt64IntSystemGate(table, 89, irq_selector, (void *)&thorRtIsrIrq25, 1);
-	makeIdt64IntSystemGate(table, 90, irq_selector, (void *)&thorRtIsrIrq26, 1);
-	makeIdt64IntSystemGate(table, 91, irq_selector, (void *)&thorRtIsrIrq27, 1);
-	makeIdt64IntSystemGate(table, 92, irq_selector, (void *)&thorRtIsrIrq28, 1);
-	makeIdt64IntSystemGate(table, 93, irq_selector, (void *)&thorRtIsrIrq29, 1);
-	makeIdt64IntSystemGate(table, 94, irq_selector, (void *)&thorRtIsrIrq30, 1);
-	makeIdt64IntSystemGate(table, 95, irq_selector, (void *)&thorRtIsrIrq31, 1);
-	makeIdt64IntSystemGate(table, 96, irq_selector, (void *)&thorRtIsrIrq32, 1);
-	makeIdt64IntSystemGate(table, 97, irq_selector, (void *)&thorRtIsrIrq33, 1);
-	makeIdt64IntSystemGate(table, 98, irq_selector, (void *)&thorRtIsrIrq34, 1);
-	makeIdt64IntSystemGate(table, 99, irq_selector, (void *)&thorRtIsrIrq35, 1);
-	makeIdt64IntSystemGate(table, 100, irq_selector, (void *)&thorRtIsrIrq36, 1);
-	makeIdt64IntSystemGate(table, 101, irq_selector, (void *)&thorRtIsrIrq37, 1);
-	makeIdt64IntSystemGate(table, 102, irq_selector, (void *)&thorRtIsrIrq38, 1);
-	makeIdt64IntSystemGate(table, 103, irq_selector, (void *)&thorRtIsrIrq39, 1);
-	makeIdt64IntSystemGate(table, 104, irq_selector, (void *)&thorRtIsrIrq40, 1);
-	makeIdt64IntSystemGate(table, 105, irq_selector, (void *)&thorRtIsrIrq41, 1);
-	makeIdt64IntSystemGate(table, 106, irq_selector, (void *)&thorRtIsrIrq42, 1);
-	makeIdt64IntSystemGate(table, 107, irq_selector, (void *)&thorRtIsrIrq43, 1);
-	makeIdt64IntSystemGate(table, 108, irq_selector, (void *)&thorRtIsrIrq44, 1);
-	makeIdt64IntSystemGate(table, 109, irq_selector, (void *)&thorRtIsrIrq45, 1);
-	makeIdt64IntSystemGate(table, 110, irq_selector, (void *)&thorRtIsrIrq46, 1);
-	makeIdt64IntSystemGate(table, 111, irq_selector, (void *)&thorRtIsrIrq47, 1);
-	makeIdt64IntSystemGate(table, 112, irq_selector, (void *)&thorRtIsrIrq48, 1);
-	makeIdt64IntSystemGate(table, 113, irq_selector, (void *)&thorRtIsrIrq49, 1);
-	makeIdt64IntSystemGate(table, 114, irq_selector, (void *)&thorRtIsrIrq50, 1);
-	makeIdt64IntSystemGate(table, 115, irq_selector, (void *)&thorRtIsrIrq51, 1);
-	makeIdt64IntSystemGate(table, 116, irq_selector, (void *)&thorRtIsrIrq52, 1);
-	makeIdt64IntSystemGate(table, 117, irq_selector, (void *)&thorRtIsrIrq53, 1);
-	makeIdt64IntSystemGate(table, 118, irq_selector, (void *)&thorRtIsrIrq54, 1);
-	makeIdt64IntSystemGate(table, 119, irq_selector, (void *)&thorRtIsrIrq55, 1);
-	makeIdt64IntSystemGate(table, 120, irq_selector, (void *)&thorRtIsrIrq56, 1);
-	makeIdt64IntSystemGate(table, 121, irq_selector, (void *)&thorRtIsrIrq57, 1);
-	makeIdt64IntSystemGate(table, 122, irq_selector, (void *)&thorRtIsrIrq58, 1);
-	makeIdt64IntSystemGate(table, 123, irq_selector, (void *)&thorRtIsrIrq59, 1);
-	makeIdt64IntSystemGate(table, 124, irq_selector, (void *)&thorRtIsrIrq60, 1);
-	makeIdt64IntSystemGate(table, 125, irq_selector, (void *)&thorRtIsrIrq61, 1);
-	makeIdt64IntSystemGate(table, 126, irq_selector, (void *)&thorRtIsrIrq62, 1);
-	makeIdt64IntSystemGate(table, 127, irq_selector, (void *)&thorRtIsrIrq63, 1);
-	
-	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 1);
-	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 1);
-	makeIdt64IntSystemGate(table, 0xF2, irq_selector, (void *)&thorRtIpiCall, 1);
-	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 1);
-	
-	int nmi_selector = kSelSystemNmiCode;
+	makeIdt64IntSystemGate(table, 64, irq_selector, (void *)&thorRtIsrIrq0, 0);
+	makeIdt64IntSystemGate(table, 65, irq_selector, (void *)&thorRtIsrIrq1, 0);
+	makeIdt64IntSystemGate(table, 66, irq_selector, (void *)&thorRtIsrIrq2, 0);
+	makeIdt64IntSystemGate(table, 67, irq_selector, (void *)&thorRtIsrIrq3, 0);
+	makeIdt64IntSystemGate(table, 68, irq_selector, (void *)&thorRtIsrIrq4, 0);
+	makeIdt64IntSystemGate(table, 69, irq_selector, (void *)&thorRtIsrIrq5, 0);
+	makeIdt64IntSystemGate(table, 70, irq_selector, (void *)&thorRtIsrIrq6, 0);
+	makeIdt64IntSystemGate(table, 71, irq_selector, (void *)&thorRtIsrIrq7, 0);
+	makeIdt64IntSystemGate(table, 72, irq_selector, (void *)&thorRtIsrIrq8, 0);
+	makeIdt64IntSystemGate(table, 73, irq_selector, (void *)&thorRtIsrIrq9, 0);
+	makeIdt64IntSystemGate(table, 74, irq_selector, (void *)&thorRtIsrIrq10, 0);
+	makeIdt64IntSystemGate(table, 75, irq_selector, (void *)&thorRtIsrIrq11, 0);
+	makeIdt64IntSystemGate(table, 76, irq_selector, (void *)&thorRtIsrIrq12, 0);
+	makeIdt64IntSystemGate(table, 77, irq_selector, (void *)&thorRtIsrIrq13, 0);
+	makeIdt64IntSystemGate(table, 78, irq_selector, (void *)&thorRtIsrIrq14, 0);
+	makeIdt64IntSystemGate(table, 79, irq_selector, (void *)&thorRtIsrIrq15, 0);
+	makeIdt64IntSystemGate(table, 80, irq_selector, (void *)&thorRtIsrIrq16, 0);
+	makeIdt64IntSystemGate(table, 81, irq_selector, (void *)&thorRtIsrIrq17, 0);
+	makeIdt64IntSystemGate(table, 82, irq_selector, (void *)&thorRtIsrIrq18, 0);
+	makeIdt64IntSystemGate(table, 83, irq_selector, (void *)&thorRtIsrIrq19, 0);
+	makeIdt64IntSystemGate(table, 84, irq_selector, (void *)&thorRtIsrIrq20, 0);
+	makeIdt64IntSystemGate(table, 85, irq_selector, (void *)&thorRtIsrIrq21, 0);
+	makeIdt64IntSystemGate(table, 86, irq_selector, (void *)&thorRtIsrIrq22, 0);
+	makeIdt64IntSystemGate(table, 87, irq_selector, (void *)&thorRtIsrIrq23, 0);
+	makeIdt64IntSystemGate(table, 88, irq_selector, (void *)&thorRtIsrIrq24, 0);
+	makeIdt64IntSystemGate(table, 89, irq_selector, (void *)&thorRtIsrIrq25, 0);
+	makeIdt64IntSystemGate(table, 90, irq_selector, (void *)&thorRtIsrIrq26, 0);
+	makeIdt64IntSystemGate(table, 91, irq_selector, (void *)&thorRtIsrIrq27, 0);
+	makeIdt64IntSystemGate(table, 92, irq_selector, (void *)&thorRtIsrIrq28, 0);
+	makeIdt64IntSystemGate(table, 93, irq_selector, (void *)&thorRtIsrIrq29, 0);
+	makeIdt64IntSystemGate(table, 94, irq_selector, (void *)&thorRtIsrIrq30, 0);
+	makeIdt64IntSystemGate(table, 95, irq_selector, (void *)&thorRtIsrIrq31, 0);
+	makeIdt64IntSystemGate(table, 96, irq_selector, (void *)&thorRtIsrIrq32, 0);
+	makeIdt64IntSystemGate(table, 97, irq_selector, (void *)&thorRtIsrIrq33, 0);
+	makeIdt64IntSystemGate(table, 98, irq_selector, (void *)&thorRtIsrIrq34, 0);
+	makeIdt64IntSystemGate(table, 99, irq_selector, (void *)&thorRtIsrIrq35, 0);
+	makeIdt64IntSystemGate(table, 100, irq_selector, (void *)&thorRtIsrIrq36, 0);
+	makeIdt64IntSystemGate(table, 101, irq_selector, (void *)&thorRtIsrIrq37, 0);
+	makeIdt64IntSystemGate(table, 102, irq_selector, (void *)&thorRtIsrIrq38, 0);
+	makeIdt64IntSystemGate(table, 103, irq_selector, (void *)&thorRtIsrIrq39, 0);
+	makeIdt64IntSystemGate(table, 104, irq_selector, (void *)&thorRtIsrIrq40, 0);
+	makeIdt64IntSystemGate(table, 105, irq_selector, (void *)&thorRtIsrIrq41, 0);
+	makeIdt64IntSystemGate(table, 106, irq_selector, (void *)&thorRtIsrIrq42, 0);
+	makeIdt64IntSystemGate(table, 107, irq_selector, (void *)&thorRtIsrIrq43, 0);
+	makeIdt64IntSystemGate(table, 108, irq_selector, (void *)&thorRtIsrIrq44, 0);
+	makeIdt64IntSystemGate(table, 109, irq_selector, (void *)&thorRtIsrIrq45, 0);
+	makeIdt64IntSystemGate(table, 110, irq_selector, (void *)&thorRtIsrIrq46, 0);
+	makeIdt64IntSystemGate(table, 111, irq_selector, (void *)&thorRtIsrIrq47, 0);
+	makeIdt64IntSystemGate(table, 112, irq_selector, (void *)&thorRtIsrIrq48, 0);
+	makeIdt64IntSystemGate(table, 113, irq_selector, (void *)&thorRtIsrIrq49, 0);
+	makeIdt64IntSystemGate(table, 114, irq_selector, (void *)&thorRtIsrIrq50, 0);
+	makeIdt64IntSystemGate(table, 115, irq_selector, (void *)&thorRtIsrIrq51, 0);
+	makeIdt64IntSystemGate(table, 116, irq_selector, (void *)&thorRtIsrIrq52, 0);
+	makeIdt64IntSystemGate(table, 117, irq_selector, (void *)&thorRtIsrIrq53, 0);
+	makeIdt64IntSystemGate(table, 118, irq_selector, (void *)&thorRtIsrIrq54, 0);
+	makeIdt64IntSystemGate(table, 119, irq_selector, (void *)&thorRtIsrIrq55, 0);
+	makeIdt64IntSystemGate(table, 120, irq_selector, (void *)&thorRtIsrIrq56, 0);
+	makeIdt64IntSystemGate(table, 121, irq_selector, (void *)&thorRtIsrIrq57, 0);
+	makeIdt64IntSystemGate(table, 122, irq_selector, (void *)&thorRtIsrIrq58, 0);
+	makeIdt64IntSystemGate(table, 123, irq_selector, (void *)&thorRtIsrIrq59, 0);
+	makeIdt64IntSystemGate(table, 124, irq_selector, (void *)&thorRtIsrIrq60, 0);
+	makeIdt64IntSystemGate(table, 125, irq_selector, (void *)&thorRtIsrIrq61, 0);
+	makeIdt64IntSystemGate(table, 126, irq_selector, (void *)&thorRtIsrIrq62, 0);
+	makeIdt64IntSystemGate(table, 127, irq_selector, (void *)&thorRtIsrIrq63, 0);
+
+	makeIdt64IntSystemGate(table, 0xF0, irq_selector, (void *)&thorRtIpiShootdown, 0);
+	makeIdt64IntSystemGate(table, 0xF1, irq_selector, (void *)&thorRtIpiPing, 0);
+	makeIdt64IntSystemGate(table, 0xF2, irq_selector, (void *)&thorRtIpiCall, 0);
+	makeIdt64IntSystemGate(table, 0xFF, irq_selector, (void *)&thorRtPreemption, 0);
+
+	int nmi_selector = kSelExecutorSyscallCode;
 	makeIdt64IntSystemGate(table, 2, nmi_selector, (void *)&nmiStub, 3);
-
-	//FIXME
-//	common::x86::makeIdt64IntSystemGate(table, 0x82,
-//			0x8, (void *)&thorRtIsrPreempted, 0);
 }
 
 bool inStub(uintptr_t ip) {
@@ -405,9 +401,7 @@ extern "C" void onPlatformIrq(IrqImageAccessor image, int number) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -427,9 +421,7 @@ extern "C" void onPlatformLegacyIrq(IrqImageAccessor image, int number) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -460,9 +452,7 @@ extern "C" void onPlatformPreemption(IrqImageAccessor image) {
 				<< "]: Preemption from cs: 0x" << frg::hex_fmt(cs)
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -509,9 +499,7 @@ extern "C" void onPlatformShootdown(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -538,9 +526,7 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();
@@ -550,6 +536,20 @@ extern "C" void onPlatformPing(IrqImageAccessor image) {
 	auto *scheduler = &localScheduler.get();
 	scheduler->forcePreemptionCall();
 	scheduler->checkPreemption(image);
+
+	if (image.inManipulableDomain()) {
+		auto thisThread = getCurrentThread();
+		assert(thisThread);
+
+		if (thisThread->checkConditions()) {
+			iplDemoteContext(ipl::passive);
+			enableInts();
+
+			Thread::handleConditions(image);
+
+			disableInts();
+		}
+	}
 
 	iplLeaveContext(*image.iplState());
 }
@@ -564,9 +564,7 @@ extern "C" void onPlatformCall(IrqImageAccessor image) {
 				<< ", ip: " << (void *)*image.ip() << frg::endlog;
 
 	uint16_t cs = *image.cs();
-	assert(cs == kSelSystemIdleCode || cs == kSelSystemFiberCode
-			|| cs == kSelClientUserCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelExecutorFaultCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 
 	assert(!irqMutex().nesting());
 	disableUserAccess();

@@ -229,6 +229,10 @@ public:
 			return std::move(*bls.value);
 	}
 
+	bool checkConditions() {
+		return _pendingConditions.load(std::memory_order_relaxed);
+	}
+
 	// Run the current thread's WQs. Returns true if there was any work to do.
 	static bool runWqs() {
 		auto ipl = currentIpl();
@@ -273,8 +277,10 @@ public:
 	static void suspendCurrent(IrqImageAccessor image);
 	static void interruptCurrent(Interrupt interrupt, FaultImageAccessor image, InterruptInfo info);
 	static void interruptCurrent(Interrupt interrupt, SyscallImageAccessor image, InterruptInfo info);
+	static void interruptCurrent(Interrupt interrupt, IrqImageAccessor image, InterruptInfo info);
 
 	static void handleConditions(SyscallImageAccessor image);
+	static void handleConditions(IrqImageAccessor image);
 	static void raiseSignals(SyscallImageAccessor image);
 
 	// State transitions that apply to arbitrary threads.
@@ -384,6 +390,9 @@ private:
 	static void genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, InterruptInfo info);
 
 	template<typename ImageAccessor>
+	static void genericHandleConditions(ImageAccessor image);
+
+	template<typename ImageAccessor>
 	void doHandlePreemption(bool inManipulableDomain, ImageAccessor image);
 
 	void raiseCondition_(Condition c);
@@ -440,6 +449,8 @@ private:
 	Mutex _mutex;
 
 	RunState _runState;
+	// For kRunActive: CPU that we are running on.
+	CpuData *activeCpu_{nullptr};
 	// Conditions that unblock the thread while in kRunBlocked.
 	Condition unblockConditions_{0};
 

@@ -30,7 +30,6 @@ struct PlatformCpuData : public AssemblyCpuData {
 
 	int localApicId;
 
-	UniqueKernelStack irqStack;
 	UniqueKernelStack dfStack;
 	UniqueKernelStack nmiStack;
 

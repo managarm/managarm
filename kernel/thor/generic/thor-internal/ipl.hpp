@@ -51,6 +51,17 @@ inline void iplLeaveContext(IplState savedIpl) {
 	std::atomic_signal_fence(std::memory_order_seq_cst);
 }
 
+inline void iplDemoteContext(Ipl newIpl) {
+	auto cpuData = getCpuData();
+	// Perform (rw, w) fence to prevent re-ordering of past accesses with the IPL stores.
+	std::atomic_signal_fence(std::memory_order_release);
+	cpuData->contextIpl.store(newIpl, std::memory_order_relaxed);
+	std::atomic_signal_fence(std::memory_order_release);
+	cpuData->currentIpl.store(newIpl, std::memory_order_relaxed);
+	// Perform (w, rw) fence to prevent re-ordering of the IPL stores with future accesses.
+	std::atomic_signal_fence(std::memory_order_seq_cst);
+}
+
 inline void deferToIplLowerThan(Ipl l) {
 	assert(l > 0);
 	getCpuData()->iplDeferred.fetch_or(

@@ -20,10 +20,6 @@ thorRtEntry:
 .text
 .global enableIntsAndHaltForever
 enableIntsAndHaltForever:
-	pushq $0x58
-	pushq $enter_context
-	lretq
-enter_context:
 	sti
 halt_loop:
 	hlt

@@ -120,7 +120,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	general()->rflags = 0x200;
 	general()->rsp = (uintptr_t)context->stack.basePtr();
 	general()->rdi = abi.argument;
-	general()->cs = kSelSystemFiberCode;
+	general()->cs = kSelExecutorSyscallCode;
 	general()->ss = kSelExecutorKernelData;
 }
 
@@ -291,8 +291,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 	iplLeaveContext(executor->general()->iplState);
 
 	uint16_t cs = executor->general()->cs;
-	assert(cs == kSelExecutorFaultCode || cs == kSelExecutorSyscallCode
-			|| cs == kSelClientUserCode || cs == kSelSystemFiberCode);
+	assert(cs == kSelExecutorSyscallCode || cs == kSelClientUserCode);
 	if(cs == kSelClientUserCode)
 		asm volatile ( "swapgs" : : : "memory" );
 
@@ -340,7 +339,6 @@ void UserContext::enableIoPort(uintptr_t port) {
 
 void UserContext::migrate(CpuData *cpu_data) {
 	assert(!intsAreEnabled());
-	tss.ist1 = (Word)cpu_data->irqStack.basePtr();
 	tss.ist2 = (Word)cpu_data->dfStack.basePtr();
 	tss.ist3 = (Word)cpu_data->nmiStack.basePtr();
 }
@@ -373,21 +371,13 @@ CpuDescriptorTables::CpuDescriptorTables() {
 	// Setup the GDT.
 	// Note: the TSS requires two slots in the GDT.
 	common::x86::makeGdtNullSegment(gdt, kGdtIndexNull);
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexInitialCode);
-
+	common::x86::makeGdtNullSegment(gdt, kGdtIndexPadding);
 	common::x86::makeGdtTss64Descriptor(gdt, kGdtIndexTask, nullptr, 0);
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIrqCode);
-
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorFaultCode);
 	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexExecutorSyscallCode);
 	common::x86::makeGdtFlatData32SystemSegment(gdt, kGdtIndexExecutorKernelData);
 	common::x86::makeGdtNullSegment(gdt, kGdtIndexClientUserCompat);
 	common::x86::makeGdtFlatData32UserSegment(gdt, kGdtIndexClientUserData);
 	common::x86::makeGdtCode64UserSegment(gdt, kGdtIndexClientUserCode);
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemIdleCode);
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemFiberCode);
-
-	common::x86::makeGdtCode64SystemSegment(gdt, kGdtIndexSystemNmiCode);
 
 	// Setup the per-CPU TSS. This TSS is used by system code.
 	memset(&tss, 0, sizeof(common::x86::Tss64));
@@ -596,7 +586,6 @@ void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
 	// Allocate per-CPU areas.
-	cpuData->irqStack = UniqueKernelStack::make();
 	cpuData->dfStack = UniqueKernelStack::make();
 	cpuData->nmiStack = UniqueKernelStack::make();
 	cpuData->detachedStack = UniqueKernelStack::make();
@@ -613,19 +602,18 @@ void initializeThisProcessor() {
 
 	// Setup our IST after the did the embedding.
 	auto *tss = &cpuDescriptorTables.get().tss;
-	tss->ist1 = (uintptr_t)cpuData->irqStack.basePtr();
 	tss->ist2 = (uintptr_t)cpuData->dfStack.basePtr();
 	tss->ist3 = (uintptr_t)cpuData->nmiStack.basePtr();
 
 	common::x86::Gdtr gdtr;
-	gdtr.limit = 14 * 8;
+	gdtr.limit = 9 * 8;
 	gdtr.pointer = cpuDescriptorTables.get().gdt;
 	asm volatile ( "lgdt (%0)" : : "r"( &gdtr ) );
 
 	asm volatile ( "pushq %0\n"
 			"\rpushq $.L_reloadCs\n"
 			"\rlretq\n"
-			".L_reloadCs:" : : "i" (kSelInitialCode) );
+			".L_reloadCs:" : : "i" (kSelExecutorSyscallCode) );
 
 	// We need a valid TSS in case an NMI or fault happens here.
 	activateTss(tss);

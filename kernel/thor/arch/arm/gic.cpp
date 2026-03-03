@@ -6,6 +6,7 @@
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/schedule.hpp>
+#include <thor-internal/thread.hpp>
 
 namespace thor {
 
@@ -78,6 +79,20 @@ void handleGicIrq(IrqImageAccessor image, ClaimedExternalIrq irq) {
 		}
 
 		localScheduler.get(cpuData).checkPreemption(image);
+
+		if (image.inManipulableDomain()) {
+			auto thisThread = getCurrentThread();
+			assert(thisThread);
+
+			if (thisThread->checkConditions()) {
+				iplDemoteContext(ipl::passive);
+				enableInts();
+
+				Thread::handleConditions(image);
+
+				disableInts();
+			}
+		}
 	} else if (irq.irq >= 1020) {
 		if constexpr (logSpurious) {
 			infoLogger() << "thor: handleGicIrq: on CPU " << cpuData->cpuIndex
