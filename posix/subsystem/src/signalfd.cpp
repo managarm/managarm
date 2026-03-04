@@ -37,6 +37,7 @@ OpenFile::readSome(Process *process, void *data, size_t maxLength, async::cancel
 
 	struct signalfd_siginfo si = {};
 	si.ssi_signo = active->signalNumber;
+	std::visit(CompileSignalFdInfo{&si}, active->info);
 
 	memcpy(data, &si, sizeof(struct signalfd_siginfo));
 	co_return sizeof(struct signalfd_siginfo);
