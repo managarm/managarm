@@ -440,9 +440,9 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		co_await mapping->evictionMutex.async_lock();
 		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
 
-		auto remapOutcome = _ops->remapPresentPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length, pageFlags, caching);
-		assert(remapOutcome);
+		auto restrictOutcome = _ops->restrictPages(mapping->address,
+				mapping->length, pageFlags, caching);
+		assert(restrictOutcome);
 	}
 
 	co_await _ops->shootdown(address, length);

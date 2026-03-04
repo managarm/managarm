@@ -162,6 +162,38 @@ public:
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
+	std::tuple<PageStatus, PhysicalAddr, bool> restrict4k(PageFlags flags, CachingMode cachingMode) {
+		if(!accessors_[lastLevel])
+			return {0, PhysicalAddr(-1), false};
+
+		uint64_t oldPte = readCurrentPte_();
+		while (true) {
+			if(!Policy::ptePagePresent(oldPte))
+				return {0, PhysicalAddr(-1), false};
+
+			PageFlags effectiveFlags = flags;
+			if(!Policy::ptePageCanAccess(oldPte, page_access::write))
+				effectiveFlags &= ~page_access::write;
+			if(!Policy::ptePageCanAccess(oldPte, page_access::execute))
+				effectiveFlags &= ~page_access::execute;
+
+			auto newPte = Policy::pteBuild(Policy::ptePageAddress(oldPte), effectiveFlags, cachingMode);
+			auto success = __atomic_compare_exchange_n(
+				currentPtePtr_(), &oldPte, newPte, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED
+			);
+			if (success)
+				break;
+		}
+		Policy::pteWriteBarrier();
+
+		bool restricted = false;
+		if (!(flags & page_access::write) && Policy::ptePageCanAccess(oldPte, page_access::write))
+			restricted = true;
+		if (!(flags & page_access::execute) && Policy::ptePageCanAccess(oldPte, page_access::execute))
+			restricted = true;
+		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte), restricted};
+	}
+
 	std::tuple<PageStatus, PhysicalAddr> clean4k() {
 		if(!accessors_[lastLevel])
 			return {0, PhysicalAddr(-1)};

@@ -129,10 +129,9 @@ frg::expected<Error> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *
 			va, view, offset, size, flags, mode);
 }
 
-frg::expected<Error> EptOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
-	return remapPresentPagesByCursor<EptCursor>(pageSpace_,
-			va, view, offset, size, flags, mode);
+frg::expected<Error, bool> EptOperations::restrictPages(VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
+	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags, mode);
 }
 
 frg::expected<Error> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
