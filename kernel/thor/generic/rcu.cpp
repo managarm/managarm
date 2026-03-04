@@ -93,6 +93,73 @@ coroutine<void> RcuEngine::barrier() {
 	}
 }
 
+coroutine<void> LocalRcuEngine::barrier() {
+	auto current = state_.load(std::memory_order_relaxed);
+	auto s = current & stateSeq;
+
+	// If we are in (s | stateBusy), wait for the transition to s.
+	while (current == (s | stateBusy)) {
+		co_await seqEvent_.async_wait_if([&] {
+			current = state_.load(std::memory_order_relaxed);
+			return current == (s | stateBusy);
+		});
+	}
+
+	// We may need to initiate the transition from s to ((s + 1) | stateBusy) ourselves.
+	bool initiate = false;
+	if (current == s) {
+		initiate = state_.compare_exchange_strong(
+			current,
+			(s + 1) | stateBusy,
+			std::memory_order_relaxed,
+			std::memory_order_relaxed
+		);
+	}
+	if (initiate) {
+		// Swap the active bit between the cycles of cs_.
+		auto cs = cs_.load(std::memory_order_relaxed);
+		int c;
+		while (true) {
+			c = cs.cycle();
+			assert(!cs.x[!c]);
+
+			CriticalSection csNew;
+			csNew.x[c] = cs.x[c] & ~CriticalSection::active;
+			csNew.x[!c] = CriticalSection::active;
+			auto success = cs_.compare_exchange_weak(
+				cs,
+				csNew,
+				std::memory_order_acq_rel,
+				std::memory_order_relaxed
+			);
+			if (success)
+				break;
+		}
+
+		// Wait for gpEvent_ to be raised when exiting the last critical section.
+		if (cs.x[c] & CriticalSection::count) {
+			co_await gpEvent_.async_wait_if([&] {
+				auto cs = cs_.load(std::memory_order_acquire);
+				return cs.x[c];
+			});
+		}
+
+		state_.store(s + 1, std::memory_order_relaxed);
+		seqEvent_.raise();
+	} else {
+		assert((current & stateSeq) > s);
+
+		// If another CPU initiated ((s + 1) | stateBusy), wait for transition out of it.
+		while (current == ((s + 1) | stateBusy)) {
+			co_await seqEvent_.async_wait_if([&] {
+				current = state_.load(std::memory_order_relaxed);
+				return current == ((s + 1) | stateBusy);
+			});
+		}
+		assert(current == s + 1 || (current & stateSeq) > s + 1);
+	}
+}
+
 // Allows the registration of callbacks that run after an RCU barrier.
 // This is per-CPU. The calls run on the CPU's generalWorkQueue.
 struct RcuDispatcher {
