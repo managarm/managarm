@@ -400,10 +400,34 @@ struct Mapping {
 	MappingState state = MappingState::null;
 	MemoryObserver observer;
 
-	// This (asynchronous) mutex can be used to temporarily disable eviction.
-	// By disabling eviction, we can safely map pages returned from peekRange()
-	// before they can be evicted.
-	async::mutex evictionMutex;
+	// Code paths MUST perform an exposeRcu barrier() after they cause page
+	// permission to be narrowed (or pages to become invalid) but before this
+	// change is actually committed.
+	// In particular:
+	// * Code that acknowledges an eviction. More precisely, code that calls done() on the handle
+	//   returned by pollEviction() needs to do a barrier() before unmapping the pages
+	//   via unmapPages() (which happens before done()).
+	// * Code that reduces the permission bits of a mapping.
+	//   This needs to call barrier() before restricting permissions in the page tables
+	//   via restrictPages() or unmapPages().
+	// * Code that moves a mapping out of MappingState::active.
+	//   This needs to call barrier() before unmap
+	//
+	// This gurantees that exposeRcu critical sections can rely on pages returned from peekRange()
+	// to remain valid with permissions determined by the mappings flags that are
+	// read during the exposeRcu critical section.
+	// The same applies for pages that are already mapped into page tables.
+	LocalRcuEngine exposeRcu;
+
+	// The following code paths MUST be protected by a revokeRcu critical section:
+	// * Code that narrows page permissions (via VirtualOperations::restrictPages()).
+	// * Code that unmaps pages entirely (via VirtualOperations::unmapPages()).
+	// In both cases, the revokeRcu critical section MUST cover both the
+	// page tables changes and the shootdown.
+	//
+	// This guarantees that a revokeRcu barrier() waits for all prior
+	// permission revocation and associated shootdown to complete.
+	LocalRcuEngine revokeRcu;
 
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
@@ -567,10 +591,9 @@ public:
 					.localAddress = mapping->viewOffset + offset,
 				};
 
-				// Lock evictionMutex to prevent page eviction.
+				// Lock exposeRcu to prevent page eviction.
 				{
-					co_await mapping->evictionMutex.async_lock();
-					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+					LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
 					// Complete the operation if the memory page is available.
 					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, fetchNone);
@@ -619,7 +642,7 @@ private:
 	// Used in conjunction with _splitMappings.
 	// Unmaps and removes all mappings between start and end that fall within the specified range.
 	// Returns whether shootdown needs to be performed (any of the mappings got unmapped).
-	coroutine<bool> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
+	coroutine<void> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
 
 	VirtualOperations *_ops;
 

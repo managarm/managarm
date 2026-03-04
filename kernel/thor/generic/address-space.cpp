@@ -157,8 +157,6 @@ coroutine<void> Mapping::runEvictionLoop() {
 			continue;
 		}
 
-		co_await evictionMutex.async_lock();
-
 		// Begin and end offsets of the region that we need to unmap.
 		auto shootBegin = frg::max(eviction.offset(), viewOffset);
 		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
@@ -171,15 +169,19 @@ coroutine<void> Mapping::runEvictionLoop() {
 		assert(!(shootOffset & (kPageSize - 1)));
 		assert(!(shootSize & (kPageSize - 1)));
 
-		// Unmap the memory range.
-		auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
-		assert(unmapOutcome);
+		co_await exposeRcu.barrier();
 
-		co_await owner->_ops->shootdown(address + shootOffset, shootSize);
+		{
+			LocalRcuEngine::Guard revokeGuard{revokeRcu};
+
+			// Unmap the memory range.
+			auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
+			assert(unmapOutcome);
+
+			co_await owner->_ops->shootdown(address + shootOffset, shootSize);
+		}
 
 		eviction.done();
-
-		evictionMutex.unlock();
 	}
 
 	evictionDoneEvent.raise();
@@ -236,6 +238,8 @@ void VirtualSpace::retire() {
 			assert(mapping->state == MappingState::active);
 			mapping->state = MappingState::zombie;
 
+			co_await mapping->exposeRcu.barrier();
+
 			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length);
 			assert(unmapOutcome);
 
@@ -273,12 +277,11 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 
 	co_await _consistencyMutex.async_lock();
 	frg::unique_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
-	bool needsShootdown = false;
 
 	if (flags & kMapFixed) {
 		auto [start, end] = co_await _splitMappings(address, length);
 		assert(start || (!start && !end));
-		needsShootdown = co_await _unmapMappings(address, length, start, end);
+		co_await _unmapMappings(address, length, start, end);
 	}
 
 	// The shared_ptr to the new Mapping needs to survive until the locks are released.
@@ -369,17 +372,13 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 			pageFlags |= page_access::read;
 
+		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+
 		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
 				mapping->viewOffset, mapping->length, pageFlags, caching);
 		assert(mapOutcome);
 	}
 
-	if (needsShootdown)
-		co_await _ops->shootdown(actualAddress, length);
-
-	// Only enable eviction after the peekRange() loop above.
-	// Since eviction is not yet enabled in that loop, we do not have
-	// to take the evictionMutex.
 	if(mapping->view->canEvictMemory())
 		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), mapping->runEvictionLoop());
 
@@ -439,15 +438,19 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
 			caching = CachingMode::writeCombine;
 
-		co_await mapping->evictionMutex.async_lock();
-		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+		co_await mapping->exposeRcu.barrier();
 
-		auto restrictOutcome = _ops->restrictPages(mapping->address,
-				mapping->length, pageFlags, caching);
-		assert(restrictOutcome);
+		{
+			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+			auto restrictOutcome = _ops->restrictPages(mapping->address,
+					mapping->length, pageFlags, caching);
+			assert(restrictOutcome);
+
+			co_await _ops->shootdown(mapping->address, mapping->length);
+		}
 	}
 
-	co_await _ops->shootdown(address, length);
 	co_return {};
 }
 
@@ -459,10 +462,7 @@ coroutine<frg::expected<Error>> VirtualSpace::unmap(VirtualAddr address, size_t 
 
 	auto [start, end] = co_await _splitMappings(address, length);
 	assert(start || (!start && !end));
-	auto needsShootdown = co_await _unmapMappings(address, length, start, end);
-
-	if (needsShootdown)
-		co_await _ops->shootdown(address, length);
+	co_await _unmapMappings(address, length, start, end);
 
 	co_return {};
 }
@@ -547,8 +547,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
 			caching = CachingMode::writeCombine;
 
-		co_await mapping->evictionMutex.async_lock();
-		frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
 		auto remapOutcome = _ops->faultPage(address & ~(kPageSize - 1),
 				mapping->view.get(), mapping->viewOffset + offset,
@@ -596,6 +595,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 		FRG_CO_TRY(co_await mapping->view->touchRange(
 				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
+		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 		auto physicalRange = mapping->view->peekRange(mapping->viewOffset + offset, fetchFlags);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
 			warningLogger() << "thor: Page still not available after touchRange()" << frg::endlog;
@@ -873,22 +873,26 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 	co_return frg::make_tuple(start, end);
 }
 
-coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end) {
-	bool needsShootdown = false;
-
+coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end) {
 	for (auto it = start; it != end;) {
 		auto mapping = it->selfPtr.lock();
 		it = MappingTree::successor(it);
 
 		if (mapping->address >= address && (mapping->address + mapping->length) <= (address + length)) {
-			needsShootdown = true;
-
 			assert(mapping->state == MappingState::active);
 			mapping->state = MappingState::zombie;
 
-			// Mark pages as dirty and unmap without holding a lock.
-			auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
-			assert(unmapOutcome);
+			co_await mapping->exposeRcu.barrier();
+
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+				// Mark pages as dirty and unmap without holding a lock.
+				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
+				assert(unmapOutcome);
+
+				co_await _ops->shootdown(mapping->address, mapping->length);
+			}
 
 			_mappings.remove(mapping.get());
 
@@ -965,7 +969,7 @@ coroutine<bool> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 		}
 	}
 
-	co_return needsShootdown;
+	co_return;
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
