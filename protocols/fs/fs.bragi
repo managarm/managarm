@@ -241,6 +241,8 @@ head(128):
 		tag(87) int64 gid;
 
 		tag(88) uint64 cancellation_id;
+
+		tag(89) string fs_type;
 	}
 }
 
