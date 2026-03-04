@@ -1,3 +1,4 @@
+#include <frg/scope_exit.hpp>
 #include <stdlib.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/ints.hpp>
@@ -209,6 +210,7 @@ static bool initFromEcdt() {
 		infoLogger() << "thor: no ECDT detected" << frg::endlog;
 		return false;
 	}
+	frg::scope_exit finish{[&] { uacpi_table_unref(&ecdtTbl); }};
 
 	auto *ecdt = reinterpret_cast<acpi_ecdt *>(ecdtTbl.hdr);
 	infoLogger() << "thor: found ECDT, EC@" << ecdt->ec_id << frg::endlog;

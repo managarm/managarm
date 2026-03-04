@@ -1,3 +1,4 @@
+#include <frg/scope_exit.hpp>
 #include <algorithm>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/io.hpp>
@@ -203,6 +204,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 			addLegacyConfigIo();
 			return;
 		}
+	    frg::scope_exit finish{[&] { uacpi_table_unref(&mcfgTbl); }};
 
 		if(mcfgTbl.hdr->length < sizeof(acpi_sdt_hdr) + 8 + sizeof(acpi_mcfg_allocation)) {
 			urgentLogger() << "thor: MCFG table has no entries, assuming legacy PCI!"
