@@ -315,6 +315,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	kernel->directMkregular("ostype", std::make_shared<OstypeNode>());
 	kernel->directMkregular("osrelease", std::make_shared<OsreleaseNode>());
 	kernel->directMkregular("arch", std::make_shared<ArchNode>());
+	kernel->directMkregular("hostname", std::make_shared<HostnameNode>());
 
 	random->directMkregular("boot_id", std::make_shared<BootIdNode>());
 
@@ -592,6 +593,20 @@ async::result<std::expected<std::string, Error>> BootIdNode::show(Process *) {
 async::result<void> BootIdNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/sys/kernel/random/boot_id file" << std::endl;
+	co_return;
+}
+
+async::result<std::expected<std::string, Error>> HostnameNode::show(Process *) {
+	// See man 5 proc for more details.
+	// Based on the man page from Linux man-pages 6.01, updated on 2022-10-09.
+	std::stringstream stream;
+	stream << "managarm\n";
+	co_return stream.str();
+}
+
+async::result<void> HostnameNode::store(std::string) {
+	// TODO: proper error reporting.
+	std::cout << "posix: Can't store to a /proc/sys/kernel/hostname file" << std::endl;
 	co_return;
 }
 

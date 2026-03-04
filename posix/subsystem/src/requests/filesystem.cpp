@@ -896,7 +896,7 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 
 	logRequest(logRequests, ctx, "FSTATAT");
 
-	if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT)) {
+	if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_STATX_DONT_SYNC)) {
 		std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req->flags()) << std::endl;
 		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return;
@@ -922,6 +922,7 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 
 	if (req->flags() & AT_EMPTY_PATH) {
 		target_link = file->associatedLink();
+		target_mount = file->associatedMount();
 	} else {
 		PathResolver resolver;
 		resolver.setup(ctx.self->fsContext()->getRoot(),
@@ -960,6 +961,9 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 	managarm::posix::SvrResponse resp;
 
 	if (statsResult) {
+		int attr = 0;
+		if(target_mount && target_link == target_mount->getOrigin())
+			attr |= STATX_ATTR_MOUNT_ROOT;
 		auto stats = statsResult.value();
 
 		resp.set_error(managarm::posix::Errors::SUCCESS);
@@ -1013,6 +1017,8 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 		resp.set_ctime_nanos(stats.ctimeNanos);
 		resp.set_mount_id(target_mount ? target_mount->mountId() : 0);
 		resp.set_stat_dev(target_link->getTarget()->superblock()->deviceNumber());
+		resp.set_statx_attr(attr);
+		resp.set_statx_attr_mask(STATX_ATTR_MOUNT_ROOT);
 	} else {
 		resp.set_error(statsResult.error() | toPosixProtoError);
 	}

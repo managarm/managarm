@@ -256,6 +256,10 @@ head(128):
 
 		tag(32) uint32 mount_id;
 		tag(33) uint64 stat_dev;
+
+		// returned by FSTATAT for statx
+		tag(34) int32 statx_attr;
+		tag(35) int32 statx_attr_mask;
 	}
 }
 

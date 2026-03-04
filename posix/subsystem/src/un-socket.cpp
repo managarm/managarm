@@ -351,7 +351,7 @@ public:
 				_recvQueue.pop_front();
 		}
 
-		if(data_length != returned_length)
+		if(data_length != returned_length && socktype_ != SOCK_STREAM)
 			reply_flags |= MSG_TRUNC;
 
 		co_return protocols::fs::RecvData{ctrl.buffer(), returned_length, 0, reply_flags};
@@ -403,25 +403,27 @@ public:
 				} else if(sa.sun_path[0] == '\0') {
 					path.resize(addr_length - sizeof(sa.sun_family) - 1);
 					memcpy(path.data(), sa.sun_path + 1, addr_length - sizeof(sa.sun_family) - 1);
+
+					remote = abstractSocketsBindMap.at(path);
 				} else {
 					path.resize(strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
 					memcpy(path.data(), sa.sun_path, strnlen(sa.sun_path, addr_length - offsetof(sockaddr_un, sun_path)));
+					PathResolver resolver;
+					resolver.setup(process->fsContext()->getRoot(),
+							process->fsContext()->getWorkingDirectory(), std::move(path), process);
+					auto resolveResult = co_await resolver.resolve();
+					if(!resolveResult) {
+						co_return resolveResult.error();
+					}
+					assert(resolveResult);
+					if(!resolver.currentLink())
+						co_return protocols::fs::Error::fileNotFound;
+	
+					// Lookup the socket associated with the node.
+					auto node = resolver.currentLink()->getTarget();
+					remote = globalBindMap.at(node);
 				}
 
-				PathResolver resolver;
-				resolver.setup(process->fsContext()->getRoot(),
-						process->fsContext()->getWorkingDirectory(), std::move(path), process);
-				auto resolveResult = co_await resolver.resolve();
-				if(!resolveResult) {
-					co_return resolveResult.error();
-				}
-				assert(resolveResult);
-				if(!resolver.currentLink())
-					co_return protocols::fs::Error::fileNotFound;
-
-				// Lookup the socket associated with the node.
-				auto node = resolver.currentLink()->getTarget();
-				remote = globalBindMap.at(node);
 			}
 		}
 
