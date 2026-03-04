@@ -351,7 +351,7 @@ public:
 				_recvQueue.pop_front();
 		}
 
-		if(data_length != returned_length)
+		if(data_length != returned_length && socktype_ != SOCK_STREAM)
 			reply_flags |= MSG_TRUNC;
 
 		co_return protocols::fs::RecvData{ctrl.buffer(), returned_length, 0, reply_flags};
