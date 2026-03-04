@@ -3,6 +3,7 @@
 #include <frg/optional.hpp>
 #include <frg/rcu_radixtree.hpp>
 #include <thor-internal/arch-generic/paging-consts.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/rcu.hpp>
 
@@ -29,6 +30,10 @@ struct PfnDescriptor {
 
 	explicit PfnDescriptor(uint64_t bits)
 	: bits_{bits} { }
+
+	uint64_t bits() {
+		return bits_;
+	}
 
 	explicit operator bool() {
 		return bits_ != 0;
@@ -87,7 +92,13 @@ struct PfnDb {
 	void insert(uint64_t pa, PfnDescriptor descriptor) {
 		auto lock = frg::guard(&mutex_);
 
-		auto it = tree_.insert(pa);
+		auto [it, wasInserted] = tree_.find_or_insert(pa);
+		if (!wasInserted)
+			panicLogger() << "thor: PFN collision for address 0x"
+				<< frg::hex_fmt{pa}
+				<< ", existing entry is 0x"
+				<< frg::hex_fmt{it->load(std::memory_order_relaxed).bits()}
+				<< frg::endlog;
 		it->store(descriptor, std::memory_order_relaxed);
 	}
 
