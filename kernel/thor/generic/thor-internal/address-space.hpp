@@ -70,8 +70,12 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
-		c.map4k(physicalRange.physical, effectiveFlags,
+		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				markDirty(*descriptor);
+		}
 		c.advance4k();
 	}
 	return {};

@@ -132,20 +132,19 @@ public:
 		return false;
 	}
 
-	void map4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
+	std::tuple<PageStatus, PhysicalAddr> map4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 		if(!accessors_[lastLevel])
 			realizePts_();
 
-		auto ptEnt = readCurrentPte_();
-		assert(!Policy::ptePagePresent(ptEnt));
-
-		ptEnt = Policy::pteBuild(pa, flags, cachingMode);
+		auto newPte = Policy::pteBuild(pa, flags, cachingMode);
 
 		if (flags & page_access::execute)
 			Policy::pteSyncICache(pa);
 
-		__atomic_store_n(currentPtePtr_(), ptEnt, __ATOMIC_RELAXED);
+		auto oldPte = exchangeCurrentPte_(newPte);
 		Policy::pteWriteBarrier();
+
+		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte)};
 	}
 
 	std::tuple<PageStatus, PhysicalAddr> remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
