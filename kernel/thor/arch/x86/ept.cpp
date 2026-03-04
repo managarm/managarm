@@ -144,7 +144,7 @@ frg::expected<Error> EptOperations::cleanPages(VirtualAddr va, size_t size) {
 	return cleanPagesByCursor<EptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error> EptOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, bool> EptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<EptCursor>(pageSpace_, va, size);
 }
 

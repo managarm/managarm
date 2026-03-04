@@ -148,11 +148,12 @@ frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t si
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, bool> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
+	bool anyAffected = false;
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
 		assert(status & page_status::present);
@@ -160,10 +161,11 @@ frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t si
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
 		}
+		anyAffected = true;
 
 		c.advance4k();
 	}
-	return {};
+	return anyAffected;
 }
 
 struct VirtualOperations {
@@ -212,7 +214,7 @@ struct VirtualOperations {
 
 	virtual frg::expected<Error> cleanPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error> unmapPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) = 0;
 
 	virtual size_t getRss();
 
@@ -677,7 +679,7 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, size);
 		}
 
-		frg::expected<Error> unmapPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, size);
 		}

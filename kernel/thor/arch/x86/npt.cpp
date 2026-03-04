@@ -132,7 +132,7 @@ frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, size_t size) {
 	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, bool> NptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
