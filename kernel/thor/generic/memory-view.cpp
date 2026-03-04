@@ -5,6 +5,7 @@
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/memory-view.hpp>
+#include <thor-internal/pfn-db.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/timer.hpp>
 
@@ -232,15 +233,10 @@ coroutine<frg::expected<Error>> MemoryView::copyTo(uintptr_t offset,
 			reinterpret_cast<const uint8_t *>(pointer) + progress,
 			chunk
 		);
+		if(auto descriptor = globalPfnDb().find(range.physical))
+			markDirty(*descriptor);
 		progress += chunk;
 	}
-
-	// In addition to what copyFrom() does, we also have to mark the memory as dirty.
-	auto misalign = offset & (kPageSize - 1);
-	markDirty(
-		offset & ~(kPageSize - 1),
-		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
-	);
 
 	co_return {};
 }
@@ -354,15 +350,10 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 			(uint8_t *)srcAccessor.get() + srcMisalign,
 			chunk
 		);
+		if(auto descriptor = globalPfnDb().find(destRange.physical))
+			markDirty(*descriptor);
 		progress += chunk;
 	}
-
-	// In addition to what copyFromView() does, we also have to mark the memory as dirty.
-	auto misalign = destOffset & (kPageSize - 1);
-	destView->markDirty(
-		destOffset & ~(kPageSize - 1),
-		(size + misalign + kPageSize - 1) & ~(kPageSize - 1)
-	);
 
 	co_return {};
 }
@@ -380,6 +371,8 @@ struct ZeroMemory final : MemoryView {
 			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
 		PageAccessor accessor{_zeroPage};
 		memset(accessor.get(), 0, kPageSize);
+
+		globalPfnDb().insert(_zeroPage, PfnDescriptor::otherPage());
 	}
 	ZeroMemory(const ZeroMemory &) = delete;
 	~ZeroMemory() = default;
@@ -421,10 +414,6 @@ struct ZeroMemory final : MemoryView {
 		co_return kPageSize - misalign;
 	}
 
-	void markDirty(uintptr_t, size_t) override {
-		urgentLogger() << "thor: ZeroMemory::markDirty() called," << frg::endlog;
-	}
-
 public:
 	// Contract: set by the code that constructs this object.
 	smarter::borrowed_ptr<ZeroMemory> selfPtr;
@@ -459,13 +448,16 @@ ImmediateMemory::ImmediateMemory(size_t length)
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 
+		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 		_physicalPages[i] = physical;
 	}
 }
 
 ImmediateMemory::~ImmediateMemory() {
-	for(size_t i = 0; i < _physicalPages.size(); ++i)
+	for(size_t i = 0; i < _physicalPages.size(); ++i) {
+		globalPfnDb().erase(_physicalPages[i]);
 		physicalAllocator->free(_physicalPages[i], kPageSize);
+	}
 }
 
 coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
@@ -486,6 +478,7 @@ coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
 			PageAccessor accessor{physical};
 			memset(accessor.get(), 0, kPageSize);
 
+			globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 			_physicalPages[i] = physical;
 		}
 	}
@@ -523,10 +516,6 @@ ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	if(index >= _physicalPages.size())
 		co_return Error::fault;
 	co_return kPageSize - disp;
-}
-
-void ImmediateMemory::markDirty(uintptr_t, size_t) {
-	// Do nothing for now.
 }
 
 size_t ImmediateMemory::getLength() {
@@ -587,10 +576,26 @@ HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cac
 : _base{base}, _length{length}, _cacheMode{cache_mode} {
 	assert(!(base % kPageSize));
 	assert(!(length % kPageSize));
+
+	for(PhysicalAddr pa = _base; pa < _base + _length; pa += kPageSize)
+		globalPfnDb().insertOrExchange(pa, [](frg::optional<PfnDescriptor> descriptor) {
+			if(!descriptor)
+				return PfnDescriptor::hardwarePage(1);
+			assert(descriptor->isHardware());
+			return PfnDescriptor::hardwarePage(descriptor->hardwareRefCount() + 1);
+		});
 }
 
 HardwareMemory::~HardwareMemory() {
-	// For now we do nothing when deallocating hardware memory.
+	for(PhysicalAddr pa = _base; pa < _base + _length; pa += kPageSize)
+		globalPfnDb().exchangeOrErase(pa, [](PfnDescriptor descriptor) -> frg::optional<PfnDescriptor> {
+			assert(descriptor.isHardware());
+			auto refCount = descriptor.hardwareRefCount();
+			assert(refCount > 0);
+			if(refCount == 1)
+				return frg::null_opt;
+			return PfnDescriptor::hardwarePage(refCount - 1);
+		});
 }
 
 Error HardwareMemory::lockRange(uintptr_t, size_t) {
@@ -613,10 +618,6 @@ HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 	auto misalign = offset & (kPageSize - 1);
 	co_return kPageSize - misalign;
-}
-
-void HardwareMemory::markDirty(uintptr_t, size_t) {
-	// We never evict memory, there is no need to track dirty pages.
 }
 
 size_t HardwareMemory::getLength() {
@@ -656,8 +657,11 @@ AllocatedMemory::~AllocatedMemory() {
 		infoLogger() << "thor: Releasing AllocatedMemory ("
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB in use)" << frg::endlog;
 	for(size_t i = 0; i < _physicalChunks.size(); ++i) {
-		if(_physicalChunks[i] != PhysicalAddr(-1))
+		if(_physicalChunks[i] != PhysicalAddr(-1)) {
+			for(size_t pg = 0; pg < _chunkSize; pg += kPageSize)
+				globalPfnDb().erase(_physicalChunks[i] + pg);
 			physicalAllocator->free(_physicalChunks[i], _chunkSize);
+		}
 	}
 	if(logUsage)
 		infoLogger() << "thor:     ("
@@ -722,16 +726,14 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 		for(size_t pg_progress = 0; pg_progress < _chunkSize; pg_progress += kPageSize) {
 			PageAccessor accessor{physical + pg_progress};
 			memset(accessor.get(), 0, kPageSize);
+
+			globalPfnDb().insert(physical + pg_progress, PfnDescriptor::otherPage());
 		}
 		_physicalChunks[index] = physical;
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
 	co_return _chunkSize - disp;
-}
-
-void AllocatedMemory::markDirty(uintptr_t, size_t) {
-	// Do nothing for now.
 }
 
 size_t AllocatedMemory::getLength() {
@@ -801,6 +803,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 
 			if(logUncaching)
 				warningLogger() << "Evicting physical page" << frg::endlog;
+			globalPfnDb().erase(physical);
 			physicalAllocator->free(physical, kPageSize);
 			if(invalidateMonitor)
 				invalidateMonitor->event.raise();
@@ -936,6 +939,39 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 }
 
 
+void ManagedSpace::markDirty(CachePage *cachePage) {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+		if(page->loadState == LoadState::missing)
+			return;
+
+		if(page->loadState == LoadState::present
+				&& (page->transactionState == TxState::none
+					|| page->transactionState == TxState::inReclaim)) {
+			if(page->transactionState == TxState::inReclaim)
+				globalReclaimer->removePage(cachePage);
+			page->transactionState = TxState::wantWriteback;
+			_writebackList.push_back(cachePage);
+			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+		} else if(page->loadState == LoadState::evicting) {
+			page->loadState = LoadState::present;
+			page->transactionState = TxState::wantWriteback;
+			_writebackList.push_back(cachePage);
+			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+		} else if(page->transactionState == TxState::writeback) {
+			page->stillDirty = true;
+		} else {
+			assert(page->transactionState == TxState::wantWriteback);
+		}
+	}
+
+	_deferredManagement.invoke();
+}
+
 // --------------------------------------------------------
 // BackingMemory
 // --------------------------------------------------------
@@ -1007,14 +1043,12 @@ BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
+
+		globalPfnDb().insert(physical, PfnDescriptor::cachePage(&pit->cachePage));
 		pit->physical = physical;
 	}
 
 	co_return kPageSize - misalign;
-}
-
-void BackingMemory::markDirty(uintptr_t, size_t) {
-	// Writes through the BackingMemory do not affect the dirty state!
 }
 
 size_t BackingMemory::getLength() {
@@ -1244,8 +1278,10 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 					physical = PhysicalAddr(-1);
 				}
 			}
-			if(physical != PhysicalAddr(-1))
+			if(physical != PhysicalAddr(-1)) {
+				globalPfnDb().erase(physical);
 				physicalAllocator->free(physical, kPageSize);
+			}
 			if(physical != PhysicalAddr(-1))
 				pg += kPageSize;
 			continue;
@@ -1383,45 +1419,6 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 	co_return kPageSize - misalign;
 }
 
-void FrontalMemory::markDirty(uintptr_t offset, size_t size) {
-	assert(!(offset % kPageSize));
-	assert(!(size % kPageSize));
-
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&_managed->mutex);
-
-		// Put the pages into the dirty state.
-		for(size_t pg = 0; pg < size; pg += kPageSize) {
-			auto index = (offset + pg) >> kPageShift;
-			auto pit = _managed->pages.find(index);
-			assert(pit);
-			if(pit->loadState == ManagedSpace::LoadState::present
-					&& (pit->transactionState == ManagedSpace::TxState::none
-						|| pit->transactionState == ManagedSpace::TxState::inReclaim)) {
-				if(pit->transactionState == ManagedSpace::TxState::inReclaim)
-					globalReclaimer->removePage(&pit->cachePage);
-				pit->transactionState = ManagedSpace::TxState::wantWriteback;
-				_managed->_writebackList.push_back(&pit->cachePage);
-				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
-			}else if(pit->loadState == ManagedSpace::LoadState::evicting) {
-				pit->loadState = ManagedSpace::LoadState::present;
-				pit->transactionState = ManagedSpace::TxState::wantWriteback;
-				_managed->_writebackList.push_back(&pit->cachePage);
-				pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
-			}else if(pit->transactionState == ManagedSpace::TxState::writeback) {
-				pit->stillDirty = true;
-			}else{
-				assert(pit->transactionState == ManagedSpace::TxState::wantWriteback);
-			}
-		}
-	}
-
-	// We cannot call management callbacks with locks held, but markDirty() may be called
-	// with external locks held; do it on a WorkQueue.
-	_managed->_deferredManagement.invoke();
-}
-
 size_t FrontalMemory::getLength() {
 	// Size is constant so we do not need to lock.
 	return _managed->numPages << kPageShift;
@@ -1531,24 +1528,6 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 		+ inSlotOffset, sizeHint, flags);
 }
 
-void IndirectMemory::markDirty(uintptr_t offset, size_t size) {
-	auto slot = offset >> 32;
-	auto inSlotOffset = offset & ((uintptr_t(1) << 32) - 1);
-
-	smarter::shared_ptr<IndirectionSlot> indirection;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&mutex_);
-
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
-		assert(inSlotOffset + size <= indirections_[slot]->size); // TODO: Return Error::fault.
-		indirection = indirections_[slot];
-	}
-
-	indirection->memory->markDirty(indirection->offset + inSlotOffset, size);
-}
-
 size_t IndirectMemory::getLength() {
 	return indirections_.size() << 32;
 }
@@ -1577,6 +1556,7 @@ CowPage::~CowPage() {
 		return;
 	assert(state == CowState::hasCopy);
 	assert(physical != PhysicalAddr(-1));
+	globalPfnDb().erase(physical);
 	physicalAllocator->free(physical, kPageSize);
 }
 
@@ -1624,6 +1604,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
 			copyPage->state = CowState::hasCopy;
 			copyPage->physical = copyPhysical;
+			globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
 			auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
 			*copyIt = copyPage;
 		}else{
@@ -1929,13 +1910,10 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		assert(cowPage->state == CowState::inProgress);
 		cowPage->state = CowState::hasCopy;
 		cowPage->physical = physical;
+		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
 	}
 	_copyEvent.raise();
 	co_return kPageSize - misalign;
-}
-
-void CopyOnWriteMemory::markDirty(uintptr_t, size_t) {
-	// We do not need to track dirty pages.
 }
 
 // --------------------------------------------------------------------------------------

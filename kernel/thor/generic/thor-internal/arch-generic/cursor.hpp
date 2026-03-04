@@ -29,8 +29,8 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	{ T::ptePageAddress(pte) } -> std::same_as<PhysicalAddr>;
 	// Get the status (present, dirty) from the given PTE.
 	{ T::ptePageStatus(pte) } -> std::same_as<PageStatus>;
-	// Clean the given PTE (remove the dirty status).
-	{ T::pteClean(ptePtr) } -> std::same_as<PageStatus>;
+	// Clean the given PTE (remove the dirty status). Returns the previous PTE value.
+	{ T::pteClean(ptePtr) } -> std::same_as<uint64_t>;
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
@@ -148,7 +148,7 @@ public:
 		Policy::pteWriteBarrier();
 	}
 
-	PageStatus remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
+	std::tuple<PageStatus, PhysicalAddr> remap4k(PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 		if(!accessors_[lastLevel])
 			realizePts_();
 
@@ -159,14 +159,15 @@ public:
 		ptEnt = exchangeCurrentPte_(ptEnt);
 		Policy::pteWriteBarrier();
 
-		return Policy::ptePageStatus(ptEnt);
+		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
-	PageStatus clean4k() {
+	std::tuple<PageStatus, PhysicalAddr> clean4k() {
 		if(!accessors_[lastLevel])
-			return 0;
+			return {0, PhysicalAddr(-1)};
 
-		return Policy::pteClean(currentPtePtr_());
+		auto ptEnt = Policy::pteClean(currentPtePtr_());
+		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
 	std::tuple<PageStatus, PhysicalAddr> unmap4k() {

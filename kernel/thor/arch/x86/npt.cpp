@@ -47,9 +47,8 @@ struct NptCursorPolicy {
 		return status;
 	}
 
-	static PageStatus pteClean(uint64_t *ptePtr) {
-		auto pte = __atomic_fetch_and(ptePtr, ~nptDirty, __ATOMIC_RELAXED);
-		return ptePageStatus(pte);
+	static uint64_t pteClean(uint64_t *ptePtr) {
+		return __atomic_fetch_and(ptePtr, ~nptDirty, __ATOMIC_RELAXED);
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
@@ -130,16 +129,12 @@ frg::expected<Error> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
 			va, view, offset, fetchFlags, flags, mode);
 }
 
-frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size) {
-	return cleanPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size);
+frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, size_t size) {
+	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size) {
-	return unmapPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size);
+frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, size_t size) {
+	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
 NptSpace::NptSpace(PhysicalAddr root)

@@ -90,9 +90,10 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 
 		auto physicalRange = view->peekRange(offset + progress, fetchNone);
 		if(physicalRange.physical == PhysicalAddr(-1)) {
-			auto [status, _] = c.unmap4k();
+			auto [status, physical] = c.unmap4k();
 			if((status & page_status::present) && (status & page_status::dirty)) {
-				view->markDirty(offset + progress, kPageSize);
+				if(auto descriptor = globalPfnDb().find(physical))
+					markDirty(*descriptor);
 			}
 
 			c.advance4k();
@@ -103,12 +104,13 @@ frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
-		auto status = c.remap4k(physicalRange.physical, effectiveFlags,
+		auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		c.advance4k();
 
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			view->markDirty(offset + progress, kPageSize);
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				markDirty(*descriptor);
 		}
 	}
 	return {};
@@ -129,31 +131,30 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 	auto effectiveFlags = flags;
 	if (!physicalRange.isMutable)
 		effectiveFlags &= ~page_access::write;
-	auto status = c.remap4k(physicalRange.physical, effectiveFlags,
+	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
-		if(status & page_status::dirty)
-			view->markDirty(offset, kPageSize);
+		if(status & page_status::dirty) {
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				markDirty(*descriptor);
+		}
 	}
 
 	return {};
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size) {
+frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
 	while(c.findDirty(va + size)) {
-		auto progress = c.virtualAddress() - va;
-
-		auto status = c.clean4k();
+		auto [status, physical] = c.clean4k();
 		assert(status & page_status::present);
 		assert(status & page_status::dirty);
-		view->markDirty(offset + progress, kPageSize);
+		if(auto descriptor = globalPfnDb().find(physical))
+			markDirty(*descriptor);
 
 		c.advance4k();
 	}
@@ -161,20 +162,18 @@ frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va,
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size) {
+frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
 	while(c.findPresent(va + size)) {
-		auto progress = c.virtualAddress() - va;
-
-		auto [status, _] = c.unmap4k();
+		auto [status, physical] = c.unmap4k();
 		assert(status & page_status::present);
-		if(status & page_status::dirty)
-			view->markDirty(offset + progress, kPageSize);
+		if(status & page_status::dirty) {
+			if(auto descriptor = globalPfnDb().find(physical))
+				markDirty(*descriptor);
+		}
 
 		c.advance4k();
 	}
@@ -225,11 +224,9 @@ struct VirtualOperations {
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) = 0;
+	virtual frg::expected<Error> cleanPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size) = 0;
+	virtual frg::expected<Error> unmapPages(VirtualAddr va, size_t size) = 0;
 
 	virtual size_t getRss();
 
@@ -689,16 +686,14 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, view, offset, fetchFlags, flags, mode);
 		}
 
-		frg::expected<Error> cleanPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size) override {
+		frg::expected<Error> cleanPages(VirtualAddr va, size_t size) override {
 			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size);
+					va, size);
 		}
 
-		frg::expected<Error> unmapPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size) override {
+		frg::expected<Error> unmapPages(VirtualAddr va, size_t size) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size);
+					va, size);
 		}
 
 	private:

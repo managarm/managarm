@@ -70,9 +70,8 @@ struct X86CursorPolicy {
 		return status;
 	}
 
-	static PageStatus pteClean(uint64_t *ptePtr) {
-		auto pte = __atomic_fetch_and(ptePtr, ~pteDirty, __ATOMIC_RELAXED);
-		return ptePageStatus(pte);
+	static uint64_t pteClean(uint64_t *ptePtr) {
+		return __atomic_fetch_and(ptePtr, ~pteDirty, __ATOMIC_RELAXED);
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
