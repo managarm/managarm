@@ -115,7 +115,7 @@ Mapping::Mapping(size_t length, MappingFlags flags,
 }
 
 Mapping::~Mapping() {
-	assert(state == MappingState::retired);
+	assert(state.load(std::memory_order_relaxed) == MappingState::retired);
 	//debugLogger() << "thor: Mapping is destructed" << frg::endlog;
 }
 
@@ -127,19 +127,22 @@ void Mapping::tie(smarter::shared_ptr<VirtualSpace> newOwner, VirtualAddr addres
 }
 
 void Mapping::protect(MappingFlags protectFlags) {
-	std::underlying_type_t<MappingFlags> newFlags = flags;
+	auto newFlags = static_cast<std::underlying_type_t<MappingFlags>>(
+		flags.load(std::memory_order_relaxed)
+	);
 	newFlags &= ~(MappingFlags::protRead | MappingFlags::protWrite | MappingFlags::protExecute);
 	newFlags |= protectFlags;
-	flags = static_cast<MappingFlags>(newFlags);
+	flags.store(static_cast<MappingFlags>(newFlags), std::memory_order_relaxed);
 }
 
 uint32_t Mapping::compilePageFlags() {
+	auto mappingFlags = flags.load(std::memory_order_relaxed);
 	uint32_t pageFlags = 0;
-	if(flags & MappingFlags::protRead)
+	if(mappingFlags & MappingFlags::protRead)
 		pageFlags |= page_access::read;
-	if(flags & MappingFlags::protWrite)
+	if(mappingFlags & MappingFlags::protWrite)
 		pageFlags |= page_access::write;
-	if(flags & MappingFlags::protExecute)
+	if(mappingFlags & MappingFlags::protExecute)
 		pageFlags |= page_access::execute;
 	return pageFlags;
 }
@@ -240,8 +243,8 @@ void VirtualSpace::retire() {
 
 		auto mapping = self->_mappings.first();
 		while(mapping) {
-			assert(mapping->state == MappingState::active);
-			mapping->state = MappingState::zombie;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
+			mapping->state.store(MappingState::zombie, std::memory_order_relaxed);
 
 			co_await mapping->exposeRcu.barrier();
 
@@ -257,8 +260,8 @@ void VirtualSpace::retire() {
 			auto mapping = self->_mappings.get_root();
 			self->_mappings.remove(mapping);
 
-			assert(mapping->state == MappingState::zombie);
-			mapping->state = MappingState::retired;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
+			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
 			if(mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
@@ -362,8 +365,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		mapping->tie(selfPtr.lock(), actualAddress);
 		_mappings.insert(mapping.get());
 
-		assert(mapping->state == MappingState::null);
-		mapping->state = MappingState::active;
+		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::null);
+		mapping->state.store(MappingState::active, std::memory_order_relaxed);
 
 		// We keep one reference until the detach the observer.
 		mapping.ctr()->increment();
@@ -429,14 +432,15 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 
 		mapping->protect(static_cast<MappingFlags>(mappingFlags));
 
-		assert(mapping->state == MappingState::active);
+		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
 
+		auto actualMappingFlags = mapping->flags.load(std::memory_order_relaxed);
 		uint32_t pageFlags = 0;
-		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+		if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
 			pageFlags |= page_access::write;
-		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+		if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 			pageFlags |= page_access::execute;
-		if((mapping->flags & MappingFlags::permissionMask) & MappingFlags::protRead)
+		if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 			pageFlags |= page_access::read;
 
 		auto caching = CachingMode::null;
@@ -502,7 +506,7 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		auto mappingOffset = alignedAddress + overallProgress - mapping->address;
 		auto mappingChunk = frg::min(alignedSize - overallProgress,
 				mapping->length - mappingOffset);
-		assert(mapping->state == MappingState::active);
+		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
 		assert(mappingOffset + mappingChunk <= mapping->length);
 
 		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
@@ -534,10 +538,10 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 
 	// Check access attributes.
 	if((faultFlags & VirtualSpace::kFaultWrite)
-			&& !((mapping->flags & MappingFlags::protWrite)))
+			&& !((mapping->flags.load(std::memory_order_relaxed) & MappingFlags::protWrite)))
 		co_return Error::badPermissions;
 	if((faultFlags & VirtualSpace::kFaultExecute)
-			&& !((mapping->flags & MappingFlags::protExecute)))
+			&& !((mapping->flags.load(std::memory_order_relaxed) & MappingFlags::protExecute)))
 		co_return Error::badPermissions;
 
 	// TODO: Aligning should not be necessary here.
@@ -545,7 +549,7 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 
 	while(true) {
 		FetchFlags fetchFlags = 0;
-		if(mapping->flags & MappingFlags::dontRequireBacking)
+		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 		if(faultFlags & VirtualSpace::kFaultWrite)
 			fetchFlags |= fetchRequireMutable;
@@ -599,7 +603,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 
 	while(true) {
 		FetchFlags fetchFlags = fetchRequireMutable;
-		if(mapping->flags & MappingFlags::dontRequireBacking)
+		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
 		FRG_CO_TRY(co_await mapping->view->touchRange(
@@ -798,13 +802,13 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			smarter::shared_ptr<Mapping> leftMapping = nullptr;
 			smarter::shared_ptr<Mapping> rightMapping = nullptr;
 
-			assert(mapping->state == MappingState::active);
-			mapping->state = MappingState::zombie;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
+			mapping->state.store(MappingState::zombie, std::memory_order_relaxed);
 
 			{
 				auto leftSize = at - mapping->address;
 				leftMapping = smarter::allocate_shared<Mapping>(Allocator{},
-						leftSize, mapping->flags, mapping->slice,
+						leftSize, mapping->flags.load(std::memory_order_relaxed), mapping->slice,
 						mapping->viewOffset);
 				leftMapping->selfPtr = leftMapping;
 
@@ -814,7 +818,7 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			{
 				auto rightOffset = at - mapping->address;
 				rightMapping = smarter::allocate_shared<Mapping>(Allocator{},
-						mapping->length - rightOffset, mapping->flags, mapping->slice,
+						mapping->length - rightOffset, mapping->flags.load(std::memory_order_relaxed), mapping->slice,
 						mapping->viewOffset + rightOffset);
 				rightMapping->selfPtr = rightMapping;
 
@@ -831,12 +835,12 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 				_mappings.remove(mapping.get());
 
 				_mappings.insert(leftMapping.get());
-				assert(leftMapping->state == MappingState::null);
-				leftMapping->state = MappingState::active;
+				assert(leftMapping->state.load(std::memory_order_relaxed) == MappingState::null);
+				leftMapping->state.store(MappingState::active, std::memory_order_relaxed);
 
 				_mappings.insert(rightMapping.get());
-				assert(rightMapping->state == MappingState::null);
-				rightMapping->state = MappingState::active;
+				assert(rightMapping->state.load(std::memory_order_relaxed) == MappingState::null);
+				rightMapping->state.store(MappingState::active, std::memory_order_relaxed);
 			}
 
 			// Retire the old mapping and start using the new ones.
@@ -852,8 +856,8 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 			if (rightMapping->view->canEvictMemory())
 				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), rightMapping->runEvictionLoop());
 
-			assert(mapping->state == MappingState::zombie);
-			mapping->state = MappingState::retired;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
+			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
 			if (mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
@@ -889,8 +893,8 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 		it = MappingTree::successor(it);
 
 		if (mapping->address >= address && (mapping->address + mapping->length) <= (address + length)) {
-			assert(mapping->state == MappingState::active);
-			mapping->state = MappingState::zombie;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
+			mapping->state.store(MappingState::zombie, std::memory_order_relaxed);
 
 			co_await mapping->exposeRcu.barrier();
 
@@ -911,8 +915,8 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 
 			_mappings.remove(mapping.get());
 
-			assert(mapping->state == MappingState::zombie);
-			mapping->state = MappingState::retired;
+			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
+			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
 
 			if(mapping->view->canEvictMemory()) {
 				mapping->cancelEviction.cancel();
@@ -1011,7 +1015,7 @@ coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,
 		assert(limitInMapping);
 
 		FetchFlags fetchFlags = 0;
-		if(mapping->flags & MappingFlags::dontRequireBacking)
+		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
 		auto copyOutcome = co_await mapping->view->copyFrom(
@@ -1050,7 +1054,7 @@ coroutine<size_t> VirtualSpace::writePartialSpace(uintptr_t address,
 		assert(limitInMapping);
 
 		FetchFlags fetchFlags = 0;
-		if(mapping->flags & MappingFlags::dontRequireBacking)
+		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 
 		auto copyOutcome = co_await mapping->view->copyTo(

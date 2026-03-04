@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
@@ -395,9 +397,9 @@ struct Mapping {
 	smarter::shared_ptr<VirtualSpace> owner;
 	VirtualAddr address;
 	size_t length;
-	MappingFlags flags;
+	std::atomic<MappingFlags> flags;
 
-	MappingState state = MappingState::null;
+	std::atomic<MappingState> state{MappingState::null};
 	MemoryObserver observer;
 
 	// Code paths MUST perform an exposeRcu barrier() after they cause page
