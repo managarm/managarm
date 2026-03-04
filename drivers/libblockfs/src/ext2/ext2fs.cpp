@@ -17,8 +17,11 @@
 #include <helix/memory.hpp>
 
 #include <array>
+#include <bit>
 
 #include "ext2fs.hpp"
+#include "extents.hpp"
+#include "../checksums.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -28,6 +31,91 @@ namespace {
 
 	constexpr int pageShift = 12;
 	constexpr size_t pageSize = size_t{1} << pageShift;
+
+	void updateInodeChecksum(FileSystem &fs, DiskInode *inode, uint32_t number) {
+		if(fs.metadataChecksum) {
+			inode->osd2.checksumLow = 0;
+
+			bool extra = fs.inodeSize >= offsetof(DiskInode, extraSize) + 2 && inode->extraSize >= 4;
+			if(extra)
+				inode->checksumHigh = 0;
+
+			checksums::Crc32c crc32{fs.metadataChecksumSeed};
+			crc32.addData(&number, sizeof(number));
+			crc32.addData(&inode->generation, sizeof(inode->generation));
+			crc32.addData(inode, fs.inodeSize);
+
+			uint32_t value = crc32.finalize();
+			inode->osd2.checksumLow = value & 0xffff;
+			if(extra)
+				inode->checksumHigh = (value >> 16) & 0xffff;
+		}
+	}
+
+	void updateExtentChecksum(FileSystem &fs, Inode *inode, ExtentHeader *hdr) {
+		if(fs.metadataChecksum) {
+			size_t contentSize = sizeof(ExtentHeader) + hdr->max * sizeof(Extent);
+			auto diskInode = inode->diskInode();
+			uint32_t number = inode->number;
+
+			checksums::Crc32c crc32{fs.metadataChecksumSeed};
+			crc32.addData(&number, sizeof(number));
+			crc32.addData(&diskInode->generation, sizeof(diskInode->generation));
+			crc32.addData(hdr, contentSize);
+
+			uint32_t value = crc32.finalize();
+			*reinterpret_cast<uint32_t *>(reinterpret_cast<uintptr_t>(hdr) + contentSize) = value;
+		}
+	}
+
+	void updateBlockGroupChecksum(FileSystem &fs, DiskGroupDesc *desc, uint32_t groupNumber) {
+		if(fs.metadataChecksum) {
+			desc->checksum = 0;
+
+			checksums::Crc32c crc32{fs.metadataChecksumSeed};
+			crc32.addData(&groupNumber, sizeof(groupNumber));
+			crc32.addData(desc, fs.bgdt.descriptorSize());
+
+			uint32_t value = crc32.finalize();
+			desc->checksum = value;
+		} else if(fs.bgdtChecksum) {
+			desc->checksum = 0;
+
+			checksums::Crc16 crc16{0xffff};
+			crc16.addData(fs.uuid, sizeof(fs.uuid));
+			crc16.addData(&groupNumber, sizeof(groupNumber));
+			crc16.addData(desc, fs.bgdt.descriptorSize());
+
+			uint16_t value = crc16.finalize();
+			desc->checksum = value;
+		}
+	}
+
+	void updateBlockBitmapChecksum(FileSystem &fs, DiskGroupDesc *desc, const void *bitmap, size_t bitmapSize) {
+		if(fs.metadataChecksum) {
+			checksums::Crc32c crc32{fs.metadataChecksumSeed};
+			crc32.addData(bitmap, bitmapSize);
+
+			uint32_t value = crc32.finalize();
+			desc->blockBitmapCsumLow = value & 0xffff;
+
+			if(fs.bgdt.descriptorSize() >= offsetof(DiskGroupDesc, blockBitmapCsumHigh) + 2)
+				desc->blockBitmapCsumHigh = value >> 16;
+		}
+	}
+
+	void updateInodeBitmapChecksum(FileSystem &fs, DiskGroupDesc *desc, const void *bitmap, size_t bitmapSize) {
+		if(fs.metadataChecksum) {
+			checksums::Crc32c crc32{fs.metadataChecksumSeed};
+			crc32.addData(bitmap, bitmapSize);
+
+			uint32_t value = crc32.finalize();
+			desc->inodeBitmapCsumLow = value & 0xffff;
+
+			if(fs.bgdt.descriptorSize() >= offsetof(DiskGroupDesc, inodeBitmapCsumHigh) + 2)
+				desc->inodeBitmapCsumHigh = value >> 16;
+		}
+	}
 }
 
 // --------------------------------------------------------
@@ -35,7 +123,7 @@ namespace {
 // --------------------------------------------------------
 
 Inode::Inode(FileSystem &fs, uint32_t number)
-: BaseInode{fs, number}, fs{fs} { }
+: BaseInode{fs, number}, fs{fs}, usesExtents{false} { }
 
 DiskInode *Inode::diskInode() {
 	auto inodeAddress = (number - 1) * fs.inodeSize;
@@ -54,7 +142,8 @@ Inode::findEntry(std::string name) {
 
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
-	assert(fileMapping.size() == fileSize());
+
+	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 	helix::LockMemoryView lock_memory;
 	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
@@ -108,7 +197,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	co_await readyEvent.wait();
 
 	assert(fileType == kTypeDirectory);
-	assert(fileMapping.size() == fileSize());
+	assert(fileMapping.size() == ((fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 	// Lock the mapping into memory before calling this function.
 	auto appendDirEntry = [&](size_t offset, size_t length)
@@ -145,6 +234,8 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		co_await target->readyEvent.wait();
 		target->diskInode()->linksCount++;
 
+		updateInodeChecksum(fs, target->diskInode(), ino);
+
 		// Flush the target inode to disk.
 		auto syncInode = co_await helix_ng::synchronizeSpace(
 				helix::BorrowedDescriptor{kHelNullHandle},
@@ -167,6 +258,8 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
+
+	updateInodeChecksum(fs, diskInode(), number);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -205,14 +298,15 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 
 	// If we made it this far, we ran out of space in the directory. Resize it.
 	auto blockOffset = (offset & ~(fs.blockSize - 1)) >> fs.blockShift;
-	auto newSize = (offset + fs.blockSize + 0xFFF) & ~size_t(0xFFF);
+	auto newSize = offset + fs.blockSize;
+	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 	setFileSize(newSize);
 	co_await fs.assignDataBlocks(this, blockOffset, 1);
 	auto resizeResult = co_await helix_ng::resizeMemory(
-			helix::BorrowedDescriptor{backingMemory}, newSize);
+			helix::BorrowedDescriptor{backingMemory}, newMappingSize);
 	HEL_CHECK(resizeResult.error());
 	fileMapping = helix::Mapping{helix::BorrowedDescriptor{frontalMemory},
-			0, newSize,
+			0, newMappingSize,
 			kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 
 	// Now append the entry that we couldn't add before.
@@ -220,7 +314,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		helix::LockMemoryView lock_memory;
 		auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
 				&lock_memory,
-				0, newSize, helix::Dispatcher::global());
+				0, newMappingSize, helix::Dispatcher::global());
 		co_await submit.async_wait();
 		HEL_CHECK(lock_memory.error());
 
@@ -278,6 +372,8 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				// TODO: free the data blocks and set size to 0
 				target->diskInode()->dtime = clk::getRealtime().tv_sec;
 			}
+
+			updateInodeChecksum(fs, target->diskInode(), disk_entry->inode);
 
 			auto syncInode = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
@@ -418,11 +514,15 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	dotDotEntry->fileType = EXT2_FT_DIR;
 	memcpy(dotDotEntry->name, "..", 3);
 
+	updateInodeChecksum(fs, diskInode(), number);
+
 	// Synchronize this inode to update the linksCount
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			diskInode(), fs.inodeSize);
 	HEL_CHECK(syncInode.error());
+
+	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
 	// Synchronize the new directory's inode to update its linksCount
 	auto syncNewInode = co_await helix_ng::synchronizeSpace(
@@ -501,6 +601,8 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 		HEL_CHECK(syncData.error());
 	}
 
+	updateInodeChecksum(fs, newNode->diskInode(), newNode->number);
+
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			newNode->diskInode(), fs.inodeSize);
@@ -517,6 +619,8 @@ async::result<protocols::fs::Error> Inode::chmod(int mode) {
 
 	diskInode()->mode = (diskInode()->mode & 0xFFFFF000) | mode;
 
+	updateInodeChecksum(fs, diskInode(), number);
+
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			diskInode(), fs.inodeSize);
@@ -532,6 +636,8 @@ async::result<protocols::fs::Error> Inode::chown(std::optional<uid_t> uid, std::
 		diskInode()->uid = *uid;
 	if (gid)
 		diskInode()->gid = *gid;
+
+	updateInodeChecksum(fs, diskInode(), number);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -551,6 +657,8 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 		diskInode()->mtime = mtime->tv_sec;
 	if(ctime)
 		diskInode()->ctime = ctime->tv_sec;
+
+	updateInodeChecksum(fs, diskInode(), number);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -593,6 +701,9 @@ Inode::resizeFile(size_t newSize) {
 			(newSize + 0xFFF) & ~size_t(0xFFF));
 	HEL_CHECK(resizeResult.error());
 	setFileSize(newSize);
+
+	updateInodeChecksum(fs, diskInode(), number);
+
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 		helix::BorrowedDescriptor{kHelNullHandle},
 		diskInode(), fs.inodeSize);
@@ -649,6 +760,21 @@ async::result<void> FileSystem::init() {
 	inodesCount = sb.inodesCount;
 	numBlockGroups = (sb.blocksCount + (sb.blocksPerGroup - 1)) / sb.blocksPerGroup;
 
+	memcpy(uuid, sb.uuid, sizeof(sb.uuid));
+
+	if(sb.featureIncompat & EXT4_INCOMPAT_CSUM_SEED)
+		metadataChecksumSeed = sb.checksumSeed;
+	else {
+		checksums::Crc32c crc32{0xffffffff};
+		crc32.addData(&sb.uuid, sizeof(sb.uuid));
+		metadataChecksumSeed = crc32.finalize();
+	}
+
+	is64Bit = sb.featureIncompat & EXT4_INCOMPAT_64BIT;
+	usesExtents = sb.featureIncompat & EXT4_INCOMPAT_EXTENTS;
+	metadataChecksum = sb.featureRoCompat & EXT4_RO_COMPAT_METADATA_CSUM;
+	uint16_t blockGroupDescriptorSize = is64Bit ? sb.groupDescSize : 32;
+
 	if(logSuperblock) {
 		std::cout << "ext2fs: Revision is: " << sb.revLevel << std::endl;
 		std::cout << "ext2fs: Block size is: " << blockSize << std::endl;
@@ -668,8 +794,9 @@ async::result<void> FileSystem::init() {
 	assert(blockSize % device->sectorSize == 0);
 
 	blockGroupDescriptorBuffer.resize(
-			(numBlockGroups * sizeof(DiskGroupDesc) + device->sectorSize - 1) & ~(device->sectorSize - 1));
-	bgdt = (DiskGroupDesc *)blockGroupDescriptorBuffer.data();
+			(numBlockGroups * blockGroupDescriptorSize + device->sectorSize - 1) & ~(device->sectorSize - 1));
+
+	bgdt.init(blockGroupDescriptorBuffer.data(), blockGroupDescriptorSize);
 
 	auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 	co_await device->readSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
@@ -950,6 +1077,15 @@ async::result<std::shared_ptr<BaseInode>> FileSystem::createRegular(int uid, int
 	disk_inode->uid = uid;
 	disk_inode->gid = gid;
 
+	if(usesExtents) {
+		auto &hdr = disk_inode->data.extents.hdr;
+		hdr.magic = EXT4_EXTENT_MAGIC;
+		hdr.max = sizeof(disk_inode->data.extents.extents) / sizeof(Extent);
+		disk_inode->flags |= EXT4_EXTENTS_FL;
+	}
+
+	updateInodeChecksum(*this, disk_inode, ino);
+
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
 			disk_inode, inodeSize);
@@ -984,10 +1120,19 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
 
+	if(usesExtents) {
+		auto &hdr = disk_inode->data.extents.hdr;
+		hdr.magic = EXT4_EXTENT_MAGIC;
+		hdr.max = sizeof(disk_inode->data.extents.extents) / sizeof(Extent);
+		disk_inode->flags |= EXT4_EXTENTS_FL;
+	}
+
 	// update usedDirsCount in the respective bgdt for this inode
 	auto bg_idx = (ino - 1) / inodesPerGroup;
 	bgdt[bg_idx].usedDirsCount++;
 	bdgtWriteback.raise();
+
+	updateInodeChecksum(*this, disk_inode, ino);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -1022,6 +1167,8 @@ async::result<std::shared_ptr<Inode>> FileSystem::createSymlink() {
 	disk_inode->atime = time.tv_sec;
 	disk_inode->ctime = time.tv_sec;
 	disk_inode->mtime = time.tv_sec;
+
+	updateInodeChecksum(*this, disk_inode, ino);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -1074,17 +1221,22 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 	}
 
-	HelHandle frontalOrder1, frontalOrder2;
-	HelHandle backingOrder1, backingOrder2;
-	HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
-			0, &backingOrder1, &frontalOrder1));
-	HEL_CHECK(helCreateManagedMemory((blockSize / 4) << blockPagesShift,
-			0, &backingOrder2, &frontalOrder2));
-	inode->indirectOrder1 = helix::UniqueDescriptor{frontalOrder1};
-	inode->indirectOrder2 = helix::UniqueDescriptor{frontalOrder2};
+	if(disk_inode->flags & EXT4_EXTENTS_FL) {
+		inode->usesExtents = true;
+	}else {
+		HelHandle frontalOrder1, frontalOrder2;
+		HelHandle backingOrder1, backingOrder2;
+		HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
+				0, &backingOrder1, &frontalOrder1));
+		HEL_CHECK(helCreateManagedMemory((blockSize / 4) << blockPagesShift,
+				0, &backingOrder2, &frontalOrder2));
+		inode->indirectOrder1 = helix::UniqueDescriptor{frontalOrder1};
+		inode->indirectOrder2 = helix::UniqueDescriptor{frontalOrder2};
 
-	manageIndirect(inode, 1, helix::UniqueDescriptor{backingOrder1});
-	manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
+		manageIndirect(inode, 1, helix::UniqueDescriptor{backingOrder1});
+		manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
+	}
+
 	manageFileData(inode);
 
 	inode->readyEvent.raise();
@@ -1252,6 +1404,9 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 					result.push_back(block);
 					if(result.size() == num) {
+						updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
+						updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
+
 						auto syncBitmap = co_await helix_ng::synchronizeSpace(
 								helix::BorrowedDescriptor{kHelNullHandle},
 								words, 1 << blockPagesShift);
@@ -1264,6 +1419,16 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 						co_return result;
 					}
 				}
+			}
+
+			if(!result.empty()) {
+				updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
+				updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
+
+				auto syncBitmap = co_await helix_ng::synchronizeSpace(
+						helix::BorrowedDescriptor{kHelNullHandle},
+						words, 1 << blockPagesShift);
+				HEL_CHECK(syncBitmap.error());
 			}
 		}
 	}
@@ -1300,6 +1465,9 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				bgdt[bg_idx].freeBlocksCount--;
 				result.push_back(block);
 				if(result.size() == num) {
+					updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
+					updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+
 					auto syncBitmap = co_await helix_ng::synchronizeSpace(
 							helix::BorrowedDescriptor{kHelNullHandle},
 							words, 1 << blockPagesShift);
@@ -1313,6 +1481,14 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 				}
 			}
 		}
+
+		updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
+		updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+
+		auto syncBitmap = co_await helix_ng::synchronizeSpace(
+				helix::BorrowedDescriptor{kHelNullHandle},
+				words, 1 << blockPagesShift);
+		HEL_CHECK(syncBitmap.error());
 	}
 
 	assert(!"Failed to find zero-bit");
@@ -1351,6 +1527,9 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 				bgdt[bg].freeInodesCount--;
 				if(directory)
 					bgdt[bg].usedDirsCount++;
+
+				updateInodeBitmapChecksum(*this, &bgdt[bg], words, blockSize);
+				updateBlockGroupChecksum(*this, &bgdt[bg], bg);
 
 				bdgtWriteback.raise();
 
@@ -1412,8 +1591,383 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 	co_return 0;
 }
 
+async::result<std::vector<ExtentBlockRange>> FileSystem::lookupBlocksUsingExtent(Inode *inode,
+		uint64_t block_offset, size_t num_blocks, bool errorIfNotFound) {
+	std::vector<ExtentBlockRange> ranges;
+
+	ExtentWalker walker{this, inode, true};
+
+	size_t progress = 0;
+	while(progress < num_blocks) {
+		auto index = block_offset + progress;
+
+		bool res = co_await walker.walk(index,
+			[](ExtentWalkInfo &) -> async::result<void> { co_return; },
+			async::lambda([&](ExtentWalkInfo &info) -> async::result<ExtentIterDecision> {
+			auto &extent = info.extents[info.index];
+
+			assert(index >= extent.block);
+			if(!(index < extent.block + extent.len)) {
+				std::println(std::cout, "INDEX {}, EXTENT BLOCK {}, EXTENT LEN {}", index, extent.block, extent.len);
+			}
+			assert(index < extent.block + extent.len);
+
+			size_t startOffset = index - extent.block;
+			size_t available = extent.len - startOffset;
+			size_t toAdd = std::min(available, num_blocks - progress);
+
+			uint64_t absoluteStartBlock = static_cast<uint64_t>(extent.startLow)
+					| (static_cast<uint64_t>(extent.startHigh) << 32);
+
+			ExtentBlockRange range{
+				.relativeStartBlock = index,
+				.absoluteStartBlock = absoluteStartBlock + startOffset,
+				.size = toAdd,
+				.found = true
+			};
+			ranges.push_back(range);
+
+			progress += toAdd;
+			co_return ExtentIterDecision::stop;
+		}));
+
+		if(!res) {
+			if(errorIfNotFound)
+				assert(!"Block was not found in extent tree");
+
+			if(!ranges.empty() && ranges.back().relativeStartBlock + ranges.back().size == index
+					&& !ranges.back().found) {
+				ranges.back().size++;
+			} else {
+				ExtentBlockRange range{
+					.relativeStartBlock = index,
+					.absoluteStartBlock = 0,
+					.size = 1,
+					.found = false
+				};
+				ranges.push_back(range);
+			}
+
+			progress++;
+		}
+	}
+
+	co_return ranges;
+}
+
+async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
+		uint64_t block_offset, size_t num_blocks) {
+	protocols::ostrace::Timer timer;
+
+	auto diskInode = inode->diskInode();
+	auto blockRanges = co_await lookupBlocksUsingExtent(inode, block_offset, num_blocks, false);
+
+	for(auto &range : blockRanges) {
+		if(range.found)
+			continue;
+
+		auto allocated = co_await allocateBlocks(range.size, inode->number);
+		assert(!allocated.empty() && "Out of disk space");
+
+		// Merge the allocated blocks to a vector of
+		// [begin, end] pairs.
+		std::vector<std::pair<uint64_t, uint64_t>> allocatedRanges;
+		for(auto block : allocated) {
+			bool found = false;
+			for(auto &existingRange : allocatedRanges) {
+				if(existingRange.first == block + 1) {
+					existingRange.first--;
+					found = true;
+					break;
+				} else if(existingRange.second == block) {
+					existingRange.second++;
+					found = true;
+					break;
+				}
+			}
+
+			if(!found) {
+				allocatedRanges.push_back({block, block + 1});
+			}
+		}
+
+		size_t progress = 0;
+		for(auto &allocatedRange : allocatedRanges) {
+			size_t allocatedRangeSize = allocatedRange.second - allocatedRange.first;
+			size_t index = range.relativeStartBlock + progress;
+
+			struct UpdateMinBlock {};
+
+			assert(allocatedRangeSize);
+			std::variant<std::monostate, Extent, ExtentIndex, UpdateMinBlock> writeExtent = Extent{
+				.block = static_cast<uint32_t>(index),
+				.len = static_cast<uint16_t>(allocatedRangeSize),
+				.startHigh = static_cast<uint16_t>((allocatedRange.first >> 32) & 0xffff),
+				.startLow = static_cast<uint32_t>(allocatedRange.first & 0xffffffff)
+			};
+
+			ExtentWalker walker{this, inode, false};
+			co_await walker.walk(index,
+				[](const ExtentWalkInfo &) -> async::result<void> { co_return; },
+				async::lambda([&](ExtentWalkInfo &info) -> async::result<ExtentIterDecision> {
+					if(std::holds_alternative<UpdateMinBlock>(writeExtent)) {
+						assert(info.indices);
+						auto &idx = info.indices[info.index];
+
+						if(index < idx.block) {
+							idx.block = index;
+
+							if(info.block) {
+								updateExtentChecksum(*this, inode, info.hdr);
+								co_await device->writeSectors(*info.block * sectorsPerBlock, info.hdr, sectorsPerBlock);
+							}
+
+							co_return ExtentIterDecision::keepGoing;
+						}else {
+							co_return ExtentIterDecision::stop;
+						}
+					}
+
+					// Adjust the index for insertion, the extent walker returns the lookup index.
+					if(info.hdr->entries)
+						info.index++;
+
+					std::variant<std::monostate, Extent, ExtentIndex, UpdateMinBlock> nextWriteExtent;
+
+					std::vector<std::byte> newRootBuffer;
+					std::vector<std::byte> newBlockBuffer;
+					if(info.hdr->entries + 1 > info.hdr->max) {
+						auto newBlock = co_await allocateBlocks(1, inode->number);
+						assert(!newBlock.empty() && "Out of disk space");
+
+						diskInode->blocks += blockSize / 512;
+
+						newBlockBuffer.resize(sectorsPerBlock * device->sectorSize);
+						auto newHdr = reinterpret_cast<ExtentHeader *>(newBlockBuffer.data());
+
+						newHdr->magic = EXT4_EXTENT_MAGIC;
+						newHdr->max = (blockSize - sizeof(ExtentHeader)) / sizeof(Extent);
+						newHdr->depth = info.hdr->depth;
+						newHdr->generation = 0;
+
+						uint16_t splitStart = info.index;
+
+						uint16_t entriesBeforeSplit = info.hdr->entries;
+						uint16_t entriesToMove = info.hdr->entries - splitStart;
+						info.hdr->entries -= entriesToMove;
+						newHdr->entries = entriesToMove;
+
+						uint32_t oldFirstBlock;
+						uint32_t newFirstBlock;
+
+						if(info.extents) {
+							oldFirstBlock = info.extents[0].block;
+
+							if(splitStart == entriesBeforeSplit)
+								newFirstBlock = index;
+							else
+								newFirstBlock = info.extents[splitStart].block;
+
+							auto newExtents = reinterpret_cast<Extent *>(&newHdr[1]);
+							memmove(newExtents, info.extents + splitStart, entriesToMove * sizeof(Extent));
+						} else {
+							oldFirstBlock = info.indices[0].block;
+
+							if(splitStart == entriesBeforeSplit)
+								newFirstBlock = index;
+							else
+								newFirstBlock = info.indices[splitStart].block;
+
+							auto newIndices = reinterpret_cast<ExtentIndex *>(&newHdr[1]);
+							memmove(newIndices, info.indices + splitStart, entriesToMove * sizeof(ExtentIndex));
+						}
+
+						assert(newBlock[0] != 0);
+						updateExtentChecksum(*this, inode, newHdr);
+						co_await device->writeSectors(newBlock[0] * sectorsPerBlock,
+							newBlockBuffer.data(),
+							sectorsPerBlock);
+
+						if(!info.block) {
+							// The root is full, allocate a new level for the entries that would have been left at root.
+							auto newRoot = co_await allocateBlocks(1, inode->number);
+							assert(!newRoot.empty() && "Out of disk space");
+
+							diskInode->blocks += blockSize / 512;
+
+							newRootBuffer.resize(sectorsPerBlock * device->sectorSize);
+							auto newRootHdr = reinterpret_cast<ExtentHeader *>(newRootBuffer.data());
+
+							memcpy(newRootHdr, info.hdr, sizeof(ExtentHeader) + info.hdr->entries * sizeof(Extent));
+							// Update the max count as the inode can store less entries than a block.
+							newRootHdr->max = (blockSize - sizeof(ExtentHeader)) / sizeof(Extent);
+
+							assert(newRoot[0] != 0);
+							updateExtentChecksum(*this, inode, newRootHdr);
+							co_await device->writeSectors(newRoot[0] * sectorsPerBlock,
+									newRootBuffer.data(),
+									sectorsPerBlock);
+
+							info.hdr->entries = 2;
+							info.hdr->depth++;
+							assert(info.hdr->depth <= 4);
+
+							auto indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							indices[0] = {
+								.block = oldFirstBlock,
+								.leafLow = static_cast<uint32_t>(newRoot[0] & 0xffffffff),
+								// TODO: Support larger blocks than 32-bit.
+								.leafHigh = 0
+								//.leafHigh = static_cast<uint16_t>(newRoot[0] >> 32)
+							};
+							indices[1] = {
+								.block = newFirstBlock,
+								.leafLow = static_cast<uint32_t>(newBlock[0] & 0xffffffff),
+								// TODO: Support larger blocks than 32-bit.
+								.leafHigh = 0
+								//.leafHigh = static_cast<uint16_t>(newBlock[0] >> 32)
+							};
+
+							if(index >= newFirstBlock) {
+								info.hdr = newHdr;
+								info.block = newBlock[0];
+								info.index -= splitStart;
+							}else {
+								info.hdr = newRootHdr;
+								info.block = newRoot[0];
+							}
+						}else {
+							if(index >= newFirstBlock) {
+								info.hdr = newHdr;
+								info.block = newBlock[0];
+								info.index -= splitStart;
+							}
+
+							// The new block needs to be propagated upwards (where it is always an ExtentIndex).
+							nextWriteExtent = ExtentIndex{
+								.block = newFirstBlock,
+								.leafLow = static_cast<uint32_t>(newBlock[0] & 0xffffffff),
+								// TODO: Support larger blocks than 32-bit.
+								.leafHigh = 0
+								//.leafHigh = static_cast<uint16_t>(newBlock[0] >> 32)
+							};
+						}
+
+						if(info.hdr->depth == 0) {
+							info.extents = reinterpret_cast<Extent *>(&info.hdr[1]);
+							info.indices = nullptr;
+						}else {
+							info.indices = reinterpret_cast<ExtentIndex *>(&info.hdr[1]);
+							info.extents = nullptr;
+						}
+					}
+
+					assert(info.hdr->entries < info.hdr->max);
+					uint16_t entriesToMove = info.hdr->entries - info.index;
+
+					if(auto newExtent = std::get_if<Extent>(&writeExtent)) {
+						assert(info.extents);
+						memmove(info.extents + info.index + 1, info.extents + info.index, entriesToMove * sizeof(Extent));
+
+						info.extents[info.index] = *newExtent;
+						info.hdr->entries++;
+					}else {
+						assert(info.indices);
+						memmove(info.indices + info.index + 1, info.indices + info.index, entriesToMove * sizeof(ExtentIndex));
+
+						info.indices[info.index] = std::get<ExtentIndex>(writeExtent);
+						info.hdr->entries++;
+					}
+
+					if(info.block) {
+						assert(*info.block != 0);
+						updateExtentChecksum(*this, inode, info.hdr);
+						co_await device->writeSectors(*info.block * sectorsPerBlock, info.hdr, sectorsPerBlock);
+					}
+
+					writeExtent = nextWriteExtent;
+
+					if(std::holds_alternative<std::monostate>(writeExtent)) {
+						writeExtent = UpdateMinBlock{};
+					}
+
+					co_return ExtentIterDecision::keepGoing;
+				}));
+
+			progress += allocatedRangeSize;
+		}
+
+		assert(progress == range.size);
+
+		diskInode->blocks += allocated.size() * (blockSize / 512);
+	}
+
+	updateInodeChecksum(*this, diskInode, inode->number);
+
+	bdgtWriteback.raise();
+	auto syncInode = co_await helix_ng::synchronizeSpace(
+			helix::BorrowedDescriptor{kHelNullHandle},
+			inode->diskInode(), inodeSize);
+	HEL_CHECK(syncInode.error());
+
+	ostContext.emit(
+		ostEvtExt2AssignDataBlocks,
+		ostAttrTime(timer.elapsed())
+	);
+}
+
+async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
+		size_t num_blocks, void *buffer) {
+	co_await inode->readyEvent.wait();
+	// TODO: Assert that we do not read past the EOF.
+
+	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, false);
+
+	size_t progress = 0;
+	for(auto &range : blockRanges) {
+		assert(range.relativeStartBlock == block_offset + progress);
+
+		if(!range.found) {
+			memset((uint8_t *)buffer + progress * blockSize, 0, range.size * blockSize);
+		}else {
+			assert(range.absoluteStartBlock);
+			co_await device->readSectors(range.absoluteStartBlock * sectorsPerBlock,
+					(uint8_t *)buffer + progress * blockSize,
+					range.size * sectorsPerBlock);
+		}
+
+		progress += range.size;
+	}
+
+	assert(progress == num_blocks);
+}
+
+async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
+		size_t num_blocks, const void *buffer) {
+	co_await inode->readyEvent.wait();
+	// TODO: Assert that we do not read past the EOF.
+
+	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, true);
+
+	size_t progress = 0;
+	for(auto &range : blockRanges) {
+		co_await device->writeSectors(range.absoluteStartBlock * sectorsPerBlock,
+				(const uint8_t *)buffer + progress * blockSize,
+				range.size * sectorsPerBlock);
+		progress += range.size;
+	}
+
+	assert(progress == num_blocks);
+}
+
 async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		uint64_t block_offset, size_t num_blocks) {
+	if(inode->usesExtents) {
+		co_await assignDataBlocksUsingExtents(inode, block_offset, num_blocks);
+		co_await helix_ng::asyncNop();
+		co_return;
+	}
+
 	protocols::ostrace::Timer timer;
 
 	size_t per_indirect = blockSize / 4;
@@ -1594,6 +2148,8 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 		}
 	}
 
+	updateInodeChecksum(*this, inode->diskInode(), inode->number);
+
 	bdgtWriteback.raise();
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -1608,6 +2164,12 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, void *buffer) {
+	if(inode->usesExtents) {
+		co_await readDataBlocksUsingExtents(std::move(inode), offset, num_blocks, buffer);
+		co_await helix_ng::asyncNop();
+		co_return;
+	}
+
 	// We perform "block-fusion" here i.e. we try to read/write multiple
 	// consecutive blocks in a single read/writeSectors() operation.
 	auto fuse = [] (size_t remaining, uint32_t *list, size_t limit) {
@@ -1729,6 +2291,12 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 //       Refactor common code into a another method.
 async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, size_t num_blocks, const void *buffer) {
+	if(inode->usesExtents) {
+		co_await writeDataBlocksUsingExtents(std::move(inode), offset, num_blocks, buffer);
+		co_await helix_ng::asyncNop();
+		co_return;
+	}
+
 	// We perform "block-fusion" here i.e. we try to read/write multiple
 	// consecutive blocks in a single read/writeSectors() operation.
 	auto fuse = [] (size_t index, size_t remaining, uint32_t *list, size_t limit) {
