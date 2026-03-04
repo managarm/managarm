@@ -171,15 +171,20 @@ coroutine<void> Mapping::runEvictionLoop() {
 
 		co_await exposeRcu.barrier();
 
+		bool pagesAffected;
 		{
 			LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
 			// Unmap the memory range.
 			auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
 			assert(unmapOutcome);
+			pagesAffected = unmapOutcome.value();
 
-			co_await owner->_ops->shootdown(address + shootOffset, shootSize);
+			if(pagesAffected)
+				co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 		}
+		if(!pagesAffected)
+			co_await revokeRcu.barrier();
 
 		eviction.done();
 	}
@@ -440,15 +445,20 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 
 		co_await mapping->exposeRcu.barrier();
 
+		bool pagesAffected;
 		{
 			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 			auto restrictOutcome = _ops->restrictPages(mapping->address,
 					mapping->length, pageFlags, caching);
 			assert(restrictOutcome);
+			pagesAffected = restrictOutcome.value();
 
-			co_await _ops->shootdown(mapping->address, mapping->length);
+			if(pagesAffected)
+				co_await _ops->shootdown(mapping->address, mapping->length);
 		}
+		if(!pagesAffected)
+			co_await mapping->revokeRcu.barrier();
 	}
 
 	co_return {};
@@ -884,15 +894,20 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 
 			co_await mapping->exposeRcu.barrier();
 
+			bool pagesAffected;
 			{
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				// Mark pages as dirty and unmap without holding a lock.
 				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
 				assert(unmapOutcome);
+				pagesAffected = unmapOutcome.value();
 
-				co_await _ops->shootdown(mapping->address, mapping->length);
+				if(pagesAffected)
+					co_await _ops->shootdown(mapping->address, mapping->length);
 			}
+			if(!pagesAffected)
+				co_await mapping->revokeRcu.barrier();
 
 			_mappings.remove(mapping.get());
 
