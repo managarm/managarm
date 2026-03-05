@@ -105,25 +105,27 @@ bool HoleAggregator::check_invariant(HoleTree &tree, Hole *hole) {
 // Mapping
 // --------------------------------------------------------
 
-Mapping::Mapping(size_t length, MappingFlags flags,
-		smarter::shared_ptr<MemorySlice> slice_, uintptr_t viewOffset)
-: length{length}, flags{flags},
-		slice{std::move(slice_)}, viewOffset{viewOffset} {
+Mapping::Mapping(
+	smarter::shared_ptr<VirtualSpace> owner,
+	VirtualAddr address,
+	size_t length,
+	smarter::shared_ptr<MemorySlice> sl,
+	uintptr_t viewOffset,
+	MappingFlags flags
+) : owner{std::move(owner)},
+		address{address},
+		length{length},
+		slice{std::move(sl)},
+		view{slice->getView()},
+		viewOffset{viewOffset},
+		flags{flags} {
 	assert(viewOffset >= slice->offset());
 	assert(viewOffset + length <= slice->offset() + slice->length());
-	view = slice->getView();
 }
 
 Mapping::~Mapping() {
 	assert(state.load(std::memory_order_relaxed) == MappingState::retired);
 	//debugLogger() << "thor: Mapping is destructed" << frg::endlog;
-}
-
-void Mapping::tie(smarter::shared_ptr<VirtualSpace> newOwner, VirtualAddr address) {
-	assert(!owner);
-	assert(newOwner);
-	owner = std::move(newOwner);
-	this->address = address;
 }
 
 void Mapping::protect(MappingFlags protectFlags) {
@@ -351,8 +353,13 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			mappingFlags |= MappingFlags::dontRequireBacking;
 
 		mapping = smarter::allocate_shared<Mapping>(Allocator{},
-				length, static_cast<MappingFlags>(mappingFlags),
-				slice.lock(), slice->offset() + offset);
+			selfPtr.lock(),
+			actualAddress,
+			length,
+			slice.lock(),
+			slice->offset() + offset,
+			static_cast<MappingFlags>(mappingFlags)
+		);
 		mapping->selfPtr = mapping;
 
 		assert(!(flags & kMapPopulate));
@@ -362,7 +369,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			caching = CachingMode::writeCombine;
 
 		// Install the new mapping object.
-		mapping->tie(selfPtr.lock(), actualAddress);
 		_mappings.insert(mapping.get());
 
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::null);
@@ -807,22 +813,30 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 
 			{
 				auto leftSize = at - mapping->address;
-				leftMapping = smarter::allocate_shared<Mapping>(Allocator{},
-						leftSize, mapping->flags.load(std::memory_order_relaxed), mapping->slice,
-						mapping->viewOffset);
+				leftMapping = smarter::allocate_shared<Mapping>(
+					Allocator{},
+					selfPtr.lock(),
+					mapping->address,
+					leftSize,
+					mapping->slice,
+					mapping->viewOffset,
+					mapping->flags.load(std::memory_order_relaxed)
+				);
 				leftMapping->selfPtr = leftMapping;
-
-				leftMapping->tie(selfPtr.lock(), mapping->address);
 			}
 
 			{
 				auto rightOffset = at - mapping->address;
-				rightMapping = smarter::allocate_shared<Mapping>(Allocator{},
-						mapping->length - rightOffset, mapping->flags.load(std::memory_order_relaxed), mapping->slice,
-						mapping->viewOffset + rightOffset);
+				rightMapping = smarter::allocate_shared<Mapping>(
+					Allocator{},
+					selfPtr.lock(),
+					at,
+					mapping->length - rightOffset,
+					mapping->slice,
+					mapping->viewOffset + rightOffset,
+					mapping->flags.load(std::memory_order_relaxed)
+				);
 				rightMapping->selfPtr = rightMapping;
-
-				rightMapping->tie(selfPtr.lock(), at);
 			}
 
 			assert(leftMapping && rightMapping);

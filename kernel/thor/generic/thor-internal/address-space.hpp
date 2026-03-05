@@ -373,8 +373,14 @@ enum class MappingState {
 };
 
 struct Mapping {
-	Mapping(size_t length, MappingFlags flags,
-			smarter::shared_ptr<MemorySlice> view, uintptr_t offset);
+	Mapping(
+		smarter::shared_ptr<VirtualSpace> owner,
+		VirtualAddr address,
+		size_t length,
+		smarter::shared_ptr<MemorySlice> view,
+		uintptr_t offset,
+		MappingFlags flags
+	);
 
 	Mapping(const Mapping &) = delete;
 
@@ -382,24 +388,32 @@ struct Mapping {
 
 	Mapping &operator= (const Mapping &) = delete;
 
-	void tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address);
-
 	void protect(MappingFlags flags);
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
-
-	frg::rbtree_hook treeNode;
 
 	uint32_t compilePageFlags();
 
 	coroutine<void> runEvictionLoop();
 
-	smarter::shared_ptr<VirtualSpace> owner;
-	VirtualAddr address;
-	size_t length;
-	std::atomic<MappingFlags> flags;
+	const smarter::shared_ptr<VirtualSpace> owner;
+	const VirtualAddr address;
+	const size_t length;
+	const smarter::shared_ptr<MemorySlice> slice;
+	const smarter::shared_ptr<MemoryView> view;
+	const size_t viewOffset;
 
+	// Protected against writes by _consistencyMutex.
+	// May be read without holding any mutex.
+	std::atomic<MappingFlags> flags;
+	// Protected against writes by _consistencyMutex.
+	// May be read without holding any mutex.
 	std::atomic<MappingState> state{MappingState::null};
+
+	// Protected by _snapshotMutex.
+	frg::rbtree_hook treeNode;
+
+	// Protected against writes by _consistencyMutex.
 	MemoryObserver observer;
 
 	// Code paths MUST perform an exposeRcu barrier() after they cause page
@@ -433,14 +447,6 @@ struct Mapping {
 
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
-	smarter::shared_ptr<MemorySlice> slice;
-	smarter::shared_ptr<MemoryView> view;
-	size_t viewOffset;
-
-	// This mutex is held whenever we modify parts of the page space that belong
-	// to this mapping (using VirtualOperation::mapSingle4k and similar). This is
-	// necessary since we sometimes need to read pages before writing them.
-	frg::ticket_spinlock pagingMutex;
 };
 
 struct HoleLess {
@@ -648,15 +654,15 @@ private:
 
 	VirtualOperations *_ops;
 
-	// Since changing memory mappings requires TLB shootdown, most mapping-related operations
-	// of VirtualSpace are async. Thus, we use an async mutex to serialize these operations.
+	// _consistencyMutex MUST be taken while:
+	// * Mappings are added.
+	// * Mappings are removed.
+	// * The flags of mappings are modified.
+	// In case of mapping removal and mapping flag change, the mutex must be held until the
+	// page tables are changed, shootdown is complete (and the eviction loop is exited, if applicable).
 	async::shared_mutex _consistencyMutex;
 
-	// To avoid taking _consistencyMutex for operations that only need to look at the current
-	// state of the VirtualSpace (and that can run concurrently with mapping-related that
-	// perform TLB shootdown), we have another mutex that only protects _holes and _mappings.
-	// We make sure that we "commit" changes to _holes and _mappings before changing page
-	// tables and/or doing TLB shootdown.
+	// Protects _holes and _mappings.
 	frg::ticket_spinlock _snapshotMutex;
 
 	HoleTree _holes;
