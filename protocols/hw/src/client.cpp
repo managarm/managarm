@@ -5,10 +5,12 @@
 
 #include <frg/std_compat.hpp>
 
+#include <core/logging.hpp>
 #include <helix/ipc.hpp>
 #include <hw.bragi.hpp>
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
+#include <protocols/mbus/client.hpp>
 #include "protocols/hw/client.hpp"
 
 namespace protocols::hw {
@@ -900,6 +902,168 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	co_return std::move(irq);
 }
 
+async::result<frg::expected<Error>> Device::enableClock(uint32_t id) {
+	managarm::hw::EnableClockRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::disableClock(uint32_t id) {
+	managarm::hw::DisableClockRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::setClockFrequency(uint32_t id, uint64_t frequency) {
+	managarm::hw::SetClockFrequencyRequest req;
+	req.set_id(id);
+	req.set_frequency(frequency);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::ClockResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else if (resp.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS) {
+		co_return Error::illegalArguments;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::enableRegulator(uint32_t id) {
+	managarm::hw::EnableRegulatorRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::disableRegulator(uint32_t id) {
+	managarm::hw::DisableRegulatorRequest req;
+	req.set_id(id);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
+async::result<frg::expected<Error>> Device::setRegulatorVoltage(uint32_t id, uint64_t microvolts) {
+	managarm::hw::SetRegulatorVoltageRequest req;
+	req.set_id(id);
+	req.set_voltage(microvolts);
+
+	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_head.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::RegulatorResponse>(recv_head);
+
+	if (resp.error() == managarm::hw::Errors::ILLEGAL_OPERATION) {
+		co_return Error::illegalOperation;
+	} else if (resp.error() == managarm::hw::Errors::ILLEGAL_ARGUMENTS) {
+		co_return Error::illegalArguments;
+	} else {
+		assert(resp.error() == managarm::hw::Errors::SUCCESS);
+		co_return frg::success;
+	}
+}
+
 async::result<void> Device::enableDma() {
 	managarm::hw::EnableDmaRequest req;
 
@@ -1023,6 +1187,21 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 
 	auto desc = pull_desc.descriptor();
 	co_return { std::move(desc), resp.vbt_size() };
+}
+
+async::result<mbus_ng::Entity> getEntityByPhandle(uint32_t phandle) {
+	auto filter = mbus_ng::EqualsFilter{"dt.phandle", std::to_string(phandle)};
+	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
+	auto [_, events] = (co_await enumerator.nextEvents()).unwrap();
+
+	for (auto &event : events) {
+		if (event.type != mbus_ng::EnumerationEvent::Type::created)
+			continue;
+
+		co_return co_await mbus_ng::Instance::global().getEntity(event.id);
+	}
+
+	logPanic("protocols::hw::getEntityByPhandle({}) failed to find entity", phandle);
 }
 
 } // namespace protocols::hw
