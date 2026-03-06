@@ -33,6 +33,17 @@ namespace {
 				<< (physicalAllocator->numUsedPages() * 4) << " KiB, kernel usage: "
 				<< (kernelMemoryUsage / 1024) << " KiB" << frg::endlog;
 	}
+
+	uint32_t compilePageFlags(MappingFlags mappingFlags) {
+		uint32_t pageFlags = 0;
+		if(mappingFlags & MappingFlags::protRead)
+			pageFlags |= page_access::read;
+		if(mappingFlags & MappingFlags::protWrite)
+			pageFlags |= page_access::write;
+		if(mappingFlags & MappingFlags::protExecute)
+			pageFlags |= page_access::execute;
+		return pageFlags;
+	}
 }
 
 // --------------------------------------------------------
@@ -135,18 +146,6 @@ void Mapping::protect(MappingFlags protectFlags) {
 	newFlags &= ~(MappingFlags::protRead | MappingFlags::protWrite | MappingFlags::protExecute);
 	newFlags |= protectFlags;
 	flags.store(static_cast<MappingFlags>(newFlags), std::memory_order_relaxed);
-}
-
-uint32_t Mapping::compilePageFlags() {
-	auto mappingFlags = flags.load(std::memory_order_relaxed);
-	uint32_t pageFlags = 0;
-	if(mappingFlags & MappingFlags::protRead)
-		pageFlags |= page_access::read;
-	if(mappingFlags & MappingFlags::protWrite)
-		pageFlags |= page_access::write;
-	if(mappingFlags & MappingFlags::protExecute)
-		pageFlags |= page_access::execute;
-	return pageFlags;
 }
 
 coroutine<void> Mapping::runEvictionLoop() {
@@ -529,37 +528,42 @@ coroutine<frg::expected<Error>>
 VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	co_await _consistencyMutex.async_lock_shared();
-	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
+	while (true) {
+		smarter::shared_ptr<Mapping> mapping;
+		{
+			auto irq_lock = frg::guard(&irqMutex());
+			auto space_guard = frg::guard(&_snapshotMutex);
 
-	smarter::shared_ptr<Mapping> mapping;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		auto space_guard = frg::guard(&_snapshotMutex);
+			mapping = _findMapping(address);
+		}
+		if(!mapping)
+			co_return Error::fault;
 
-		mapping = _findMapping(address);
-	}
-	if(!mapping)
-		co_return Error::fault;
+		// Check access attributes.
+		// Since this is not in a critical section, they may be stale by the time
+		// we get to the touchRange() or peekRange() calls below.
+		// However, this avoids touchRange() calls if the permissions are already violated here.
+		auto flags = mapping->flags.load(std::memory_order_relaxed);
+		if(faultFlags & VirtualSpace::kFaultWrite) {
+			if (!(flags & MappingFlags::protWrite))
+				co_return Error::badPermissions;
+		}
+		if(faultFlags & VirtualSpace::kFaultExecute) {
+			if (!(flags & MappingFlags::protExecute))
+				co_return Error::badPermissions;
+		}
 
-	// Check access attributes.
-	if((faultFlags & VirtualSpace::kFaultWrite)
-			&& !((mapping->flags.load(std::memory_order_relaxed) & MappingFlags::protWrite)))
-		co_return Error::badPermissions;
-	if((faultFlags & VirtualSpace::kFaultExecute)
-			&& !((mapping->flags.load(std::memory_order_relaxed) & MappingFlags::protExecute)))
-		co_return Error::badPermissions;
+		// TODO: Aligning should not be necessary here.
+		auto offset = (address - mapping->address) & ~(kPageSize - 1);
 
-	// TODO: Aligning should not be necessary here.
-	auto offset = (address - mapping->address) & ~(kPageSize - 1);
-
-	while(true) {
 		FetchFlags fetchFlags = 0;
-		if(mapping->flags.load(std::memory_order_relaxed) & MappingFlags::dontRequireBacking)
+		if(flags & MappingFlags::dontRequireBacking)
 			fetchFlags |= fetchDisallowBacking;
 		if(faultFlags & VirtualSpace::kFaultWrite)
 			fetchFlags |= fetchRequireMutable;
 
+		// Calling touchRange() on stale mappings is allowed,
+		// so we do not enter a critical section here.
 		FRG_CO_TRY(co_await mapping->view->touchRange(
 				mapping->viewOffset + offset, kPageSize, fetchFlags));
 
@@ -567,25 +571,35 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
 			caching = CachingMode::writeCombine;
 
-		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+		// Try to fault in the page.
+		{
+			LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
-		auto remapOutcome = _ops->faultPage(address & ~(kPageSize - 1),
-				mapping->view.get(), mapping->viewOffset + offset,
-				fetchFlags,
-				mapping->compilePageFlags(), caching);
-		if(!remapOutcome) {
-			if(remapOutcome.error() == Error::spuriousOperation) {
-				// Spurious page faults are the result of race conditions.
-				// They should be rare. If they happen too often, something is probably wrong!
-				warningLogger() << "thor: Spurious page fault" << frg::endlog;
-			}else{
-				assert(remapOutcome.error() == Error::fault);
-				warningLogger() << "thor: Page still not available after touchRange()"
-					<< frg::endlog;
+			if (mapping->state.load(std::memory_order_relaxed) != MappingState::active)
 				continue;
+			auto flags = mapping->flags.load(std::memory_order_relaxed);
+
+			auto remapOutcome = _ops->faultPage(
+				address & ~(kPageSize - 1),
+				mapping->view.get(),
+				mapping->viewOffset + offset,
+				fetchFlags,
+				compilePageFlags(flags),
+				caching
+			);
+			if(!remapOutcome) {
+				if(remapOutcome.error() == Error::spuriousOperation) {
+					// Spurious page faults are the result of race conditions.
+					// They should be rare. If they happen too often, something is probably wrong!
+					warningLogger() << "thor: Spurious page fault" << frg::endlog;
+				}else{
+					assert(remapOutcome.error() == Error::fault);
+					warningLogger() << "thor: Page still not available after touchRange()"
+						<< frg::endlog;
+					continue;
+				}
 			}
 		}
-
 		co_return {};
 	}
 }
