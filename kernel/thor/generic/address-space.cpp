@@ -490,9 +490,6 @@ coroutine<frg::expected<Error>>
 VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	co_await _consistencyMutex.async_lock_shared();
-	frg::shared_lock consistencyLock{frg::adopt_lock, _consistencyMutex};
-
 	auto misalign = address & (kPageSize - 1);
 	auto alignedAddress = address & ~(kPageSize - 1);
 	auto alignedSize = (size + misalign + kPageSize - 1) & ~(kPageSize - 1);
