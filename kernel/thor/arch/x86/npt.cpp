@@ -117,10 +117,9 @@ frg::expected<Error> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *
 			va, view, offset, size, flags, mode);
 }
 
-frg::expected<Error> NptOperations::remapPresentPages(VirtualAddr va, MemoryView *view,
-		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
-	return remapPresentPagesByCursor<NptCursor>(pageSpace_,
-			va, view, offset, size, flags, mode);
+frg::expected<Error, bool> NptOperations::restrictPages(VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
+	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, mode);
 }
 
 frg::expected<Error> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
@@ -133,7 +132,7 @@ frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, size_t size) {
 	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error> NptOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, bool> NptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
