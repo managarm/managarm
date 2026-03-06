@@ -361,8 +361,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		);
 		mapping->selfPtr = mapping;
 
-		assert(!(flags & kMapPopulate));
-
 		auto caching = CachingMode::null;
 		if(slice->getCachingFlags() == cacheWriteCombine)
 			caching = CachingMode::writeCombine;
@@ -377,19 +375,24 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		mapping.ctr()->increment();
 		mapping->view->addObserver(&mapping->observer);
 
-		uint32_t pageFlags = 0;
-		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
-			pageFlags |= page_access::write;
-		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
-			pageFlags |= page_access::execute;
-		if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
-			pageFlags |= page_access::read;
+		// Not populating the range is the default.
+		// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
+		// that need to happen when an already mapped page is unmapped during copy-on-write.
+		if (flags & kMapPopulate) {
+			uint32_t pageFlags = 0;
+			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+				pageFlags |= page_access::write;
+			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+				pageFlags |= page_access::execute;
+			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
+				pageFlags |= page_access::read;
 
-		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+			LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
-		auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-				mapping->viewOffset, mapping->length, pageFlags, caching);
-		assert(mapOutcome);
+			auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
+					mapping->viewOffset, mapping->length, pageFlags, caching);
+			assert(mapOutcome);
+		}
 	}
 
 	if(mapping->view->canEvictMemory())
