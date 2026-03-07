@@ -47,16 +47,6 @@ namespace {
 }
 
 // --------------------------------------------------------
-// Generic VirtualOperation implementation.
-// --------------------------------------------------------
-
-size_t VirtualOperations::getRss() {
-	// Derived classes should track RSS; the generic implementaton does not.
-	// TODO: As soon as all derived classes implement this, we should make it pure virtual.
-	return 0;
-}
-
-// --------------------------------------------------------
 
 MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags)
@@ -175,19 +165,20 @@ coroutine<void> Mapping::runEvictionLoop() {
 
 		co_await exposeRcu.barrier();
 
-		bool pagesAffected;
+		bool anyRevoked;
 		{
 			LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
 			// Unmap the memory range.
 			auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
 			assert(unmapOutcome);
-			pagesAffected = unmapOutcome.value();
+			owner->rss_.fetch_add(unmapOutcome.value().rss, std::memory_order_relaxed);
+			anyRevoked = unmapOutcome.value().anyRevoked;
 
-			if(pagesAffected)
+			if(anyRevoked)
 				co_await owner->_ops->shootdown(address + shootOffset, shootSize);
 		}
-		if(!pagesAffected)
+		if(!anyRevoked)
 			co_await revokeRcu.barrier();
 
 		eviction.done();
@@ -230,6 +221,8 @@ VirtualSpace::~VirtualSpace() {
 		_holes.remove(hole);
 		frg::destruct(*kernelAlloc, hole);
 	}
+
+	assert(rss_.load(std::memory_order_relaxed) == 0);
 }
 
 void VirtualSpace::retire() {
@@ -251,6 +244,7 @@ void VirtualSpace::retire() {
 
 			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length);
 			assert(unmapOutcome);
+			self->rss_.fetch_add(unmapOutcome.value().rss, std::memory_order_relaxed);
 
 			mapping = MappingTree::successor(mapping);
 		}
@@ -392,6 +386,7 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
 					mapping->viewOffset, mapping->length, pageFlags, caching);
 			assert(mapOutcome);
+			rss_.fetch_add(mapOutcome.value().rss, std::memory_order_relaxed);
 		}
 	}
 
@@ -457,19 +452,19 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 
 		co_await mapping->exposeRcu.barrier();
 
-		bool pagesAffected;
+		bool anyRevoked;
 		{
 			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 			auto restrictOutcome = _ops->restrictPages(mapping->address,
 					mapping->length, pageFlags, caching);
 			assert(restrictOutcome);
-			pagesAffected = restrictOutcome.value();
+			anyRevoked = restrictOutcome.value().anyRevoked;
 
-			if(pagesAffected)
+			if(anyRevoked)
 				co_await _ops->shootdown(mapping->address, mapping->length);
 		}
-		if(!pagesAffected)
+		if(!anyRevoked)
 			co_await mapping->revokeRcu.barrier();
 	}
 
@@ -598,6 +593,8 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 						<< frg::endlog;
 					continue;
 				}
+			} else {
+				rss_.fetch_add(remapOutcome.value().rss, std::memory_order_relaxed);
 			}
 		}
 		co_return {};
@@ -926,19 +923,20 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 
 			co_await mapping->exposeRcu.barrier();
 
-			bool pagesAffected;
+			bool anyRevoked;
 			{
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				// Mark pages as dirty and unmap without holding a lock.
 				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
 				assert(unmapOutcome);
-				pagesAffected = unmapOutcome.value();
+				rss_.fetch_add(unmapOutcome.value().rss, std::memory_order_relaxed);
+				anyRevoked = unmapOutcome.value().anyRevoked;
 
-				if(pagesAffected)
+				if(anyRevoked)
 					co_await _ops->shootdown(mapping->address, mapping->length);
 			}
-			if(!pagesAffected)
+			if(!anyRevoked)
 				co_await mapping->revokeRcu.barrier();
 
 			_mappings.remove(mapping.get());
@@ -1015,8 +1013,6 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 			}
 		}
 	}
-
-	co_return;
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,

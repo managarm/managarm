@@ -123,28 +123,28 @@ bool EptOperations::submitShootdown(ShootNode *node) {
 	return false;
 }
 
-frg::expected<Error> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
+frg::expected<Error, PagesAffected> EptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	return mapPresentPagesByCursor<EptCursor>(pageSpace_,
 			va, view, offset, size, flags, mode);
 }
 
-frg::expected<Error, bool> EptOperations::restrictPages(VirtualAddr va,
+frg::expected<Error, PagesAffected> EptOperations::restrictPages(VirtualAddr va,
 		size_t size, PageFlags flags, CachingMode mode) {
 	return restrictPagesByCursor<EptCursor>(pageSpace_, va, size, flags, mode);
 }
 
-frg::expected<Error> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
+frg::expected<Error, PagesAffected> EptOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	return faultPageByCursor<EptCursor>(pageSpace_,
 			va, view, offset, fetchFlags, flags, mode);
 }
 
-frg::expected<Error> EptOperations::cleanPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> EptOperations::cleanPages(VirtualAddr va, size_t size) {
 	return cleanPagesByCursor<EptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error, bool> EptOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> EptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<EptCursor>(pageSpace_, va, size);
 }
 
