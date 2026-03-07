@@ -175,36 +175,6 @@ struct VirtualOperations {
 
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
-	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode cachingMode) {
-		(void)pointer;
-		(void)physical;
-		(void)flags;
-		(void)cachingMode;
-		panicLogger() << "thor: Default VirtualOperations::mapSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual PageStatus unmapSingle4k(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::unmapSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual PageStatus cleanSingle4k(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::cleanSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual bool isMapped(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::isMapped called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-
-	// ----------------------------------------------------------------------------------
-
-	// The following API is based on MemoryView and will replace the legacy API above.
-	// The advantage of this approach is that we do not need on virtual call per page anymore.
-
 	virtual frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
