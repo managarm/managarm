@@ -4,6 +4,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/timer.hpp>
 #include <frg/container_of.hpp>
 #include <thor-internal/types.hpp>
 
@@ -232,6 +233,9 @@ void VirtualSpace::retire() {
 	// TODO: It would be less ugly to run this in a non-detached way.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
+		self->cancelAging_.cancel();
+		co_await self->agingDoneEvent_.wait();
+
 		co_await self->_consistencyMutex.async_lock();
 		frg::unique_lock consistencyLock{frg::adopt_lock, self->_consistencyMutex};
 
@@ -266,6 +270,65 @@ void VirtualSpace::retire() {
 			mapping->selfPtr.ctr()->decrement();
 		}
 	}(selfPtr.lock()));
+}
+
+coroutine<void> VirtualSpace::runAgingLoop() {
+	auto self = selfPtr.lock();
+
+	while(true) {
+		if(!co_await generalTimerEngine()->sleepFor(1'000'000'000ULL, cancelAging_))
+			break;
+
+		VirtualAddr nextAddress = 0;
+		while(true) {
+			smarter::shared_ptr<Mapping> mapping;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto spaceGuard = frg::guard(&_snapshotMutex);
+				auto node = _mappings.get_root();
+				Mapping *candidate = nullptr;
+				while(node) {
+					if(node->address + node->length <= nextAddress) {
+						node = MappingTree::get_right(node);
+					} else if(node->address >= nextAddress) {
+						candidate = node;
+						node = MappingTree::get_left(node);
+					} else {
+						candidate = node;
+						break;
+					}
+				}
+				if(candidate)
+					mapping = candidate->selfPtr.lock();
+			}
+			if(!mapping)
+				break;
+
+			nextAddress = mapping->address + mapping->length;
+
+			if(mapping->state.load(std::memory_order_relaxed) != MappingState::active)
+				continue;
+
+			co_await mapping->exposeRcu.barrier();
+
+			bool anyRevoked;
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+				auto ageOutcome = _ops->agePages(mapping->address, mapping->length);
+				assert(ageOutcome);
+				rss_.fetch_add(ageOutcome.value().rss, std::memory_order_relaxed);
+				anyRevoked = ageOutcome.value().anyRevoked;
+
+				if(anyRevoked)
+					co_await _ops->shootdown(mapping->address, mapping->length);
+			}
+			if(!anyRevoked)
+				co_await mapping->revokeRcu.barrier();
+		}
+	}
+
+	agingDoneEvent_.raise();
 }
 
 coroutine<frg::expected<Error, VirtualAddr>>

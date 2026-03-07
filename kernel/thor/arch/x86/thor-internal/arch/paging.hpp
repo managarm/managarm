@@ -13,14 +13,18 @@
 
 namespace thor {
 
+inline constexpr int pteAgeShift = 9;
+
 constexpr uint64_t ptePresent = 0x1;
 constexpr uint64_t pteWrite = 0x2;
 constexpr uint64_t pteUser = 0x4;
 constexpr uint64_t ptePwt = 0x8;
 constexpr uint64_t ptePcd = 0x10;
+constexpr uint64_t pteAccessed = 0x20;
 constexpr uint64_t pteDirty = 0x40;
 constexpr uint64_t ptePat = 0x80;
 constexpr uint64_t pteGlobal = 0x100;
+constexpr uint64_t pteAgeMask = UINT64_C(3) << pteAgeShift;
 constexpr uint64_t pteXd = 0x8000000000000000;
 constexpr uint64_t pteAddress = 0x000F'FFFF'FFFF'F000;
 
@@ -75,7 +79,7 @@ struct X86CursorPolicy {
 	}
 
 	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
-		auto pte = physical | ptePresent;
+		auto pte = physical | ptePresent | pteAccessed;
 
 		if constexpr (Kernel)
 			pte |= pteGlobal;
@@ -97,6 +101,30 @@ struct X86CursorPolicy {
 		}
 
 		return pte;
+	}
+
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+		uint64_t oldPte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+		while(true) {
+			if(!(oldPte & ptePresent))
+				return {oldPte, false};
+			uint64_t newPte;
+			bool unmapped = false;
+			if(oldPte & pteAccessed) {
+				newPte = oldPte & ~(pteAccessed | pteAgeMask);
+			} else {
+				uint64_t age = (oldPte & pteAgeMask) >> pteAgeShift;
+				if(age < 3) {
+					newPte = (oldPte & ~pteAgeMask) | ((age + 1) << pteAgeShift);
+				} else {
+					newPte = 0;
+					unmapped = true;
+				}
+			}
+			if(__atomic_compare_exchange_n(ptePtr, &oldPte, newPte, false,
+					__ATOMIC_RELAXED, __ATOMIC_RELAXED))
+				return {oldPte, unmapped};
+		}
 	}
 
 	static constexpr void pteWriteBarrier() { }

@@ -12,6 +12,8 @@
 
 namespace thor {
 
+inline constexpr int pteAgeShift = 8;
+
 constexpr uint64_t pteValid = UINT64_C(1) << 0;
 constexpr uint64_t pteRead = UINT64_C(1) << 1;
 constexpr uint64_t pteWrite = UINT64_C(1) << 2;
@@ -21,6 +23,7 @@ constexpr uint64_t pteGlobal = UINT64_C(1) << 5;
 constexpr uint64_t pteAccess = UINT64_C(1) << 6;
 constexpr uint64_t pteDirty = UINT64_C(1) << 7;
 constexpr uint64_t ptePpnMask = (((UINT64_C(1) << 44) - 1) << 10);
+constexpr uint64_t pteAgeMask = UINT64_C(3) << pteAgeShift;
 
 inline int getLowerHalfBits() { return 12 + 9 * riscvConfigNote->numPtLevels - 1; }
 
@@ -81,7 +84,7 @@ struct RiscvCursorPolicy {
 			if (flags & page_access::write)
 				pte |= pteWrite | pteDirty;
 		} else {
-			pte |= pteUser;
+			pte |= pteUser | pteAccess;
 			if (flags & page_access::write)
 				pte |= pteWrite;
 		}
@@ -91,6 +94,30 @@ struct RiscvCursorPolicy {
 		(void)cachingMode;
 
 		return pte;
+	}
+
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+		uint64_t oldPte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+		while(true) {
+			if(!(oldPte & pteValid) || !(oldPte & pteRead))
+				return {oldPte, false};
+			uint64_t newPte;
+			bool unmapped = false;
+			if(oldPte & pteAccess) {
+				newPte = oldPte & ~(pteAccess | pteAgeMask);
+			} else {
+				uint64_t age = (oldPte & pteAgeMask) >> pteAgeShift;
+				if(age < 3) {
+					newPte = (oldPte & ~pteAgeMask) | ((age + 1) << pteAgeShift);
+				} else {
+					newPte = 0;
+					unmapped = true;
+				}
+			}
+			if(__atomic_compare_exchange_n(ptePtr, &oldPte, newPte, false,
+					__ATOMIC_RELAXED, __ATOMIC_RELAXED))
+				return {oldPte, unmapped};
+		}
 	}
 
 	static constexpr void pteWriteBarrier() {}

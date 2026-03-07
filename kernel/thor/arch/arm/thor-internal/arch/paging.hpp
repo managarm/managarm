@@ -13,12 +13,15 @@
 
 namespace thor {
 
+inline constexpr int kPageAgeShift = 56;
+
 inline constexpr uint64_t kPageValid = 1;
 inline constexpr uint64_t kPageTable = (1 << 1);
 inline constexpr uint64_t kPageL3Page = (1 << 1);
 inline constexpr uint64_t kPageXN = (uint64_t(1) << 54);
 inline constexpr uint64_t kPagePXN = (uint64_t(1) << 53);
 inline constexpr uint64_t kPageShouldBeWritable = (uint64_t(1) << 55);
+inline constexpr uint64_t kPageAgeMask = (uint64_t(3) << kPageAgeShift);
 inline constexpr uint64_t kPageNotGlobal = (1 << 11);
 inline constexpr uint64_t kPageAccess = (1 << 10);
 inline constexpr uint64_t kPageRO = (1 << 7);
@@ -138,6 +141,30 @@ struct ARMCursorPolicy {
 		}
 
 		return pte;
+	}
+
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+		uint64_t oldPte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+		while(true) {
+			if(!(oldPte & kPageValid))
+				return {oldPte, false};
+			uint64_t newPte;
+			bool unmapped = false;
+			if(oldPte & kPageAccess) {
+				newPte = oldPte & ~(kPageAccess | kPageAgeMask);
+			} else {
+				uint64_t age = (oldPte & kPageAgeMask) >> kPageAgeShift;
+				if(age < 3) {
+					newPte = (oldPte & ~kPageAgeMask) | ((age + 1) << kPageAgeShift);
+				} else {
+					newPte = 0;
+					unmapped = true;
+				}
+			}
+			if(__atomic_compare_exchange_n(ptePtr, &oldPte, newPte, false,
+					__ATOMIC_RELAXED, __ATOMIC_RELAXED))
+				return {oldPte, unmapped};
+		}
 	}
 
 	static constexpr void pteWriteBarrier() {

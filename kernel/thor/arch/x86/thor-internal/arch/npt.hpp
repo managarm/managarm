@@ -36,6 +36,8 @@ struct NptOperations final : VirtualOperations {
 
 	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
 
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size) override;
+
 private:
 	NptPageSpace *pageSpace_;
 };

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <concepts>
 #include <tuple>
+#include <utility>
 
 #include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/arch-generic/asid.hpp>
@@ -31,6 +32,8 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	{ T::ptePageStatus(pte) } -> std::same_as<PageStatus>;
 	// Clean the given PTE (remove the dirty status). Returns the previous PTE value.
 	{ T::pteClean(ptePtr) } -> std::same_as<uint64_t>;
+	// Age the given PTE. Returns the previous PTE value and whether the page was unmapped.
+	{ T::pteAge(ptePtr) } -> std::same_as<std::pair<uint64_t, bool>>;
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
@@ -208,6 +211,15 @@ public:
 		auto ptEnt = exchangeCurrentPte_(0);
 		Policy::pteWriteBarrier();
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
+	}
+
+	std::tuple<PageStatus, PhysicalAddr, bool> age4k() {
+		if(!accessors_[lastLevel])
+			return {0, PhysicalAddr(-1), false};
+		auto [oldPte, unmapped] = Policy::pteAge(currentPtePtr_());
+		if(unmapped)
+			Policy::pteWriteBarrier();
+		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte), unmapped};
 	}
 
 	// Low-level API for use by arch-specific code.

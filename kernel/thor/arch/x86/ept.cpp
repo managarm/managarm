@@ -67,6 +67,10 @@ struct EptCursorPolicy {
 		return pte;
 	}
 
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
+	}
+
 	static constexpr void pteWriteBarrier() { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
@@ -146,6 +150,10 @@ frg::expected<Error, PagesAffected> EptOperations::cleanPages(VirtualAddr va, si
 
 frg::expected<Error, PagesAffected> EptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<EptCursor>(pageSpace_, va, size);
+}
+
+frg::expected<Error, PagesAffected> EptOperations::agePages(VirtualAddr, size_t) {
+	return PagesAffected{};
 }
 
 EptSpace::EptSpace(PhysicalAddr root)
