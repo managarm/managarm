@@ -53,11 +53,15 @@ struct CachePage {
 	frg::default_list_hook<CachePage> listHook;
 
 	uint32_t flags = 0;
+	std::atomic<unsigned int> useCount = 0;
 };
 
 // This is the "backend" part of a memory object.
 struct CacheBundle {
 	friend struct MemoryReclaimer;
+
+	virtual void incrementUses(CachePage *page) = 0;
+	virtual void decrementUses(CachePage *page) = 0;
 
 	virtual void markDirty(CachePage *page) = 0;
 
@@ -79,6 +83,32 @@ inline void markDirty(PfnDescriptor descriptor) {
 		auto *ptr = descriptor.cachePagePtr();
 		ptr->bundle->markDirty(ptr);
 	}
+}
+
+inline void incrementUses(PfnDescriptor descriptor) {
+	if(!descriptor.isCachePage())
+		return;
+	auto *ptr = descriptor.cachePagePtr();
+	auto cnt = ptr->useCount.load(std::memory_order_relaxed);
+	while(cnt > 0) {
+		if(ptr->useCount.compare_exchange_weak(cnt, cnt + 1,
+				std::memory_order_acquire, std::memory_order_relaxed))
+			return;
+	}
+	ptr->bundle->incrementUses(ptr);
+}
+
+inline void decrementUses(PfnDescriptor descriptor) {
+	if(!descriptor.isCachePage())
+		return;
+	auto *ptr = descriptor.cachePagePtr();
+	auto cnt = ptr->useCount.load(std::memory_order_relaxed);
+	while(cnt > 1) {
+		if(ptr->useCount.compare_exchange_weak(cnt, cnt - 1,
+				std::memory_order_release, std::memory_order_relaxed))
+			return;
+	}
+	ptr->bundle->decrementUses(ptr);
 }
 
 struct PhysicalRange {
@@ -534,7 +564,7 @@ struct ManagedSpace : CacheBundle {
 		// Valid in LoadState::present.
 		writeback,
 		// Page is in the memory reclaimer's LRU queue.
-		// Valid in LoadState::present with lockCount == 0.
+		// Valid in LoadState::present with lockCount == 0 and useCount == 0.
 		inReclaim,
 	};
 
@@ -609,6 +639,8 @@ struct ManagedSpace : CacheBundle {
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
 
+	void incrementUses(CachePage *page) override;
+	void decrementUses(CachePage *page) override;
 	void markDirty(CachePage *page) override;
 
 	Error lockPages(uintptr_t offset, size_t size);

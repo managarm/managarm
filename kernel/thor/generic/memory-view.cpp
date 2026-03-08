@@ -148,6 +148,11 @@ struct MemoryReclaimer {
 				if(logUncaching) {
 					auto irqLock = frg::guard(&irqMutex());
 					auto lock = frg::guard(&_mutex);
+					auto totalPages = physicalAllocator->numTotalPages();
+					auto usedPages = physicalAllocator->numUsedPages();
+					infoLogger() << "thor: " << (usedPages * kPageSize / 1024)
+							<< " KiB / " << (totalPages * kPageSize / 1024)
+							<< " in use" << frg::endlog;
 					infoLogger() << "thor: " << (_cachedSize / 1024)
 							<< " KiB of cached pages" << frg::endlog;
 				}
@@ -857,7 +862,8 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 		assert(pit->lockCount > 0);
 		pit->lockCount--;
 		if(!pit->lockCount) {
-			if(pit->loadState == LoadState::present && pit->transactionState == TxState::none) {
+			if(pit->loadState == LoadState::present && pit->transactionState == TxState::none
+					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 				globalReclaimer->addPage(&pit->cachePage);
 				pit->transactionState = TxState::inReclaim;
 			}
@@ -938,6 +944,42 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 	}
 }
 
+
+void ManagedSpace::incrementUses(CachePage *cachePage) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+	auto cnt = cachePage->useCount.fetch_add(1, std::memory_order_acquire);
+	if(!cnt) {
+		if(page->loadState == LoadState::present
+				&& page->transactionState == TxState::inReclaim) {
+			globalReclaimer->removePage(cachePage);
+			page->transactionState = TxState::none;
+		} else if(page->loadState == LoadState::evicting) {
+			page->loadState = LoadState::present;
+		}
+	}
+}
+
+void ManagedSpace::decrementUses(CachePage *cachePage) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+	auto cnt = cachePage->useCount.fetch_sub(1, std::memory_order_release);
+	assert(cnt > 0);
+	if(cnt == 1) {
+		if(page->loadState == LoadState::present
+				&& page->transactionState == TxState::none
+				&& !page->lockCount) {
+			globalReclaimer->addPage(cachePage);
+			page->transactionState = TxState::inReclaim;
+		}
+	}
+}
 
 void ManagedSpace::markDirty(CachePage *cachePage) {
 	{
@@ -1109,7 +1151,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				assert(pit);
 				assert(pit->transactionState == ManagedSpace::TxState::initialization);
 				pit->loadState = ManagedSpace::LoadState::present;
-				if (pit->lockCount) {
+				if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 					pit->transactionState = ManagedSpace::TxState::none;
 				} else {
 					globalReclaimer->addPage(&pit->cachePage);
@@ -1127,7 +1169,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 				assert(pit->transactionState == ManagedSpace::TxState::writeback);
 				if(!pit->stillDirty) {
-					if (pit->lockCount) {
+					if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 						pit->transactionState = ManagedSpace::TxState::none;
 					} else {
 						globalReclaimer->addPage(&pit->cachePage);

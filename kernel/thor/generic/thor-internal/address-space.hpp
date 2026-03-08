@@ -81,14 +81,20 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
+		if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+			incrementUses(*descriptor);
 		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				markDirty(*descriptor);
 		}
-		if(!(status & page_status::present))
+		if(!(status & page_status::present)) {
 			affected.rss += kPageSize;
+		} else {
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				decrementUses(*descriptor);
+		}
 		c.advance4k();
 	}
 	return affected;
@@ -131,6 +137,8 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 	auto effectiveFlags = flags;
 	if (!physicalRange.isMutable)
 		effectiveFlags &= ~page_access::write;
+	if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+		incrementUses(*descriptor);
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
@@ -138,6 +146,8 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				markDirty(*descriptor);
 		}
+		if(auto descriptor = globalPfnDb().find(oldPhysical))
+			decrementUses(*descriptor);
 	} else {
 		affected.rss = kPageSize;
 	}
@@ -177,6 +187,8 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
 		}
+		if(auto descriptor = globalPfnDb().find(physical))
+			decrementUses(*descriptor);
 		affected.rss -= kPageSize;
 		affected.anyRevoked = true;
 
@@ -199,6 +211,8 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 				if(auto descriptor = globalPfnDb().find(physical))
 					markDirty(*descriptor);
 			}
+			if(auto descriptor = globalPfnDb().find(physical))
+				decrementUses(*descriptor);
 			affected.rss -= kPageSize;
 			affected.anyRevoked = true;
 		}
