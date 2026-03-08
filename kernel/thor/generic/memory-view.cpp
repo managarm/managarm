@@ -782,7 +782,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				globalReclaimer->removePage(&pit->cachePage);
 			}
 
-			co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
+			co_await self->_evictQueue.fenceEphemeral();
 
 			PhysicalAddr physical;
 			frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> invalidateMonitor;
@@ -1036,7 +1036,7 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 		// Do nothing for now.
 	}else if(newPages < _managed->numPages) {
 		// TODO: also free the affected pages!
-		co_await _managed->_evictQueue.evictRange(newPages << kPageShift,
+		co_await _managed->_evictQueue.breakRange(newPages << kPageShift,
 				oldPages << kPageShift);
 	}
 
@@ -1306,7 +1306,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 		}
 
 		if(shouldEvict) {
-			co_await _managed->_evictQueue.evictRange(index << kPageShift, kPageSize);
+			co_await _managed->_evictQueue.breakRange(index << kPageShift, kPageSize);
 			PhysicalAddr physical;
 			{
 				auto irqLock = frg::guard(&irqMutex());
@@ -1743,7 +1743,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		}
 	}
 
-	co_await _evictQueue.evictRange(0, _length);
+	co_await _evictQueue.breakRange(0, _length);
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
@@ -1943,7 +1943,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	co_await _evictQueue.evictRange(alignedOffset, kPageSize);
+	co_await _evictQueue.breakRange(alignedOffset, kPageSize);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());

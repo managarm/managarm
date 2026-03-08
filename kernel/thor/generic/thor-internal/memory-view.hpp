@@ -175,7 +175,17 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
+enum class EvictMode {
+	none,
+	// Evicts all pages in a range.
+	breakRange,
+	// Waits until all temporary references to pages disappear. No range is specified.
+	// CachePages with a useCount of zero can be reclaimed after this fence.
+	fenceEphemeral,
+};
+
 struct RangeToEvict {
+	EvictMode mode;
 	uintptr_t offset;
 	size_t size;
 };
@@ -190,6 +200,7 @@ struct Eviction {
 		return static_cast<bool>(handle_);
 	}
 
+	EvictMode mode() { return handle_->mode; }
 	uintptr_t offset() { return handle_->offset; }
 	uintptr_t size() { return handle_->size; }
 
@@ -235,8 +246,11 @@ struct EvictionQueue {
 		return observer->agent_.poll(std::move(ct));
 	}
 
-	auto evictRange(uintptr_t offset, size_t size) {
-		return mechanism_.post(RangeToEvict{offset, size});
+	auto breakRange(uintptr_t offset, size_t size) {
+		return mechanism_.post(RangeToEvict{EvictMode::breakRange, offset, size});
+	}
+	auto fenceEphemeral() {
+		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
 	}
 
 private:

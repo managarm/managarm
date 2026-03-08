@@ -146,41 +146,54 @@ coroutine<void> Mapping::runEvictionLoop() {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
 			break;
-		if(eviction.offset() + eviction.size() <= viewOffset
-				|| eviction.offset() >= viewOffset + length) {
-			eviction.done();
-			continue;
-		}
+		if (eviction.mode() == EvictMode::breakRange) {
+			if(eviction.offset() + eviction.size() <= viewOffset
+					|| eviction.offset() >= viewOffset + length) {
+				eviction.done();
+				continue;
+			}
 
-		// Begin and end offsets of the region that we need to unmap.
-		auto shootBegin = frg::max(eviction.offset(), viewOffset);
-		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
-				viewOffset + length);
+			// Begin and end offsets of the region that we need to unmap.
+			auto shootBegin = frg::max(eviction.offset(), viewOffset);
+			auto shootEnd = frg::min(eviction.offset() + eviction.size(),
+					viewOffset + length);
 
-		// Offset from the beginning of the mapping.
-		auto shootOffset = shootBegin - viewOffset;
-		auto shootSize = shootEnd - shootBegin;
-		assert(shootSize);
-		assert(!(shootOffset & (kPageSize - 1)));
-		assert(!(shootSize & (kPageSize - 1)));
+			// Offset from the beginning of the mapping.
+			auto shootOffset = shootBegin - viewOffset;
+			auto shootSize = shootEnd - shootBegin;
+			assert(shootSize);
+			assert(!(shootOffset & (kPageSize - 1)));
+			assert(!(shootSize & (kPageSize - 1)));
 
-		co_await exposeRcu.barrier();
+			co_await exposeRcu.barrier();
 
-		bool anyRevoked;
-		{
-			LocalRcuEngine::Guard revokeGuard{revokeRcu};
+			bool anyRevoked;
+			{
+				LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
-			// Unmap the memory range.
-			auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
-			assert(unmapOutcome);
-			owner->rss_.fetch_add(unmapOutcome.value().rss, std::memory_order_relaxed);
-			anyRevoked = unmapOutcome.value().anyRevoked;
+				// Unmap the memory range.
+				auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
+				assert(unmapOutcome);
+				owner->rss_.fetch_add(unmapOutcome.value().rss, std::memory_order_relaxed);
+				anyRevoked = unmapOutcome.value().anyRevoked;
 
-			if(anyRevoked)
-				co_await owner->_ops->shootdown(address + shootOffset, shootSize);
-		}
-		if(!anyRevoked)
+				if(anyRevoked)
+					co_await owner->_ops->shootdown(address + shootOffset, shootSize);
+			}
+			if(!anyRevoked)
+				co_await revokeRcu.barrier();
+		} else {
+			assert(eviction.mode() == EvictMode::fenceEphemeral);
+
+			// fenceEphemeral affects all CachePages with a use count of zero.
+			// However, all mapped pages have use counts > zero.
+
+			// Ensure that no references remain (aside from permanent ones in PTEs).
+			co_await exposeRcu.barrier();
+			// Ensure that prior unmapping + shootdown is complete.
+			// This is needed since prior unmapping of this mapping may have decreased the use count to zero.
 			co_await revokeRcu.barrier();
+		}
 
 		eviction.done();
 	}
