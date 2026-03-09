@@ -814,6 +814,52 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				invalidateMonitor->event.raise();
 		}
 	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
+
+	[] (ManagedSpace *self, enable_detached_coroutine) -> void {
+		while(true) {
+			co_await self->_dirtyEvent.async_wait_if([self] () -> bool {
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+				return self->_dirtyList.empty();
+			});
+
+			frg::intrusive_list<
+				CachePage,
+				frg::locate_member<CachePage, frg::default_list_hook<CachePage>, &CachePage::listHook>
+			> pending;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+				pending.splice(pending.end(), self->_dirtyList);
+			}
+			if (pending.empty())
+				continue;
+
+			co_await self->_evictQueue.fenceDirty();
+
+			ManageList mgmtPending;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+
+				while(!pending.empty()) {
+					auto *cp = pending.pop_front();
+					auto *page = frg::container_of(cp, &ManagedPage::cachePage);
+					assert(page->transactionState == TxState::dirty);
+					page->transactionState = TxState::wantWriteback;
+					page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+					self->_writebackList.push_back(cp);
+				}
+
+				self->_progressManagement(mgmtPending);
+			}
+
+			while(!mgmtPending.empty()) {
+				auto node = mgmtPending.pop_front();
+				node->completionEvent.raise();
+			}
+		}
+	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -982,6 +1028,7 @@ void ManagedSpace::decrementUses(CachePage *cachePage) {
 }
 
 void ManagedSpace::markDirty(CachePage *cachePage) {
+	bool needsEvent = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -996,22 +1043,24 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 					|| page->transactionState == TxState::inReclaim)) {
 			if(page->transactionState == TxState::inReclaim)
 				globalReclaimer->removePage(cachePage);
-			page->transactionState = TxState::wantWriteback;
-			_writebackList.push_back(cachePage);
-			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+			page->transactionState = TxState::dirty;
+			_dirtyList.push_back(cachePage);
+			needsEvent = true;
 		} else if(page->loadState == LoadState::evicting) {
 			page->loadState = LoadState::present;
-			page->transactionState = TxState::wantWriteback;
-			_writebackList.push_back(cachePage);
-			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+			page->transactionState = TxState::dirty;
+			_dirtyList.push_back(cachePage);
+			needsEvent = true;
 		} else if(page->transactionState == TxState::writeback) {
 			page->stillDirty = true;
 		} else {
-			assert(page->transactionState == TxState::wantWriteback);
+			assert(page->transactionState == TxState::dirty
+					|| page->transactionState == TxState::wantWriteback);
 		}
 	}
 
-	_deferredManagement.invoke();
+	if(needsEvent)
+		_dirtyEvent.raise();
 }
 
 // --------------------------------------------------------

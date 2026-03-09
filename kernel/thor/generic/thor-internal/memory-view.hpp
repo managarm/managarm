@@ -182,6 +182,9 @@ enum class EvictMode {
 	// Waits until all temporary references to pages disappear. No range is specified.
 	// CachePages with a useCount of zero can be reclaimed after this fence.
 	fenceEphemeral,
+	// Waits until dirty pages have been marked as clean. No range is specified.
+	// Dirty pages can be written back after this fence.
+	fenceDirty,
 };
 
 struct RangeToEvict {
@@ -251,6 +254,9 @@ struct EvictionQueue {
 	}
 	auto fenceEphemeral() {
 		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
+	}
+	auto fenceDirty() {
+		return mechanism_.post(RangeToEvict{EvictMode::fenceDirty, 0, 0});
 	}
 
 private:
@@ -571,6 +577,10 @@ struct ManagedSpace : CacheBundle {
 		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
 		// Valid in LoadState::missing.
 		initialization,
+		// Page is in _dirtyList (or the draining coroutine's local pending list),
+		// waiting for a fenceDirty() to complete before being promoted to _writebackList.
+		// Valid in LoadState::present.
+		dirty,
 		// Page is in _writebackList.
 		// Valid in LoadState::present.
 		wantWriteback,
@@ -624,32 +634,6 @@ struct ManagedSpace : CacheBundle {
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
 
-	// Calls management callbacks from a WQ; required to implement markDirty().
-	struct DeferredManagement {
-		void setUp() {
-			self->selfPtr.ctr()->increment();
-		}
-
-		void execute() {
-			ManageList pending;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->mutex);
-
-				self->_progressManagement(pending);
-			}
-
-			while(!pending.empty()) {
-				auto node = pending.pop_front();
-				node->completionEvent.raise();
-			}
-
-			self->selfPtr.ctr()->decrement();
-		}
-
-		ManagedSpace *self;
-	};
-
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
 
@@ -681,6 +665,15 @@ struct ManagedSpace : CacheBundle {
 			frg::default_list_hook<CachePage>,
 			&CachePage::listHook
 		>
+	> _dirtyList;
+
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::listHook
+		>
 	> _initializationList;
 
 	frg::intrusive_list<
@@ -694,7 +687,7 @@ struct ManagedSpace : CacheBundle {
 
 	ManageList _managementQueue;
 
-	DeferredWork<DeferredManagement> _deferredManagement{{this}};
+	async::recurring_event _dirtyEvent;
 };
 
 struct BackingMemory final : MemoryView {

@@ -182,6 +182,10 @@ coroutine<void> Mapping::runEvictionLoop() {
 			}
 			if(!anyRevoked)
 				co_await revokeRcu.barrier();
+		} else if(eviction.mode() == EvictMode::fenceDirty) {
+			// Ensure all in-flight revokeRcu critical sections (which will clear
+			// PTE dirty bits) have completed.
+			co_await revokeRcu.barrier();
 		} else {
 			assert(eviction.mode() == EvictMode::fenceEphemeral);
 
