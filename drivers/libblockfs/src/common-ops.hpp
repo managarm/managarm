@@ -193,6 +193,9 @@ async::result<frg::expected<protocols::fs::Error, size_t>> doWrite(void *object,
 	auto self = static_cast<File *>(object);
 	auto inode = std::static_pointer_cast<Inode>(self->inode);
 
+	if (!self->write)
+		co_return protocols::fs::Error::badFileDescriptor;
+
 	co_await self->mutex.async_lock();
 	frg::unique_lock lock{frg::adopt_lock, self->mutex};
 

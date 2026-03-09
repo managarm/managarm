@@ -90,6 +90,9 @@ enum class Error {
 	noFileDescriptorsAvailable,
 
 	notSupported,
+
+	// Corresponds with EBADF
+	badFileDescriptor,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -123,6 +126,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::noSuchProcess: return protocols::fs::Error::noSuchProcess;
 		case Error::noFileDescriptorsAvailable: return protocols::fs::Error::noFileDescriptorsAvailable;
 		case Error::notSupported: return protocols::fs::Error::notSupported;
+		case Error::badFileDescriptor: return protocols::fs::Error::badFileDescriptor;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -167,6 +171,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::notConnected:
 		case Error::noSpaceLeft:
 		case Error::notSocket:
+		case Error::badFileDescriptor:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return managarm::posix::Errors::INTERNAL_ERROR;
 	}

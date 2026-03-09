@@ -50,6 +50,7 @@ enum class Error {
 	nameTooLong = 33,
 	noFileDescriptorsAvailable = 34,
 	notSupported = 35,
+	badFileDescriptor = 36,
 };
 
 struct ToFsError {
@@ -95,6 +96,7 @@ inline managarm::fs::Errors operator|(Error e, ToFsError) {
 		case Error::nameTooLong: return managarm::fs::Errors::NAME_TOO_LONG;
 		case Error::noFileDescriptorsAvailable: return managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
 		case Error::notSupported: return managarm::fs::Errors::NOT_SUPPORTED;
+		case Error::badFileDescriptor: return managarm::fs::Errors::BAD_FILE_DESCRIPTOR;
 	}
 }
 
@@ -141,6 +143,7 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 		case managarm::fs::Errors::NAME_TOO_LONG: return Error::nameTooLong;
 		case managarm::fs::Errors::NO_FILE_DESCRIPTORS_AVAILABLE: return Error::noFileDescriptorsAvailable;
 		case managarm::fs::Errors::NOT_SUPPORTED: return Error::notSupported;
+		case managarm::fs::Errors::BAD_FILE_DESCRIPTOR: return Error::badFileDescriptor;
 	}
 }
 
