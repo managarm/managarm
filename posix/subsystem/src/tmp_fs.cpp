@@ -668,6 +668,9 @@ async::result<frg::expected<Error, size_t>>
 MemoryFile::writeAll(Process *, const void *buffer, size_t length) {
 	auto node = static_cast<MemoryNode *>(associatedLink()->getTarget().get());
 
+	if (!(flags_ & semanticWrite))
+		co_return Error::badFileDescriptor;
+
 	if(flags_ & semanticAppend)
 		_offset = node->_fileSize;
 
