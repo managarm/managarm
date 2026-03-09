@@ -39,8 +39,8 @@ private:
 struct VirtualSpace;
 
 struct PagesAffected {
-	// Change in RSS (may be positive or negative).
-	ptrdiff_t rss{0};
+	ptrdiff_t rssIncrease{0};
+	ptrdiff_t rssDecrease{0};
 	// Whether any page had its access rights revoked.
 	// This covers both pages that have their permission restricted and pages that are unmapped.
 	bool anyRevoked{false};
@@ -89,9 +89,9 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				markDirty(*descriptor);
 		}
-		if(!(status & page_status::present)) {
-			affected.rss += kPageSize;
-		} else {
+		affected.rssIncrease += kPageSize;
+		if(status & page_status::present) {
+			affected.rssDecrease += kPageSize;
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				decrementUses(*descriptor);
 		}
@@ -148,9 +148,9 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 		}
 		if(auto descriptor = globalPfnDb().find(oldPhysical))
 			decrementUses(*descriptor);
-	} else {
-		affected.rss = kPageSize;
+		affected.rssDecrease += kPageSize;
 	}
+	affected.rssIncrease += kPageSize;
 
 	return affected;
 }
@@ -190,7 +190,7 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 		}
 		if(auto descriptor = globalPfnDb().find(physical))
 			decrementUses(*descriptor);
-		affected.rss -= kPageSize;
+		affected.rssDecrease += kPageSize;
 		affected.anyRevoked = true;
 
 		c.advance4k();
@@ -214,7 +214,7 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 			}
 			if(auto descriptor = globalPfnDb().find(physical))
 				decrementUses(*descriptor);
-			affected.rss -= kPageSize;
+			affected.rssDecrease += kPageSize;
 			affected.anyRevoked = true;
 		}
 		c.advance4k();
