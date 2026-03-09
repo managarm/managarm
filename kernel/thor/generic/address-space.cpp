@@ -431,10 +431,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		);
 		mapping->selfPtr = mapping;
 
-		auto caching = CachingMode::null;
-		if(slice->getCachingFlags() == cacheWriteCombine)
-			caching = CachingMode::writeCombine;
-
 		// Install the new mapping object.
 		_mappings.insert(mapping.get());
 
@@ -445,24 +441,38 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		mapping.ctr()->increment();
 		mapping->view->addObserver(&mapping->observer);
 
-		// Not populating the range is the default.
-		// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
-		// that need to happen when an already mapped page is unmapped during copy-on-write.
-		if (flags & kMapPopulate) {
+	}
+
+	// Not populating the range is the default.
+	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
+	// that need to happen when an already mapped page is unmapped during copy-on-write.
+	if (flags & kMapPopulate) {
+		auto caching = CachingMode::null;
+		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
+		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+
+		if(mapping->state.load(std::memory_order_relaxed) == MappingState::active) {
+			auto actualMappingFlags = mapping->flags.load(std::memory_order_relaxed);
 			uint32_t pageFlags = 0;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
 				pageFlags |= page_access::write;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 				pageFlags |= page_access::execute;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 				pageFlags |= page_access::read;
 
-			LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
-			auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-					mapping->viewOffset, mapping->length, pageFlags, caching);
-			assert(mapOutcome);
-			rss_.fetch_add(mapOutcome.value().rss, std::memory_order_relaxed);
+				auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
+						mapping->viewOffset, mapping->length, pageFlags, caching);
+				assert(mapOutcome);
+				rss_.fetch_add(mapOutcome.value().rss, std::memory_order_relaxed);
+				if(mapOutcome.value().anyRevoked)
+					co_await _ops->shootdown(mapping->address, mapping->length);
+			}
 		}
 	}
 
@@ -585,12 +595,19 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
 		assert(mappingOffset + mappingChunk <= mapping->length);
 
-		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
-		assert(cleanOutcome);
+		bool anyRevoked;
+		{
+			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+			auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
+			assert(cleanOutcome);
+			anyRevoked = cleanOutcome.value().anyRevoked;
+			if(anyRevoked)
+				co_await _ops->shootdown(mapping->address + mappingOffset, mappingChunk);
+		}
 
 		overallProgress += mappingChunk;
 	}
-	co_await _ops->shootdown(alignedAddress, alignedSize);
 
 	co_return {};
 }
@@ -650,30 +667,36 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 				continue;
 			auto flags = mapping->flags.load(std::memory_order_relaxed);
 
-			auto remapOutcome = _ops->faultPage(
-				address & ~(kPageSize - 1),
-				mapping->view.get(),
-				mapping->viewOffset + offset,
-				fetchFlags,
-				compilePageFlags(flags),
-				caching
-			);
-			if(!remapOutcome) {
-				if(remapOutcome.error() == Error::spuriousOperation) {
-					// Spurious page faults are the result of race conditions.
-					// They should be rare. If they happen too often, something is probably wrong!
-					warningLogger() << "thor: Spurious page fault" << frg::endlog;
-				}else{
-					assert(remapOutcome.error() == Error::fault);
-					warningLogger() << "thor: Page still not available after touchRange()"
-						<< frg::endlog;
-					continue;
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+				auto remapOutcome = _ops->faultPage(
+					address & ~(kPageSize - 1),
+					mapping->view.get(),
+					mapping->viewOffset + offset,
+					fetchFlags,
+					compilePageFlags(flags),
+					caching
+				);
+				if(!remapOutcome) {
+					if(remapOutcome.error() == Error::spuriousOperation) {
+						// Spurious page faults are the result of race conditions.
+						// They should be rare. If they happen too often, something is probably wrong!
+						warningLogger() << "thor: Spurious page fault" << frg::endlog;
+					}else{
+						assert(remapOutcome.error() == Error::fault);
+						warningLogger() << "thor: Page still not available after touchRange()"
+							<< frg::endlog;
+						continue;
+					}
+				} else {
+					rss_.fetch_add(remapOutcome.value().rss, std::memory_order_relaxed);
+					if(remapOutcome.value().anyRevoked)
+						co_await _ops->shootdown(address & ~(kPageSize - 1), kPageSize);
 				}
-			} else {
-				rss_.fetch_add(remapOutcome.value().rss, std::memory_order_relaxed);
 			}
+			co_return {};
 		}
-		co_return {};
 	}
 }
 

@@ -160,6 +160,7 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	PagesAffected affected{};
 	Cursor c{ps, va};
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
@@ -167,10 +168,10 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 		assert(status & page_status::dirty);
 		if(auto descriptor = globalPfnDb().find(physical))
 			markDirty(*descriptor);
-
+		affected.anyRevoked = true;
 		c.advance4k();
 	}
-	return PagesAffected{};
+	return affected;
 }
 
 template<typename Cursor, typename PageSpace>
