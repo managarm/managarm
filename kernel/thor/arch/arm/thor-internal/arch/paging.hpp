@@ -143,7 +143,7 @@ struct ARMCursorPolicy {
 		return pte;
 	}
 
-	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool vacate) {
 		uint64_t oldPte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
 		while(true) {
 			if(!(oldPte & kPageValid))
@@ -157,6 +157,8 @@ struct ARMCursorPolicy {
 				if(age < 3) {
 					newPte = (oldPte & ~kPageAgeMask) | ((age + 1) << kPageAgeShift);
 				} else {
+					if (!vacate)
+						return {oldPte, false};
 					newPte = 0;
 					unmapped = true;
 				}

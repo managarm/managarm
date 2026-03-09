@@ -63,7 +63,7 @@ struct NptCursorPolicy {
 		return pte;
 	}
 
-	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool) {
 		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
 	}
 
@@ -140,7 +140,7 @@ frg::expected<Error, PagesAffected> NptOperations::unmapPages(VirtualAddr va, si
 	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t) {
+frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t, bool) {
 	return PagesAffected{};
 }
 

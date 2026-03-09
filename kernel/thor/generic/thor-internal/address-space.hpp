@@ -5,6 +5,7 @@
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <frg/container_of.hpp>
 #include <frg/expected.hpp>
 #include <thor-internal/coroutine.hpp>
@@ -41,6 +42,8 @@ struct VirtualSpace;
 struct PagesAffected {
 	ptrdiff_t rssIncrease{0};
 	ptrdiff_t rssDecrease{0};
+	// Number of bytes that were scanned by agePages().
+	ptrdiff_t scanned{0};
 	// Whether any page had its access rights revoked.
 	// This covers both pages that have their permission restricted and pages that are unmapped.
 	bool anyRevoked{false};
@@ -199,14 +202,15 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size, bool vacate) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
 	Cursor c{ps, va};
 	while(c.findPresent(va + size)) {
-		auto [status, physical, unmapped] = c.age4k();
+		affected.scanned += kPageSize;
+		auto [status, physical, unmapped] = c.age4k(vacate);
 		if(unmapped) {
 			if(status & page_status::dirty) {
 				if(auto descriptor = globalPfnDb().find(physical))
@@ -240,7 +244,7 @@ struct VirtualOperations {
 
 	virtual frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for retire()
@@ -667,6 +671,16 @@ private:
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 
+	// Desired working set size of the process.
+	// This is a soft limit, we will (asynchronously) unmap pages once we are above this limit.
+	ptrdiff_t workingSetGoal_();
+
+	// Updates rss_ and agingTurnover_.
+	void notifyRss_(const PagesAffected &affected);
+
+	// Returns true if the aging code should continue scanning accessed bits.
+	bool shouldContinueAging_();
+
 	// Potentially splits mappings into two parts at (address) and (address + size).
 	// Returns the start and end mappings that are within the specified range.
 	coroutine<frg::tuple<Mapping *, Mapping *>> _splitMappings(uintptr_t address, size_t size);
@@ -694,6 +708,11 @@ private:
 
 	std::atomic<ptrdiff_t> rss_;
 
+	// Number of pages faulted minus number of pages scanned by aging.
+	// This is used by shouldContinueAging_().
+	std::atomic<ptrdiff_t> agingTurnover_{0};
+	// Raise once shouldContinueAging_() becomes true.
+	async::recurring_event agingEvent_;
 	async::cancellation_event cancelAging_;
 	async::oneshot_event agingDoneEvent_;
 };
@@ -744,9 +763,9 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, size);
 		}
 
-		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) override {
 			return agePagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, size);
+					va, size, vacate);
 		}
 
 	private:

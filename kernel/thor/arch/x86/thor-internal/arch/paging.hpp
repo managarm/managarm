@@ -103,7 +103,7 @@ struct X86CursorPolicy {
 		return pte;
 	}
 
-	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr) {
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool vacate) {
 		uint64_t oldPte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
 		while(true) {
 			if(!(oldPte & ptePresent))
@@ -117,6 +117,8 @@ struct X86CursorPolicy {
 				if(age < 3) {
 					newPte = (oldPte & ~pteAgeMask) | ((age + 1) << pteAgeShift);
 				} else {
+					if (!vacate)
+						return {oldPte, false};
 					newPte = 0;
 					unmapped = true;
 				}

@@ -49,7 +49,7 @@ struct EptOperations final : VirtualOperations {
 
 	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
 
-	frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size) override;
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) override;
 
 private:
 	EptPageSpace *pageSpace_;

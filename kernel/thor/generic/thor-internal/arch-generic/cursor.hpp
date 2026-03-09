@@ -33,7 +33,7 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	// Clean the given PTE (remove the dirty status). Returns the previous PTE value.
 	{ T::pteClean(ptePtr) } -> std::same_as<uint64_t>;
 	// Age the given PTE. Returns the previous PTE value and whether the page was unmapped.
-	{ T::pteAge(ptePtr) } -> std::same_as<std::pair<uint64_t, bool>>;
+	{ T::pteAge(ptePtr, bool{}) } -> std::same_as<std::pair<uint64_t, bool>>;
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
@@ -213,10 +213,10 @@ public:
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
-	std::tuple<PageStatus, PhysicalAddr, bool> age4k() {
+	std::tuple<PageStatus, PhysicalAddr, bool> age4k(bool vacate) {
 		if(!accessors_[lastLevel])
 			return {0, PhysicalAddr(-1), false};
-		auto [oldPte, unmapped] = Policy::pteAge(currentPtePtr_());
+		auto [oldPte, unmapped] = Policy::pteAge(currentPtePtr_(), vacate);
 		if(unmapped)
 			Policy::pteWriteBarrier();
 		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte), unmapped};
