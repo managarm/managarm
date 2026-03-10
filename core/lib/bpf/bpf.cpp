@@ -122,6 +122,10 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 				bpf_log_op("RET k (0x%02x)", inst.k);
 				return inst.k;
 			}
+			case Op::RET_A: {
+				bpf_log_op("RET A (0x%02x)", A);
+				return A;
+			}
 			default:
 				// TODO: for now, an unknown BPF instruction is a hard failure as our coverage of
 				// the instruction set is quite incomplete. In the future, once that doesn't hold
