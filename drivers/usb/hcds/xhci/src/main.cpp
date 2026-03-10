@@ -450,7 +450,10 @@ void Interrupter::initialize() {
 
 	_updateDequeue();
 
+	_space.store(interrupter::imod, 160);
+
 	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::enable(1));
+	_space.load(interrupter::iman);
 }
 
 async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
@@ -500,6 +503,7 @@ bool Interrupter::_isBusy() {
 
 void Interrupter::_clearPending() {
 	_space.store(interrupter::iman, _space.load(interrupter::iman) | iman::pending(1));
+	_space.load(interrupter::iman);
 }
 
 // ------------------------------------------------------------------------
