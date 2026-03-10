@@ -469,11 +469,18 @@ async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 			continue;
 		}
 
+		//uint64_t startNs, endNs;
+		//HEL_CHECK(helGetClock(&startNs));
+
 		_clearPending();
 		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
 
 		_ring->processRing();
 		_updateDequeue();
+
+		//HEL_CHECK(helGetClock(&endNs));
+		//if (endNs - startNs > 10'000'000)
+		//	std::println("xhci: IRQ processing took {} ns", endNs - startNs);
 	}
 }
 
@@ -1150,6 +1157,10 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost) {
 	ProducerRing::Transaction tx;
 
+	//uint64_t startNs, endNs;
+
+	//HEL_CHECK(helGetClock(&startNs));
+
 	// Invalidate the buffer before posting the TD in case the ring is already running.
 	if (toHost)
 		_device->controller()->barrier.clean_or_invalidate(buffer);
@@ -1169,6 +1180,11 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 
 	if (toHost)
 		_device->controller()->barrier.invalidate(buffer);
+
+	//HEL_CHECK(helGetClock(&endNs));
+
+	//std::println("{} EP {} on slot {}: TD took {} ns to complete",
+	//		_device->controller(), _endpointId, _device->slot(), endNs - startNs);
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
 		auto res = co_await _resetAfterError(nextDequeue);
