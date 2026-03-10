@@ -132,7 +132,7 @@ struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
 	readDescriptor(arch::dma_buffer_view dest, uint16_t desc);
 
 	async::result<frg::expected<proto::UsbError>>
-	setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
+	setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval);
 
 	async::result<frg::expected<proto::UsbError>>
 	configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed);
@@ -160,7 +160,7 @@ private:
 
 	DeviceContext _devCtx;
 
-	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type);
+	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval);
 
 	std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
 

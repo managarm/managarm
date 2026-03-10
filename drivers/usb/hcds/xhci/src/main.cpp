@@ -9,6 +9,7 @@
 #include <print>
 
 #include <arch/dma_pool.hpp>
+#include <frg/bitops.hpp>
 #include <async/result.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -709,6 +710,60 @@ Device::configurationDescriptor(uint8_t configuration) {
 	co_return std::string{(char *)descriptor.data(), descriptor.size()};
 }
 
+namespace {
+
+int bIntervalIntoMicroframes(proto::DeviceSpeed speed, proto::EndpointType type, uint8_t bInterval) {
+	using enum proto::DeviceSpeed;
+	using enum proto::EndpointType;
+
+	std::println("bIntervalIntoMicroframes({}, {}, {})", (int)speed, (int)type, bInterval);
+
+	auto framesToExponent = [] (int interval, int min, int max) {
+		int exponent = frg::floor_log2(interval);
+		return std::clamp(exponent, min, max);
+	};
+
+	auto asMicroframes = [&] {
+		if (bInterval == 0)
+			return 0;
+		return framesToExponent(bInterval, 0, 15);
+	};
+
+	auto asExponent = [&] {
+		return std::clamp(int{bInterval}, 1, 16) - 1;
+	};
+
+	auto asFrames = [&] {
+		return framesToExponent(bInterval * 8, 3, 10);
+	};
+
+	switch (type) {
+		case control:
+		case bulk:
+			if (speed == highSpeed) {
+				return asMicroframes(); // Max NAK rate
+			}
+			return 0;
+		case isochronous:
+			if (speed == fullSpeed) {
+				// + 3 => * 2**3 to turn frames into microframes
+				return asExponent() + 3;
+			}
+			[[fallthrough]];
+		case interrupt:
+			if (speed == superSpeed || speed == highSpeed) {
+				return asExponent();
+			}
+
+			assert((speed == fullSpeed && type == interrupt) || speed == lowSpeed);
+			return asFrames();
+	}
+
+	return 0;
+}
+
+} // namespace anonymous
+
 async::result<frg::expected<proto::UsbError, proto::Configuration>>
 Device::useConfiguration(uint8_t index, uint8_t value) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(index));
@@ -718,6 +773,7 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 		proto::PipeType dir;
 		int packetSize;
 		proto::EndpointType type;
+		int interval;
 	};
 
 	std::vector<EndpointInfo> _eps = {};
@@ -739,12 +795,13 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 		// TODO: Pay attention to interface/alternative.
 		auto packetSize = desc->maxPacketSize & 0x7FF;
 		auto epType = info.endpointType.value();
+		auto interval = info.endpointInterval.value();
 
 		int pipe = info.endpointNumber.value();
 		if (info.endpointIn.value()) {
-			_eps.push_back({pipe, proto::PipeType::in, packetSize, epType});
+			_eps.push_back({pipe, proto::PipeType::in, packetSize, epType, interval});
 		} else {
-			_eps.push_back({pipe, proto::PipeType::out, packetSize, epType});
+			_eps.push_back({pipe, proto::PipeType::out, packetSize, epType, interval});
 		}
 	});
 
@@ -757,10 +814,13 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 	}
 
 	for (auto &ep : _eps) {
-		std::println("{} Setting up {} endpoint {} (max packet size: {})",
-				_controller, ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize);
+		auto interval = bIntervalIntoMicroframes(_speed, ep.type, ep.interval);
 
-		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type));
+		std::println("{} Setting up {} endpoint {} (max packet size: {}) (bInterval {} = 2**{} microframes)",
+				_controller, ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize,
+				ep.interval, interval);
+
+		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type, interval));
 	}
 
 	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
@@ -865,7 +925,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	}
 	_speed = speed;
 
-	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control);
+	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control, 0);
 
 	_controller->setDeviceContext(_slotId, _devCtx);
 
@@ -922,7 +982,7 @@ static inline uint32_t getDefaultAverageTrbLen(proto::EndpointType type) {
 
 
 async::result<frg::expected<proto::UsbError>>
-Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval) {
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
@@ -931,7 +991,7 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 	inputCtx.get(inputCtxSlot) |= SlotFields::ctxEntries(31);
 
-	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type);
+	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type, interval);
 
 	FRG_CO_TRY(co_await _controller->configureEndpoint(_slotId, inputCtx));
 
@@ -963,7 +1023,7 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 	co_return frg::success;
 }
 
-void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type) {
+void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval) {
 	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
@@ -976,9 +1036,7 @@ void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, si
 	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
 
 	epCtx |= EpFields::errorCount(3);
-	// TODO(qookie): Compute this from bInterval, 6 should be a safe guess:
-	// 2**6 * 125us = 8000us (=> 125Hz polling rate).
-	epCtx |= EpFields::interval(6);
+	epCtx |= EpFields::interval(interval);
 	epCtx |= EpFields::epType(getHcdEndpointType(dir, type));
 	epCtx |= EpFields::maxPacketSize(maxPacketSize);
 	// TODO(qookie): This is fine for USB 2 (unless max burst > 0),
