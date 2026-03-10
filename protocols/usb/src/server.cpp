@@ -53,7 +53,7 @@ auto handleXferReq(auto req, auto &endpoint, auto &&...xferArgs) {
 
 } // namespace anonymous
 
-async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
+async::detached serveEndpoint(Device device, Endpoint endpoint, helix::UniqueLane lane) {
 	while(true) {
 		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
 			lane,
@@ -81,9 +81,7 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 				co_return;
 			}
 
-			// TODO(qookie): Use proper pool:
-			//		 something like ep.device.bufferPool()
-			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req->length())};
+			arch::dma_buffer buffer{device.bufferPool(), static_cast<size_t>(req->length())};
 
 			if (req->dir() == managarm::usb::XferDirection::TO_DEVICE) {
 				auto [recvBuffer] = co_await helix_ng::exchangeMsgs(
@@ -157,7 +155,7 @@ async::detached serveEndpoint(Endpoint endpoint, helix::UniqueLane lane) {
 	}
 }
 
-async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
+async::detached serveInterface(Device device, Interface interface, helix::UniqueLane lane) {
 	while(true) {
 		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
 			lane,
@@ -198,7 +196,7 @@ async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
 
-			serveEndpoint(std::move(endpoint), std::move(localLane));
+			serveEndpoint(device, std::move(endpoint), std::move(localLane));
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -226,7 +224,7 @@ async::detached serveInterface(Interface interface, helix::UniqueLane lane) {
 	}
 }
 
-async::detached serveConfiguration(Configuration configuration, helix::UniqueLane lane) {
+async::detached serveConfiguration(Device device, Configuration configuration, helix::UniqueLane lane) {
 	while(true) {
 		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
 			lane,
@@ -266,7 +264,7 @@ async::detached serveConfiguration(Configuration configuration, helix::UniqueLan
 
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
-			serveInterface(std::move(interface), std::move(localLane));
+			serveInterface(device, std::move(interface), std::move(localLane));
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
@@ -382,7 +380,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 				continue;
 			}
 
-			arch::dma_object<SetupPacket> setup{nullptr};
+			arch::dma_object<SetupPacket> setup{device.setupPool()};
 
 			auto [recvBuffer] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -391,7 +389,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 			HEL_CHECK(recvBuffer.error());
 
-			arch::dma_buffer buffer{nullptr, static_cast<size_t>(req->length())};
+			arch::dma_buffer buffer{device.bufferPool(), static_cast<size_t>(req->length())};
 
 			if (req->dir() == managarm::usb::XferDirection::TO_DEVICE) {
 				auto [recvBuffer] = co_await helix_ng::exchangeMsgs(
@@ -458,7 +456,7 @@ async::detached serve(Device device, helix::UniqueLane lane) {
 
 			helix::UniqueLane localLane, remoteLane;
 			std::tie(localLane, remoteLane) = helix::createStream();
-			serveConfiguration(std::move(configuration), std::move(localLane));
+			serveConfiguration(device, std::move(configuration), std::move(localLane));
 
 			managarm::usb::SvrResponse resp;
 			resp.set_error(managarm::usb::Errors::SUCCESS);
