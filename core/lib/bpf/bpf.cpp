@@ -2,6 +2,9 @@
 #include <core/bpf.hpp>
 
 bool Bpf::validate() {
+	if (prog_.empty())
+		return false;
+
 	for(size_t pc = 0; pc < prog_.size(); pc++) {
 		auto inst = prog_[pc];
 
