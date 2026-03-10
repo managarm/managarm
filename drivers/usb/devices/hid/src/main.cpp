@@ -661,10 +661,11 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 				return;
 
 			auto desc = static_cast<proto::EndpointDescriptor *>(p);
-			assert(!in_endp_number);
 
-			in_endp_number = info.endpointNumber;
-			in_endp_pktsize = desc->maxPacketSize;
+			if (!in_endp_number) {
+				in_endp_number = info.endpointNumber;
+				in_endp_pktsize = desc->maxPacketSize;
+			}
 		}
 	});
 
