@@ -276,6 +276,7 @@ void walkConfiguration(std::string buffer, F functor) {
 		std::optional<int> endpointNumber;
 		std::optional<bool> endpointIn;
 		std::optional<EndpointType> endpointType;
+		std::optional<uint8_t> endpointInterval;
 	} info;
 
 	auto p = &buffer[0];
@@ -308,6 +309,7 @@ void walkConfiguration(std::string buffer, F functor) {
 			info.endpointNumber = desc->endpointAddress & 0x0F;
 			info.endpointIn = desc->endpointAddress & 0x80;
 			info.endpointType = static_cast<EndpointType>(desc->attributes & 0x03);
+			info.endpointInterval = desc->interval;
 		}
 
 		functor(base->descriptorType, base->length, base, info);
