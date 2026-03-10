@@ -23,8 +23,10 @@ struct Bpf {
 		LD_W_ABS = BPF_LD | BPF_W | BPF_ABS,
 		LD_W_IND = BPF_LD | BPF_W | BPF_IND,
 		MISC_TAX = BPF_MISC | BPF_TAX,
+		MISC_TXA = BPF_MISC | BPF_TXA,
 		RET_A = BPF_RET | BPF_A,
 		RET_K = BPF_RET | BPF_K,
+		NEG = BPF_ALU | BPF_NEG,
 	};
 
 	Bpf(std::span<char> fprog)

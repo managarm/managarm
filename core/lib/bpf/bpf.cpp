@@ -32,8 +32,10 @@ bool Bpf::validate() {
 			case Op::LD_W_ABS:
 			case Op::LD_W_IND:
 			case Op::MISC_TAX:
+			case Op::MISC_TXA:
 			case Op::RET_A:
 			case Op::RET_K:
+			case Op::NEG:
 				continue;
 		}
 
@@ -139,6 +141,11 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 				X = A;
 				break;
 			}
+			case Op::MISC_TXA: {
+				bpf_log_op("A <- X (0x%02x)", X);
+				A = X;
+				break;
+			}
 			case Op::RET_K: {
 				bpf_log_op("RET k (0x%02x)", inst.k);
 				return inst.k;
@@ -146,6 +153,11 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 			case Op::RET_A: {
 				bpf_log_op("RET A (0x%02x)", A);
 				return A;
+			}
+			case Op::NEG: {
+				bpf_log_op("NEG (0x%02x)", A);
+				A = -A;
+				break;
 			}
 		}
 
