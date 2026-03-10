@@ -2,6 +2,7 @@
 
 #include <map>
 #include <memory>
+#include <sys/signalfd.h>
 #include <unordered_map>
 
 #include <async/result.hpp>
@@ -360,6 +361,15 @@ struct CompileSignalInfo {
 	void operator() (const SegfaultSignal &info) const;
 
 	siginfo_t *si;
+};
+
+struct CompileSignalFdInfo {
+	void operator() (const UserSignal &info) const;
+	void operator() (const TimerSignal &info) const;
+	void operator() (const ChildSignal &info) const;
+	void operator() (const SegfaultSignal &info) const;
+
+	signalfd_siginfo *si;
 };
 
 struct SignalContext {

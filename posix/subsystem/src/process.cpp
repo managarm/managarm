@@ -509,9 +509,22 @@ void CompileSignalInfo::operator() (const UserSignal &info) const {
 	si->si_value = info.val;
 }
 
+void CompileSignalFdInfo::operator() (const UserSignal &info) const {
+	si->ssi_code = info.code;
+	si->ssi_pid = info.pid;
+	si->ssi_uid = info.uid;
+	si->ssi_ptr = reinterpret_cast<uintptr_t>(info.val.sival_ptr);
+	si->ssi_int = info.val.sival_int;
+}
+
 void CompileSignalInfo::operator() (const TimerSignal &info) const {
 	si->si_code = SI_TIMER;
 	si->si_timerid = info.timerId;
+}
+
+void CompileSignalFdInfo::operator() (const TimerSignal &info) const {
+	si->ssi_code = SI_TIMER;
+	si->ssi_tid = info.timerId;
 }
 
 void CompileSignalInfo::operator() (const ChildSignal &info) const {
@@ -523,6 +536,15 @@ void CompileSignalInfo::operator() (const ChildSignal &info) const {
 	si->si_stime = info.stime;
 }
 
+void CompileSignalFdInfo::operator() (const ChildSignal &info) const {
+	si->ssi_code = info.code;
+	si->ssi_pid = info.pid;
+	si->ssi_uid = info.uid;
+	si->ssi_status = info.status;
+	si->ssi_utime = info.utime;
+	si->ssi_stime = info.stime;
+}
+
 void CompileSignalInfo::operator() (const SegfaultSignal &info) const {
 	si->si_addr = reinterpret_cast<void *>(info.offendingAddress);
 	if (info.accessError)
@@ -532,6 +554,18 @@ void CompileSignalInfo::operator() (const SegfaultSignal &info) const {
 	else {
 		std::println("posix: no SegfaultSignal error code given!");
 		si->si_code = 0;
+	}
+}
+
+void CompileSignalFdInfo::operator() (const SegfaultSignal &info) const {
+	si->ssi_addr = info.offendingAddress;
+	if (info.accessError)
+		si->ssi_code = SEGV_ACCERR;
+	else if (info.mapError)
+		si->ssi_code = SEGV_MAPERR;
+	else {
+		std::println("posix: no SegfaultSignal error code given!");
+		si->ssi_code = 0;
 	}
 }
 

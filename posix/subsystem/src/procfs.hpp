@@ -298,6 +298,13 @@ private:
 	std::string bootId_;
 };
 
+struct HostnameNode final : RegularNode {
+	HostnameNode() {}
+
+	async::result<std::expected<std::string, Error>> show(Process *) override;
+	async::result<void> store(std::string) override;
+};
+
 struct CommNode final : RegularNode {
 	CommNode(Process *process);
 
