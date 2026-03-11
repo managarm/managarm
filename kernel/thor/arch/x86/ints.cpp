@@ -630,7 +630,7 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	cpuData->iseqPtr = &ownIseq;
 
 	// Each sample is an array of uintptr_t.
-	// Element 0 stores the number of entries.
+	// Element 0 stores the number of entries and flags.
 	// Elements >0 store the stack trace IPs.
 	auto emitProfileSample = [&] {
 		constexpr size_t maxDepth = 15;
@@ -648,7 +648,10 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 			});
 		}
 #endif
-		buffer[0] = n;
+		uint32_t flags{0};
+		if (!(*image.rflags() & 0x200))
+			flags |= 1;
+		buffer[0] = n | (static_cast<uint64_t>(flags) << 32);
 		cpuData->localProfileRing->enqueue(buffer, (1 + n) * sizeof(uintptr_t));
 	};
 
