@@ -827,6 +827,8 @@ message ReadEntriesResponse 39 {
 head(128):
 	Errors error;
 	FileType file_type;
+	uint64 ino;
+	int64 offset;
 tail:
 	string path;
 }
