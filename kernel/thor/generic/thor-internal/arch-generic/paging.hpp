@@ -17,7 +17,7 @@ concept ValidCursor = requires (T t, uintptr_t va, PhysicalAddr pa,
 	{ t.advance4k() } -> std::same_as<void>;
 	{ t.findPresent(va) } -> std::same_as<bool>;
 	{ t.findDirty(va) } -> std::same_as<bool>;
-	{ t.map4k(pa, flags, mode) } -> std::same_as<void>;
+	{ t.map4k(pa, flags, mode) } -> std::same_as<std::tuple<PageStatus, PhysicalAddr>>;
 	{ t.remap4k(pa, flags, mode) } -> std::same_as<std::tuple<PageStatus, PhysicalAddr>>;
 	{ t.clean4k() } -> std::same_as<std::tuple<PageStatus, PhysicalAddr>>;
 	{ t.unmap4k() } -> std::same_as<std::tuple<PageStatus, PhysicalAddr>>;

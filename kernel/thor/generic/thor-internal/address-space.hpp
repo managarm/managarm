@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
@@ -70,50 +72,36 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
-		c.map4k(physicalRange.physical, effectiveFlags,
+		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
+		if((status & page_status::present) && (status & page_status::dirty)) {
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				markDirty(*descriptor);
+		}
 		c.advance4k();
 	}
 	return {};
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> remapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+frg::expected<Error, bool> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
-	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	bool anyRestricted = false;
 	Cursor c{ps, va};
 	while(c.virtualAddress() < va + size) {
-		auto progress = c.virtualAddress() - va;
-
-		auto physicalRange = view->peekRange(offset + progress, fetchNone);
-		if(physicalRange.physical == PhysicalAddr(-1)) {
-			auto [status, physical] = c.unmap4k();
-			if((status & page_status::present) && (status & page_status::dirty)) {
-				if(auto descriptor = globalPfnDb().find(physical))
-					markDirty(*descriptor);
-			}
-
-			c.advance4k();
-			continue;
-		}
-		assert(!(physicalRange.physical & (kPageSize - 1)));
-
-		auto effectiveFlags = flags;
-		if (!physicalRange.isMutable)
-			effectiveFlags &= ~page_access::write;
-		auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
-			determineCachingMode(physicalRange.cachingMode, mode));
-		c.advance4k();
-
+		auto [status, physical, restricted] = c.restrict4k(flags, mode);
 		if((status & page_status::present) && (status & page_status::dirty)) {
-			if(auto descriptor = globalPfnDb().find(oldPhysical))
+			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
 		}
+		if(restricted)
+			anyRestricted = true;
+		c.advance4k();
 	}
-	return {};
+	return anyRestricted;
 }
 
 template<typename Cursor, typename PageSpace>
@@ -162,11 +150,12 @@ frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t si
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, bool> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	Cursor c{ps, va};
+	bool anyAffected = false;
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
 		assert(status & page_status::present);
@@ -174,10 +163,11 @@ frg::expected<Error> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t si
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
 		}
+		anyAffected = true;
 
 		c.advance4k();
 	}
-	return {};
+	return anyAffected;
 }
 
 struct VirtualOperations {
@@ -218,15 +208,15 @@ struct VirtualOperations {
 	virtual frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
+	virtual frg::expected<Error, bool> restrictPages(VirtualAddr va,
+			size_t size, PageFlags flags, CachingMode mode) = 0;
 
 	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 
 	virtual frg::expected<Error> cleanPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error> unmapPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) = 0;
 
 	virtual size_t getRss();
 
@@ -383,8 +373,14 @@ enum class MappingState {
 };
 
 struct Mapping {
-	Mapping(size_t length, MappingFlags flags,
-			smarter::shared_ptr<MemorySlice> view, uintptr_t offset);
+	Mapping(
+		smarter::shared_ptr<VirtualSpace> owner,
+		VirtualAddr address,
+		size_t length,
+		smarter::shared_ptr<MemorySlice> view,
+		uintptr_t offset,
+		MappingFlags flags
+	);
 
 	Mapping(const Mapping &) = delete;
 
@@ -392,41 +388,65 @@ struct Mapping {
 
 	Mapping &operator= (const Mapping &) = delete;
 
-	void tie(smarter::shared_ptr<VirtualSpace> owner, VirtualAddr address);
-
 	void protect(MappingFlags flags);
 
 	smarter::borrowed_ptr<Mapping> selfPtr;
-
-	frg::rbtree_hook treeNode;
 
 	uint32_t compilePageFlags();
 
 	coroutine<void> runEvictionLoop();
 
-	smarter::shared_ptr<VirtualSpace> owner;
-	VirtualAddr address;
-	size_t length;
-	MappingFlags flags;
+	const smarter::shared_ptr<VirtualSpace> owner;
+	const VirtualAddr address;
+	const size_t length;
+	const smarter::shared_ptr<MemorySlice> slice;
+	const smarter::shared_ptr<MemoryView> view;
+	const size_t viewOffset;
 
-	MappingState state = MappingState::null;
+	// Protected against writes by _consistencyMutex.
+	// May be read without holding any mutex.
+	std::atomic<MappingFlags> flags;
+	// Protected against writes by _consistencyMutex.
+	// May be read without holding any mutex.
+	std::atomic<MappingState> state{MappingState::null};
+
+	// Protected by _snapshotMutex.
+	frg::rbtree_hook treeNode;
+
+	// Protected against writes by _consistencyMutex.
 	MemoryObserver observer;
 
-	// This (asynchronous) mutex can be used to temporarily disable eviction.
-	// By disabling eviction, we can safely map pages returned from peekRange()
-	// before they can be evicted.
-	async::mutex evictionMutex;
+	// Code paths MUST perform an exposeRcu barrier() after they cause page
+	// permission to be narrowed (or pages to become invalid) but before this
+	// change is actually committed.
+	// In particular:
+	// * Code that acknowledges an eviction. More precisely, code that calls done() on the handle
+	//   returned by pollEviction() needs to do a barrier() before unmapping the pages
+	//   via unmapPages() (which happens before done()).
+	// * Code that reduces the permission bits of a mapping.
+	//   This needs to call barrier() before restricting permissions in the page tables
+	//   via restrictPages() or unmapPages().
+	// * Code that moves a mapping out of MappingState::active.
+	//   This needs to call barrier() before unmap
+	//
+	// This gurantees that exposeRcu critical sections can rely on pages returned from peekRange()
+	// to remain valid with permissions determined by the mappings flags that are
+	// read during the exposeRcu critical section.
+	// The same applies for pages that are already mapped into page tables.
+	LocalRcuEngine exposeRcu;
+
+	// The following code paths MUST be protected by a revokeRcu critical section:
+	// * Code that narrows page permissions (via VirtualOperations::restrictPages()).
+	// * Code that unmaps pages entirely (via VirtualOperations::unmapPages()).
+	// In both cases, the revokeRcu critical section MUST cover both the
+	// page tables changes and the shootdown.
+	//
+	// This guarantees that a revokeRcu barrier() waits for all prior
+	// permission revocation and associated shootdown to complete.
+	LocalRcuEngine revokeRcu;
 
 	async::cancellation_event cancelEviction;
 	async::oneshot_event evictionDoneEvent;
-	smarter::shared_ptr<MemorySlice> slice;
-	smarter::shared_ptr<MemoryView> view;
-	size_t viewOffset;
-
-	// This mutex is held whenever we modify parts of the page space that belong
-	// to this mapping (using VirtualOperation::mapSingle4k and similar). This is
-	// necessary since we sometimes need to read pages before writing them.
-	frg::ticket_spinlock pagingMutex;
 };
 
 struct HoleLess {
@@ -579,10 +599,9 @@ public:
 					.localAddress = mapping->viewOffset + offset,
 				};
 
-				// Lock evictionMutex to prevent page eviction.
+				// Lock exposeRcu to prevent page eviction.
 				{
-					co_await mapping->evictionMutex.async_lock();
-					frg::unique_lock evictionLock{frg::adopt_lock, mapping->evictionMutex};
+					LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
 
 					// Complete the operation if the memory page is available.
 					auto physicalRange = mapping->view->peekRange(mapping->viewOffset + alignedOffset, fetchNone);
@@ -631,19 +650,19 @@ private:
 	// Used in conjunction with _splitMappings.
 	// Unmaps and removes all mappings between start and end that fall within the specified range.
 	// Returns whether shootdown needs to be performed (any of the mappings got unmapped).
-	coroutine<bool> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
+	coroutine<void> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
 
 	VirtualOperations *_ops;
 
-	// Since changing memory mappings requires TLB shootdown, most mapping-related operations
-	// of VirtualSpace are async. Thus, we use an async mutex to serialize these operations.
+	// _consistencyMutex MUST be taken while:
+	// * Mappings are added.
+	// * Mappings are removed.
+	// * The flags of mappings are modified.
+	// In case of mapping removal and mapping flag change, the mutex must be held until the
+	// page tables are changed, shootdown is complete (and the eviction loop is exited, if applicable).
 	async::shared_mutex _consistencyMutex;
 
-	// To avoid taking _consistencyMutex for operations that only need to look at the current
-	// state of the VirtualSpace (and that can run concurrently with mapping-related that
-	// perform TLB shootdown), we have another mutex that only protects _holes and _mappings.
-	// We make sure that we "commit" changes to _holes and _mappings before changing page
-	// tables and/or doing TLB shootdown.
+	// Protects _holes and _mappings.
 	frg::ticket_spinlock _snapshotMutex;
 
 	HoleTree _holes;
@@ -674,10 +693,10 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, view, offset, size, flags, mode);
 		}
 
-		frg::expected<Error> remapPresentPages(VirtualAddr va, MemoryView *view,
-				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
-			return remapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
-					va, view, offset, size, flags, mode);
+		frg::expected<Error, bool> restrictPages(VirtualAddr va,
+				size_t size, PageFlags flags, CachingMode mode) override {
+			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, size, flags, mode);
 		}
 
 		frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
@@ -691,7 +710,7 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 					va, size);
 		}
 
-		frg::expected<Error> unmapPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, size);
 		}
