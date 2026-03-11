@@ -14,10 +14,11 @@ namespace thor {
 THOR_DEFINE_PERCPU_UNINITIALIZED(heapSlabPool);
 THOR_DEFINE_PERCPU(inSlabPool);
 
-size_t kernelVirtualUsage = 0;
-size_t kernelMemoryUsage = 0;
-
 namespace {
+
+constinit std::atomic<size_t> kernelVirtualUsage{0};
+constinit std::atomic<size_t> kernelCoreUsage{0};
+constinit std::atomic<size_t> kernelHeapUsage{0};
 
 struct CoreSlabPolicy {
 	static constexpr size_t sb_size = kPageSize;
@@ -28,6 +29,7 @@ struct CoreSlabPolicy {
 		assert(align <= kPageSize);
 		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
 		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+		kernelCoreUsage.fetch_add(kPageSize, std::memory_order_relaxed);
 		return reinterpret_cast<uintptr_t>(mapDirectPhysical(physical));
 	}
 
@@ -35,6 +37,8 @@ struct CoreSlabPolicy {
 		(void)size;
 		auto physical = reverseDirectPhysical(reinterpret_cast<void *>(address));
 		physicalAllocator->free(physical, kPageSize);
+		auto usage = kernelCoreUsage.fetch_sub(kPageSize, std::memory_order_relaxed);
+		assert(usage >= kPageSize);
 	}
 };
 
@@ -43,6 +47,8 @@ constinit CoreSlabPolicy coreSlabPolicy;
 frg::manual_box<
 	frg::slab_pool<CoreSlabPolicy, IrqSpinlock>
 > corePool;
+
+using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
 
 // TODO: we do not really want to return a mutable reference here,
 //       but frg::construct requires it for now.
@@ -124,8 +130,8 @@ void *KernelVirtualMemory::allocate(size_t size) {
 					<< " bytes of kernel virtual memory" << frg::endlog;
 			infoLogger() << "thor:"
 					" Physical usage: " << (physicalAllocator->numUsedPages() * 4) << " KiB,"
-					" kernel VM: " << (kernelVirtualUsage / 1024) << " KiB"
-					" kernel RSS: " << (kernelMemoryUsage / 1024) << " KiB"
+					" kernel VM: " << (kernelVirtualUsage.load(std::memory_order_relaxed) / 1024) << " KiB"
+					" kernel RSS: " << (kernelHeapUsage.load(std::memory_order_relaxed) / 1024) << " KiB"
 					<< frg::endlog;
 			panicLogger() << "thor: Out of kernel virtual memory" << frg::endlog;
 		}
@@ -161,7 +167,7 @@ void *KernelVirtualMemory::allocate(size_t size) {
 		}
 	}
 
-	kernelVirtualUsage += size; // FIXME: atomicity.
+	kernelVirtualUsage.fetch_add(size, std::memory_order_relaxed);
 	unpoisonKasanShadow(pointer, size);
 	return pointer;
 }
@@ -180,8 +186,8 @@ void KernelVirtualMemory::deallocate(void *pointer, size_t size) {
 		virtualTree->insert(hole);
 	}
 
-	assert(kernelVirtualUsage >= size);
-	kernelVirtualUsage -= size;
+	auto usage = kernelVirtualUsage.fetch_sub(size, std::memory_order_relaxed);
+	assert(usage >= size);
 	poisonKasanShadow(pointer, size);
 }
 
@@ -208,7 +214,7 @@ void *HeapSlabPolicy::map(size_t length) {
 		KernelPageSpace::global().mapSingle4k(VirtualAddr(p) + offset, physical,
 				page_access::write, CachingMode::null);
 	}
-	kernelMemoryUsage += length;
+	kernelHeapUsage.fetch_add(length, std::memory_order_relaxed);
 
 	return p;
 }
@@ -222,34 +228,36 @@ void HeapSlabPolicy::unmap(void *ptr, size_t length) {
 	//       It would be better not to poison in the kernel's VMM code.
 	unpoisonKasanShadow(reinterpret_cast<void *>(address), length);
 
+	PhysicalAddr physicalStack = ~PhysicalAddr{0};
 	for(size_t offset = 0; offset < length; offset += kPageSize) {
-		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(address + offset);
-		physicalAllocator->free(physical, kPageSize);
+		auto physical = KernelPageSpace::global().unmapSingle4k(address + offset);
+		new (mapDirectPhysical(physical)) PhysicalAddr{physicalStack};
+		physicalStack = physical;
 	}
-	kernelMemoryUsage -= length;
 
-	// TODO: we could replace this closure by an appropriate async::detach_with_allocator call.
-	struct Closure final : ShootNode {
-		void doComplete() {
-			frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> coreAllocator(corePool.get());
-
-			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
-			asm volatile ("" : : : "memory");
-			frg::destruct(getCoreAllocator(), this);
-		}
-	};
-	static_assert(sizeof(Closure) <= kPageSize);
-
-	auto p = frg::construct<Closure>(getCoreAllocator());
-	p->address = address;
-	p->size = length;
-	p->wq_ = WorkQueue::generalQueue().get();
-	p->Worklet::setup([] (Worklet *worklet) {
-		auto op = static_cast<Closure *>(worklet);
-		op->doComplete();
-	});
-	if(KernelPageSpace::global().submitShootdown(p))
-		p->doComplete();
+	spawnOnWorkQueue(
+		getCoreAllocator(),
+		WorkQueue::generalQueue().lock(),
+		async::transform(
+			shootdown(
+				&KernelPageSpace::global(),
+				address,
+				length,
+				WorkQueue::generalQueue().get()
+			),
+			[address, length, physicalStack] {
+				auto physical = physicalStack;
+				while(physical != ~PhysicalAddr{0}) {
+					auto next = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
+					physicalAllocator->free(physical, kPageSize);
+					physical = next;
+				}
+				KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), length);
+				auto usage = kernelHeapUsage.fetch_sub(length, std::memory_order_relaxed);
+				assert(usage >= length);
+			}
+		)
+	);
 }
 
 frg::manual_box<LogRingBuffer> allocLog;

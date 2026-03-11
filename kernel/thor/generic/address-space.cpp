@@ -9,30 +9,8 @@
 
 namespace thor {
 
-extern size_t kernelMemoryUsage;
-
 namespace {
 	constexpr bool logCleanup = false;
-	constexpr bool logUsage = false;
-
-	[[maybe_unused]]
-	void logRss(VirtualSpace *space) {
-		if(!logUsage)
-			return;
-		auto rss = space->rss();
-		if(!rss)
-			return;
-		auto b = 63 -__builtin_clz(rss);
-		if(b < 1)
-			return;
-		if(rss & ((1 << (b - 1)) - 1))
-			return;
-		infoLogger() << "thor: RSS of " << space << " increases above "
-				<< (rss / 1024) << " KiB" << frg::endlog;
-		infoLogger() << "thor:     Physical usage: "
-				<< (physicalAllocator->numUsedPages() * 4) << " KiB, kernel usage: "
-				<< (kernelMemoryUsage / 1024) << " KiB" << frg::endlog;
-	}
 
 	uint32_t compilePageFlags(MappingFlags mappingFlags) {
 		uint32_t pageFlags = 0;
