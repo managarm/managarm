@@ -3,6 +3,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kasan.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
@@ -20,42 +21,37 @@ constinit std::atomic<size_t> kernelVirtualUsage{0};
 constinit std::atomic<size_t> kernelCoreUsage{0};
 constinit std::atomic<size_t> kernelHeapUsage{0};
 
-struct CoreSlabPolicy {
-	static constexpr size_t sb_size = kPageSize;
-	static constexpr size_t slabsize = kPageSize;
-
-	uintptr_t map(size_t size, size_t align) {
-		assert(size <= kPageSize);
-		assert(align <= kPageSize);
-		PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
-		assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
-		kernelCoreUsage.fetch_add(kPageSize, std::memory_order_relaxed);
-		return reinterpret_cast<uintptr_t>(mapDirectPhysical(physical));
-	}
-
-	void unmap(uintptr_t address, size_t size) {
-		(void)size;
-		auto physical = reverseDirectPhysical(reinterpret_cast<void *>(address));
-		physicalAllocator->free(physical, kPageSize);
-		auto usage = kernelCoreUsage.fetch_sub(kPageSize, std::memory_order_relaxed);
-		assert(usage >= kPageSize);
-	}
-};
-
 constinit CoreSlabPolicy coreSlabPolicy;
 
 frg::manual_box<
 	frg::slab_pool<CoreSlabPolicy, IrqSpinlock>
 > corePool;
 
-using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
+} // namespace
 
-// TODO: we do not really want to return a mutable reference here,
-//       but frg::construct requires it for now.
-frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> &getCoreAllocator() {
-	static frg::slab_allocator<CoreSlabPolicy, IrqSpinlock> allocator{corePool.get()};
+uintptr_t CoreSlabPolicy::map(size_t size, size_t align) {
+	assert(size <= kPageSize);
+	assert(align <= kPageSize);
+	PhysicalAddr physical = physicalAllocator->allocate(kPageSize);
+	assert(physical != static_cast<PhysicalAddr>(-1) && "OOM");
+	kernelCoreUsage.fetch_add(kPageSize, std::memory_order_relaxed);
+	return reinterpret_cast<uintptr_t>(mapDirectPhysical(physical));
+}
+
+void CoreSlabPolicy::unmap(uintptr_t address, size_t size) {
+	(void)size;
+	auto physical = reverseDirectPhysical(reinterpret_cast<void *>(address));
+	physicalAllocator->free(physical, kPageSize);
+	auto usage = kernelCoreUsage.fetch_sub(kPageSize, std::memory_order_relaxed);
+	assert(usage >= kPageSize);
+}
+
+CoreAllocator &getCoreAllocator() {
+	static CoreAllocator allocator{corePool.get()};
 	return allocator;
 }
+
+namespace {
 
 struct KernelVirtualHole {
 	uintptr_t address = 0;

@@ -7,6 +7,7 @@
 #include <frg/manual_box.hpp>
 #include <physical-buddy.hpp>
 #include <thor-internal/arch/stack.hpp>
+#include <thor-internal/arch-generic/paging-consts.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
 
@@ -81,6 +82,20 @@ static_assert(frg::slab::has_trace_support<HeapSlabPolicy>);
 extern PerCpu<frg::sharded_slab_pool<HeapSlabPolicy>> heapSlabPool;
 // We use this variable to check for reentrancy (i.e., for error checking).
 extern PerCpu<std::atomic<bool>> inSlabPool;
+
+struct CoreSlabPolicy {
+	static constexpr size_t sb_size = kPageSize;
+	static constexpr size_t slabsize = kPageSize;
+
+	uintptr_t map(size_t size, size_t align);
+	void unmap(uintptr_t address, size_t size);
+};
+
+using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
+
+// TODO: we do not really want to return a mutable reference here,
+//       but frg::construct requires it for now.
+CoreAllocator &getCoreAllocator();
 
 struct Allocator {
 	struct Guard : IplGuard<ipl::schedule> {

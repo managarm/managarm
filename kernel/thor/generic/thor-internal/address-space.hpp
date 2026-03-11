@@ -289,7 +289,11 @@ struct VirtualOperations {
 	}
 
 	template<typename R>
-	struct ShootdownOperation final : private ShootNode {
+	struct ShootdownOperation {
+		struct Node : ShootNode, RcuCallable {
+			ShootdownOperation *op;
+		};
+
 		ShootdownOperation(ShootdownSender s, R receiver)
 		: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -299,15 +303,23 @@ struct VirtualOperations {
 
 		void start() {
 			auto wq = workQueueFromEnv(async::execution::get_env(receiver_));
-			ShootNode::address = s_.address;
-			ShootNode::size = s_.size;
-			ShootNode::wq_ = wq;
-			Worklet::setup([] (Worklet *base) {
-				auto op = static_cast<ShootdownOperation *>(base);
+			auto node = frg::construct<Node>(*kernelAlloc);
+			node->address = s_.address;
+			node->size = s_.size;
+			node->wq_ = wq;
+			node->op = this;
+			node->Worklet::setup([] (Worklet *base) {
+				auto w = static_cast<Node *>(base);
+				auto op = w->op;
+				submitRcu(w, [] (RcuCallable *r) {
+					frg::destruct(*kernelAlloc, static_cast<Node *>(r));
+				});
 				async::execution::set_value(op->receiver_);
 			});
-			if(s_.self->submitShootdown(this))
+			if(s_.self->submitShootdown(node)) {
+				frg::destruct(*kernelAlloc, node);
 				return async::execution::set_value(receiver_);
+			}
 		}
 
 	private:

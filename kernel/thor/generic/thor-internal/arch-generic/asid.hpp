@@ -4,6 +4,7 @@
 #include <async/basic.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/types.hpp>
 #include <thor-internal/work-queue.hpp>
 #include <frg/list.hpp>
@@ -36,7 +37,7 @@ struct ShootNode : Worklet {
 		wq_->post(this);
 	}
 
-	frg::default_list_hook<ShootNode> queueNode;
+	frg::intrusive_rcu_list_hook<ShootNode> queueNode;
 
 private:
 	// This CPU already performed synchronous shootdown,
@@ -49,11 +50,11 @@ private:
 	std::atomic<size_t> bindingsToShoot_;
 };
 
-using ShootNodeList = frg::intrusive_list<
+using ShootQueue = frg::intrusive_rcu_list<
 	ShootNode,
 	frg::locate_member<
 		ShootNode,
-		frg::default_list_hook<ShootNode>,
+		frg::intrusive_rcu_list_hook<ShootNode>,
 		&ShootNode::queueNode
 	>
 >;
@@ -147,8 +148,8 @@ struct PageBinding {
 	void shootdown();
 
 private:
-	ShootNodeList completeShootdown_(PageSpace *space, uint64_t afterSequence,
-			bool doShootdown);
+	void doShootdown_(PageSpace *space);
+	void drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence);
 
 	int id_ = 0;
 
@@ -203,7 +204,7 @@ private:
 
 	uint64_t shootSequence_;
 
-	ShootNodeList shootQueue_;
+	ShootQueue shootQueue_;
 };
 
 
@@ -245,7 +246,11 @@ inline ShootdownSender shootdown(PageSpace *space, VirtualAddr address, size_t s
 }
 
 template<typename R>
-struct ShootdownOperation : private ShootNode {
+struct ShootdownOperation {
+	struct Node : ShootNode, RcuCallable {
+		ShootdownOperation *op;
+	};
+
 	ShootdownOperation(ShootdownSender s, R receiver)
 	: s_{s}, receiver_{std::move(receiver)} { }
 
@@ -254,15 +259,24 @@ struct ShootdownOperation : private ShootNode {
 	ShootdownOperation &operator= (const ShootdownOperation &) = delete;
 
 	void start() {
-		ShootNode::address = s_.address;
-		ShootNode::size = s_.size;
-		ShootNode::wq_ = s_.wq;
-		Worklet::setup([] (Worklet *base) {
-			auto op = static_cast<ShootdownOperation *>(base);
+		// Note: we need to use the core allocator here since this is called from the heap slab policy.
+		auto node = frg::construct<Node>(getCoreAllocator());
+		node->address = s_.address;
+		node->size = s_.size;
+		node->wq_ = s_.wq;
+		node->op = this;
+		node->Worklet::setup([] (Worklet *base) {
+			auto w = static_cast<Node *>(base);
+			auto op = w->op;
+			submitRcu(w, [] (RcuCallable *r) {
+				frg::destruct(getCoreAllocator(), static_cast<Node *>(r));
+			});
 			async::execution::set_value(op->receiver_);
 		});
-		if(s_.self->submitShootdown(this))
+		if(s_.self->submitShootdown(node)) {
+			frg::destruct(getCoreAllocator(), node);
 			return async::execution::set_value(receiver_);
+		}
 	}
 
 private:
