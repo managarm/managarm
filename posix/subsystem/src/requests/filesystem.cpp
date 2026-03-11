@@ -250,8 +250,7 @@ async::result<void> handleMkdirAt(RequestContext& ctx) {
 	auto result = co_await parent->mkdir(resolver.nextComponent());
 
 	if(auto error = std::get_if<Error>(&result); error) {
-		assert(*error == Error::illegalOperationTarget);
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse(ctx, *error | toPosixProtoError);
 		co_return;
 	}
 
