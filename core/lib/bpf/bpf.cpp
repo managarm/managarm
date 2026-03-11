@@ -2,9 +2,14 @@
 #include <core/bpf.hpp>
 
 bool Bpf::validate() {
+	if (prog_.empty())
+		return false;
+
 	for(size_t pc = 0; pc < prog_.size(); pc++) {
 		auto inst = prog_[pc];
 
+		// exhaustive switch to cover all Op values to make omissions a compile-time error
+		// as we use -Werror=switch
 		switch(Op(inst.code)) {
 			case Op::JMP_JEQ_K:
 			// case Op::JMP_JEQ_X:
@@ -16,10 +21,26 @@ bool Bpf::validate() {
 			// case Op::JMP_JSET_X:
 				if(pc + inst.jt + 1 >= prog_.size() || pc + inst.jf + 1 >= prog_.size())
 					return false;
-				break;
-			default:
-				break;
+				continue;
+			case Op::ALU_ADD_X:
+			case Op::ALU_AND_K:
+			case Op::ALU_MUL_K:
+			case Op::LDX_W_IMM:
+			case Op::LD_B_IND:
+			case Op::LD_H_ABS:
+			case Op::LD_H_IND:
+			case Op::LD_W_ABS:
+			case Op::LD_W_IND:
+			case Op::MISC_TAX:
+			case Op::MISC_TXA:
+			case Op::RET_A:
+			case Op::RET_K:
+			case Op::NEG:
+				continue;
 		}
+
+		// unrecognized instruction
+		return false;
 	}
 
 	Op last = Op(prog_.back().code);
@@ -52,6 +73,8 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 			return arch::convert_endian<arch::endian::big>(*reinterpret_cast<T *>(buffer.subview(offset, sizeof(T)).data()));
 		};
 
+		// exhaustive switch to cover all Op values to make omissions a compile-time error
+		// as we use -Werror=switch
 		switch(Op(inst.code)) {
 			case Op::ALU_ADD_X: {
 				bpf_log_op("A (0x%x) += X (0x%x) = 0x%x", A, X, A * X);
@@ -118,20 +141,28 @@ uint32_t Bpf::run(arch::dma_buffer_view buffer) {
 				X = A;
 				break;
 			}
+			case Op::MISC_TXA: {
+				bpf_log_op("A <- X (0x%02x)", X);
+				A = X;
+				break;
+			}
 			case Op::RET_K: {
 				bpf_log_op("RET k (0x%02x)", inst.k);
 				return inst.k;
 			}
-			default:
-				// TODO: for now, an unknown BPF instruction is a hard failure as our coverage of
-				// the instruction set is quite incomplete. In the future, once that doesn't hold
-				// any more, we should do proper error handling here instead (e.g. return EINVAL).
-				printf("core: unhandled BPF instruction 0x%02x\n", inst.code);
-				bpf_log_op("{ 0x%02x, %.2u, %.2u, 0x%08x }\n", inst.code, inst.jt, inst.jf, inst.k);
-				assert(!"unhandled BPF instruction");
+			case Op::RET_A: {
+				bpf_log_op("RET A (0x%02x)", A);
+				return A;
+			}
+			case Op::NEG: {
+				bpf_log_op("NEG (0x%02x)", A);
+				A = -A;
+				break;
+			}
 		}
 
 	}
 
+	// prevented by validating that the last instruction is a return
 	assert(!"invalid BPF filter with no return!");
 }
