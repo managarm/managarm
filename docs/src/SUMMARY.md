@@ -19,6 +19,7 @@
     - [LSP setup](contributing/lsp.md)
     - [Commit messages](contributing/commit-messages.md)
     - [Coding style](contributing/coding-style.md)
+    - [Policy on AI use](contributing/ai-policy.md)
     - [Wireshark analysis](contributing/wireshark.md)
     - [Hardware CI](contributing/hwci.md)
 
