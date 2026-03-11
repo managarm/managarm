@@ -102,7 +102,7 @@ public:
 
 	void handleClose() override;
 
-	FutureMaybe<ReadEntriesResult> readEntries() override;
+	FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override;
 

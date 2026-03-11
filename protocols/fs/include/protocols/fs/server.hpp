@@ -109,7 +109,7 @@ struct FileOperations {
 		pwrite = f;
 		return *this;
 	}
-	constexpr FileOperations &withReadEntries(async::result<ReadEntriesResult> (*f)(void *object)) {
+	constexpr FileOperations &withReadEntries(async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> (*f)(void *object)) {
 		readEntries = f;
 		return *this;
 	}
@@ -178,7 +178,7 @@ struct FileOperations {
 			const void *buffer, size_t length) = nullptr;
 	async::result<frg::expected<protocols::fs::Error, size_t>> (*pwrite)(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) = nullptr;
-	async::result<ReadEntriesResult> (*readEntries)(void *object) = nullptr;
+	async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> (*readEntries)(void *object) = nullptr;
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object) = nullptr;
 	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size) = nullptr;
 	async::result<frg::expected<protocols::fs::Error>> (*fallocate)(void *object, int64_t offset, size_t size) = nullptr;

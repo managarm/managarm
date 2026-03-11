@@ -8,6 +8,7 @@
 #include <async/result.hpp>
 #include <frg/expected.hpp>
 #include <hel.h>
+#include <protocols/fs/common.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/fs/client.hpp>
 #include <posix.bragi.hpp>
@@ -260,8 +261,6 @@ using expected = async::result<std::variant<Error, T>>;
 // File class.
 // ----------------------------------------------------------------------------
 
-using ReadEntriesResult = std::optional<std::string>;
-
 using PollResult = std::tuple<uint64_t, int, int>;
 using PollWaitResult = std::tuple<uint64_t, int>;
 using PollStatusResult = std::tuple<uint64_t, int>;
@@ -313,7 +312,7 @@ public:
 	static async::result<frg::expected<protocols::fs::Error, size_t>>
 	ptPwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials, const void *buffer, size_t length);
 
-	static async::result<protocols::fs::ReadEntriesResult>
+	static async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 	ptReadEntries(void *object);
 
 	static async::result<frg::expected<protocols::fs::Error>>
@@ -492,7 +491,7 @@ public:
 	virtual async::result<frg::expected<Error, size_t>>
 	pwrite(Process *process, int64_t offset, const void *data, size_t length);
 
-	virtual FutureMaybe<ReadEntriesResult> readEntries();
+	virtual FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries();
 
 	virtual async::result<protocols::fs::RecvResult>
 		recvMsg(Process *process, uint32_t flags,

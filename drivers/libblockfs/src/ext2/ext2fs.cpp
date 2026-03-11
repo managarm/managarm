@@ -1762,7 +1762,7 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 // OpenFile
 // --------------------------------------------------------
 
-async::result<std::optional<std::string>>
+async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 OpenFile::readEntries() {
 	auto inode = std::static_pointer_cast<Inode>(this->inode);
 
@@ -1770,7 +1770,7 @@ OpenFile::readEntries() {
 
 	if (inode->fileType != kTypeDirectory) {
 		std::cout << "\e[33m" "ext2fs: readEntries called on something that's not a directory\e[39m" << std::endl;
-		co_return std::nullopt; // FIXME: this does not indicate an error
+		co_return std::unexpected(managarm::fs::Errors::NOT_DIRECTORY);
 	}
 
 	auto map_size = (inode->fileSize() + 0xFFF) & ~size_t(0xFFF);
@@ -1800,12 +1800,16 @@ OpenFile::readEntries() {
 		if(disk_entry->inode) {
 		//	std::cout << "libblockfs: Returning entry "
 		//			<< std::string(disk_entry->name, disk_entry->nameLength) << std::endl;
-			co_return std::string(disk_entry->name, disk_entry->nameLength);
+			co_return protocols::fs::ReadEntriesResult{
+				.name = std::string(disk_entry->name, disk_entry->nameLength),
+				.inode = disk_entry->inode,
+				.offset = static_cast<long>(offset),
+			};
 		}
 	}
 	assert(offset == inode->fileSize());
 
-	co_return std::nullopt;
+	co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
 }
 
 } } // namespace blockfs::ext2fs
