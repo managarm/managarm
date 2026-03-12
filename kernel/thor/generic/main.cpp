@@ -212,9 +212,6 @@ extern "C" void thorMain() {
 		// Run all other initgraph tasks.
 		globalInitEngine.run();
 
-		// enableWakeups() requires all CPUs to be ready to handle IPIs.
-		// TODO: this could be avoided by changing SelfIpiCall to avoid IPIs on CPUs that are not yet ready.
-		enableLogWakeups();
 		transitionBootFb();
 
 		pci::runAllBridges();

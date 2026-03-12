@@ -93,8 +93,6 @@ extern frg::intrusive_rcu_list<
 void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);
 
-void initializeGlobalLog();
-
 // --------------------------------------------------------
 // Loggers.
 // --------------------------------------------------------

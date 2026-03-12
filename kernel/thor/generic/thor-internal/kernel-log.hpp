@@ -6,8 +6,7 @@
 
 namespace thor {
 
-void enableLogWakeups();
-void postLogRecord(frg::string_view record);
+void postLogRecord(frg::string_view record, bool expedited);
 coroutine<void> waitForLog(uint64_t deqPtr);
 frg::tuple<bool, uint64_t, uint64_t, size_t> retrieveLogRecord(uint64_t deqPtr, void *data, size_t maxSize);
 

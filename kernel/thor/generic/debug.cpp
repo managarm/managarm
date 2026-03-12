@@ -1,19 +1,15 @@
+#include <async/recurring-event.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/kernel-log.hpp>
 #include <thor-internal/arch/stack.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/main.hpp>
 
 namespace thor {
 
 namespace {
-
-	// Protects the data structures below.
-	constinit frg::ticket_spinlock logMutex;
-
-	// Protected by logMutex.
-	constinit uint64_t globalLogSeq{0};
-
 	// Protects the globalLogList.
 	constinit IrqSpinlock listMutex;
 } // anonymous namespace
@@ -44,128 +40,6 @@ void disableLogHandler(LogHandler *sink) {
 }
 
 namespace {
-	bool checkEmitting();
-	bool tryStartEmitting();
-	bool tryFinishEmitting();
-
-	// Assumption: !intsAreEnabled().
-	void emitLogsFromRing() {
-		// Only start emitting logs if we are not a reentrant context.
-		if (!tryStartEmitting())
-			return;
-
-		do {
-			while (true) {
-				auto lock = frg::guard(&logMutex);
-
-				char buffer[logLineLength];
-				auto [success, recordPtr, nextPtr, actualSize] = retrieveLogRecord(
-						globalLogSeq, buffer, logLineLength);
-				if (!success)
-					break;
-
-				if (actualSize < sizeof(LogMetadata))
-					panic();
-				frg::string_view record{buffer, actualSize};
-				for (const auto &it : globalLogList)
-					it->emit(record);
-
-				globalLogSeq = nextPtr;
-			}
-
-			// Emit logs until no reentrant context has set the RS_PENDING flag.
-		} while(!tryFinishEmitting());
-	}
-
-	// Assumption: !intsAreEnabled().
-	bool checkEmitting() {
-		auto s = getCpuData()->reentrantLogState.load(std::memory_order_relaxed);
-		return s & CpuData::RS_EMITTING;
-	}
-
-	// Assumption: !intsAreEnabled().
-	bool tryStartEmitting() {
-		auto *cpuData = getCpuData();
-		unsigned int s = cpuData->reentrantLogState.load(std::memory_order_relaxed);
-		while (true) {
-			if (s) {
-				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
-					s, s | CpuData::RS_PENDING, std::memory_order_relaxed
-				);
-				if (cas)
-					return false;
-			} else {
-				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
-					s, CpuData::RS_EMITTING, std::memory_order_relaxed
-				);
-				if (cas)
-					return true;
-			}
-		}
-	}
-
-	// Assumption: !intsAreEnabled().
-	bool tryFinishEmitting() {
-		auto *cpuData = getCpuData();
-		unsigned int s = cpuData->reentrantLogState.load(std::memory_order_relaxed);
-		while (true) {
-			if (!(s & CpuData::RS_EMITTING))
-				__builtin_trap();
-			if (s & CpuData::RS_PENDING) {
-				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
-					s, s & ~CpuData::RS_PENDING, std::memory_order_relaxed
-				);
-				if (cas)
-					return false;
-			} else {
-				bool cas = cpuData->reentrantLogState.compare_exchange_weak(
-					s, 0, std::memory_order_relaxed
-				);
-				if (cas)
-					return true;
-			}
-		}
-	}
-
-	// This function posts the log record to a per-CPU ring buffer.
-	// If expedited is true, this function always emits logs within this context,
-	// using LogHandler::emitUrgent() as necessary.
-	void forwardLogRecord(frg::string_view record, bool expedited) {
-		RobustIrqLock irqLock;
-		auto *cpuData = getCpuData();
-
-		// If true, the usual logging path (i.e., emitLogsFromRing()) is bypassed;
-		// instead, the record is directly sent to LoggingSink::emitUrgent().
-		bool emitUrgent = false;
-
-		// If checkEmitting() is true, emitLogsFromRing() would not be able to emit.
-		// For example, this can happen when we use urgentLogger() or panicLogger() in
-		// NMI contexts.
-		if (expedited && checkEmitting())
-			emitUrgent = true;
-
-		if (!emitUrgent) {
-			postLogRecord(record);
-
-			// If the expedited flag is set, we always emit logs.
-			// This is the path that kernel panics should usually take.
-			bool avoidEmittingLogs = cpuData->avoidEmittingLogs.load(std::memory_order_relaxed);
-			if (!avoidEmittingLogs || expedited)
-				emitLogsFromRing();
-
-			// TODO: If we do not call into emitLogsFromRing() here,
-			//       we should wake up a (kernel) thread that emits the logs.
-		} else {
-			if (record.size() < sizeof(LogMetadata))
-				panic();
-			for (const auto &it : globalLogList) {
-				if (!it->takesUrgentLogs)
-					continue;
-				it->emitUrgent(record);
-			}
-		}
-	}
-
 	// This class splits long log messages into lines.
 	// In also ensures that we never emit partial CSI sequences.
 	class LogProcessor {
@@ -191,7 +65,7 @@ namespace {
 				if(!stagedLength)
 					return;
 
-				forwardLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
+				postLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
 
 				// Reset our staging buffer.
 				memset(stagingBuffer, 0, logLineLength);

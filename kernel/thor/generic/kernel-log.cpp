@@ -12,23 +12,128 @@
 namespace thor {
 
 namespace {
+	// ----------------------------------------------------------------------------------
+	// General log ring infrastructure.
+	// ----------------------------------------------------------------------------------
+
 	// Protects pushes to the logRing.
 	constinit ReentrancySafeSpinlock postMutex;
 
 	constinit ReentrantRecordRing logRing;
 
-	// Raised whenever new log records are published.
-	constinit async::recurring_event logRingEvent;
+	// ----------------------------------------------------------------------------------
+	// emit() logic.
+	// Logs are first posted to the logRing and then emitted to LogHandlers
+	// via emit() or emitUrgent().
+	// Calls into LogHandlers happen either in the drain fiber (see below)
+	// or, for expedited logs, in postLogRecord().
+	// ----------------------------------------------------------------------------------
 
-	constinit SelfIntCall logWakeup{
-		[] { logRingEvent.raise(); }
+	// Protects against concurrent calls to log handlers.
+	constinit ReentrancySafeSpinlock emitMutex;
+
+	// Protected by emitMutex but may be used from reentrant contexts.
+	constinit std::atomic<uint64_t> emitSeq{0};
+
+	// Assumption: !intsAreEnabled().
+	// Assumption: emitMutex is taken.
+	template<typename F>
+	requires std::invocable<F, frg::string_view>
+	bool dispatchLogFromRing(F fn) {
+		auto seq = emitSeq.load(std::memory_order_relaxed);
+		char buffer[logLineLength];
+		auto [success, recordPtr, nextPtr, actualSize] = retrieveLogRecord(
+				seq, buffer, logLineLength);
+		if (!success)
+			return false;
+
+		if (actualSize < sizeof(LogMetadata))
+			panic();
+		frg::string_view record{buffer, actualSize};
+		fn(record);
+
+		// Do a CAS since a reentrant context may have emitted more logs in the meantime.
+		emitSeq.compare_exchange_strong(
+			seq, nextPtr, std::memory_order_relaxed, std::memory_order_relaxed
+		);
+		return true;
+	}
+
+	bool emitLogFromRing() {
+		return dispatchLogFromRing([] (frg::string_view record) {
+			for (const auto &it : globalLogList)
+				it->emit(record);
+		});
+	}
+
+	bool emitUrgentLogFromRing() {
+		return dispatchLogFromRing([] (frg::string_view record) {
+			for (const auto &it : globalLogList) {
+				if (!it->takesUrgentLogs)
+					continue;
+				it->emitUrgent(record);
+			}
+		});
+	}
+
+	// ----------------------------------------------------------------------------------
+	// Log draining fiber.
+	// ----------------------------------------------------------------------------------
+
+	// Raised whenever new log records are published.
+	constinit async::recurring_event drainEvent;
+
+	constinit SelfIntCall drainWakeup{
+		[] { drainEvent.raise(); }
 	};
 
-	// True when we can use logWakeup (i.e., after self IPIs are available).
-	constinit std::atomic<bool> logCallWakeup{false};
+	// Whether the log drain fiber has started yet.
+	constinit std::atomic<bool> drainOnline{false};
+
+	// Whether the log drain thread is currently active or not.
+	// We only call drainWakeup if it is not.
+	constinit std::atomic<bool> drainPending{false};
+
+	void runLogDrain() {
+		drainOnline.store(true, std::memory_order_relaxed);
+
+		while(true) {
+			KernelFiber::asyncBlockCurrent(
+				drainEvent.async_wait_if([&] {
+					return !drainPending.load(std::memory_order_acquire);
+				})
+			);
+			while(true) {
+				StatelessIrqLock irqLock;
+				auto emitLock = frg::guard(&emitMutex);
+
+				if (emitLogFromRing())
+					continue;
+
+				if (drainPending.load(std::memory_order_relaxed)) {
+					// We need acquire ordering to order this because the check in the next iteration.
+					drainPending.exchange(false, std::memory_order_acquire);
+				} else {
+					break;
+				}
+			}
+		}
+	}
+
+	initgraph::Task initLogDrainTask{&globalInitEngine, "generic.init-log-drain",
+		initgraph::Requires{getFibersAvailableStage()},
+		[] {
+			KernelFiber::run([] {
+				runLogDrain();
+			});
+		}
+	};
 } // anonymous namespace
 
-void postLogRecord(frg::string_view record) {
+void postLogRecord(frg::string_view record, bool expedited) {
+	RobustIrqLock irqLock;
+
+	// First, post the record to the log ring.
 	{
 		bool reentrant{postMutex.owner() == getCpuData()};
 		if (!reentrant)
@@ -41,16 +146,40 @@ void postLogRecord(frg::string_view record) {
 		logRing.enqueue(record.data(), record.size());
 	}
 
-	if (logCallWakeup.load(std::memory_order_relaxed))
-		logWakeup.schedule();
-}
+	// We always wake up the logging thread.
+	auto useThreaded = drainOnline.load(std::memory_order_relaxed)
+			&& getCpuData()->cpuInitialized.load(std::memory_order_relaxed);
+	if (useThreaded) {
+		bool alreadyPending = drainPending.exchange(true, std::memory_order_release);
+		if (!alreadyPending)
+			drainWakeup.schedule();
+	}
 
-void enableLogWakeups() {
-	logCallWakeup.store(true, std::memory_order_relaxed);
+	// For expedited logs, we call into log handlers synchronously.
+	if (!useThreaded || expedited) {
+		bool reentrant{emitMutex.owner() == getCpuData()};
+		if (!reentrant) {
+			auto emitLock = frg::guard(&emitMutex);
+
+			while (true) {
+				if (!emitLogFromRing())
+					break;
+			}
+		} else {
+			while (true) {
+				if (!emitUrgentLogFromRing())
+					break;
+			}
+		}
+	}
 }
 
 coroutine<void> waitForLog(uint64_t deqPtr) {
-	co_await logRingEvent.async_wait_if([=] () -> bool {
+	// TODO: Since we simply wait for drainEvent, log records may become available earlier
+	//       to consumers of the asynchronous waitForLog() / retrieveLogRecord() API
+	//       than for synchronous LogHandlers.
+	//       We could add another event to avoid making logs beyond emitSeq available.
+	co_await drainEvent.async_wait_if([=] () -> bool {
 		return logRing.peekHeadPtr() == deqPtr;
 	});
 }
