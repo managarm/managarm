@@ -80,6 +80,8 @@ protected:
 void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);
 
+void initializeGlobalLog();
+
 // --------------------------------------------------------
 // Loggers.
 // --------------------------------------------------------

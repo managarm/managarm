@@ -10,7 +10,6 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/load-balancing.hpp>
-#include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/rcu.hpp>
 
 namespace thor {
@@ -138,7 +137,6 @@ bool bootSecondary(DeviceTreeNode *node, size_t cpuIndex) {
 	void *stackPtr = kernelAlloc->allocate(stackSize);
 
 	auto *context = getCpuData(cpuIndex);
-	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(context);

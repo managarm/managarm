@@ -30,7 +30,7 @@ private:
 // If this is done, multiple calls to schedule() are coalesced.
 template<typename F>
 struct SelfIntCall : SelfIntCallBase {
-	SelfIntCall(F f)
+	constexpr SelfIntCall(F f)
 	: f_{std::move(f)} {}
 
 protected:

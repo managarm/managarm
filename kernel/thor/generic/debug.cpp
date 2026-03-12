@@ -1,13 +1,17 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/kernel-log.hpp>
 #include <thor-internal/arch/stack.hpp>
-#include <thor-internal/ring-buffer.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 
 namespace {
 	// Protects the data structures below.
 	constinit frg::ticket_spinlock logMutex;
+
+	// Protected by logMutex.
+	constinit uint64_t globalLogSeq{0};
 
 	frg::manual_box<frg::intrusive_list<
 		LogHandler,
@@ -47,8 +51,6 @@ namespace {
 
 	// Assumption: !intsAreEnabled().
 	void emitLogsFromRing() {
-		auto *cpuData = getCpuData();
-
 		// Only start emitting logs if we are not a reentrant context.
 		if (!tryStartEmitting())
 			return;
@@ -58,8 +60,8 @@ namespace {
 				auto lock = frg::guard(&logMutex);
 
 				char buffer[logLineLength];
-				auto [success, recordPtr, nextPtr, actualSize] = cpuData->localLogRing->dequeueAt(
-						cpuData->localLogSeq, buffer, logLineLength);
+				auto [success, recordPtr, nextPtr, actualSize] = retrieveLogRecord(
+						globalLogSeq, buffer, logLineLength);
 				if (!success)
 					break;
 
@@ -69,7 +71,7 @@ namespace {
 				for (const auto &it : *globalLogList)
 					it->emit(record);
 
-				cpuData->localLogSeq = nextPtr;
+				globalLogSeq = nextPtr;
 			}
 
 			// Emit logs until no reentrant context has set the RS_PENDING flag.
@@ -129,7 +131,7 @@ namespace {
 	// This function posts the log record to a per-CPU ring buffer.
 	// If expedited is true, this function always emits logs within this context,
 	// using LogHandler::emitUrgent() as necessary.
-	void postLogRecord(frg::string_view record, bool expedited) {
+	void forwardLogRecord(frg::string_view record, bool expedited) {
 		RobustIrqLock irqLock;
 		auto *cpuData = getCpuData();
 
@@ -144,7 +146,7 @@ namespace {
 			emitUrgent = true;
 
 		if (!emitUrgent) {
-			cpuData->localLogRing->enqueue(record.data(), record.size());
+			postLogRecord(record);
 
 			// If the expedited flag is set, we always emit logs.
 			// This is the path that kernel panics should usually take.
@@ -192,7 +194,7 @@ namespace {
 				if(!stagedLength)
 					return;
 
-				postLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
+				forwardLogRecord(frg::string_view{stagingBuffer, stagedLength}, expedited);
 
 				// Reset our staging buffer.
 				memset(stagingBuffer, 0, logLineLength);

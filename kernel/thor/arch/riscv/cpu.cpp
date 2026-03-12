@@ -11,7 +11,6 @@
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/main.hpp>
-#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -174,12 +173,6 @@ void saveCurrentSimdState(Executor *executor) {
 	cpuData->stashedFs = 0;
 }
 
-namespace {
-
-constinit ReentrantRecordRing bootLogRing;
-
-} // namespace
-
 void initializeThisProcessor() {
 	auto cpuData = getCpuData();
 
@@ -255,7 +248,6 @@ void setupBootCpuContext() {
 	auto context = getCpuData(0);
 	writeToTp(context);
 
-	context->localLogRing = &bootLogRing;
 	context->hartId = getEirInfo()->hartId;
 }
 

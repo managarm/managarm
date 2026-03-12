@@ -1,51 +1,62 @@
+#include <frg/scope_exit.hpp>
+#include <frg/string.hpp>
+#include <frg/small_vector.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/int-call.hpp>
 #include <thor-internal/kernel-io.hpp>
 #include <thor-internal/kernel-log.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/reentrancy.hpp>
 #include <thor-internal/timer.hpp>
-#include <frg/string.hpp>
-#include <frg/small_vector.hpp>
 
 namespace thor {
 
-//-----------------------------------------------------------------------------
-// GlobalLogRing implementation.
-//-----------------------------------------------------------------------------
-
 namespace {
+	// Protects pushes to the logRing.
+	constinit ReentrancySafeSpinlock postMutex;
 
-constinit GlobalLogRing *globalLogRing{nullptr};
+	constinit ReentrantRecordRing logRing;
 
-} // namespace
+	// Raised whenever new log records are published.
+	constinit async::recurring_event logRingEvent;
 
-void GlobalLogRing::enable() {
-	enableLogHandler(&handler_);
+	constinit SelfIntCall logWakeup{
+		[] { logRingEvent.raise(); }
+	};
+
+	// True when we can use logWakeup (i.e., after self IPIs are available).
+	constinit std::atomic<bool> logCallWakeup{false};
+} // anonymous namespace
+
+void postLogRecord(frg::string_view record) {
+	{
+		bool reentrant{postMutex.owner() == getCpuData()};
+		if (!reentrant)
+			postMutex.lock();
+		frg::scope_exit unlockOnExit{[&] {
+			if (!reentrant)
+				postMutex.unlock();
+		}};
+
+		logRing.enqueue(record.data(), record.size());
+	}
+
+	if (logCallWakeup.load(std::memory_order_relaxed))
+		logWakeup.schedule();
 }
 
-void GlobalLogRing::enableWakeups() {
-	callWakeup_.store(true, std::memory_order_relaxed);
+void enableLogWakeups() {
+	logCallWakeup.store(true, std::memory_order_relaxed);
 }
 
-// GlobalLogRing::Wakeup implementation.
-
-GlobalLogRing::Wakeup::Wakeup(GlobalLogRing *ptr)
-: ptr_{ptr} {}
-
-void GlobalLogRing::Wakeup::operator() () {
-	ptr_->event_.raise();
+coroutine<void> waitForLog(uint64_t deqPtr) {
+	co_await logRingEvent.async_wait_if([=] () -> bool {
+		return logRing.peekHeadPtr() == deqPtr;
+	});
 }
 
-// GlobalLogRing::Handler implementation.
-
-GlobalLogRing::Handler::Handler(GlobalLogRing *ptr)
-: ptr_{ptr} {}
-
-void GlobalLogRing::Handler::emit(frg::string_view record) {
-	ptr_->ring_.enqueue(record.data(), record.size());
-	// Note: wakeups use self IPIs. These are not available during early initialization.
-	//       Hence, we guard the use of wakeup_ by an atomic flag.
-	if (ptr_->callWakeup_.load(std::memory_order_relaxed))
-		ptr_->wakeup_.schedule();
+frg::tuple<bool, uint64_t, uint64_t, size_t> retrieveLogRecord(uint64_t deqPtr, void *data, size_t maxSize) {
+	return logRing.dequeueAt(deqPtr, data, maxSize);
 }
 
 //-----------------------------------------------------------------------------
@@ -128,15 +139,14 @@ namespace {
 	}
 
 	coroutine<void> dumpLogToKmsg() {
-		auto glr = getGlobalLogRing();
 		char buffer[logLineLength];
 		uint64_t deqPtr = 0;
 		KmsgLogHandlerContext ctx;
 		while (true) {
-			auto [success, recordPtr, nextPtr, actualSize] = glr->dequeueAt(
+			auto [success, recordPtr, nextPtr, actualSize] = retrieveLogRecord(
 					deqPtr, buffer, logLineLength);
 			if (!success) {
-				co_await glr->wait(deqPtr);
+				co_await waitForLog(deqPtr);
 				continue;
 			}
 
@@ -168,16 +178,6 @@ namespace {
 	};
 } // namespace
 
-
-// Initialize globalLogRing.
-void initializeGlobalLog() {
-	globalLogRing = frg::construct<GlobalLogRing>(*kernelAlloc);
-	globalLogRing->enable();
-}
-
-GlobalLogRing *getGlobalLogRing() {
-	return globalLogRing;
-}
 
 LogRingBuffer *getGlobalKmsgRing() {
 	return globalKmsgRing.get();

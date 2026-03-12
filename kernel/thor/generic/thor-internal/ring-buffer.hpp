@@ -294,6 +294,10 @@ struct ReentrantRecordRing {
 			;
 	}
 
+	uint64_t peekHeadPtr() {
+		return std::atomic_ref{headPtr_}.load(std::memory_order_relaxed);
+	}
+
 	frg::tuple<bool, uint64_t, uint64_t, size_t>
 	dequeueAt(uint64_t deqPtr, void *data, size_t maxSize) {
 		auto ringSize = size_t{1} << shift_;
