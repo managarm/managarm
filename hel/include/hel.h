@@ -136,7 +136,8 @@ enum {
 	kHelErrRemoteFault = 21,
 	kHelErrAlreadyExists = 22,
 	kHelErrBadPermissions = 23,
-	kHelErrOther = 24
+	kHelErrOther = 24,
+	kHelErrFutexRace = 25
 };
 
 struct HelX86SegmentRegister {

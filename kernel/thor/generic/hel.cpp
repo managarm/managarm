@@ -113,7 +113,7 @@ HelError translateError(Error error) {
 	case Error::illegalState: return kHelErrIllegalState;
 	case Error::outOfBounds: return kHelErrOutOfBounds;
 	case Error::cancelled: return kHelErrCancelled;
-	case Error::futexRace: return kHelErrNone; // Note that the translation to success.
+	case Error::futexRace: return kHelErrFutexRace;
 	case Error::bufferTooSmall: return kHelErrBufferTooSmall;
 	case Error::threadExited: return kHelErrThreadTerminated;
 	case Error::transmissionMismatch: return kHelErrTransmissionMismatch;
