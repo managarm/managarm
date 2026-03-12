@@ -319,7 +319,7 @@ struct OpenFile final : BaseFile {
 	OpenFile(std::shared_ptr<Inode> inode, bool write, bool read, bool append)
 	: BaseFile{inode, write, read, append} { }
 
-	async::result<std::optional<std::string>> readEntries();
+	async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries();
 };
 
 static_assert(blockfs::Inode<Inode>);

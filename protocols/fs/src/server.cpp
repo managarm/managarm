@@ -1267,9 +1267,11 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 		managarm::fs::ReadEntriesResponse resp;
 		if(result) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_path(std::move(*result));
+			resp.set_path(result->name);
+			resp.set_ino(result->inode);
+			resp.set_offset(result->offset);
 		}else{
-			resp.set_error(managarm::fs::Errors::END_OF_FILE);
+			resp.set_error(result.error());
 		}
 
 		auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(

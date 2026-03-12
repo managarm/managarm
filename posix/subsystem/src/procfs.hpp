@@ -69,7 +69,7 @@ public:
 
 	void handleClose() override;
 
-	FutureMaybe<ReadEntriesResult> readEntries() override;
+	FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -372,7 +372,7 @@ public:
 
 	void handleClose() override;
 
-	FutureMaybe<ReadEntriesResult> readEntries() override;
+	FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -476,7 +476,7 @@ public:
 
 	void handleClose() override;
 
-	FutureMaybe<ReadEntriesResult> readEntries() override;
+	FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:

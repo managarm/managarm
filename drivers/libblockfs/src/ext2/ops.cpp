@@ -13,7 +13,7 @@ namespace blockfs::ext2fs {
 
 namespace {
 
-async::result<protocols::fs::ReadEntriesResult>
+async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 readEntries(void *object) {
 	auto self = static_cast<ext2fs::OpenFile *>(object);
 

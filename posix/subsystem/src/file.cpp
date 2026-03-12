@@ -92,7 +92,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *
 	co_return result.value();
 }
 
-async::result<ReadEntriesResult> File::ptReadEntries(void *object) {
+async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> File::ptReadEntries(void *object) {
 	auto self = static_cast<File *>(object);
 	return self->readEntries();
 }
@@ -302,7 +302,7 @@ async::result<frg::expected<Error, size_t>> File::pwrite(Process *, int64_t, con
 	co_return Error::seekOnPipe;
 }
 
-async::result<ReadEntriesResult> File::readEntries() {
+async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> File::readEntries() {
 	std::cout << "posix \e[1;34m" << structName()
 			<< "\e[0m: Object does not implement readEntries()" << std::endl;
 	throw std::runtime_error("posix: Object has no File::readEntries()");

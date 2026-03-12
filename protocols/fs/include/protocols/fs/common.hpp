@@ -5,6 +5,7 @@
 #include <string.h>
 #include <string>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <variant>
 #include <vector>
 
@@ -149,7 +150,11 @@ inline Error operator|(managarm::fs::Errors e, ToFsProtoError) {
 
 using ReadResult = std::expected<size_t, Error>;
 
-using ReadEntriesResult = std::optional<std::string>;
+struct ReadEntriesResult {
+	std::string name;
+	ino_t inode;
+	long offset;
+};
 
 using PollResult = std::tuple<uint64_t, int, int>;
 using PollWaitResult = std::tuple<uint64_t, int>;

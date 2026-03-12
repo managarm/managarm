@@ -275,7 +275,7 @@ public:
 
 	void handleClose() override;
 
-	FutureMaybe<ReadEntriesResult> readEntries() override;
+	FutureMaybe<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries() override;
 	helix::BorrowedDescriptor getPassthroughLane() override;
 
 private:
@@ -778,14 +778,19 @@ DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<F
 		_iter{_node->_entries.begin()} { }
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
-async::result<ReadEntriesResult>
+async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 DirectoryFile::readEntries() {
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
 		_iter++;
-		co_return name;
+
+		co_return protocols::fs::ReadEntriesResult{
+			.name = name,
+			.inode = 0,
+			.offset = std::distance(_node->_entries.begin(), _iter)
+		};
 	}else{
-		co_return std::nullopt;
+		co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);
 	}
 }
 
