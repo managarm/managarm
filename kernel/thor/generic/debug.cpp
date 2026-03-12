@@ -27,6 +27,7 @@ void LogHandler::emitUrgent(frg::string_view record) {
 	if (!takesUrgentLogs)
 		panic();
 	emit(record);
+	flush();
 }
 
 void enableLogHandler(LogHandler *sink) {

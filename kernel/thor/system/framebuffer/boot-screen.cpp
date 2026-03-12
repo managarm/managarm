@@ -105,7 +105,9 @@ void BootScreen::emit(frg::string_view record) {
 	line->length = msg.size();
 	memcpy(line->msg, msg.data(), msg.size());
 	++_displaySeq;
+}
 
+void BootScreen::flush() {
 	redraw();
 }
 

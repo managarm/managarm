@@ -60,6 +60,9 @@ struct LogHandler {
 	// in particular, all calls to emit() are serialized.
 	virtual void emit(frg::string_view record) = 0;
 
+	// Called after a batch of emit() calls to allow the handler to flush/redraw.
+	virtual void flush() {}
+
 	// Like emit() but logs out-of-band messages.
 	// This is usually called in emergencies when the usual logging infrastrcture is broken.
 	// emitUrgent() is only called on handlers that have takesUrgentLogs set.
