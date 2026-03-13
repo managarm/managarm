@@ -22,7 +22,7 @@ UnixDeviceRegistry blockRegistry;
 // UnixDevice
 // --------------------------------------------------------
 
-FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount() {
+FutureMaybe<std::shared_ptr<FsLink>> UnixDevice::mount(std::string) {
 	// TODO: Return an error.
 	throw std::logic_error("Device cannot be mounted!");
 }
@@ -352,9 +352,10 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 	}
 }
 
-FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device) {
+FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device, std::string fs_type) {
 	managarm::fs::CntRequest req;
 	req.set_req_type(managarm::fs::CntReqType::DEV_MOUNT);
+	req.set_fs_type(fs_type);
 
 	auto ser = req.SerializeAsString();
 	auto [offer, send_req, recv_resp, pull_node] = co_await helix_ng::exchangeMsgs(lane,

@@ -263,6 +263,88 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 }
 
 template <FileSystem T>
+async::result<protocols::fs::TraverseLinksResult>
+doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components) {
+	using Inode = typename T::Inode;
+	using DirEntry = typename T::DirEntry;
+
+	auto self = std::static_pointer_cast<Inode>(object);
+
+	protocols::ostrace::Timer timer;
+	frg::scope_exit evtOnExit{[&] {
+		ostContext.emit(ostEvtTraverseLinks, ostAttrTime(timer.elapsed()));
+	}};
+
+	std::optional<DirEntry> entry;
+	std::shared_ptr<Inode> parent = self;
+	size_t processedComponents = 0;
+
+	std::vector<std::pair<std::shared_ptr<void>, int64_t>> nodes;
+
+	while (!components.empty()) {
+		auto component = components.front();
+		components.pop_front();
+		processedComponents++;
+
+		if (component == "..") {
+			if (parent == self)
+				co_return std::make_tuple(
+				    nodes, protocols::fs::FileType::directory, processedComponents
+				);
+
+			auto entry = FRG_CO_TRY(co_await parent->findEntry(".."));
+			assert(entry);
+			parent = std::static_pointer_cast<Inode>(self->fs.accessInode(entry->inode));
+			nodes.pop_back();
+		} else {
+			entry = FRG_CO_TRY(co_await parent->findEntry(component));
+
+			if (!entry) {
+				co_return protocols::fs::Error::fileNotFound;
+			}
+
+			assert(entry->inode);
+			nodes.push_back({self->fs.accessInode(entry->inode), entry->inode});
+
+			if (!components.empty()) {
+				if (parent->obstructedLinks.find(component) != parent->obstructedLinks.end()) {
+					break;
+				}
+
+				auto ino = self->fs.accessInode(entry->inode);
+				if (entry->fileType == kTypeSymlink)
+					break;
+
+				if (entry->fileType != kTypeDirectory)
+					co_return protocols::fs::Error::notDirectory;
+
+				parent = std::static_pointer_cast<Inode>(ino);
+			}
+		}
+	}
+
+	if (!entry)
+		co_return protocols::fs::Error::fileNotFound;
+
+	protocols::fs::FileType type;
+	switch (entry->fileType) {
+		case kTypeDirectory:
+			type = protocols::fs::FileType::directory;
+			break;
+		case kTypeRegular:
+			type = protocols::fs::FileType::regular;
+			break;
+		case kTypeSymlink:
+			type = protocols::fs::FileType::symlink;
+			break;
+		default:
+			throw std::runtime_error("Unexpected file type");
+	}
+
+	co_return std::make_tuple(nodes, type, processedComponents);
+}
+
+template <FileSystem T>
 async::result<protocols::fs::OpenResult>
 doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	using File = typename T::File;

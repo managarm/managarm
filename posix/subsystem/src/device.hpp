@@ -34,7 +34,7 @@ public:
 	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			SemanticFlags semantic_flags) = 0;
 
-	virtual FutureMaybe<std::shared_ptr<FsLink>> mount();
+	virtual FutureMaybe<std::shared_ptr<FsLink>> mount(std::string fs_type);
 
 private:
 	VfsType _type;
@@ -93,6 +93,6 @@ openExternalDevice(helix::BorrowedLane lane,
 		std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		SemanticFlags semantic_flags);
 
-FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device);
+FutureMaybe<std::shared_ptr<FsLink>> mountExternalDevice(helix::BorrowedLane lane, std::shared_ptr<UnixDevice> device, std::string fs_type);
 
 async::result<void> serveServerLane(helix::UniqueDescriptor lane);

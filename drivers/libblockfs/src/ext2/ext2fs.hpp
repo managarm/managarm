@@ -246,6 +246,7 @@ struct OpenFile;
 struct FileSystem final : BaseFileSystem {
 	using Inode = Inode;
 	using File = OpenFile;
+	using DirEntry = DirEntry;
 
 	FileSystem(BlockDevice *device);
 
