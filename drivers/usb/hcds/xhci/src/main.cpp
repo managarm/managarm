@@ -185,6 +185,7 @@ async::detached Controller::initialize() {
 				&_eventRing,
 				interrupter::interrupterSpace(runtime, 0)));
 	_interrupters.back()->handleIrqs(_irq);
+	//_interrupters.back()->pollIrqs();
 	_interrupters.back()->initialize();
 
 	// Start the controller and enable interrupts
@@ -469,8 +470,10 @@ async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 			continue;
 		}
 
-		//uint64_t startNs, endNs;
-		//HEL_CHECK(helGetClock(&startNs));
+		uint64_t startNs, endNs;
+		HEL_CHECK(helGetClock(&startNs));
+
+		std::println("xhci: IRQ arrived at time {}", startNs);
 
 		_clearPending();
 		HEL_CHECK(helAcknowledgeIrq(irq.getHandle(), kHelAckAcknowledge, sequence));
@@ -478,9 +481,9 @@ async::detached Interrupter::handleIrqs(helix::UniqueIrq &irq) {
 		_ring->processRing();
 		_updateDequeue();
 
-		//HEL_CHECK(helGetClock(&endNs));
-		//if (endNs - startNs > 10'000'000)
-		//	std::println("xhci: IRQ processing took {} ns", endNs - startNs);
+		HEL_CHECK(helGetClock(&endNs));
+		if (endNs - startNs > 10'000'000)
+			std::println("xhci: IRQ processing took {} ns", endNs - startNs);
 	}
 }
 
@@ -1157,9 +1160,12 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer, bool toHost) {
 	ProducerRing::Transaction tx;
 
-	//uint64_t startNs, endNs;
+	uint64_t startNs, endNs;
 
-	//HEL_CHECK(helGetClock(&startNs));
+	HEL_CHECK(helGetClock(&startNs));
+
+	std::println("{} EP {} on slot {}: TD posted at time {}",
+			_device->controller(), _endpointId, _device->slot(), startNs);
 
 	// Invalidate the buffer before posting the TD in case the ring is already running.
 	if (toHost)
@@ -1176,15 +1182,31 @@ EndpointState::_postTd(std::vector<RawTrb> &&trbs, arch::dma_buffer_view buffer,
 		_device->submit(_endpointId);
 	}
 
+	HEL_CHECK(helGetClock(&endNs));
+
+	std::println("{} EP {} on slot {}: TD took {} ns to submit (end at time {})",
+			_device->controller(), _endpointId, _device->slot(), endNs - startNs, endNs);
+
+	co_await helix::sleepFor(50'000'000);
+
+	HEL_CHECK(helGetClock(&endNs));
+
+	std::println("{} EP {} on slot {}: TD slept 50 ms after submission (time {})",
+			_device->controller(), _endpointId, _device->slot(), endNs);
+
 	auto maybeResidue = co_await tx.transfer();
 
 	if (toHost)
 		_device->controller()->barrier.invalidate(buffer);
 
-	//HEL_CHECK(helGetClock(&endNs));
+	HEL_CHECK(helGetClock(&endNs));
 
-	//std::println("{} EP {} on slot {}: TD took {} ns to complete",
-	//		_device->controller(), _endpointId, _device->slot(), endNs - startNs);
+	std::println("{} EP {} on slot {}: TD took {} ns to complete (end at time {})",
+			_device->controller(), _endpointId, _device->slot(), endNs - startNs, endNs);
+
+	if (endNs - startNs > 100'000'000) {
+		std::println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! aefdasdfasdfasdf");
+	}
 
 	if (!maybeResidue && maybeResidue.error() == proto::UsbError::stall) {
 		auto res = co_await _resetAfterError(nextDequeue);
@@ -1303,6 +1325,7 @@ async::detached observeControllers() {
 
 int main() {
 	std::println("xhci: Starting driver");
+	HEL_CHECK(helSetPriority(kHelThisThread, 1));
 
 	observeControllers();
 	async::run_forever(helix::currentDispatcher);
