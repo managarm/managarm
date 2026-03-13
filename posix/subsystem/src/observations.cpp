@@ -501,6 +501,10 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
+
+			if (!co_await handlePendingSignalsFromObservation(self.get()))
+				break;
+
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObserveSuperCall + posix::superGetTid){
 			if(logRequests)
