@@ -3,17 +3,15 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <iostream>
-#include <deque>
 #include <map>
-#include <numeric>
 #include <print>
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
+#include <frg/ringbuffer.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
 #include "fs.bragi.hpp"
-#include "protocols/fs/common.hpp"
 
 #include <sys/ioctl.h>
 
@@ -23,16 +21,13 @@ namespace {
 
 constexpr bool logFifos = false;
 
-struct Packet {
-	// The actual octet data that the packet consists of.
-	std::vector<char> buffer;
-
-	size_t offset = 0;
-};
+constexpr size_t defaultFifoBufferSize = 65536;
 
 struct Channel {
-	Channel()
-	: writerCount{0}, readerCount{0} { }
+	Channel(size_t capacity) : writerCount{0}, readerCount{0}, ring{capacity} {
+		assert(capacity);
+		assert(std::has_single_bit(capacity));
+	}
 
 	// Status management for poll().
 	async::recurring_event statusBell;
@@ -41,14 +36,14 @@ struct Channel {
 	uint64_t noWriterSeq = 0;
 	uint64_t noReaderSeq = 0;
 	uint64_t inSeq = 0;
+	uint64_t outSeq = 1;
 	int writerCount;
 	int readerCount;
 
 	async::recurring_event readerPresent;
 	async::recurring_event writerPresent;
 
-	// The actual queue of this pipe.
-	std::deque<Packet> packetQueue;
+	frg::byte_ring_buffer<frg::stl_allocator> ring;
 };
 
 struct OpenFile : File {
@@ -94,40 +89,31 @@ public:
 
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t maxLength, async::cancellation_token ce) override {
-		if(logFifos)
+		if (logFifos)
 			std::cout << "posix: Read from pipe " << this << std::endl;
 		if (!isReader_)
 			co_return std::unexpected{Error::insufficientPermissions};
-		if(!maxLength)
+		if (!maxLength)
 			co_return size_t{0};
 
-		while(_channel->packetQueue.empty() && _channel->writerCount) {
-			if(nonBlock_) {
-				if(logFifos)
-					std::cout << "posix: FIFO pipe would block" << std::endl;
+		auto chunk = _channel->ring.dequeue({static_cast<uint8_t *>(data), maxLength});
+
+		while (!chunk) {
+			if (!_channel->writerCount)
+				co_return std::unexpected{Error::eof};
+			else if(nonBlock_)
 				co_return std::unexpected{Error::wouldBlock};
-			}
 
-			if (!co_await _channel->statusBell.async_wait(ce)) {
-				if (logFifos)
-					std::cout << "posix: FIFO pipe read interrupted" << std::endl;
+			if (!(co_await _channel->statusBell.async_wait_if([&]() {
+				return !_channel->ring.size();
+			}, ce)))
 				co_return std::unexpected{Error::interrupted};
-			}
+
+			chunk = _channel->ring.dequeue({static_cast<uint8_t *>(data), maxLength});
 		}
 
-		if(_channel->packetQueue.empty()) {
-			assert(!_channel->writerCount);
-			co_return std::unexpected{Error::eof};
-		}
-
-		// TODO: Truncate packets (for SOCK_DGRAM) here.
-		auto packet = &_channel->packetQueue.front();
-		size_t chunk = std::min(packet->buffer.size() - packet->offset, maxLength);
-		assert(chunk); // Otherwise we return above since !maxLength.
-		memcpy(data, packet->buffer.data() + packet->offset, chunk);
-		packet->offset += chunk;
-		if(packet->offset == packet->buffer.size())
-			_channel->packetQueue.pop_front();
+		_channel->outSeq = ++_channel->currentSeq;
+		_channel->statusBell.raise();
 		co_return chunk;
 	}
 
@@ -135,21 +121,28 @@ public:
 	writeAll(Process *, const void *data, size_t maxLength) override {
 		if (!isWriter_)
 			co_return Error::insufficientPermissions;
-
+		if (!_channel->readerCount)
+			co_return Error::brokenPipe; // TODO: SIGPIPE
 		if (!maxLength)
 			co_return 0;
 
-		Packet packet;
-		packet.buffer.resize(maxLength);
-		memcpy(packet.buffer.data(), data, maxLength);
-		packet.offset = 0;
+		auto chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
 
-		_channel->packetQueue.push_back(std::move(packet));
+		while (!chunk) {
+			if (nonBlock_)
+				co_return Error::wouldBlock;
+
+			co_await _channel->statusBell.async_wait_if([&]() {
+				return !_channel->ring.available_space();
+			}); // TODO: EINTR
+
+			chunk = _channel->ring.enqueue({static_cast<const uint8_t *>(data), maxLength});
+		}
+
 		_channel->inSeq = ++_channel->currentSeq;
 		_channel->statusBell.raise();
-		co_return maxLength;
+		co_return chunk;
 	}
-
 
 	async::result<frg::expected<Error, PollWaitResult>>
 	pollWait(Process *, uint64_t pastSeq, int mask,
@@ -169,7 +162,8 @@ public:
 					edges |= EPOLLIN;
 			}
 			if (isWriter_) {
-				edges |= EPOLLOUT;
+				if(_channel->outSeq > pastSeq)
+					edges |= EPOLLOUT;
 				if(_channel->noReaderSeq > pastSeq)
 					edges |= EPOLLERR;
 			}
@@ -193,11 +187,12 @@ public:
 		if (isReader_) {
 			if(!_channel->writerCount)
 				events |= EPOLLHUP;
-			if(!_channel->packetQueue.empty())
+			if(!_channel->ring.empty())
 				events |= EPOLLIN;
 		}
 		if (isWriter_) {
-			events |= EPOLLOUT;
+			if(_channel->ring.available_space())
+				events |= EPOLLOUT;
 			if(!_channel->readerCount)
 				events |= EPOLLERR;
 		}
@@ -251,11 +246,7 @@ public:
 				case FIONREAD: {
 					size_t count = 0;
 					if (isReader_)
-						count = std::accumulate(_channel->packetQueue.cbegin(), _channel->packetQueue.cend(), 0,
-							[](size_t sum, const Packet &p) {
-								return sum + (p.buffer.size() - p.offset);
-							}
-						);
+						count = _channel->ring.size();
 
 					resp.set_fionread_count(count);
 					resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -307,7 +298,7 @@ std::map<FsNode *, std::shared_ptr<Channel>> globalChannelMap;
 //       the FsNode with a Channel on demand.
 void createNamedChannel(FsNode *node) {
 	assert(globalChannelMap.find(node) == globalChannelMap.end());
-	globalChannelMap[node] = std::make_shared<Channel>();
+	globalChannelMap[node] = std::make_shared<Channel>(defaultFifoBufferSize);
 }
 
 void unlinkNamedChannel(FsNode *node) {
@@ -367,7 +358,7 @@ openNamedChannel(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 
 std::array<smarter::shared_ptr<File, FileHandle>, 2> createPair(bool nonBlock) {
 	auto link = SpecialLink::makeSpecialLink(VfsType::fifo, 0777);
-	auto channel = std::make_shared<Channel>();
+	auto channel = std::make_shared<Channel>(defaultFifoBufferSize);
 	auto r_file = smarter::make_shared<OpenFile>(nullptr, link, true, false, nonBlock);
 	auto w_file = smarter::make_shared<OpenFile>(nullptr, link, false, true, nonBlock);
 	r_file->setupWeakFile(r_file);
