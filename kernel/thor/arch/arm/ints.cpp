@@ -10,6 +10,7 @@ extern "C" void enableIntsAndHaltForever();
 
 void suspendSelf() {
 	assert(!intsAreEnabled());
+	getCpuData()->disableIrqsStamp = 0;
 	enableIntsAndHaltForever();
 }
 

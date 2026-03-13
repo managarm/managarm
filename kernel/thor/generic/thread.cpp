@@ -707,6 +707,9 @@ void Thread::doHandlePreemption(bool inManipulableDomain, ImageAccessor image) {
 
 void Thread::_updateRunTime() {
 	auto now = getClockNanos();
+	if(now < _lastRunTimeUpdate) {
+		infoLogger() << "thor: now=" << now << ", _lastRunTimeUpdate=" << _lastRunTimeUpdate << frg::endlog;
+	}
 	assert(now >= _lastRunTimeUpdate);
 	auto elapsed = now - _lastRunTimeUpdate;
 	if (_runState == kRunActive || _runState == kRunSuspended || _runState == kRunDeferred) {

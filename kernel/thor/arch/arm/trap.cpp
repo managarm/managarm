@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch-generic/ints.hpp>
+#include <thor-internal/arch-generic/timer.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/gic.hpp>
 #include <thor-internal/arch/gic_v2.hpp>
@@ -21,6 +22,9 @@ ClaimedExternalIrq claimGicV2Irq() {
 	assert(std::holds_alternative<GicV2 *>(externalIrq));
 	auto *gic = std::get<GicV2 *>(externalIrq);
 	auto [cpu, irq] = gic->getIrq();
+	if (irq > 32) {
+		infoLogger() << "thor: IRQ " << irq << " arrived at time " << getClockNanos() << frg::endlog;
+	}
 	return {cpu, irq, gic->getPin(irq)};
 }
 
@@ -28,6 +32,9 @@ ClaimedExternalIrq claimGicV3Irq() {
 	assert(std::holds_alternative<GicV3 *>(externalIrq));
 	auto *gic = std::get<GicV3 *>(externalIrq);
 	auto [cpu, irq] = gic->getIrq();
+	if (irq > 32) {
+		infoLogger() << "thor: IRQ " << irq << " arrived at time " << getClockNanos() << frg::endlog;
+	}
 	return {cpu, irq, gic->getPin(irq)};
 }
 

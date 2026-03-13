@@ -52,10 +52,7 @@ struct MbusNode final : private KernelBusObject {
 				reg.addr,
 				reg.size,
 				offset,
-				smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
-					reg.addr & ~(kPageSize - 1),
-					(reg.size + (kPageSize - 1)) & ~(kPageSize - 1),
-					CachingMode::mmioNonPosted)
+				nullptr
 			);
 		}
 
@@ -169,6 +166,13 @@ struct MbusNode final : private KernelBusObject {
 			if(index >= regs.size()) {
 				infoLogger() << "thor: Closing lane due to out-ouf-bounds DT register " << index << " in HW request." << frg::endlog;
 				co_return Error::illegalArgs;
+			}
+
+			if(!regs[index].memory) {
+				regs[index].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+						regs[index].address & ~(kPageSize - 1),
+						(regs[index].length + (kPageSize - 1)) & ~(kPageSize - 1),
+						CachingMode::mmioNonPosted);
 			}
 
 			MemoryViewDescriptor descriptor{regs[index].memory};

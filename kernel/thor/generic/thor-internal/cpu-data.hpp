@@ -124,6 +124,8 @@ struct CpuData : public PlatformCpuData {
 	std::atomic<ProfileMechanism> profileMechanism{};
 	// TODO: This should be a unique_ptr instead.
 	SingleContextRecordRing *localProfileRing = nullptr;
+
+	uint64_t disableIrqsStamp = 0;
 };
 
 inline CpuData *getCpuData() {
