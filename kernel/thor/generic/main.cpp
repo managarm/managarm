@@ -183,7 +183,6 @@ initgraph::Edge fibersTaskingEdge{
 };
 
 extern "C" void thorMain() {
-	initializeGlobalLog();
 	infoLogger() << "thor: Entering main function" << frg::endlog;
 
 	kernelCommandLine.initialize(*kernelAlloc,
@@ -213,9 +212,6 @@ extern "C" void thorMain() {
 		// Run all other initgraph tasks.
 		globalInitEngine.run();
 
-		// enableWakeups() requires all CPUs to be ready to handle IPIs.
-		// TODO: this could be avoided by changing SelfIpiCall to avoid IPIs on CPUs that are not yet ready.
-		getGlobalLogRing()->enableWakeups();
 		transitionBootFb();
 
 		pci::runAllBridges();

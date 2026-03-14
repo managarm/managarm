@@ -60,6 +60,9 @@ struct LogHandler {
 	// in particular, all calls to emit() are serialized.
 	virtual void emit(frg::string_view record) = 0;
 
+	// Called after a batch of emit() calls to allow the handler to flush/redraw.
+	virtual void flush() {}
+
 	// Like emit() but logs out-of-band messages.
 	// This is usually called in emergencies when the usual logging infrastrcture is broken.
 	// emitUrgent() is only called on handlers that have takesUrgentLogs set.
@@ -69,13 +72,26 @@ struct LogHandler {
 	// The default implementation calls emit().
 	virtual void emitUrgent(frg::string_view record);
 
-	frg::default_list_hook<LogHandler> hook;
+	frg::intrusive_rcu_list_hook<LogHandler> hook;
 
 	bool takesUrgentLogs{false};
 
 protected:
 	~LogHandler() = default;
 };
+
+// Exposed for read access only.
+// Modifications must use enableLogHandler() / disableLogHandler().
+// TODO: If frigg exposed const iterators for intrusive_rcu_list,
+//       we could replace this by a function that returns a const reference.
+extern frg::intrusive_rcu_list<
+	LogHandler,
+	frg::locate_member<
+		LogHandler,
+		frg::intrusive_rcu_list_hook<LogHandler>,
+		&LogHandler::hook
+	>
+> globalLogList;
 
 void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);

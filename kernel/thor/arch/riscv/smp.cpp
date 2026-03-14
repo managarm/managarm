@@ -10,7 +10,6 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/rcu.hpp>
-#include <thor-internal/ring-buffer.hpp>
 #include <uacpi/acpi.h>
 #include <uacpi/tables.h>
 
@@ -106,8 +105,6 @@ void bootAp(uint64_t hartId, size_t cpuIndex) {
 	smpCpu->hartId = hartId;
 	// Ensure that the CPU data is visible to the HART.
 	__atomic_thread_fence(__ATOMIC_SEQ_CST);
-
-	smpCpu->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(smpCpu);

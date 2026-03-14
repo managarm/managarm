@@ -40,6 +40,7 @@ struct BootScreen final : public LogHandler {
 	BootScreen(TextDisplay *display);
 
 	void emit(frg::string_view record) override;
+	void flush() override;
 
 	void redraw();
 

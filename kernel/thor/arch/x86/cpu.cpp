@@ -8,7 +8,6 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/rcu.hpp>
-#include <thor-internal/ring-buffer.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
@@ -536,10 +535,6 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 
 extern "C" void syscallStub();
 
-namespace {
-	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
-}
-
 // Set up the kernel GS segment.
 void setupCpuContext(AssemblyCpuData *context) {
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
@@ -561,8 +556,6 @@ void setupBootCpuContext() {
 	auto context = getCpuData(0);
 	setupCpuContext(context);
 
-	bootLogRing.initialize();
-	context->localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "x86.init-boot-processor",
@@ -828,7 +821,6 @@ void bootSecondary(unsigned int apic_id, size_t cpuIndex) {
 
 	auto *context = getCpuData(cpuIndex);
 	context->localApicId = apic_id;
-	context->localLogRing = frg::construct<ReentrantRecordRing>(*kernelAlloc);
 
 	// Participate in global TLB invalidation *before* paging is used by the target CPU.
 	initializeAsidContext(context);

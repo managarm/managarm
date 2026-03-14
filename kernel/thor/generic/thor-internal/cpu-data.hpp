@@ -16,7 +16,6 @@ struct ExecutorContext;
 struct Thread;
 struct KernelFiber;
 struct SingleContextRecordRing;
-struct ReentrantRecordRing;
 struct SelfIntCallBase;
 struct WorkQueue;
 
@@ -73,9 +72,6 @@ struct alignas(8) IntState {
 };
 
 struct CpuData : public PlatformCpuData {
-	static constexpr unsigned int RS_EMITTING = 1;
-	static constexpr unsigned int RS_PENDING = 2;
-
 	CpuData();
 
 	CpuData(const CpuData &) = delete;
@@ -103,17 +99,6 @@ struct CpuData : public PlatformCpuData {
 	std::atomic<uint64_t> heartbeat;
 
 	IseqContext regularIseq;
-
-	// Ring buffer that stores log records that are produced on this CPU.
-	// This is reentrant, i.e., it allows non-maskable interrupts / exceptions to log data.
-	// The ring buffer is drained to the global logging sinks.
-	ReentrantRecordRing *localLogRing;
-	// Current dequeue sequence for localLogRing.
-	uint64_t localLogSeq{0};
-	// Whether we should avoid emittings logs due to latency overhead (e.g., in IRQ/NMI context).
-	std::atomic<bool> avoidEmittingLogs{false};
-	// Bitmask of {RS_EMITTING, RS_PENDING} to determine whether we are currently emitting logs.
-	std::atomic<unsigned int> reentrantLogState{0};
 
 	// Set at the end of each architecture's initializeThisProcessor().
 	// This allows us to check whether various per-CPU data structures are initialized,

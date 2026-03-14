@@ -6,7 +6,6 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/kasan.hpp>
 #include <thor-internal/fiber.hpp>
-#include <thor-internal/ring-buffer.hpp>
 
 namespace thor {
 
@@ -207,10 +206,6 @@ void doRunOnStack(void (*function) (void *, void *), void *sp, void *argument) {
 
 Error getEntropyFromCpu(void *, size_t) { return Error::noHardwareSupport; }
 
-namespace {
-	constinit frg::manual_box<ReentrantRecordRing> bootLogRing;
-}
-
 void setupCpuContext(AssemblyCpuData *context) {
 	asm volatile("msr tpidr_el1, %0" :: "r"(context));
 }
@@ -230,8 +225,6 @@ void setupBootCpuContext() {
 	auto context = getCpuData(0);
 	setupCpuContext(context);
 
-	bootLogRing.initialize();
-	context->localLogRing = bootLogRing.get();
 }
 
 static initgraph::Task initBootProcessorTask{&globalInitEngine, "arm.init-boot-processor",
