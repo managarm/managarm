@@ -69,13 +69,26 @@ struct LogHandler {
 	// The default implementation calls emit().
 	virtual void emitUrgent(frg::string_view record);
 
-	frg::default_list_hook<LogHandler> hook;
+	frg::intrusive_rcu_list_hook<LogHandler> hook;
 
 	bool takesUrgentLogs{false};
 
 protected:
 	~LogHandler() = default;
 };
+
+// Exposed for read access only.
+// Modifications must use enableLogHandler() / disableLogHandler().
+// TODO: If frigg exposed const iterators for intrusive_rcu_list,
+//       we could replace this by a function that returns a const reference.
+extern frg::intrusive_rcu_list<
+	LogHandler,
+	frg::locate_member<
+		LogHandler,
+		frg::intrusive_rcu_list_hook<LogHandler>,
+		&LogHandler::hook
+	>
+> globalLogList;
 
 void enableLogHandler(LogHandler *sink);
 void disableLogHandler(LogHandler *sink);

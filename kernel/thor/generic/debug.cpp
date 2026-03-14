@@ -7,21 +7,25 @@
 namespace thor {
 
 namespace {
+
 	// Protects the data structures below.
 	constinit frg::ticket_spinlock logMutex;
 
 	// Protected by logMutex.
 	constinit uint64_t globalLogSeq{0};
 
-	frg::manual_box<frg::intrusive_list<
-		LogHandler,
-		frg::locate_member<
-			LogHandler,
-			frg::default_list_hook<LogHandler>,
-			&LogHandler::hook
-		>
-	>> globalLogList;
+	// Protects the globalLogList.
+	constinit IrqSpinlock listMutex;
 } // anonymous namespace
+
+constinit frg::intrusive_rcu_list<
+	LogHandler,
+	frg::locate_member<
+		LogHandler,
+		frg::intrusive_rcu_list_hook<LogHandler>,
+		&LogHandler::hook
+	>
+> globalLogList;
 
 void LogHandler::emitUrgent(frg::string_view record) {
 	if (!takesUrgentLogs)
@@ -30,18 +34,13 @@ void LogHandler::emitUrgent(frg::string_view record) {
 }
 
 void enableLogHandler(LogHandler *sink) {
-	if (!globalLogList)
-		globalLogList.initialize();
-
-	globalLogList->push_back(sink);
+	auto lock = frg::guard(&listMutex);
+	globalLogList.push_back(sink);
 }
 
 void disableLogHandler(LogHandler *sink) {
-	if (!globalLogList)
-		globalLogList.initialize();
-
-	auto it = globalLogList->iterator_to(sink);
-	globalLogList->erase(it);
+	auto lock = frg::guard(&listMutex);
+	globalLogList.erase(sink);
 }
 
 namespace {
@@ -68,7 +67,7 @@ namespace {
 				if (actualSize < sizeof(LogMetadata))
 					panic();
 				frg::string_view record{buffer, actualSize};
-				for (const auto &it : *globalLogList)
+				for (const auto &it : globalLogList)
 					it->emit(record);
 
 				globalLogSeq = nextPtr;
@@ -159,9 +158,7 @@ namespace {
 		} else {
 			if (record.size() < sizeof(LogMetadata))
 				panic();
-			// TODO: Iterating through globalLogList without locks is unsafe.
-			//       Fix this by using a lock-free data structure.
-			for (const auto &it : *globalLogList) {
+			for (const auto &it : globalLogList) {
 				if (!it->takesUrgentLogs)
 					continue;
 				it->emitUrgent(record);
