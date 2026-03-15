@@ -126,25 +126,28 @@ bool ClientPageSpace::updatePageAccess(VirtualAddr pointer, PageFlags flags) {
 	auto ptePtr = cursor.getPtePtr();
 	if (!ptePtr)
 		return false;
+
 	auto pte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
-	if (!(pte & pteValid))
-		return false;
-	assert(pte & pteRead);
+	while (true) {
+		if (!(pte & pteValid))
+			return false;
+		assert(pte & pteRead);
 
-	uint64_t bits{0};
-	// Reads are always valid.
-	if (flags & page_access::read)
-		bits |= pteAccess;
-	if ((flags & page_access::execute) && (pte & pteExecute))
-		bits |= pteAccess;
-	if ((flags & page_access::write) && (pte & pteWrite))
-		bits |= pteAccess | pteDirty;
+		auto newPte = pte;
+		if (flags & page_access::read)
+			newPte |= pteAccess;
+		if ((flags & page_access::execute) && (pte & pteExecute))
+			newPte |= pteAccess;
+		if ((flags & page_access::write) && (pte & pteWrite))
+			newPte |= pteAccess | pteDirty;
 
-	// Mask out bits that are already set (such that the return value is accurate).
-	bits &= ~(pte & (pteAccess | pteDirty));
-	if (!bits)
-		return false;
-	__atomic_fetch_or(ptePtr, bits, __ATOMIC_RELAXED);
+		if (newPte == pte)
+			return false;
+
+		if (__atomic_compare_exchange_n(ptePtr, &pte, newPte, false,
+				__ATOMIC_RELAXED, __ATOMIC_RELAXED))
+			break;
+	}
 	return true;
 }
 
