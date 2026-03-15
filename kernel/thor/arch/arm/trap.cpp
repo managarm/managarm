@@ -78,13 +78,16 @@ Word mmuAbortError(uint64_t esr) {
 }
 
 bool updatePageAccess(FaultImageAccessor image, Word error) {
-	if ((error & kPfWrite) && (error & kPfAccess) && !inHigherHalf(*image.faultAddr())) {
-		// Check if it's just a writable page that's not dirty yet
+	if ((error & kPfAccess) && !inHigherHalf(*image.faultAddr())) {
+		PageFlags flags = page_access::read;
+		if (error & kPfInstruction)
+			flags |= page_access::execute;
+		if (error & kPfWrite)
+			flags |= page_access::write;
+
 		smarter::borrowed_ptr<Thread> this_thread = getCurrentThread();
-		// TODO: We pass flags = 0 for now since updatePageAccess() on aarch64
-		//       currently does not use the flags.
 		return this_thread->getAddressSpace()->updatePageAccess(
-		    *image.faultAddr() & ~(kPageSize - 1), 0
+		    *image.faultAddr() & ~(kPageSize - 1), flags
 		);
 	}
 

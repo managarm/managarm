@@ -23,18 +23,20 @@ struct NptOperations final : VirtualOperations {
 
 	bool submitShootdown(ShootNode *node) override;
 
-	frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error, bool> restrictPages(VirtualAddr va,
+	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 			size_t size, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error> cleanPages(VirtualAddr va, size_t size) override;
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override;
 
-	frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) override;
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
+
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) override;
 
 private:
 	NptPageSpace *pageSpace_;

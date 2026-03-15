@@ -4,6 +4,7 @@
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>
+#include <thor-internal/timer.hpp>
 #include <frg/container_of.hpp>
 #include <thor-internal/types.hpp>
 
@@ -13,26 +14,12 @@ extern size_t kernelMemoryUsage;
 
 namespace {
 	constexpr bool logCleanup = false;
-	constexpr bool logUsage = false;
+	constexpr bool logRss = false;
 
-	[[maybe_unused]]
-	void logRss(VirtualSpace *space) {
-		if(!logUsage)
-			return;
-		auto rss = space->rss();
-		if(!rss)
-			return;
-		auto b = 63 -__builtin_clz(rss);
-		if(b < 1)
-			return;
-		if(rss & ((1 << (b - 1)) - 1))
-			return;
-		infoLogger() << "thor: RSS of " << space << " increases above "
-				<< (rss / 1024) << " KiB" << frg::endlog;
-		infoLogger() << "thor:     Physical usage: "
-				<< (physicalAllocator->numUsedPages() * 4) << " KiB, kernel usage: "
-				<< (kernelMemoryUsage / 1024) << " KiB" << frg::endlog;
-	}
+	// Used in working set limit computation.
+	// TODO: Do not make this global and add a hierarchical API that allows userspace
+	//       to control weights or similar for working set size computation.
+	constinit std::atomic<size_t> numVirtualSpaces{0};
 
 	uint32_t compilePageFlags(MappingFlags mappingFlags) {
 		uint32_t pageFlags = 0;
@@ -44,16 +31,6 @@ namespace {
 			pageFlags |= page_access::execute;
 		return pageFlags;
 	}
-}
-
-// --------------------------------------------------------
-// Generic VirtualOperation implementation.
-// --------------------------------------------------------
-
-size_t VirtualOperations::getRss() {
-	// Derived classes should track RSS; the generic implementaton does not.
-	// TODO: As soon as all derived classes implement this, we should make it pure virtual.
-	return 0;
 }
 
 // --------------------------------------------------------
@@ -155,40 +132,58 @@ coroutine<void> Mapping::runEvictionLoop() {
 		auto eviction = co_await view->pollEviction(&observer, cancelEviction);
 		if(!eviction)
 			break;
-		if(eviction.offset() + eviction.size() <= viewOffset
-				|| eviction.offset() >= viewOffset + length) {
-			eviction.done();
-			continue;
-		}
+		if (eviction.mode() == EvictMode::breakRange) {
+			if(eviction.offset() + eviction.size() <= viewOffset
+					|| eviction.offset() >= viewOffset + length) {
+				eviction.done();
+				continue;
+			}
 
-		// Begin and end offsets of the region that we need to unmap.
-		auto shootBegin = frg::max(eviction.offset(), viewOffset);
-		auto shootEnd = frg::min(eviction.offset() + eviction.size(),
-				viewOffset + length);
+			// Begin and end offsets of the region that we need to unmap.
+			auto shootBegin = frg::max(eviction.offset(), viewOffset);
+			auto shootEnd = frg::min(eviction.offset() + eviction.size(),
+					viewOffset + length);
 
-		// Offset from the beginning of the mapping.
-		auto shootOffset = shootBegin - viewOffset;
-		auto shootSize = shootEnd - shootBegin;
-		assert(shootSize);
-		assert(!(shootOffset & (kPageSize - 1)));
-		assert(!(shootSize & (kPageSize - 1)));
+			// Offset from the beginning of the mapping.
+			auto shootOffset = shootBegin - viewOffset;
+			auto shootSize = shootEnd - shootBegin;
+			assert(shootSize);
+			assert(!(shootOffset & (kPageSize - 1)));
+			assert(!(shootSize & (kPageSize - 1)));
 
-		co_await exposeRcu.barrier();
+			co_await exposeRcu.barrier();
 
-		bool pagesAffected;
-		{
-			LocalRcuEngine::Guard revokeGuard{revokeRcu};
+			bool anyRevoked;
+			{
+				LocalRcuEngine::Guard revokeGuard{revokeRcu};
 
-			// Unmap the memory range.
-			auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
-			assert(unmapOutcome);
-			pagesAffected = unmapOutcome.value();
+				// Unmap the memory range.
+				auto unmapOutcome = owner->_ops->unmapPages(address + shootOffset, shootSize);
+				assert(unmapOutcome);
+				owner->notifyRss_(unmapOutcome.value());
+				anyRevoked = unmapOutcome.value().anyRevoked;
 
-			if(pagesAffected)
-				co_await owner->_ops->shootdown(address + shootOffset, shootSize);
-		}
-		if(!pagesAffected)
+				if(anyRevoked)
+					co_await owner->_ops->shootdown(address + shootOffset, shootSize);
+			}
+			if(!anyRevoked)
+				co_await revokeRcu.barrier();
+		} else if(eviction.mode() == EvictMode::fenceDirty) {
+			// Ensure all in-flight revokeRcu critical sections (which will clear
+			// PTE dirty bits) have completed.
 			co_await revokeRcu.barrier();
+		} else {
+			assert(eviction.mode() == EvictMode::fenceEphemeral);
+
+			// fenceEphemeral affects all CachePages with a use count of zero.
+			// However, all mapped pages have use counts > zero.
+
+			// Ensure that no references remain (aside from permanent ones in PTEs).
+			co_await exposeRcu.barrier();
+			// Ensure that prior unmapping + shootdown is complete.
+			// This is needed since prior unmapping of this mapping may have decreased the use count to zero.
+			co_await revokeRcu.barrier();
+		}
 
 		eviction.done();
 	}
@@ -214,7 +209,33 @@ CowChain::~CowChain() {
 // --------------------------------------------------------
 
 VirtualSpace::VirtualSpace(VirtualOperations *ops)
-: _ops{ops} { }
+: _ops{ops} {
+	numVirtualSpaces.fetch_add(1, std::memory_order_relaxed);
+}
+
+ptrdiff_t VirtualSpace::workingSetGoal_() {
+	auto n = numVirtualSpaces.load(std::memory_order_relaxed);
+	assert(n);
+	return physicalAllocator->numTotalPages() * kPageSize / n;
+}
+
+void VirtualSpace::notifyRss_(const PagesAffected &affected) {
+	rss_.fetch_add(affected.rssIncrease - affected.rssDecrease, std::memory_order_relaxed);
+	agingTurnover_.fetch_add(affected.rssIncrease, std::memory_order_relaxed);
+	if(shouldContinueAging_())
+		agingEvent_.raise();
+}
+
+bool VirtualSpace::shouldContinueAging_() {
+	// Considerations:
+	// * We do not want to run aging if too few pages are mapped; otherwise, we would
+	//   wrap around the address space too quickly and invest too much work for little to no gain.
+	// * We want to run aging frequently enough to ensure the page ages
+	//   are meaningful and not just all zero or one.
+	auto goal = workingSetGoal_();
+	return rss_.load(std::memory_order_relaxed) >= goal / 2
+		&& agingTurnover_.load(std::memory_order_relaxed) >= goal / 5;
+}
 
 void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
 	auto hole = frg::construct<Hole>(*kernelAlloc, address, size);
@@ -222,6 +243,8 @@ void VirtualSpace::setupInitialHole(VirtualAddr address, size_t size) {
 }
 
 VirtualSpace::~VirtualSpace() {
+	numVirtualSpaces.fetch_sub(1, std::memory_order_relaxed);
+
 	if(logCleanup)
 		debugLogger() << "thor: VirtualSpace is destructed" << frg::endlog;
 
@@ -230,6 +253,8 @@ VirtualSpace::~VirtualSpace() {
 		_holes.remove(hole);
 		frg::destruct(*kernelAlloc, hole);
 	}
+
+	assert(rss_.load(std::memory_order_relaxed) == 0);
 }
 
 void VirtualSpace::retire() {
@@ -239,6 +264,9 @@ void VirtualSpace::retire() {
 	// TODO: It would be less ugly to run this in a non-detached way.
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<VirtualSpace> self)
 			-> coroutine<void> {
+		self->cancelAging_.cancel();
+		co_await self->agingDoneEvent_.wait();
+
 		co_await self->_consistencyMutex.async_lock();
 		frg::unique_lock consistencyLock{frg::adopt_lock, self->_consistencyMutex};
 
@@ -251,6 +279,7 @@ void VirtualSpace::retire() {
 
 			auto unmapOutcome = self->_ops->unmapPages(mapping->address, mapping->length);
 			assert(unmapOutcome);
+			self->notifyRss_(unmapOutcome.value());
 
 			mapping = MappingTree::successor(mapping);
 		}
@@ -272,6 +301,87 @@ void VirtualSpace::retire() {
 			mapping->selfPtr.ctr()->decrement();
 		}
 	}(selfPtr.lock()));
+}
+
+coroutine<void> VirtualSpace::runAgingLoop() {
+	auto self = selfPtr.lock();
+
+	// This function scans over the entire address space in a circular fashion.
+	// It does not do one pass at a time, instead we stop when shouldContinueAging_() becomes false.
+	// nextAddress is the virtual address that we will continue at.
+	VirtualAddr nextAddress{0};
+	while(true) {
+		auto waitOutcome = co_await agingEvent_.async_wait_if([&] {
+			return !shouldContinueAging_();
+		}, cancelAging_);
+
+		if (!waitOutcome)
+			break;
+
+		while(shouldContinueAging_()) {
+			if (logRss && !nextAddress) {
+				// Only log on wrap-around to avoid log spam.
+				infoLogger() << frg::fmt(
+					"thor: {} RSS: 0x{:x}, goal: 0x{:x}",
+					this,
+					rss_.load(std::memory_order_relaxed),
+					workingSetGoal_()
+				) << frg::endlog;
+			}
+
+			smarter::shared_ptr<Mapping> mapping;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto spaceGuard = frg::guard(&_snapshotMutex);
+				auto node = _mappings.get_root();
+				Mapping *candidate = nullptr;
+				while(node) {
+					if(node->address + node->length <= nextAddress) {
+						node = MappingTree::get_right(node);
+					} else if(node->address >= nextAddress) {
+						candidate = node;
+						node = MappingTree::get_left(node);
+					} else {
+						candidate = node;
+						break;
+					}
+				}
+				if(candidate)
+					mapping = candidate->selfPtr.lock();
+			}
+
+			// Wrap-around when we reach the end of the address space.
+			if(!mapping) {
+				nextAddress = 0;
+				continue;
+			}
+			nextAddress = mapping->address + mapping->length;
+
+			if(mapping->state.load(std::memory_order_relaxed) != MappingState::active)
+				continue;
+
+			co_await mapping->exposeRcu.barrier();
+
+			bool anyRevoked;
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+				bool vacate = rss_.load(std::memory_order_relaxed) > workingSetGoal_();
+				auto ageOutcome = _ops->agePages(mapping->address, mapping->length, vacate);
+				assert(ageOutcome);
+				agingTurnover_.fetch_sub(ageOutcome.value().scanned, std::memory_order_relaxed);
+				notifyRss_(ageOutcome.value());
+				anyRevoked = ageOutcome.value().anyRevoked;
+
+				if(anyRevoked)
+					co_await _ops->shootdown(mapping->address, mapping->length);
+			}
+			if(!anyRevoked)
+				co_await mapping->revokeRcu.barrier();
+		}
+	}
+
+	agingDoneEvent_.raise();
 }
 
 coroutine<frg::expected<Error, VirtualAddr>>
@@ -361,10 +471,6 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		);
 		mapping->selfPtr = mapping;
 
-		auto caching = CachingMode::null;
-		if(slice->getCachingFlags() == cacheWriteCombine)
-			caching = CachingMode::writeCombine;
-
 		// Install the new mapping object.
 		_mappings.insert(mapping.get());
 
@@ -375,23 +481,38 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 		mapping.ctr()->increment();
 		mapping->view->addObserver(&mapping->observer);
 
-		// Not populating the range is the default.
-		// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
-		// that need to happen when an already mapped page is unmapped during copy-on-write.
-		if (flags & kMapPopulate) {
+	}
+
+	// Not populating the range is the default.
+	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
+	// that need to happen when an already mapped page is unmapped during copy-on-write.
+	if (flags & kMapPopulate) {
+		auto caching = CachingMode::null;
+		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
+			caching = CachingMode::writeCombine;
+
+		LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+
+		if(mapping->state.load(std::memory_order_relaxed) == MappingState::active) {
+			auto actualMappingFlags = mapping->flags.load(std::memory_order_relaxed);
 			uint32_t pageFlags = 0;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protWrite)
 				pageFlags |= page_access::write;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protExecute)
 				pageFlags |= page_access::execute;
-			if((mappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
+			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 				pageFlags |= page_access::read;
 
-			LocalRcuEngine::Guard exposeGuard{mapping->exposeRcu};
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
-			auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
-					mapping->viewOffset, mapping->length, pageFlags, caching);
-			assert(mapOutcome);
+				auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
+						mapping->viewOffset, mapping->length, pageFlags, caching);
+				assert(mapOutcome);
+				notifyRss_(mapOutcome.value());
+				if(mapOutcome.value().anyRevoked)
+					co_await _ops->shootdown(mapping->address, mapping->length);
+			}
 		}
 	}
 
@@ -457,19 +578,19 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 
 		co_await mapping->exposeRcu.barrier();
 
-		bool pagesAffected;
+		bool anyRevoked;
 		{
 			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 			auto restrictOutcome = _ops->restrictPages(mapping->address,
 					mapping->length, pageFlags, caching);
 			assert(restrictOutcome);
-			pagesAffected = restrictOutcome.value();
+			anyRevoked = restrictOutcome.value().anyRevoked;
 
-			if(pagesAffected)
+			if(anyRevoked)
 				co_await _ops->shootdown(mapping->address, mapping->length);
 		}
-		if(!pagesAffected)
+		if(!anyRevoked)
 			co_await mapping->revokeRcu.barrier();
 	}
 
@@ -514,12 +635,19 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::active);
 		assert(mappingOffset + mappingChunk <= mapping->length);
 
-		auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
-		assert(cleanOutcome);
+		bool anyRevoked;
+		{
+			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+			auto cleanOutcome = _ops->cleanPages(mapping->address + mappingOffset, mappingChunk);
+			assert(cleanOutcome);
+			anyRevoked = cleanOutcome.value().anyRevoked;
+			if(anyRevoked)
+				co_await _ops->shootdown(mapping->address + mappingOffset, mappingChunk);
+		}
 
 		overallProgress += mappingChunk;
 	}
-	co_await _ops->shootdown(alignedAddress, alignedSize);
 
 	co_return {};
 }
@@ -579,28 +707,36 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 				continue;
 			auto flags = mapping->flags.load(std::memory_order_relaxed);
 
-			auto remapOutcome = _ops->faultPage(
-				address & ~(kPageSize - 1),
-				mapping->view.get(),
-				mapping->viewOffset + offset,
-				fetchFlags,
-				compilePageFlags(flags),
-				caching
-			);
-			if(!remapOutcome) {
-				if(remapOutcome.error() == Error::spuriousOperation) {
-					// Spurious page faults are the result of race conditions.
-					// They should be rare. If they happen too often, something is probably wrong!
-					warningLogger() << "thor: Spurious page fault" << frg::endlog;
-				}else{
-					assert(remapOutcome.error() == Error::fault);
-					warningLogger() << "thor: Page still not available after touchRange()"
-						<< frg::endlog;
-					continue;
+			{
+				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
+
+				auto remapOutcome = _ops->faultPage(
+					address & ~(kPageSize - 1),
+					mapping->view.get(),
+					mapping->viewOffset + offset,
+					fetchFlags,
+					compilePageFlags(flags),
+					caching
+				);
+				if(!remapOutcome) {
+					if(remapOutcome.error() == Error::spuriousOperation) {
+						// Spurious page faults are the result of race conditions.
+						// They should be rare. If they happen too often, something is probably wrong!
+						warningLogger() << "thor: Spurious page fault" << frg::endlog;
+					}else{
+						assert(remapOutcome.error() == Error::fault);
+						warningLogger() << "thor: Page still not available after touchRange()"
+							<< frg::endlog;
+						continue;
+					}
+				} else {
+					notifyRss_(remapOutcome.value());
+					if(remapOutcome.value().anyRevoked)
+						co_await _ops->shootdown(address & ~(kPageSize - 1), kPageSize);
 				}
 			}
+			co_return {};
 		}
-		co_return {};
 	}
 }
 
@@ -926,19 +1062,20 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 
 			co_await mapping->exposeRcu.barrier();
 
-			bool pagesAffected;
+			bool anyRevoked;
 			{
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				// Mark pages as dirty and unmap without holding a lock.
 				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
 				assert(unmapOutcome);
-				pagesAffected = unmapOutcome.value();
+				notifyRss_(unmapOutcome.value());
+				anyRevoked = unmapOutcome.value().anyRevoked;
 
-				if(pagesAffected)
+				if(anyRevoked)
 					co_await _ops->shootdown(mapping->address, mapping->length);
 			}
-			if(!pagesAffected)
+			if(!anyRevoked)
 				co_await mapping->revokeRcu.barrier();
 
 			_mappings.remove(mapping.get());
@@ -1015,8 +1152,6 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 			}
 		}
 	}
-
-	co_return;
 }
 
 coroutine<size_t> VirtualSpace::readPartialSpace(uintptr_t address,

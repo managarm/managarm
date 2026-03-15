@@ -5,6 +5,7 @@
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
 #include <async/oneshot-event.hpp>
+#include <async/recurring-event.hpp>
 #include <frg/container_of.hpp>
 #include <frg/expected.hpp>
 #include <thor-internal/coroutine.hpp>
@@ -38,6 +39,16 @@ private:
 
 struct VirtualSpace;
 
+struct PagesAffected {
+	ptrdiff_t rssIncrease{0};
+	ptrdiff_t rssDecrease{0};
+	// Number of bytes that were scanned by agePages().
+	ptrdiff_t scanned{0};
+	// Whether any page had its access rights revoked.
+	// This covers both pages that have their permission restricted and pages that are unmapped.
+	bool anyRevoked{false};
+};
+
 inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 		CachingMode requested) {
 	// check if an override caching mode was requested
@@ -53,12 +64,13 @@ inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
+frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	PagesAffected affected{};
 	Cursor c{ps, va};
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
@@ -72,24 +84,32 @@ frg::expected<Error> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
 		auto effectiveFlags = flags;
 		if (!physicalRange.isMutable)
 			effectiveFlags &= ~page_access::write;
+		if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+			incrementUses(*descriptor);
 		auto [status, oldPhysical] = c.map4k(physicalRange.physical, effectiveFlags,
 			determineCachingMode(physicalRange.cachingMode, mode));
 		if((status & page_status::present) && (status & page_status::dirty)) {
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				markDirty(*descriptor);
 		}
+		affected.rssIncrease += kPageSize;
+		if(status & page_status::present) {
+			affected.rssDecrease += kPageSize;
+			if(auto descriptor = globalPfnDb().find(oldPhysical))
+				decrementUses(*descriptor);
+		}
 		c.advance4k();
 	}
-	return {};
+	return affected;
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, bool> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
+frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
 		size_t size, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
-	bool anyRestricted = false;
+	PagesAffected affected{};
 	Cursor c{ps, va};
 	while(c.virtualAddress() < va + size) {
 		auto [status, physical, restricted] = c.restrict4k(flags, mode);
@@ -98,18 +118,19 @@ frg::expected<Error, bool> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
 				markDirty(*descriptor);
 		}
 		if(restricted)
-			anyRestricted = true;
+			affected.anyRevoked = true;
 		c.advance4k();
 	}
-	return anyRestricted;
+	return affected;
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
+frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 
+	PagesAffected affected{};
 	Cursor c{ps, va};
 
 	auto physicalRange = view->peekRange(offset, fetchFlags);
@@ -119,6 +140,8 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 	auto effectiveFlags = flags;
 	if (!physicalRange.isMutable)
 		effectiveFlags &= ~page_access::write;
+	if(auto descriptor = globalPfnDb().find(physicalRange.physical))
+		incrementUses(*descriptor);
 	auto [status, oldPhysical] = c.remap4k(physicalRange.physical, effectiveFlags,
 		determineCachingMode(physicalRange.cachingMode, mode));
 	if(status & page_status::present) {
@@ -126,16 +149,21 @@ frg::expected<Error> faultPageByCursor(PageSpace *ps, VirtualAddr va,
 			if(auto descriptor = globalPfnDb().find(oldPhysical))
 				markDirty(*descriptor);
 		}
+		if(auto descriptor = globalPfnDb().find(oldPhysical))
+			decrementUses(*descriptor);
+		affected.rssDecrease += kPageSize;
 	}
+	affected.rssIncrease += kPageSize;
 
-	return {};
+	return affected;
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	PagesAffected affected{};
 	Cursor c{ps, va};
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
@@ -143,19 +171,19 @@ frg::expected<Error> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t si
 		assert(status & page_status::dirty);
 		if(auto descriptor = globalPfnDb().find(physical))
 			markDirty(*descriptor);
-
+		affected.anyRevoked = true;
 		c.advance4k();
 	}
-	return {};
+	return affected;
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, bool> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
+	PagesAffected affected{};
 	Cursor c{ps, va};
-	bool anyAffected = false;
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
 		assert(status & page_status::present);
@@ -163,11 +191,39 @@ frg::expected<Error, bool> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, siz
 			if(auto descriptor = globalPfnDb().find(physical))
 				markDirty(*descriptor);
 		}
-		anyAffected = true;
+		if(auto descriptor = globalPfnDb().find(physical))
+			decrementUses(*descriptor);
+		affected.rssDecrease += kPageSize;
+		affected.anyRevoked = true;
 
 		c.advance4k();
 	}
-	return anyAffected;
+	return affected;
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size, bool vacate) {
+	assert(!(va & (kPageSize - 1)));
+	assert(!(size & (kPageSize - 1)));
+
+	PagesAffected affected{};
+	Cursor c{ps, va};
+	while(c.findPresent(va + size)) {
+		affected.scanned += kPageSize;
+		auto [status, physical, unmapped] = c.age4k(vacate);
+		if(unmapped) {
+			if(status & page_status::dirty) {
+				if(auto descriptor = globalPfnDb().find(physical))
+					markDirty(*descriptor);
+			}
+			if(auto descriptor = globalPfnDb().find(physical))
+				decrementUses(*descriptor);
+			affected.rssDecrease += kPageSize;
+			affected.anyRevoked = true;
+		}
+		c.advance4k();
+	}
+	return affected;
 }
 
 struct VirtualOperations {
@@ -175,50 +231,20 @@ struct VirtualOperations {
 
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
-	virtual void mapSingle4k(VirtualAddr pointer, PhysicalAddr physical,
-			uint32_t flags, CachingMode cachingMode) {
-		(void)pointer;
-		(void)physical;
-		(void)flags;
-		(void)cachingMode;
-		panicLogger() << "thor: Default VirtualOperations::mapSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual PageStatus unmapSingle4k(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::unmapSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual PageStatus cleanSingle4k(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::cleanSingle4k called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-	virtual bool isMapped(VirtualAddr pointer) {
-		(void)pointer;
-		panicLogger() << "thor: Default VirtualOperations::isMapped called!" << frg::endlog;
-		__builtin_unreachable();
-	}
-
-	// ----------------------------------------------------------------------------------
-
-	// The following API is based on MemoryView and will replace the legacy API above.
-	// The advantage of this approach is that we do not need on virtual call per page anymore.
-
-	virtual frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error, bool> restrictPages(VirtualAddr va,
+	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 			size_t size, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 
-	virtual frg::expected<Error> cleanPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) = 0;
 
-	virtual frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) = 0;
+	virtual frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) = 0;
 
-	virtual size_t getRss();
+	virtual frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) = 0;
 
 	// ----------------------------------------------------------------------------------
 	// Sender boilerplate for retire()
@@ -530,8 +556,10 @@ public:
 	coroutine<frg::expected<Error, PhysicalAddr>>
 	retrievePhysical(VirtualAddr address);
 
+	coroutine<void> runAgingLoop();
+
 	size_t rss() {
-		return _ops->getRss();
+		return rss_.load(std::memory_order_relaxed);
 	}
 
 	// ----------------------------------------------------------------------------------
@@ -643,6 +671,16 @@ private:
 	// Splits some memory range from a hole mapping.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 
+	// Desired working set size of the process.
+	// This is a soft limit, we will (asynchronously) unmap pages once we are above this limit.
+	ptrdiff_t workingSetGoal_();
+
+	// Updates rss_ and agingTurnover_.
+	void notifyRss_(const PagesAffected &affected);
+
+	// Returns true if the aging code should continue scanning accessed bits.
+	bool shouldContinueAging_();
+
 	// Potentially splits mappings into two parts at (address) and (address + size).
 	// Returns the start and end mappings that are within the specified range.
 	coroutine<frg::tuple<Mapping *, Mapping *>> _splitMappings(uintptr_t address, size_t size);
@@ -667,6 +705,16 @@ private:
 
 	HoleTree _holes;
 	MappingTree _mappings;
+
+	std::atomic<ptrdiff_t> rss_;
+
+	// Number of pages faulted minus number of pages scanned by aging.
+	// This is used by shouldContinueAging_().
+	std::atomic<ptrdiff_t> agingTurnover_{0};
+	// Raise once shouldContinueAging_() becomes true.
+	async::recurring_event agingEvent_;
+	async::cancellation_event cancelAging_;
+	async::oneshot_event agingDoneEvent_;
 };
 
 struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, BindableHandle> {
@@ -687,32 +735,37 @@ struct AddressSpace final : VirtualSpace, smarter::crtp_counter<AddressSpace, Bi
 			return space_->pageSpace_.submitShootdown(node);
 		}
 
-		frg::expected<Error> mapPresentPages(VirtualAddr va, MemoryView *view,
+		frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
 			return mapPresentPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, view, offset, size, flags, mode);
 		}
 
-		frg::expected<Error, bool> restrictPages(VirtualAddr va,
+		frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 				size_t size, PageFlags flags, CachingMode mode) override {
 			return restrictPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, size, flags, mode);
 		}
 
-		frg::expected<Error> faultPage(VirtualAddr va, MemoryView *view,
+		frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 				uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
 			return faultPageByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, view, offset, fetchFlags, flags, mode);
 		}
 
-		frg::expected<Error> cleanPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
 			return cleanPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, size);
 		}
 
-		frg::expected<Error, bool> unmapPages(VirtualAddr va, size_t size) override {
+		frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
 			return unmapPagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
 					va, size);
+		}
+
+		frg::expected<Error, PagesAffected> agePages(VirtualAddr va, size_t size, bool vacate) override {
+			return agePagesByCursor<ClientPageSpace::Cursor>(&space_->pageSpace_,
+					va, size, vacate);
 		}
 
 	private:
@@ -732,6 +785,7 @@ public:
 		auto ptr = smarter::allocate_shared<AddressSpace>(Allocator{});
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (UINT64_C(1) << getLowerHalfBits()) - 0x1000);
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ptr->runAgingLoop());
 		return constructHandle(std::move(ptr));
 	}
 

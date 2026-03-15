@@ -148,6 +148,11 @@ struct MemoryReclaimer {
 				if(logUncaching) {
 					auto irqLock = frg::guard(&irqMutex());
 					auto lock = frg::guard(&_mutex);
+					auto totalPages = physicalAllocator->numTotalPages();
+					auto usedPages = physicalAllocator->numUsedPages();
+					infoLogger() << "thor: " << (usedPages * kPageSize / 1024)
+							<< " KiB / " << (totalPages * kPageSize / 1024)
+							<< " in use" << frg::endlog;
 					infoLogger() << "thor: " << (_cachedSize / 1024)
 							<< " KiB of cached pages" << frg::endlog;
 				}
@@ -777,7 +782,7 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 				globalReclaimer->removePage(&pit->cachePage);
 			}
 
-			co_await self->_evictQueue.evictRange(page->identity << kPageShift, kPageSize);
+			co_await self->_evictQueue.fenceEphemeral();
 
 			PhysicalAddr physical;
 			frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> invalidateMonitor;
@@ -807,6 +812,52 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 			physicalAllocator->free(physical, kPageSize);
 			if(invalidateMonitor)
 				invalidateMonitor->event.raise();
+		}
+	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
+
+	[] (ManagedSpace *self, enable_detached_coroutine) -> void {
+		while(true) {
+			co_await self->_dirtyEvent.async_wait_if([self] () -> bool {
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+				return self->_dirtyList.empty();
+			});
+
+			frg::intrusive_list<
+				CachePage,
+				frg::locate_member<CachePage, frg::default_list_hook<CachePage>, &CachePage::listHook>
+			> pending;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+				pending.splice(pending.end(), self->_dirtyList);
+			}
+			if (pending.empty())
+				continue;
+
+			co_await self->_evictQueue.fenceDirty();
+
+			ManageList mgmtPending;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&self->mutex);
+
+				while(!pending.empty()) {
+					auto *cp = pending.pop_front();
+					auto *page = frg::container_of(cp, &ManagedPage::cachePage);
+					assert(page->transactionState == TxState::dirty);
+					page->transactionState = TxState::wantWriteback;
+					page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+					self->_writebackList.push_back(cp);
+				}
+
+				self->_progressManagement(mgmtPending);
+			}
+
+			while(!mgmtPending.empty()) {
+				auto node = mgmtPending.pop_front();
+				node->completionEvent.raise();
+			}
 		}
 	}(this, enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 }
@@ -857,7 +908,8 @@ void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
 		assert(pit->lockCount > 0);
 		pit->lockCount--;
 		if(!pit->lockCount) {
-			if(pit->loadState == LoadState::present && pit->transactionState == TxState::none) {
+			if(pit->loadState == LoadState::present && pit->transactionState == TxState::none
+					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 				globalReclaimer->addPage(&pit->cachePage);
 				pit->transactionState = TxState::inReclaim;
 			}
@@ -939,7 +991,44 @@ void ManagedSpace::_progressManagement(ManageList &pending) {
 }
 
 
+void ManagedSpace::incrementUses(CachePage *cachePage) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+	auto cnt = cachePage->useCount.fetch_add(1, std::memory_order_acquire);
+	if(!cnt) {
+		if(page->loadState == LoadState::present
+				&& page->transactionState == TxState::inReclaim) {
+			globalReclaimer->removePage(cachePage);
+			page->transactionState = TxState::none;
+		} else if(page->loadState == LoadState::evicting) {
+			page->loadState = LoadState::present;
+		}
+	}
+}
+
+void ManagedSpace::decrementUses(CachePage *cachePage) {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&mutex);
+
+	auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+	auto cnt = cachePage->useCount.fetch_sub(1, std::memory_order_release);
+	assert(cnt > 0);
+	if(cnt == 1) {
+		if(page->loadState == LoadState::present
+				&& page->transactionState == TxState::none
+				&& !page->lockCount) {
+			globalReclaimer->addPage(cachePage);
+			page->transactionState = TxState::inReclaim;
+		}
+	}
+}
+
 void ManagedSpace::markDirty(CachePage *cachePage) {
+	bool needsEvent = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex);
@@ -954,22 +1043,24 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 					|| page->transactionState == TxState::inReclaim)) {
 			if(page->transactionState == TxState::inReclaim)
 				globalReclaimer->removePage(cachePage);
-			page->transactionState = TxState::wantWriteback;
-			_writebackList.push_back(cachePage);
-			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+			page->transactionState = TxState::dirty;
+			_dirtyList.push_back(cachePage);
+			needsEvent = true;
 		} else if(page->loadState == LoadState::evicting) {
 			page->loadState = LoadState::present;
-			page->transactionState = TxState::wantWriteback;
-			_writebackList.push_back(cachePage);
-			page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
+			page->transactionState = TxState::dirty;
+			_dirtyList.push_back(cachePage);
+			needsEvent = true;
 		} else if(page->transactionState == TxState::writeback) {
 			page->stillDirty = true;
 		} else {
-			assert(page->transactionState == TxState::wantWriteback);
+			assert(page->transactionState == TxState::dirty
+					|| page->transactionState == TxState::wantWriteback);
 		}
 	}
 
-	_deferredManagement.invoke();
+	if(needsEvent)
+		_dirtyEvent.raise();
 }
 
 // --------------------------------------------------------
@@ -994,7 +1085,7 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 		// Do nothing for now.
 	}else if(newPages < _managed->numPages) {
 		// TODO: also free the affected pages!
-		co_await _managed->_evictQueue.evictRange(newPages << kPageShift,
+		co_await _managed->_evictQueue.breakRange(newPages << kPageShift,
 				oldPages << kPageShift);
 	}
 
@@ -1109,7 +1200,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				assert(pit);
 				assert(pit->transactionState == ManagedSpace::TxState::initialization);
 				pit->loadState = ManagedSpace::LoadState::present;
-				if (pit->lockCount) {
+				if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 					pit->transactionState = ManagedSpace::TxState::none;
 				} else {
 					globalReclaimer->addPage(&pit->cachePage);
@@ -1127,7 +1218,7 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 
 				assert(pit->transactionState == ManagedSpace::TxState::writeback);
 				if(!pit->stillDirty) {
-					if (pit->lockCount) {
+					if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 						pit->transactionState = ManagedSpace::TxState::none;
 					} else {
 						globalReclaimer->addPage(&pit->cachePage);
@@ -1264,7 +1355,7 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 		}
 
 		if(shouldEvict) {
-			co_await _managed->_evictQueue.evictRange(index << kPageShift, kPageSize);
+			co_await _managed->_evictQueue.breakRange(index << kPageShift, kPageSize);
 			PhysicalAddr physical;
 			{
 				auto irqLock = frg::guard(&irqMutex());
@@ -1701,7 +1792,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		}
 	}
 
-	co_await _evictQueue.evictRange(0, _length);
+	co_await _evictQueue.breakRange(0, _length);
 	co_return smarter::shared_ptr<MemoryView>{std::move(forked)};
 }
 
@@ -1901,7 +1992,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
-	co_await _evictQueue.evictRange(alignedOffset, kPageSize);
+	co_await _evictQueue.breakRange(alignedOffset, kPageSize);
 
 	{
 		auto irqLock = frg::guard(&irqMutex());

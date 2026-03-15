@@ -63,6 +63,10 @@ struct NptCursorPolicy {
 		return pte;
 	}
 
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool) {
+		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
+	}
+
 	static constexpr void pteWriteBarrier() { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
@@ -111,29 +115,33 @@ bool NptOperations::submitShootdown(ShootNode *node) {
 	return false;
 }
 
-frg::expected<Error> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
+frg::expected<Error, PagesAffected> NptOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
 	return mapPresentPagesByCursor<NptCursor>(pageSpace_,
 			va, view, offset, size, flags, mode);
 }
 
-frg::expected<Error, bool> NptOperations::restrictPages(VirtualAddr va,
+frg::expected<Error, PagesAffected> NptOperations::restrictPages(VirtualAddr va,
 		size_t size, PageFlags flags, CachingMode mode) {
 	return restrictPagesByCursor<NptCursor>(pageSpace_, va, size, flags, mode);
 }
 
-frg::expected<Error> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
+frg::expected<Error, PagesAffected> NptOperations::faultPage(VirtualAddr va, MemoryView *view,
 		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
 	return faultPageByCursor<NptCursor>(pageSpace_,
 			va, view, offset, fetchFlags, flags, mode);
 }
 
-frg::expected<Error> NptOperations::cleanPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> NptOperations::cleanPages(VirtualAddr va, size_t size) {
 	return cleanPagesByCursor<NptCursor>(pageSpace_, va, size);
 }
 
-frg::expected<Error, bool> NptOperations::unmapPages(VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> NptOperations::unmapPages(VirtualAddr va, size_t size) {
 	return unmapPagesByCursor<NptCursor>(pageSpace_, va, size);
+}
+
+frg::expected<Error, PagesAffected> NptOperations::agePages(VirtualAddr, size_t, bool) {
+	return PagesAffected{};
 }
 
 NptSpace::NptSpace(PhysicalAddr root)

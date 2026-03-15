@@ -53,11 +53,15 @@ struct CachePage {
 	frg::default_list_hook<CachePage> listHook;
 
 	uint32_t flags = 0;
+	std::atomic<unsigned int> useCount = 0;
 };
 
 // This is the "backend" part of a memory object.
 struct CacheBundle {
 	friend struct MemoryReclaimer;
+
+	virtual void incrementUses(CachePage *page) = 0;
+	virtual void decrementUses(CachePage *page) = 0;
 
 	virtual void markDirty(CachePage *page) = 0;
 
@@ -79,6 +83,32 @@ inline void markDirty(PfnDescriptor descriptor) {
 		auto *ptr = descriptor.cachePagePtr();
 		ptr->bundle->markDirty(ptr);
 	}
+}
+
+inline void incrementUses(PfnDescriptor descriptor) {
+	if(!descriptor.isCachePage())
+		return;
+	auto *ptr = descriptor.cachePagePtr();
+	auto cnt = ptr->useCount.load(std::memory_order_relaxed);
+	while(cnt > 0) {
+		if(ptr->useCount.compare_exchange_weak(cnt, cnt + 1,
+				std::memory_order_acquire, std::memory_order_relaxed))
+			return;
+	}
+	ptr->bundle->incrementUses(ptr);
+}
+
+inline void decrementUses(PfnDescriptor descriptor) {
+	if(!descriptor.isCachePage())
+		return;
+	auto *ptr = descriptor.cachePagePtr();
+	auto cnt = ptr->useCount.load(std::memory_order_relaxed);
+	while(cnt > 1) {
+		if(ptr->useCount.compare_exchange_weak(cnt, cnt - 1,
+				std::memory_order_release, std::memory_order_relaxed))
+			return;
+	}
+	ptr->bundle->decrementUses(ptr);
 }
 
 struct PhysicalRange {
@@ -145,7 +175,20 @@ inline constexpr FetchFlags fetchDisallowBacking = 2;
 using CachingFlags = uint32_t;
 inline constexpr CachingFlags cacheWriteCombine = 1;
 
+enum class EvictMode {
+	none,
+	// Evicts all pages in a range.
+	breakRange,
+	// Waits until all temporary references to pages disappear. No range is specified.
+	// CachePages with a useCount of zero can be reclaimed after this fence.
+	fenceEphemeral,
+	// Waits until dirty pages have been marked as clean. No range is specified.
+	// Dirty pages can be written back after this fence.
+	fenceDirty,
+};
+
 struct RangeToEvict {
+	EvictMode mode;
 	uintptr_t offset;
 	size_t size;
 };
@@ -160,6 +203,7 @@ struct Eviction {
 		return static_cast<bool>(handle_);
 	}
 
+	EvictMode mode() { return handle_->mode; }
 	uintptr_t offset() { return handle_->offset; }
 	uintptr_t size() { return handle_->size; }
 
@@ -205,8 +249,14 @@ struct EvictionQueue {
 		return observer->agent_.poll(std::move(ct));
 	}
 
-	auto evictRange(uintptr_t offset, size_t size) {
-		return mechanism_.post(RangeToEvict{offset, size});
+	auto breakRange(uintptr_t offset, size_t size) {
+		return mechanism_.post(RangeToEvict{EvictMode::breakRange, offset, size});
+	}
+	auto fenceEphemeral() {
+		return mechanism_.post(RangeToEvict{EvictMode::fenceEphemeral, 0, 0});
+	}
+	auto fenceDirty() {
+		return mechanism_.post(RangeToEvict{EvictMode::fenceDirty, 0, 0});
 	}
 
 private:
@@ -527,6 +577,10 @@ struct ManagedSpace : CacheBundle {
 		// Page is not in a queue but waiting for updateRange() to mark it as initialized.
 		// Valid in LoadState::missing.
 		initialization,
+		// Page is in _dirtyList (or the draining coroutine's local pending list),
+		// waiting for a fenceDirty() to complete before being promoted to _writebackList.
+		// Valid in LoadState::present.
+		dirty,
 		// Page is in _writebackList.
 		// Valid in LoadState::present.
 		wantWriteback,
@@ -534,7 +588,7 @@ struct ManagedSpace : CacheBundle {
 		// Valid in LoadState::present.
 		writeback,
 		// Page is in the memory reclaimer's LRU queue.
-		// Valid in LoadState::present with lockCount == 0.
+		// Valid in LoadState::present with lockCount == 0 and useCount == 0.
 		inReclaim,
 	};
 
@@ -580,35 +634,11 @@ struct ManagedSpace : CacheBundle {
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
 
-	// Calls management callbacks from a WQ; required to implement markDirty().
-	struct DeferredManagement {
-		void setUp() {
-			self->selfPtr.ctr()->increment();
-		}
-
-		void execute() {
-			ManageList pending;
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				auto lock = frg::guard(&self->mutex);
-
-				self->_progressManagement(pending);
-			}
-
-			while(!pending.empty()) {
-				auto node = pending.pop_front();
-				node->completionEvent.raise();
-			}
-
-			self->selfPtr.ctr()->decrement();
-		}
-
-		ManagedSpace *self;
-	};
-
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
 
+	void incrementUses(CachePage *page) override;
+	void decrementUses(CachePage *page) override;
 	void markDirty(CachePage *page) override;
 
 	Error lockPages(uintptr_t offset, size_t size);
@@ -635,6 +665,15 @@ struct ManagedSpace : CacheBundle {
 			frg::default_list_hook<CachePage>,
 			&CachePage::listHook
 		>
+	> _dirtyList;
+
+	frg::intrusive_list<
+		CachePage,
+		frg::locate_member<
+			CachePage,
+			frg::default_list_hook<CachePage>,
+			&CachePage::listHook
+		>
 	> _initializationList;
 
 	frg::intrusive_list<
@@ -648,7 +687,7 @@ struct ManagedSpace : CacheBundle {
 
 	ManageList _managementQueue;
 
-	DeferredWork<DeferredManagement> _deferredManagement{{this}};
+	async::recurring_event _dirtyEvent;
 };
 
 struct BackingMemory final : MemoryView {

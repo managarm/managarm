@@ -175,63 +175,30 @@ ClientPageSpace::~ClientPageSpace() {
 }
 
 
-// TODO(qookie): This function should be converted to use cursors.
-// Maybe we should add a method that lets us just get a pointer to the
-// PTE or nullptr if it's not mapped?
-bool ClientPageSpace::updatePageAccess(VirtualAddr pointer, PageFlags) {
+bool ClientPageSpace::updatePageAccess(VirtualAddr pointer, PageFlags flags) {
 	assert(!(pointer & (kPageSize - 1)));
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&tableMutex());
-
-	PageAccessor accessor0;
-	PageAccessor accessor1;
-	PageAccessor accessor2;
-	PageAccessor accessor3;
-
-	arch::scalar_variable<uint64_t> *tbl0;
-	arch::scalar_variable<uint64_t> *tbl1;
-	arch::scalar_variable<uint64_t> *tbl2;
-	arch::scalar_variable<uint64_t> *tbl3;
-
-	auto index0 = (int)((pointer >> 39) & 0x1FF);
-	auto index1 = (int)((pointer >> 30) & 0x1FF);
-	auto index2 = (int)((pointer >> 21) & 0x1FF);
-	auto index3 = (int)((pointer >> 12) & 0x1FF);
-
-	accessor0 = PageAccessor{rootTable()};
-	tbl0 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor0.get());
-
-	if (tbl0[index0].load() & kPageValid) {
-		accessor1 = PageAccessor{tbl0[index0].load() & kPageAddress};
-		tbl1 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor1.get());
-	} else {
+	Cursor cursor{this, pointer};
+	auto ptePtr = cursor.getPtePtr();
+	if (!ptePtr)
 		return false;
+
+	auto pte = __atomic_load_n(ptePtr, __ATOMIC_RELAXED);
+	while (true) {
+		if (!(pte & kPageValid))
+			return false;
+
+		auto newPte = pte | kPageAccess;
+		if ((flags & page_access::write) && (pte & kPageShouldBeWritable))
+			newPte &= ~kPageRO;
+
+		if (newPte == pte)
+			return false;
+
+		if (__atomic_compare_exchange_n(ptePtr, &pte, newPte, true,
+				__ATOMIC_RELAXED, __ATOMIC_RELAXED))
+			break;
 	}
-
-	if (tbl1[index1].load() & kPageValid) {
-		accessor2 = PageAccessor{tbl1[index1].load() & kPageAddress};
-		tbl2 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor2.get());
-	} else {
-		return false;
-	}
-
-	if (tbl2[index2].load() & kPageValid) {
-		accessor3 = PageAccessor{tbl2[index2].load() & kPageAddress};
-		tbl3 = reinterpret_cast<arch::scalar_variable<uint64_t> *>(accessor3.get());
-	} else {
-		return false;
-	}
-
-	auto bits = tbl3[index3].load();
-	if (!(bits & kPageValid))
-		return false;
-
-	if (!(bits & kPageRO) || !(bits & kPageShouldBeWritable))
-		return false;
-
-	bits &= ~kPageRO;
-	tbl3[index3].store(bits);
 
 	// Invalidate the page on the current CPU. No need for
 	// shootdown, since at worst other CPUs will just run
