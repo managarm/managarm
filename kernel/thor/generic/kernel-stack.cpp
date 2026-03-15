@@ -1,4 +1,6 @@
+#include <async/algorithm.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/kernel-stack.hpp>
@@ -28,41 +30,37 @@ UniqueKernelStack::~UniqueKernelStack() {
 
 	size_t guardedSize = kSize + kPageSize;
 	auto address = reinterpret_cast<uintptr_t>(_base - guardedSize);
+
+	PhysicalAddr physicalStack = ~PhysicalAddr{0};
 	for(size_t offset = 0; offset < kSize; offset += kPageSize) {
-		PhysicalAddr physical = KernelPageSpace::global().unmapSingle4k(
+		auto physical = KernelPageSpace::global().unmapSingle4k(
 				address + guardedSize - kSize + offset);
-		physicalAllocator->free(physical, kPageSize);
+		new (mapDirectPhysical(physical)) PhysicalAddr{physicalStack};
+		physicalStack = physical;
 	}
 
-	struct Closure final : ShootNode {
-		void doComplete() {
-			KernelVirtualMemory::global().deallocate(reinterpret_cast<void *>(address), size);
-			auto physical = thisPage;
-			Closure::~Closure();
-			asm volatile ("" : : : "memory");
-			physicalAllocator->free(physical, kPageSize);
-		}
-
-		PhysicalAddr thisPage;
-	};
-	static_assert(sizeof(Closure) <= kPageSize);
-
-	// We need some memory to store the closure that waits until shootdown completes.
-	// For now, our stategy consists of allocating one page of *physical* memory
-	// and accessing it through the global physical mapping.
-	auto physical = physicalAllocator->allocate(kPageSize);
-	PageAccessor accessor{physical};
-	auto p = new (accessor.get()) Closure;
-	p->thisPage = physical;
-	p->address = address;
-	p->size = guardedSize;
-	p->wq_ = WorkQueue::generalQueue().get();
-	p->Worklet::setup([] (Worklet *worklet) {
-		auto op = static_cast<Closure *>(worklet);
-		op->doComplete();
-	});
-	if(KernelPageSpace::global().submitShootdown(p))
-		p->doComplete();
+	spawnOnWorkQueue(
+		*kernelAlloc,
+		WorkQueue::generalQueue().lock(),
+		async::transform(
+			shootdown(
+				&KernelPageSpace::global(),
+				address,
+				guardedSize,
+				WorkQueue::generalQueue().get()
+			),
+			[address, guardedSize, physicalStack] {
+				auto physical = physicalStack;
+				while(physical != ~PhysicalAddr{0}) {
+					auto next = *reinterpret_cast<PhysicalAddr *>(mapDirectPhysical(physical));
+					physicalAllocator->free(physical, kPageSize);
+					physical = next;
+				}
+				KernelVirtualMemory::global().deallocate(
+						reinterpret_cast<void *>(address), guardedSize);
+			}
+		)
+	);
 }
 
 } //namespace thor

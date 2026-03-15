@@ -7,6 +7,7 @@ import subprocess
 
 parser = argparse.ArgumentParser()
 parser.add_argument('profile_path', type=str)
+parser.add_argument("--no-ints-only", action="store_true")
 parser.add_argument('--aggregate-by',
 	choices=['symbol', 'source'], default='symbol',
 	help="aggregate samples by source line of code or by symbol inside the binary")
@@ -61,6 +62,8 @@ def resolve_ip(ip):
 		else:
 			return f"{func} {line.split(':')[0]}"
 
+n_traces = 0
+n_noints = 0
 n_user = 0
 n_kernel = 0
 n_resolved = 0
@@ -70,7 +73,9 @@ with open(args.profile_path, 'rb') as f:
 		rec = f.read(8)
 		if not rec:
 			break
-		count = struct.unpack('Q', rec)[0]
+		cf = struct.unpack('Q', rec)[0]
+		flags = cf >> 32
+		count = cf & 0xFFFFFFFF
 
 		ips = []
 		for i in range(count):
@@ -79,16 +84,26 @@ with open(args.profile_path, 'rb') as f:
 				break
 			ips.append(struct.unpack('Q', rec)[0])
 
+		if flags & 1:
+			n_noints += 1
+		elif args.no_ints_only:
+			continue
+		n_traces += 1
+
+		any_user = False
+		for ip in ips:
+			if ip < (1 << 63):
+				n_user += 1
+				any_user = True
+			else:
+				n_kernel += 1
+		if any_user:
+			continue
+
 		if args.flamegraph:
 			# Resolve all IPs in the stack trace
 			symbols = []
 			for ip in ips:
-				if ip < (1 << 63):
-					n_user += 1
-					continue
-				else:
-					n_kernel += 1
-
 				symbol = resolve_ip(ip)
 				if symbol:
 					if ";" in symbol:
@@ -105,12 +120,6 @@ with open(args.profile_path, 'rb') as f:
 					profile[loc] = 1
 		else:
 			for ip in ips:
-				if ip < (1 << 63):
-					n_user += 1
-					continue
-				else:
-					n_kernel += 1
-
 				loc = resolve_ip(ip)
 				if not loc:
 					continue
@@ -133,5 +142,11 @@ else:
 		print("{:.2f}% (cumulative: {:.2f}%) ({} samples) in:".format(profile[loc]/n_kernel*100, 100-cumulative/n_kernel*100, profile[loc]))
 		print("    {}".format(loc))
 		cumulative += profile[loc]
-	print("{} (= {:.2f}% of all samples) in the kernel".format(n_kernel, n_kernel/(n_user + n_kernel)*100))
+	print(
+		"{} (= {:.2f}% of all samples) in the kernel, {:.2f}% with interrupts off".format(
+			n_kernel,
+			n_kernel/(n_user + n_kernel)*100,
+			n_noints/n_traces*100,
+		)
+	)
 	print("{:.2f}% of all kernel samples could be resolved".format(n_resolved/n_kernel*100))

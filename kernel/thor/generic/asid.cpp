@@ -26,50 +26,86 @@ void invalidateNode(int asid, ShootNode *node) {
 
 } // namespace anonymous
 
-
-ShootNodeList
-PageBinding::completeShootdown_(PageSpace *space, uint64_t afterSequence, bool doShootdown) {
+void
+PageBinding::doShootdown_(PageSpace *space) {
 	assert(!intsAreEnabled());
-	assert(space->mutex_.is_locked());
 
-	ShootNodeList complete;
+	// In the code below, note that we cannot assume that nodes are processed in
+	// strict FIFO order since there may be ShootNodes initiated by this CPU that are
+	// shot down earlier (and hence removed from the queue) than the current node.
 
-	if(!space->shootQueue_.empty()) {
-		auto current = space->shootQueue_.back();
-		while(current->sequence_ > afterSequence) {
-			auto predecessor = current->queueNode.previous;
+	// Find the first unprocessed node by scanning backward from the back of the queue.
+	// We may miss nodes that are concurrently removed but that does not impact correctness.
+	ShootNode *current = space->shootQueue_.back();
+	if(!current || current->sequence_ <= alreadyShotSequence_)
+		return;
+	while(true) {
+		auto prev = current->queueNode.previous.load(std::memory_order_acquire);
+		if(!prev || prev->sequence_ <= alreadyShotSequence_)
+			break;
+		current = prev;
+	}
 
-			// Signal completion of the shootdown.
-			if(current->initiatorCpu_ != getCpuData()) {
-				if(doShootdown) {
-					invalidateNode(id_, current);
+	// TODO: If we see too many pages during the backwards traversal above,
+	//       we could simply invalidate the entire space and mark everything as invalidated
+	//       on the forward pass below.
+
+	while(current) {
+		auto next = current->queueNode.next.load(std::memory_order_acquire);
+		auto seq = current->sequence_;
+
+		if(current->initiatorCpu_ != getCpuData()) {
+			invalidateNode(id_, current);
+
+			if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+				{
+					auto lock = frg::guard(&space->mutex_);
+					space->shootQueue_.erase(current);
 				}
-
-				if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-					auto it = space->shootQueue_.iterator_to(current);
-					space->shootQueue_.erase(it);
-					complete.push_front(current);
-				}
+				current->complete();
 			}
-
-			if(!predecessor)
-				break;
-			current = predecessor;
 		}
+
+		alreadyShotSequence_ = seq;
+		current = next;
+	}
+}
+
+// Drain the shootdown queue without actually invalidating mappings.
+// This is called after a space was unbound.
+void
+PageBinding::drainShootdown_(PageSpace *space, uint64_t afterSequence, uint64_t upToSequence) {
+	assert(!intsAreEnabled());
+
+	// Same backwards iteration as in doShootdown_().
+	ShootNode *current = space->shootQueue_.back();
+	if(!current || current->sequence_ <= afterSequence)
+		return;
+	while(true) {
+		auto prev = current->queueNode.previous.load(std::memory_order_acquire);
+		if(!prev || prev->sequence_ <= afterSequence)
+			break;
+		current = prev;
 	}
 
-	// If not just doing a TLB shootdown, we're unbinding this
-	// page space.
-	if(!doShootdown) {
-		space->numBindings_--;
-		if(!space->numBindings_ && space->retireNode_) {
-			auto node = space->retireNode_;
-			space->retireNode_ = nullptr;
-			node->complete();
-		}
-	}
+	while(current) {
+		auto next = current->queueNode.next.load(std::memory_order_acquire);
+		auto seq = current->sequence_;
+		if (seq > upToSequence)
+			break;
 
-	return complete;
+		if(current->initiatorCpu_ != getCpuData()) {
+			if(current->bindingsToShoot_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+				{
+					auto lock = frg::guard(&space->mutex_);
+					space->shootQueue_.erase(current);
+				}
+				current->complete();
+			}
+		}
+
+		current = next;
+	}
 }
 
 bool PageBinding::isPrimary() {
@@ -122,19 +158,23 @@ void PageBinding::rebind(smarter::shared_ptr<PageSpace> space) {
 	context.primaryBinding_ = this;
 
 	// Mark every shootdown request in the unbound space as shot-down.
-	ShootNodeList complete;
 	if(unboundSpace) {
-		auto lock = frg::guard(&unboundSpace->mutex_);
+		uint64_t upToSequence;
+		RetireNode *retireNode = nullptr;
+		{
+			auto lock = frg::guard(&unboundSpace->mutex_);
+			upToSequence = unboundSpace->shootSequence_;
+			unboundSpace->numBindings_--;
+			if(!unboundSpace->numBindings_ && unboundSpace->retireNode_) {
+				retireNode = unboundSpace->retireNode_;
+				unboundSpace->retireNode_ = nullptr;
+			}
+		}
 
-		complete = completeShootdown_(
-			unboundSpace.get(),
-			unboundSequence,
-			false);
-	}
+		drainShootdown_(unboundSpace.get(), unboundSequence, upToSequence);
 
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
+		if(retireNode)
+			retireNode->complete();
 	}
 }
 
@@ -174,23 +214,25 @@ void PageBinding::unbind() {
 		invalidateAsid(id_);
 	}
 
-	ShootNodeList complete;
+	uint64_t upToSequence;
+	RetireNode *retireNode = nullptr;
 	{
 		auto lock = frg::guard(&boundSpace_->mutex_);
-
-		complete = completeShootdown_(
-			boundSpace_.get(),
-			alreadyShotSequence_,
-			false);
+		upToSequence = boundSpace_->shootSequence_;
+		boundSpace_->numBindings_--;
+		if(!boundSpace_->numBindings_ && boundSpace_->retireNode_) {
+			retireNode = boundSpace_->retireNode_;
+			boundSpace_->retireNode_ = nullptr;
+		}
 	}
+
+	drainShootdown_(boundSpace_.get(), alreadyShotSequence_, upToSequence);
+
+	if(retireNode)
+		retireNode->complete();
 
 	boundSpace_ = nullptr;
 	alreadyShotSequence_ = 0;
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
 }
 
 void PageBinding::shootdown() {
@@ -205,25 +247,7 @@ void PageBinding::shootdown() {
 		return;
 	}
 
-	ShootNodeList complete;
-	uint64_t targetSeq;
-	{
-		auto lock = frg::guard(&boundSpace_->mutex_);
-
-		complete = completeShootdown_(
-			boundSpace_.get(),
-			alreadyShotSequence_,
-			true);
-
-		targetSeq = boundSpace_->shootSequence_;
-	}
-
-	alreadyShotSequence_ = targetSeq;
-
-	while(!complete.empty()) {
-		auto current = complete.pop_front();
-		current->complete();
-	}
+	doShootdown_(boundSpace_.get());
 }
 
 
