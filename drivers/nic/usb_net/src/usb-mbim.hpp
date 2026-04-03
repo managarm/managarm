@@ -13,6 +13,8 @@ namespace nic::usb_mbim {
 struct UsbMbimNic;
 
 struct CdcWdmDevice {
+	struct HandleIoctl;
+
 	UsbMbimNic *nic;
 
 	bool nonBlock_ = false;

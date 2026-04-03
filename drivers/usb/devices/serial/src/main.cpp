@@ -11,6 +11,7 @@
 #include <core/cmdline.hpp>
 #include <core/kernel-logs.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/string.hpp>
 #include <helix/ipc.hpp>
@@ -87,15 +88,9 @@ async::result<protocols::fs::SeekResult> seek(void *, int64_t) {
 	co_return protocols::fs::Error::seekOnPipe;
 }
 
-async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
-	auto self = static_cast<Controller *>(object);
-
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		msg.reset();
-		assert(req);
-
-		switch(req->command()) {
+struct Controller::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, Controller *self) {
+		switch(req.command()) {
 			case TCGETS: {
 				managarm::fs::GenericIoctlReply resp;
 				struct termios attrs;
@@ -145,20 +140,30 @@ async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult 
 			}
 			default: {
 				std::cout << "\e[31m" "usb-serial: Unknown ioctl() 0x"
-					<< std::hex << req->command() << std::dec << "\e[39m" << std::endl;
+					<< std::hex << req.command() << std::dec << "\e[39m" << std::endl;
 
 				auto [dismiss] = co_await helix_ng::exchangeMsgs(
 					conversation, helix_ng::dismiss());
 				HEL_CHECK(dismiss.error());
 			}
 		}
-	} else {
-		msg.reset();
-		std::cout << "\e[31m" "usb-serial: Unknown ioctl() message with ID "
-			<< id << "\e[39m" << std::endl;
-	}
 
-	co_return;
+		co_return {};
+	}
+};
+
+async::result<void> ioctl(void *object, uint32_t, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+	auto self = static_cast<Controller *>(object);
+
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest
+	>(conversation, std::move(msg), Controller::HandleIoctl{}, self);
+
+	if (!res) {
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
+	}
 }
 
 static async::result<void> setFileFlags(void *object, int flags) {

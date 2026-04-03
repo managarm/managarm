@@ -31,6 +31,8 @@ async::result<frg::expected<protocols::usb::UsbError, size_t>> transferControl(p
 struct Controller {
 	Controller(protocols::usb::Device hw);
 
+	struct HandleIoctl;
+
 	virtual async::result<void> initialize() = 0;
 	virtual async::result<protocols::usb::UsbError> send(protocols::usb::BulkTransfer transfer) = 0;
 

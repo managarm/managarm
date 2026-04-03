@@ -45,6 +45,8 @@ struct File {
 	friend struct EventDevice;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
+	struct HandleIoctl;
+
 	// ------------------------------------------------------------------------
 	// File operations.
 	// ------------------------------------------------------------------------

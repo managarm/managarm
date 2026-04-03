@@ -16,7 +16,7 @@ struct Namespace : blockfs::BlockDevice {
 	async::result<void> writeSectors(uint64_t sector, const void *buf, size_t numSectors) override;
 	async::result<size_t> getSize() override;
 
-	async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) override;
+	async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::BorrowedDescriptor conversation) override;
 
 private:
 	Controller *controller_;

@@ -66,7 +66,7 @@ async::result<size_t> Namespace::getSize() {
 	co_return lbaCount_ << lbaShift_;
 }
 
-async::result<void> Namespace::handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) {
+async::result<void> Namespace::handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::BorrowedDescriptor conversation) {
 	if(req.command() == NVME_IOCTL_ID) {
 		managarm::fs::GenericIoctlReply resp;
 

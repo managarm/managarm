@@ -17,6 +17,7 @@
 #include <frg/std_compat.hpp>
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 
 #include "fs.bragi.hpp"
 #include "hw.bragi.hpp"
@@ -180,17 +181,10 @@ File::pollStatus(void *object) {
 	};
 }
 
-async::result<void>
-File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
-		helix::UniqueLane conversation) {
-	auto self = static_cast<File *>(object);
-
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		msg.reset();
-		assert(req);
-		if(req->command() == EVIOCGBIT(0, 0)) {
-			assert(req->size());
+struct File::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, File *self) {
+		if(req.command() == EVIOCGBIT(0, 0)) {
+			assert(req.size());
 			if(logRequests)
 				std::cout << "EVIOCGBIT()" << std::endl;
 
@@ -199,7 +193,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
 			auto ser = resp.SerializeAsString();
-			auto chunk = std::min(size_t(req->size()), self->_device->_typeBits.size());
+			auto chunk = std::min(size_t(req.size()), self->_device->_typeBits.size());
 			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
@@ -207,21 +201,21 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else if(req->command() == EVIOCGBIT(1, 0)) {
-			assert(req->size());
+		}else if(req.command() == EVIOCGBIT(1, 0)) {
+			assert(req.size());
 			if(logRequests)
-				std::cout << "EVIOCGBIT(" << req->input_type() << ")" << std::endl;
+				std::cout << "EVIOCGBIT(" << req.input_type() << ")" << std::endl;
 
 			managarm::fs::GenericIoctlReply resp;
 
 			std::pair<const uint8_t *, size_t> p;
-			if(req->input_type() == EV_KEY) {
+			if(req.input_type() == EV_KEY) {
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 				p = {self->_device->_keyBits.data(), self->_device->_keyBits.size()};
-			}else if(req->input_type() == EV_REL) {
+			}else if(req.input_type() == EV_REL) {
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 				p = {self->_device->_relBits.data(), self->_device->_relBits.size()};
-			}else if(req->input_type() == EV_ABS) {
+			}else if(req.input_type() == EV_ABS) {
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 				p = {self->_device->_absBits.data(), self->_device->_absBits.size()};
 			}else{
@@ -230,7 +224,7 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			}
 
 			auto ser = resp.SerializeAsString();
-			auto chunk = std::min(size_t(req->size()), p.second);
+			auto chunk = std::min(size_t(req.size()), p.second);
 			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBuffer(ser.data(), ser.size()),
@@ -238,14 +232,14 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_data.error());
-		}else if(req->command() == EVIOCSCLOCKID) {
+		}else if(req.command() == EVIOCSCLOCKID) {
 			managarm::fs::GenericIoctlReply resp;
 
 			// TODO: Does this setting affect already queued events in Linux?
-			switch(req->input_clock()) {
+			switch(req.input_clock()) {
 			case CLOCK_REALTIME:
 			case CLOCK_MONOTONIC:
-				self->_clockId = req->input_clock();
+				self->_clockId = req.input_clock();
 				resp.set_error(managarm::fs::Errors::SUCCESS);
 				break;
 			default:
@@ -258,14 +252,14 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req->command() == EVIOCGABS(0)) {
+		}else if(req.command() == EVIOCGABS(0)) {
 			managarm::fs::GenericIoctlReply resp;
 			if(logRequests)
-				std::cout << "EVIOCGABS(" << req->input_type() << ")" << std::endl;
+				std::cout << "EVIOCGABS(" << req.input_type() << ")" << std::endl;
 
-			assert(static_cast<size_t>(req->input_type())
+			assert(static_cast<size_t>(req.input_type())
 					< self->_device->_absoluteSlots.size());
-			auto slot = &self->_device->_absoluteSlots[req->input_type()];
+			auto slot = &self->_device->_absoluteSlots[req.input_type()];
 			resp.set_input_value(slot->value);
 			resp.set_input_min(slot->minimum);
 			resp.set_input_max(slot->maximum);
@@ -280,13 +274,16 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			std::cout << "Unknown ioctl() with ID " << std::to_string(req->command()) << std::endl;
+			std::cout << "Unknown ioctl() with ID " << std::to_string(req.command()) << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
-	} else if(id == managarm::fs::EvioGetNameRequest::message_id) {
-		msg.reset();
+
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::EvioGetNameRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble, File *self) {
 		managarm::fs::EvioGetNameReply resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -298,8 +295,11 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		);
 		HEL_CHECK(send_head.error());
 		HEL_CHECK(send_tail.error());
-	} else if(id == managarm::fs::EvioGetIdRequest::message_id) {
-		msg.reset();
+
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::EvioGetIdRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble, File *self) {
 		managarm::fs::EvioGetIdReply resp;
 
 		resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -313,19 +313,21 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
-	} else if(id == managarm::fs::EvioGetMultitouchSlotsRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::EvioGetMultitouchSlotsRequest>(msg);
-		msg.reset();
+
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::EvioGetMultitouchSlotsRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, File *self) {
 		managarm::fs::EvioGetMultitouchSlotsReply resp;
 
 		for(auto &e : self->_device->_mtState) {
-			resp.add_values(e.second.abs.at(req->code() - ABS_MT_FIRST));
+			resp.add_values(e.second.abs.at(req.code() - ABS_MT_FIRST));
 		}
 
 		assert(resp.values_size() < maxMultitouchSlots);
 
 		for(size_t i = 0; i < (maxMultitouchSlots - resp.values_size()); i++) {
-			if(req->code() == ABS_MT_TRACKING_ID)
+			if(req.code() == ABS_MT_TRACKING_ID)
 				resp.add_values(-1);
 			else
 				resp.add_values(0);
@@ -339,9 +341,25 @@ File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		);
 		HEL_CHECK(send_head.error());
 		HEL_CHECK(send_tail.error());
-	}else{
-		msg.reset();
-		std::cout << "Unknown ioctl() message with ID " << id << std::endl;
+
+		co_return {};
+	}
+};
+
+async::result<void>
+File::ioctl(void *object, uint32_t, helix_ng::RecvInlineResult msg,
+		helix::UniqueLane conversation) {
+	auto self = static_cast<File *>(object);
+
+
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest,
+		managarm::fs::EvioGetNameRequest,
+		managarm::fs::EvioGetIdRequest,
+		managarm::fs::EvioGetMultitouchSlotsRequest
+	>(conversation, std::move(msg), HandleIoctl{}, self);
+
+	if (!res) {
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
 			conversation, helix_ng::dismiss());
 		HEL_CHECK(dismiss.error());

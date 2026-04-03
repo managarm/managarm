@@ -17,6 +17,7 @@
 #include <netinet/ip.h>
 
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 
 #include "checksum.hpp"
 #include "ip4.hpp"
@@ -294,16 +295,11 @@ struct Tcp4Socket {
 		co_return sizeof(sockaddr_in);
 	}
 
-	static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
-		auto self = static_cast<Tcp4Socket *>(object);
-		managarm::fs::GenericIoctlReply resp;
+	struct HandleIoctl {
+		async::result<std::expected<void, DispatchError>> operator() (managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, Tcp4Socket *self) {
+			managarm::fs::GenericIoctlReply resp;
 
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-			msg.reset();
-			assert(req);
-
-			switch(req->command()) {
+			switch(req.command()) {
 				case FIONREAD: {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -329,14 +325,23 @@ struct Tcp4Socket {
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else {
-			msg.reset();
-			std::cout << "Unknown ioctl() message with ID " << id << std::endl;
+
+			co_return {};
+		}
+	};
+
+	static async::result<void> ioctl(void *object, uint32_t, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+		auto self = static_cast<Tcp4Socket *>(object);
+
+		auto res = co_await dispatchRequest<
+			managarm::fs::GenericIoctlRequest
+		>(conversation, std::move(msg), HandleIoctl{}, self);
+
+		if (!res) {
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
-			conversation, helix_ng::dismiss());
+				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
-		co_return;
 	}
 
 	static async::result<protocols::fs::Error> connect(void *object,
