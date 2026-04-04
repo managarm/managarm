@@ -134,10 +134,11 @@ async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_
 	return self->sockname(addr_ptr, max_addr_length);
 }
 
-async::result<void> File::ptIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+async::result<void> File::ptIoctl(void *object, helix_ng::CredentialsView creds, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<File *>(object);
-	return self->ioctl(nullptr, id, std::move(msg), std::move(conversation));
+	auto process = findProcessWithCredentials(creds);
+	return self->ioctl(process.get(), id, std::move(msg), std::move(conversation));
 }
 
 async::result<int> File::ptGetFileFlags(void *object) {

@@ -344,7 +344,7 @@ public:
 	ptSockname(void *object, void *addr_ptr, size_t max_addr_length);
 
 	static async::result<void>
-	ptIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+	ptIoctl(void *object, helix_ng::CredentialsView creds, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::UniqueLane conversation);
 
 	static async::result<int>

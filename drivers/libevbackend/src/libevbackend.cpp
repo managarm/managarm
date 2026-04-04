@@ -181,7 +181,7 @@ File::pollStatus(void *object) {
 }
 
 async::result<void>
-File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+File::ioctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<File *>(object);
 

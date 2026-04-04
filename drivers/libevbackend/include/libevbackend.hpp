@@ -64,7 +64,7 @@ struct File {
 	pollStatus(void *object);
 
 	static async::result<void>
-	ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult,
+	ioctl(void *object, helix_ng::CredentialsView creds, uint32_t id, helix_ng::RecvInlineResult,
 			helix::UniqueLane conversation);
 
 	// ------------------------------------------------------------------------

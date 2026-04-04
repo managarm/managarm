@@ -294,7 +294,7 @@ struct Tcp4Socket {
 		co_return sizeof(sockaddr_in);
 	}
 
-	static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+	static async::result<void> ioctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
 		auto self = static_cast<Tcp4Socket *>(object);
 		managarm::fs::GenericIoctlReply resp;
 

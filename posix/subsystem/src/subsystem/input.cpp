@@ -103,10 +103,11 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 	req.set_size(buffer.size() * sizeof(uint64_t));
 
 	auto ser = req.SerializeAsString();
-	auto [offer, send_ioctl_req, send_req, recv_resp, recv_data]
+	auto [offer, send_ioctl_req, imbue_creds, send_req, recv_resp, recv_data]
 			= co_await helix_ng::exchangeMsgs(lane,
 		helix_ng::offer(
 			helix_ng::sendBragiHeadOnly(ioctl_req, frg::stl_allocator{}),
+			helix_ng::imbueCredentials(),
 			helix_ng::sendBuffer(ser.data(), ser.size()),
 			helix_ng::recvInline(),
 			helix_ng::recvBuffer(buffer.data(), buffer.size() * sizeof(uint64_t))
@@ -114,6 +115,7 @@ async::result<frg::expected<Error, std::string>> CapabilityAttribute::show(sysfs
 	);
 	HEL_CHECK(offer.error());
 	HEL_CHECK(send_ioctl_req.error());
+	HEL_CHECK(imbue_creds.error());
 	HEL_CHECK(send_req.error());
 	HEL_CHECK(recv_resp.error());
 	HEL_CHECK(recv_data.error());

@@ -1097,11 +1097,13 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		auto [recv_msg] = co_await helix_ng::exchangeMsgs(
+		auto [recv_creds, recv_msg] = co_await helix_ng::exchangeMsgs(
 			conversation,
+			helix_ng::extractCredentials(),
 			helix_ng::recvInline()
 		);
 
+		HEL_CHECK(recv_creds.error());
 		HEL_CHECK(recv_msg.error());
 
 		auto msg_preamble = bragi::read_preamble(recv_msg);
@@ -1114,7 +1116,7 @@ async::detached handleMessages(smarter::shared_ptr<void> file,
 			co_return;
 		}
 
-		co_await file_ops->ioctl(file.get(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
+		co_await file_ops->ioctl(file.get(), recv_creds.credentials(), msg_preamble.id(), std::move(recv_msg), std::move(conversation));
 	} else if(preamble.id() == managarm::fs::SetSockOpt::message_id) {
 		auto req = bragi::parse_head_only<managarm::fs::SetSockOpt>(recv_req);
 		recv_req.reset();

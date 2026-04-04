@@ -87,7 +87,7 @@ async::result<protocols::fs::SeekResult> seek(void *, int64_t) {
 	co_return protocols::fs::Error::seekOnPipe;
 }
 
-async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
+async::result<void> ioctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
 	auto self = static_cast<Controller *>(object);
 
 	if(id == managarm::fs::GenericIoctlRequest::message_id) {

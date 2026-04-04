@@ -128,7 +128,7 @@ struct FileOperations {
 		return *this;
 	}
 	constexpr FileOperations &withIoctl(async::result<void> (*f)(void *object,
-			uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation)) {
+			helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation)) {
 		ioctl = f;
 		return *this;
 	}
@@ -182,7 +182,7 @@ struct FileOperations {
 	async::result<helix::BorrowedDescriptor>(*accessMemory)(void *object) = nullptr;
 	async::result<frg::expected<protocols::fs::Error>> (*truncate)(void *object, size_t size) = nullptr;
 	async::result<frg::expected<protocols::fs::Error>> (*fallocate)(void *object, int64_t offset, size_t size) = nullptr;
-	async::result<void> (*ioctl)(void *object, uint32_t id, helix_ng::RecvInlineResult req,
+	async::result<void> (*ioctl)(void *object, helix_ng::CredentialsView creds, uint32_t id, helix_ng::RecvInlineResult req,
 			helix::UniqueLane conversation) = nullptr;
 	async::result<protocols::fs::Error> (*flock)(void *object, int flags) = nullptr;
 	async::result<frg::expected<Error, PollWaitResult>>
