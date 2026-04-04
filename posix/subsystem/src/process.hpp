@@ -622,6 +622,8 @@ public:
 	// Preconditon: the thread has to be stopped!
 	bool checkOrRequestSignalRaise();
 
+	void stagePendingSignals();
+
 	void dumpRegisters();
 
 	// Called when a process is terminated.

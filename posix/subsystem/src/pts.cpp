@@ -1021,6 +1021,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			// XXX: This should deliver SIGWINCH to the parent under certain conditions
 			UserSignal info;
 			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
+			process->stagePendingSignals();
 		}else if(req->command() == FIONREAD) {
 			managarm::fs::GenericIoctlReply resp;
 
@@ -1388,6 +1389,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			// XXX: This should deliver SIGWINCH to the parent under certain conditions
 			UserSignal info;
 			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
+			process->stagePendingSignals();
 		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
 				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID
 				|| req->command() == TIOCNOTTY) {
