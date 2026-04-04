@@ -5,6 +5,7 @@
 #include "../common.hpp"
 #include "ttyn.hpp"
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 
 #include <bitset>
 
@@ -44,13 +45,11 @@ private:
 		co_return PollStatusResult{1, EPOLLOUT};
 	}
 
-	async::result<void>
-	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-			assert(req);
-
-			if(req->command() == TIOCSCTTY) {
+	struct HandleIoctl {
+		async::result<std::expected<void, DispatchError>> operator()(
+				managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+				bragi::preamble, TTYNFile *) {
+			if(req.command() == TIOCSCTTY) {
 				auto [extractCreds] = co_await helix_ng::exchangeMsgs(
 					conversation,
 					helix_ng::extractCredentials()
@@ -67,12 +66,23 @@ private:
 				);
 				HEL_CHECK(sendResp.error());
 			}else{
-				std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl (commonIoctl) " << req->command()
+				std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl (commonIoctl) " << req.command()
 						<< "\e[39m" << std::endl;
 			}
-		}else{
-			std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl message (commonIoctl) " << id
-					<< "\e[39m" << std::endl;
+			co_return {};
+		}
+	};
+
+	async::result<void>
+	ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		auto res = co_await dispatchRequest<
+			managarm::fs::GenericIoctlRequest
+		>(conversation, std::move(msg), HandleIoctl{}, this);
+
+		if (!res) {
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}
 

@@ -10,6 +10,7 @@
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
+#include <core/dispatch.hpp>
 #include <helix/ipc.hpp>
 #include <helix/timer.hpp>
 #include <protocols/fs/common.hpp>
@@ -158,22 +159,15 @@ public:
 		co_return;
 	}
 
-	async::result<void> ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg,
-			helix::UniqueLane conversation) override {
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-			if (!req) {
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-				co_return;
-			}
-
-			switch(req->command()) {
+	struct HandleIoctl {
+		async::result<std::expected<void, DispatchError>> operator()(
+				managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+				bragi::preamble, OpenFile *self) {
+			switch(req.command()) {
 				case TFD_IOC_SET_TICKS: {
-					_expirations = req->ticks();
-					_theSeq++;
-					_seqBell.raise();
+					self->_expirations = req.ticks();
+					self->_theSeq++;
+					self->_seqBell.raise();
 
 					managarm::fs::GenericIoctlReply resp;
 					resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -186,15 +180,24 @@ public:
 					break;
 				}
 				default: {
-					std::println("timerfd: unexpected ioctl request 0x{:x}", req->command());
+					std::println("timerfd: unexpected ioctl request 0x{:x}", req.command());
 					auto [dismiss] = co_await helix_ng::exchangeMsgs(
 						conversation, helix_ng::dismiss());
 					HEL_CHECK(dismiss.error());
 					break;
 				}
 			}
-		} else {
-			std::println("timerfd: unexpected ioctl message type 0x{:x}\n", id);
+			co_return {};
+		}
+	};
+
+	async::result<void> ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg,
+			helix::UniqueLane conversation) override {
+		auto res = co_await dispatchRequest<
+			managarm::fs::GenericIoctlRequest
+		>(conversation, std::move(msg), HandleIoctl{}, this);
+
+		if (!res) {
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());

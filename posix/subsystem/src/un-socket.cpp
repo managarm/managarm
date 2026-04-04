@@ -13,6 +13,7 @@
 #include <asm-generic/socket.h>
 #include <async/recurring-event.hpp>
 #include <core/clock.hpp>
+#include <core/dispatch.hpp>
 #include <bragi/helpers-std.hpp>
 #include <protocols/fs/common.hpp>
 #include <helix/ipc.hpp>
@@ -841,32 +842,29 @@ public:
 		co_return {};
 	}
 
-	async::result<void>
-	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
-		managarm::fs::GenericIoctlReply resp;
+	struct HandleIoctl {
+		async::result<std::expected<void, DispatchError>> operator()(
+				managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+				bragi::preamble, OpenFile *self) {
+			managarm::fs::GenericIoctlReply resp;
 
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-			msg.reset();
-			assert(req);
-
-			switch(req->command()) {
+			switch(req.command()) {
 				case FIONREAD: {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-					if(_currentState != State::connected) {
+					if(self->_currentState != State::connected) {
 						resp.set_error(managarm::fs::Errors::NOT_CONNECTED);
-					} else if(_recvQueue.empty()) {
+					} else if(self->_recvQueue.empty()) {
 						resp.set_fionread_count(0);
 					} else {
-						auto packet = &_recvQueue.front();
+						auto packet = &self->_recvQueue.front();
 						resp.set_fionread_count(packet->buffer.size() - packet->offset);
 					}
 					break;
 				}
 				default: {
 					std::cout << "posix: invalid ioctl 0x"
-						<< std::hex << req->command() << std::dec
+						<< std::hex << req.command() << std::dec
 						<< " for un-socket" << std::endl;
 
 					auto [dismissResult] = co_await helix_ng::exchangeMsgs(
@@ -874,7 +872,7 @@ public:
 						helix_ng::dismiss()
 					);
 					HEL_CHECK(dismissResult.error());
-					co_return;
+					co_return {};
 				}
 			}
 
@@ -884,7 +882,20 @@ public:
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			co_return;
+			co_return {};
+		}
+	};
+
+	async::result<void>
+	ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		auto res = co_await dispatchRequest<
+			managarm::fs::GenericIoctlRequest
+		>(conversation, std::move(msg), HandleIoctl{}, this);
+
+		if (!res) {
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}
 
