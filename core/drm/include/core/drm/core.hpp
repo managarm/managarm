@@ -52,7 +52,7 @@ struct File {
 	accessMemory(void *object);
 
 	static async::result<void>
-	ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult, helix::UniqueLane conversation);
+	ioctl(void *object, helix_ng::CredentialsView creds, uint32_t id, helix_ng::RecvInlineResult, helix::UniqueLane conversation);
 
 	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
 	pollWait(void *object, uint64_t sequence, int mask,

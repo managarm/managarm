@@ -1175,6 +1175,23 @@ bool Process::checkOrRequestSignalRaise() {
 	return false;
 }
 
+void Process::stagePendingSignals() {
+	if (delayedSignal)
+		return;
+
+	auto t = accessThreadPage();
+	unsigned int expected = 1;
+	unsigned int gsf = __atomic_compare_exchange_n(&t->globalSignalFlag, &expected, 2, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED);
+	if (gsf != 1)
+		return;
+
+	delayedSignal = tryFetchSignal(~_signalMask);
+	if (!delayedSignal)
+		return;
+
+	delayedSignalHandling = threadGroup()->signalContext()->determineHandling(delayedSignal, this);
+}
+
 void Process::dumpRegisters() {
 	printf("\e[35m");
 	auto thread = threadDescriptor();

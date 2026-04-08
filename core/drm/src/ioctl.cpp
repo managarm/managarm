@@ -61,7 +61,7 @@ async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configur
 }
 
 async::result<void>
-drm_core::File::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+drm_core::File::ioctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	if(!ostraceInitialized) {
 		co_await initOstrace();

@@ -99,7 +99,7 @@ static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Cre
 	co_return p->size();
 }
 
-static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+static async::result<void> ioctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg,
 			helix::UniqueLane conversation) {
 	auto self = static_cast<CdcWdmDevice *>(object);
 

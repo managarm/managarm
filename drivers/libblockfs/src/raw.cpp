@@ -174,7 +174,7 @@ async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset
 	self->offset = offset + size;
 	co_return static_cast<ssize_t>(self->offset);
 }
-async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+async::result<void> rawIoctl(void *object, helix_ng::CredentialsView, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<raw::OpenFile *>(object);
 
