@@ -73,7 +73,7 @@ std::shared_ptr<MountView> rootView;
 
 async::result<void> populateRootView() {
 	// Create a tmpfs instance for the initrd.
-	auto tree = tmp_fs::createRoot();
+	auto tree = tmp_fs::createRoot(nullptr, {}).value();
 	rootView = MountView::createRoot(tree);
 
 	co_await tree->getTarget()->mkdir(nullptr, "realfs", 0555);

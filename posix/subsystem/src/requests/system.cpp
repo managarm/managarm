@@ -95,7 +95,12 @@ async::result<void> handleMount(RequestContext& ctx) {
 	}else if(req->fs_type() == "devtmpfs") {
 		co_await target.first->mount(target.second, getDevtmpfs());
 	}else if(req->fs_type() == "tmpfs") {
-		co_await target.first->mount(target.second, tmp_fs::createRoot());
+		auto res = tmp_fs::createRoot(ctx.self.get(), req->mount_data());
+		if (!res) {
+			co_await sendErrorResponse(ctx, res.error() | toPosixProtoError);
+			co_return;
+		}
+		co_await target.first->mount(target.second, *res);
 	}else if(req->fs_type() == "devpts") {
 		co_await target.first->mount(target.second, pts::getFsRoot());
 	}else if(req->fs_type() == "cgroup2") {
