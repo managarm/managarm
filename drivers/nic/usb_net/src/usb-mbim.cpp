@@ -1,4 +1,5 @@
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 #include <fcntl.h>
 #include <format>
 #include <linux/usb/cdc-wdm.h>
@@ -99,16 +100,9 @@ static async::result<protocols::fs::ReadResult> read(void *object, helix_ng::Cre
 	co_return p->size();
 }
 
-static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
-			helix::UniqueLane conversation) {
-	auto self = static_cast<CdcWdmDevice *>(object);
-
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		msg.reset();
-		assert(req);
-
-		switch(req->command()) {
+struct CdcWdmDevice::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, CdcWdmDevice *self) {
+		switch(req.command()) {
 			case IOCTL_WDM_MAX_COMMAND: {
 				managarm::fs::GenericIoctlReply resp;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -123,17 +117,27 @@ static async::result<void> ioctl(void *object, uint32_t id, helix_ng::RecvInline
 				break;
 			}
 			default: {
-				std::cout << std::format("drivers/usb-mbim: unexpected ioctl request 0x{:x}", req->command());
+				std::cout << std::format("drivers/usb-mbim: unexpected ioctl request 0x{:x}", req.command());
 				auto [dismiss] = co_await helix_ng::exchangeMsgs(
 					conversation, helix_ng::dismiss());
 				HEL_CHECK(dismiss.error());
 				break;
 			}
 		}
-	} else {
-		msg.reset();
-		std::cout << std::format("drivers/usb-mbim: unexpected ioctl message type 0x{:x}\n", id);
 
+		co_return {};
+	}
+};
+
+static async::result<void> ioctl(void *object, uint32_t, helix_ng::RecvInlineResult msg,
+			helix::UniqueLane conversation) {
+	auto self = static_cast<CdcWdmDevice *>(object);
+
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest
+	>(conversation, std::move(msg), CdcWdmDevice::HandleIoctl{}, self);
+
+	if (!res) {
 		auto [dismiss] = co_await helix_ng::exchangeMsgs(
 			conversation, helix_ng::dismiss());
 		HEL_CHECK(dismiss.error());

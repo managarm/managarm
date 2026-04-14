@@ -28,6 +28,8 @@ struct RawFs {
 struct OpenFile {
 	OpenFile(RawFs *rawFs);
 
+	struct HandleIoctl;
+
 	RawFs *rawFs;
 	uint64_t offset;
 	Flock flock;

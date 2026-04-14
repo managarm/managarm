@@ -25,6 +25,7 @@
 
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 
 #include "mbus.bragi.hpp"
 
@@ -342,206 +343,179 @@ async::detached doGetRemoteLane(helix::UniqueLane conversation, std::shared_ptr<
 	HEL_CHECK(pushLane.error());
 }
 
-async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> entity) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
+struct HandleMgmtRequest {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::ServeRemoteLaneRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble, std::shared_ptr<Entity> entity) {
+		auto [pullLane] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::pullDescriptor()
 			);
+		HEL_CHECK(pullLane.error());
 
-		// TODO(qookie): Destroy the entity once the lane is closed.
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recvHead.error());
+		co_await entity->submitRemoteLane(pullLane.descriptor());
 
-		auto conversation = accept.descriptor();
+		managarm::mbus::ServeRemoteLaneResponse resp;
+		resp.set_error(managarm::mbus::Error::SUCCESS);
 
-		auto preamble = bragi::read_preamble(recvHead);
-		assert(!preamble.error());
+		auto [sendResp] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+		HEL_CHECK(sendResp.error());
+		co_return {};
+	}
 
-		if(preamble.id() == bragi::message_id<managarm::mbus::ServeRemoteLaneRequest>) {
-			/* Don't care about the request contents */
-			recvHead.reset();
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::UpdatePropertiesRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble, std::shared_ptr<Entity> entity) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if (!tailRes)
+			co_return std::unexpected(tailRes.error());
 
-			auto [pullLane] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::pullDescriptor()
-				);
-			HEL_CHECK(pullLane.error());
-
-			co_await entity->submitRemoteLane(pullLane.descriptor());
-
-			managarm::mbus::ServeRemoteLaneResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
-
-			auto [sendResp] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-			HEL_CHECK(sendResp.error());
-		}else if(preamble.id() == bragi::message_id<managarm::mbus::UpdatePropertiesRequest>) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recvTail.error());
-
-			auto req = bragi::parse_head_tail<managarm::mbus::UpdatePropertiesRequest>(recvHead, tail);
-			recvHead.reset();
-
-			for(auto p : req->properties()) {
-				entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
-			}
-
-			entitySeqTree.remove(entity.get());
-			auto seq = globalSeq.next_sequence() - 1;
-			entity->updateSeq(seq);
-			entitySeqTree.insert(entity.get());
-			globalSeq.raise();
-
-			managarm::mbus::UpdatePropertiesResponse resp;
-			resp.set_error(managarm::mbus::Error::SUCCESS);
-
-			auto [sendResp] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-			HEL_CHECK(sendResp.error());
-		}else{
-			throw std::runtime_error("Unexpected request type");
+		for(auto p : req.properties()) {
+			entity->updateProperty(p.name(), mbus_ng::decodeItem(p.item()));
 		}
+
+		entitySeqTree.remove(entity.get());
+		auto seq = globalSeq.next_sequence() - 1;
+		entity->updateSeq(seq);
+		entitySeqTree.insert(entity.get());
+		globalSeq.raise();
+
+		managarm::mbus::UpdatePropertiesResponse resp;
+		resp.set_error(managarm::mbus::Error::SUCCESS);
+
+		auto [sendResp] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+		HEL_CHECK(sendResp.error());
+		co_return {};
+	}
+};
+
+async::detached serveMgmtLane(helix::UniqueLane lane, std::shared_ptr<Entity> entity) {
+	// TODO(qookie): Destroy the entity once the lane is closed.
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::mbus::ServeRemoteLaneRequest,
+			managarm::mbus::UpdatePropertiesRequest
+		>(lane, HandleMgmtRequest{}, entity);
+		if(!res)
+			throw std::runtime_error("Unexpected request type");
 	}
 }
 
-async::detached serve(helix::UniqueLane lane) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
+struct HandleRequest {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::GetPropertiesRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble) {
+		managarm::mbus::GetPropertiesResponse resp;
+		auto entity = getEntityById(req.id());
 
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recvHead.error());
-
-		auto conversation = accept.descriptor();
-
-		auto preamble = bragi::read_preamble(recvHead);
-		assert(!preamble.error());
-
-		if(preamble.id() == bragi::message_id<managarm::mbus::GetPropertiesRequest>) {
-			auto req = bragi::parse_head_only<managarm::mbus::GetPropertiesRequest>(recvHead);
-			recvHead.reset();
-
-			managarm::mbus::GetPropertiesResponse resp;
-			auto entity = getEntityById(req->id());
-
-			if(!entity) {
-				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
-			} else {
-				resp.set_error(managarm::mbus::Error::SUCCESS);
-				for(auto kv : entity->getProperties()) {
-					managarm::mbus::Property prop;
-					prop.set_name(kv.first);
-					prop.set_item(mbus_ng::encodeItem(kv.second));
-					resp.add_properties(prop);
-				}
-			}
-
-			auto [sendHead, sendTail] =
-				co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
-				);
-			HEL_CHECK(sendHead.error());
-			HEL_CHECK(sendTail.error());
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::GetRemoteLaneRequest>) {
-			auto req = bragi::parse_head_only<managarm::mbus::GetRemoteLaneRequest>(recvHead);
-			recvHead.reset();
-
-			auto entity = getEntityById(req->id());
-			if(!entity) {
-				managarm::mbus::GetRemoteLaneResponse resp;
-				resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
-
-				auto [sendResp] =
-					co_await helix_ng::exchangeMsgs(
-						conversation,
-						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-					);
-				HEL_CHECK(sendResp.error());
-				continue;
-			}
-
-			doGetRemoteLane(std::move(conversation), std::move(entity));
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::EnumerateRequest>) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recvTail.error());
-
-			auto req = bragi::parse_head_tail<managarm::mbus::EnumerateRequest>(recvHead, tail);
-			recvHead.reset();
-
-			doEnumerate(std::move(conversation), req->seq(),
-					decodeFilter(req->filter()));
-		} else if(preamble.id() == bragi::message_id<managarm::mbus::CreateObjectRequest>) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recvTail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recvTail.error());
-
-			auto req = bragi::parse_head_tail<managarm::mbus::CreateObjectRequest>(recvHead, tail);
-			recvHead.reset();
-
-			std::unordered_map<std::string, mbus_ng::AnyItem> properties;
-			for(auto &kv : req->properties()) {
-				properties.insert({kv.name(), mbus_ng::decodeItem(kv.item())});
-			}
-
-			// TODO(qookie): Introduce async::sequenced_event::current_sequence?
-			//               We want the current seq because the input seq from the
-			//               user is the seq of the first item to be returned
-			//               (e.g. see doEnumerate pagination logic).
-			auto seq = globalSeq.next_sequence() - 1;
-			auto child = std::make_shared<Entity>(nextEntityId++, seq,
-					std::move(req->name()), std::move(properties));
-
-			allEntities.insert({ child->id(), child });
-			entitySeqTree.insert(child.get());
-
-			// Wake up all pending enumeration operations.
-			globalSeq.raise();
-
-			// Set up the management lane
-			auto [localLane, remoteLane] = helix::createStream();
-			serveMgmtLane(std::move(localLane), child);
-
-			managarm::mbus::CreateObjectResponse resp;
+		if(!entity) {
+			resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+		} else {
 			resp.set_error(managarm::mbus::Error::SUCCESS);
-			resp.set_id(child->id());
+			for(auto kv : entity->getProperties()) {
+				managarm::mbus::Property prop;
+				prop.set_name(kv.first);
+				prop.set_item(mbus_ng::encodeItem(kv.second));
+				resp.add_properties(prop);
+			}
+		}
 
-			auto [sendResp, pushLane] =
+		auto [sendHead, sendTail] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+			);
+		HEL_CHECK(sendHead.error());
+		HEL_CHECK(sendTail.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::GetRemoteLaneRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble) {
+		auto entity = getEntityById(req.id());
+		if(!entity) {
+			managarm::mbus::GetRemoteLaneResponse resp;
+			resp.set_error(managarm::mbus::Error::NO_SUCH_ENTITY);
+
+			auto [sendResp] =
 				co_await helix_ng::exchangeMsgs(
 					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-					helix_ng::pushDescriptor(remoteLane)
+					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 				);
 			HEL_CHECK(sendResp.error());
-			HEL_CHECK(pushLane.error());
-		}else{
-			throw std::runtime_error("Unexpected request type");
+			co_return {};
 		}
+
+		doGetRemoteLane(helix::UniqueLane{conversation.dup()}, std::move(entity));
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::EnumerateRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if (!tailRes)
+			co_return std::unexpected(tailRes.error());
+
+		doEnumerate(helix::UniqueLane{conversation.dup()}, req.seq(),
+				decodeFilter(req.filter()));
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>> operator() (managarm::mbus::CreateObjectRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if (!tailRes)
+			co_return std::unexpected(tailRes.error());
+
+		std::unordered_map<std::string, mbus_ng::AnyItem> properties;
+		for(auto &kv : req.properties()) {
+			properties.insert({kv.name(), mbus_ng::decodeItem(kv.item())});
+		}
+
+		// TODO(qookie): Introduce async::sequenced_event::current_sequence?
+		//               We want the current seq because the input seq from the
+		//               user is the seq of the first item to be returned
+		//               (e.g. see doEnumerate pagination logic).
+		auto seq = globalSeq.next_sequence() - 1;
+		auto child = std::make_shared<Entity>(nextEntityId++, seq,
+				std::move(req.name()), std::move(properties));
+
+		allEntities.insert({ child->id(), child });
+		entitySeqTree.insert(child.get());
+
+		// Wake up all pending enumeration operations.
+		globalSeq.raise();
+
+		// Set up the management lane
+		auto [localLane, remoteLane] = helix::createStream();
+		serveMgmtLane(std::move(localLane), child);
+
+		managarm::mbus::CreateObjectResponse resp;
+		resp.set_error(managarm::mbus::Error::SUCCESS);
+		resp.set_id(child->id());
+
+		auto [sendResp, pushLane] =
+			co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+				helix_ng::pushDescriptor(remoteLane)
+			);
+		HEL_CHECK(sendResp.error());
+		HEL_CHECK(pushLane.error());
+		co_return {};
+	}
+};
+
+async::detached serve(helix::UniqueLane lane) {
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::mbus::GetPropertiesRequest,
+			managarm::mbus::GetRemoteLaneRequest,
+			managarm::mbus::EnumerateRequest,
+			managarm::mbus::CreateObjectRequest
+		>(lane, HandleRequest{});
+		if(!res)
+			throw std::runtime_error("Unexpected request type");
 	}
 }
 

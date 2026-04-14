@@ -41,6 +41,8 @@ struct Event {
 struct File {
 	File(std::shared_ptr<Device> device);
 
+	struct HandleIoctl;
+
 	static async::result<protocols::fs::ReadResult>
 
 	/**

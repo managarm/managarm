@@ -3,6 +3,7 @@
 #include <linux/cdrom.h>
 
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 #include "fs.bragi.hpp"
 
 namespace blockfs {
@@ -71,6 +72,25 @@ async::detached RawFs::manageMapping() {
 OpenFile::OpenFile(RawFs *rawFs)
 : rawFs(rawFs) { }
 
+struct OpenFile::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator() (managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, raw::OpenFile *self) {
+		if (req.command() == CDROM_GET_CAPABILITY) {
+			managarm::fs::GenericIoctlReply rsp;
+			rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+
+			auto ser = rsp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			co_await self->rawFs->device->handleIoctl(req, conversation);
+		}
+
+		co_return {};
+	}
+};
 
 namespace {
 
@@ -174,26 +194,19 @@ async::result<protocols::fs::SeekResult> rawSeekEof(void *object, int64_t offset
 	self->offset = offset + size;
 	co_return static_cast<ssize_t>(self->offset);
 }
-async::result<void> rawIoctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
+
+async::result<void> rawIoctl(void *object, uint32_t, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
 	auto self = static_cast<raw::OpenFile *>(object);
 
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		assert(req);
-		if (req->command() == CDROM_GET_CAPABILITY) {
-			managarm::fs::GenericIoctlReply rsp;
-			rsp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest
+	>(conversation, std::move(msg), OpenFile::HandleIoctl{}, self);
 
-			auto ser = rsp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		} else {
-			co_await self->rawFs->device->handleIoctl(req.value(), std::move(conversation));
-		}
+	if (!res) {
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
+		HEL_CHECK(dismiss.error());
 	}
 }
 

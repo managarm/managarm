@@ -22,7 +22,7 @@ struct BlockDevice {
 
 	virtual async::result<size_t> getSize() = 0;
 
-	virtual async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::UniqueDescriptor conversation) {
+	virtual async::result<void> handleIoctl(managarm::fs::GenericIoctlRequest &req, helix::BorrowedDescriptor conversation) {
 		std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
 				<< req.command() << "\e[39m" << std::endl;
 

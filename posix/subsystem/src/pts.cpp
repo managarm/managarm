@@ -11,6 +11,7 @@
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
 
+#include <core/dispatch.hpp>
 #include "core/tty.hpp"
 #include "file.hpp"
 #include "process.hpp"
@@ -71,7 +72,7 @@ struct Channel {
 		cfsetospeed(&activeSettings, B38400);
 	}
 
-	async::result<void> commonIoctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation);
+	async::result<void> commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation);
 
 	int ptsIndex;
 	ControllingTerminalState cts;
@@ -363,6 +364,8 @@ private:
 };
 
 struct MasterFile final : File {
+	struct HandleIoctl;
+
 public:
 	static void serve(smarter::shared_ptr<MasterFile> file) {
 		assert(!file->_passthrough);
@@ -432,6 +435,8 @@ private:
 };
 
 struct SlaveFile final : File {
+	struct HandleIoctl;
+
 public:
 	static void serve(smarter::shared_ptr<SlaveFile> file) {
 		assert(!file->_passthrough);
@@ -643,198 +648,190 @@ private:
 };
 
 async::result<void>
-Channel::commonIoctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) {
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		assert(req);
+Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescriptor conversation) {
+	if(req.command() == TIOCSCTTY) {
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
 
-		if(req->command() == TIOCSCTTY) {
-			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extractCreds.error());
+		auto creds = extractCreds.credentials();
+		auto process = findProcessWithCredentials(creds);
 
-			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-
-			managarm::fs::GenericIoctlReply resp;
-			if(auto e = cts.assignSessionOf(process.get()); e == Error::illegalArguments) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-			}else if(e == Error::insufficientPermissions) {
-				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
-			}else{
-				assert(e == Error::success);
-				cts.getSession()->setForegroundGroup(process->pgPointer().get());
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-			}
-
-			auto ser = resp.SerializeAsString();
-			auto [sendResp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(sendResp.error());
-		}else if(req->command() == TIOCNOTTY) {
-			managarm::fs::GenericIoctlReply resp;
-
-			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extractCreds.error());
-
-			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-
-			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
-				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
-			} else {
-				auto group = cts.getSession()->getForegroundGroup();
-				if (group && process->pgPointer()->getSession()->getSessionId() == process->pid())
-					group->issueSignalToGroup(SIGHUP, {});
-
-				cts.dropSession(process->pgPointer()->getSession());
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-			}
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCGPGRP) {
-			managarm::fs::GenericIoctlReply resp;
-
-			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extractCreds.error());
-
-			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-
-			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
-				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
-			} else {
-				auto group = cts.getSession()->getForegroundGroup();
-				if (group) {
-					resp.set_pid(group->getHull()->getPid());
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					// If there is no foreground process group, tcgetpgrp() shall return
-					// a value greater than 1 that does not match the process group ID of any
-					// existing process group.
-					resp.set_pid(INT_MAX);
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				}
-			}
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCSPGRP) {
-			managarm::fs::GenericIoctlReply resp;
-
-			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extractCreds.error());
-
-			if (req->pgid() < 0) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-				HEL_CHECK(send_resp.error());
-				co_return;
-			}
-
-			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-			if (!cts.getSession()
-			    || process->pgPointer()->getSession()->getSessionId()
-			           != cts.getSession()->getSessionId()
-			    || !process->pgPointer()->getSession()->getControllingTerminal()
-			    || process->pgPointer()->getSession()->getControllingTerminal() != &cts) {
-
-				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				    conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-				);
-				HEL_CHECK(send_resp.error());
-				co_return;
-			}
-
-			auto group = process->pgPointer()->getSession()->getProcessGroupById(req->pgid());
-			if(!group) {
-				resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
-			} else {
-				auto sigttouHandler = process->threadGroup()->signalContext()->getHandler(SIGTTOU);
-				if (process->pgPointer().get() == process->pgPointer()->getSession()->getForegroundGroup()
-				    || sigttouHandler.disposition == SignalDisposition::ignore
-				    || (process->signalMask() & (1 << (SIGTTOU - 1)))) {
-					// POSIX: If the calling thread is blocking SIGTTOU signals or the process is
-					// ignoring SIGTTOU signals, the process shall be allowed to perform
-					// the operation.
-
-					auto ret = cts.getSession()->setForegroundGroup(group.get());
-					resp.set_error(ret | protocols::fs::toFsProtoError | protocols::fs::toFsError);
-				} else if (process->pgPointer()->isOrphaned()) {
-					resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
-					auto [send_resp] = co_await helix_ng::exchangeMsgs(
-						conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-					);
-					HEL_CHECK(send_resp.error());
-					co_return;
-				} else {
-					// TODO: if process is in a background PG, send SIGTTOU
-					// process->pgPointer()->issueSignalToGroup(SIGTTOU, {});
-				}
-			}
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCGSID) {
-			managarm::fs::GenericIoctlReply resp;
-
-			auto [extractCreds] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::extractCredentials()
-			);
-			HEL_CHECK(extractCreds.error());
-
-			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-
-			if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
-				resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
-			} else {
-				resp.set_pid(cts.getSession()->getSessionId());
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-			}
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
+		managarm::fs::GenericIoctlReply resp;
+		if(auto e = cts.assignSessionOf(process.get()); e == Error::illegalArguments) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}else if(e == Error::insufficientPermissions) {
+			resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
 		}else{
-			std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl (commonIoctl) " << req->command()
-					<< "\e[39m" << std::endl;
+			assert(e == Error::success);
+			cts.getSession()->setForegroundGroup(process->pgPointer().get());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}
+
+		auto ser = resp.SerializeAsString();
+		auto [sendResp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(sendResp.error());
+	}else if(req.command() == TIOCNOTTY) {
+		managarm::fs::GenericIoctlReply resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto creds = extractCreds.credentials();
+		auto process = findProcessWithCredentials(creds);
+
+		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
+			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+		} else {
+			auto group = cts.getSession()->getForegroundGroup();
+			if (group && process->pgPointer()->getSession()->getSessionId() == process->pid())
+				group->issueSignalToGroup(SIGHUP, {});
+
+			cts.dropSession(process->pgPointer()->getSession());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCGPGRP) {
+		managarm::fs::GenericIoctlReply resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto creds = extractCreds.credentials();
+		auto process = findProcessWithCredentials(creds);
+
+		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
+			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+		} else {
+			auto group = cts.getSession()->getForegroundGroup();
+			if (group) {
+				resp.set_pid(group->getHull()->getPid());
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				// If there is no foreground process group, tcgetpgrp() shall return
+				// a value greater than 1 that does not match the process group ID of any
+				// existing process group.
+				resp.set_pid(INT_MAX);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			}
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCSPGRP) {
+		managarm::fs::GenericIoctlReply resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		if (req.pgid() < 0) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto creds = extractCreds.credentials();
+		auto process = findProcessWithCredentials(creds);
+		if (!cts.getSession()
+				|| process->pgPointer()->getSession()->getSessionId()
+						!= cts.getSession()->getSessionId()
+				|| !process->pgPointer()->getSession()->getControllingTerminal()
+				|| process->pgPointer()->getSession()->getControllingTerminal() != &cts) {
+
+			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+
+		auto group = process->pgPointer()->getSession()->getProcessGroupById(req.pgid());
+		if(!group) {
+			resp.set_error(managarm::fs::Errors::INSUFFICIENT_PERMISSIONS);
+		} else {
+			auto sigttouHandler = process->threadGroup()->signalContext()->getHandler(SIGTTOU);
+			if (process->pgPointer().get() == process->pgPointer()->getSession()->getForegroundGroup()
+					|| sigttouHandler.disposition == SignalDisposition::ignore
+					|| (process->signalMask() & (1 << (SIGTTOU - 1)))) {
+				// POSIX: If the calling thread is blocking SIGTTOU signals or the process is
+				// ignoring SIGTTOU signals, the process shall be allowed to perform
+				// the operation.
+
+				auto ret = cts.getSession()->setForegroundGroup(group.get());
+				resp.set_error(ret | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			} else if (process->pgPointer()->isOrphaned()) {
+				resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return;
+			} else {
+				// TODO: if process is in a background PG, send SIGTTOU
+				// process->pgPointer()->issueSignalToGroup(SIGTTOU, {});
+			}
+		}
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	}else if(req.command() == TIOCGSID) {
+		managarm::fs::GenericIoctlReply resp;
+
+		auto [extractCreds] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::extractCredentials()
+		);
+		HEL_CHECK(extractCreds.error());
+
+		auto creds = extractCreds.credentials();
+		auto process = findProcessWithCredentials(creds);
+
+		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
+			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
+		} else {
+			resp.set_pid(cts.getSession()->getSessionId());
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
 	}else{
-		std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl message (commonIoctl) " << id
+		std::cout << "\e[31m" "posix: Rejecting unknown PTS ioctl (commonIoctl) " << req.command()
 				<< "\e[39m" << std::endl;
 	}
 }
@@ -975,18 +972,15 @@ MasterFile::pollStatus(Process *) {
 	co_return PollStatusResult{_channel->currentSeq, events};
 }
 
-async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg,
-		helix::UniqueLane conversation) {
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		msg.reset();
-		assert(req);
-
-		if(req->command() == TIOCGPTN) {
+struct MasterFile::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator()(
+			managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble, MasterFile *self) {
+		if(req.command() == TIOCGPTN) {
 			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_pts_index(_channel->ptsIndex);
+			resp.set_pts_index(self->_channel->ptsIndex);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -994,20 +988,20 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCSWINSZ) {
+		}else if(req.command() == TIOCSWINSZ) {
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logAttrs)
 				std::cout << "posix: PTS window size is now "
-						<< req->pts_width() << "x" << req->pts_height()
+						<< req.pts_width() << "x" << req.pts_height()
 						<< " chars, "
-						<< req->pts_pixel_width() << "x" << req->pts_pixel_height()
+						<< req.pts_pixel_width() << "x" << req.pts_pixel_height()
 						<< " pixels (set by master)" << std::endl;
 
-			_channel->width = req->pts_width();
-			_channel->height = req->pts_height();
-			_channel->pixelWidth = req->pts_pixel_width();
-			_channel->pixelHeight = req->pts_pixel_height();
+			self->_channel->width = req.pts_width();
+			self->_channel->height = req.pts_height();
+			self->_channel->pixelWidth = req.pts_pixel_width();
+			self->_channel->pixelHeight = req.pts_pixel_height();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1020,11 +1014,11 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 
 			// XXX: This should deliver SIGWINCH to the parent under certain conditions
 			UserSignal info;
-			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
-		}else if(req->command() == FIONREAD) {
+			self->_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
+		}else if(req.command() == FIONREAD) {
 			managarm::fs::GenericIoctlReply resp;
 
-			size_t count = std::transform_reduce(_channel->masterQueue.begin(), _channel->masterQueue.end(), size_t{0}, std::plus<>(), [] (const Packet &p) {
+			size_t count = std::transform_reduce(self->_channel->masterQueue.begin(), self->_channel->masterQueue.end(), size_t{0}, std::plus<>(), [] (const Packet &p) {
 				return p.buffer.size() - p.offset;
 			});
 
@@ -1037,16 +1031,16 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
-				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID
-				|| req->command() == TIOCNOTTY) {
-			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
-		}else if(req->command() == TCGETS) {
+		}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
+				|| req.command() == TIOCSPGRP || req.command() == TIOCGSID
+				|| req.command() == TIOCNOTTY) {
+			co_await self->_channel->commonIoctl(std::move(req), conversation);
+		}else if(req.command() == TCGETS) {
 			managarm::fs::GenericIoctlReply resp;
 			struct termios attrs;
 
 			memset(&attrs, 0, sizeof(struct termios));
-			ttyCopyTermios(_channel->activeSettings, attrs);
+			ttyCopyTermios(self->_channel->activeSettings, attrs);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1058,7 +1052,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_attrs.error());
-		}else if(req->command() == TCSETS) {
+		}else if(req.command() == TCSETS) {
 			struct termios attrs;
 			managarm::fs::GenericIoctlReply resp;
 
@@ -1067,7 +1061,7 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 				helix_ng::recvBuffer(&attrs, sizeof(struct termios))
 			);
 			HEL_CHECK(recv_attrs.error());
-			ttyCopyTermios(attrs, _channel->activeSettings);
+			ttyCopyTermios(attrs, self->_channel->activeSettings);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1078,16 +1072,25 @@ async::result<void> MasterFile::ioctl(Process *process, uint32_t id, helix_ng::R
 			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req->command()
+			std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl " << req.command()
 					<< "\e[39m" << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
-	}else{
-		msg.reset();
-		std::cout << "\e[31m" "posix: Rejecting unknown PTS master ioctl message " << id
-				<< "\e[39m" << std::endl;
-		auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+
+		co_return {};
+	}
+};
+
+async::result<void> MasterFile::ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg,
+		helix::UniqueLane conversation) {
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest
+	>(conversation, std::move(msg), HandleIoctl{}, this);
+
+	if (!res) {
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
 		HEL_CHECK(dismiss.error());
 	}
 }
@@ -1238,18 +1241,16 @@ SlaveFile::pollStatus(Process *) {
 	co_return PollStatusResult{_channel->currentSeq, events};
 }
 
-async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::RecvInlineResult msg,
-		helix::UniqueLane conversation) {
-	if(id == managarm::fs::GenericIoctlRequest::message_id) {
-		auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-		msg.reset();
-
-		if(req->command() == TCGETS) {
+struct SlaveFile::HandleIoctl {
+	async::result<std::expected<void, DispatchError>> operator()(
+			managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble, SlaveFile *self) {
+		if(req.command() == TCGETS) {
 			managarm::fs::GenericIoctlReply resp;
 			struct termios attrs;
 
 			memset(&attrs, 0, sizeof(struct termios));
-			ttyCopyTermios(_channel->activeSettings, attrs);
+			ttyCopyTermios(self->_channel->activeSettings, attrs);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1261,7 +1262,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(send_attrs.error());
-		}else if(req->command() == TCSETS) {
+		}else if(req.command() == TCSETS) {
 			struct termios attrs;
 			managarm::fs::GenericIoctlReply resp;
 
@@ -1336,7 +1337,7 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				std::cout << std::dec << std::endl;
 			}
 
-			ttyCopyTermios(attrs, _channel->activeSettings);
+			ttyCopyTermios(attrs, self->_channel->activeSettings);
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1346,14 +1347,14 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCGWINSZ) {
+		}else if(req.command() == TIOCGWINSZ) {
 			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_pts_width(_channel->width);
-			resp.set_pts_height(_channel->height);
-			resp.set_pts_pixel_width(_channel->pixelWidth);
-			resp.set_pts_pixel_height(_channel->pixelHeight);
+			resp.set_pts_width(self->_channel->width);
+			resp.set_pts_height(self->_channel->height);
+			resp.set_pts_pixel_width(self->_channel->pixelWidth);
+			resp.set_pts_pixel_height(self->_channel->pixelHeight);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1361,20 +1362,20 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		}else if(req->command() == TIOCSWINSZ) {
+		}else if(req.command() == TIOCSWINSZ) {
 			managarm::fs::GenericIoctlReply resp;
 
 			if(logAttrs)
 				std::cout << "posix: PTS window size is now "
-						<< req->pts_width() << "x" << req->pts_height()
+						<< req.pts_width() << "x" << req.pts_height()
 						<< " chars, "
-						<< req->pts_pixel_width() << "x" << req->pts_pixel_height()
+						<< req.pts_pixel_width() << "x" << req.pts_pixel_height()
 						<< " pixels (set by slave)" << std::endl;
 
-			_channel->width = req->pts_width();
-			_channel->height = req->pts_height();
-			_channel->pixelWidth = req->pts_pixel_width();
-			_channel->pixelHeight = req->pts_pixel_height();
+			self->_channel->width = req.pts_width();
+			self->_channel->height = req.pts_height();
+			self->_channel->pixelWidth = req.pts_pixel_width();
+			self->_channel->pixelHeight = req.pts_pixel_height();
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
@@ -1387,20 +1388,20 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 
 			// XXX: This should deliver SIGWINCH to the parent under certain conditions
 			UserSignal info;
-			_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
-		}else if(req->command() == TIOCSCTTY || req->command() == TIOCGPGRP
-				|| req->command() == TIOCSPGRP || req->command() == TIOCGSID
-				|| req->command() == TIOCNOTTY) {
-			co_await _channel->commonIoctl(process, id, std::move(msg), std::move(conversation));
-		}else if(req->command() == TIOCINQ) {
+			self->_channel->cts.issueSignalToForegroundGroup(SIGWINCH, info);
+		}else if(req.command() == TIOCSCTTY || req.command() == TIOCGPGRP
+				|| req.command() == TIOCSPGRP || req.command() == TIOCGSID
+				|| req.command() == TIOCNOTTY) {
+			co_await self->_channel->commonIoctl(std::move(req), conversation);
+		}else if(req.command() == TIOCINQ) {
 			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 
-			if(_channel->slaveQueue.empty()) {
+			if(self->_channel->slaveQueue.empty()) {
 				resp.set_fionread_count(0);
 			}else{
-				auto packet = &_channel->slaveQueue.front();
+				auto packet = &self->_channel->slaveQueue.front();
 				resp.set_fionread_count(packet->buffer.size() - packet->offset);
 			}
 
@@ -1410,11 +1411,11 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-		} else if(req->command() == TIOCGPTN) {
+		} else if(req.command() == TIOCGPTN) {
 			managarm::fs::GenericIoctlReply resp;
 
 			resp.set_error(managarm::fs::Errors::SUCCESS);
-			resp.set_pts_index(_channel->ptsIndex);
+			resp.set_pts_index(self->_channel->ptsIndex);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -1423,16 +1424,25 @@ async::result<void> SlaveFile::ioctl(Process *process, uint32_t id, helix_ng::Re
 			);
 			HEL_CHECK(send_resp.error());
 		}else{
-			std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req->command()
+			std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl " << req.command()
 					<< "\e[39m" << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
-	}else{
-		msg.reset();
-		std::cout << "\e[31m" "posix: Rejecting unknown PTS slave ioctl message " << id
-				<< "\e[39m" << std::endl;
-		auto [dismiss] = co_await helix_ng::exchangeMsgs(conversation, helix_ng::dismiss());
+
+		co_return {};
+	}
+};
+
+async::result<void> SlaveFile::ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg,
+		helix::UniqueLane conversation) {
+	auto res = co_await dispatchRequest<
+		managarm::fs::GenericIoctlRequest
+	>(conversation, std::move(msg), HandleIoctl{}, this);
+
+	if (!res) {
+		auto [dismiss] = co_await helix_ng::exchangeMsgs(
+			conversation, helix_ng::dismiss());
 		HEL_CHECK(dismiss.error());
 	}
 }

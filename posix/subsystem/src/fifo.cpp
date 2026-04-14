@@ -8,6 +8,7 @@
 
 #include <async/recurring-event.hpp>
 #include <bragi/helpers-std.hpp>
+#include <core/dispatch.hpp>
 #include <frg/ringbuffer.hpp>
 #include <helix/ipc.hpp>
 #include "fifo.hpp"
@@ -235,20 +236,17 @@ public:
 		co_return flags;
 	}
 
-	async::result<void>
-	ioctl(Process *, uint32_t id, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
-		managarm::fs::GenericIoctlReply resp;
+	struct HandleIoctl {
+		async::result<std::expected<void, DispatchError>> operator()(
+				managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation,
+				bragi::preamble, OpenFile *self) {
+			managarm::fs::GenericIoctlReply resp;
 
-		if(id == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(msg);
-			msg.reset();
-			assert(req);
-
-			switch(req->command()) {
+			switch(req.command()) {
 				case FIONREAD: {
 					size_t count = 0;
-					if (isReader_)
-						count = _channel->ring.size();
+					if (self->isReader_)
+						count = self->_channel->ring.size();
 
 					resp.set_fionread_count(count);
 					resp.set_error(managarm::fs::Errors::SUCCESS);
@@ -259,7 +257,7 @@ public:
 					auto [dismiss] = co_await helix_ng::exchangeMsgs(
 						conversation, helix_ng::dismiss());
 					HEL_CHECK(dismiss.error());
-					co_return;
+					co_return {};
 				}
 			}
 
@@ -269,12 +267,17 @@ public:
 				helix_ng::sendBuffer(ser.data(), ser.size())
 			);
 			HEL_CHECK(send_resp.error());
-			co_return;
-		}else{
-			msg.reset();
-			std::cout << "\e[31m" "fifo: Unknown ioctl() message with ID "
-					<< id << "\e[39m" << std::endl;
+			co_return {};
+		}
+	};
 
+	async::result<void>
+	ioctl(Process *, uint32_t, helix_ng::RecvInlineResult msg, helix::UniqueLane conversation) override {
+		auto res = co_await dispatchRequest<
+			managarm::fs::GenericIoctlRequest
+		>(conversation, std::move(msg), HandleIoctl{}, this);
+
+		if (!res) {
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
