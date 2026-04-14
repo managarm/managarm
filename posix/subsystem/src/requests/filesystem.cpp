@@ -247,18 +247,13 @@ async::result<void> handleMkdirAt(RequestContext& ctx) {
 		co_return;
 	}
 
-	auto result = co_await parent->mkdir(resolver.nextComponent());
-
+	auto result = co_await parent->mkdir(
+	    ctx.self.get(),
+	    resolver.nextComponent(),
+	    req->mode()
+	);
 	if(auto error = std::get_if<Error>(&result); error) {
 		co_await sendErrorResponse(ctx, *error | toPosixProtoError);
-		co_return;
-	}
-
-	auto target = std::get<std::shared_ptr<FsLink>>(result)->getTarget();
-	auto chmodResult = co_await target->chmod(req->mode() & ~ctx.self->fsContext()->getUmask() & 0777);
-	if (chmodResult != Error::success) {
-		std::cout << "posix: chmod failed when creating directory for MkdirAtRequest!" << std::endl;
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::INTERNAL_ERROR);
 		co_return;
 	}
 

@@ -339,7 +339,7 @@ private:
 	}
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name) override;
+	mkdir(Process *p, std::string name, mode_t mode) override;
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path) override;
@@ -865,7 +865,7 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 }
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-DirectoryNode::mkdir(std::string name) {
+DirectoryNode::mkdir(Process *, std::string name, mode_t) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));

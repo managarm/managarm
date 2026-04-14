@@ -789,6 +789,9 @@ head(128):
 
 message MkdirRequest 33 {
 head(128):
+	int32 mode;
+	int32 uid;
+	int32 gid;
 tail:
 	string path;
 }

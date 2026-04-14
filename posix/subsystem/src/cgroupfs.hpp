@@ -150,7 +150,7 @@ struct DirectoryNode final : FsNode, std::enable_shared_from_this<DirectoryNode>
 			std::shared_ptr<FsNode> node);
 	std::shared_ptr<Link> directMkdir(std::string name);
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name) override;
+	mkdir(Process *, std::string name, mode_t mode) override;
 
 	VfsType getType() override;
 	async::result<frg::expected<Error, FileStats>> getStats() override;

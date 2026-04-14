@@ -158,7 +158,7 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 }
 
 async::result<std::expected<protocols::fs::MkdirResult, protocols::fs::Error>>
-mkdir(std::shared_ptr<void> object, std::string name) {
+mkdir(std::shared_ptr<void> object, std::string name, uid_t, gid_t, mode_t) {
 	(void)object;
 	(void)name;
 	std::println("libblockfs/btrfs: mkdir unimplemented!");

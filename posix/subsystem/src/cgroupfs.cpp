@@ -267,7 +267,7 @@ std::shared_ptr<Link> DirectoryNode::directMkdir(std::string name) {
 	return link;
 }
 
-async::result<std::variant<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkdir(std::string name) {
+async::result<std::variant<Error, std::shared_ptr<FsLink>>> DirectoryNode::mkdir(Process *, std::string name, mode_t) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
 	auto link = createCgroupDirectory(name);

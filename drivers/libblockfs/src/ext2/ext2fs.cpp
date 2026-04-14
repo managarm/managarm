@@ -359,7 +359,7 @@ Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	co_return result.value();
 }
 
-async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name) {
+async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::string name, uid_t uid, gid_t gid, mode_t mode) {
 	assert(!name.empty() && name != "." && name != "..");
 
 	co_await readyEvent.wait();
@@ -393,9 +393,9 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_await submit.async_wait();
 	HEL_CHECK(lockMemory.error());
 
-	// XXX: this is a hack to make the directory accessible under
-	// OSes that respect the permissions, this means "drwxr-xr-x"
-	dirNode->diskInode()->mode = 0x41ED;
+	dirNode->diskInode()->uid = uid;
+	dirNode->diskInode()->gid = gid;
+	dirNode->diskInode()->mode = EXT2_S_IFDIR | mode;
 
 	size_t offset = 0;
 	auto dotEntry = reinterpret_cast<DiskDirEntry *>(dirNode->fileMapping.get());

@@ -120,7 +120,7 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::link(std::s
 }
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-FsNode::mkdir(std::string) {
+FsNode::mkdir(Process *, std::string, mode_t) {
 	std::cout << "posix: mkdir() is not implemented for this FsNode" << std::endl;
 	co_return Error::illegalOperationTarget;
 }

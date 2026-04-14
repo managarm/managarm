@@ -250,7 +250,7 @@ struct NodeOperations {
 
 	async::result<std::string> (*readSymlink)(std::shared_ptr<void> object);
 
-	async::result<std::expected<MkdirResult, protocols::fs::Error>> (*mkdir)(std::shared_ptr<void> object, std::string name);
+	async::result<std::expected<MkdirResult, protocols::fs::Error>> (*mkdir)(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode_t mode);
 
 	async::result<std::expected<SymlinkResult, protocols::fs::Error>> (*symlink)(std::shared_ptr<void> object, std::string name,
 			std::string path);

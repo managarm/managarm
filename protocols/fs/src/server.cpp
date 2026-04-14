@@ -1858,7 +1858,7 @@ async::detached serveNode(helix::UniqueLane lane, std::shared_ptr<void> node,
 				std::cout << "fs: Rejecting request due to decoding failure" << std::endl;
 				break;
 			}
-			auto result = co_await node_ops->mkdir(node, req->path());
+			auto result = co_await node_ops->mkdir(node, req->path(), req->uid(), req->gid(), req->mode());
 
 			if (result) {
 				helix::UniqueLane local_lane, remote_lane;
