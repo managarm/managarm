@@ -445,6 +445,7 @@ tail:
 	string path;
 	string target_path;
 	string fs_type;
+	string mount_data;
 }
 
 message SymlinkAtRequest 30 {
