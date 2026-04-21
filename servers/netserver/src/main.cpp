@@ -12,6 +12,7 @@
 #include <bragi/helpers-std.hpp>
 #include <core/clock.hpp>
 #include <core/cmdline.hpp>
+#include <core/dispatch.hpp>
 #include <frg/cmdline.hpp>
 #include <hel.h>
 #include <hel-syscalls.h>
@@ -512,80 +513,81 @@ static async::result<void> serveNetlinkLanes(
 	sock->handleClose();
 }
 
-async::detached serve(helix::UniqueLane lane) {
-	if(!ostraceInit) {
-		co_await initOstrace();
-		ostraceInit = true;
+namespace {
+
+struct HandleRequest {
+	uint64_t id = 0;
+	timespec requestTimestamp = {};
+
+	template <typename T>
+	void logBragiRequest(T &req) {
+		if(!ostContext.isActive())
+			return;
+
+		requestTimestamp = clk::getTimeSinceBoot();
+		std::string reqHead;
+		std::string reqTail;
+		reqHead.resize(req.size_of_head());
+		reqTail.resize(req.size_of_tail());
+		bragi::limited_writer headWriter{reqHead.data(), reqHead.size()};
+		bragi::limited_writer tailWriter{reqTail.data(), reqTail.size()};
+		auto headOk = req.encode_head(headWriter);
+		auto tailOk = req.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi({reinterpret_cast<uint8_t *>(reqHead.data()), reqHead.size()}, {reinterpret_cast<uint8_t *>(reqTail.data()), reqTail.size()})
+		);
 	}
 
-	while (true) {
-		auto [accept, recv_req] =
-			co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-					)
-				);
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
+	void logBragiReply(auto &resp) {
+		if(!ostContext.isActive())
+			return;
 
-		auto conversation = accept.descriptor();
-		auto preamble = bragi::read_preamble(recv_req);
-		assert(!preamble.error());
+		auto ts = clk::getTimeSinceBoot();
+		std::string replyHead;
+		std::string replyTail;
+		replyHead.resize(resp.size_of_head());
+		replyTail.resize(resp.size_of_tail());
+		bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+		bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+		auto headOk = resp.encode_head(headWriter);
+		auto tailOk = resp.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(id),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+		);
+	}
 
-		timespec requestTimestamp = {};
-		auto logBragiRequest = [&recv_req, &requestTimestamp](std::span<uint8_t> tail) {
-			if(!ostContext.isActive())
-				return;
+	void logBragiSerializedReply(std::string &ser) {
+		if(!ostContext.isActive())
+			return;
 
-			requestTimestamp = clk::getTimeSinceBoot();
-			ostContext.emitWithTimestamp(
-				ostEvtRequest,
-				(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
-				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
-				ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(recv_req.data()), recv_req.size()}, tail)
-			);
-		};
+		auto ts = clk::getTimeSinceBoot();
+		ostContext.emitWithTimestamp(
+			ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			ostAttrRequest(id),
+			ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+		);
+	}
 
-		auto logBragiReply = [&preamble, &requestTimestamp](auto &resp) {
-			if(!ostContext.isActive())
-				return;
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req,
+			helix::BorrowedDescriptor conversation, bragi::preamble preamble) {
+		id = preamble.id();
+		logBragiRequest(req);
 
-			auto ts = clk::getTimeSinceBoot();
-			std::string replyHead;
-			std::string replyTail;
-			replyHead.resize(resp.size_of_head());
-			replyTail.resize(resp.size_of_tail());
-			bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
-			bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
-			auto headOk = resp.encode_head(headWriter);
-			auto tailOk = resp.encode_tail(tailWriter);
-			assert(headOk);
-			assert(tailOk);
-			ostContext.emitWithTimestamp(
-				ostEvtRequest,
-				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
-				ostAttrRequest(preamble.id()),
-				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
-				ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
-			);
-		};
-
-		auto logBragiSerializedReply = [&preamble, &requestTimestamp](std::string &ser) {
-			if(!ostContext.isActive())
-				return;
-
-			auto ts = clk::getTimeSinceBoot();
-			ostContext.emitWithTimestamp(
-				ostEvtRequest,
-				(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
-				ostAttrRequest(preamble.id()),
-				ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
-				ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
-			);
-		};
-
-		auto sendError = [&conversation, &logBragiSerializedReply] (managarm::fs::Errors err)
+		auto sendError = [&] (managarm::fs::Errors err)
 				-> async::result<void> {
 			managarm::fs::SvrResponse resp;
 			resp.set_error(err);
@@ -599,238 +601,244 @@ async::detached serve(helix::UniqueLane lane) {
 			logBragiSerializedReply(buff);
 		};
 
-		if(!preamble.tail_size())
-			logBragiRequest({});
+		if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
+			auto [localCtrl, remoteCtrl] = helix::createStream();
+			auto [localPt, remotePt] = helix::createStream();
 
-		if(preamble.id() == managarm::fs::CntRequest::message_id) {
-			managarm::fs::CntRequest req;
-			req.ParseFromArray(recv_req.data(), recv_req.length());
-			recv_req.reset();
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::SUCCESS);
 
-			if (req.req_type() == managarm::fs::CntReqType::CREATE_SOCKET) {
-				auto [localCtrl, remoteCtrl] = helix::createStream();
-				auto [localPt, remotePt] = helix::createStream();
-
-				managarm::fs::SvrResponse resp;
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-
-				if(req.domain() == AF_INET) {
-					auto err = ip4().serveSocket(std::move(localCtrl),
-							std::move(localPt), req.type(), req.protocol(), req.flags());
-					if(err != managarm::fs::Errors::SUCCESS) {
-						co_await sendError(err);
-						continue;
-					}
-				} else if(req.domain() == AF_NETLINK) {
-					auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags(), req.protocol());
-					async::detach(serveNetlinkLanes(std::move(localCtrl), std::move(localPt), nl_socket));
-				} else if(req.domain() == AF_PACKET) {
-					auto err = raw().serveSocket(std::move(localCtrl),
-							std::move(localPt), req.type(), req.protocol(), req.flags());
-					if(err != managarm::fs::Errors::SUCCESS) {
-						co_await sendError(err);
-						continue;
-					}
-				} else {
-					std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
-					co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					continue;
+			if(req.domain() == AF_INET) {
+				auto err = ip4().serveSocket(std::move(localCtrl),
+						std::move(localPt), req.type(), req.protocol(), req.flags());
+				if(err != managarm::fs::Errors::SUCCESS) {
+					co_await sendError(err);
+					co_return {};
 				}
-
-				auto ser = resp.SerializeAsString();
-				auto [sendResp, pushCtrl, pushPt] =
-					co_await helix_ng::exchangeMsgs(
-						conversation,
-						helix_ng::sendBuffer(
-							ser.data(), ser.size()),
-						helix_ng::pushDescriptor(remoteCtrl),
-						helix_ng::pushDescriptor(remotePt)
-					);
-				HEL_CHECK(sendResp.error());
-				HEL_CHECK(pushCtrl.error());
-				HEL_CHECK(pushPt.error());
-				logBragiSerializedReply(ser);
+			} else if(req.domain() == AF_NETLINK) {
+				auto nl_socket = smarter::make_shared<nl::NetlinkSocket>(req.flags(), req.protocol());
+				async::detach(serveNetlinkLanes(std::move(localCtrl), std::move(localPt), nl_socket));
+			} else if(req.domain() == AF_PACKET) {
+				auto err = raw().serveSocket(std::move(localCtrl),
+						std::move(localPt), req.type(), req.protocol(), req.flags());
+				if(err != managarm::fs::Errors::SUCCESS) {
+					co_await sendError(err);
+					co_return {};
+				}
 			} else {
-				std::cout << "netserver: received unknown request type: "
-					<< (int32_t)req.req_type() << std::endl;
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				std::cout << "mlibc: unexpected socket domain " << req.domain() << std::endl;
+				co_await sendError(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				co_return {};
+			}
+
+			auto ser = resp.SerializeAsString();
+			auto [sendResp, pushCtrl, pushPt] =
+				co_await helix_ng::exchangeMsgs(
 					conversation,
-					helix_ng::dismiss()
+					helix_ng::sendBuffer(
+						ser.data(), ser.size()),
+					helix_ng::pushDescriptor(remoteCtrl),
+					helix_ng::pushDescriptor(remotePt)
 				);
-				HEL_CHECK(dismiss.error());
-			}
-		}else if(preamble.id() == managarm::fs::IfreqRequest::message_id) {
-			std::vector<uint8_t> tail(preamble.tail_size());
-			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::recvBuffer(tail.data(), tail.size())
-			);
-			HEL_CHECK(recv_tail.error());
-			logBragiRequest(tail);
-
-			auto req = bragi::parse_head_tail<managarm::fs::IfreqRequest>(recv_req, tail);
-			recv_req.reset();
-
-			if(!req) {
-				std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-				co_return;
-			}
-
-			managarm::fs::IfreqReply resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-
-			if(req->command() == SIOCGIFCONF) {
-				std::vector<managarm::fs::Ifconf> ifconf;
-
-				for(auto [_, link] : nic::Link::getLinks()) {
-					auto addr_check = ip4().getCidrByIndex(link->index());
-					if(!addr_check)
-						continue;
-
-					managarm::fs::Ifconf conf;
-					conf.set_name(link->name());
-					conf.set_ip4(addr_check->ip);
-					ifconf.push_back(conf);
-				}
-
-				managarm::fs::IfconfReply ifconf_resp;
-
-				ifconf_resp.set_ifconf(std::move(ifconf));
-				ifconf_resp.set_error(managarm::fs::Errors::SUCCESS);
-
-				auto [send_head, send_tail] =
-					co_await helix_ng::exchangeMsgs(conversation,
-						helix_ng::sendBragiHeadTail(ifconf_resp, frg::stl_allocator{})
-					);
-				HEL_CHECK(send_head.error());
-				HEL_CHECK(send_tail.error());
-				logBragiReply(ifconf_resp);
-
-				continue;
-			}else if(req->command() == SIOCGIFNETMASK) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					auto addr_check = ip4().getCidrByIndex(link->index());
-
-					if(addr_check) {
-						resp.set_ip4_netmask(addr_check.value().mask());
-						resp.set_error(managarm::fs::Errors::SUCCESS);
-					}else {
-						resp.set_ip4_netmask(0);
-					}
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFINDEX) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					resp.set_index(link->index());
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFNAME) {
-				auto link = nic::Link::byIndex(req->index());
-
-				if(link) {
-					resp.set_name(link->name());
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFFLAGS) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					resp.set_flags(IFF_UP | IFF_RUNNING | link->iff_flags());
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFADDR) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					auto addr_check = ip4().getCidrByIndex(link->index());
-
-					if(addr_check) {
-						resp.set_ip4_addr(addr_check->ip);
-						resp.set_error(managarm::fs::Errors::SUCCESS);
-					} else {
-						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					}
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFMTU) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					resp.set_mtu(link->mtu);
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFBRDADDR) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					auto addr_check = ip4().getCidrByIndex(link->index());
-
-					if(addr_check) {
-						auto addr = addr_check.value().ip;
-						auto mask = addr_check.value().mask();
-						auto wildcard_bits = ~mask;
-						addr &= mask;
-						addr |= wildcard_bits;
-
-						resp.set_ip4_broadcast_addr(addr);
-						resp.set_error(managarm::fs::Errors::SUCCESS);
-					} else {
-						resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-					}
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}else if(req->command() == SIOCGIFHWADDR) {
-				auto link = nic::Link::byName(req->name());
-
-				if(link) {
-					std::array<uint8_t, 6> mac{};
-					memcpy(mac.data(), link->deviceMac().data(), 6);
-					resp.set_mac(mac);
-					resp.set_error(managarm::fs::Errors::SUCCESS);
-				} else {
-					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
-				}
-			}
-
-			auto [send, send_tail] =
-				co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
-				);
-			HEL_CHECK(send.error());
-			HEL_CHECK(send_tail.error());
-			logBragiReply(resp);
-		} else if(preamble.id() == managarm::fs::InitializePosixLane::message_id) {
-			recv_req.reset();
-			co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::dismiss()
-			);
-
-			posixLane = std::move(conversation);
+			HEL_CHECK(sendResp.error());
+			HEL_CHECK(pushCtrl.error());
+			HEL_CHECK(pushPt.error());
+			logBragiSerializedReply(ser);
 		} else {
-			recv_req.reset();
-			std::cout << "netserver: received unknown message: "
-				<< preamble.id() << std::endl;
+			std::cout << "netserver: received unknown request type: "
+				<< (int32_t)req.req_type() << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::dismiss()
 			);
 			HEL_CHECK(dismiss.error());
+		}
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::IfreqRequest &&req,
+			helix::BorrowedDescriptor conversation, bragi::preamble preamble) {
+		id = preamble.id();
+
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if(!tailRes)
+			co_return std::unexpected(tailRes.error());
+		logBragiRequest(req);
+
+		managarm::fs::IfreqReply resp;
+		resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+		if(req.command() == SIOCGIFCONF) {
+			std::vector<managarm::fs::Ifconf> ifconf;
+
+			for(auto [_, link] : nic::Link::getLinks()) {
+				auto addr_check = ip4().getCidrByIndex(link->index());
+				if(!addr_check)
+					continue;
+
+				managarm::fs::Ifconf conf;
+				conf.set_name(link->name());
+				conf.set_ip4(addr_check->ip);
+				ifconf.push_back(conf);
+			}
+
+			managarm::fs::IfconfReply ifconf_resp;
+
+			ifconf_resp.set_ifconf(std::move(ifconf));
+			ifconf_resp.set_error(managarm::fs::Errors::SUCCESS);
+
+			auto [send_head, send_tail] =
+				co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBragiHeadTail(ifconf_resp, frg::stl_allocator{})
+				);
+			HEL_CHECK(send_head.error());
+			HEL_CHECK(send_tail.error());
+			logBragiReply(ifconf_resp);
+
+			co_return {};
+		}else if(req.command() == SIOCGIFNETMASK) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				auto addr_check = ip4().getCidrByIndex(link->index());
+
+				if(addr_check) {
+					resp.set_ip4_netmask(addr_check.value().mask());
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				}else {
+					resp.set_ip4_netmask(0);
+				}
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFINDEX) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				resp.set_index(link->index());
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFNAME) {
+			auto link = nic::Link::byIndex(req.index());
+
+			if(link) {
+				resp.set_name(link->name());
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFFLAGS) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				resp.set_flags(IFF_UP | IFF_RUNNING | link->iff_flags());
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFADDR) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				auto addr_check = ip4().getCidrByIndex(link->index());
+
+				if(addr_check) {
+					resp.set_ip4_addr(addr_check->ip);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFMTU) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				resp.set_mtu(link->mtu);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFBRDADDR) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				auto addr_check = ip4().getCidrByIndex(link->index());
+
+				if(addr_check) {
+					auto addr = addr_check.value().ip;
+					auto mask = addr_check.value().mask();
+					auto wildcard_bits = ~mask;
+					addr &= mask;
+					addr |= wildcard_bits;
+
+					resp.set_ip4_broadcast_addr(addr);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+				} else {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+				}
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}else if(req.command() == SIOCGIFHWADDR) {
+			auto link = nic::Link::byName(req.name());
+
+			if(link) {
+				std::array<uint8_t, 6> mac{};
+				memcpy(mac.data(), link->deviceMac().data(), 6);
+				resp.set_mac(mac);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else {
+				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+			}
+		}
+
+		auto [send, send_tail] =
+			co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+			);
+		HEL_CHECK(send.error());
+		HEL_CHECK(send_tail.error());
+		logBragiReply(resp);
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::InitializePosixLane &&,
+			helix::BorrowedDescriptor conversation, bragi::preamble) {
+		co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::dismiss()
+		);
+
+		posixLane = helix::UniqueDescriptor{conversation.dup()};
+		co_return {};
+	}
+};
+
+} // namespace
+
+async::detached serve(helix::UniqueLane lane) {
+	if(!ostraceInit) {
+		co_await initOstrace();
+		ostraceInit = true;
+	}
+
+	while (true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest,
+			managarm::fs::IfreqRequest,
+			managarm::fs::InitializePosixLane
+		>(lane, HandleRequest{});
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "netserver: dispatch error" << std::endl;
+			continue;
 		}
 	}
 }
