@@ -2,6 +2,7 @@
 #include <iostream>
 
 #include <async/oneshot-event.hpp>
+#include <core/dispatch.hpp>
 #include <helix/memory.hpp>
 #include <protocols/clock/defs.hpp>
 #include <protocols/mbus/client.hpp>
@@ -66,51 +67,33 @@ TrackerPage *accessPage() {
 // clocktracker mbus interface.
 // ----------------------------------------------------------------------------
 
+struct HandleRequest {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::clock::AccessPageRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble) {
+		managarm::clock::SvrResponse resp;
+		resp.set_error(managarm::clock::Error::SUCCESS);
+
+		auto [sendResp, sendMemory] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::pushDescriptor(trackerPageMemory)
+		);
+		HEL_CHECK(sendResp.error());
+		HEL_CHECK(sendMemory.error());
+		co_return {};
+	}
+};
+
 async::detached serve(helix::UniqueLane lane) {
 	while(true) {
-		auto [accept, recvReq] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recvReq.error());
-
-		auto conversation = accept.descriptor();
-
-		auto preamble = bragi::read_preamble(recvReq);
-		assert(!preamble.error());
-
-		if (preamble.id() == bragi::message_id<managarm::clock::AccessPageRequest>) {
-			auto req = bragi::parse_head_only<managarm::clock::AccessPageRequest>(recvReq);
-			recvReq.reset();
-			if (!req) {
-				std::cout << "clocktracker: Ignoring IPC request due to decoding error." << std::endl;
-				continue;
-			}
-
-			managarm::clock::SvrResponse resp;
-			resp.set_error(managarm::clock::Error::SUCCESS);
-
-			auto [sendResp, sendMemory] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(trackerPageMemory)
-			);
-			HEL_CHECK(sendResp.error());
-			HEL_CHECK(sendMemory.error());
-
-		} else {
-			recvReq.reset();
-			managarm::clock::SvrResponse resp;
-			resp.set_error(managarm::clock::Error::ILLEGAL_REQUEST);
-
-			auto [sendResp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-
-			HEL_CHECK(sendResp.error());
+		auto res = co_await dispatchRequest<
+			managarm::clock::AccessPageRequest
+		>(lane, HandleRequest{});
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "clocktracker: dispatch error" << std::endl;
+			continue;
 		}
 	}
 }
