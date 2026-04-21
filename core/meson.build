@@ -15,6 +15,7 @@ headers = [
 	'include/core/queue.hpp',
 	'include/core/smbios.hpp',
 	'include/core/tty.hpp',
+	'include/core/mount.hpp',
 ]
 
 core_lib_sources = files(

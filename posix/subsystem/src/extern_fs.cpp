@@ -638,9 +638,14 @@ private:
 	}
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name) override {
+	mkdir(Process *proc, std::string name, mode_t mode) override {
+		auto umask = proc ? proc->fsContext()->getUmask() : 0;
+
 		managarm::fs::MkdirRequest req;
 		req.set_path(name);
+		req.set_mode(mode & ~umask);
+		req.set_uid(proc ? proc->threadGroup()->uid() : 0);
+		req.set_gid(proc ? proc->threadGroup()->gid() : 0);
 
 		auto [offer, sendReq, sendTail, recvResp, pullNode] = co_await helix_ng::exchangeMsgs(
 			getLane(),

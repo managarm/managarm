@@ -170,7 +170,7 @@ public:
 
 	//! Creates a new directory (directories only).
 	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name);
+	mkdir(Process *, std::string name, mode_t mode);
 
 	//! Creates a new symlink (directories only).
 	virtual async::result<std::variant<Error, std::shared_ptr<FsLink>>>

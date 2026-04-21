@@ -196,7 +196,7 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<std::expected<bool, protocols::fs::Error>> isDirectoryEmpty();
 
 	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
-	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name);
+	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name, uid_t uid, gid_t gid, mode_t mode);
 	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
 	async::result<protocols::fs::Error> chmod(int mode);
 	async::result<protocols::fs::Error> chown(std::optional<uid_t> uid, std::optional<gid_t> gid);

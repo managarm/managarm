@@ -4,6 +4,7 @@
 #include <set>
 
 #include <core/clock.hpp>
+#include <core/mount.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 #include <helix/passthrough-fd.hpp>
@@ -37,6 +38,11 @@ protected:
 
 	void initializeMode(mode_t mode) {
 		_mode = mode;
+	}
+
+	void initializeOwner(uid_t uid, gid_t gid) {
+		_uid = uid;
+		_gid = gid;
 	}
 
 public:
@@ -292,7 +298,7 @@ struct DirectoryNode final : Node, std::enable_shared_from_this<DirectoryNode> {
 	friend struct Superblock;
 	friend struct DirectoryFile;
 
-	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock);
+	static std::shared_ptr<Link> createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid);
 
 private:
 	VfsType getType() override {
@@ -339,7 +345,7 @@ private:
 	}
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-	mkdir(std::string name) override;
+	mkdir(Process *p, std::string name, mode_t mode) override;
 
 	async::result<std::variant<Error, std::shared_ptr<FsLink>>>
 	symlink(std::string name, std::string path) override;
@@ -389,7 +395,7 @@ private:
 	}
 
 public:
-	DirectoryNode(Superblock *superblock);
+	DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t gid);
 
 private:
 	// TODO: This creates a circular reference -- fix this.
@@ -838,16 +844,19 @@ SocketNode::SocketNode(Superblock *superblock)
 // DirectoryNode implementation.
 // ----------------------------------------------------------------------------
 
-std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock) {
-	auto node = std::make_shared<DirectoryNode>(superblock);
+std::shared_ptr<Link> DirectoryNode::createRootDirectory(Superblock *superblock, int mode, uid_t uid, gid_t gid) {
+	auto node = std::make_shared<DirectoryNode>(superblock, mode, uid, gid);
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(std::move(node));
 	the_node->_treeLink = link;
 	return link;
 }
 
-DirectoryNode::DirectoryNode(Superblock *superblock)
-: Node{superblock, FsNode::defaultSupportsObservers} { }
+DirectoryNode::DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t gid)
+: Node{superblock, FsNode::defaultSupportsObservers} {
+	initializeMode(mode);
+	initializeOwner(uid, gid);
+}
 
 async::result<std::expected<std::shared_ptr<FsLink>, Error>>
 DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool exclusive) {
@@ -865,10 +874,15 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 }
 
 async::result<std::variant<Error, std::shared_ptr<FsLink>>>
-DirectoryNode::mkdir(std::string name) {
+DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()));
+
+	auto umask = proc ? proc->fsContext()->getUmask() : 0;
+	auto uid = proc ? proc->threadGroup()->uid() : 0;
+	auto gid = proc ? proc->threadGroup()->gid() : 0;
+
+	auto node = std::make_shared<DirectoryNode>(static_cast<Superblock *>(superblock()), mode & ~umask, uid, gid);
 	auto the_node = node.get();
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	the_node->_treeLink = link;
@@ -928,12 +942,65 @@ std::shared_ptr<FsNode> createMemoryNode(std::string path) {
 	return std::make_shared<InheritedNode>(new Superblock{}, std::move(path));
 }
 
-std::shared_ptr<FsLink> createRoot() {
-	return DirectoryNode::createRootDirectory(new Superblock{});
+std::expected<std::shared_ptr<FsLink>, Error> createRoot(Process *p, std::string options) {
+	std::optional<uid_t> uid = std::nullopt;
+	std::optional<gid_t> gid = std::nullopt;
+	std::optional<mode_t> mode = std::nullopt;
+
+	// These two options use custom suffixes (k for 1000, M for Megabyte, % for fractions of memory)
+	// For now, we parse them but ignore their values.
+	// TODO: respect these values.
+	std::optional<std::string> size = std::nullopt;
+	std::optional<std::string> nr_inodes = std::nullopt;
+
+	auto opts = std::make_tuple(
+	    mount_options::MountOption{
+	        "uid",
+	        mount_options::parse_numeric<uid_t, 10>,
+			std::ref(uid)
+	    },
+	    mount_options::MountOption{
+	        "gid",
+	        mount_options::parse_numeric<gid_t, 10>,
+			std::ref(gid)
+	    },
+	    mount_options::MountOption{
+	        "mode",
+	        mount_options::parse_numeric<mode_t, 8>,
+			std::ref(mode)
+	    },
+	    mount_options::MountOption{
+	        "size",
+	        mount_options::parse_string,
+			std::ref(size)
+	    },
+	    mount_options::MountOption{
+	        "nr_inodes",
+			mount_options::parse_string,
+	        std::ref(nr_inodes)
+	    }
+	);
+
+	auto result = mount_options::parse(options, opts);
+	if (!result) {
+		std::println("posix: error parsing mount options '{}': {}", options, result.error());
+		return std::unexpected(Error::illegalArguments);
+	}
+
+	auto dir = DirectoryNode::createRootDirectory(
+	    new Superblock{},
+		// mounting tmpfs does not take umask into account
+	    mode.value_or(01777),
+		// On Linux, fsuid and fsgid are used instead.
+	    uid.value_or(p ? p->threadGroup()->uid() : 0),
+	    gid.value_or(p ? p->threadGroup()->gid() : 0)
+	);
+
+	return dir;
 }
 
 std::shared_ptr<FsLink> createDevTmpFsRoot() {
-	return DirectoryNode::createRootDirectory(new Superblock{"devtmpfs"});
+	return DirectoryNode::createRootDirectory(new Superblock{"devtmpfs"}, 01777, 0, 0);
 }
 
 } // namespace tmp_fs

@@ -93,7 +93,8 @@ async::result<void> createDeviceNode(std::string path, VfsType type, DeviceId id
 			auto linkResult = co_await node->getLink(path.substr(k, s - k));
 			if (!linkResult)
 				link = std::get<std::shared_ptr<FsLink>>(
-						co_await node->mkdir(path.substr(k, s - k)));
+				    co_await node->mkdir(nullptr, path.substr(k, s - k), 0755)
+				);
 			else
 				link = linkResult.value();
 			k = s + 1;

@@ -73,16 +73,16 @@ std::shared_ptr<MountView> rootView;
 
 async::result<void> populateRootView() {
 	// Create a tmpfs instance for the initrd.
-	auto tree = tmp_fs::createRoot();
+	auto tree = tmp_fs::createRoot(nullptr, {}).value();
 	rootView = MountView::createRoot(tree);
 
-	co_await tree->getTarget()->mkdir("realfs");
+	co_await tree->getTarget()->mkdir(nullptr, "realfs", 0555);
 
 	// TODO: Check for errors from mkdir().
-	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("dev"));
+	auto dev = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(nullptr, "dev", 0755));
 	co_await rootView->mount(std::move(dev), getDevtmpfs());
 
-	auto sys = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir("sys"));
+	auto sys = std::get<std::shared_ptr<FsLink>>(co_await tree->getTarget()->mkdir(nullptr, "sys", 0755));
 	co_await rootView->mount(std::move(sys), getSysfs());
 
 	// Populate the tmpfs from the fs we are running on.
@@ -148,7 +148,8 @@ async::result<void> populateRootView() {
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				// TODO: Check for errors from mkdir().
 				auto link = std::get<std::shared_ptr<FsLink>>(
-						co_await item.first->mkdir(resp.path()));
+				    co_await item.first->mkdir(nullptr, resp.path(), 0755)
+				);
 				stack.push_back({link->getTarget(), item.second + "/" + resp.path()});
 			}else{
 				assert(resp.file_type() == managarm::fs::FileType::REGULAR);
