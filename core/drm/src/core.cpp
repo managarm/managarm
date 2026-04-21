@@ -9,6 +9,7 @@
 #include <sys/epoll.h>
 
 #include <async/result.hpp>
+#include <core/dispatch.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/defs.hpp>
 #include <protocols/fs/server.hpp>
@@ -275,23 +276,13 @@ static constexpr auto defaultFileOperations = protocols::fs::FileOperations{
 	.pollStatus = &File::pollStatus
 };
 
-async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
-		helix::UniqueLane lane) {
-	while(true) {
-		auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
+namespace {
 
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recvHead.error());
-
-		auto conversation = accept.descriptor();
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recvHead.data(), recvHead.length());
-		recvHead.reset();
-
+struct ServeDeviceVisitor {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req,
+			helix::BorrowedDescriptor conversation, bragi::preamble,
+			std::shared_ptr<drm_core::Device> device) {
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			if(req.flags() & ~(managarm::fs::OpenFlags::OF_NONBLOCK)) {
 				std::println("\e[31mcore/drm: Illegal flags {} for DEV_OPEN\e[39m", req.flags());
@@ -337,6 +328,24 @@ async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
 			device->_posixLane = fd_lane.descriptor();
 		}else{
 			throw std::runtime_error("Invalid request in serveDevice()");
+		}
+		co_return {};
+	}
+};
+
+} // namespace
+
+async::detached serveDrmDevice(std::shared_ptr<drm_core::Device> device,
+		helix::UniqueLane lane) {
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest
+		>(lane, ServeDeviceVisitor{}, device);
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "core/drm: dispatch error" << std::endl;
+			continue;
 		}
 	}
 }
