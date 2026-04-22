@@ -1,7 +1,6 @@
 #pragma once
 
 #include <memory>
-#include <functional>
 #include <span>
 #include <format>
 #include <vector>
@@ -12,6 +11,7 @@
 #include <bragi/helpers-std.hpp>
 #include <posix.bragi.hpp>
 #include <core/clock.hpp>
+#include <core/dispatch.hpp>
 
 #include "../debug-options.hpp"
 #include "../process.hpp"
@@ -21,179 +21,404 @@
 
 namespace requests {
 
-// Context structure that holds all the state needed by request handlers
-struct RequestContext {
-	std::shared_ptr<Process> self;
-	std::shared_ptr<Generation> generation;
-	helix::UniqueDescriptor& conversation;
-	bragi::preamble& preamble;
-	helix_ng::RecvInlineResult& recv_head;
-	
-	// Timing information for ostrace
-	timespec& requestTimestamp;
-	protocols::ostrace::Timer& timer;
-};
-
-// Type alias for request handler functions
-using RequestHandler = async::result<void>(*)(RequestContext& ctx);
-
-// Helper functions available to all handlers
-constexpr void logRequest(bool condition, RequestContext& ctx, std::string_view name) {
-	if(condition) {
-		std::cout << "posix: [" << ctx.self->pid() << "] " << name << std::endl;
+inline void logRequest(bool cond, const std::shared_ptr<Process>& self, std::string_view name) {
+	if(cond) {
+		std::cout << "posix: [" << self->pid() << "] " << name << std::endl;
 	}
 }
 
 template<class... Args>
-constexpr void logRequest(bool condition, RequestContext& ctx, std::string_view name,
+inline void logRequest(bool cond, const std::shared_ptr<Process>& self, std::string_view name,
                 std::format_string<Args...> fmt, Args&&... args) {
-	if(condition) {
-		std::cout << "posix: [" << ctx.self->pid() << "] " << name << " "
+	if(cond) {
+		std::cout << "posix: [" << self->pid() << "] " << name << " "
 		          << std::format(fmt, std::forward<Args>(args)...) << std::endl;
 	}
 }
 
-constexpr void logBragiRequest(RequestContext& ctx, std::span<uint8_t> tail) {
-	if(!posix::ostContext.isActive())
-		return;
+struct HandleRequest {
+	std::uint64_t id = 0;
+	timespec requestTimestamp = {};
+	protocols::ostrace::Timer timer;
 
-	ctx.requestTimestamp = clk::getTimeSinceBoot();
-	posix::ostContext.emitWithTimestamp(
-		posix::ostEvtRequest,
-		(ctx.requestTimestamp.tv_sec * 1'000'000'000) + ctx.requestTimestamp.tv_nsec,
-		posix::ostAttrPid(ctx.self->tid()),
-		posix::ostAttrTime((ctx.requestTimestamp.tv_sec * 1'000'000'000) + ctx.requestTimestamp.tv_nsec),
-		posix::ostBragi(std::span<uint8_t>{reinterpret_cast<uint8_t *>(ctx.recv_head.data()), 
-		                                    static_cast<size_t>(ctx.recv_head.size())}, tail)
-	);
-}
+	template <typename T>
+	void logBragiRequest(T &req) {
+		if(!posix::ostContext.isActive())
+			return;
 
-template<typename Response>
-constexpr void logBragiReply(RequestContext& ctx, Response& resp) {
-	if(!posix::ostContext.isActive())
-		return;
+		requestTimestamp = clk::getTimeSinceBoot();
+		std::string reqHead;
+		std::string reqTail;
+		reqHead.resize(req.size_of_head());
+		reqTail.resize(req.size_of_tail());
+		bragi::limited_writer headWriter{reqHead.data(), reqHead.size()};
+		bragi::limited_writer tailWriter{reqTail.data(), reqTail.size()};
+		auto headOk = req.encode_head(headWriter);
+		auto tailOk = req.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		posix::ostContext.emitWithTimestamp(
+			posix::ostEvtRequest,
+			(requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec,
+			posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			posix::ostBragi({reinterpret_cast<uint8_t *>(reqHead.data()), reqHead.size()},
+			                 {reinterpret_cast<uint8_t *>(reqTail.data()), reqTail.size()})
+		);
+	}
 
-	auto ts = clk::getTimeSinceBoot();
-	std::string replyHead;
-	std::string replyTail;
-	replyHead.resize(resp.size_of_head());
-	replyTail.resize(resp.size_of_tail());
-	bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
-	bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
-	auto headOk = resp.encode_head(headWriter);
-	auto tailOk = resp.encode_tail(tailWriter);
-	assert(headOk);
-	assert(tailOk);
-	posix::ostContext.emitWithTimestamp(
-		posix::ostEvtRequest,
-		(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
-		posix::ostAttrRequest(ctx.preamble.id()),
-		posix::ostAttrTime((ctx.requestTimestamp.tv_sec * 1'000'000'000) + ctx.requestTimestamp.tv_nsec),
-		posix::ostAttrPid(ctx.self->tid()),
-		posix::ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()}, 
-		                {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
-	);
-}
+	void logBragiReply(auto &resp) {
+		if(!posix::ostContext.isActive())
+			return;
 
-template<typename Message = managarm::posix::SvrResponse>
-inline async::result<void> sendErrorResponse(RequestContext& ctx, managarm::posix::Errors err) {
-	Message resp;
-	resp.set_error(err);
+		auto ts = clk::getTimeSinceBoot();
+		std::string replyHead;
+		std::string replyTail;
+		replyHead.resize(resp.size_of_head());
+		replyTail.resize(resp.size_of_tail());
+		bragi::limited_writer headWriter{replyHead.data(), replyHead.size()};
+		bragi::limited_writer tailWriter{replyTail.data(), replyTail.size()};
+		auto headOk = resp.encode_head(headWriter);
+		auto tailOk = resp.encode_tail(tailWriter);
+		assert(headOk);
+		assert(tailOk);
+		posix::ostContext.emitWithTimestamp(
+			posix::ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			posix::ostAttrRequest(id),
+			posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			posix::ostBragi({reinterpret_cast<uint8_t *>(replyHead.data()), replyHead.size()},
+			                 {reinterpret_cast<uint8_t *>(replyTail.data()), replyTail.size()})
+		);
+	}
 
-	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-	);
+	void logBragiSerializedReply(std::string &ser) {
+		if(!posix::ostContext.isActive())
+			return;
 
-	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
-}
+		auto ts = clk::getTimeSinceBoot();
+		posix::ostContext.emitWithTimestamp(
+			posix::ostEvtRequest,
+			(ts.tv_sec * 1'000'000'000) + ts.tv_nsec,
+			posix::ostAttrRequest(id),
+			posix::ostAttrTime((requestTimestamp.tv_sec * 1'000'000'000) + requestTimestamp.tv_nsec),
+			posix::ostBragi({reinterpret_cast<uint8_t *>(ser.data()), ser.size()}, {})
+		);
+	}
 
-// From fd.cpp
-async::result<void> handleDup2(RequestContext& ctx);
-async::result<void> handleIsTty(RequestContext& ctx);
-async::result<void> handleIoctlFioclex(RequestContext& ctx);
-async::result<void> handleClose(RequestContext& ctx);
+	template <typename Response = managarm::posix::SvrResponse>
+	async::result<void> sendErrorResponse(helix::BorrowedDescriptor conversation,
+			managarm::posix::Errors err) {
+		Response resp;
+		resp.set_error(err);
 
-// From filesystem.cpp
-async::result<void> handleChroot(RequestContext& ctx);
-async::result<void> handleChdir(RequestContext& ctx);
-async::result<void> handleAccessAt(RequestContext& ctx);
-async::result<void> handleMkdirAt(RequestContext& ctx);
-async::result<void> handleMkfifoAt(RequestContext& ctx);
-async::result<void> handleLinkAt(RequestContext& ctx);
-async::result<void> handleSymlinkAt(RequestContext& ctx);
-async::result<void> handleReadlinkAt(RequestContext& ctx);
-async::result<void> handleRenameAt(RequestContext& ctx);
-async::result<void> handleUnlinkAt(RequestContext& ctx);
-async::result<void> handleRmdir(RequestContext& ctx);
-async::result<void> handleFstatAt(RequestContext& ctx);
-async::result<void> handleFstatfs(RequestContext& ctx);
-async::result<void> handleFchmodAt(RequestContext& ctx);
-async::result<void> handleFchownAt(RequestContext& ctx);
-async::result<void> handleUtimensAt(RequestContext& ctx);
-async::result<void> handleOpenAt(RequestContext& ctx);
-async::result<void> handleMknodAt(RequestContext& ctx);
-async::result<void> handleUmask(RequestContext& ctx);
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
 
-// From special-files.cpp
-async::result<void> handleInotifyCreate(RequestContext& ctx);
-async::result<void> handleInotifyAdd(RequestContext& ctx);
-async::result<void> handleInotifyRm(RequestContext& ctx);
-async::result<void> handleEventfdCreate(RequestContext& ctx);
-async::result<void> handleTimerFdCreate(RequestContext& ctx);
-async::result<void> handleTimerFdSet(RequestContext& ctx);
-async::result<void> handleTimerFdGet(RequestContext& ctx);
-async::result<void> handlePidfdOpen(RequestContext& ctx);
-async::result<void> handlePidfdSendSignal(RequestContext& ctx);
-async::result<void> handlePidfdGetPid(RequestContext& ctx);
+		HEL_CHECK(send_resp.error());
+		logBragiReply(resp);
+	}
 
-// From memory.cpp
-async::result<void> handleVmMap(RequestContext& ctx);
-async::result<void> handleMemFdCreate(RequestContext& ctx);
+	// From fd.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::Dup2Request &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::IsTtyRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::IoctlFioclexRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::CloseRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
-// From uid-gid.cpp
-async::result<void> handleGetPid(RequestContext& ctx);
-async::result<void> handleGetPpid(RequestContext& ctx);
-async::result<void> handleGetUid(RequestContext& ctx);
-async::result<void> handleSetUid(RequestContext& ctx);
-async::result<void> handleGetEuid(RequestContext& ctx);
-async::result<void> handleSetEuid(RequestContext& ctx);
-async::result<void> handleGetGid(RequestContext& ctx);
-async::result<void> handleGetEgid(RequestContext& ctx);
-async::result<void> handleSetGid(RequestContext& ctx);
-async::result<void> handleSetEgid(RequestContext& ctx);
-async::result<void> handleGetGroups(RequestContext& ctx);
-async::result<void> handleSetGroups(RequestContext& ctx);
+	// From filesystem.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::ChrootRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::ChdirRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::AccessAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::MkdirAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::MkfifoAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::LinkAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SymlinkAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::ReadlinkAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::RenameAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::UnlinkAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::RmdirRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FstatAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FstatfsRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FchmodAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FchownAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::UtimensAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::OpenAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::MknodAtRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::UmaskRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
-// From process.cpp
-async::result<void> handleWaitId(RequestContext& ctx);
-async::result<void> handleSetAffinity(RequestContext& ctx);
-async::result<void> handleGetAffinity(RequestContext& ctx);
-async::result<void> handleGetPgid(RequestContext& ctx);
-async::result<void> handleSetPgid(RequestContext& ctx);
-async::result<void> handleGetSid(RequestContext& ctx);
-async::result<void> handleParentDeathSignal(RequestContext& ctx);
-async::result<void> handleProcessDumpable(RequestContext& ctx);
-async::result<void> handleSetResourceLimit(RequestContext& ctx);
+	// From special-files.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::InotifyCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::InotifyAddRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::InotifyRmRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::EventfdCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerFdCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerFdSetRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerFdGetRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::PidfdOpenRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::PidfdSendSignalRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::PidfdGetPidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
-// From socket.cpp
-async::result<void> handleNetserver(RequestContext& ctx);
-async::result<void> handleSocket(RequestContext& ctx);
-async::result<void> handleSockpair(RequestContext& ctx);
-async::result<void> handleAccept(RequestContext& ctx);
+	// From memory.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::VmMapRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::MemFdCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
-// From system.cpp
-async::result<void> handleReboot(RequestContext& ctx);
-async::result<void> handleMount(RequestContext& ctx);
-async::result<void> handleSysconf(RequestContext& ctx);
-async::result<void> handleGetMemoryInformation(RequestContext& ctx);
+	// From uid-gid.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetPidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetPpidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetUidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetUidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetEuidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetEuidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetGidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetEgidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetGidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetEgidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetGroupsRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetGroupsRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
-// From timer.cpp
-async::result<void> handleSetIntervalTimer(RequestContext& ctx);
-async::result<void> handleTimerCreate(RequestContext& ctx);
-async::result<void> handleTimerSet(RequestContext& ctx);
-async::result<void> handleTimerGet(RequestContext& ctx);
-async::result<void> handleTimerDelete(RequestContext& ctx);
+	// From process.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::WaitIdRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetAffinityRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetAffinityRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetPgidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetPgidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetSidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::ParentDeathSignalRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::ProcessDumpableRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetResourceLimitRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+
+	// From socket.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::NetserverRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SocketRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SockpairRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::AcceptRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+
+	// From system.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::RebootRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::MountRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SysconfRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetMemoryInformationRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+
+	// From timer.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetIntervalTimerRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerSetRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerGetRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TimerDeleteRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+
+	// From legacy.cpp
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::CntRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+};
 
 } // namespace requests
