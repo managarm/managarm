@@ -225,6 +225,7 @@ struct PerCpuRegion {
 };
 
 struct CpuConfig {
+	uint64_t effectiveCpus;
 	uint64_t totalCpus;
 };
 

@@ -57,8 +57,6 @@ void runCpuDataInitializers() {
 	}
 }
 
-size_t getCpuCount() {
-	return cpuConfigNote->totalCpus;
-}
+size_t getCpuCount() { return cpuConfigNote->effectiveCpus; }
 
 } // namespace thor

@@ -296,8 +296,8 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 						<< " exceeds expected number of CPUs " << cpuConfigNote->totalCpus
 						<< frg::endlog;
 			}
-
-			bootSecondary(node, apCpuIndex);
+			if (apCpuIndex < cpuConfigNote->effectiveCpus)
+				bootSecondary(node, apCpuIndex);
 			++apCpuIndex;
 		};
 
@@ -313,7 +313,7 @@ static initgraph::Task initAPs{&globalInitEngine, "arm.init-aps",
 		}
 
 	    if (apCpuIndex != cpuConfigNote->totalCpus)
-		    panicLogger() << "thor: Booted " << apCpuIndex << " CPUs but Eir detected "
+		    panicLogger() << "thor: Found " << apCpuIndex << " CPUs but Eir detected "
 		                  << cpuConfigNote->totalCpus << frg::endlog;
 	}
 };

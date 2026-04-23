@@ -1,4 +1,5 @@
 #include <dtb.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
@@ -36,8 +37,19 @@ initgraph::Task detectCpusFromDtb{
 	    );
 
 	    if (cpuCount > 0) {
+		    size_t smp = -1;
+		    frg::array options = {frg::option{"smp", frg::as_number(smp)}};
+		    parseCmdline(options);
+
+		    size_t effectiveCpus = frg::min(cpuCount, smp);
+		    cpuConfig.effectiveCpus = effectiveCpus;
 		    cpuConfig.totalCpus = cpuCount;
-		    infoLogger() << "eir: Detected " << cpuCount << " CPUs from DTB" << frg::endlog;
+
+		    auto log = infoLogger();
+		    log << "eir: Detected " << cpuCount << " CPUs from MADT";
+		    if (cpuCount != effectiveCpus)
+			    log << " (but only using " << effectiveCpus << " CPUs)";
+		    log << frg::endlog;
 	    } else {
 		    panicLogger() << "eir: Failed to detect CPUs from DT" << frg::endlog;
 	    }

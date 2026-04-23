@@ -159,17 +159,23 @@ void bootOtherProcessors() {
 		switch (generic->type) {
 			case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				auto entry = (MadtLocalEntry *)generic;
+
 				// TODO: Support BSPs with APIC ID != 0.
-				if ((entry->flags & local_flags::enabled)
-				    && entry->localApicId) // We ignore the BSP here.
-					bootSecondary(entry->localApicId, apCpuIndex++);
+				if ((entry->flags & local_flags::enabled) && entry->localApicId != 0) {
+					if (apCpuIndex < cpuConfigNote->effectiveCpus)
+						bootSecondary(entry->localApicId, apCpuIndex);
+					apCpuIndex++;
+				}
 			} break;
 			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC: {
 				auto entry = (MadtLocalX2Entry *)generic;
+
 				// TODO: Support BSPs with APIC ID != 0.
-				if ((entry->flags & local_flags::enabled)
-				    && entry->localX2ApicId) // We ignore the BSP here.
-					bootSecondary(entry->localX2ApicId, apCpuIndex++);
+				if ((entry->flags & local_flags::enabled) && entry->localX2ApicId != 0) {
+					if (apCpuIndex < cpuConfigNote->effectiveCpus)
+						bootSecondary(entry->localX2ApicId, apCpuIndex);
+					apCpuIndex++;
+				}
 			} break;
 			default:
 				// Do nothing.
@@ -178,7 +184,7 @@ void bootOtherProcessors() {
 	}
 
 	if (apCpuIndex != cpuConfigNote->totalCpus)
-		panicLogger() << "thor: Booted " << apCpuIndex << " CPUs but Eir detected "
+		panicLogger() << "thor: Found " << apCpuIndex << " CPUs, but Eir detected "
 		              << cpuConfigNote->totalCpus << frg::endlog;
 #endif
 }

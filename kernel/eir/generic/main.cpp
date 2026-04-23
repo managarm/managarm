@@ -579,7 +579,7 @@ void loadKernelImage(void *imagePtr) {
 
 	// Map the per-CPU regions for all CPUs.
 	{
-		if (!cpuConfig.totalCpus)
+		if (!cpuConfig.effectiveCpus)
 			panicLogger() << "eir: Could not detect number of CPUs" << frg::endlog;
 		assert(perCpuRegion.start && perCpuRegion.end);
 
@@ -589,7 +589,7 @@ void loadKernelImage(void *imagePtr) {
 		assert(!(singleSize & 0xFFF));
 
 		// Allocate and map regions for CPUs > 0.
-		for (size_t cpu = 1; cpu < cpuConfig.totalCpus; ++cpu) {
+		for (size_t cpu = 1; cpu < cpuConfig.effectiveCpus; ++cpu) {
 			auto address = perCpuRegion.end + singleSize * (cpu - 1);
 			for (size_t pg = 0; pg < singleSize; pg += pageSize) {
 				auto physical = allocPage();

@@ -1,7 +1,9 @@
 #include <eir-internal/acpi/acpi.hpp>
+#include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
+#include <frg/cmdline.hpp>
 #include <uacpi/acpi.h>
 #include <uacpi/tables.h>
 
@@ -12,7 +14,7 @@ namespace {
 initgraph::Task detectCpusFromMadt{
     &globalInitEngine,
     "acpi.detect-cpu-count",
-    initgraph::Requires{getTablesAvailableStage()},
+    initgraph::Requires{getTablesAvailableStage(), getCmdlineAvailableStage()},
     initgraph::Entails{getKernelLoadableStage()},
     [] {
 	    if (!haveTables())
@@ -62,8 +64,19 @@ initgraph::Task detectCpusFromMadt{
 	    }
 
 	    if (cpuCount > 0) {
+		    size_t smp = -1;
+		    frg::array options = {frg::option{"smp", frg::as_number(smp)}};
+		    parseCmdline(options);
+
+		    size_t effectiveCpus = frg::min(cpuCount, smp);
+		    cpuConfig.effectiveCpus = effectiveCpus;
 		    cpuConfig.totalCpus = cpuCount;
-		    infoLogger() << "eir: Detected " << cpuCount << " CPUs from MADT" << frg::endlog;
+
+		    auto log = infoLogger();
+		    log << "eir: Detected " << cpuCount << " CPUs from MADT";
+		    if (cpuCount != effectiveCpus)
+			    log << " (but only using " << effectiveCpus << " CPUs)";
+		    log << frg::endlog;
 	    } else {
 		    panicLogger() << "eir: Failed to detect CPUs from MADT" << frg::endlog;
 	    }

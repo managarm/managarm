@@ -162,8 +162,10 @@ initgraph::Task initAPsAcpi{
 				    memcpy(&entry, genericPtr, sizeof(acpi_madt_rintc));
 
 				    if (entry.hart_id != bspHartId) {
-					    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
-					    bootAp(entry.hart_id, apCpuIndex);
+					    if (apCpuIndex < cpuConfigNote->effectiveCpus) {
+						    infoLogger() << "Booting " << entry.hart_id << frg::endlog;
+						    bootAp(entry.hart_id, apCpuIndex);
+					    }
 					    ++apCpuIndex;
 				    }
 			    } break;
@@ -173,8 +175,8 @@ initgraph::Task initAPsAcpi{
 		    offset += generic.length;
 	    }
 
-	    if (getCpuCount() != cpuConfigNote->totalCpus)
-		    panicLogger() << "thor: Booted " << getCpuCount() << " CPUs but Eir detected "
+	    if (apCpuIndex != cpuConfigNote->totalCpus)
+		    panicLogger() << "thor: Found " << apCpuIndex << " CPUs but Eir detected "
 		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
@@ -210,7 +212,8 @@ initgraph::Task initAPs{
 			                  << frg::endlog;
 		    }
 
-		    bootAp(reg.front().addr, apCpuIndex);
+		    if (apCpuIndex < cpuConfigNote->effectiveCpus)
+			    bootAp(reg.front().addr, apCpuIndex);
 		    ++apCpuIndex;
 	    };
 
@@ -222,7 +225,7 @@ initgraph::Task initAPs{
 	    }
 
 	    if (apCpuIndex != cpuConfigNote->totalCpus)
-		    panicLogger() << "thor: Booted " << apCpuIndex << " CPUs but Eir detected "
+		    panicLogger() << "thor: Found " << apCpuIndex << " CPUs but Eir detected "
 		                  << cpuConfigNote->totalCpus << frg::endlog;
     }
 };
