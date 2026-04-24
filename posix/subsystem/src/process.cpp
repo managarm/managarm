@@ -8,6 +8,7 @@
 #include "exec.hpp"
 #include "gdbserver.hpp"
 #include "process.hpp"
+#include "sysv-shm.hpp"
 
 #include <protocols/posix/data.hpp>
 #include <helix/ipc.hpp>
@@ -74,6 +75,14 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmCon
 		copy.file = area.file;
 		copy.offset = area.offset;
 		copy.effectiveOffset = area.effectiveOffset;
+
+		// Handle SHM mappings: copy the reference and increment nattch
+		if (area.shmSegment) {
+			copy.shmSegment = area.shmSegment;
+			area.shmSegment->nattch++;
+			// Note: lpid is NOT updated on fork (only on explicit attach/detach)
+		}
+
 		context->_areaTree.emplace(address, std::move(copy));
 	}
 
@@ -81,6 +90,16 @@ async::result<std::shared_ptr<VmContext>> VmContext::clone(std::shared_ptr<VmCon
 }
 
 VmContext::~VmContext() {
+	// Decrement nattch for all SHM mappings
+	for (auto &[address, area] : _areaTree) {
+		if (area.shmSegment) {
+			area.shmSegment->nattch--;
+			// Note: dtime/lpid are NOT updated on process exit per POSIX
+			if (area.shmSegment->markedForRemoval && area.shmSegment->nattch == 0)
+				shm::removeSegment(area.shmSegment);
+		}
+	}
+
 	if(logCleanup_)
 		std::cout << "\e[33mposix: VmContext is destructed\e[39m" << std::endl;
 }
@@ -126,69 +145,45 @@ auto VmContext::splitAreaOn_(uintptr_t addr, size_t size) ->
 	};
 }
 
-async::result<frg::expected<Error, void *>>
-VmContext::mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
-		smarter::shared_ptr<File, FileHandle> file,
-		intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags) {
-	size_t alignedSize = (size + 0xFFF) & ~size_t(0xFFF);
-
-	// Perform the actual mapping.
-	// POSIX specifies that non-page-size mappings are rounded up and filled with zeros.
-	helix::UniqueDescriptor copyView;
-	void *pointer;
-	HelError error;
-	if(copyOnWrite) {
-		HelHandle handle;
-		if(memory) {
-			HEL_CHECK(helCopyOnWrite(memory.getHandle(), offset, alignedSize, &handle));
-		}else{
-			HEL_CHECK(helCopyOnWrite(kHelZeroMemory, offset, alignedSize, &handle));
-		}
-		copyView = helix::UniqueDescriptor{handle};
-
-		error = helMapMemory(copyView.getHandle(), _space.getHandle(),
-				reinterpret_cast<void *>(hint),
-				0, alignedSize, nativeFlags, &pointer);
-	}else{
-		error = helMapMemory(memory.getHandle(), _space.getHandle(),
-				reinterpret_cast<void *>(hint),
-				offset, alignedSize, nativeFlags, &pointer);
+frg::expected<Error, void *>
+VmContext::mapArea(uintptr_t hint, uint32_t nativeFlags, Area area) {
+	helix::BorrowedDescriptor mappingMemory;
+	intptr_t mappingOffset;
+	if (area.copyOnWrite) {
+		mappingMemory = area.copyView;
+		mappingOffset = 0;
+	} else {
+		mappingMemory = area.fileView;
+		mappingOffset = area.effectiveOffset;
 	}
 
-	if(error == kHelErrAlreadyExists) {
-		co_return Error::alreadyExists;
-	}else if(error == kHelErrNoMemory)
-		co_return Error::noMemory;
-	HEL_CHECK(error);
+	void *pointer;
+	HelError error = helMapMemory(mappingMemory.getHandle(), _space.getHandle(),
+			reinterpret_cast<void *>(hint), mappingOffset, area.areaSize, nativeFlags, &pointer);
 
-	//std::cout << "posix: VM_MAP returns " << pointer
-	//		<< " (size: " << (void *)size << ")" << std::endl;
+	if (error == kHelErrAlreadyExists)
+		return Error::alreadyExists;
+	else if (error == kHelErrNoMemory)
+		return Error::noMemory;
+	HEL_CHECK(error);
 
 	auto address = reinterpret_cast<uintptr_t>(pointer);
 
-	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+	// Remove overlapping areas from tracking.
+	auto [startIt, endIt] = splitAreaOn_(address, area.areaSize);
 
 	for (auto it = startIt; it != endIt;) {
-		const auto &[addr, area] = *it;
-		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize))
+		const auto &[addr, existingArea] = *it;
+		if (addr >= address && (addr + existingArea.areaSize) <= (address + area.areaSize))
 			it = _areaTree.erase(it);
 		else
 			++it;
 	}
 
-	// Construct the new area.
-	Area area;
-	area.copyOnWrite = copyOnWrite;
-	area.areaSize = alignedSize;
 	area.nativeFlags = nativeFlags;
-	area.fileView = std::move(memory);
-	area.copyView = std::move(copyView);
-	area.file = std::move(file);
-	area.offset = offset;
-	area.effectiveOffset = copyOnWrite ? 0 : offset;
 	_areaTree.emplace(address, std::move(area));
 
-	co_return pointer;
+	return pointer;
 }
 
 async::result<void *> VmContext::remapFile(void *oldPointer,
@@ -279,6 +274,43 @@ void VmContext::unmapFile(void *pointer, size_t size) {
 			++it;
 		}
 	}
+}
+
+frg::expected<Error> VmContext::unmapShm(void *pointer, pid_t pid) {
+	auto address = reinterpret_cast<uintptr_t>(pointer);
+
+	// Find the area to get the segment reference and size
+	auto it = _areaTree.find(address);
+	if (it == _areaTree.end() || !it->second.shmSegment)
+		return Error::illegalArguments;
+
+	auto segment = it->second.shmSegment;
+	size_t alignedSize = it->second.areaSize;
+
+	// Perform the unmap
+	HEL_CHECK(helUnmapMemory(_space.getHandle(), pointer, alignedSize));
+
+	auto [startIt, endIt] = splitAreaOn_(address, alignedSize);
+
+	for (auto it = startIt; it != endIt;) {
+		auto &[addr, area] = *it;
+		if (addr >= address && (addr + area.areaSize) <= (address + alignedSize)) {
+			it = _areaTree.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	// Update segment metadata
+	segment->nattch--;
+	segment->lpid = pid;
+	segment->dtime = 0;
+
+	// Check if segment should be destroyed
+	if (segment->markedForRemoval && segment->nattch == 0)
+		shm::removeSegment(segment);
+
+	return {};
 }
 
 // ----------------------------------------------------------------------------

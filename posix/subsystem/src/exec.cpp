@@ -101,7 +101,8 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 			size_t misalign = phdr->p_vaddr & (kPageSize - 1);
 			uintptr_t mapAddress = base + phdr->p_vaddr - misalign;
 			uintptr_t fileOffset = phdr->p_offset - misalign;
-			size_t mapLength = (phdr->p_memsz + misalign + kPageSize - 1) & ~(kPageSize - 1);
+			size_t fileMapLength = (misalign + phdr->p_filesz + kPageSize - 1) & ~(kPageSize - 1);
+			size_t totalMapLength = (misalign + phdr->p_memsz + kPageSize - 1) & ~(kPageSize - 1);
 
 			if(!properlyAligned) {
 				std::cout << "posix: ELF file with differently misaligned p_offset and p_vaddr."
@@ -109,54 +110,50 @@ loadElfImage(SharedFilePtr file, VmContext *vmContext, uintptr_t base) {
 				co_return Error::badExecutable;
 			}
 
-			// Check if we can share the segment.
-			if(!(phdr->p_flags & PF_W)) {
-				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_X)) {
-					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
-
-					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
-							fileMemory.dup(), file,
-							fileOffset, mapLength, true,
-							kHelMapProtRead | kHelMapProtExecute));
-				// Allow read only mappings too, ICU loves those.
-				}else if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R)) {
-					HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, mapLength));
-
-					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
-							fileMemory.dup(), file,
-							fileOffset, mapLength, true,
-							kHelMapProtRead));
-				}else{
-					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
+			uint32_t nativeFlags;
+			switch (phdr->p_flags & (PF_R | PF_W | PF_X)) {
+				case PF_R:
+					nativeFlags = kHelMapProtRead;
+					break;
+				case PF_X:
+					[[fallthrough]];
+				case PF_R | PF_X:
+					nativeFlags = kHelMapProtRead | kHelMapProtExecute;
+					break;
+				case PF_W:
+					[[fallthrough]];
+				case PF_R | PF_W:
+					nativeFlags = kHelMapProtRead | kHelMapProtWrite;
+					break;
+				default:
+					// We do not support RWX.
+					std::println("posix: Illegal combination of segment permissions");
 					co_return Error::badExecutable;
-				}
-			}else{
-				// Map the segment with write permission into this address space.
-				HelHandle segmentHandle;
-				HEL_CHECK(helAllocateMemory(mapLength, 0, nullptr, &segmentHandle));
+			}
 
-				void *window;
-				HEL_CHECK(helMapMemory(segmentHandle, kHelNullHandle, nullptr,
-						0, mapLength, kHelMapProtRead | kHelMapProtWrite, &window));
+			// Map the file to up p_filesz.
+			if (fileMapLength > 0) {
+				HEL_CHECK(helLoadahead(fileMemory.getHandle(), fileOffset, fileMapLength));
 
-				// Map the segment with correct permissions into the process.
-				if((phdr->p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
-					FRG_CO_TRY(co_await vmContext->mapFile(mapAddress,
-							helix::UniqueDescriptor{segmentHandle}, file,
-							0, mapLength, true,
-							kHelMapProtRead | kHelMapProtWrite));
-				}else{
-					std::cout << "posix: Illegal combination of segment permissions" << std::endl;
-					co_return Error::badExecutable;
+				auto fileArea = co_await Area::makeFile(file, fileOffset, fileMapLength, true);
+
+				// Zero partial page from p_filesz the end of the mapping.
+				size_t partialOffset = misalign + phdr->p_filesz;
+				if (partialOffset < fileMapLength) {
+					void *window;
+					HEL_CHECK(helMapMemory(fileArea.copyView.getHandle(), kHelNullHandle, nullptr,
+							0, fileMapLength, kHelMapProtRead | kHelMapProtWrite, &window));
+					memset((char *)window + partialOffset, 0, fileMapLength - partialOffset);
+					HEL_CHECK(helUnmapMemory(kHelNullHandle, window, fileMapLength));
 				}
 
-				// Read the segment contents from the file.
-				memset(window, 0, mapLength);
-				FRG_CO_TRY(co_await file->seek(phdr->p_offset, VfsSeek::absolute));
-				FRG_CO_TRY(co_await file->readExactly(nullptr,
-						(char *)window + misalign, phdr->p_filesz));
-				HEL_CHECK(helUnmapMemory(kHelNullHandle, window, mapLength));
+				FRG_CO_TRY(vmContext->mapArea(mapAddress, nativeFlags, std::move(fileArea)));
+			}
+
+			// Map anonymous memory up to p_memsz.
+			if (totalMapLength > fileMapLength) {
+				auto zeroArea = Area::makeAnonymous(totalMapLength - fileMapLength, true);
+				FRG_CO_TRY(vmContext->mapArea(mapAddress + fileMapLength, nativeFlags, std::move(zeroArea)));
 			}
 		}else if(phdr->p_type == PT_PHDR) {
 			info.phdrPtr = (char *)base + phdr->p_vaddr;
@@ -280,17 +277,15 @@ execute(ViewPath root, ViewPath workdir,
 	constexpr size_t stackSize = 0x200000;
 
 	// Allocate memory for the stack.
-	HelHandle stackHandle;
-	HEL_CHECK(helAllocateMemory(stackSize, kHelAllocOnDemand, nullptr, &stackHandle));
+	auto stackArea = Area::makeAnonymous(stackSize, true);
 
 	void *window;
-	HEL_CHECK(helMapMemory(stackHandle, kHelNullHandle, nullptr,
+	HEL_CHECK(helMapMemory(stackArea.copyView.getHandle(), kHelNullHandle, nullptr,
 			0, stackSize, kHelMapProtRead | kHelMapProtWrite, &window));
 
 	// Map the stack into the new process and set it up.
-	void *stackBase = FRG_CO_TRY(co_await vmContext->mapFile(0,
-			helix::UniqueDescriptor{stackHandle}, nullptr,
-			0, stackSize, true, kHelMapProtRead | kHelMapProtWrite));
+	void *stackBase = FRG_CO_TRY(vmContext->mapArea(0,
+			kHelMapProtRead | kHelMapProtWrite, std::move(stackArea)));
 
 	// the offset at which the stack image starts.
 	size_t d = stackSize;
