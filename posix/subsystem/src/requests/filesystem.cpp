@@ -7,426 +7,397 @@
 
 namespace requests {
 
-// Forward declarations for helper functions if needed
-// (These would need to be extracted from the original file or made accessible)
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::ChrootRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-// CHROOT handler
-async::result<void> handleChroot(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::ChrootRequest>(ctx.recv_head, tail);
+	logRequest(logRequests, self, "CHROOT");
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
-
-	logRequest(logRequests, ctx, "CHROOT");
-
-	auto pathResult = co_await resolve(ctx.self->fsContext()->getRoot(),
-			ctx.self->fsContext()->getWorkingDirectory(), req->path(), ctx.self.get());
+	auto pathResult = co_await resolve(self->fsContext()->getRoot(),
+			self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 	if(!pathResult) {
 		if(pathResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::ChrootResponse>(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::ChrootResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::ChrootResponse>(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::ChrootResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 	auto path = pathResult.value();
-	auto rootResult = ctx.self->fsContext()->changeRoot(path);
+	auto rootResult = self->fsContext()->changeRoot(path);
 	if(!rootResult) {
-		co_await sendErrorResponse<managarm::posix::ChrootResponse>(ctx, rootResult.error() | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse<managarm::posix::ChrootResponse>(conversation, rootResult.error() | toPosixProtoError);
+		co_return {};
 	}
 
 	managarm::posix::ChrootResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
-	auto [send_resp] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 	);
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// CHDIR handler
-async::result<void> handleChdir(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::ChdirRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::ChdirRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	logRequest(logRequests, self, "CHDIR");
 
-	logRequest(logRequests, ctx, "CHDIR");
-
-	auto pathResult = co_await resolve(ctx.self->fsContext()->getRoot(),
-			ctx.self->fsContext()->getWorkingDirectory(), req->path(), ctx.self.get());
+	auto pathResult = co_await resolve(self->fsContext()->getRoot(),
+			self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 	if(!pathResult) {
 		if(pathResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::ChdirResponse>(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::ChdirResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::ChdirResponse>(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::ChdirResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 	auto path = pathResult.value();
-	auto cwdResult = ctx.self->fsContext()->changeWorkingDirectory(path);
+	auto cwdResult = self->fsContext()->changeWorkingDirectory(path);
 	if(!cwdResult) {
-		co_await sendErrorResponse<managarm::posix::ChdirResponse>(ctx, cwdResult.error() | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse<managarm::posix::ChdirResponse>(conversation, cwdResult.error() | toPosixProtoError);
+		co_return {};
 	}
 
 	managarm::posix::ChdirResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
-	auto [send_resp] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 	);
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// ACCESSAT handler
-async::result<void> handleAccessAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::AccessAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::AccessAtRequest>(ctx.recv_head, tail);
-
-	if(!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
 	ResolveFlags resolveFlags = {};
 
-	if(req->flags() & AT_SYMLINK_NOFOLLOW)
+	if(req.flags() & AT_SYMLINK_NOFOLLOW)
 		resolveFlags |= resolveDontFollow;
 
-	if(req->flags() & ~(AT_SYMLINK_NOFOLLOW)) {
-		if(req->flags() & AT_EACCESS) {
+	if(req.flags() & ~(AT_SYMLINK_NOFOLLOW)) {
+		if(req.flags() & AT_EACCESS) {
 			std::cout << "posix: ACCESSAT flag handling AT_EACCESS is unimplemented" << std::endl;
 		} else {
-			std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req->flags() << std::endl;
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
+			std::cout << "posix: ACCESSAT unknown flag is unimplemented: " << req.flags() << std::endl;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
 		}
 	}
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if(!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	auto pathResult = co_await resolve(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get(), resolveFlags);
+	auto pathResult = co_await resolve(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get(), resolveFlags);
 	if(!pathResult) {
 		if(pathResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	logRequest(logRequests || logPaths, ctx, "ACCESSAT", "'{}'", pathResult.value().getPath(ctx.self->fsContext()->getRoot()));
+	logRequest(logRequests || logPaths, self, "ACCESSAT", "'{}'", pathResult.value().getPath(self->fsContext()->getRoot()));
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// MKDIRAT handler
-async::result<void> handleMkdirAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::MkdirAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::MkdirAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	logRequest(logRequests || logPaths, self, "MKDIRAT", "path='{}'", req.path());
 
-	logRequest(logRequests || logPaths, ctx, "MKDIRAT", "path='{}'", req->path());
-
-	if(!req->path().size()) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if(!req.path().size()) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolvePrefix);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
 	if(!resolver.hasComponent()) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
 	}
 
 	auto parent = resolver.currentLink()->getTarget();
 	auto existsResult = co_await parent->getLink(resolver.nextComponent());
 	if (existsResult) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
 	}
 
 	auto result = co_await parent->mkdir(
-	    ctx.self.get(),
+	    self.get(),
 	    resolver.nextComponent(),
-	    req->mode()
+	    req.mode()
 	);
 	if(auto error = std::get_if<Error>(&result); error) {
-		co_await sendErrorResponse(ctx, *error | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse(conversation, *error | toPosixProtoError);
+		co_return {};
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// MKFIFOAT handler
-async::result<void> handleMkfifoAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::MkfifoAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	logRequest(logRequests || logPaths, self, "MKFIFOAT", "path='{}'", req.path());
 
-	logRequest(logRequests || logPaths, ctx, "MKFIFOAT", "path='{}'", req->path());
-
-	if (!req->path().size()) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if (!req.path().size()) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> target_link;
 
-	if (req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if (req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
 	auto parent = resolver.currentLink()->getTarget();
 	if(co_await parent->getLink(resolver.nextComponent())) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
 	}
 
 	auto result = co_await parent->mkfifo(
 		resolver.nextComponent(),
-		req->mode() & ~ctx.self->fsContext()->getUmask()
+		req.mode() & ~self->fsContext()->getUmask()
 	);
 	if(!result) {
 		std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
-		co_return;
+		co_return {};
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// LINKAT handler
-async::result<void> handleLinkAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::LinkAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	logRequest(logRequests, ctx, "LINKAT");
+	logRequest(logRequests, self, "LINKAT");
 
-	if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if(req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_FOLLOW)) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if(req->flags() & AT_EMPTY_PATH) {
+	if(req.flags() & AT_EMPTY_PATH) {
 		std::cout << "posix: AT_EMPTY_PATH is unimplemented for linkat" << std::endl;
 	}
 
-	if(req->flags() & AT_SYMLINK_FOLLOW) {
+	if(req.flags() & AT_SYMLINK_FOLLOW) {
 		std::cout << "posix: AT_SYMLINK_FOLLOW is unimplemented for linkat" << std::endl;
 	}
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if(!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve();
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	if (req->newfd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if (req.newfd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->newfd());
+		file = self->fileContext()->getFile(req.newfd());
 
 		if(!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver new_resolver;
-	new_resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->target_path(), ctx.self.get());
+	new_resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.target_path(), self.get());
 	auto new_resolveResult = co_await new_resolver.resolve(
 			resolvePrefix | resolveNoTrailingSlash);
 	if(!new_resolveResult) {
 		if(new_resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
+			co_return {};
 		} else if(new_resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(new_resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
@@ -436,83 +407,78 @@ async::result<void> handleLinkAt(RequestContext& ctx) {
 	auto result = co_await directory->link(new_resolver.nextComponent(), target);
 	if(!result) {
 		std::cout << "posix: Unexpected failure from link()" << std::endl;
-		co_return;
+		co_return {};
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// SYMLINKAT handler
-async::result<void> handleSymlinkAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::SymlinkAtRequest>(ctx.recv_head, tail);
-
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	ViewPath relativeTo;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if (!req->path().size()) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if (!req.path().size()) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if(req->fd() == AT_FDCWD) {
-		relativeTo = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relativeTo = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relativeTo = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relativeTo, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relativeTo, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(
 			resolvePrefix | resolveNoTrailingSlash);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	logRequest(logRequests || logPaths, ctx, "SYMLINK", "'{}{}' -> '{}'",
+	logRequest(logRequests || logPaths, self, "SYMLINK", "'{}{}' -> '{}'",
 		ViewPath{resolver.currentView(), resolver.currentLink()}
-			.getPath(ctx.self->fsContext()->getRoot()),
+			.getPath(self->fsContext()->getRoot()),
 		resolver.nextComponent(),
-		req->target_path());
+		req.target_path());
 
 	auto parent = resolver.currentLink()->getTarget();
-	auto result = co_await parent->symlink(resolver.nextComponent(), req->target_path());
+	auto result = co_await parent->symlink(resolver.nextComponent(), req.target_path());
 	if(auto error = std::get_if<Error>(&result); error) {
 		if(*error == Error::alreadyExists) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+			co_return {};
 		} else {
 			assert(*error == Error::illegalOperationTarget);
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
 		}
 	}
 
@@ -520,168 +486,159 @@ async::result<void> handleSymlinkAt(RequestContext& ctx) {
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [sendResp] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
+		conversation,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 	);
 	HEL_CHECK(sendResp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// READLINKAT handler
-async::result<void> handleReadlinkAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::ReadlinkAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::ReadlinkAtRequest>(ctx.recv_head, tail);
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	auto pathResult = co_await resolve(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get(), resolveDontFollow);
+	auto pathResult = co_await resolve(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get(), resolveDontFollow);
 	if(!pathResult) {
 		if(pathResult.error() == protocols::fs::Error::fileNotFound) {
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
-			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 				helix_ng::sendBuffer(nullptr, 0)
 			);
 			HEL_CHECK(send_resp.error());
-			logBragiReply(ctx, resp);
-			co_return;
+			logBragiReply(resp);
+			co_return {};
 		} else if(pathResult.error() == protocols::fs::Error::notDirectory) {
 			managarm::posix::SvrResponse resp;
 			resp.set_error(managarm::posix::Errors::NOT_A_DIRECTORY);
 
-			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+			auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 				helix_ng::sendBuffer(nullptr, 0)
 			);
 			HEL_CHECK(send_resp.error());
-			logBragiReply(ctx, resp);
-			co_return;
+			logBragiReply(resp);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 	auto path = pathResult.value();
 
-	auto result = co_await path.second->getTarget()->readSymlink(path.second.get(), ctx.self.get());
+	auto result = co_await path.second->getTarget()->readSymlink(path.second.get(), self.get());
 	if(auto error = std::get_if<Error>(&result); error) {
 		managarm::posix::SvrResponse resp;
 		resp.set_error(*error | toPosixProtoError);
 
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 			helix_ng::sendBuffer(nullptr, 0)
 		);
 		HEL_CHECK(send_resp.error());
-		logBragiReply(ctx, resp);
+		logBragiReply(resp);
 	}else{
 		auto &target = std::get<std::string>(result);
 
-		logRequest(logRequests || logPaths, ctx, "READLINKAT", "'{}' -> '{}'",
-			path.getPath(ctx.self->fsContext()->getRoot()),
+		logRequest(logRequests || logPaths, self, "READLINKAT", "'{}' -> '{}'",
+			path.getPath(self->fsContext()->getRoot()),
 			target);
 
 		managarm::posix::SvrResponse resp;
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(ctx.conversation,
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
 			helix_ng::sendBuffer(target.data(), target.size())
 		);
 		HEL_CHECK(send_resp.error());
-		logBragiReply(ctx, resp);
+		logBragiReply(resp);
 	}
+	co_return {};
 }
 
-// RENAMEAT handler
-async::result<void> handleRenameAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::RenameAtRequest>(ctx.recv_head, tail);
-
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if (req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if (req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolveDontFollow);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::isDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	if (req->newfd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if (req.newfd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->newfd());
+		file = self->fileContext()->getFile(req.newfd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
@@ -689,30 +646,30 @@ async::result<void> handleRenameAt(RequestContext& ctx) {
 
 	// TODO: Add resolveNoTrailingSlash if source is not a directory?
 	PathResolver new_resolver;
-	new_resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->target_path(), ctx.self.get());
+	new_resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.target_path(), self.get());
 	auto new_resolveResult = co_await new_resolver.resolve(resolvePrefix);
 	if(!new_resolveResult) {
 		if(new_resolveResult.error() == protocols::fs::Error::isDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+			co_return {};
 		} else if(new_resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(new_resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	logRequest(logRequests || logPaths, ctx, "RENAMEAT", "'{}' -> '{}{}'",
+	logRequest(logRequests || logPaths, self, "RENAMEAT", "'{}' -> '{}{}'",
 		ViewPath(resolver.currentView(), resolver.currentLink())
-		.getPath(ctx.self->fsContext()->getRoot()),
+		.getPath(self->fsContext()->getRoot()),
 		ViewPath(new_resolver.currentView(), new_resolver.currentLink())
-		.getPath(ctx.self->fsContext()->getRoot()),
+		.getPath(self->fsContext()->getRoot()),
 		new_resolver.nextComponent());
 
 	auto superblock = resolver.currentLink()->getTarget()->superblock();
@@ -722,178 +679,163 @@ async::result<void> handleRenameAt(RequestContext& ctx) {
 			directory.get(), new_resolver.nextComponent());
 	if(!result) {
 		assert(result.error() == Error::alreadyExists);
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// UNLINKAT handler
-async::result<void> handleUnlinkAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::UnlinkAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::UnlinkAtRequest>(ctx.recv_head, tail);
-
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> target_link;
 
-	if(req->flags() & ~AT_REMOVEDIR) {
-		std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req->flags() << std::endl;
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+	if(req.flags() & ~AT_REMOVEDIR) {
+		std::cout << "posix: UNLINKAT flag handling unimplemented with unknown flag: " << req.flags() << std::endl;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	}
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 
 	auto resolveResult = co_await resolver.resolve(resolveDontFollow);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::isDirectory) {
 			// TODO: Only when AT_REMOVEDIR is not specified, fix this when flag handling is implemented.
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	logRequest(logRequests || logPaths, ctx, "UNLINKAT", "path='{}'",
+	logRequest(logRequests || logPaths, self, "UNLINKAT", "path='{}'",
 		ViewPath(resolver.currentView(), resolver.currentLink())
-		.getPath(ctx.self->fsContext()->getRoot()));
+		.getPath(self->fsContext()->getRoot()));
 
 	target_link = resolver.currentLink();
 
 	auto owner = target_link->getOwner();
 	if(!owner) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::RESOURCE_IN_USE);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::RESOURCE_IN_USE);
+		co_return {};
 	}
-	if (req->flags() & AT_REMOVEDIR) {
+	if (req.flags() & AT_REMOVEDIR) {
 		auto result = co_await owner->rmdir(target_link->getName());
 		if(!result) {
-			co_await sendErrorResponse(ctx, result.error() | toPosixProtoError);
-			co_return;
+			co_await sendErrorResponse(conversation, result.error() | toPosixProtoError);
+			co_return {};
 		}
 	} else {
 		auto result = co_await owner->unlink(target_link->getName());
 		if(!result) {
-			co_await sendErrorResponse(ctx, result.error() | toPosixProtoError);
-			co_return;
+			co_await sendErrorResponse(conversation, result.error() | toPosixProtoError);
+			co_return {};
 		}
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// RMDIR handler
-async::result<void> handleRmdir(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::RmdirRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::RmdirRequest>(ctx.recv_head, tail);
-
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
 	std::shared_ptr<FsLink> target_link;
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(), ctx.self->fsContext()->getWorkingDirectory(),
-			req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
+			req.path(), self.get());
 
 	auto resolveResult = co_await resolver.resolve();
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
-	logRequest(logRequests || logPaths, ctx, "RMDIR", "path='{}'",
+	logRequest(logRequests || logPaths, self, "RMDIR", "path='{}'",
 		ViewPath(resolver.currentView(), resolver.currentLink())
-		.getPath(ctx.self->fsContext()->getRoot()));
+		.getPath(self->fsContext()->getRoot()));
 
 	target_link = resolver.currentLink();
 
 	auto owner = target_link->getOwner();
 	auto result = co_await owner->rmdir(target_link->getName());
 	if(!result) {
-		co_await sendErrorResponse(ctx, result.error() | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse(conversation, result.error() | toPosixProtoError);
+		co_return {};
 	}
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// FSTATAT handler
-async::result<void> handleFstatAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::FstatAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	logRequest(logRequests, self, "FSTATAT");
 
-	logRequest(logRequests, ctx, "FSTATAT");
-
-	if (req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_STATX_DONT_SYNC)) {
-		std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req->flags()) << std::endl;
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if (req.flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_STATX_DONT_SYNC)) {
+		std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req.flags()) << std::endl;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
 	ViewPath relative_to;
@@ -901,42 +843,42 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 	std::shared_ptr<FsLink> target_link;
 	std::shared_ptr<MountView> target_mount;
 
-	if (req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if (req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	if (req->flags() & AT_EMPTY_PATH) {
+	if (req.flags() & AT_EMPTY_PATH) {
 		target_link = file->associatedLink();
 		target_mount = file->associatedMount();
 	} else {
 		PathResolver resolver;
-		resolver.setup(ctx.self->fsContext()->getRoot(),
-				relative_to, req->path(), ctx.self.get());
+		resolver.setup(self->fsContext()->getRoot(),
+				relative_to, req.path(), self.get());
 
 		ResolveFlags resolveFlags = 0;
-		if (req->flags() & AT_SYMLINK_NOFOLLOW)
+		if (req.flags() & AT_SYMLINK_NOFOLLOW)
 		    resolveFlags |= resolveDontFollow;
 
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
@@ -947,8 +889,8 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 	// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
 	// Instead of blowing up, return ENOENT.
 	if(target_link == nullptr) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+		co_return {};
 	}
 
 	auto statsResult = co_await target_link->getTarget()->getStats();
@@ -1020,42 +962,38 @@ async::result<void> handleFstatAt(RequestContext& ctx) {
 	}
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			ctx.conversation,
+			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// FSTATFS handler
-async::result<void> handleFstatfs(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recvTail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recvTail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FstatfsRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::FstatfsRequest>(ctx.recv_head, tail);
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	logRequest(logRequests, ctx, "FSTATFS");
+	logRequest(logRequests, self, "FSTATFS");
 
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> targetLink;
 	managarm::posix::FstatfsResponse resp;
 
-	if(req->fd() >= 0) {
-		file = ctx.self->fileContext()->getFile(req->fd());
+	if(req.fd() >= 0) {
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		targetLink = file->associatedLink();
@@ -1064,24 +1002,24 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 		// Instead of blowing up, return ENOENT.
 		// TODO: fstatfs can't return ENOENT, verify this is needed
 		if(targetLink == nullptr) {
-			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		}
 	} else {
 		PathResolver resolver;
-		resolver.setup(ctx.self->fsContext()->getRoot(), ctx.self->fsContext()->getWorkingDirectory(),
-				req->path(), ctx.self.get());
+		resolver.setup(self->fsContext()->getRoot(), self->fsContext()->getWorkingDirectory(),
+				req.path(), self.get());
 		auto resolveResult = co_await resolver.resolve();
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
@@ -1090,8 +1028,8 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 
 	auto fsStatsResult = co_await targetLink->getTarget()->superblock()->getFsStats();
 	if(!fsStatsResult) {
-		co_await sendErrorResponse<managarm::posix::FstatfsResponse>(ctx, fsStatsResult.error() | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse<managarm::posix::FstatfsResponse>(conversation, fsStatsResult.error() | toPosixProtoError);
+		co_return {};
 	}
 	auto fsStats = fsStatsResult.value();
 
@@ -1111,138 +1049,138 @@ async::result<void> handleFstatfs(RequestContext& ctx) {
 	resp.set_flags(fsStats.flags);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			ctx.conversation,
+			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// FCHMODAT handler
-async::result<void> handleFchmodAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FchmodAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::FchmodAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	logRequest(logRequests, ctx, "FCHMODAT");
+	logRequest(logRequests, self, "FCHMODAT");
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> target_link;
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
-		std::println("posix: unexpected flags {:#x} in fchmodat request", req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if(req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
+		std::println("posix: unexpected flags {:#x} in fchmodat request", req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if(req->flags() & AT_EMPTY_PATH) {
+	if(req.flags() & AT_EMPTY_PATH) {
 		target_link = file->associatedLink();
 	} else {
 		PathResolver resolver;
-		resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+		resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 
 		ResolveFlags resolveFlags = 0;
-		if(req->flags() & AT_SYMLINK_NOFOLLOW)
+		if(req.flags() & AT_SYMLINK_NOFOLLOW)
 			resolveFlags |= resolveDontFollow;
 
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
 		target_link = resolver.currentLink();
 	}
 
-	co_await target_link->getTarget()->chmod(req->mode());
+	co_await target_link->getTarget()->chmod(req.mode());
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// FCHOWNAT handler
-async::result<void> handleFchownAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FchownAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::FchownAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	logRequest(logRequests, ctx, "FCHOWNAT");
+	logRequest(logRequests, self, "FCHOWNAT");
 
 	ViewPath relativeTo;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> targetLink;
 
-	if(req->fd() == AT_FDCWD) {
-		relativeTo = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relativeTo = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relativeTo = {file->associatedMount(), file->associatedLink()};
 	}
 
-	if(req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
-		std::println("posix: unexpected flags {:#x} in fchownat request", req->flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
-		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if(req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) {
+		std::println("posix: unexpected flags {:#x} in fchownat request", req.flags() & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW));
+		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if(req->flags() & AT_EMPTY_PATH) {
+	if(req.flags() & AT_EMPTY_PATH) {
 		targetLink = file->associatedLink();
 	} else {
 		PathResolver resolver;
-		resolver.setup(ctx.self->fsContext()->getRoot(),
-			relativeTo, req->path(), ctx.self.get());
+		resolver.setup(self->fsContext()->getRoot(),
+			relativeTo, req.path(), self.get());
 
 		ResolveFlags resolveFlags = 0;
-		if(req->flags() & AT_SYMLINK_NOFOLLOW)
+		if(req.flags() & AT_SYMLINK_NOFOLLOW)
 			resolveFlags |= resolveDontFollow;
 
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 
 		if(!resolveResult) {
-			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, resolveResult.error() | toPosixError | toPosixProtoError);
-			co_return;
+			co_await sendErrorResponse<managarm::posix::FchownAtResponse>(conversation, resolveResult.error() | toPosixError | toPosixProtoError);
+			co_return {};
 		}
 
 		targetLink = resolver.currentLink();
@@ -1250,82 +1188,77 @@ async::result<void> handleFchownAt(RequestContext& ctx) {
 
 	std::optional<uid_t> uid;
 	std::optional<gid_t> gid;
-	if(req->uid() != -1)
-		uid = req->uid();
-	if(req->gid() != -1)
-		gid = req->gid();
+	if(req.uid() != -1)
+		uid = req.uid();
+	if(req.gid() != -1)
+		gid = req.gid();
 
 	auto result = co_await targetLink->getTarget()->chown(uid, gid);
 	if(!result) {
-		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, result.error() | toPosixProtoError);
-		co_return;
+		co_await sendErrorResponse<managarm::posix::FchownAtResponse>(conversation, result.error() | toPosixProtoError);
+		co_return {};
 	}
 
-	co_await sendErrorResponse<managarm::posix::FchownAtResponse>(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse<managarm::posix::FchownAtResponse>(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// UTIMENSAT handler
-async::result<void> handleUtimensAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::UtimensAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::UtimensAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
-
-	logRequest(logRequests || logPaths, ctx, "UTIMENSAT");
+	logRequest(logRequests || logPaths, self, "UTIMENSAT");
 
 	ViewPath relativeTo;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsNode> target = nullptr;
 
-	if(!req->path().size() && (req->flags() & AT_EMPTY_PATH)) {
-		target = ctx.self->fileContext()->getFile(req->fd())->associatedLink()->getTarget();
+	if(!req.path().size() && (req.flags() & AT_EMPTY_PATH)) {
+		target = self->fileContext()->getFile(req.fd())->associatedLink()->getTarget();
 	} else {
-		if(req->flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
+		if(req.flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) {
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
 		}
 
 		ResolveFlags resolveFlags = 0;
-		if(req->flags() & AT_SYMLINK_NOFOLLOW) {
+		if(req.flags() & AT_SYMLINK_NOFOLLOW) {
 			resolveFlags |= resolveDontFollow;
 		}
 
-		if(req->fd() == AT_FDCWD) {
-			relativeTo = ctx.self->fsContext()->getWorkingDirectory();
+		if(req.fd() == AT_FDCWD) {
+			relativeTo = self->fsContext()->getWorkingDirectory();
 		} else {
-			file = ctx.self->fileContext()->getFile(req->fd());
+			file = self->fileContext()->getFile(req.fd());
 			if (!file) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+				co_return {};
 			}
 
 			relativeTo = {file->associatedMount(), file->associatedLink()};
 		}
 
 		PathResolver resolver;
-		resolver.setup(ctx.self->fsContext()->getRoot(),
-				relativeTo, req->path(), ctx.self.get());
+		resolver.setup(self->fsContext()->getRoot(),
+				relativeTo, req.path(), self.get());
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
@@ -1336,48 +1269,44 @@ async::result<void> handleUtimensAt(RequestContext& ctx) {
 	std::optional<timespec> mtime = std::nullopt;
 
 	auto time = clk::getRealtime();
-	if(req->atimeNsec() == UTIME_NOW) {
+	if(req.atimeNsec() == UTIME_NOW) {
 		atime = {time.tv_sec, time.tv_nsec};
-	} else if(req->atimeNsec() != UTIME_OMIT) {
-		if(req->atimeNsec() > 999'999'999) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
+	} else if(req.atimeNsec() != UTIME_OMIT) {
+		if(req.atimeNsec() > 999'999'999) {
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
 		}
-		atime = {static_cast<time_t>(req->atimeSec()), static_cast<long>(req->atimeNsec())};
+		atime = {static_cast<time_t>(req.atimeSec()), static_cast<long>(req.atimeNsec())};
 	}
 
-	if(req->mtimeNsec() == UTIME_NOW) {
+	if(req.mtimeNsec() == UTIME_NOW) {
 		mtime = {time.tv_sec, time.tv_nsec};
-	} else if(req->mtimeNsec() != UTIME_OMIT) {
-		if(req->mtimeNsec() > 999'999'999) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return;
+	} else if(req.mtimeNsec() != UTIME_OMIT) {
+		if(req.mtimeNsec() > 999'999'999) {
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
 		}
-		mtime = {static_cast<time_t>(req->mtimeSec()), static_cast<long>(req->mtimeNsec())};
+		mtime = {static_cast<time_t>(req.mtimeSec()), static_cast<long>(req.mtimeNsec())};
 	}
 
 	co_await target->utimensat(atime, mtime, time);
 
-	co_await sendErrorResponse(ctx, managarm::posix::Errors::SUCCESS);
+	co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+	co_return {};
 }
 
-// OPENAT handler
-async::result<void> handleOpenAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
-		helix_ng::recvBuffer(tail.data(), tail.size())
-	);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::OpenAtRequest>(ctx.recv_head, tail);
-	if (!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if((req->flags() & ~(managarm::posix::OpenFlags::OF_CREATE
+	if((req.flags() & ~(managarm::posix::OpenFlags::OF_CREATE
 			| managarm::posix::OpenFlags::OF_EXCLUSIVE
 			| managarm::posix::OpenFlags::OF_NONBLOCK
 			| managarm::posix::OpenFlags::OF_CLOEXEC
@@ -1390,102 +1319,102 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 			| managarm::posix::OpenFlags::OF_APPEND
 			| managarm::posix::OpenFlags::OF_NOFOLLOW
 			| managarm::posix::OpenFlags::OF_DIRECTORY))) {
-		std::cout << "posix: OPENAT flags not recognized: " << req->flags() << std::endl;
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+		std::cout << "posix: OPENAT flags not recognized: " << req.flags() << std::endl;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if (req->path().length() > PATH_MAX) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::NAME_TOO_LONG);
-		co_return;
+	if (req.path().length() > PATH_MAX) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::NAME_TOO_LONG);
+		co_return {};
 	}
 
 	SemanticFlags semantic_flags = 0;
-	if(req->flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
+	if(req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK)
 		semantic_flags |= semanticNonBlock;
 
-	if (req->flags() & managarm::posix::OpenFlags::OF_RDONLY)
+	if (req.flags() & managarm::posix::OpenFlags::OF_RDONLY)
 		semantic_flags |= semanticRead;
-	else if (req->flags() & managarm::posix::OpenFlags::OF_WRONLY)
+	else if (req.flags() & managarm::posix::OpenFlags::OF_WRONLY)
 		semantic_flags |= semanticWrite;
-	else if (req->flags() & managarm::posix::OpenFlags::OF_RDWR)
+	else if (req.flags() & managarm::posix::OpenFlags::OF_RDWR)
 		semantic_flags |= semanticRead | semanticWrite;
 
-	if(req->flags() & managarm::posix::OpenFlags::OF_APPEND)
+	if(req.flags() & managarm::posix::OpenFlags::OF_APPEND)
 		semantic_flags |= semanticAppend;
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 	std::shared_ptr<FsLink> target_link;
 
-	if(req->fd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.fd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->fd());
+		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
-	if(req->flags() & managarm::posix::OpenFlags::OF_CREATE) {
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
+	if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
 		auto resolveResult = co_await resolver.resolve(
 				resolvePrefix | resolveNoTrailingSlash);
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::isDirectory) {
 				// TODO: Verify additional constraints for sending EISDIR.
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::nameTooLong) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NAME_TOO_LONG);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NAME_TOO_LONG);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
-		logRequest(logRequests || logPaths, ctx, "OPENAT", "create '{}'",
+		logRequest(logRequests || logPaths, self, "OPENAT", "create '{}'",
 			ViewPath{resolver.currentView(), resolver.currentLink()}
-			.getPath(ctx.self->fsContext()->getRoot()));
+			.getPath(self->fsContext()->getRoot()));
 
 		if (!resolver.hasComponent()) {
 			if (semantic_flags & semanticWrite)
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
 			else
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-			co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+			co_return {};
 		}
 
 		auto directory = resolver.currentLink()->getTarget();
 
-		auto linkResult = co_await directory->getLinkOrCreate(ctx.self.get(), resolver.nextComponent(),
-			req->mode() & ~ctx.self->fsContext()->getUmask(), req->flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE);
+		auto linkResult = co_await directory->getLinkOrCreate(self.get(), resolver.nextComponent(),
+			req.mode() & ~self->fsContext()->getUmask(), req.flags() & managarm::posix::OpenFlags::OF_EXCLUSIVE);
 		if (!linkResult) {
-			co_await sendErrorResponse(ctx, linkResult.error() | toPosixProtoError);
-			co_return;
+			co_await sendErrorResponse(conversation, linkResult.error() | toPosixProtoError);
+			co_return {};
 		}
 		auto link = linkResult.value();
 		assert(link);
 		auto node = link->getTarget();
 		if (node->getType() == VfsType::directory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+			co_return {};
 		}
 
-		auto fileResult = co_await node->open(ctx.self.get(), resolver.currentView(), std::move(link),
+		auto fileResult = co_await node->open(self.get(), resolver.currentView(), std::move(link),
 							semantic_flags);
 		assert(fileResult);
 		file = fileResult.value();
@@ -1493,45 +1422,45 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 	}else{
 		ResolveFlags resolveFlags = 0;
 
-		if(req->flags() & managarm::posix::OpenFlags::OF_NOFOLLOW)
+		if(req.flags() & managarm::posix::OpenFlags::OF_NOFOLLOW)
 			resolveFlags |= resolveDontFollow;
 
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::isDirectory) {
 				// TODO: Verify additional constraints for sending EISDIR.
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 
-		logRequest(logRequests || logPaths, ctx, "OPENAT", "open '{}'",
+		logRequest(logRequests || logPaths, self, "OPENAT", "open '{}'",
 			ViewPath{resolver.currentView(), resolver.currentLink()}
-			.getPath(ctx.self->fsContext()->getRoot()));
+			.getPath(self->fsContext()->getRoot()));
 
 		auto target = resolver.currentLink()->getTarget();
 		if (target->getType() == VfsType::directory && (semantic_flags & semanticWrite)) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::IS_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::IS_DIRECTORY);
+			co_return {};
 		}
 
-		if(req->flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
+		if(req.flags() & managarm::posix::OpenFlags::OF_DIRECTORY) {
 			if(target->getType() != VfsType::directory) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_return {};
 			}
 		}
 
-		if(req->flags() & managarm::posix::OpenFlags::OF_PATH) {
+		if(req.flags() & managarm::posix::OpenFlags::OF_PATH) {
 			auto dummyFile = smarter::make_shared<DummyFile>(resolver.currentView(), resolver.currentLink());
 			dummyFile->setupWeakFile(dummyFile);
 			DummyFile::serve(dummyFile);
@@ -1539,21 +1468,21 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 		} else {
 			// this can only be a symlink if O_NOFOLLOW has been passed
 			if(target->getType() == VfsType::symlink) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::SYMBOLIC_LINK_LOOP);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::SYMBOLIC_LINK_LOOP);
+				co_return {};
 			}
 
-			auto fileResult = co_await target->open(ctx.self.get(), resolver.currentView(), resolver.currentLink(), semantic_flags);
+			auto fileResult = co_await target->open(self.get(), resolver.currentView(), resolver.currentLink(), semantic_flags);
 			if(!fileResult) {
 				if(fileResult.error() == Error::noBackingDevice) {
-					co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_BACKING_DEVICE);
-					co_return;
+					co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_BACKING_DEVICE);
+					co_return {};
 				} else if(fileResult.error() == Error::illegalArguments) {
-					co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-					co_return;
+					co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+					co_return {};
 				} else {
 					std::cout << "posix: Unexpected failure from open()" << std::endl;
-					co_return;
+					co_return {};
 				}
 			}
 			assert(fileResult);
@@ -1562,30 +1491,30 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 	}
 
 	if(!file) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+		co_return {};
 	}
 
 	if(file->isTerminal() &&
-		!(req->flags() & managarm::posix::OpenFlags::OF_NOCTTY) &&
-        ctx.self->pgPointer() &&
-		ctx.self->pgPointer()->getSession()->getSessionId() == (pid_t)ctx.self->pid() &&
-		ctx.self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
+		!(req.flags() & managarm::posix::OpenFlags::OF_NOCTTY) &&
+        self->pgPointer() &&
+		self->pgPointer()->getSession()->getSessionId() == (pid_t)self->pid() &&
+		self->pgPointer()->getSession()->getControllingTerminal() == nullptr) {
 		// POSIX 1003.1-2017 11.1.3
 		auto cts = co_await file->getControllingTerminal();
 		if(!cts) {
 			std::cout << "posix: Unable to get controlling terminal (" << (int)cts.error() << ")" << std::endl;
 		} else {
-			cts.value()->assignSessionOf(ctx.self.get());
+			cts.value()->assignSessionOf(self.get());
 		}
 	}
 
-	if(req->flags() & managarm::posix::OpenFlags::OF_TRUNC) {
+	if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC) {
 		auto result = co_await file->truncate(0);
 		assert(result || result.error() == protocols::fs::Error::illegalOperationTarget);
 	}
-	auto fd = ctx.self->fileContext()->attachFile(file,
-			req->flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+	auto fd = self->fileContext()->attachFile(file,
+			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
 	managarm::posix::SvrResponse resp;
 	if (fd) {
@@ -1596,50 +1525,45 @@ async::result<void> handleOpenAt(RequestContext& ctx) {
 	}
 
 	auto [sendResp] = co_await helix_ng::exchangeMsgs(
-			ctx.conversation,
+			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 	HEL_CHECK(sendResp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// MKNODAT handler
-async::result<void> handleMknodAt(RequestContext& ctx) {
-	std::vector<uint8_t> tail(ctx.preamble.tail_size());
-	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-			ctx.conversation,
-			helix_ng::recvBuffer(tail.data(), tail.size())
-		);
-	HEL_CHECK(recv_tail.error());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
 
-	logBragiRequest(ctx, tail);
-	auto req = bragi::parse_head_tail<managarm::posix::MknodAtRequest>(ctx.recv_head, tail);
+	auto tailRes = co_await dispatchTail(req, conversation, preamble);
+	if(!tailRes)
+		co_return std::unexpected(tailRes.error());
+	logBragiRequest(req);
 
-	if(!req) {
-		std::cout << "posix: Rejecting request due to decoding failure" << std::endl;
-		co_return;
-	}
-
-	logRequest(logRequests || logPaths, ctx, "MKNODAT", "path='{}' mode={:o} device={:#x}", req->path(), req->mode(), req->device());
+	logRequest(logRequests || logPaths, self, "MKNODAT", "path='{}' mode={:o} device={:#x}", req.path(), req.mode(), req.device());
 
 	managarm::posix::SvrResponse resp;
 
 	ViewPath relative_to;
 	smarter::shared_ptr<File, FileHandle> file;
 
-	if(!req->path().size()) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+	if(!req.path().size()) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 
-	if(req->dirfd() == AT_FDCWD) {
-		relative_to = ctx.self->fsContext()->getWorkingDirectory();
+	if(req.dirfd() == AT_FDCWD) {
+		relative_to = self->fsContext()->getWorkingDirectory();
 	} else {
-		file = ctx.self->fileContext()->getFile(req->dirfd());
+		file = self->fileContext()->getFile(req.dirfd());
 
 		if(!file) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NO_SUCH_FD);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_return {};
 		}
 
 		relative_to = {file->associatedMount(), file->associatedLink()};
@@ -1647,44 +1571,44 @@ async::result<void> handleMknodAt(RequestContext& ctx) {
 
 	// TODO: Add resolveNoTrailingSlash if not making a directory?
 	PathResolver resolver;
-	resolver.setup(ctx.self->fsContext()->getRoot(),
-			relative_to, req->path(), ctx.self.get());
+	resolver.setup(self->fsContext()->getRoot(),
+			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolvePrefix);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(ctx, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return;
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return;
+			co_return {};
 		}
 	}
 
 	auto parent = resolver.currentLink()->getTarget();
 	auto existsResult = co_await parent->getLink(resolver.nextComponent());
 	if (existsResult) {
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ALREADY_EXISTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_return {};
 	}
 
 	VfsType type;
 	DeviceId dev;
-	if(S_ISDIR(req->mode())) {
+	if(S_ISDIR(req.mode())) {
 		type = VfsType::directory;
-	} else if(S_ISCHR(req->mode())) {
+	} else if(S_ISCHR(req.mode())) {
 		type = VfsType::charDevice;
-	} else if(S_ISBLK(req->mode())) {
+	} else if(S_ISBLK(req.mode())) {
 		type = VfsType::blockDevice;
-	} else if(S_ISREG(req->mode())) {
+	} else if(S_ISREG(req.mode())) {
 		type = VfsType::regular;
-	} else if(S_ISFIFO(req->mode())) {
+	} else if(S_ISFIFO(req.mode())) {
 		type = VfsType::fifo;
-	} else if(S_ISLNK(req->mode())) {
+	} else if(S_ISLNK(req.mode())) {
 		type = VfsType::symlink;
-	} else if(S_ISSOCK(req->mode())) {
+	} else if(S_ISSOCK(req.mode())) {
 		type = VfsType::socket;
 	} else {
 		type = VfsType::null;
@@ -1692,77 +1616,83 @@ async::result<void> handleMknodAt(RequestContext& ctx) {
 
 	// TODO: Verify the proper error return here.
 	if(type == VfsType::charDevice || type == VfsType::blockDevice) {
-		dev.first = major(req->device());
-		dev.second = minor(req->device());
+		dev.first = major(req.device());
+		dev.second = minor(req.device());
 
 		auto result = co_await parent->mkdev(resolver.nextComponent(), type, dev);
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from mkdev()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 	} else if(type == VfsType::fifo) {
 		auto result = co_await parent->mkfifo(
 			resolver.nextComponent(),
-			req->mode() & ~ctx.self->fsContext()->getUmask()
+			req.mode() & ~self->fsContext()->getUmask()
 		);
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from mkfifo()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 	} else if(type == VfsType::socket) {
 		auto result = co_await parent->mksocket(resolver.nextComponent());
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
-				co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-				co_return;
+				co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from mksocket()" << std::endl;
-				co_return;
+				co_return {};
 			}
 		}
 	} else {
 		// TODO: Handle regular files.
 		std::cout << "\e[31mposix: Creating regular files with mknod is not supported.\e[39m" << std::endl;
-		co_await sendErrorResponse(ctx, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-		co_return;
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
 	}
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-			ctx.conversation,
+			conversation,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
-// UMASK handler
-async::result<void> handleUmask(RequestContext& ctx) {
-	auto req = bragi::parse_head_only<managarm::posix::UmaskRequest>(ctx.recv_head);
-	logRequest(logRequests, ctx, "UMASK", "newmask={:o}", req->newmask());
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::UmaskRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "UMASK", "newmask={:o}", req.newmask());
 
 	managarm::posix::UmaskResponse resp;
-	mode_t oldmask = ctx.self->fsContext()->setUmask(req->newmask());
+	mode_t oldmask = self->fsContext()->setUmask(req.newmask());
 	resp.set_oldmask(oldmask);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
-		ctx.conversation,
+		conversation,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 	);
 
 	HEL_CHECK(send_resp.error());
-	logBragiReply(ctx, resp);
+	logBragiReply(resp);
+	co_return {};
 }
 
 } // namespace requests

@@ -51,6 +51,7 @@ src = [
 	'src/requests/special-files.cpp',
 	'src/requests/system.cpp',
 	'src/requests/fd.cpp',
+	'src/requests/legacy.cpp',
 	'src/requests/uid-gid.cpp',
 	'src/signalfd.cpp',
 	'src/subsystem/acpi.cpp',
