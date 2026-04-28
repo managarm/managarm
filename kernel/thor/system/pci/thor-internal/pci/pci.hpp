@@ -56,12 +56,18 @@ inline const char *nameOf(IrqIndex index) {
 
 inline const char *nameOfCapability(unsigned int type) {
 	switch(type) {
+	case 0x01: return "PCI Power Management Interface";
+	case 0x02: return "AGP";
+	case 0x03: return "VPD";
 	case 0x04: return "Slot-identification";
 	case 0x05: return "MSI";
 	case 0x09: return "Vendor-specific";
 	case 0x0A: return "Debug-port";
+	case 0x0C: return "PCI Hot Plug";
+	case 0x0D: return "PCI Bridge Subsystem ID";
 	case 0x10: return "PCIe";
 	case 0x11: return "MSI-X";
+	case 0x12: return "Serial ATA DATA/Index Configuration";
 	default:
 		return nullptr;
 	}
