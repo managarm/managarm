@@ -73,6 +73,30 @@ inline const char *nameOfCapability(unsigned int type) {
 	}
 }
 
+inline const char *nameOfExtendedCapability(uint16_t type) {
+	switch(type) {
+	case 0x0001: return "Advanced Error Reporting";
+	case 0x0002: return "Virtual Channel";
+	case 0x0003: return "Device Serial Number";
+	case 0x0004: return "Power Budgeting";
+	case 0x0005: return "Root Complex Link Declaration";
+	case 0x0006: return "Root Complex Internal Link Control";
+	case 0x000B: return "Vendor-specific";
+	case 0x000D: return "ACS";
+	case 0x000E: return "ARI";
+	case 0x000F: return "ATS";
+	case 0x0010: return "SR-IOV";
+	case 0x0011: return "MR-IOV";
+	case 0x0013: return "Page Request";
+	case 0x0015: return "Resizable BAR";
+	case 0x0017: return "TPH Requester";
+	case 0x0018: return "LTR";
+	case 0x001B: return "PASID";
+	default:
+		return nullptr;
+	}
+}
+
 enum class RoutingModel {
 	none,
 	rootTable, // Routing table of PCI IRQ pins to global IRQs (i.e., PRT).
@@ -313,7 +337,13 @@ struct PciEntity : protected KernelBusObject {
 		size_t length;
 	};
 
+	struct ExtendedCapability {
+		uint16_t type;
+		uint16_t offset;
+	};
+
 	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
+	frg::vector<ExtendedCapability, KernelAlloc> extendedCaps{*kernelAlloc};
 
 	PciExpansionRom expansionRom;
 
