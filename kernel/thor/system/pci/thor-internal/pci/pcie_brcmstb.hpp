@@ -23,6 +23,10 @@ struct BrcmStbPcie final : PciConfigIo {
 	void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset, uint32_t value) override;
 
+	bool supports4kConfigSpace() override {
+		return true;
+	}
+
 private:
 	void init_();
 	void reset_();

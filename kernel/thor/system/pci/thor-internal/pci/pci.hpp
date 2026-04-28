@@ -503,6 +503,8 @@ struct PciConfigIo {
 	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset, uint32_t value) = 0;
 
+	virtual bool supports4kConfigSpace() = 0;
+
 protected:
 	~PciConfigIo() = default;
 };
