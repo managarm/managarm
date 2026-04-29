@@ -51,7 +51,7 @@ extern "C" int doCopyFromUser(void *dest, const void *src, size_t size);
 extern "C" int doCopyToUser(void *dest, const void *src, size_t size);
 extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
 
-bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
+[[nodiscard]] bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
 	uintptr_t limit;
 	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
 		return false;
@@ -63,7 +63,7 @@ bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
 	return !e;
 }
 
-bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
+[[nodiscard]] bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
 	uintptr_t limit;
 	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
 		return false;
@@ -76,17 +76,17 @@ bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
 }
 
 template<typename T>
-bool readUserObject(const T *pointer, T &object) {
+[[nodiscard]] bool readUserObject(const T *pointer, T &object) {
 	return readUserMemory(static_cast<void *>(&object), static_cast<const void *>(pointer), sizeof(T));
 }
 
 template<typename T>
-bool writeUserObject(T *pointer, T object) {
+[[nodiscard]] bool writeUserObject(T *pointer, T object) {
 	return writeUserMemory(pointer, &object, sizeof(T));
 }
 
 template<typename T>
-bool readUserArray(const T *pointer, T *array, size_t count) {
+[[nodiscard]] bool readUserArray(const T *pointer, T *array, size_t count) {
 	size_t size;
 	if(__builtin_mul_overflow(sizeof(T), count, &size))
 		return false;
@@ -94,7 +94,7 @@ bool readUserArray(const T *pointer, T *array, size_t count) {
 }
 
 template<typename T>
-bool writeUserArray(T *pointer, const T *array, size_t count) {
+[[nodiscard]] bool writeUserArray(T *pointer, const T *array, size_t count) {
 	size_t size;
 	if(__builtin_mul_overflow(sizeof(T), count, &size))
 		return false;
@@ -2410,7 +2410,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 #ifdef __x86_64__
 		// FIXME: Make those registers thread-specific.
 		uint32_t *reg;
-		readUserObject(reinterpret_cast<uint32_t *const *>(image), reg);
+		if(!readUserObject(reinterpret_cast<uint32_t *const *>(image), reg))
+			return kHelErrFault;
 		breakOnWrite(reg);
 #else
 		return kHelErrUnsupportedOperation;
@@ -2742,7 +2743,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				auto sglist = reinterpret_cast<HelSgItem *>(recipe->buffer);
 				for(size_t j = 0; j < recipe->length; j++) {
 					HelSgItem item;
-					readUserObject(sglist + j, item);
+					if(!readUserObject(sglist + j, item))
+						return kHelErrFault;
 					length += item.length;
 				}
 
@@ -2750,7 +2752,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				size_t offset = 0;
 				for(size_t j = 0; j < recipe->length; j++) {
 					HelSgItem item;
-					readUserObject(sglist + j, item);
+					if(!readUserObject(sglist + j, item))
+						return kHelErrFault;
 					if(!readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
 							reinterpret_cast<char *>(item.buffer), item.length))
 						return kHelErrFault;
@@ -3542,7 +3545,8 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	auto io_space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
 	for(size_t i = 0; i < num_ports; i++) {
 		uintptr_t port;
-		readUserObject<uintptr_t>(port_array + i, port);
+		if(!readUserObject<uintptr_t>(port_array + i, port))
+			return kHelErrFault;
 		io_space->addPort(port);
 	}
 
