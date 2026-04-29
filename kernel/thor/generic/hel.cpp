@@ -3342,9 +3342,13 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
+	auto pin = acpi::getGlobalSystemIrq(number);
+	if (!pin)
+		return kHelErrOutOfBounds;
+
 	auto irq = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
-	IrqPin::attachSink(acpi::getGlobalSystemIrq(number), irq.get());
+	IrqPin::attachSink(pin, irq.get());
 
 	{
 		auto irq_lock = frg::guard(&irqMutex());
