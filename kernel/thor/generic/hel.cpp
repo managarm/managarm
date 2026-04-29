@@ -433,15 +433,16 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 	if(params.flags)
 		return kHelErrIllegalArgs;
 
-	auto queue = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
-			params.numChunks, params.chunkSize, params.numSqChunks);
-	queue->selfPtr = queue;
+	auto queueOutcome = IpcQueue::create(params.numChunks, params.chunkSize,
+			params.numSqChunks);
+	if(!queueOutcome)
+		return translateError(queueOutcome.error());
 	{
 		auto irq_lock = frg::guard(&irqMutex());
 		Universe::Guard universe_guard(thisUniverse->lock);
 
 		*handle = thisUniverse->attachDescriptor(universe_guard,
-				QueueDescriptor(std::move(queue)));
+				QueueDescriptor(std::move(*queueOutcome)));
 	}
 
 	return kHelErrNone;
