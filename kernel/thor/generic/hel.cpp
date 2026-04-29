@@ -1286,10 +1286,11 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
 			enable_detached_coroutine) -> void {
 		auto outcome = co_await onExceptionalWq(space->synchronize((VirtualAddr)pointer, length));
-		// TODO: handle errors after propagating them through VirtualSpace::synchronize.
-		assert(outcome);
 
-		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		HelSimpleResult helResult{
+			.error = outcome ? kHelErrNone : translateError(outcome.error()),
+			.reserved = {},
+		};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
 	}(thisThread.lock(), std::move(space), pointer, length, std::move(queue), context,
