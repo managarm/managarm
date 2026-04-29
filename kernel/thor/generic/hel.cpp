@@ -349,16 +349,18 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *) {
 		return kHelErrNoDescriptor;
 	switch(wrapper->tag()) {
 	default:
-		assert(!"Illegal descriptor");
+		return kHelErrOther;
 	}
 
 	return kHelErrNone;
 }
 
 HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) {
+	if (flags)
+		return kHelErrIllegalArgs;
+
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
-	assert(!flags);
 
 	std::array<char, 16> creds;
 	{
@@ -1368,7 +1370,6 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			}
 		}
 
-		assert(error == Error::success);
 		HelSimpleResult helResult{.error = translateError(error), .reserved = {}};
 		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 		co_await queue->submit(&ipcSource, context);
@@ -3638,10 +3639,13 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 				memory = wrapper->get<MemoryViewDescriptor>().memory;
 			}
 
-			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
-			assert(memory->getLength() <= 0x10000);
+			auto memorySize = memory->getLength();
+			if (memorySize > 0x10000)
+				return kHelErrIllegalArgs;
 
-			for(size_t off = 0; off < memory->getLength(); off += kPageSize) {
+			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
+
+			for(size_t off = 0; off < memorySize; off += kPageSize) {
 				auto range = memory->peekRange(off, fetchNone);
 				assert(range.physical != PhysicalAddr(-1));
 				PageFlags pageFlags = page_access::read;

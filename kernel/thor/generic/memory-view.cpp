@@ -770,10 +770,13 @@ coroutine<frg::expected<Error>> AllocatedMemory::resize(size_t newSize) {
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		assert(!(newSize % _chunkSize));
-		size_t num_chunks = newSize / _chunkSize;
-		assert(num_chunks >= _physicalChunks.size());
-		_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
+		if (newSize % _chunkSize)
+			co_return Error::illegalArgs;
+		size_t numChunks = newSize / _chunkSize;
+		// TODO: Support shrinking of AllocatedMemory.
+		if (numChunks < _physicalChunks.size())
+			co_return Error::illegalArgs;
+		_physicalChunks.resize(numChunks, PhysicalAddr(-1));
 	}
 	co_return {};
 }
@@ -1686,8 +1689,10 @@ PhysicalRange IndirectMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
+		if (slot >= indirections_.size())
+			return {.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
+		if (!indirections_[slot])
+			return {.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 		indirection = indirections_[slot];
 	}
 
