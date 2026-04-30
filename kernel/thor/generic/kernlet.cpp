@@ -276,7 +276,7 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 					infoLogger() << "__trigger_bitset on "
 							<< p << ", bits: " << bits << frg::endlog;
 				auto event = static_cast<BitsetEvent *>(p);
-				event->trigger(bits);
+				(void)event->trigger(bits);
 			};
 
 #ifdef THOR_ARCH_SUPPORTS_PIO

@@ -7,11 +7,12 @@ namespace thor {
 // OneshotEvent implementation.
 //---------------------------------------------------------------------------------------
 
-void OneshotEvent::trigger() {
-	assert(!_triggered); // TODO: Return an error!
-
+std::expected<void, Error> OneshotEvent::trigger() {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
+
+	if(_triggered)
+		return std::unexpected{Error::illegalState};
 
 	_triggered = true;
 
@@ -23,6 +24,8 @@ void OneshotEvent::trigger() {
 		if(node->cancelCb_.try_reset())
 			node->wq_->post(node->awaited_);
 	}
+
+	return {};
 }
 
 void OneshotEvent::submitAwait(AwaitEventNode<OneshotEvent> *node, uint64_t sequence) {
@@ -75,9 +78,9 @@ BitsetEvent::BitsetEvent()
 		_lastTrigger[i] = 0;
 }
 
-void BitsetEvent::trigger(uint32_t bits) {
+std::expected<void, Error> BitsetEvent::trigger(uint32_t bits) {
 	if(!bits)
-		return; // TODO: Return an error!
+		return std::unexpected{Error::illegalArgs};
 
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
@@ -95,6 +98,8 @@ void BitsetEvent::trigger(uint32_t bits) {
 		if(node->cancelCb_.try_reset())
 			node->wq_->post(node->awaited_);
 	}
+
+	return {};
 }
 
 void BitsetEvent::submitAwait(AwaitEventNode<BitsetEvent> *node, uint64_t sequence) {

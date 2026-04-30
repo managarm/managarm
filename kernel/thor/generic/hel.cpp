@@ -3334,7 +3334,9 @@ HelError helRaiseEvent(HelHandle handle) {
 
 	if(descriptor.is<OneshotEventDescriptor>()) {
 		auto event = descriptor.get<OneshotEventDescriptor>().event;
-		event->trigger();
+		auto outcome = event->trigger();
+		if(!outcome)
+			return translateError(outcome.error());
 	}else{
 		return kHelErrBadDescriptor;
 	}
