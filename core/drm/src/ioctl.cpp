@@ -57,7 +57,7 @@ async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configur
 }
 
 async::detached drm_core::File::pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, std::vector<uint32_t> crtc_ids) {
+		drm_core::File *self, uint64_t cookie, std::unordered_set<uint32_t> crtc_ids) {
 	co_await config->waitForCompletion();
 	for(auto id : crtc_ids)
 		self->_retirePageFlip(cookie, id);
@@ -1124,7 +1124,7 @@ struct drm_core::File::HandleIoctl {
 			size_t prop_count = 0;
 			std::vector<drm_core::Assignment> assignments;
 
-			std::vector<uint32_t> crtc_ids;
+			std::unordered_set<uint32_t> crtc_ids;
 
 			auto config = self->_device->createConfiguration();
 			auto state = self->_device->atomicState();
@@ -1159,7 +1159,15 @@ struct drm_core::File::HandleIoctl {
 				}
 
 				if(mode_obj->type() == ObjectType::crtc) {
-					crtc_ids.push_back(mode_obj->id());
+					crtc_ids.insert(mode_obj->id());
+				}else if(mode_obj->type() == ObjectType::plane) {
+					auto crtc = mode_obj->asPlane()->drmState()->crtc;
+					if(crtc)
+						crtc_ids.insert(crtc->id());
+				}else if(mode_obj->type() == ObjectType::connector) {
+					auto crtc = mode_obj->asConnector()->drmState()->crtc;
+					if(crtc)
+						crtc_ids.insert(crtc->id());
 				}
 
 				for(size_t j = 0; j < req.drm_prop_counts(i); j++) {

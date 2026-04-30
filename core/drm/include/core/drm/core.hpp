@@ -3,6 +3,7 @@
 #include <queue>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 #include <variant>
 
@@ -103,7 +104,7 @@ private:
 	async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
 		drm_core::File *self, uint64_t cookie, uint32_t crtc_id);
 	async::detached pageFlipEvent(std::unique_ptr<drm_core::Configuration> config,
-		drm_core::File *self, uint64_t cookie, std::vector<uint32_t> crtc_id);
+		drm_core::File *self, uint64_t cookie, std::unordered_set<uint32_t> crtc_id);
 	void _retirePageFlip(uint64_t cookie, uint32_t crtc_id);
 
 	std::shared_ptr<Device> _device;
