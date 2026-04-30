@@ -860,6 +860,9 @@ struct drm_core::File::HandleIoctl {
 				self->atomic = true;
 				self->universalPlanes = true;
 				resp.set_error(managarm::fs::Errors::SUCCESS);
+			} else if(req.drm_capability() == DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT) {
+				std::println("\e[31mcore/drm: DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT is stubbed\e[39m");
+				resp.set_error(managarm::fs::Errors::SUCCESS);
 			} else {
 				std::println("\e[31mcore/drm: Attempt to set unknown client capability {}\e[39m", req.drm_capability());
 				resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
