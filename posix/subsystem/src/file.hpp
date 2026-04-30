@@ -625,6 +625,18 @@ struct PassthroughFile : File {
 		return _file.getLane();
 	}
 
+	async::result<frg::expected<Error, PollWaitResult>> pollWait(
+	    Process *, uint64_t sequence, int mask, async::cancellation_token cancellation
+	) override {
+		auto res = co_await _file.pollWait(sequence, mask, cancellation);
+		co_return res.map_error(toPosixError);
+	}
+
+	async::result<frg::expected<Error, PollStatusResult>> pollStatus(Process *) override {
+		auto res = co_await _file.pollStatus();
+		co_return res.map_error(toPosixError);
+	}
+
 private:
 	protocols::fs::File _file;
 };

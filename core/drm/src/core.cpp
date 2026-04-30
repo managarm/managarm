@@ -248,6 +248,23 @@ drm_core::PrimeFile::seekEof(void *object, int64_t offset) {
 	co_return static_cast<ssize_t>(self->offset);
 }
 
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
+drm_core::PrimeFile::pollStatus(void *) {
+	// TODO: properly support this once we implement fences
+	co_return protocols::fs::PollStatusResult{1, EPOLLIN | EPOLLOUT};
+}
+
+async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>>
+drm_core::PrimeFile::pollWait(
+    void *, uint64_t sequence, int, async::cancellation_token cancellation
+) {
+	// TODO: properly support this once we implement fences
+	if (sequence == 0)
+		co_return protocols::fs::PollWaitResult{1, EPOLLIN | EPOLLOUT};
+	co_await async::suspend_indefinitely(cancellation);
+	co_return protocols::fs::Error::interrupted;
+}
+
 namespace drm_core {
 
 static constexpr auto defaultFileOperations = protocols::fs::FileOperations{

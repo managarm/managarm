@@ -137,6 +137,8 @@ struct PrimeFile {
 	static async::result<protocols::fs::SeekResult> seekAbs(void *object, int64_t offset);
 	static async::result<protocols::fs::SeekResult> seekRel(void *object, int64_t offset);
 	static async::result<protocols::fs::SeekResult> seekEof(void *object, int64_t offset);
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>> pollStatus(void *object);
+	static async::result<frg::expected<protocols::fs::Error, protocols::fs::PollWaitResult>> pollWait(void *object, uint64_t sequence, int mask, async::cancellation_token cancellation);
 
 	helix::BorrowedDescriptor _memory;
 

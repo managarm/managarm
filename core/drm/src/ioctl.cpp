@@ -20,6 +20,8 @@ static constexpr auto primeFileOperations = protocols::fs::FileOperations{
 	.seekRel = &drm_core::PrimeFile::seekRel,
 	.seekEof = &drm_core::PrimeFile::seekEof,
 	.accessMemory = &drm_core::PrimeFile::accessMemory,
+	.pollWait = &drm_core::PrimeFile::pollWait,
+	.pollStatus = &drm_core::PrimeFile::pollStatus,
 };
 
 }
