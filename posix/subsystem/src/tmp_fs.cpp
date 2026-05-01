@@ -194,7 +194,7 @@ private:
 };
 
 struct SocketNode final : Node {
-	SocketNode(Superblock *superblock);
+	SocketNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid);
 
 	VfsType getType() override {
 		return VfsType::socket;
@@ -370,7 +370,7 @@ private:
 		co_return {};
 	}
 
-	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name) override;
+	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) override;
 
 	async::result<frg::expected<Error>> rmdir(std::string name) override {
 		auto it = _entries.find(name);
@@ -837,8 +837,11 @@ DeviceNode::DeviceNode(Superblock *superblock, VfsType type, DeviceId id)
 // SocketNode implementation.
 // ----------------------------------------------------------------------------
 
-SocketNode::SocketNode(Superblock *superblock)
-: Node{superblock} { }
+SocketNode::SocketNode(Superblock *superblock, mode_t mode, uid_t uid, gid_t gid)
+: Node{superblock} {
+	initializeMode(mode);
+	initializeOwner(uid, gid);
+}
 
 // ----------------------------------------------------------------------------
 // DirectoryNode implementation.
@@ -925,10 +928,10 @@ DirectoryNode::mkfifo(std::string name, mode_t mode) {
 	co_return link;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> DirectoryNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	if(!(_entries.find(name) == _entries.end()))
 		co_return Error::alreadyExists;
-	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()));
+	auto node = std::make_shared<SocketNode>(static_cast<Superblock *>(superblock()), mode, uid, gid);
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	_entries.insert(link);
 	notifyObservers(FsObserver::createEvent, name, 0);

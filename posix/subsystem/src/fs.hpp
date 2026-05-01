@@ -209,7 +209,7 @@ public:
 	virtual async::result<Error> utimensat(std::optional<timespec> atime, std::optional<timespec> mtime, timespec ctime);
 
 	// Creates an socket
-	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name);
+	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>> mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid);
 
 	// Recursive path traversal
 	virtual bool hasTraverseLinks();

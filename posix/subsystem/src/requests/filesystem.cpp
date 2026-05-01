@@ -1644,7 +1644,7 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 			}
 		}
 	} else if(type == VfsType::socket) {
-		auto result = co_await parent->mksocket(resolver.nextComponent());
+		auto result = co_await parent->mksocket(resolver.nextComponent(), (req.mode() & ~self->fsContext()->getUmask()), self->threadGroup()->uid(), self->threadGroup()->gid());
 		if(!result) {
 			if(result.error() == Error::illegalOperationTarget) {
 				co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
