@@ -29,7 +29,7 @@ namespace {
 [[gnu::used, gnu::section(".requestsStartMarker")]] volatile uint64_t start_marker[] =
     LIMINE_REQUESTS_START_MARKER;
 [[gnu::used, gnu::section(".requests")]] volatile uint64_t base_revision[] =
-    LIMINE_BASE_REVISION(4);
+    LIMINE_BASE_REVISION(6);
 
 LIMINE_REQUEST(memmap_request, LIMINE_MEMMAP_REQUEST_ID, 0);
 LIMINE_REQUEST(hhdm_request, LIMINE_HHDM_REQUEST_ID, 0);
@@ -54,7 +54,7 @@ initgraph::Task obtainFirmwareTables{
 		    eirRsdpAddr = virtToPhys(rsdp_request.response->address);
 	    }
 	    if (smbios_request.response) {
-		    eirSmbios3Addr = static_cast<address_t>(smbios_request.response->entry_64);
+		    eirSmbios3Addr = virtToPhys(smbios_request.response->entry_64);
 	    }
     }
 };
