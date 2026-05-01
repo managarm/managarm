@@ -97,6 +97,9 @@ Checks:
   - 'modernize-use-nullptr'
   - 'readability-enum-initial-value'
   - 'readability-redundant-smartptr-get'
+CheckOptions:
+  - key: bugprone-unused-return-value.AllowCastToVoid
+    value: true
 HeaderFileExtensions:
   - h
   - hpp
