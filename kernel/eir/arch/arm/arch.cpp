@@ -166,9 +166,12 @@ void setupPaging() {
 	eirTTBR[0] = allocPage();
 	eirTTBR[1] = allocPage();
 
+	auto ttbr0Ptr = physToVirt<uint64_t>(eirTTBR[0]);
+	auto ttbr1Ptr = physToVirt<uint64_t>(eirTTBR[1]);
+
 	for (size_t i = 0; i < 512; i++) {
-		((uint64_t *)eirTTBR[0])[i] = 0;
-		((uint64_t *)eirTTBR[1])[i] = 0;
+		ttbr0Ptr[i] = 0;
+		ttbr1Ptr[i] = 0;
 	}
 }
 
@@ -186,84 +189,88 @@ static inline constexpr uint64_t kPageGRE = (1 << 2);
 static inline constexpr uint64_t kPagenGnRnE = (2 << 2);
 
 void
-mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode caching_mode) {
+mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMode cachingMode) {
 	auto ttbr = (address >> 63) & 1;
 	auto l0 = (address >> 39) & 0x1FF;
 	auto l1 = (address >> 30) & 0x1FF;
 	auto l2 = (address >> 21) & 0x1FF;
 	auto l3 = (address >> 12) & 0x1FF;
 
-	auto l0_ent = ((uint64_t *)eirTTBR[ttbr])[l0];
-	auto l1_ptr = l0_ent & 0xFFFFFFFFF000;
-	if (!(l0_ent & kPageValid)) {
+	auto l0Tbl = physToVirt<uint64_t>(eirTTBR[ttbr]);
+	auto l0Ent = l0Tbl[l0];
+	auto l1Ptr = l0Ent & 0xFFFFFFFFF000;
+	if (!(l0Ent & kPageValid)) {
 		uint64_t addr = allocPage();
+		auto ptr = physToVirt<uint64_t>(addr);
 
 		for (int i = 0; i < 512; i++)
-			((uint64_t *)addr)[i] = 0;
+			ptr[i] = 0;
 
-		((uint64_t *)eirTTBR[ttbr])[l0] = addr | kPageValid | kPageTable;
-
-		l1_ptr = addr;
+		l0Tbl[l0] = addr | kPageValid | kPageTable;
+		l1Ptr = addr;
 	}
 
-	auto l1_ent = ((uint64_t *)l1_ptr)[l1];
-	auto l2_ptr = l1_ent & 0xFFFFFFFFF000;
-	if (!(l1_ent & kPageValid)) {
+	auto l1Tbl = physToVirt<uint64_t>(l1Ptr);
+	auto l1Ent = l1Tbl[l1];
+	auto l2Ptr = l1Ent & 0xFFFFFFFFF000;
+	if (!(l1Ent & kPageValid)) {
 		uint64_t addr = allocPage();
+		auto ptr = physToVirt<uint64_t>(addr);
 
 		for (int i = 0; i < 512; i++)
-			((uint64_t *)addr)[i] = 0;
+			ptr[i] = 0;
 
-		((uint64_t *)l1_ptr)[l1] = addr | kPageValid | kPageTable;
-
-		l2_ptr = addr;
+		l1Tbl[l1] = addr | kPageValid | kPageTable;
+		l2Ptr = addr;
 	}
 
-	auto l2_ent = ((uint64_t *)l2_ptr)[l2];
-	auto l3_ptr = l2_ent & 0xFFFFFFFFF000;
-	if (!(l2_ent & kPageValid)) {
+	auto l2Tbl = physToVirt<uint64_t>(l2Ptr);
+	auto l2Ent = l2Tbl[l2];
+	auto l3Ptr = l2Ent & 0xFFFFFFFFF000;
+	if (!(l2Ent & kPageValid)) {
 		uint64_t addr = allocPage();
+		auto ptr = physToVirt<uint64_t>(addr);
 
 		for (int i = 0; i < 512; i++)
-			((uint64_t *)addr)[i] = 0;
+			ptr[i] = 0;
 
-		((uint64_t *)l2_ptr)[l2] = addr | kPageValid | kPageTable;
-
-		l3_ptr = addr;
+		l2Tbl[l2] = addr | kPageValid | kPageTable;
+		l3Ptr = addr;
 	}
 
-	auto l3_ent = ((uint64_t *)l3_ptr)[l3];
+	auto l3Tbl = physToVirt<uint64_t>(l3Ptr);
+	auto l3Ent = l3Tbl[l3];
 
-	if (l3_ent & kPageValid)
+	if (l3Ent & kPageValid)
 		eir::panicLogger() << "eir: Trying to map 0x" << frg::hex_fmt{address} << " twice!"
 		                   << frg::endlog;
 
-	uint64_t new_entry = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
+	uint64_t newEntry = physical | kPageValid | kPageL3Page | kPageAccess | kPageInnerSh;
 
 	if (!(flags & PageFlags::write))
-		new_entry |= kPageRO;
+		newEntry |= kPageRO;
 	if (!(flags & PageFlags::execute))
-		new_entry |= kPageXN | kPagePXN;
+		newEntry |= kPageXN | kPagePXN;
 	if (!(flags & PageFlags::global))
-		new_entry |= kPageNotGlobal;
+		newEntry |= kPageNotGlobal;
 
-	if (caching_mode == CachingMode::writeCombine) {
-		new_entry |= kPageGRE;
-	} else if (caching_mode == CachingMode::mmio) {
-		new_entry |= kPagenGnRnE;
+	if (cachingMode == CachingMode::writeCombine) {
+		newEntry |= kPageGRE;
+	} else if (cachingMode == CachingMode::mmio) {
+		newEntry |= kPagenGnRnE;
 	} else {
-		assert(caching_mode == CachingMode::null);
-		new_entry |= kPageWb;
+		assert(cachingMode == CachingMode::null);
+		newEntry |= kPageWb;
 	}
 
-	if (new_entry & (0b111ULL << 48)) {
+	if (newEntry & (0b111ULL << 48)) {
 		eir::infoLogger() << "Oops, reserved bits set when mapping 0x" << frg::hex_fmt{physical}
 		                  << " to 0x" << frg::hex_fmt{address} << frg::endlog;
 
-		eir::panicLogger() << "New entry value: 0x" << frg::hex_fmt{new_entry} << frg::endlog;
+		eir::panicLogger() << "New entry value: 0x" << frg::hex_fmt{newEntry} << frg::endlog;
 	}
 
-	((uint64_t *)l3_ptr)[l3] = new_entry;
+	l3Tbl[l3] = newEntry;
 }
 
 address_t getSingle4kPage(address_t address) {
@@ -273,27 +280,31 @@ address_t getSingle4kPage(address_t address) {
 	auto l2 = (address >> 21) & 0x1FF;
 	auto l3 = (address >> 12) & 0x1FF;
 
-	auto l0_ent = ((uint64_t *)eirTTBR[ttbr])[l0];
-	auto l1_ptr = l0_ent & 0xFFFFFFFFF000;
-	if (!(l0_ent & kPageValid))
+	auto l0Tbl = physToVirt<uint64_t>(eirTTBR[ttbr]);
+	auto l0Ent = l0Tbl[l0];
+	auto l1Ptr = l0Ent & 0xFFFFFFFFF000;
+	if (!(l0Ent & kPageValid))
 		return -1;
 
-	auto l1_ent = ((uint64_t *)l1_ptr)[l1];
-	auto l2_ptr = l1_ent & 0xFFFFFFFFF000;
-	if (!(l1_ent & kPageValid))
+	auto l1Tbl = physToVirt<uint64_t>(l1Ptr);
+	auto l1Ent = l1Tbl[l1];
+	auto l2Ptr = l1Ent & 0xFFFFFFFFF000;
+	if (!(l1Ent & kPageValid))
 		return -1;
 
-	auto l2_ent = ((uint64_t *)l2_ptr)[l2];
-	auto l3_ptr = l2_ent & 0xFFFFFFFFF000;
-	if (!(l2_ent & kPageValid))
+	auto l2Tbl = physToVirt<uint64_t>(l2Ptr);
+	auto l2Ent = l2Tbl[l2];
+	auto l3Ptr = l2Ent & 0xFFFFFFFFF000;
+	if (!(l2Ent & kPageValid))
 		return -1;
 
-	auto l3_ent = ((uint64_t *)l3_ptr)[l3];
-	auto page_ptr = l3_ent & 0xFFFFFFFFF000;
-	if (!(l3_ent & kPageValid))
+	auto l3Tbl = physToVirt<uint64_t>(l3Ptr);
+	auto l3Ent = l3Tbl[l3];
+	auto pagePtr = l3Ent & 0xFFFFFFFFF000;
+	if (!(l3Ent & kPageValid))
 		return -1;
 
-	return page_ptr;
+	return pagePtr;
 }
 
 int getKernelVirtualBits() { return 49; }

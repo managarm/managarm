@@ -291,8 +291,10 @@ static initgraph::Task discoverOutput{
 	    uart::initFromDtb(dtbUart, pathNodes);
 
 	    if (!std::holds_alternative<std::monostate>(dtbUart)) {
-		    dtbUartLogHandler.initialize(&dtbUart);
-		    enableLogHandler(dtbUartLogHandler.get());
+		    if (!physOffset) {
+			    dtbUartLogHandler.initialize(&dtbUart);
+			    enableLogHandler(dtbUartLogHandler.get());
+		    }
 		    uart::setBootUart(&dtbUart);
 
 		    infoLogger() << "eir: Chosen output path: " << path << frg::endlog;
