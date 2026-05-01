@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <expected>
 
 #include <async/algorithm.hpp>
 #include <async/oneshot-event.hpp>
@@ -437,7 +438,10 @@ smarter::shared_ptr<MemoryView> getZeroMemory();
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
 struct ImmediateMemory final : MemoryView {
-	ImmediateMemory(size_t length);
+	static std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
+	create(size_t length);
+
+	ImmediateMemory();
 	ImmediateMemory(const ImmediateMemory &) = delete;
 	~ImmediateMemory();
 

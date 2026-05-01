@@ -1,5 +1,6 @@
 #pragma once
 
+#include <expected>
 #include <span>
 
 #include <async/mutex.hpp>
@@ -73,6 +74,9 @@ private:
 	using Address = uintptr_t;
 
 public:
+	static std::expected<smarter::shared_ptr<IpcQueue>, Error>
+	create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
+
 	IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
 
 	IpcQueue(const IpcQueue &) = delete;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include <async/cancellation.hpp>
 #include <frg/list.hpp>
 #include <thor-internal/error.hpp>
@@ -63,7 +65,7 @@ private:
 struct OneshotEvent {
 	OneshotEvent() = default;
 
-	void trigger();
+	std::expected<void, Error> trigger();
 
 	void submitAwait(AwaitEventNode<OneshotEvent> *node, uint64_t sequence);
 	void cancelAwait(AwaitEventNode<OneshotEvent> *node);
@@ -150,7 +152,7 @@ private:
 struct BitsetEvent {
 	BitsetEvent();
 
-	void trigger(uint32_t bits);
+	std::expected<void, Error> trigger(uint32_t bits);
 
 	void submitAwait(AwaitEventNode<BitsetEvent> *node, uint64_t sequence);
 	void cancelAwait(AwaitEventNode<BitsetEvent> *node);

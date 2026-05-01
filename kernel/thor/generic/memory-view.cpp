@@ -532,24 +532,36 @@ smarter::shared_ptr<MemoryView> getZeroMemory() {
 // ImmediateMemory
 // --------------------------------------------------------
 
-ImmediateMemory::ImmediateMemory(size_t length)
-: _physicalPages{*kernelAlloc} {
+std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
+ImmediateMemory::create(size_t length) {
+	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc);
+	if(!ptr)
+		return std::unexpected{Error::noMemory};
+	ptr->selfPtr = ptr;
+
 	auto numPages = (length + kPageSize - 1) >> kPageShift;
-	_physicalPages.resize(numPages);
+	ptr->_physicalPages.resize(numPages, PhysicalAddr(-1));
 	for(size_t i = 0; i < numPages; ++i) {
 		auto physical = physicalAllocator->allocate(kPageSize, 64);
-		assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
+		if(physical == PhysicalAddr(-1))
+			return std::unexpected{Error::noMemory};
 
 		PageAccessor accessor{physical};
 		memset(accessor.get(), 0, kPageSize);
 
 		globalPfnDb().insert(physical, PfnDescriptor::otherPage());
-		_physicalPages[i] = physical;
+		ptr->_physicalPages[i] = physical;
 	}
+	return ptr;
 }
+
+ImmediateMemory::ImmediateMemory()
+: _physicalPages{*kernelAlloc} { }
 
 ImmediateMemory::~ImmediateMemory() {
 	for(size_t i = 0; i < _physicalPages.size(); ++i) {
+		if(_physicalPages[i] == PhysicalAddr(-1))
+			continue;
 		globalPfnDb().erase(_physicalPages[i]);
 		physicalAllocator->free(_physicalPages[i], kPageSize);
 	}
@@ -565,10 +577,11 @@ coroutine<frg::expected<Error>> ImmediateMemory::resize(size_t newSize) {
 		size_t currentNumPages = _physicalPages.size();
 		size_t newNumPages = (newSize + kPageSize - 1) >> kPageShift;
 		assert(newNumPages >= currentNumPages);
-		_physicalPages.resize(newNumPages);
+		_physicalPages.resize(newNumPages, PhysicalAddr(-1));
 		for(size_t i = currentNumPages; i < newNumPages; ++i) {
 			auto physical = physicalAllocator->allocate(kPageSize, 64);
-			assert(physical != PhysicalAddr(-1) && "OOM when allocating ImmediateMemory");
+			if(physical == PhysicalAddr(-1))
+				co_return Error::noMemory;
 
 			PageAccessor accessor{physical};
 			memset(accessor.get(), 0, kPageSize);
@@ -770,10 +783,13 @@ coroutine<frg::expected<Error>> AllocatedMemory::resize(size_t newSize) {
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
-		assert(!(newSize % _chunkSize));
-		size_t num_chunks = newSize / _chunkSize;
-		assert(num_chunks >= _physicalChunks.size());
-		_physicalChunks.resize(num_chunks, PhysicalAddr(-1));
+		if (newSize % _chunkSize)
+			co_return Error::illegalArgs;
+		size_t numChunks = newSize / _chunkSize;
+		// TODO: Support shrinking of AllocatedMemory.
+		if (numChunks < _physicalChunks.size())
+			co_return Error::illegalArgs;
+		_physicalChunks.resize(numChunks, PhysicalAddr(-1));
 	}
 	co_return {};
 }
@@ -1686,8 +1702,10 @@ PhysicalRange IndirectMemory::peekRange(uintptr_t offset, FetchFlags flags) {
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&mutex_);
 
-		assert(slot < indirections_.size()); // TODO: Return Error::fault.
-		assert(indirections_[slot]); // TODO: Return Error::fault.
+		if (slot >= indirections_.size())
+			return {.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
+		if (!indirections_[slot])
+			return {.physical = PhysicalAddr(-1), .size = 0, .cachingMode = CachingMode::null};
 		indirection = indirections_[slot];
 	}
 

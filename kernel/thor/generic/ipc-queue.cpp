@@ -11,39 +11,44 @@ namespace thor {
 // IpcQueue
 // ----------------------------------------------------------------------------
 
-IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks)
-: _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
-		_currentChunk{0}, _currentProgress{0},
-		_numCqChunks{numChunks}, _numSqChunks{numSqChunks} {
+std::expected<smarter::shared_ptr<IpcQueue>, Error>
+IpcQueue::create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks) {
+	auto ptr = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
+			numChunks, chunkSize, numSqChunks);
+	if(!ptr)
+		return std::unexpected{Error::noMemory};
+	ptr->selfPtr = ptr;
+
 	auto totalChunks = numChunks + numSqChunks;
 	auto chunksOffset = (sizeof(QueueStruct) + 63) & ~size_t(63);
 	auto reservedPerChunk = (sizeof(ChunkStruct) + chunkSize + 63) & ~size_t(63);
 	auto overallSize = chunksOffset + totalChunks * reservedPerChunk;
 
-	// Setup internal state.
-	_memory = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, overallSize);
-	_memory->selfPtr = _memory;
-	_mapping = ImmediateWindow{_memory};
-	_chunkOffsets.resize(totalChunks);
+	auto memoryOutcome = ImmediateMemory::create(overallSize);
+	if(!memoryOutcome)
+		return std::unexpected{memoryOutcome.error()};
+	ptr->_memory = std::move(*memoryOutcome);
+	ptr->_mapping = ImmediateWindow{ptr->_memory};
+	ptr->_chunkOffsets.resize(totalChunks);
 	for(unsigned int i = 0; i < totalChunks; ++i)
-		_chunkOffsets[i] = chunksOffset + i * reservedPerChunk;
+		ptr->_chunkOffsets[i] = chunksOffset + i * reservedPerChunk;
 
 	// Initialize SQ chunks if configured.
 	if(numSqChunks > 0) {
-		auto head = _mapping.access<QueueStruct>(0);
+		auto head = ptr->_mapping.access<QueueStruct>(0);
 
 		// Reset all SQ chunks.
 		for(unsigned int i = numChunks; i < totalChunks; ++i) {
-			auto chunkOffset = _chunkOffsets[i];
-			auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
+			auto chunkOffset = ptr->_chunkOffsets[i];
+			auto chunkHead = ptr->_mapping.access<ChunkStruct>(chunkOffset);
 			chunkHead->next = 0;
 			chunkHead->progressFutex = 0;
 		}
 
 		// Link SQ chunks together.
 		for(unsigned int i = numChunks; i < totalChunks - 1; ++i) {
-			auto chunkOffset = _chunkOffsets[i];
-			auto chunkHead = _mapping.access<ChunkStruct>(chunkOffset);
+			auto chunkOffset = ptr->_chunkOffsets[i];
+			auto chunkHead = ptr->_mapping.access<ChunkStruct>(chunkOffset);
 			chunkHead->next = (i + 1) | kNextPresent;
 		}
 
@@ -51,11 +56,17 @@ IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqC
 		__atomic_store_n(&head->sqFirst, numChunks | kNextPresent, __ATOMIC_RELEASE);
 
 		// Initialize SQ state.
-		_sqCurrentChunk = numChunks;
-		_sqCurrentProgress = 0;
-		_sqTailChunk = totalChunks - 1;
+		ptr->_sqCurrentChunk = numChunks;
+		ptr->_sqCurrentProgress = 0;
+		ptr->_sqTailChunk = totalChunks - 1;
 	}
+	return ptr;
 }
+
+IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks)
+: _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
+		_currentChunk{0}, _currentProgress{0},
+		_numCqChunks{numChunks}, _numSqChunks{numSqChunks} { }
 
 void IpcQueue::notifyError() {
 	auto head = _mapping.access<QueueStruct>(0);

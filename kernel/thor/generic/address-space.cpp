@@ -623,7 +623,8 @@ VirtualSpace::synchronize(VirtualAddr address, size_t size) {
 
 			mapping = _findMapping(alignedAddress + overallProgress);
 		}
-		assert(mapping);
+		if(!mapping)
+			co_return Error::fault;
 
 		auto mappingOffset = alignedAddress + overallProgress - mapping->address;
 		auto mappingChunk = frg::min(alignedSize - overallProgress,
