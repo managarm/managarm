@@ -181,9 +181,9 @@ public:
 				co_return std::unexpected{Error::interrupted};
 
 			co_await async::race_and_cancel(
-				async::lambda([&](async::cancellation_token c) {
+				[&](async::cancellation_token c) {
 					return raceReceiveTimeout(c);
-				}),
+				},
 				async::lambda([&](async::cancellation_token c) -> async::result<void> {
 					while (_recvQueue.empty()) {
 						if (!co_await _statusBell.async_wait(c)) {
@@ -644,11 +644,11 @@ public:
 			server->_statusBell.raise();
 
 			co_await async::race_and_cancel(
-				[&](async::cancellation_token c) { return raceSendTimeout(c); },
-				[&](async::cancellation_token c) -> async::result<void> {
+				async::lambda([&](async::cancellation_token c) { return raceSendTimeout(c); }),
+				async::lambda([&](async::cancellation_token c) -> async::result<void> {
 					while (_currentState == State::null && !c.is_cancellation_requested())
 						co_await _statusBell.async_wait(c);
-				}
+				})
 			);
 
 			if(_currentState != State::connected)
