@@ -360,10 +360,12 @@ HandleRequest::operator()(managarm::posix::PidfdSendSignalRequest &&req,
 		co_return {};
 	}
 
-	UserSignal info;
-	info.pid = self->pid();
-	info.uid = 0;
-	target->issueThreadGroupSignal(req.signal(), info);
+	if(req.signal() > 0) {
+		UserSignal info;
+		info.pid = self->pid();
+		info.uid = 0;
+		target->issueThreadGroupSignal(req.signal(), info);
+	}
 
 	managarm::posix::PidfdSendSignalResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
