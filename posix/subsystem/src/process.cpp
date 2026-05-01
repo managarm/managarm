@@ -1870,6 +1870,7 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 		// Send SIGCHLD to the parent.
 		ChildSignal info;
 		info.pid = hull_->getPid();
+		info.uid = uid();
 		info.utime = _generationUsage.userTime;
 
 		if(std::get_if<TerminationByExit>(&_state)) {
