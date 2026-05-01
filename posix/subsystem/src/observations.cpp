@@ -39,13 +39,19 @@ void alertRemoteQueue(Process *self) {
 	}
 }
 
-async::result<bool> handlePendingSignalsFromObservation(Process *self) {
+enum class SignalResult {
+	normal,
+	killed,
+};
+
+async::result<SignalResult> handlePendingSignalsFromObservation(Process *self) {
 	if constexpr (logSignals)
 		std::println("posix: checking if we should raise pending signals; delayedSignal={}", bool(self->delayedSignal));
 
+	SignalResult result = SignalResult::normal;
+
 	if (!self->delayedSignal) {
-		auto active =
-		    co_await self->fetchSignal(~self->signalMask(), true);
+		auto active = self->tryFetchSignal(~self->signalMask());
 		if constexpr (logSignals)
 			std::println("posix: active SignalItem={}", bool(active));
 
@@ -66,7 +72,7 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 					    active, self, handling
 					);
 					if (handling.killed)
-						co_return false;
+						co_return SignalResult::killed;
 				} else {
 					if constexpr (logSignals)
 						std::println("posix: making signal delayed");
@@ -77,7 +83,7 @@ async::result<bool> handlePendingSignalsFromObservation(Process *self) {
 		}
 	}
 
-	co_return true;
+	co_return result;
 }
 
 } // namespace
@@ -339,7 +345,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegOut2] = self->enteredSignalSeq();
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			if (!co_await handlePendingSignalsFromObservation(self.get()))
+			auto action = co_await handlePendingSignalsFromObservation(self.get());
+			if (action == SignalResult::killed)
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -376,7 +383,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 			co_await self->threadGroup()->signalContext()->restoreContext(thread, self.get());
 
-			if (!co_await handlePendingSignalsFromObservation(self.get()))
+			auto action = co_await handlePendingSignalsFromObservation(self.get());
+			if (action == SignalResult::killed)
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -500,7 +508,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			}
 
 			// If the process signalled itself, we should process the signal before resuming.
-			if (!co_await handlePendingSignalsFromObservation(self.get()))
+			auto action = co_await handlePendingSignalsFromObservation(self.get());
+			if (action == SignalResult::killed)
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -573,7 +582,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
-			if (!co_await handlePendingSignalsFromObservation(self.get()))
+			auto action = co_await handlePendingSignalsFromObservation(self.get());
+			if (action == SignalResult::killed)
 				break;
 
 			HEL_CHECK(helResume(thread.getHandle()));
@@ -687,7 +697,8 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 				break;
 			}
 
-			if (!co_await handlePendingSignalsFromObservation(self.get()))
+			auto action = co_await handlePendingSignalsFromObservation(self.get());
+			if (action == SignalResult::killed)
 				break;
 			HEL_CHECK(helResume(thread.getHandle()));
 		}else if(observe.observation() == kHelObservePanic) {
