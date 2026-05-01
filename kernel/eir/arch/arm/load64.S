@@ -60,6 +60,7 @@ eirEnterE2h:
 .section .text
 .global eirEnterKernel
 eirEnterKernel:
+	msr spsel, #1
 	// x0 -> Thor entry pointer
 	// x1 -> Thor stack pointer
 	mov sp, x1
