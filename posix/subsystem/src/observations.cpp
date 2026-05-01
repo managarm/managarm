@@ -571,15 +571,30 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			HEL_CHECK(helLoadRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			auto seq = gprs[kHelRegArg0];
+			gprs[kHelRegError] = 0;
 
-			if (seq == self->enteredSignalSeq()) {
+			if (self->stoppageState == Process::StoppageState::initiateStop
+				|| self->stoppageState == Process::StoppageState::stopRequested) {
+				gprs[kHelRegError] = kHelErrCancelled;
+			} else if (seq == self->enteredSignalSeq()) {
 				auto check = self->checkSignal();
 
-				if (!std::get<1>(check))
-					co_await self->pollSignal(std::get<0>(check), ~self->signalMask());
+				if (!std::get<1>(check)) {
+					co_await async::race_and_cancel(
+						async::lambda([&] (auto c) -> async::result<void> {
+							co_await self->pollSignal(std::get<0>(check), ~self->signalMask(), c);
+						}),
+						async::lambda([tg = self->threadGroup()] (auto c) -> async::result<void> {
+							co_await tg->interruptObservationEvent.async_wait(c);
+						})
+					);
+
+					if (self->stoppageState == Process::StoppageState::initiateStop
+					    || self->stoppageState == Process::StoppageState::stopRequested)
+						gprs[kHelRegError] = kHelErrCancelled;
+				}
 			}
 
-			gprs[kHelRegError] = 0;
 			HEL_CHECK(helStoreRegisters(thread.getHandle(), kHelRegsGeneral, &gprs));
 
 			auto action = co_await handlePendingSignalsFromObservation(self.get());
@@ -695,6 +710,39 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 			if (self->forceTermination) {
 				co_await self->terminate();
 				break;
+			} else if (self->stoppageState == Process::StoppageState::initiateStop) {
+				self->stoppageState = Process::StoppageState::stopped;
+
+				// Wait for all other threads to signal their stop.
+				co_await self->threadGroup()->threadStoppedEvent.async_wait_if([&] {
+					return !self->threadGroup()->allStopped();
+				});
+				// Send waitpid/SIGCHLD notifications.
+				self->threadGroup()->doSignalStop();
+
+				// Await SIGCONT
+				co_await self->threadGroup()->processSigcontEvent.async_wait_if([&] {
+					return self->stoppageState != Process::StoppageState::continueRequested;
+				});
+
+				// SIGCONT received, continue
+				self->stoppageState = Process::StoppageState::none;
+				co_await self->threadGroup()->threadContinuedEvent.async_wait_if([&] {
+					return !self->threadGroup()->allContinued();
+				});
+				self->threadGroup()->doSignalContinue();
+			} else if (self->stoppageState == Process::StoppageState::stopRequested) {
+				self->stoppageState = Process::StoppageState::stopped;
+
+				self->threadGroup()->threadStoppedEvent.raise();
+				// Await SIGCONT
+				co_await self->threadGroup()->processSigcontEvent.async_wait_if([&] {
+					return self->stoppageState != Process::StoppageState::continueRequested;
+				});
+
+				// SIGCONT received, continue
+				self->stoppageState = Process::StoppageState::none;
+				self->threadGroup()->threadContinuedEvent.raise();
 			}
 
 			auto action = co_await handlePendingSignalsFromObservation(self.get());

@@ -13,7 +13,7 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 	logBragiRequest(req);
 
 	if((req.flags() & ~(WNOHANG | WCONTINUED | WEXITED | WSTOPPED | WNOWAIT)) ||
-		!(req.flags() & (WEXITED /*| WSTOPPED | WCONTINUED*/))) {
+		!(req.flags() & (WEXITED | WSTOPPED | WCONTINUED))) {
 		std::cout << "posix: WAIT_ID invalid flags: " << req.flags() << std::endl;
 		co_await sendErrorResponse<managarm::posix::WaitIdResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
@@ -28,10 +28,10 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 		flags |= waitExited;
 
 	if(req.flags() & WSTOPPED)
-		std::cout << "\e[31mposix: WAIT_ID flag WSTOPPED is silently ignored\e[39m" << std::endl;
+		flags |= waitStopped;
 
 	if(req.flags() & WCONTINUED)
-		std::cout << "\e[31mposix: WAIT_ID flag WCONTINUED is silently ignored\e[39m" << std::endl;
+		flags |= waitContinued;
 
 	if(req.flags() & WNOWAIT)
 		flags |= waitLeaveZombie;
@@ -76,6 +76,12 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 		}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
 			resp.set_sig_status(W_EXITCODE(0, bySignal->signo));
 			resp.set_sig_code(self->threadGroup()->getDumpable() ? CLD_DUMPED : CLD_KILLED);
+		}else if(auto stopped = std::get_if<StoppedBySignal>(&proc_state.state); stopped) {
+			resp.set_sig_status(W_EXITCODE(stopped->signo, 0x7f));
+			resp.set_sig_code(CLD_STOPPED);
+		}else if(auto continued = std::get_if<ContinuedBySignal>(&proc_state.state); continued) {
+			resp.set_sig_status(0xFFFF);
+			resp.set_sig_code(CLD_CONTINUED);
 		}else{
 			resp.set_sig_status(0);
 			resp.set_sig_code(0);
