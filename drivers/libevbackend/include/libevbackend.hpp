@@ -69,6 +69,9 @@ struct File {
 	ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult,
 			helix::UniqueLane conversation);
 
+	static async::result<int> getFileFlags(void *object);
+	static async::result<void> setFileFlags(void *object, int flags);
+
 	// ------------------------------------------------------------------------
 	// Public File API.
 	// ------------------------------------------------------------------------
