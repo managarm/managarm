@@ -629,6 +629,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 				gprs[kHelRegOut0] = 0;
 				gprs[kHelRegOut1] = check->signalNumber;
+				delete check;
 			} else if(timeout) {
 				SignalItem *item = nullptr;
 
@@ -660,6 +661,7 @@ async::result<void> observeThread(std::shared_ptr<Process> self,
 
 					gprs[kHelRegOut0] = 0;
 					gprs[kHelRegOut1] = item->signalNumber;
+					delete item;
 				}
 			}
 

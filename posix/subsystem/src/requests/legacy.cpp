@@ -400,15 +400,16 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			co_return {};
 		}
 
-		auto removePendingSignal = [&](int signo) -> async::result<void> {
-			if (self->delayedSignal && self->delayedSignal->signalNumber == static_cast<int>(signo)) {
+		auto removePendingSignal = [&](int signo) {
+			if (self->delayedSignal && self->delayedSignal->signalNumber == signo) {
 				// If there is a pending signal that is now being ignored, remove it.
 				delete self->delayedSignal;
 				self->delayedSignal = nullptr;
 				self->delayedSignalHandling = std::nullopt;
 			}
 
-			while (co_await self->fetchSignal(1 << (signo - 1), true) != nullptr);
+			while (auto item = self->tryFetchSignal(1 << (signo - 1)))
+				delete item;
 		};
 
 		std::set<int> defaultIgnoredSignals = {SIGCHLD, SIGURG, SIGWINCH};
@@ -421,11 +422,11 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 				// POSIX requires discarding pending signals when setting SIG_DFL for signals,
 				// if their default action is to ignore (POSIX 2024, B.2.4.3 Signal Actions)
 				if (defaultIgnoredSignals.contains(req.sig_number()))
-					co_await removePendingSignal(req.sig_number());
+					removePendingSignal(req.sig_number());
 			}else if(req.sig_handler() == uintptr_t(SIG_IGN)) {
 				// POSIX requires discarding pending signals when setting SIG_IGN
 				handler.disposition = SignalDisposition::ignore;
-				co_await removePendingSignal(req.sig_number());
+				removePendingSignal(req.sig_number());
 			}else{
 				handler.disposition = SignalDisposition::handle;
 				handler.handlerIp = req.sig_handler();
