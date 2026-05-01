@@ -33,6 +33,38 @@ struct Device final : UnixDevice, drvcore::ClassDevice {
 	}
 
 	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("DEVTYPE", "drm_minor");
+		ue.set("SUBSYSTEM", "drm");
+	}
+
+	std::optional<std::string> getClassPath() override {
+		return "drm";
+	};
+
+private:
+	int _index;
+	helix::UniqueLane _lane;
+};
+
+struct RenderDevice final : UnixDevice, drvcore::ClassDevice {
+	RenderDevice(int index, helix::UniqueLane lane, std::shared_ptr<drvcore::Device> parent)
+	: UnixDevice{VfsType::charDevice},
+			drvcore::ClassDevice{sysfsSubsystem, std::move(parent),
+					"renderD" + std::to_string(index + 128), this},
+			_index{index}, _lane{std::move(lane)} { }
+
+	std::string nodePath() override {
+		return "dri/renderD" + std::to_string(_index + 128);
+	}
+
+	async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>>
+	open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			SemanticFlags semantic_flags) override {
+		return openExternalDevice(_lane, std::move(mount), std::move(link), semantic_flags);
+	}
+
+	void composeUevent(drvcore::UeventProperties &ue) override {
+		ue.set("DEVTYPE", "drm_minor");
 		ue.set("SUBSYSTEM", "drm");
 	}
 
@@ -76,14 +108,19 @@ async::detached run() {
 			auto parent = drvcore::getMbusDevice(mbusParent);
 
 			auto lane = (co_await entity.getRemoteLane()).unwrap();
-			auto device = std::make_shared<Device>(index, std::move(lane), parent);
+			auto device = std::make_shared<Device>(index, lane.dup(), parent);
+			auto renderDevice = std::make_shared<RenderDevice>(index, std::move(lane), parent);
 			// The minor is only correct for card* devices but not for control* and render*.
 			device->assignId({226, index});
+			renderDevice->assignId({226, index + 128});
 
 			charRegistry.install(device);
+			charRegistry.install(renderDevice);
 			drvcore::installDevice(device);
+			drvcore::installDevice(renderDevice);
 
 			device->realizeAttribute(&devAttr);
+			renderDevice->realizeAttribute(&devAttr);
 		}
 	}
 }
