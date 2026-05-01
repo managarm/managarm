@@ -921,3 +921,51 @@ message MountResponse 52 {
 head(128):
 	Errors error;
 }
+
+message VtSetModeRequest 53 {
+head(128):
+	uint8 vt_mode;
+	uint8 vt_waitv;
+	uint16 vt_relsig;
+	uint16 vt_acqsig;
+	uint16 vt_frsig;
+}
+
+message VtActivateRequest 54 {
+head(128):
+	uint8 vt_mode;
+}
+
+message VtOpenqryResponse 55 {
+head(128):
+	Errors error;
+	uint16 vt_nr;
+}
+
+message VtGetModeResponse 56 {
+head(128):
+	Errors error;
+	uint8 vt_mode;
+	uint8 vt_waitv;
+	uint16 vt_relsig;
+	uint16 vt_acqsig;
+	uint16 vt_frsig;
+}
+
+message VtGetStateResponse 57 {
+head(128):
+	Errors error;
+	uint16 vt_nr;
+	uint16 vt_state;
+	uint16 vt_relsig;
+}
+
+message VtActivateResponse 58 {
+head(128):
+	Errors error;
+}
+
+message VtSetModeResponse 59 {
+head(128):
+	Errors error;
+}
