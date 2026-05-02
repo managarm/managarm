@@ -365,6 +365,9 @@ public:
 	// Makes a range of memory available for peekRange().
 	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
 	// Returns the number of bytes that were actually affected.
+	// Note that:
+	// - The offset and sizeHint are not necessarily page aligned.
+	// - The offset is not necessarily within the memory object's current size.
 	virtual coroutine<frg::expected<Error, size_t>>
 	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
 

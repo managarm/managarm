@@ -510,7 +510,9 @@ struct ZeroMemory final : MemoryView {
 	touchRange(uintptr_t offset, size_t, FetchFlags flags) override {
 		if(flags & fetchRequireMutable)
 			co_return Error::badPermissions;
+
 		auto misalign = offset & (kPageSize - 1);
+
 		co_return kPageSize - misalign;
 	}
 
@@ -629,14 +631,16 @@ coroutine<frg::expected<Error, size_t>>
 ImmediateMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
 	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
-	auto index = offset >> kPageShift;
-	auto disp = offset & (kPageSize - 1);
 	if(index >= _physicalPages.size())
 		co_return Error::fault;
-	co_return kPageSize - disp;
+
+	co_return kPageSize - misalign;
 }
 
 size_t ImmediateMemory::getLength() {
@@ -744,8 +748,10 @@ coroutine<frg::expected<Error, size_t>>
 HardwareMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	auto misalign = offset & (kPageSize - 1);
-	co_return kPageSize - misalign;
+	if(offset >= _length)
+		co_return Error::fault;
+
+	co_return _length - offset;
 }
 
 size_t HardwareMemory::getLength() {
@@ -847,12 +853,14 @@ coroutine<frg::expected<Error, size_t>>
 AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	auto irq_lock = frg::guard(&irqMutex());
+	auto irqLock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&_mutex);
 
 	auto index = offset / _chunkSize;
-	auto disp = offset & (_chunkSize - 1);
-	assert(index < _physicalChunks.size());
+	auto misalign = offset & (_chunkSize - 1);
+
+	if(index >= _physicalChunks.size())
+		co_return Error::fault;
 
 	if(_physicalChunks[index] == PhysicalAddr(-1)) {
 		auto physical = physicalAllocator->allocate(_chunkSize, _addressBits);
@@ -869,7 +877,7 @@ AllocatedMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	}
 
 	assert(_physicalChunks[index] != PhysicalAddr(-1));
-	co_return _chunkSize - disp;
+	co_return _chunkSize - misalign;
 }
 
 size_t AllocatedMemory::getLength() {
@@ -1283,12 +1291,14 @@ coroutine<frg::expected<Error, size_t>>
 BackingMemory::touchRange(uintptr_t offset, size_t, FetchFlags) {
 	assert(currentIpl() == ipl::exceptionalWork);
 
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&_managed->mutex);
-
 	auto index = offset >> kPageShift;
 	auto misalign = offset & (kPageSize - 1);
-	assert(index < _managed->numPages);
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_managed->mutex);
+
+	if(index >= _managed->numPages)
+		co_return Error::fault;
 	auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
 	assert(pit);
 
@@ -1609,7 +1619,8 @@ FrontalMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
 		auto irq_lock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
 
-		assert(index < _managed->numPages);
+		if(index >= _managed->numPages)
+			co_return Error::fault;
 
 		// Try the fast-paths first.
 		auto [pit, wasInserted] = _managed->pages.find_or_insert(index, _managed.get(), index);
@@ -1781,14 +1792,16 @@ IndirectMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) 
 			co_return Error::fault;
 		if (!indirections_[slot])
 			co_return Error::fault;
-		if (inSlotOffset >= indirections_[slot]->size)
-			co_return Error::fault;
-
 		indirection = indirections_[slot];
 	}
 
-	co_return co_await indirection->memory->touchRange(indirection->offset
-		+ inSlotOffset, sizeHint, flags);
+	if (inSlotOffset >= indirection->size)
+		co_return Error::fault;
+
+	auto affectedSize = FRG_CO_TRY(
+		co_await indirection->memory->touchRange(indirection->offset + inSlotOffset, sizeHint, flags)
+	);
+	co_return frg::min(affectedSize, indirection->size - inSlotOffset);
 }
 
 size_t IndirectMemory::getLength() {
@@ -2092,6 +2105,9 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_mutex);
 
+		if(offset >= _length)
+			co_return Error::fault;
+
 		auto cowIt = _ownedPages.find(offset >> kPageShift);
 		if(cowIt) {
 			cowPage = *cowIt;
@@ -2120,23 +2136,26 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 		view = _view;
 		viewOffset = _viewOffset;
 	}
+	// Note: totalOffset is not necessarily page aligned.
+	auto totalOffset = viewOffset + offset;
+	auto pageOffset = totalOffset & ~(kPageSize - 1);
 
 	// Passthrough and waitForCopy are mutually exclusive:
 	// if waitForCopy is set, we may need to wait for eviction to finish
 	// and we must not return passed through pages after eviction started.
 	assert(!(passthrough && waitForCopy));
 
-	auto pageOffset = viewOffset + alignedOffset;
 	if(passthrough) {
 		if (chain) {
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&chain->_mutex);
 
-			if(chain->_pages.find(pageOffset >> kPageShift))
+			if(chain->_pages.find(totalOffset >> kPageShift))
 				co_return kPageSize - misalign;
 		}
 
-		co_return co_await view->touchRange(pageOffset, sizeHint, flags);
+		auto affectedSize = FRG_CO_TRY(co_await view->touchRange(totalOffset, sizeHint, flags));
+		co_return frg::min(affectedSize, kPageSize - misalign);
 	}
 
 	if(waitForCopy) {
@@ -2181,8 +2200,7 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 
 	// Copy from the root view.
 	if(!chainHasCopy) {
-		FRG_CO_TRY(co_await view->copyFrom(pageOffset & ~(kPageSize - 1),
-				accessor.get(), kPageSize));
+		FRG_CO_TRY(co_await view->copyFrom(pageOffset, accessor.get(), kPageSize));
 	}
 
 	// To make CoW unobservable, we first need to evict the page here.
