@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <expected>
 
 #include <frg/container_of.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -360,14 +361,15 @@ public:
 
 	// Access a thread's registers while the thread is interrupted.
 	// TODO: This needs to lock the thread.
-	// TODO: This needs to fail if we are not in interrupted state.
 	template<typename F>
 	requires requires(F f, Executor *executor) {
 		{ f(executor) } -> std::same_as<void>;
 	}
-	void accessRegisters(F &&f) {
-		assert(intrState_ == IntrState::inInterrupt);
+	std::expected<void, Error> accessRegisters(F &&f) {
+		if(intrState_ != IntrState::inInterrupt)
+			return std::unexpected{Error::illegalState};
 		f(&intrImage_);
+		return {};
 	}
 
 private:

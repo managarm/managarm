@@ -2082,17 +2082,17 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		}
 	}
 
-	// TODO: Make sure that the thread is actually suspenend!
-
 	if(set == kHelRegsProgram) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
 		}
 		uintptr_t regs[2];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = *executor->ip();
 			regs[1] = *executor->sp();
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
 	}else if(set == kHelRegsGeneral) {
@@ -2101,7 +2101,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		}
 #if defined(__x86_64__)
 		uintptr_t regs[15];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->rax;
 			regs[1] = executor->general()->rbx;
 			regs[2] = executor->general()->rcx;
@@ -2118,24 +2118,30 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			regs[13] = executor->general()->r15;
 			regs[14] = executor->general()->rbp;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
 #elif defined(__aarch64__)
 		uintptr_t regs[31];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			for (int i = 0; i < 31; i++)
 				regs[i] = executor->general()->x[i];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 31))
 			return kHelErrFault;
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[30];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->x(1);
 			// Skip x(2) as it corresponds to sp.
 			for (int i = 1; i < 30; i++)
 				regs[i] = executor->general()->x(i + 2);
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 30))
 			return kHelErrFault;
 #else
@@ -2147,24 +2153,30 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		}
 #if defined(__x86_64__)
 		uintptr_t regs[2];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->clientFs;
 			regs[1] = executor->general()->clientGs;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
 #elif defined(__aarch64__)
 		uintptr_t regs[1];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->tpidr_el0;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[1];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->tp();
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
 #else
@@ -2199,7 +2211,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 #endif
 
 		frg::unique_memory<KernelAlloc> buffer{*kernelAlloc, simdSize};
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 #if defined(__x86_64__)
 			memcpy(buffer.data(), executor->_fxState(), simdSize);
 #elif defined(__aarch64__)
@@ -2210,6 +2222,8 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			__builtin_trap(); // Should not be reached due to return above.
 #endif
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserMemory(image, buffer.data(), simdSize))
 			return kHelErrFault;
 	}else if(set == kHelRegsSignal) {
@@ -2218,7 +2232,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		}
 #if defined(__x86_64__)
 		uintptr_t regs[19];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->r8;
 			regs[1] = executor->general()->r9;
 			regs[2] = executor->general()->r10;
@@ -2239,11 +2253,13 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			regs[17] = *executor->rflags();
 			regs[18] = *executor->cs();
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 19))
 			return kHelErrFault;
 #elif defined(__aarch64__)
 		uintptr_t regs[35];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->far;
 			for (int i = 0; i < 31; i++)
 				regs[1 + i] = executor->general()->x[i];
@@ -2251,15 +2267,19 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 			regs[33] = executor->general()->elr;
 			regs[34] = executor->general()->spsr;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 35))
 			return kHelErrFault;
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[32];
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			regs[0] = executor->general()->ip;
 			for(int i = 1; i < 32; i++)
 				regs[i] = executor->general()->x(i);
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 		if(!writeUserArray(reinterpret_cast<uintptr_t *>(image), regs, 32))
 			return kHelErrFault;
 #else
@@ -2319,8 +2339,6 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		}
 	}
 
-	// TODO: Make sure that the thread is actually suspenend!
-
 	if(set == kHelRegsProgram) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -2328,10 +2346,12 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		uintptr_t regs[2];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			*executor->ip() = regs[0];
 			*executor->sp() = regs[1];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 	}else if(set == kHelRegsGeneral) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -2340,7 +2360,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		uintptr_t regs[15];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 15))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->rax = regs[0];
 			executor->general()->rbx = regs[1];
 			executor->general()->rcx = regs[2];
@@ -2357,24 +2377,30 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			executor->general()->r15 = regs[13];
 			executor->general()->rbp = regs[14];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__aarch64__)
 		uintptr_t regs[31];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 31))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			for (int i = 0; i < 31; i++)
 				executor->general()->x[i] = regs[i];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[30];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 30))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->x(1) = regs[0];
 			// Skip x(2) as it corresponds to sp.
 			for (int i = 1; i < 30; i++)
 				executor->general()->x(i + 2) = regs[i];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -2386,24 +2412,30 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		uintptr_t regs[2];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 2))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->clientFs = regs[0];
 			executor->general()->clientGs = regs[1];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__aarch64__)
 		uintptr_t regs[1];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->tpidr_el0 = regs[0];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[1];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 1))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->tp() = regs[0];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #else
 		return kHelErrUnsupportedOperation;
 #endif
@@ -2447,7 +2479,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		frg::unique_memory<KernelAlloc> buffer{*kernelAlloc, simdSize};
 		if(!readUserMemory(buffer.data(), image, simdSize))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 #if defined(__x86_64__)
 			memcpy(executor->_fxState(), buffer.data(), simdSize);
 #elif defined(__aarch64__)
@@ -2458,6 +2490,8 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			__builtin_trap(); // Should not be reached due to return above.
 #endif
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 	}else if(set == kHelRegsSignal) {
 		if(!thread) {
 			return kHelErrIllegalArgs;
@@ -2466,7 +2500,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		uintptr_t regs[19];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 19))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->r8 = regs[0];
 			executor->general()->r9 = regs[1];
 			executor->general()->r10 = regs[2];
@@ -2493,11 +2527,13 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			// Make sure that the cs is in usermode by or'ing it with 3.
 			*executor->cs() = regs[18] | 3;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__aarch64__)
 		uintptr_t regs[35];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 35))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->far = regs[0];
 			for (int i = 0; i < 31; i++)
 				executor->general()->x[i] = regs[1 + i];
@@ -2509,15 +2545,19 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 			executor->general()->spsr &= ~allowedFlagsMask;
 			executor->general()->spsr |= regs[34] & allowedFlagsMask;
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #elif defined(__riscv) && __riscv_xlen == 64
 		uintptr_t regs[32];
 		if(!readUserArray(reinterpret_cast<const uintptr_t *>(image), regs, 32))
 			return kHelErrFault;
-		thread->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread->accessRegisters([&](Executor *executor) {
 			executor->general()->ip = regs[0];
 			for(int i = 1; i < 32; i++)
 				executor->general()->x(i) = regs[i];
 		});
+		if(!accessOutcome)
+			return translateError(accessOutcome.error());
 #else
 		return kHelErrUnsupportedOperation;
 #endif

@@ -848,9 +848,11 @@ namespace posix {
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonAllocate) { // ANON_ALLOCATE.
 				// TODO: Use some always-zero memory for private anonymous mappings.
 				uintptr_t size;
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					size = *executor->arg0();
 				});
+				if(!readOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
 				fileMemory->selfPtr = fileMemory;
 				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
@@ -867,23 +869,27 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					*executor->result0() = kHelErrNone;
 					*executor->result1() = mapResult.value();
 				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superAnonDeallocate) { // ANON_FREE.
 				uintptr_t address;
 				uintptr_t size;
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					address = *executor->arg0();
 					size = *executor->arg1();
 				});
+				if(!readOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				auto space = info.thread->getAddressSpace();
 				auto unmapOutcome = co_await space->unmap(address, size);
 
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					if(!unmapOutcome) {
 						assert(unmapOutcome.error() == Error::illegalArgs);
 						*executor->result0() = kHelErrIllegalArgs;
@@ -892,13 +898,17 @@ namespace posix {
 					}
 					*executor->result1() = 0;
 				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetProcessData) {
 				uintptr_t dataAddr;
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					dataAddr = *executor->arg0();
 				});
+				if(!readOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				::posix::ManagarmProcessData data = {
 					info.posixHandle,
@@ -910,20 +920,24 @@ namespace posix {
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
 						dataAddr, &data, sizeof(::posix::ManagarmProcessData));
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					if(!outcome) {
 						*executor->result0() = kHelErrFault;
 					}else{
 						*executor->result0() = kHelErrNone;
 					}
 				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetServerData) {
 				uintptr_t dataAddr;
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					dataAddr = *executor->arg0();
 				});
+				if(!readOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				::posix::ManagarmServerData data = {
 					controlHandle
@@ -931,36 +945,44 @@ namespace posix {
 
 				auto outcome = co_await info.thread->getAddressSpace()->writeSpace(
 						dataAddr, &data, sizeof(::posix::ManagarmServerData));
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					if(!outcome) {
 						*executor->result0() = kHelErrFault;
 					}else{
 						*executor->result0() = kHelErrNone;
 					}
 				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superSigMask) { // sigprocmask.
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto accessOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					*executor->result0() = kHelErrNone;
 					*executor->result1() = 0;
 				});
+				if(!accessOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superGetTid) {
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto accessOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					*executor->result0() = kHelErrNone;
 					*executor->result1() = info.tid;
 				});
+				if(!accessOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 				if(auto e = Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(info.thread)); e != Error::success)
 					panicLogger() << "thor: Failed to resume server" << frg::endlog;
 			}else if(interrupt == kIntrSuperCall + ::posix::superClone) {
 				uintptr_t argIp;
 				uintptr_t argSp;
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto readOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					argIp = *executor->arg0();
 					argSp = *executor->arg1();
 				});
+				if(!readOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				AbiParameters params;
 				params.ip = argIp;
@@ -975,10 +997,12 @@ namespace posix {
 				new_thread.policy().increment();
 				new_thread.policy().increment();
 
-				info.thread->accessRegisters([&](Executor *executor) {
+				auto writeOutcome = info.thread->accessRegisters([&](Executor *executor) {
 					*executor->result0() = kHelErrNone;
 					*executor->result1() = new_info.tid;
 				});
+				if(!writeOutcome)
+					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
 
 				LoadBalancer::singleton().connect(new_thread.get(), getCpuData());
 				Scheduler::associate(new_thread.get(), &localScheduler.get());
