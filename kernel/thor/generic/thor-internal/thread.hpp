@@ -360,12 +360,14 @@ public:
 	InterruptInfo interruptInfo;
 
 	// Access a thread's registers while the thread is interrupted.
-	// TODO: This needs to lock the thread.
 	template<typename F>
 	requires requires(F f, Executor *executor) {
 		{ f(executor) } -> std::same_as<void>;
 	}
 	std::expected<void, Error> accessRegisters(F &&f) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
 		if(intrState_ != IntrState::inInterrupt)
 			return std::unexpected{Error::illegalState};
 		f(&intrImage_);
