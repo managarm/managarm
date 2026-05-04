@@ -7,6 +7,7 @@
 #include <frg/container_of.hpp>
 #include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
+#include <frg/safe_int.hpp>
 #include <frg/small_vector.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
@@ -2746,7 +2747,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					HelSgItem item;
 					if(!readUserObject(sglist + j, item))
 						return kHelErrFault;
-					length += item.length;
+					if (!(frg::safe_int{length} + frg::safe_int{item.length}).into(length))
+						return kHelErrIllegalArgs;
 				}
 
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, length);
