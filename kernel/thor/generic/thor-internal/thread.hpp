@@ -357,8 +357,6 @@ public:
 	// Non-virtual since syscalls/faults know that they are called from a thread.
 	void handlePreemption(FaultImageAccessor image);
 
-	InterruptInfo interruptInfo;
-
 	// Access a thread's registers while the thread is interrupted.
 	template<typename F>
 	requires requires(F f, Executor *executor) {
@@ -372,6 +370,19 @@ public:
 			return std::unexpected{Error::illegalState};
 		f(&intrImage_);
 		return {};
+	}
+
+	std::expected<InterruptInfo, Error> getInterruptInfo() {
+		InterruptInfo info;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
+
+			if(intrState_ != IntrState::inInterrupt)
+				return std::unexpected{Error::illegalState};
+			info = _interruptInfo;
+		}
+		return info;
 	}
 
 private:
@@ -454,6 +465,8 @@ private:
 	IntrState intrState_{IntrState::none};
 	// Only valid if intrState_ == IntrState::inInterrupt;
 	Interrupt _lastInterrupt;
+	// Only valid if intrState_ == IntrState::inInterrupt;
+	InterruptInfo _interruptInfo;
 	// Raised after intrState_ becomes IntrState::resumeFromInterrupt.
 	async::recurring_event resumeEvent_;
 

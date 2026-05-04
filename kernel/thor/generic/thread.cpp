@@ -218,7 +218,7 @@ void Thread::genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, I
 		assert(thisThread->intrState_ == IntrState::none);
 		thisThread->intrState_ = IntrState::inInterrupt;
 		thisThread->_lastInterrupt = interrupt;
-		thisThread->interruptInfo = info;
+		thisThread->_interruptInfo = info;
 		saveExecutor(&thisThread->intrImage_, image);
 
 		queue.splice(queue.end(), thisThread->_observeQueue);
