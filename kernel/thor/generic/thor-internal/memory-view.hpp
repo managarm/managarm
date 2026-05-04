@@ -148,13 +148,13 @@ inline void decrementUses(PfnDescriptor descriptor) {
 }
 
 struct PhysicalRange {
-	PhysicalAddr physical;
-	size_t size;
-	CachingMode cachingMode;
+	PhysicalAddr physical{~PhysicalAddr{0}};
+	size_t size{0};
+	CachingMode cachingMode{CachingMode::null};
 	// Whether pages returned by peekRange() are mutable or not.
 	// If fetchRequireMutable is set, this must be set to true.
 	// If fetchRequireMutable is clear, this may either be true or false.
-	bool isMutable;
+	bool isMutable{false};
 };
 
 struct ManageNode {
@@ -331,6 +331,9 @@ public:
 			associatedEvictionQueue_->removeObserver(observer);
 	}
 
+	// Returns the current size of the memory object.
+	// At time of mapping, a new mapping must contained within the memory object's size.
+	// However, the memory object's size may change at any time (even when mappings exist).
 	virtual size_t getLength() = 0;
 
 	virtual coroutine<frg::expected<Error>> resize(size_t newLength);
@@ -354,11 +357,17 @@ public:
 
 	// Optimistically returns the physical memory that backs a range of memory.
 	// Result stays valid until the range is evicted.
+	// Note that:
+	// - The offset is not necessarily page aligned.
+	// - The offset is not necessarily within the memory object's current size.
 	virtual PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) = 0;
 
 	// Makes a range of memory available for peekRange().
 	// The sizeHint parameter is a hint; the implementation may affect fewer bytes.
 	// Returns the number of bytes that were actually affected.
+	// Note that:
+	// - The offset and sizeHint are not necessarily page aligned.
+	// - The offset is not necessarily within the memory object's current size.
 	virtual coroutine<frg::expected<Error, size_t>>
 	touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) = 0;
 
