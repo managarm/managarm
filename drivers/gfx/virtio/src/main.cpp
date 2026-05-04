@@ -144,6 +144,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			connector->setupPossibleEncoders({_theEncoders[i].get()});
 			connector->setCurrentEncoder(_theEncoders[i].get());
 			connector->setCurrentStatus(1);
+			connector->setupPhysicalDimensions(306, 230);
+			connector->setupSubpixel(0);
 			connector->setConnectorType(DRM_MODE_CONNECTOR_VIRTUAL);
 
 			registerObject(connector.get());
