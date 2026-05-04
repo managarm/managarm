@@ -2447,7 +2447,9 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsDebug) {
-#ifdef __x86_64__
+#if 0 // x86_64
+		// TODO: If we want to re-enable debug registers on x86_64, we have to validate
+		//       that they only affect userspace and not the kernel.
 		// FIXME: Make those registers thread-specific.
 		uint32_t *reg;
 		if(!readUserObject(reinterpret_cast<uint32_t *const *>(image), reg))
