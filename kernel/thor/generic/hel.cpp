@@ -7,6 +7,7 @@
 #include <frg/container_of.hpp>
 #include <frg/formatting.hpp>
 #include <frg/dyn_array.hpp>
+#include <frg/safe_int.hpp>
 #include <frg/small_vector.hpp>
 #include <thor-internal/cancel.hpp>
 #include <thor-internal/event.hpp>
@@ -53,7 +54,7 @@ extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
 
 [[nodiscard]] bool readUserMemory(void *kernelPtr, const void *userPtr, size_t size) {
 	uintptr_t limit;
-	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
+	if(!(frg::safe_int{reinterpret_cast<uintptr_t>(userPtr)} + frg::safe_int{size}).into(limit))
 		return false;
 	if(inHigherHalf(limit))
 		return false;
@@ -65,7 +66,7 @@ extern "C" int doAtomicUserLoad(unsigned int *out, const unsigned int *p);
 
 [[nodiscard]] bool writeUserMemory(void *userPtr, const void *kernelPtr, size_t size) {
 	uintptr_t limit;
-	if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(userPtr), size, &limit))
+	if(!(frg::safe_int{reinterpret_cast<uintptr_t>(userPtr)} + frg::safe_int{size}).into(limit))
 		return false;
 	if(inHigherHalf(limit))
 		return false;
@@ -88,7 +89,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] bool readUserArray(const T *pointer, T *array, size_t count) {
 	size_t size;
-	if(__builtin_mul_overflow(sizeof(T), count, &size))
+	if(!(frg::safe_int{sizeof(T)} * frg::safe_int{count}).into(size))
 		return false;
 	return readUserMemory(array, pointer, size);
 }
@@ -96,7 +97,7 @@ template<typename T>
 template<typename T>
 [[nodiscard]] bool writeUserArray(T *pointer, const T *array, size_t count) {
 	size_t size;
-	if(__builtin_mul_overflow(sizeof(T), count, &size))
+	if(!(frg::safe_int{sizeof(T)} * frg::safe_int{count}).into(size))
 		return false;
 	return writeUserMemory(pointer, array, size);
 }
@@ -1344,7 +1345,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
-		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+		if(!(frg::safe_int{reinterpret_cast<uintptr_t>(buffer)} + frg::safe_int{length}).into(limit)) {
 			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
@@ -1384,7 +1385,7 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
-		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+		if(!(frg::safe_int{reinterpret_cast<uintptr_t>(buffer)} + frg::safe_int{length}).into(limit)) {
 			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
@@ -1469,7 +1470,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
-		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+		if(!(frg::safe_int{reinterpret_cast<uintptr_t>(buffer)} + frg::safe_int{length}).into(limit)) {
 			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
@@ -1511,7 +1512,7 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 			enable_detached_coroutine) -> void {
 		// Make sure that the pointer arithmetic below does not overflow.
 		uintptr_t limit;
-		if(__builtin_add_overflow(reinterpret_cast<uintptr_t>(buffer), length, &limit)) {
+		if(!(frg::safe_int{reinterpret_cast<uintptr_t>(buffer)} + frg::safe_int{length}).into(limit)) {
 			HelSimpleResult helResult{.error = kHelErrIllegalArgs, .reserved = {}};
 			QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
@@ -2746,7 +2747,8 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					HelSgItem item;
 					if(!readUserObject(sglist + j, item))
 						return kHelErrFault;
-					length += item.length;
+					if (!(frg::safe_int{length} + frg::safe_int{item.length}).into(length))
+						return kHelErrIllegalArgs;
 				}
 
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, length);

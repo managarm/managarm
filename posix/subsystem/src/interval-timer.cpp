@@ -1,10 +1,12 @@
+#include <frg/safe_int.hpp>
+
 #include "interval-timer.hpp"
 
 namespace {
 
 uint64_t add_sat(uint64_t x, uint64_t y) {
 	uint64_t r;
-	if (__builtin_add_overflow(x, y, &r))
+	if (!(frg::safe_int{x} + frg::safe_int{y}).into(r))
 		return UINT64_MAX;
 	return r;
 }

@@ -1,11 +1,12 @@
 #include <cstddef>
 #include <type_traits>
+#include <frg/container_of.hpp>
+#include <frg/safe_int.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/physical.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/timer.hpp>
-#include <frg/container_of.hpp>
 #include <thor-internal/types.hpp>
 
 namespace thor {
@@ -387,7 +388,10 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	assert(length);
 	assert(!(length % kPageSize));
 
-	if(offset + length > slice->length())
+	size_t endOffset;
+	if (!(frg::safe_int{offset} + frg::safe_int{length}).into(endOffset))
+		co_return Error::illegalArgs;
+	if(endOffset > slice->length())
 		co_return Error::bufferTooSmall;
 
 	co_await _consistencyMutex.async_lock();
