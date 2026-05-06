@@ -3546,13 +3546,13 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	// TODO: check userspace page access rights
 	auto io_space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
 	for(size_t i = 0; i < num_ports; i++) {
 		uintptr_t port;
 		if(!readUserObject<uintptr_t>(port_array + i, port))
 			return kHelErrFault;
-		io_space->addPort(port);
+		if (auto outcome = io_space->addPort(port); !outcome)
+			return translateError(outcome.error());
 	}
 
 	{

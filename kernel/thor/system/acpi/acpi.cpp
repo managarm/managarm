@@ -181,19 +181,27 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 						    break;
 					    case UACPI_RESOURCE_TYPE_IO:
 						    if (info->requested_index == info->parsed_ports) {
+							    bool allOkay = true;
 							    for (auto i = res->io.minimum; i <= res->io.maximum; i++) {
-								    info->space->addPort(i);
-								    info->success = true;
+								    if (auto outcome = info->space->addPort(i); !outcome)
+									    allOkay = false;
 							    }
+							    if (allOkay)
+								    info->success = true;
 						    }
 						    info->parsed_ports++;
 						    break;
 					    case UACPI_RESOURCE_TYPE_FIXED_IO:
 						    if (info->requested_index == info->parsed_ports) {
+							    bool allOkay = true;
 							    for (size_t i = 0; i < res->fixed_io.length; i++) {
-								    info->space->addPort(res->fixed_io.address + i);
-								    info->success = true;
+								    if (auto outcome =
+								            info->space->addPort(res->fixed_io.address + i);
+								        !outcome)
+									    allOkay = false;
 							    }
+							    if (allOkay)
+								    info->success = true;
 						    }
 						    info->parsed_ports++;
 						    break;
