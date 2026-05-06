@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <expected>
 
 #include <frg/container_of.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -356,18 +357,32 @@ public:
 	// Non-virtual since syscalls/faults know that they are called from a thread.
 	void handlePreemption(FaultImageAccessor image);
 
-	InterruptInfo interruptInfo;
-
 	// Access a thread's registers while the thread is interrupted.
-	// TODO: This needs to lock the thread.
-	// TODO: This needs to fail if we are not in interrupted state.
 	template<typename F>
 	requires requires(F f, Executor *executor) {
 		{ f(executor) } -> std::same_as<void>;
 	}
-	void accessRegisters(F &&f) {
-		assert(intrState_ == IntrState::inInterrupt);
+	std::expected<void, Error> accessRegisters(F &&f) {
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_mutex);
+
+		if(intrState_ != IntrState::inInterrupt)
+			return std::unexpected{Error::illegalState};
 		f(&intrImage_);
+		return {};
+	}
+
+	std::expected<InterruptInfo, Error> getInterruptInfo() {
+		InterruptInfo info;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_mutex);
+
+			if(intrState_ != IntrState::inInterrupt)
+				return std::unexpected{Error::illegalState};
+			info = _interruptInfo;
+		}
+		return info;
 	}
 
 private:
@@ -450,6 +465,8 @@ private:
 	IntrState intrState_{IntrState::none};
 	// Only valid if intrState_ == IntrState::inInterrupt;
 	Interrupt _lastInterrupt;
+	// Only valid if intrState_ == IntrState::inInterrupt;
+	InterruptInfo _interruptInfo;
 	// Raised after intrState_ becomes IntrState::resumeFromInterrupt.
 	async::recurring_event resumeEvent_;
 

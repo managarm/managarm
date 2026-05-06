@@ -160,6 +160,15 @@ struct EmitOverlay {
 	EmitOverlay(frg::vector<uint8_t, KernelAlloc> *buf)
 	: buf_{buf} { }
 
+	// Append Enn which some commands use to indicate an error (with nn begin the error code).
+	// Since error codes are not well-defined according to the GDB protocol documentation,
+	// we simply send E01 here.
+	void appendError() {
+		buf_->push_back('E');
+		buf_->push_back('0');
+		buf_->push_back('1');
+	}
+
 	void appendString(const char *s) {
 		for(size_t n = 0; s[n]; ++n)
 			buf_->push_back(s[n]);
@@ -314,7 +323,7 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 		if(!req.fullyConsumed())
 			co_return ProtocolError::malformedPacket;
 
-		thread_->accessRegisters([&](Executor *executor) {
+		auto accessOutcome = thread_->accessRegisters([&](Executor *executor) {
 #if defined(__x86_64__)
 			resp.appendLeHex64(executor->general()->rax);
 			resp.appendLeHex64(executor->general()->rbx);
@@ -358,6 +367,8 @@ coroutine<frg::expected<ProtocolError>> GdbServer::handleRequest_() {
 #	error Unknown architecture
 #endif
 		});
+		if(!accessOutcome)
+			resp.appendError();
 	}else if(req.matchString("m")) { // Read memory.
 		uint64_t address;
 		uint64_t length;
