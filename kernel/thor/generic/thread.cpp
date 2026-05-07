@@ -209,6 +209,10 @@ void Thread::genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, I
 	assert(image.iplState()->current < ipl::schedule);
 	auto thisThread = getCurrentThread();
 
+	// We must never save kernel state into intrImage_.
+	if constexpr (!std::same_as<ImageAccessor, SyscallImageAccessor>)
+		assert(image.inUserMode());
+
 	ObserveQueue queue;
 	{
 		StatelessIrqLock irqLock;

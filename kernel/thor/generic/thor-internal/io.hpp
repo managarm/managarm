@@ -1,6 +1,7 @@
 #pragma once
 
 #include <frg/vector.hpp>
+#include <thor-internal/error.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
@@ -13,7 +14,7 @@ struct IoSpace {
 public:
 	IoSpace();
 
-	void addPort(uintptr_t port);
+	std::expected<void, Error> addPort(uintptr_t port);
 
 	void enableInThread(smarter::borrowed_ptr<Thread> thread);
 

@@ -1014,8 +1014,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
 					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
-					for(size_t p = 0; p < length; ++p)
-						bars[i].io->addPort(address + p);
+					for(size_t p = 0; p < length; ++p) {
+						if (auto outcome = bars[i].io->addPort(address + p); !outcome)
+							panicLogger() << "thor: Failed to access PCI ports" << frg::endlog;
+					}
 					bars[i].offset = 0;
 				}
 

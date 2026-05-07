@@ -9,8 +9,11 @@ namespace thor {
 
 IoSpace::IoSpace() : p_ports(*kernelAlloc) { }
 
-void IoSpace::addPort(uintptr_t port) {
+std::expected<void, Error> IoSpace::addPort(uintptr_t port) {
+	if (port > 0xFFFF)
+		return std::unexpected{Error::outOfBounds};
 	p_ports.push(port);
+	return {};
 }
 
 void IoSpace::enableInThread(smarter::borrowed_ptr<Thread> thread) {

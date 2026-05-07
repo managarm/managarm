@@ -476,6 +476,7 @@ void handlePageFault(FaultImageAccessor image, uintptr_t address, Word errorCode
 
 	// Let the UAR error out if it is active.
 	// Otherwise, panic on page faults in the kernel.
+	// We must *not* save the state via interruptCurrent() if the exception is in the kernel.
 	if(!image.inUserMode()) {
 		if(handleUserAccessFault(address, errorCode & kPfWrite, image))
 			return;
@@ -522,6 +523,12 @@ void handleOtherFault(FaultImageAccessor image, Interrupt fault) {
 	case kIntrIllegalInstruction: name = "illegal-instruction"; break;
 	default:
 		panicLogger() << "Unexpected fault code" << frg::endlog;
+	}
+
+	// We must *not* save the state via interruptCurrent() if the exception is in the kernel.
+	if(!image.inUserMode()) {
+		panicLogger() << "thor: Unhandled " << name << " fault in kernel"
+				<< ", faulting ip: " << (void *)*image.ip() << frg::endlog;
 	}
 
 	if(logOtherFaults)

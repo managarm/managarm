@@ -101,11 +101,14 @@ private:
 
 			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
 			if(req->index() == 0) {
-				for(size_t p = 0; p < 8; ++p)
-					space->addPort(0x1F0 + p);
+				for(size_t p = 0; p < 8; ++p) {
+					if (auto outcome = space->addPort(0x1F0 + p); !outcome)
+						panicLogger() << "thor: Failed to access ATA ports [0x1F0, 0x1F8)" << frg::endlog;
+				}
 				resp.set_error(managarm::hw::Errors::SUCCESS);
 			}else if(req->index() == 1) {
-				space->addPort(0x3F6);
+				if (auto outcome = space->addPort(0x3F6); !outcome)
+					panicLogger() << "thor: Failed to access ATA port 0x3F6" << frg::endlog;
 				resp.set_error(managarm::hw::Errors::SUCCESS);
 			}else{
 				resp.set_error(managarm::hw::Errors::OUT_OF_BOUNDS);

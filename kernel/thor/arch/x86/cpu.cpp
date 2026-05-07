@@ -654,7 +654,7 @@ void initializeThisProcessor() {
 	}
 
 	// Enable the SMEP extension.
-	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 6)) {
+	if(common::x86::cpuid(0x07)[1] & (uint32_t(1) << 7)) {
 		debugLogger() << "thor: CPU supports SMEP" << frg::endlog;
 
 		uint64_t cr4;
