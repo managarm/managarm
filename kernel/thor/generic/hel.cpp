@@ -3706,6 +3706,17 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 			if (memorySize > 0x10000)
 				return kHelErrIllegalArgs;
 
+			if(auto e = memory->lockRange(0, memorySize); e != Error::success)
+				return translateError(e);
+
+			auto touchOutcome = Thread::asyncBlockCurrent(
+					memory->touchFullRange(0, memorySize, fetchNone),
+					this_thread->pagingWorkQueue().get());
+			if(!touchOutcome) {
+				memory->unlockRange(0, memorySize);
+				return translateError(touchOutcome.error());
+			}
+
 			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
 
 			for(size_t off = 0; off < memorySize; off += kPageSize) {
