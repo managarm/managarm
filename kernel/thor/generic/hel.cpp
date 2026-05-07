@@ -2791,6 +2791,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				break;
 			case kHelActionSendFromBufferSg: {
 				size_t length = 0;
+				frg::small_vector<HelSgItem, 8, KernelAlloc> sgItems{*kernelAlloc};
 				auto sglist = reinterpret_cast<HelSgItem *>(recipe->buffer);
 				for(size_t j = 0; j < recipe->length; j++) {
 					HelSgItem item;
@@ -2798,14 +2799,13 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 						return kHelErrFault;
 					if (!(frg::safe_int{length} + frg::safe_int{item.length}).into(length))
 						return kHelErrIllegalArgs;
+					sgItems.push_back(item);
 				}
 
 				frg::unique_memory<KernelAlloc> buffer(*kernelAlloc, length);
 				size_t offset = 0;
 				for(size_t j = 0; j < recipe->length; j++) {
-					HelSgItem item;
-					if(!readUserObject(sglist + j, item))
-						return kHelErrFault;
+					const auto &item = sgItems[j];
 					if(!readUserMemory(reinterpret_cast<char *>(buffer.data()) + offset,
 							reinterpret_cast<char *>(item.buffer), item.length))
 						return kHelErrFault;
@@ -3705,6 +3705,17 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 			auto memorySize = memory->getLength();
 			if (memorySize > 0x10000)
 				return kHelErrIllegalArgs;
+
+			if(auto e = memory->lockRange(0, memorySize); e != Error::success)
+				return translateError(e);
+
+			auto touchOutcome = Thread::asyncBlockCurrent(
+					memory->touchFullRange(0, memorySize, fetchNone),
+					this_thread->pagingWorkQueue().get());
+			if(!touchOutcome) {
+				memory->unlockRange(0, memorySize);
+				return translateError(touchOutcome.error());
+			}
 
 			auto window = reinterpret_cast<char *>(KernelVirtualMemory::global().allocate(0x10000));
 
