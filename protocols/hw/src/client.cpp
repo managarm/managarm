@@ -900,8 +900,9 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	co_return std::move(irq);
 }
 
-async::result<void> Device::enableDma() {
+async::result<void> Device::enableDma(bool passthrough) {
 	managarm::hw::EnableDmaRequest req;
+	req.set_passthrough(passthrough);
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
 			_lane,

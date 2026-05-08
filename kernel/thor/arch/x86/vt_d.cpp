@@ -475,7 +475,8 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::pt;
 	}
 
-	void enableDevice(pci::PciEntity *dev) override {
+	void enableDevice(pci::PciEntity *dev, bool passthrough) override {
+		(void) passthrough;
 		auto lock = frg::guard(&lock_);
 
 		auto rootEntry = &rootTable_[static_cast<uint8_t>(dev->bus)];
