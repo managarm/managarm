@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <optional>
 #include <utility>
 #include <frg/variant.hpp>
 #include <assert.h>
@@ -270,7 +271,7 @@ public:
 
 	Handle attachDescriptor(AnyDescriptor descriptor);
 
-	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
+	std::optional<AnyDescriptor> getDescriptor(Handle handle);
 
 	template<typename Fn>
 	requires requires(Fn fn, AnyDescriptor &desc) {

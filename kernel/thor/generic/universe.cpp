@@ -1,4 +1,5 @@
 #include <thor-internal/ipl.hpp>
+#include <thor-internal/thread.hpp>
 #include <thor-internal/universe.hpp>
 
 namespace thor {
@@ -24,10 +25,14 @@ Handle Universe::attachDescriptor(AnyDescriptor descriptor) {
 	return handle;
 }
 
-AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
-	assert(guard.protects(&lock));
+std::optional<AnyDescriptor> Universe::getDescriptor(Handle handle) {
+	auto irqLock = frg::guard(&irqMutex());
+	Guard guard(lock);
 
-	return _descriptorMap.get(handle);
+	auto *desc = _descriptorMap.get(handle);
+	if(!desc)
+		return std::nullopt;
+	return *desc;
 }
 
 frg::optional<AnyDescriptor> Universe::detachDescriptor(Handle handle) {

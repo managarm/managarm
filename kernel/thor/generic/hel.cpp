@@ -308,20 +308,13 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 		srcUniverse = universe;
 	}
 
-	AnyDescriptor descriptor;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		Universe::Guard lock{srcUniverse->lock};
-
-		auto descriptorIt = srcUniverse->getDescriptor(lock, handle);
-		if (!descriptorIt)
-			return kHelErrNoDescriptor;
-		descriptor = *descriptorIt;
-	}
+	auto maybeDescriptor = srcUniverse->getDescriptor(handle);
+	if (!maybeDescriptor)
+		return kHelErrNoDescriptor;
 
 	// TODO: make sure the descriptor is copyable.
 
-	*outHandle = dstUniverse->attachDescriptor(std::move(descriptor));
+	*outHandle = dstUniverse->attachDescriptor(std::move(*maybeDescriptor));
 	return kHelErrNone;
 }
 
@@ -1216,15 +1209,10 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto thisUniverse = thisThread->getUniverse();
 
 	AnyDescriptor descriptor;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universeGuard(thisUniverse->lock);
-
-		auto wrapper = thisUniverse->getDescriptor(universeGuard, handle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		descriptor = *wrapper;
-	}
+	auto wrapper = thisUniverse->getDescriptor(handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	descriptor = std::move(*wrapper);
 
 	auto readMemoryView = [] (smarter::shared_ptr<Thread> submitThread,
 			smarter::shared_ptr<MemoryView> view,
@@ -1341,15 +1329,10 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 	auto thisUniverse = thisThread->getUniverse();
 
 	AnyDescriptor descriptor;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		Universe::Guard universeGuard(thisUniverse->lock);
-
-		auto wrapper = thisUniverse->getDescriptor(universeGuard, handle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		descriptor = *wrapper;
-	}
+	auto wrapper = thisUniverse->getDescriptor(handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	descriptor = std::move(*wrapper);
 
 	auto writeMemoryView = [] (smarter::shared_ptr<Thread> submitThread,
 			smarter::shared_ptr<MemoryView> view,
@@ -2670,15 +2653,10 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				break;
 			case kHelActionPushDescriptor: {
 				AnyDescriptor operand;
-				{
-					auto irq_lock = frg::guard(&irqMutex());
-					Universe::Guard universe_guard(thisUniverse->lock);
-
-					auto wrapper = thisUniverse->getDescriptor(universe_guard, recipe->handle);
-					if(!wrapper)
-						return kHelErrNoDescriptor;
-					operand = *wrapper;
-				}
+				auto wrapper = thisUniverse->getDescriptor(recipe->handle);
+				if(!wrapper)
+					return kHelErrNoDescriptor;
+				operand = std::move(*wrapper);
 
 				node->_tag = kTagPushDescriptor;
 				node->_inDescriptor = std::move(operand);
@@ -3274,14 +3252,10 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_universe = this_thread->getUniverse();
 
 	AnyDescriptor descriptor;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-		auto wrapper = this_universe->getDescriptor(universe_guard, handle);
-		if(!wrapper)
-			return kHelErrNoDescriptor;
-		descriptor = *wrapper;
-	}
+	auto wrapper = this_universe->getDescriptor(handle);
+	if(!wrapper)
+		return kHelErrNoDescriptor;
+	descriptor = std::move(*wrapper);
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelEventResult))))
 		return kHelErrQueueTooSmall;
