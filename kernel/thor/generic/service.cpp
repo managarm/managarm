@@ -366,15 +366,8 @@ namespace posix {
 
 		ThreadInfo &attachThread(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			auto posixStream = createStream();
-			Handle posixHandle;
-
-			{
-				auto irqLock = frg::guard(&irqMutex());
-				Universe::Guard universeLock(thread->getUniverse()->lock);
-
-				posixHandle = thread->getUniverse()->attachDescriptor(universeLock,
+			Handle posixHandle = thread->getUniverse()->attachDescriptor(
 					LaneDescriptor{std::move(posixStream.get<1>())});
-			}
 
 			ThreadInfo info {
 				.thread = thread,
@@ -391,30 +384,18 @@ namespace posix {
 		}
 
 		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, LaneHandle lane) {
-			auto irq_lock = frg::guard(&irqMutex());
-			Universe::Guard universe_guard(thread->getUniverse()->lock);
-
-			controlHandle = thread->getUniverse()->attachDescriptor(universe_guard,
+			controlHandle = thread->getUniverse()->attachDescriptor(
 					LaneDescriptor{lane});
 		}
 
 		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
-			auto irqLock = frg::guard(&irqMutex());
-			Universe::Guard universeLock(thread->getUniverse()->lock);
-
-			mbusHandle = thread->getUniverse()->attachDescriptor(universeLock,
+			mbusHandle = thread->getUniverse()->attachDescriptor(
 					LaneDescriptor{*mbusClient});
 		}
 
 		coroutine<int> attachFile(smarter::shared_ptr<Thread, ActiveHandle> thread, OpenFile *file) {
-			Handle handle;
-			{
-				auto irq_lock = frg::guard(&irqMutex());
-				Universe::Guard universe_guard(thread->getUniverse()->lock);
-
-				handle = thread->getUniverse()->attachDescriptor(universe_guard,
-						LaneDescriptor(file->clientLane));
-			}
+			Handle handle = thread->getUniverse()->attachDescriptor(
+					LaneDescriptor(file->clientLane));
 
 			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
 				if(openFiles[fd])

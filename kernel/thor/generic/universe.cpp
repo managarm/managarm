@@ -1,3 +1,4 @@
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/universe.hpp>
 
 namespace thor {
@@ -14,8 +15,9 @@ Universe::~Universe() {
 		debugLogger() << "thor: Universe is deallocated" << frg::endlog;
 }
 
-Handle Universe::attachDescriptor(Guard &guard, AnyDescriptor descriptor) {
-	assert(guard.protects(&lock));
+Handle Universe::attachDescriptor(AnyDescriptor descriptor) {
+	auto irqLock = frg::guard(&irqMutex());
+	Guard guard(lock);
 
 	Handle handle = _nextHandle++;
 	_descriptorMap.insert(handle, std::move(descriptor));
@@ -28,8 +30,9 @@ AnyDescriptor *Universe::getDescriptor(Guard &guard, Handle handle) {
 	return _descriptorMap.get(handle);
 }
 
-frg::optional<AnyDescriptor> Universe::detachDescriptor(Guard &guard, Handle handle) {
-	assert(guard.protects(&lock));
+frg::optional<AnyDescriptor> Universe::detachDescriptor(Handle handle) {
+	auto irqLock = frg::guard(&irqMutex());
+	Guard guard(lock);
 
 	return _descriptorMap.remove(handle);
 }

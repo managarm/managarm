@@ -264,11 +264,11 @@ public:
 	Universe();
 	~Universe();
 
-	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
+	Handle attachDescriptor(AnyDescriptor descriptor);
 
 	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
 
-	frg::optional<AnyDescriptor> detachDescriptor(Guard &guard, Handle handle);
+	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
 
 	Lock lock;
 

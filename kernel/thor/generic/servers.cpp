@@ -305,8 +305,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	Handle xpipe_handle = 0;
 	if(xpipe_lane) {
-		auto lock = frg::guard(&universe->lock);
-		xpipe_handle = universe->attachDescriptor(lock,
+		xpipe_handle = universe->attachDescriptor(
 				LaneDescriptor(xpipe_lane));
 	}
 

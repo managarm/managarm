@@ -268,13 +268,8 @@ HelError helCreateUniverse(HelHandle *handle) {
 
 	auto new_universe = smarter::allocate_shared<Universe>(*kernelAlloc);
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				UniverseDescriptor(std::move(new_universe)));
-	}
+	*handle = this_universe->attachDescriptor(
+			UniverseDescriptor(std::move(new_universe)));
 
 	return kHelErrNone;
 }
@@ -329,12 +324,7 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 
 	// TODO: make sure the descriptor is copyable.
 
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		Universe::Guard lock(dstUniverse->lock);
-
-		*outHandle = dstUniverse->attachDescriptor(lock, std::move(descriptor));
-	}
+	*outHandle = dstUniverse->attachDescriptor(std::move(descriptor));
 	return kHelErrNone;
 }
 
@@ -408,13 +398,7 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 		universe = universeIt->get<UniverseDescriptor>().universe;
 	}
 
-	frg::optional<AnyDescriptor> descriptor;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		Universe::Guard otherUniverseLock(universe->lock);
-
-		descriptor = universe->detachDescriptor(otherUniverseLock, handle);
-	}
+	auto descriptor = universe->detachDescriptor(handle);
 	if(!descriptor)
 		return kHelErrNoDescriptor;
 
@@ -438,13 +422,8 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 			params.numSqChunks);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(thisUniverse->lock);
-
-		*handle = thisUniverse->attachDescriptor(universe_guard,
-				QueueDescriptor(std::move(*queueOutcome)));
-	}
+	*handle = thisUniverse->attachDescriptor(
+			QueueDescriptor(std::move(*queueOutcome)));
 
 	return kHelErrNone;
 }
@@ -548,13 +527,8 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	}
 	memory->selfPtr = memory;
 
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		Universe::Guard universeGuard(thisUniverse->lock);
-
-		*handle = thisUniverse->attachDescriptor(universeGuard,
-				MemoryViewDescriptor(std::move(memory)));
-	}
+	*handle = thisUniverse->attachDescriptor(
+			MemoryViewDescriptor(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -613,15 +587,10 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto frontalMemory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
 	frontalMemory->selfPtr = frontalMemory;
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(thisUniverse->lock);
-
-		*backing_handle = thisUniverse->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(backingMemory)));
-		*frontal_handle = thisUniverse->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(frontalMemory)));
-	}
+	*backing_handle = thisUniverse->attachDescriptor(
+			MemoryViewDescriptor(std::move(backingMemory)));
+	*frontal_handle = thisUniverse->attachDescriptor(
+			MemoryViewDescriptor(std::move(frontalMemory)));
 
 	return kHelErrNone;
 }
@@ -656,13 +625,8 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 	auto slice = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, std::move(view),
 			offset, size);
 	slice->selfPtr = slice;
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*outHandle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(slice)));
-	}
+	*outHandle = this_universe->attachDescriptor(
+			MemoryViewDescriptor(std::move(slice)));
 
 	return kHelErrNone;
 }
@@ -678,13 +642,8 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 
 	auto memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, physical, size,
 			CachingMode::null);
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(memory)));
-	}
+	*handle = this_universe->attachDescriptor(
+			MemoryViewDescriptor(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -694,13 +653,8 @@ HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto memory = smarter::allocate_shared<IndirectMemory>(*kernelAlloc, numSlots);
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				MemoryViewDescriptor(std::move(memory)));
-	}
+	*handle = this_universe->attachDescriptor(
+			MemoryViewDescriptor(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -782,13 +736,8 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 
 	auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 			std::move(view), offset, size, cachingFlags);
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				MemorySliceDescriptor(std::move(slice)));
-	}
+	*handle = this_universe->attachDescriptor(
+			MemorySliceDescriptor(std::move(slice)));
 
 	return kHelErrNone;
 }
@@ -835,14 +784,8 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			co_return;
 		}
 
-		HelHandle forkedHandle;
-		{
-			auto irq_lock = frg::guard(&irqMutex());
-			Universe::Guard universe_guard(universe->lock);
-
-			forkedHandle = universe->attachDescriptor(universe_guard,
-					MemoryViewDescriptor(outcome.value()));
-		}
+		HelHandle forkedHandle = universe->attachDescriptor(
+				MemoryViewDescriptor(outcome.value()));
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -933,10 +876,7 @@ HelError helCreateSpace(HelHandle *handle) {
 
 	auto space = AddressSpace::create();
 
-	auto irq_lock = frg::guard(&irqMutex());
-	Universe::Guard universe_guard(this_universe->lock);
-
-	*handle = this_universe->attachDescriptor(universe_guard,
+	*handle = this_universe->attachDescriptor(
 			AddressSpaceDescriptor(std::move(space)));
 
 	return kHelErrNone;
@@ -967,13 +907,9 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 		return kHelErrNoHardwareSupport;
 	}
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-		*handle = this_universe->attachDescriptor(universe_guard,
-				VirtualizedSpaceDescriptor(std::move(vspace)));
-		return kHelErrNone;
-	}
+	*handle = this_universe->attachDescriptor(
+			VirtualizedSpaceDescriptor(std::move(vspace)));
+	return kHelErrNone;
 #else
 	(void)handle;
 	return kHelErrNoHardwareSupport;
@@ -1010,13 +946,9 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	else
 		return kHelErrNoHardwareSupport;
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-		*out = this_universe->attachDescriptor(universe_guard,
-				VirtualizedCpuDescriptor(std::move(vcpu)));
-		return kHelErrNone;
-	}
+	*out = this_universe->attachDescriptor(
+			VirtualizedCpuDescriptor(std::move(vcpu)));
+	return kHelErrNone;
 #else
 	(void)handle;
 	(void)out;
@@ -1755,15 +1687,10 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 		}
 
 		HelHandle handle;
-		{
-			auto irq_lock = frg::guard(&irqMutex());
-			Universe::Guard lock(universe->lock);
-
-			handle = universe->attachDescriptor(lock,
-					MemoryViewLockDescriptor{
-						smarter::allocate_shared<NamedMemoryViewLock>(
-							*kernelAlloc, std::move(lockHandle))});
-		}
+		handle = universe->attachDescriptor(
+				MemoryViewLockDescriptor{
+					smarter::allocate_shared<NamedMemoryViewLock>(
+						*kernelAlloc, std::move(lockHandle))});
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -1863,13 +1790,8 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(!(flags & kHelThreadStopped))
 		Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(new_thread));
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				ThreadDescriptor(std::move(new_thread)));
-	}
+	*handle = this_universe->attachDescriptor(
+			ThreadDescriptor(std::move(new_thread)));
 
 	return kHelErrNone;
 }
@@ -2650,15 +2572,10 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 	auto this_universe = this_thread->getUniverse();
 
 	auto lanes = createStream(attach_credentials);
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*lane1_handle = this_universe->attachDescriptor(universe_guard,
-				LaneDescriptor(std::move(lanes.get<0>())));
-		*lane2_handle = this_universe->attachDescriptor(universe_guard,
-				LaneDescriptor(std::move(lanes.get<1>())));
-	}
+	*lane1_handle = this_universe->attachDescriptor(
+			LaneDescriptor(std::move(lanes.get<0>())));
+	*lane2_handle = this_universe->attachDescriptor(
+			LaneDescriptor(std::move(lanes.get<1>())));
 
 	return kHelErrNone;
 }
@@ -3159,10 +3076,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					}
 					assert(universe);
 
-					auto irq_lock = frg::guard(&irqMutex());
-					Universe::Guard lock(universe->lock);
-
-					handle = universe->attachDescriptor(lock,
+					handle = universe->attachDescriptor(
 							LaneDescriptor{node->lane()});
 				}
 
@@ -3176,10 +3090,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					auto universe = weakUniverse.lock();
 					assert(universe);
 
-					auto irq_lock = frg::guard(&irqMutex());
-					Universe::Guard lock(universe->lock);
-
-					handle = universe->attachDescriptor(lock,
+					handle = universe->attachDescriptor(
 							LaneDescriptor{node->lane()});
 				}
 
@@ -3226,10 +3137,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					auto universe = weakUniverse.lock();
 					assert(universe);
 
-					auto irq_lock = frg::guard(&irqMutex());
-					Universe::Guard lock(universe->lock);
-
-					handle = universe->attachDescriptor(lock, node->descriptor());
+					handle = universe->attachDescriptor(node->descriptor());
 				}
 
 				item->helHandleResult = {translateError(node->error()), 0, handle};
@@ -3340,13 +3248,8 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 
 	auto event = smarter::allocate_shared<OneshotEvent>(*kernelAlloc);
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				OneshotEventDescriptor(std::move(event)));
-	}
+	*handle = this_universe->attachDescriptor(
+			OneshotEventDescriptor(std::move(event)));
 
 	return kHelErrNone;
 }
@@ -3357,13 +3260,8 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 
 	auto event = smarter::allocate_shared<BitsetEvent>(*kernelAlloc);
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				BitsetEventDescriptor(std::move(event)));
-	}
+	*handle = this_universe->attachDescriptor(
+			BitsetEventDescriptor(std::move(event)));
 
 	return kHelErrNone;
 }
@@ -3408,13 +3306,8 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
 	IrqPin::attachSink(pin, irq.get());
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				IrqDescriptor(std::move(irq)));
-	}
+	*handle = this_universe->attachDescriptor(
+			IrqDescriptor(std::move(irq)));
 
 	return kHelErrNone;
 #else
@@ -3604,13 +3497,8 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 			return translateError(outcome.error());
 	}
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*handle = this_universe->attachDescriptor(universe_guard,
-				IoDescriptor(std::move(io_space)));
-	}
+	*handle = this_universe->attachDescriptor(
+			IoDescriptor(std::move(io_space)));
 
 	return kHelErrNone;
 }
@@ -3750,13 +3638,8 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		}
 	}
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universe_guard(this_universe->lock);
-
-		*bound_handle = this_universe->attachDescriptor(universe_guard,
-				BoundKernletDescriptor(std::move(bound)));
-	}
+	*bound_handle = this_universe->attachDescriptor(
+			BoundKernletDescriptor(std::move(bound)));
 
 	return kHelErrNone;
 }
@@ -3931,13 +3814,8 @@ HelError helCreateToken(HelHandle *handle) {
 
 	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
 
-	{
-		auto irq_lock = frg::guard(&irqMutex());
-		Universe::Guard universeGuard(thisUniverse->lock);
-
-		*handle = thisUniverse->attachDescriptor(universeGuard,
-				TokenDescriptor(std::move(creds)));
-	}
+	*handle = thisUniverse->attachDescriptor(
+			TokenDescriptor(std::move(creds)));
 
 	return kHelErrNone;
 }
