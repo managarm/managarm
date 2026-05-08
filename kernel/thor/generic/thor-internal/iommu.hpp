@@ -19,7 +19,7 @@ struct Iommu {
 		return id_;
 	}
 
-	virtual void enableDevice(pci::PciEntity *dev) = 0;
+	virtual void enableDevice(pci::PciEntity *dev, bool passthrough = true) = 0;
 
 private:
 	const size_t id_;
