@@ -59,4 +59,29 @@ struct DmaSpace : VirtualSpace {
 	DmaPageSpace *pageSpace_;
 };
 
+// Represents a collection of devices that share the same DMA space.
+struct IommuDomain {
+	IommuDomain(size_t id, VirtualOperations *ops, DmaPageSpace *pageSpace)
+	: id_{id} {
+		space_ = DmaSpace::create(ops, pageSpace);
+	}
+
+	size_t id() const {
+		return id_;
+	}
+
+	void addMember(pci::PciEntity *e);
+
+	const frg::vector<pci::PciEntity *, KernelAlloc> &members() const {
+		return members_;
+	}
+
+private:
+	size_t id_;
+	frg::vector<pci::PciEntity *, KernelAlloc> members_{*kernelAlloc};
+
+public:
+	smarter::shared_ptr<DmaSpace> space_;
+};
+
 }

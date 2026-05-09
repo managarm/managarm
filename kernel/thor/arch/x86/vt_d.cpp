@@ -18,6 +18,8 @@
 
 namespace thor {
 
+size_t iommuGroups = 0;
+
 struct [[gnu::packed]] DmarHeader {
 	acpi_sdt_hdr acpi;
 	uint8_t host_address_width;
@@ -79,11 +81,13 @@ namespace rootTable {
 
 namespace contextTable {
 	enum class TranslationType : uint8_t {
+		UntranslatedOnly = 0b00,
 		Passthrough = 0b10,
 	};
 
 	// low qword
 	constexpr arch::field<uint64_t, bool> present{0, 1};
+	constexpr arch::field<uint64_t, uint64_t> ssptptr{12, 52};
 	constexpr arch::field<uint64_t, TranslationType> translationType{2, 2};
 
 	// high qword
@@ -586,22 +590,37 @@ struct IntelIommu final : Iommu, IrqSink {
 		};
 
 		auto contextEntry = &contextTable[sourceId.devfn()];
+		int domainId = 1;
 
-		contextEntry->high.store(
-			contextTable::addressWidth(sagaw_ - 2) |
-			contextTable::domainId(1)
-		);
+		if (passthrough) {
+			contextEntry->high.store(
+				contextTable::addressWidth(sagaw_ - 2) |
+				contextTable::domainId(1)
+			);
 
-		contextEntry->low.store(
-			contextTable::present(true) |
-			contextTable::translationType(contextTable::TranslationType::Passthrough)
-		);
+			contextEntry->low.store(
+				contextTable::present(true) |
+				contextTable::translationType(contextTable::TranslationType::Passthrough)
+			);
+		} else {
+			domainId = 1 + dev->iommuDomain->id();
+			contextEntry->high.store(
+				contextTable::addressWidth(0b001) |
+				contextTable::domainId(domainId)
+			);
+
+			contextEntry->low.store(
+				contextTable::present(true) |
+				contextTable::ssptptr(dev->iommuDomain->space_->pageSpace_->rootTable() >> 12) |
+				contextTable::translationType(contextTable::TranslationType::UntranslatedOnly)
+			);
+		}
 
 		flush(contextEntry);
 
 		if(initialized_) {
 			invalidateDeviceContext(0, sourceId);
-			invalidateDomainIotlb(1);
+			invalidateDomainIotlb(domainId);
 		}
 	}
 
@@ -962,6 +981,24 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 	return true;
 }
 
+namespace {
+
+IommuDomain *newDomain(pci::PciBus *bus, IntelIommu *iommu) {
+	if (!iommu)
+		iommu = static_cast<IntelIommu *>(bus->associatedBridge->associatedIommu);
+
+	PhysicalAddr rootLevel = physicalAllocator->allocate(kPageSize);
+	assert(rootLevel != static_cast<PhysicalAddr>(-1));
+	PageAccessor accessor{rootLevel};
+	memset(accessor.get(), 0, kPageSize);
+
+	auto pageSpace = frg::construct<IntelIommuPageSpace>(*kernelAlloc, rootLevel, iommu);
+	auto ops = frg::construct<IntelIommuOperations>(*kernelAlloc, pageSpace);
+	return frg::construct<IommuDomain>(*kernelAlloc, iommuGroups++, ops, pageSpace);
+};
+
+}
+
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-intel-iommu",
 	initgraph::Requires{acpi::getTablesDiscoveredStage(), pci::getDevicesEnumeratedStage()},
 	[] {
@@ -1025,6 +1062,75 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				break;
 
 			remappingStructureTypes = remappingStructureTypes.subspan(hdr.length);
+		}
+
+		auto walkBus = [](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
+			bool splitDeviceDomains = false;
+
+			// Intel VT-d requires that RCIEs can be split into independent IOMMU domains.
+			if (isRootBus) {
+				splitDeviceDomains = true;
+			} else if (bus->associatedBridge) {
+				auto acs = std::ranges::find(bus->associatedBridge->extendedCaps, 0xD, &pci::PciEntity::ExtendedCapability::type);
+				// TODO: check ACS caps and enable relevant bits
+				if (acs != bus->associatedBridge->extendedCaps.end()) {
+					// infoLogger() << frg::fmt("\tbridge to bus {} supports ACS", bus->associatedBridge->downstreamId) << frg::endlog;
+					// TODO: verify that ACS supports: Source Validation, Request/Completion Redirect, Upstream Forwarding
+					// splitDeviceDomains = true;
+				}
+			}
+
+		    IommuDomain *commonDomain = nullptr;
+		    if (!splitDeviceDomains)
+				commonDomain = newDomain(bus, nullptr);
+
+			std::array<IommuDomain *, 32> multifunctionDomains{};
+
+			for (auto device : bus->childDevices) {
+				uint8_t header_type = bus->io->readConfigByte(bus, device->slot, 0, pci::kPciHeaderType);
+				bool multifunctionDevice = header_type & 0x80;
+				IommuDomain *domain = nullptr;
+
+				if (multifunctionDevice) {
+					if (multifunctionDomains[device->slot] == nullptr)
+						multifunctionDomains[device->slot] = newDomain(bus, static_cast<IntelIommu *>(device->associatedIommu));
+
+					domain = multifunctionDomains[device->slot];
+				} else if (splitDeviceDomains) {
+					domain = newDomain(bus, static_cast<IntelIommu *>(device->associatedIommu));
+				} else {
+					domain = commonDomain;
+				}
+
+				assert(domain);
+				domain->addMember(device);
+			}
+
+			for (auto bridge : bus->childBridges) {
+				uint8_t header_type = bus->io->readConfigByte(bus, bridge->slot, bridge->function, pci::kPciHeaderType);
+				bool multifunctionDevice = header_type & 0x80;
+
+				IommuDomain *domain = nullptr;
+
+				if (multifunctionDevice) {
+					if (multifunctionDomains[bridge->slot] == nullptr)
+						multifunctionDomains[bridge->slot] = newDomain(bus, static_cast<IntelIommu *>(bridge->associatedIommu));
+
+					domain = multifunctionDomains[bridge->slot];
+				} else if (splitDeviceDomains) {
+					domain = newDomain(bus, static_cast<IntelIommu *>(bridge->associatedIommu));
+				} else {
+					domain = commonDomain;
+				}
+
+				domain->addMember(bridge);
+
+				walkChildBus(bridge->associatedBus);
+			}
+		};
+
+		for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
+			walkBus(rootBus, true);
 		}
 
 		for(auto iommu : iommus) {

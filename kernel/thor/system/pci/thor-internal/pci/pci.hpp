@@ -19,6 +19,7 @@ namespace thor {
 struct MemoryView;
 struct IoSpace;
 struct Iommu;
+struct IommuDomain;
 
 struct BootScreen;
 
@@ -354,6 +355,8 @@ struct PciEntity : protected KernelBusObject {
 	int msiIndex = -1;
 	bool msiEnabled = false;
 	bool msiInstalled = false;
+
+	IommuDomain *iommuDomain = nullptr;
 
 private:
 	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
