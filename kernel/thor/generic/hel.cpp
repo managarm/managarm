@@ -14,6 +14,7 @@
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/io.hpp>
+#include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -1019,6 +1020,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			} else if(desc.is<VirtualizedSpaceDescriptor>()) {
 				isVspace = true;
 				vspace = desc.get<VirtualizedSpaceDescriptor>().space;
+			} else if(desc.is<DmaSpaceDescriptor>()) {
+				isVspace = true;
+				vspace = desc.get<DmaSpaceDescriptor>().space;
 			} else {
 				return std::unexpected{Error::badDescriptor};
 			}
@@ -1117,24 +1121,40 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<VirtualSpace> vspace;
+
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> {
-			if(!desc.is<AddressSpaceDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<AddressSpaceDescriptor>().space;
+				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			if(desc.is<AddressSpaceDescriptor>()) {
+				space = desc.get<AddressSpaceDescriptor>().space;
+				return {};
+			}else if(desc.is<DmaSpaceDescriptor>()) {
+				vspace = desc.get<DmaSpaceDescriptor>().space;
+				return {};
+			}
+
+			return std::unexpected{Error::badDescriptor};
 		});
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
-		space = std::move(*spaceOutcome);
 	}
 
-	auto outcome = Thread::asyncBlockCurrent(
-		space->unmap((VirtualAddr)pointer, length),
-		getCurrentThread()->pagingWorkQueue().get()
-	);
+	frg::expected<thor::Error> outcome = Error::illegalArgs;
+	if (space) {
+		outcome = Thread::asyncBlockCurrent(
+			space->unmap((VirtualAddr)pointer, length),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
+	} else {
+		assert(vspace);
+		outcome = Thread::asyncBlockCurrent(
+			vspace->unmap((VirtualAddr)pointer, length),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
+	}
 	if(!outcome) {
 		assert(outcome.error() == Error::illegalArgs);
 		return kHelErrIllegalArgs;

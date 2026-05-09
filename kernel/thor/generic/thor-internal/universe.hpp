@@ -26,6 +26,7 @@ struct NamedMemoryViewLock;
 struct KernletObject;
 struct BoundKernlet;
 struct Credentials;
+struct DmaSpace;
 
 struct QueueDescriptor {
 	QueueDescriptor(smarter::shared_ptr<IpcQueue> queue)
@@ -78,6 +79,13 @@ struct VirtualizedSpaceDescriptor {
 	: space(std::move(space)) { }
 
 	smarter::shared_ptr<VirtualizedPageSpace> space;
+};
+
+struct DmaSpaceDescriptor {
+	DmaSpaceDescriptor(smarter::shared_ptr<DmaSpace> space)
+	: space(std::move(space)) { }
+
+	smarter::shared_ptr<DmaSpace> space;
 };
 
 struct VirtualizedCpuDescriptor {
@@ -244,6 +252,7 @@ typedef frg::variant<
 	MemorySliceDescriptor,
 	AddressSpaceDescriptor,
 	VirtualizedSpaceDescriptor,
+	DmaSpaceDescriptor,
 	VirtualizedCpuDescriptor,
 	MemoryViewLockDescriptor,
 	ThreadDescriptor,

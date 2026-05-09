@@ -448,6 +448,83 @@ static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
 
 using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
 
+struct IntelIommu;
+
+struct IntelIommuOperations final : PageSpace, VirtualOperations {
+	IntelIommuOperations(PhysicalAddr root, IntelIommu *iommu, uint16_t domainId)
+	: PageSpace{root},
+	  iommu_{iommu},
+	  domainId_{domainId} {}
+
+	void retire(RetireNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+	}
+
+	bool submitShootdown(ShootNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+		return false;
+	}
+
+	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
+		return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
+			size_t size, PageFlags flags, CachingMode mode) override {
+		return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
+		return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
+		return cleanPagesByCursor<IntelIommuCursor>(this, va, size);
+	}
+
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
+		return unmapPagesByCursor<IntelIommuCursor>(this, va, size);
+	}
+
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
+		return PagesAffected{};
+	}
+
+	IntelIommu *iommu() const {
+		return iommu_;
+	}
+
+	uint16_t domainId() const {
+		return domainId_;
+	}
+
+private:
+	IntelIommu *iommu_;
+	uint16_t domainId_;
+};
+
+struct IntelIommuDmaSpace final : DmaSpace {
+	IntelIommuDmaSpace(IntelIommuOperations *ops) : DmaSpace(ops), iommuOps_{ops} {}
+
+	static smarter::shared_ptr<IntelIommuDmaSpace> create(IntelIommuOperations *ops) {
+		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(*kernelAlloc, ops);
+		ptr->selfPtr = ptr;
+		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);
+		return ptr;
+	}
+
+	IntelIommuOperations *intelIommuOps() const {
+		return iommuOps_;
+	}
+
+private:
+	IntelIommuOperations *iommuOps_;
+};
+
 struct IntelIommu final : Iommu, IrqSink {
 	IntelIommu(uint64_t register_base, uint16_t segment)
 	: Iommu(nextIommuId++),

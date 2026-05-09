@@ -1,5 +1,8 @@
 #pragma once
 
+#include <frg/vector.hpp>
+#include <thor-internal/address-space.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <stddef.h>
 
@@ -23,6 +26,12 @@ struct Iommu {
 
 private:
 	const size_t id_;
+};
+
+// A page space used specifically for DMA.
+struct DmaSpace : VirtualSpace {
+	DmaSpace(VirtualOperations *ops)
+	: VirtualSpace{ops} { }
 };
 
 }
