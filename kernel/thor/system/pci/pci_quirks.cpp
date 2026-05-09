@@ -101,6 +101,19 @@ void readIntelIntegratedGraphicsVbt(pci::PciDevice *dev) {
 	dev->igdVbt = std::move(vbt);
 }
 
+void enableNvidiaHda(pci::PciDevice *dev) {
+	if (dev->deviceId < 0x08A0)
+		return;
+
+	auto io = dev->parentBus->io;
+	auto v = io->readConfigWord(dev->parentBus, dev->slot, 0, 0x488);
+	if (v & (1 << 25))
+		return;
+
+	debugLogger() << "            Enabling HDA function on NVIDIA GPU" << frg::endlog;
+	io->writeConfigWord(dev->parentBus, dev->slot, 0, 0x488, v | (1 << 25));
+}
+
 struct {
 	std::optional<uint8_t> pci_class = std::nullopt;
 	std::optional<uint8_t> pci_subclass = std::nullopt;
@@ -116,6 +129,7 @@ struct {
 	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x8086, .func = switchUsbPortsToXhci},
 	{.pci_class = 0x0C, .pci_subclass = 0x03, .pci_interface = 0x30, .pci_vendor = 0x1106, .func = uploadRaspberryPi4Vl805Firmware},
 	{.pci_class = 0x03, .pci_subclass = 0x00, .pci_vendor = 0x8086, .pci_bus = 0, .pci_slot = 2, .pci_func = 0, .func = readIntelIntegratedGraphicsVbt},
+	{.pci_class = 0x03, .pci_vendor = 0x10de, .func = enableNvidiaHda},
 };
 
 } // namespace
