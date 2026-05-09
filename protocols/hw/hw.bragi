@@ -265,3 +265,12 @@ tail:
 message GetVbtRequest 35 {
 head(128):
 }
+
+message GetDmaSpaceRequest 36 {
+head(128):
+}
+
+message GetDmaSpaceResponse 37 {
+head(128):
+	int8 iommu_active;
+}

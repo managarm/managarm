@@ -1026,5 +1026,27 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 	co_return { std::move(desc), resp.vbt_size() };
 }
 
+async::result<std::pair<bool, helix::UniqueDescriptor>> Device::getDmaSpace() {
+	managarm::hw::GetDmaSpaceRequest req;
+
+	auto [offer, send_req, recv_resp, recv_desc] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline(),
+				helix_ng::pullDescriptor()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_resp.error());
+	HEL_CHECK(recv_desc.error());
+
+	auto resp = *bragi::parse_head_only<managarm::hw::GetDmaSpaceResponse>(recv_resp);
+
+	co_return {resp.iommu_active(), recv_desc.descriptor()};
+}
+
 } // namespace protocols::hw
 
