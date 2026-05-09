@@ -371,6 +371,71 @@ static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
 
 using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
 
+struct IntelIommu;
+
+struct IntelIommuPageSpace final : DmaPageSpace {
+	IntelIommuPageSpace(PhysicalAddr root, IntelIommu *iommu) : DmaPageSpace{root}, iommu_{iommu} {}
+
+	IntelIommuPageSpace(const IntelIommuPageSpace &) = delete;
+
+	~IntelIommuPageSpace() {
+		// freePt<IntelIommuCursorPolicy>(rootTable());
+	}
+
+	IntelIommuPageSpace &operator= (const IntelIommuPageSpace &) = delete;
+
+private:
+	IntelIommu *iommu_;
+};
+
+struct IntelIommuOperations final : DmaOperations {
+	IntelIommuOperations(IntelIommuPageSpace *pageSpace)
+	: DmaOperations{pageSpace} {}
+
+	void retire(RetireNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+	}
+
+	bool submitShootdown(ShootNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+		return false;
+	}
+
+	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
+		return mapPresentPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, view, offset, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
+			size_t size, PageFlags flags, CachingMode mode) override {
+		return restrictPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
+		return faultPageByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, view, offset, fetchFlags, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
+		return cleanPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size);
+	}
+
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
+		return unmapPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size);
+	}
+
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
+		return PagesAffected{};
+	}
+};
+
 struct IntelIommu final : Iommu, IrqSink {
 	IntelIommu(uint64_t register_base, uint16_t segment)
 	: Iommu(nextIommuId++),

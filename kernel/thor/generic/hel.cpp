@@ -13,6 +13,7 @@
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/io.hpp>
+#include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -1135,6 +1136,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			} else if(space_wrapper->is<VirtualizedSpaceDescriptor>()) {
 				isVspace = true;
 				vspace = space_wrapper->get<VirtualizedSpaceDescriptor>().space;
+			} else if(space_wrapper->is<IommuSpaceDescriptor>()) {
+				isVspace = true;
+				vspace = space_wrapper->get<IommuSpaceDescriptor>().space;
 			} else {
 				return kHelErrBadDescriptor;
 			}
