@@ -278,6 +278,99 @@ const char *decodeFaultReason(uint8_t reason) {
 
 } // namespace
 
+struct IntelIommuCursorPolicy {
+	static inline constexpr size_t maxLevels = 5;
+	static inline constexpr size_t bitsPerLevel = 9;
+
+	static inline constexpr size_t iommuRead = 1 << 0;
+	static inline constexpr size_t iommuWrite = 1 << 1;
+	static inline constexpr size_t iommuExecute = 1 << 2;
+	static inline constexpr size_t iommuIgnorePat = 1 << 6;
+	static inline constexpr size_t iommuDirty = 1 << 9;
+	// Mask for the physical address bits.
+	static inline constexpr size_t iommuAddress = ((1UL << 40) - 1) & ~0xFFF;
+
+	static inline constexpr size_t numLevels() {
+		return 3;
+	}
+
+	static constexpr bool ptePagePresent(uint64_t pte) {
+		return pte & iommuRead;
+	}
+
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if(flags & page_access::read && !(pte & iommuRead))
+			return false;
+
+		if (flags & page_access::write && !(pte & iommuWrite))
+			return false;
+
+		if (flags & page_access::execute && !(pte & iommuExecute))
+			return false;
+
+		return true;
+	}
+
+	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
+		return pte & iommuAddress;
+	}
+
+	static constexpr PageStatus ptePageStatus(uint64_t pte) {
+		if(!ptePagePresent(pte))
+			return 0;
+		PageStatus status = page_status::present;
+		if(pte & iommuDirty)
+			status |= page_status::dirty;
+		return status;
+	}
+
+	static uint64_t pteClean(uint64_t *ptePtr) {
+		return __atomic_fetch_and(ptePtr, ~iommuDirty, __ATOMIC_RELAXED);
+	}
+
+	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
+		auto pte = physical | iommuIgnorePat | iommuRead; // TODO: Do not always set iommuRead.
+
+		if(flags & page_access::write)
+			pte |= iommuWrite;
+		if(flags & page_access::execute)
+			pte |= iommuExecute;
+		assert(cachingMode == CachingMode::null);
+
+		return pte;
+	}
+
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool) {
+		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
+	}
+
+	static constexpr void pteWriteBarrier() { }
+	static constexpr void pteSyncICache(uintptr_t) { }
+
+
+	static constexpr bool pteTablePresent(uint64_t pte) {
+		return pte & iommuRead;
+	}
+
+	static constexpr PhysicalAddr pteTableAddress(uint64_t pte) {
+		return pte & iommuAddress;
+	}
+
+	static uint64_t pteNewTable() {
+		auto newPtAddr = physicalAllocator->allocate(kPageSize);
+		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
+
+		PageAccessor accessor{newPtAddr};
+		memset(accessor.get(), 0, kPageSize);
+
+		return newPtAddr | iommuRead | iommuWrite | iommuExecute;
+	}
+};
+
+static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
+
+using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
+
 struct IntelIommu final : Iommu, IrqSink {
 	IntelIommu(uint64_t register_base, uint16_t segment)
 	: Iommu(nextIommuId++),
