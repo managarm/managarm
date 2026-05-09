@@ -1198,6 +1198,38 @@ void findPciCaps(PciEntity *entity) {
 			offset = (ent >> 8) & 0xFC;
 		}
 	}
+
+	// PCIe devices are required to provide the 4096-byte configuration space.
+	if (io->supports4kConfigSpace() && entity->isPcie) {
+		uint16_t offset = 0x100;
+
+		while (offset) {
+			auto data = io->readConfigWord(entity->parentBus, entity->slot, entity->function, offset);
+			uint16_t extendedCapId = data;
+			uint8_t version = (data >> 16) & 0xF;
+			// The bottom 2 bits are reserved and must be masked out.
+			// This offset is relative to the start of the entire configuration space.
+			uint16_t nextOffset = (data >> 20) & 0xFFC;
+
+			if (extendedCapId == 0xFFFF && nextOffset == 0)
+				break;
+
+			// We have a valid Extended Capability
+			auto name = nameOfExtendedCapability(extendedCapId);
+			if (name) {
+				infoLogger() << frg::fmt("            {} Extended Capability (v{})", name, version)
+				             << frg::endlog;
+			} else {
+				infoLogger() << frg::fmt(
+				    "            Extended Capability 0x{:x} (v{})", extendedCapId, version
+				) << frg::endlog;
+			}
+
+			entity->extendedCaps.push({extendedCapId, offset});
+
+			offset = nextOffset;
+		}
+	}
 }
 
 template <typename EnumFunc>

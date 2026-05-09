@@ -56,12 +56,42 @@ inline const char *nameOf(IrqIndex index) {
 
 inline const char *nameOfCapability(unsigned int type) {
 	switch(type) {
+	case 0x01: return "PCI Power Management Interface";
+	case 0x02: return "AGP";
+	case 0x03: return "VPD";
 	case 0x04: return "Slot-identification";
 	case 0x05: return "MSI";
 	case 0x09: return "Vendor-specific";
 	case 0x0A: return "Debug-port";
+	case 0x0C: return "PCI Hot Plug";
+	case 0x0D: return "PCI Bridge Subsystem ID";
 	case 0x10: return "PCIe";
 	case 0x11: return "MSI-X";
+	case 0x12: return "Serial ATA DATA/Index Configuration";
+	default:
+		return nullptr;
+	}
+}
+
+inline const char *nameOfExtendedCapability(uint16_t type) {
+	switch(type) {
+	case 0x0001: return "Advanced Error Reporting";
+	case 0x0002: return "Virtual Channel";
+	case 0x0003: return "Device Serial Number";
+	case 0x0004: return "Power Budgeting";
+	case 0x0005: return "Root Complex Link Declaration";
+	case 0x0006: return "Root Complex Internal Link Control";
+	case 0x000B: return "Vendor-specific";
+	case 0x000D: return "ACS";
+	case 0x000E: return "ARI";
+	case 0x000F: return "ATS";
+	case 0x0010: return "SR-IOV";
+	case 0x0011: return "MR-IOV";
+	case 0x0013: return "Page Request";
+	case 0x0015: return "Resizable BAR";
+	case 0x0017: return "TPH Requester";
+	case 0x0018: return "LTR";
+	case 0x001B: return "PASID";
 	default:
 		return nullptr;
 	}
@@ -307,7 +337,13 @@ struct PciEntity : protected KernelBusObject {
 		size_t length;
 	};
 
+	struct ExtendedCapability {
+		uint16_t type;
+		uint16_t offset;
+	};
+
 	frg::vector<Capability, KernelAlloc> caps{*kernelAlloc};
+	frg::vector<ExtendedCapability, KernelAlloc> extendedCaps{*kernelAlloc};
 
 	PciExpansionRom expansionRom;
 
@@ -502,6 +538,8 @@ struct PciConfigIo {
 			uint32_t function, uint16_t offset, uint16_t value) = 0;
 	virtual void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset, uint32_t value) = 0;
+
+	virtual bool supports4kConfigSpace() = 0;
 
 protected:
 	~PciConfigIo() = default;

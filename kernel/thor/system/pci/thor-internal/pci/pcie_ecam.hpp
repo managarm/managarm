@@ -23,6 +23,10 @@ struct EcamPcieConfigIo final : PciConfigIo {
 	void writeConfigWord(uint32_t seg, uint32_t bus, uint32_t slot,
 			uint32_t function, uint16_t offset, uint32_t value) override;
 
+	bool supports4kConfigSpace() override {
+		return true;
+	}
+
 private:
 	arch::mem_space spaceForBus_(uint32_t bus);
 	uintptr_t calculateOffset_(uint32_t slot, uint32_t function,
