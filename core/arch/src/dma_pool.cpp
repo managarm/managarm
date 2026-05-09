@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <hel-syscalls.h>
 #include <hel.h>
-#include <print>
+#include <ranges>
 
 namespace arch {
 
@@ -22,12 +22,12 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 
 	dma_ptr ptr;
 	if (b <= max_shift) {
-		std::lock_guard lock{mutex_};
+		std::lock_guard lock{bucketMutex_};
 		auto bkt = &buckets_[b - min_shift];
 
 		if (bkt->freelist.empty()) {
-			auto *p = allocate_pages_(small_region_size);
-			auto rn = new region{this, p};
+			auto handle = allocate_pages_(small_region_size);
+			auto rn = new region{this, std::move(handle), 0, small_region_size};
 			for (size_t off = 0; off + alloc_size <= small_region_size; off += alloc_size) {
 				bkt->freelist.push_back({static_cast<arch::dma_region *>(rn), off});
 			}
@@ -38,8 +38,8 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 		bkt->freelist.pop_back();
 	} else {
 		// Large allocation. Allocate directly from the kernel.
-		auto *p = allocate_pages_(alloc_size);
-		auto rn = new region{this, p};
+		auto handle = allocate_pages_(alloc_size);
+		auto rn = new region{this, std::move(handle), 0, alloc_size};
 		ptr = {static_cast<arch::dma_region *>(rn), 0};
 	}
 
@@ -50,13 +50,14 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 }
 
 void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t align) {
+	auto rn = static_cast<region *>(ptr.region());
+	assert(!rn->imported());
 	assert(ptr.pool() == this);
 	auto b = shift_of_(size, count, align);
 	auto alloc_size = size_t{1} << b;
-	auto rn = static_cast<region *>(ptr.region());
 
 	if (b <= max_shift) {
-		std::lock_guard lock{mutex_};
+		std::lock_guard lock{bucketMutex_};
 		auto bkt = &buckets_[b - min_shift];
 
 		bkt->freelist.push_back(ptr);
@@ -69,6 +70,21 @@ void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t 
 	}
 }
 
+dma_space contiguous_pool::attachDmaSpace(helix::BorrowedDescriptor ioSpace, bool iommuActive) {
+	size_t id;
+	{
+		std::lock_guard lock{spacesMutex_};
+		id = attachedDmaSpaces_++;
+	}
+	return dma_space{id, this, ioSpace, iommuActive};
+}
+
+imported_dma_buffer contiguous_pool::importMemory(helix::BorrowedDescriptor memory, size_t offset, size_t size) {
+	auto rn = new contiguous_pool::region{this, std::move(memory), offset, size, true};
+	dma_ptr ptr{rn, 0};
+	return imported_dma_buffer{this, ptr, size};
+}
+
 // Power-of-two that is used for a particular allocation.
 int contiguous_pool::shift_of_(size_t size, size_t count, size_t align) {
 	return frg::ceil_log2(
@@ -76,22 +92,37 @@ int contiguous_pool::shift_of_(size_t size, size_t count, size_t align) {
 	);
 }
 
-void *contiguous_pool::allocate_pages_(size_t region_size) {
+helix::UniqueDescriptor contiguous_pool::allocate_pages_(size_t region_size) {
 	HelAllocRestrictions restrictions{};
 	restrictions.addressBits = options_.addressBits;
 
 	HelHandle memory;
-	void *p;
-	HEL_CHECK(helAllocateMemory(region_size, kHelAllocContinuous, &restrictions, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, region_size,
-			kHelMapProtRead | kHelMapProtWrite, &p));
-	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
-	assert(p);
-	return p;
+	HEL_CHECK(helAllocateMemory(region_size, options_.allocFlags, &restrictions, &memory));
+
+	return helix::UniqueDescriptor{memory};
 }
 
 void contiguous_pool::deallocate_pages_(void *p, size_t region_size) {
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, p, region_size));
+}
+
+contiguous_pool::region::~region() {
+	auto regionPool = static_cast<contiguous_pool *>(pool());
+
+	if (regionPool) {
+		std::lock_guard lock{regionPool->spacesMutex_};
+		// Unmap the region from all DMA spaces first
+		for (auto [index, ioVa] : dmaSpaces_ | std::views::enumerate) {
+			if (ioVa) {
+				auto dmaSpace = regionPool->spaces_[index];
+				HEL_CHECK(helUnmapMemory(dmaSpace->descriptor().getHandle(), reinterpret_cast<void *>(*ioVa), size));
+			}
+		}
+	}
+
+	if (base_va) {
+		HEL_CHECK(helUnmapMemory(kHelNullHandle, reinterpret_cast<void *>(*base_va), size));
+	}
 }
 
 } // namespace arch
