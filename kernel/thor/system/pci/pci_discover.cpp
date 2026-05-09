@@ -751,6 +751,21 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
+	}else if(preamble.id() == bragi::message_id<managarm::hw::GetIommuSpaceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetIommuSpaceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		IommuSpaceDescriptor descriptor{{}};
+		if (iommuDomain)
+			descriptor = IommuSpaceDescriptor{iommuDomain->space_};
+
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
 	}else{
 		infoLogger() << "thor: Dismissing conversation due to illegal HW request." << frg::endlog;
 		co_await dismiss(conversation);

@@ -1026,5 +1026,23 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 	co_return { std::move(desc), resp.vbt_size() };
 }
 
+async::result<helix::UniqueDescriptor> Device::getIommuSpace() {
+	managarm::hw::GetIommuSpaceRequest req;
+
+	auto [offer, send_req, recv_desc] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::pullDescriptor()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_desc.error());
+
+	co_return recv_desc.descriptor();
+}
+
 } // namespace protocols::hw
 

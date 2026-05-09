@@ -265,3 +265,7 @@ tail:
 message GetVbtRequest 35 {
 head(128):
 }
+
+message GetIommuSpaceRequest 36 {
+head(128):
+}

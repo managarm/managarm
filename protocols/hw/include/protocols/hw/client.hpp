@@ -177,6 +177,8 @@ struct Device {
 	async::result<helix::UniqueDescriptor> accessFbMemory();
 	async::result<std::pair<helix::UniqueDescriptor, uint32_t>> getVbt();
 
+	async::result<helix::UniqueDescriptor> getIommuSpace();
+
 	async::result<void> getBatteryState(BatteryState &state, bool block = false);
 
 	async::result<std::shared_ptr<AcpiResources>> getResources();
