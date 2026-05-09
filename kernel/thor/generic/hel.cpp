@@ -1097,6 +1097,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	if(flags & kHelMapDontRequireBacking)
 		map_flags |= AddressSpace::kMapDontRequireBacking;
+	if(flags & kHelMapPopulate)
+		map_flags |= AddressSpace::kMapPopulate;
 
 	smarter::shared_ptr<MemorySlice> slice;
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;

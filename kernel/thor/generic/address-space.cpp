@@ -487,6 +487,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
 	// that need to happen when an already mapped page is unmapped during copy-on-write.
 	if (flags & kMapPopulate) {
+		std::ignore = co_await mapping->view->touchFullRange(0, mapping->slice->length(), fetchNone);
+
 		auto caching = CachingMode::null;
 		if(mapping->slice->getCachingFlags() == cacheWriteCombine)
 			caching = CachingMode::writeCombine;
