@@ -35,11 +35,22 @@ namespace proto = protocols::usb;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
-Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, std::string name)
-: _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
-		_mmio{std::move(mmio)}, _irq{std::move(irq)},
-		_space{_mapping.get()}, _name{name},
+Controller::Controller(
+    protocols::hw::Device hw_device,
+    mbus_ng::Entity entity,
+    helix::Mapping mapping,
+    helix::UniqueDescriptor mmio,
+    helix::UniqueIrq irq,
+    std::string name,
+    bool iommuActive,
+    helix::UniqueDescriptor dmaSpaceHandle
+)
+: _hw_device{std::move(hw_device)},
+  _mapping{std::move(mapping)},
+  _mmio{std::move(mmio)},
+  _irq{std::move(irq)},
+  _space{_mapping.get()},
+  _name{name},
 #ifdef __aarch64__
 // TODO: When we have a way to query the platform this could be restricted to RPI4 only.
 		_memoryPool{{.addressBits = 31}},
@@ -48,10 +59,14 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 // addresses, to support those this would have to be conditional.
 		_memoryPool{{.addressBits = 64}},
 #endif
-		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
-		_eventRing{this},
-		_enumerator{this}, _largeCtx{false},
-		_entity{std::move(entity)} {
+  _dmaSpaceHandle{std::move(dmaSpaceHandle)},
+  _dmaSpace{_memoryPool.attachDmaSpace(_dmaSpaceHandle, iommuActive)},
+  _dcbaa{&_memoryPool, 256},
+  _cmdRing{this},
+  _eventRing{this},
+  _enumerator{this},
+  _largeCtx{false},
+  _entity{std::move(entity)} {
 	auto doorbell_offset = _space.load(cap_regs::dboff);
 	_doorbells = _space.subspace(doorbell_offset);
 
@@ -166,22 +181,22 @@ async::detached Controller::initialize() {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
 					pageSize));
 
-
 		barrier.writeback(_scratchpadBufs.back());
-		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
+		_scratchpadBufArray[i] = co_await _dmaSpace.iova_of(_scratchpadBufs.back());
 	}
 	barrier.writeback(_scratchpadBufArray.view_buffer());
 
 	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
-	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
+	_dcbaa[0] = nScratchpadBufs ? co_await _dmaSpace.iova_of(_scratchpadBufArray) : 0;
 	barrier.writeback(_dcbaa.view_buffer());
 
 	// Tell the controller about our device context pointer array
-	operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
+	operational.store(op_regs::dcbaap, co_await _dmaSpace.iova_of(_dcbaa));
 
 	// Tell the controller about our command ring
+	co_await _cmdRing.initialize();
 	operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
 
 	// Set up interrupters
@@ -193,7 +208,7 @@ async::detached Controller::initialize() {
 				&_eventRing,
 				interrupter::interrupterSpace(runtime, 0)));
 	_interrupters.back()->handleIrqs(_irq);
-	_interrupters.back()->initialize();
+	co_await _interrupters.back()->initialize();
 
 	// Start the controller and enable interrupts
 	operational.store(op_regs::usbcmd, usbcmd::run(1) | usbcmd::intrEnable(1));
@@ -379,9 +394,9 @@ Controller::enableSlot(uint8_t slotType) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::addressDevice(uint32_t slotId, InputContext &ctx) {
-	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	barrier.writeback(ctx.data(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::addressDevice(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::addressDevice(slotId, co_await ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} addressDevice({}, ctx) failed: {}",
@@ -393,9 +408,9 @@ Controller::addressDevice(uint32_t slotId, InputContext &ctx) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::configureEndpoint(uint32_t slotId, InputContext &ctx) {
-	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	barrier.writeback(ctx.data(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::configureEndpoint(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::configureEndpoint(slotId, co_await ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} configureEndpoint({}, ctx) failed: {}",
@@ -407,9 +422,9 @@ Controller::configureEndpoint(uint32_t slotId, InputContext &ctx) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::evaluateContext(uint32_t slotId, InputContext &ctx) {
-	barrier.writeback(ctx.rawData(), ctx.rawSize());
+	barrier.writeback(ctx.data(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::evaluateContext(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::evaluateContext(slotId, co_await ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} evaluateContext({}, ctx) failed: {}",
@@ -450,11 +465,14 @@ Controller::setTransferRingDequeue(uint32_t slotId, uint32_t endpointId, Produce
 // Interrutper
 // ------------------------------------------------------------------------
 
-void Interrupter::initialize() {
+async::result<void> Interrupter::initialize() {
+	co_await _ring->init();
+
 	// Initialize the event ring segment table
 	_space.store(interrupter::erstsz, _ring->getErstSize());
-	_space.store(interrupter::erstbaLow,_ring->getErstPtr() & 0xFFFFFFFF);
-	_space.store(interrupter::erstbaHi, _ring->getErstPtr() >> 32);
+	auto erstPtr = _ring->getErstPtr();
+	_space.store(interrupter::erstbaLow, erstPtr & 0xFFFFFFFF);
+	_space.store(interrupter::erstbaHi, erstPtr >> 32);
 
 	_updateDequeue();
 
@@ -497,9 +515,9 @@ async::detached Interrupter::pollIrqs() {
 }
 
 void Interrupter::_updateDequeue() {
-	_space.store(interrupter::erdpLow,
-			(_ring->getEventRingPtr() & 0xFFFFFFF0) | (1 << 3));
-	_space.store(interrupter::erdpHi, _ring->getEventRingPtr() >> 32);
+	auto eventRingPtr = _ring->getEventRingPtr();
+	_space.store(interrupter::erdpLow, (eventRingPtr & 0xFFFFFFF0) | (1 << 3));
+	_space.store(interrupter::erdpHi, eventRingPtr >> 32);
 }
 
 bool Interrupter::_isBusy() {
@@ -834,7 +852,8 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	// Initialize slot context
 
 	_devCtx = DeviceContext{_controller->largeCtx(), _controller->memoryPool()};
-	_controller->barrier.writeback(_devCtx.rawData(), _devCtx.rawSize());
+	co_await _devCtx.initialize(_controller->dmaSpace());
+	_controller->barrier.writeback(_devCtx.data(), _devCtx.rawSize());
 
 	InputContext inputCtx{_controller->largeCtx(), _controller->memoryPool()};
 	auto &slotCtx = inputCtx.get(inputCtxSlot);
@@ -890,7 +909,7 @@ Device::enumerate(size_t rootPort, size_t port, uint32_t route, std::shared_ptr<
 	}
 	_speed = speed;
 
-	_initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control, 0);
+	co_await _initEpCtx(inputCtx, 0, proto::PipeType::control, packetSize, proto::EndpointType::control, 0);
 
 	_controller->setDeviceContext(_slotId, _devCtx);
 
@@ -952,11 +971,11 @@ Device::setupEndpoint(int endpoint, proto::PipeType dir, size_t maxPacketSize, p
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
 
-	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
+	_controller->barrier.invalidate(_devCtx.data(), _devCtx.rawSize());
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 	inputCtx.get(inputCtxSlot) |= SlotFields::ctxEntries(31);
 
-	_initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type, interval);
+	co_await _initEpCtx(inputCtx, endpoint, dir, maxPacketSize, type, interval);
 
 	FRG_CO_TRY(co_await _controller->configureEndpoint(_slotId, inputCtx));
 
@@ -971,7 +990,7 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 
 	inputCtx.get(inputCtxCtrl) |= InputControlFields::add(0); // Slot Context
 
-	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
+	_controller->barrier.invalidate(_devCtx.data(), _devCtx.rawSize());
 	inputCtx.get(inputCtxSlot) = _devCtx.get(deviceCtxSlot);
 
 	inputCtx.get(inputCtxSlot) |= SlotFields::hub(true);
@@ -988,7 +1007,7 @@ Device::configureHub(std::shared_ptr<proto::Hub> hub, proto::DeviceSpeed speed) 
 	co_return frg::success;
 }
 
-void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval) {
+async::result<void> Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval) {
 	int endpointId = getEndpointIndex(endpoint, dir);
 
 	ctx.get(inputCtxCtrl) |= InputControlFields::add(endpointId); // EP Context
@@ -996,6 +1015,7 @@ void Device::_initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, si
 	auto ep = std::make_shared<EndpointState>(this, endpointId, type, maxPacketSize);
 	_endpoints[endpointId - 1] = ep;
 
+	co_await ep->transferRing().initialize();
 	auto trPtr = ep->transferRing().getPtr();
 
 	auto &epCtx = ctx.get(inputCtxEp0 + endpointId - 1);
@@ -1028,7 +1048,7 @@ Device::updateEp0PacketSize(size_t maxPacketSize) {
 
 	auto &epCtx = inputCtx.get(inputCtxEp0 + endpointId - 1);
 
-	_controller->barrier.invalidate(_devCtx.rawData(), _devCtx.rawSize());
+	_controller->barrier.invalidate(_devCtx.data(), _devCtx.rawSize());
 	epCtx = _devCtx.get(deviceCtxEp0 + endpointId - 1);
 
 	epCtx &= ~EpFields::maxPacketSize(0xFFFF);
@@ -1117,8 +1137,9 @@ ConfigurationState::useInterface(int number, int alternative) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::ControlTransfer info) {
-	auto trbs = Transfer::buildControlChain(
+	auto trbs = co_await Transfer::buildControlChain(
 		*info.setup.data(),
+		_device->controller()->dmaSpace(),
 		info.buffer,
 		info.flags == proto::kXferToHost,
 		_maxPacketSize);
@@ -1131,7 +1152,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::InterruptTransfer info) {
-	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	auto trbs = co_await Transfer::buildNormalChain(_device->controller()->dmaSpace(), info.buffer, _maxPacketSize);
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
@@ -1140,7 +1161,7 @@ EndpointState::transfer(proto::InterruptTransfer info) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::BulkTransfer info) {
-	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	auto trbs = co_await Transfer::buildNormalChain(_device->controller()->dmaSpace(), info.buffer, _maxPacketSize);
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
@@ -1250,12 +1271,14 @@ async::detached bindController(mbus_ng::Entity entity) {
 	}
 
 	co_await device.enableBusmaster();
-	co_await device.enableDma();
+	co_await device.enableDma(false);
+
+	auto [iommuActive, dmaSpaceHandle] = co_await device.getDmaSpace();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
-			std::move(bar), std::move(irq), std::format("pci.{:08x}", info.barInfo[0].address));
+			std::move(bar), std::move(irq), std::format("pci.{:08x}", info.barInfo[0].address), iommuActive, std::move(dmaSpaceHandle));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }

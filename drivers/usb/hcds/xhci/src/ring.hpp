@@ -135,6 +135,7 @@ struct EventRing {
 	static_assert(sizeof(ErstEntry) == 64, "invalid ErstEntry size");
 
 	EventRing(Controller *controller);
+	async::result<void> init();
 	uintptr_t getErstPtr();
 	uintptr_t getEventRingPtr();
 	size_t getErstSize();
@@ -147,6 +148,9 @@ private:
 	Controller *_controller;
 
 	RingPointer _dequeue;
+
+	uintptr_t _cachedEventRingIova = 0;
+	uintptr_t _cachedErstIova = 0;
 };
 
 struct ProducerRing {
@@ -180,6 +184,7 @@ struct ProducerRing {
 	};
 
 	ProducerRing(Controller *controller);
+	async::result<void> initialize();
 	uintptr_t getPtr();
 
 	// Returns the position of the last TRB that was inserted.
@@ -209,4 +214,5 @@ private:
 	async::recurring_event _progressEvent;
 
 	void _updateLink(bool initialCycle);
+	uintptr_t _cachedRingIova = 0;
 };
