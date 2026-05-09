@@ -34,6 +34,14 @@ struct ContextArray {
 		memset(ctx_, 0, rawSize());
 	}
 
+	uintptr_t iova(arch::dma_space &space) const {
+		if (largeCtx_) {
+			return space.iova_of(largeArr_);
+		} else {
+			return space.iova_of(smallArr_);
+		}
+	}
+
 	void *rawData() {
 		return ctx_;
 	}
