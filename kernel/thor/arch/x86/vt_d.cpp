@@ -336,9 +336,18 @@ size_t nextIommuId = 0;
 
 const char *decodeFaultReason(uint8_t reason) {
 	switch(reason) {
-		case 1: return "Root Entry not present";
-		case 2: return "Context Entry not present";
-		case 3: return "Invalid Programming of Context Entry";
+		case 0x01: return "Root Entry not present";
+		case 0x02: return "Context Entry not present";
+		case 0x03: return "Invalid Programming of Context Entry";
+		case 0x04: return "Address overflow in second-stage translation";
+		case 0x05: return "Write request failed with lack of permission";
+		case 0x06: return "Read request failed with lack of permission";
+		case 0x07: return "Next-level lookup invalid";
+		case 0x08: return "Root-Table Address field invalid";
+		case 0x09: return "Context-Table Pointer field invalid";
+		case 0x0A: return "Non-zero reserved field in present root-entry";
+		case 0x0B: return "Non-zero reserved field in present context-entry";
+		case 0x0C: return "Non-zero reserved field in present second-stage PTE";
 		default: return "Reserved or Unhandled";
 	}
 }
