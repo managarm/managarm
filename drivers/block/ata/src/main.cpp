@@ -65,11 +65,8 @@ private:
 	async::result<IoResult> _waitForBsyIrq();
 
 public:
-	async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) override;
-
-	async::result<void> writeSectors(uint64_t sector, const void *buffer,
-			size_t num_sectors) override;
+	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 
 	async::result<size_t> getSize() override;
 
@@ -97,7 +94,7 @@ private:
 		bool isWrite;
 		uint64_t sector;
 		size_t numSectors;
-		void *buffer;
+		arch::dma_buffer_view view;
 		async::oneshot_primitive event;
 	};
 
@@ -117,11 +114,19 @@ private:
 	uint64_t _irqSequence;
 };
 
-Controller::Controller(int64_t parentId, uint16_t mainOffset, uint16_t altOffset,
-		helix::UniqueDescriptor mainBar, helix::UniqueDescriptor altBar,
-		helix::UniqueDescriptor irq)
-: BlockDevice{512, parentId}, _irq{std::move(irq)},
-		_ioSpace{mainOffset}, _altSpace{altOffset}, _supportsLBA48{false} {
+Controller::Controller(
+    int64_t parentId,
+    uint16_t mainOffset,
+    uint16_t altOffset,
+    helix::UniqueDescriptor mainBar,
+    helix::UniqueDescriptor altBar,
+    helix::UniqueDescriptor irq
+)
+: BlockDevice{512, parentId, nullptr},
+  _irq{std::move(irq)},
+  _ioSpace{mainOffset},
+  _altSpace{altOffset},
+  _supportsLBA48{false} {
 	HEL_CHECK(helEnableIo(mainBar.getHandle()));
 	HEL_CHECK(helEnableIo(altBar.getHandle()));
 }
@@ -211,13 +216,14 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 	}
 }
 
-async::result<void> Controller::readSectors(uint64_t sector,
-		void *buffer, size_t numSectors) {
+async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+
 	Request request{};
 	request.isWrite = false;
 	request.sector = sector;
 	request.numSectors = numSectors;
-	request.buffer = buffer;
+	request.view = view;
 
 	_requestQueue.push(&request);
 	_doorbell.raise();
@@ -225,13 +231,14 @@ async::result<void> Controller::readSectors(uint64_t sector,
 	co_await request.event.wait();
 }
 
-async::result<void> Controller::writeSectors(uint64_t sector,
-		const void *buffer, size_t numSectors) {
+async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+
 	Request request{};
 	request.isWrite = true;
 	request.sector = sector;
 	request.numSectors = numSectors;
-	request.buffer = const_cast<void *>(buffer);
+	request.view = view;
 
 	_requestQueue.push(&request);
 	_doorbell.raise();
@@ -339,7 +346,7 @@ async::result<void> Controller::_performRequest(Request *request) {
 
 			// Read the data.
 			// TODO: Do we have to be careful with endianess here?
-			auto chunk = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
+			auto chunk = reinterpret_cast<uint8_t *>(request->view.byte_data()) + k * 512;
 			// TODO: The following is a hack. Lock the page into memory instead!
 			*static_cast<volatile uint8_t *>(chunk); // Fault in the page.
 			_ioSpace.load_iterative(regs::ioData, reinterpret_cast<uint16_t *>(chunk), 256);
@@ -358,7 +365,7 @@ async::result<void> Controller::_performRequest(Request *request) {
 		for(size_t k = 0; k < request->numSectors; k++) {
 			// Read the data.
 			// TODO: Do we have to be careful with endianess here?
-			auto chunk = reinterpret_cast<uint8_t *>(request->buffer) + k * 512;
+			auto chunk = reinterpret_cast<uint8_t *>(request->view.byte_data()) + k * 512;
 			// TODO: The following is a hack. Lock the page into memory instead!
 			*static_cast<volatile uint8_t *>(chunk); // Fault in the page.
 			_ioSpace.store_iterative(regs::ioData, reinterpret_cast<uint16_t *>(chunk), 256);

@@ -10,9 +10,25 @@
 class Controller {
 
 public:
-	Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq, bool useMsis);
+	Controller(
+	    int64_t parentId,
+	    protocols::hw::Device hwDevice,
+	    helix::Mapping hbaRegs,
+	    helix::UniqueDescriptor irq,
+	    bool useMsis,
+	    helix::UniqueDescriptor dmaSpace,
+		bool iommuActive
+	);
 
 	async::detached run();
+
+	arch::contiguous_pool &pool() {
+		return pool_;
+	}
+
+	arch::dma_space &dmaSpace() {
+		return dmaSpace_;
+	}
 
 private:
 	async::result<bool> initPorts_(size_t numCommandSlots, bool staggeredSpinUp);
@@ -24,6 +40,10 @@ private:
 	helix::Mapping regsMapping_;
 	arch::mem_space regs_;
 	helix::UniqueDescriptor irq_;
+
+	arch::contiguous_pool pool_{{.addressBits = 32}};
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
 
 	std::vector<std::unique_ptr<Port>> activePorts_;
 

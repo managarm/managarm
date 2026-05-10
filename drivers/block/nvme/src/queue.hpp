@@ -11,7 +11,10 @@
 #include "spec.hpp"
 
 struct Queue {
-	Queue(unsigned int index, unsigned int depth) : qid_{index}, depth_{depth} {
+	Queue(Controller *controller, unsigned int index, unsigned int depth)
+	: controller_{controller},
+	  qid_{index},
+	  depth_{depth} {
 		queuedCmds_.resize(depth);
 	};
 
@@ -32,6 +35,8 @@ struct Queue {
 	async::result<size_t> findFreeSlot();
 
 protected:
+	Controller *controller_;
+
 	unsigned int qid_;
 	unsigned int depth_;
 
@@ -41,17 +46,19 @@ protected:
 	size_t commandsInFlight_ = 0;
 };
 
+struct PciExpressController;
+
 struct PciExpressQueue final : Queue {
-	PciExpressQueue(unsigned int index, unsigned int depth, arch::mem_space doorbells, size_t interruptVector = 0);
+	PciExpressQueue(PciExpressController *controller, unsigned int index, unsigned int depth, arch::mem_space doorbells, size_t interruptVector = 0);
 
 	async::result<void> init() override;
 	async::detached run() override;
 
-	uintptr_t getCqPhysAddr() const {
-		return cqPhys_;
+	arch::dma_buffer &getCq() {
+		return cq_;
 	}
-	uintptr_t getSqPhysAddr() const {
-		return sqPhys_;
+	arch::dma_buffer &getSq() {
+		return sq_;
 	}
 
 	size_t interruptVector() const {
@@ -64,8 +71,10 @@ private:
 	arch::mem_space doorbells_;
 	spec::CompletionEntry *cqes_;
 	void *sqCmds_;
-	uintptr_t cqPhys_;
-	uintptr_t sqPhys_;
+
+	arch::dma_buffer cq_;
+	arch::dma_buffer sq_;
+
 	uint16_t sqTail_;
 	uint16_t cqHead_;
 	uint8_t cqPhase_;

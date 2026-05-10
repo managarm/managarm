@@ -49,16 +49,16 @@ struct Interface {
 };
 
 struct StorageDevice : Interface, blockfs::BlockDevice {
-	StorageDevice(size_t sectorSize, int64_t parentId)
-	: blockfs::BlockDevice(sectorSize, parentId) { }
+	StorageDevice(size_t sectorSize, int64_t parentId, arch::contiguous_pool *pool)
+	: blockfs::BlockDevice(sectorSize, parentId, pool) { }
 
 	async::detached runScsi();
 
 	async::result<void> readSectors(uint64_t sector,
-			void *buffer, size_t numSectors) final;
+			arch::dma_buffer_view view) final;
 
 	async::result<void> writeSectors(uint64_t sector,
-			const void *buffer, size_t numSectors) final;
+			arch::dma_buffer_view view) final;
 
 	async::result<size_t> getSize() final;
 
@@ -66,13 +66,12 @@ struct StorageDevice : Interface, blockfs::BlockDevice {
 
 private:
 	struct Request {
-		Request(bool isWrite, uint64_t sector, void *buffer, size_t numSectors)
-		: isWrite{isWrite}, sector{sector}, buffer{buffer}, numSectors{numSectors} { }
+		Request(bool isWrite, uint64_t sector, arch::dma_buffer_view view)
+		: isWrite{isWrite}, sector{sector}, view{view} { }
 
 		bool isWrite;
 		uint64_t sector;
-		void *buffer;
-		size_t numSectors;
+		arch::dma_buffer_view view;
 		async::oneshot_primitive event;
 		frg::default_list_hook<Request> requestHook;
 	};

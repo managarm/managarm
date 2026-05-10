@@ -32,14 +32,18 @@ static_assert(sizeof(CommandStatusWrapper) == 13);
 
 struct StorageDevice : scsi::StorageDevice {
 	StorageDevice(protocols::usb::Device usb_device, int64_t parent_id)
-	: scsi::StorageDevice(512, parent_id), usbDevice_(std::move(usb_device)),
-		endp_in_{nullptr}, endp_out_{nullptr} { }
+	: scsi::StorageDevice(512, parent_id, &pool_),
+	  usbDevice_(std::move(usb_device)),
+	  endp_in_{nullptr},
+	  endp_out_{nullptr} {}
 
 	async::detached run(int config_num, int intf_num);
 
 	async::result<frg::expected<scsi::Error, size_t>> sendScsiCommand(const scsi::CommandInfo &info) override;
 
 private:
+	arch::contiguous_pool pool_{{.addressBits = 64}};
+
 	protocols::usb::Device usbDevice_;
 	protocols::usb::Endpoint endp_in_;
 	protocols::usb::Endpoint endp_out_;

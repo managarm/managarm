@@ -28,8 +28,11 @@ struct Device {
 
 	async::detached runDevice();
 
+	arch::contiguous_pool &dmaPool() {
+		return transport_->memoryPool_;
+	}
+
 private:
-	arch::contiguous_pool dmaPool_{{.addressBits = 64}};
 	std::unique_ptr<virtio_core::Transport> transport_;
 	virtio_core::Queue *rxQueue_;
 	virtio_core::Queue *txQueue_;

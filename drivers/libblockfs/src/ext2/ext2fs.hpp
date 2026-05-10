@@ -476,10 +476,12 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
-	async::result<void> readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, void *buffer);
-	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, const void *buffer);
+	async::result<void>
+	readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view buf);
+
+	async::result<void> writeDataBlocks(
+	    std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view view
+	);
 
 
 	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
@@ -489,9 +491,9 @@ struct FileSystem final : BaseFileSystem {
 			uint64_t block_offset, size_t num_blocks);
 
 	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, void *buffer);
+			arch::dma_buffer_view buf);
 	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
-			size_t num_blocks, const void *buffer);
+			arch::dma_buffer_view buf);
 
 	BlockDevice *device;
 	uint16_t inodeSize;
@@ -505,7 +507,7 @@ struct FileSystem final : BaseFileSystem {
 	uint32_t blocksCount;
 	uint32_t inodesCount;
 	uint8_t uuid[16];
-	std::vector<std::byte> blockGroupDescriptorBuffer;
+	arch::dma_buffer blockGroupDescriptorBuffer;
 	BlockGroupDescriptorTable bgdt;
 
 	uint32_t metadataChecksumSeed;
@@ -522,6 +524,8 @@ struct FileSystem final : BaseFileSystem {
 	helix::Mapping inodeTableMapping;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
+
+	arch::contiguous_pool *pool;
 };
 
 // --------------------------------------------------------

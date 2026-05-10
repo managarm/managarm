@@ -34,34 +34,30 @@ async::detached RawFs::manageMapping() {
 		auto cache_size = (device_size + 0xFFF) & ~size_t(0xFFF);
 		assert(manage.offset() + manage.length() <= cache_size);
 
+		auto view = device->pagePool->importMemory(
+		    helix::BorrowedDescriptor{backingMemory}, manage.offset(), manage.length()
+		);
+
 		if(manage.type() == kHelManageInitialize) {
-			helix::Mapping file_map{helix::BorrowedDescriptor{backingMemory},
-				static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtWrite};
 			assert(!(manage.offset() & (device->sectorSize - 1)));
 
 			size_t backed_size = std::min(manage.length(), device_size - manage.offset());
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;
 
 			assert(num_blocks * device->sectorSize <= manage.length());
-			co_await device->readSectors(manage.offset() / device->sectorSize, file_map.get(),
-					num_blocks);
+			co_await device->readSectors(manage.offset() / device->sectorSize, view);
 
 			HEL_CHECK(helUpdateMemory(backingMemory, kHelManageInitialize,
 						manage.offset(), manage.length()));
 		} else {
 			assert(manage.type() == kHelManageWriteback);
-
-			helix::Mapping file_map{helix::BorrowedDescriptor{backingMemory},
-				static_cast<ptrdiff_t>(manage.offset()), manage.length(), kHelMapProtRead};
-
 			assert(!(manage.offset() & (device->sectorSize - 1)));
 
 			size_t backed_size = std::min(manage.length(), device_size - manage.offset());
 			size_t num_blocks = (backed_size + device->sectorSize - 1) / device->sectorSize;
 
 			assert(num_blocks * device->sectorSize <= manage.length());
-			co_await device->writeSectors(manage.offset() / device->sectorSize, file_map.get(),
-					num_blocks);
+			co_await device->writeSectors(manage.offset() / device->sectorSize, view);
 
 			HEL_CHECK(helUpdateMemory(backingMemory, kHelManageWriteback,
 						manage.offset(), manage.length()));

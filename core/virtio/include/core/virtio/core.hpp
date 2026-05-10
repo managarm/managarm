@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 
+#include <arch/dma_pool.hpp>
 #include <arch/dma_structs.hpp>
 #ifdef __x86_64__
 #include <arch/io_space.hpp>
@@ -137,7 +138,7 @@ struct QueueInfo {
 };
 
 /* This class represents a virtio device.
- * 
+ *
  * Usual initialization works as follows:
  * - Call discover() to obtain a transport.
  * - Negotiate features via Transport::checkDeviceFeature() / acknowledgeDriverFeature().
@@ -148,6 +149,11 @@ struct QueueInfo {
  */
 struct Transport {
 	DeviceSpace space();
+
+	Transport(helix::UniqueDescriptor dmaSpace, bool iommuActive)
+	: dmaSpaceHandle_{std::move(dmaSpace)},
+	  dmaSpace_{memoryPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+	  contiguousDmaSpace_{contiguousPool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {}
 
 	virtual ~Transport() = default;
 
@@ -165,9 +171,15 @@ struct Transport {
 
 	virtual void claimQueues(unsigned int max_index) = 0;
 
-	virtual Queue *setupQueue(unsigned int index) = 0;
+	virtual async::result<Queue *> setupQueue(unsigned int index) = 0;
 
 	virtual void runDevice() = 0;
+
+	arch::contiguous_pool memoryPool_{{.addressBits = 64, .allocFlags = 0}};
+	arch::contiguous_pool contiguousPool_{{.addressBits = 64, .allocFlags = kHelAllocContinuous}};
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
+	arch::dma_space contiguousDmaSpace_;
 };
 
 struct DeviceSpace {
@@ -235,8 +247,8 @@ struct Handle {
 
 	// setupBuffer() assumes that the buffer is contiguous in physical memory.
 	// Use scatterGather() for a more convenient API.
-	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
-	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
+	async::result<void> setupBuffer(HostToDeviceType, arch::dma_buffer_view view);
+	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view);
 
 	void setupLink(Handle other);
 
@@ -268,11 +280,11 @@ struct Chain {
 	}
 
 	// Note the remarks on Handle::setupBuffer().
-	void setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
-		_back.setupBuffer(hostToDevice, view);
+	async::result<void> setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
+		return _back.setupBuffer(hostToDevice, view);
 	}
-	void setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
-		_back.setupBuffer(deviceToHost, view);
+	async::result<void> setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
+		return _back.setupBuffer(deviceToHost, view);
 	}
 
 private:
@@ -296,7 +308,7 @@ struct Request {
 struct Queue {
 	friend struct Handle;
 
-	Queue(unsigned int queue_index, size_t queue_size, spec::Descriptor *table,
+	Queue(unsigned int queue_index, size_t queue_size, arch::dma_buffer virtq, spec::Descriptor *table,
 			spec::AvailableRing *available, spec::UsedRing *used);
 protected:
 	~Queue() = default;
@@ -344,6 +356,7 @@ public:
 
 protected:
 	virtual void notifyTransport() = 0;
+	virtual arch::dma_space &dmaSpace() = 0;
 
 private:
 	// Index of this queue as part of its owning device.
@@ -351,6 +364,8 @@ private:
 
 	// Number of descriptors in this queue.
 	size_t _queueSize;
+
+	arch::dma_buffer virtq_;
 
 	// Pointers to different data structures of this virtq.
 	spec::Descriptor *_table;

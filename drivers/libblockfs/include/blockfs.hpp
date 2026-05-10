@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/result.hpp>
+#include <arch/dma_pool.hpp>
 #include <protocols/fs/common.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/ostrace/ostrace.hpp>
@@ -9,14 +10,13 @@
 namespace blockfs {
 
 struct BlockDevice {
-	BlockDevice(size_t sector_size, int64_t parent_id);
+	BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous_pool *pool);
 
 	virtual ~BlockDevice() = default;
 
-	virtual async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) = 0;
+	virtual async::result<void> readSectors(uint64_t, arch::dma_buffer_view) = 0;
 
-	virtual async::result<void> writeSectors(uint64_t, const void *, size_t) {
+	virtual async::result<void> writeSectors(uint64_t, arch::dma_buffer_view) {
 		throw std::runtime_error("BlockDevice does not support writeSectors()");
 	}
 
@@ -38,6 +38,8 @@ struct BlockDevice {
 	std::string diskNamePrefix = "sd";
 	std::string diskNameSuffix = "";
 	std::string partNameSuffix = "";
+
+	arch::contiguous_pool *pagePool;
 protected:
 };
 

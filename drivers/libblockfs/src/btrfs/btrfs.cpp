@@ -95,10 +95,10 @@ async::result<void> FileSystem::init() {
 	    frg::align_up(sizeof(Superblock) + deviceSuperBlockOffset, device_->sectorSize)
 	    / device_->sectorSize;
 
-	std::vector<uint8_t> buffer(deviceSuperBlockSectors * device_->sectorSize);
-	co_await device_->readSectors(deviceSuperBlockSector, buffer.data(), deviceSuperBlockSectors);
+	arch::dma_buffer buffer{device_->pagePool, deviceSuperBlockSectors * device_->sectorSize};
+	co_await device_->readSectors(deviceSuperBlockSector, buffer);
 
-	memcpy(&superblock_, buffer.data() + deviceSuperBlockOffset, sizeof(Superblock));
+	memcpy(&superblock_, buffer.byte_data() + deviceSuperBlockOffset, sizeof(Superblock));
 	assert(!strncmp(superblock_.magic, "_BHRfS_M", 8));
 
 	std::println("libblockfs: mounting btrfs fs {}", superblock_.fs_uuid);
@@ -116,10 +116,11 @@ async::result<void> FileSystem::init() {
 	        device_->sectorSize
 	    )
 	    / device_->sectorSize;
-	std::vector<uint8_t> bootstrapChunkBuffer(deviceBootstrapChunkSectors * device_->sectorSize);
-	co_await device_->readSectors(
-	    deviceBootstrapChunkSector, bootstrapChunkBuffer.data(), deviceBootstrapChunkSectors
-	);
+
+	arch::dma_buffer bootstrapChunkBuffer{
+	    device_->pagePool, deviceBootstrapChunkSectors * device_->sectorSize
+	};
+	co_await device_->readSectors(deviceBootstrapChunkSector, bootstrapChunkBuffer);
 
 	size_t nextChunkOffset = 0;
 
@@ -131,7 +132,7 @@ async::result<void> FileSystem::init() {
 		Key chunk_key;
 		memcpy(
 		    &chunk_key,
-		    bootstrapChunkBuffer.data() + deviceBootstrapChunkOffset + nextChunkOffset,
+		    bootstrapChunkBuffer.byte_data() + deviceBootstrapChunkOffset + nextChunkOffset,
 		    sizeof(Key)
 		);
 		nextChunkOffset += sizeof(Key);
@@ -139,7 +140,7 @@ async::result<void> FileSystem::init() {
 		ChunkItem chunk;
 		memcpy(
 		    &chunk,
-		    bootstrapChunkBuffer.data() + deviceBootstrapChunkOffset + nextChunkOffset,
+		    bootstrapChunkBuffer.byte_data() + deviceBootstrapChunkOffset + nextChunkOffset,
 		    sizeof(ChunkItem)
 		);
 		nextChunkOffset += sizeof(ChunkItem);
@@ -147,7 +148,7 @@ async::result<void> FileSystem::init() {
 		ChunkStripe stripe;
 		memcpy(
 		    &stripe,
-		    bootstrapChunkBuffer.data() + deviceBootstrapChunkOffset + nextChunkOffset,
+		    bootstrapChunkBuffer.byte_data() + deviceBootstrapChunkOffset + nextChunkOffset,
 		    sizeof(ChunkStripe)
 		);
 		nextChunkOffset += chunk.stripe_count * sizeof(ChunkStripe);
@@ -235,14 +236,9 @@ async::detached FileSystem::manageTree() {
 		HEL_CHECK(manage.error());
 		assert(manage.offset() + manage.length() <= superblock_.total_bytes);
 
-		if (manage.type() == kHelManageInitialize) {
-			helix::Mapping file_map{
-			    helix::BorrowedDescriptor{treeBackingMemory},
-			    static_cast<ptrdiff_t>(manage.offset()),
-			    manage.length(),
-			    kHelMapProtWrite
-			};
+		auto view = device_->pagePool->importMemory(helix::BorrowedDescriptor{treeBackingMemory}, manage.offset(), manage.length());
 
+		if (manage.type() == kHelManageInitialize) {
 			assert(!(manage.offset() % superblock_.sector_size));
 			size_t backed_size =
 			    std::min(manage.length(), superblock_.total_bytes - manage.offset());
@@ -251,13 +247,7 @@ async::detached FileSystem::manageTree() {
 
 			assert(num_sectors * device_->sectorSize <= manage.length());
 
-			auto managedChunk = std::span<std::byte>{
-			    reinterpret_cast<std::byte *>(file_map.get()), manage.length()
-			};
-
-			co_await device_->readSectors(
-			    manage.offset() / device_->sectorSize, managedChunk.data(), num_sectors
-			);
+			co_await device_->readSectors(manage.offset() / device_->sectorSize, view);
 
 			HEL_CHECK(helUpdateMemory(
 			    treeBackingMemory, kHelManageInitialize, manage.offset(), manage.length()
@@ -447,9 +437,7 @@ async::result<std::optional<std::span<std::byte>>> FileSystem::nextKey(BtreePtr 
 
 // Produce an async generator for lazy in-order traversal of the tree rooted at `start`.
 async::generator<std::tuple<Key, std::span<std::byte>>> FileSystem::traverse(LogicalAddress start) {
-	std::vector<std::byte> blockBuffer(
-	    device_->sectorSize * (superblock_.node_size / device_->sectorSize)
-	);
+	arch::dma_buffer blockBuffer{device_->pagePool, device_->sectorSize * (superblock_.node_size / device_->sectorSize)};
 	if constexpr (debugTreeWalking)
 		std::println(
 		    "libblockfs: traversing tree at logical address {:#x}", static_cast<uint64_t>(start)
@@ -464,11 +452,7 @@ async::generator<std::tuple<Key, std::span<std::byte>>> FileSystem::traverse(Log
 		    static_cast<uint64_t>(phys)
 		);
 
-	co_await device_->readSectors(
-	    static_cast<uint64_t>(phys) / device_->sectorSize,
-	    reinterpret_cast<uint8_t *>(blockBuffer.data()),
-	    superblock_.node_size / device_->sectorSize
-	);
+	co_await device_->readSectors(static_cast<uint64_t>(phys) / device_->sectorSize, blockBuffer);
 
 	BlockHeader *header = reinterpret_cast<BlockHeader *>(blockBuffer.data());
 
@@ -490,11 +474,11 @@ async::generator<std::tuple<Key, std::span<std::byte>>> FileSystem::traverse(Log
 
 	for (size_t i = 0; i < header->nritems; i++) {
 		Item it;
-		memcpy(&it, blockBuffer.data() + sizeof(BlockHeader) + i * sizeof(Item), sizeof(Item));
+		memcpy(&it, blockBuffer.byte_data() + sizeof(BlockHeader) + i * sizeof(Item), sizeof(Item));
 		co_yield std::make_tuple(
 		    it.k,
 		    std::span<std::byte>{
-		        blockBuffer.data() + sizeof(*header) + it.data_offset, it.data_size
+		        blockBuffer.byte_data() + sizeof(*header) + it.data_offset, it.data_size
 		    }
 		);
 	}
@@ -565,19 +549,12 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
 
 		if (manage.type() == kHelManageInitialize) {
-			helix::Mapping file_map{
-			    helix::BorrowedDescriptor{inode->backingMemory},
-			    static_cast<ptrdiff_t>(manage.offset()),
-			    manage.length(),
-			    kHelMapProtWrite
-			};
-
 			assert(!(manage.offset() % inode->fs_.superblock_.sector_size));
 
 			size_t progress = 0;
-			auto managedChunk = std::span<std::byte>{
-			    reinterpret_cast<std::byte *>(file_map.get()), manage.length()
-			};
+			auto view = device_->pagePool->importMemory(
+			    helix::BorrowedDescriptor{inode->backingMemory}, manage.offset(), manage.length()
+			);
 
 			BtreePtr ptr{};
 			Key searchKey{inode->number, ItemType::EXTENTDATA_ITEM};
@@ -592,9 +569,7 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				if (ed->type == 0) {
 					size_t extentDataSize = val->size_bytes() - sizeof(*ed);
 					size_t to_copy = frg::min(manage.length() - progress, extentDataSize);
-					std::ranges::copy(
-					    val->subspan(sizeof(*ed), to_copy), managedChunk.subspan(progress).begin()
-					);
+					memcpy(view.view().byte_data() + progress, val->data() + sizeof(*ed), to_copy);
 					progress += to_copy;
 				} else {
 					auto extraData =
@@ -603,7 +578,7 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 					// handle sparse extent
 					if (uint64_t{extraData->extent_addr} == 0) {
-						std::ranges::fill(managedChunk.subspan(progress, to_copy), std::byte{0});
+						memset(view.view().byte_data() + progress, 0, to_copy);
 						progress += to_copy;
 						continue;
 					}
@@ -616,8 +591,7 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 					PhysicalAddress extent{this, extraData->extent_addr};
 					co_await device_->readSectors(
 					    uint64_t{extent} / device_->sectorSize,
-					    reinterpret_cast<uint8_t *>(managedChunk.subspan(progress).data()),
-					    to_copy / device_->sectorSize
+						view.view().subview(progress, to_copy)
 					);
 					progress += to_copy;
 				}

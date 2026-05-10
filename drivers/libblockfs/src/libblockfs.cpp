@@ -32,8 +32,8 @@ bool clkInitialized = false;
 
 async::mutex globalInitializationMutex;
 
-BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
-: size(0), sectorSize(sector_size), parentId(parent_id) { }
+BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id, arch::contiguous_pool *pool)
+: size(0), sectorSize(sector_size), parentId(parent_id), pagePool{pool} { }
 
 struct HandlePartition {
 	async::result<std::expected<void, DispatchError>>

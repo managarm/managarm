@@ -10,8 +10,19 @@
 
 namespace nvme::fabric {
 
+struct Tcp;
+
 struct TcpQueue final : public Queue {
-	TcpQueue(uint16_t cid, unsigned int index, unsigned int depth, in_addr addr, in_port_t port, helix::BorrowedLane lane, std::span<uint8_t, 16> uuid);
+	TcpQueue(
+		Tcp *controller,
+	    uint16_t cid,
+	    unsigned int index,
+	    unsigned int depth,
+	    in_addr addr,
+	    in_port_t port,
+	    helix::BorrowedLane lane,
+	    std::span<uint8_t, 16> uuid
+	);
 
 	async::result<void> init() override;
 	async::detached run() override;
@@ -50,6 +61,11 @@ struct Tcp final : public Controller {
 	async::detached run(mbus_ng::EntityId subsystem) override;
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
+
+	async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) override {
+		// PRPs are not supported.
+		co_return std::nullopt;
+	}
 
 private:
 	async::result<frg::expected<spec::CompletionStatus, uint64_t>> fabricGetProperty(uint32_t propertyOffset, size_t size);

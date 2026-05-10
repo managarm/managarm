@@ -8,6 +8,7 @@ struct ExtentWalkInfo {
 	ExtentHeader *hdr;
 	// null for the inode embedded level
 	std::optional<uint64_t> block;
+	arch::dma_buffer_view blockView;
 	uint16_t index;
 
 	// for non-leaf levels
@@ -36,7 +37,8 @@ struct ExtentWalker {
 	template<typename Enter, typename Leave>
 	async::result<bool> walk(uint64_t blockIndex, Enter enter, Leave leave) {
 		auto bufferBytesPerBlock = fs->sectorsPerBlock * fs->device->sectorSize;
-		std::vector<std::byte> blockBuffer(bufferBytesPerBlock * maxExtentDepthAfterInode);
+		arch::dma_buffer blockBuffer{fs->pool, bufferBytesPerBlock * maxExtentDepthAfterInode};
+		arch::dma_buffer_view subview;
 
 		auto hdr = &inode->diskInode()->data.extents.hdr;
 		std::optional<uint64_t> currentBlock;
@@ -72,6 +74,7 @@ struct ExtentWalker {
 			path[pathCount++] = {
 				.hdr = hdr,
 				.block = currentBlock,
+				.blockView = subview,
 				.index = static_cast<uint16_t>(prevIndex),
 				.indices = indices,
 				.extents = nullptr
@@ -83,12 +86,10 @@ struct ExtentWalker {
 			uint64_t nextBlock = static_cast<uint64_t>(idx.leafLow)
 					| (static_cast<uint64_t>(idx.leafHigh) << 32);
 
-			auto ptr = blockBuffer.data() + (pathCount - 1) * bufferBytesPerBlock;
-			co_await fs->device->readSectors(nextBlock * fs->sectorsPerBlock,
-					ptr,
-					fs->sectorsPerBlock);
+			subview = blockBuffer.subview((pathCount - 1) * bufferBytesPerBlock, sizeof(ExtentHeader));
+			co_await fs->device->readSectors(nextBlock * fs->sectorsPerBlock, subview);
 			currentBlock = nextBlock;
-			hdr = reinterpret_cast<ExtentHeader *>(ptr);
+			hdr = reinterpret_cast<ExtentHeader *>(subview.data());
 		}
 
 		assert(hdr->magic == EXT4_EXTENT_MAGIC);
@@ -118,6 +119,7 @@ struct ExtentWalker {
 		path[pathCount++] = {
 			.hdr = hdr,
 			.block = currentBlock,
+			.blockView = subview,
 			.index = static_cast<uint16_t>(prevIndex),
 			.indices = nullptr,
 			.extents = extents

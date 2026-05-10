@@ -1,39 +1,37 @@
+#include <arch/barrier.hpp>
 #include <arch/bit.hpp>
 #include <helix/ipc.hpp>
 #include <helix/memory.hpp>
 
+#include "controller.hpp"
 #include "queue.hpp"
 #include "spec.hpp"
 
-PciExpressQueue::PciExpressQueue(unsigned int qid, unsigned int depth, arch::mem_space doorbells, size_t interruptVector)
-	: Queue(qid, depth), doorbells_(doorbells), sqTail_(0), cqHead_(0), cqPhase_(1), interruptVector_{interruptVector} {
-
-}
+PciExpressQueue::PciExpressQueue(
+    PciExpressController *controller,
+    unsigned int qid,
+    unsigned int depth,
+    arch::mem_space doorbells,
+    size_t interruptVector
+)
+: Queue(controller, qid, depth),
+  doorbells_(doorbells),
+  sqTail_(0),
+  cqHead_(0),
+  cqPhase_(1),
+  interruptVector_{interruptVector} {}
 
 async::result<void> PciExpressQueue::init() {
 	auto align = 0x1000;
 	size_t sqSize = ((depth_ << 6) + align - 1) & ~size_t(align - 1);
 	size_t cqSize = ((depth_ * sizeof(spec::CompletionEntry)) + align - 1) & ~size_t(align - 1);
 
-	HelHandle memory;
-	void *window;
-	HEL_CHECK(helAllocateMemory(cqSize, kHelAllocContinuous, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						   0, cqSize, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
-
-	cqes_ = reinterpret_cast<spec::CompletionEntry *>(window);
+	cq_ = arch::dma_buffer{&controller_->memoryPool(), cqSize};
+	cqes_ = reinterpret_cast<spec::CompletionEntry *>(cq_.data());
 	memset(cqes_, 0, cqSize);
 
-	HEL_CHECK(helAllocateMemory(sqSize, kHelAllocContinuous, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-						   0, sqSize, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
-
-	sqCmds_ = window;
-
-	cqPhys_ = helix::ptrToPhysical(cqes_);
-	sqPhys_ = helix::ptrToPhysical(sqCmds_);
+	sq_ = arch::dma_buffer{&controller_->memoryPool(), sqSize};
+	sqCmds_ = sq_.data();
 
 	co_return;
 }
@@ -110,6 +108,10 @@ async::result<void> PciExpressQueue::submitCommandToDevice(std::unique_ptr<Comma
 	cmdBuf.common.commandId = (uint16_t)slot;
 
 	memcpy((uint8_t *)sqCmds_ + (sqTail_ << 6), &cmdBuf, sizeof(spec::Command));
+
+	arch::dma_barrier barrier{true};
+	barrier.writeback((uint8_t *) sqCmds_ + (sqTail_ << 6), sizeof(spec::Command));
+
 	if (++sqTail_ == depth_)
 		sqTail_ = 0;
 	doorbells_.store(arch::scalar_register<uint32_t>{0}, sqTail_);

@@ -188,23 +188,24 @@ async::detached StorageDevice::runScsi() {
 		}
 
 		auto req = queue_.pop_front();
+		auto numSectors = req->view.size() / sectorSize;
 
 		if (logRequests)
-			std::println(std::cout, "block-scsi: Reading {} sectors", req->numSectors);
-		assert(req->numSectors);
-		assert(req->numSectors <= 0xffff);
+			std::println(std::cout, "block-scsi: Reading {} sectors", numSectors);
+		assert(numSectors);
+		assert(numSectors <= 0xffff);
 
 		uint8_t commandData[16];
 		uint8_t commandLength;
 
 		if (!req->isWrite) {
-			if (enableRead6 && req->sector <= 0x1fffff && req->numSectors <= 0xff) {
+			if (enableRead6 && req->sector <= 0x1fffff && numSectors <= 0xff) {
 				Read6 command{};
 				command.opCode = 0x08;
 				command.lba[0] = req->sector >> 16;
 				command.lba[1] = (req->sector >> 8) & 0xff;
 				command.lba[2] = req->sector & 0xff;
-				command.transferLength = req->numSectors;
+				command.transferLength = numSectors;
 
 				commandLength = sizeof(Read6);
 				memcpy(commandData, &command, sizeof(Read6));
@@ -215,8 +216,8 @@ async::detached StorageDevice::runScsi() {
 				command.lba[1] = (req->sector >> 16) & 0xff;
 				command.lba[2] = (req->sector >> 8) & 0xff;
 				command.lba[3] = req->sector & 0xff;
-				command.transferLength[0] = req->numSectors >> 8;
-				command.transferLength[1] = req->numSectors & 0xff;
+				command.transferLength[0] = numSectors >> 8;
+				command.transferLength[1] = numSectors & 0xff;
 
 				commandLength = sizeof(Read10);
 				memcpy(commandData, &command, sizeof(Read10));
@@ -231,8 +232,8 @@ async::detached StorageDevice::runScsi() {
 				command.lba[1] = (req->sector >> 16) & 0xff;
 				command.lba[2] = (req->sector >> 8) & 0xff;
 				command.lba[3] = req->sector & 0xff;
-				command.transferLength[0] = req->numSectors >> 8;
-				command.transferLength[1] = req->numSectors & 0xff;
+				command.transferLength[0] = numSectors >> 8;
+				command.transferLength[1] = numSectors & 0xff;
 
 				commandLength = sizeof(Write10);
 				memcpy(commandData, &command, sizeof(Write10));
@@ -246,7 +247,7 @@ async::detached StorageDevice::runScsi() {
 
 		CommandInfo info{
 			.command{nullptr, commandData, commandLength},
-			.data{nullptr, req->buffer, req->numSectors * sectorSize},
+			.data = req->view,
 			.isWrite = req->isWrite
 		};
 		auto result = co_await sendScsiCommand(info);
@@ -263,16 +264,16 @@ async::detached StorageDevice::runScsi() {
 }
 
 async::result<void> StorageDevice::readSectors(uint64_t sector,
-		void *buffer, size_t numSectors) {
-	Request req{false, sector, buffer, numSectors};
+		arch::dma_buffer_view view) {
+	Request req{false, sector, view};
 	queue_.push_back(&req);
 	doorbell_.raise();
 	co_await req.event.wait();
 }
 
 async::result<void> StorageDevice::writeSectors(uint64_t sector,
-		const void *buffer, size_t numSectors) {
-	Request req{true, sector, const_cast<void *>(buffer), numSectors};
+		arch::dma_buffer_view view) {
+	Request req{true, sector, view};
 	queue_.push_back(&req);
 	doorbell_.raise();
 	co_await req.event.wait();

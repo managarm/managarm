@@ -87,7 +87,7 @@ public:
 	Partition &getPartition(int index);
 
 private:
-	async::result<std::pair<char *, DiskHeader *>> probeSectorSize_(size_t sectorSize);
+	async::result<std::pair<arch::dma_buffer, DiskHeader *>> probeSectorSize_(size_t sectorSize);
 
 	BlockDevice *device_;
 	std::vector<Partition> partitions_;
@@ -100,13 +100,10 @@ private:
 
 struct Partition : public BlockDevice {
 	Partition(Table &table, Guid id, Guid type,
-			uint64_t start_lba, uint64_t num_sectors);
+			uint64_t start_lba, uint64_t num_sectors, arch::contiguous_pool *pool);
 
-	async::result<void> readSectors(uint64_t sector, void *buffer,
-			size_t num_sectors) override;
-
-	async::result<void> writeSectors(uint64_t sector, const void *buffer,
-			size_t num_sectors) override;
+	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 
 	async::result<size_t> getSize() override;
 

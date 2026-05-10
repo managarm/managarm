@@ -40,11 +40,23 @@ namespace flags {
 	}
 }
 
-Controller::Controller(int64_t parentId, protocols::hw::Device hwDevice, helix::Mapping hbaRegs, helix::UniqueDescriptor irq, bool useMsis)
-	: hwDevice_{std::move(hwDevice)} ,regsMapping_{std::move(hbaRegs)},
-	regs_{regsMapping_.get()}, irq_{std::move(irq)}, parentId_{parentId}, useMsis_{useMsis}
-{
-}
+Controller::Controller(
+    int64_t parentId,
+    protocols::hw::Device hwDevice,
+    helix::Mapping hbaRegs,
+    helix::UniqueDescriptor irq,
+    bool useMsis,
+    helix::UniqueDescriptor dmaSpace,
+    bool iommuActive
+)
+: hwDevice_{std::move(hwDevice)},
+  regsMapping_{std::move(hbaRegs)},
+  regs_{regsMapping_.get()},
+  irq_{std::move(irq)},
+  dmaSpaceHandle_{std::move(dmaSpace)},
+  dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  parentId_{parentId},
+  useMsis_{useMsis} {}
 
 async::detached Controller::run() {
 	// Enable AHCI
@@ -190,7 +202,7 @@ async::result<bool> Controller::initPorts_(size_t numCommandSlots, bool ss) {
 	for (int i = 0; i < maxPorts_; i++) {
 		if (portsImpl_ & (1 << i)) {
 			auto offset = 0x100 + i * 0x80;
-			auto port = std::make_unique<Port>(parentId_, i, numCommandSlots, ss, regs_.subspace(offset));
+			auto port = std::make_unique<Port>(this, parentId_, i, numCommandSlots, ss, regs_.subspace(offset));
 
 			if (co_await port->init())
 				activePorts_.push_back(std::move(port));

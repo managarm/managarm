@@ -79,8 +79,9 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 		protocols::hw::Device device((co_await entity.getRemoteLane()).unwrap());
 		co_await device.enableBusmaster();
-		co_await device.enableDma();
+		co_await device.enableDma(false);
 		auto info = co_await device.getPciInfo();
+		auto [iommuActive, ioSpace] = co_await device.getDmaSpace();
 
 		auto &barInfo = info.barInfo[0];
 		assert(barInfo.ioType == protocols::hw::IoType::kIoTypeMemory);
@@ -96,7 +97,9 @@ async::result<protocols::svrctl::Error> bindDevice(int64_t base_id) {
 
 		auto nvme_subsystem = std::make_unique<nvme::Subsystem>();
 		co_await nvme_subsystem->run();
-		auto controller = std::make_unique<PciExpressController>(base_id, std::move(device), loc, std::move(mapping));
+		auto controller = std::make_unique<PciExpressController>(
+		    base_id, std::move(device), loc, std::move(mapping), std::move(ioSpace), iommuActive
+		);
 		controller->run(nvme_subsystem->id());
 		nvme_subsystem->addController(base_id, std::move(controller));
 		globalSubsystems.insert({nvme_subsystem->id(), std::move(nvme_subsystem)});

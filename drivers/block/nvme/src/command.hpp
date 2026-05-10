@@ -9,6 +9,8 @@
 
 #include <vector>
 
+struct Controller;
+
 struct Command {
 	using Result = std::pair<spec::CompletionStatus, spec::CompletionEntry::Result>;
 
@@ -16,7 +18,7 @@ struct Command {
 		return command_;
 	}
 
-	void setupBuffer(arch::dma_buffer_view view, spec::DataTransfer policy);
+	async::result<void> setupBuffer(Controller *controller, arch::dma_buffer_view view, spec::DataTransfer policy);
 
 	async::future<Result, frg::stl_allocator> getFuture() {
 		return promise_.get_future();

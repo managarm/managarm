@@ -68,8 +68,8 @@ Device::Device(std::unique_ptr<virtio_core::Transport> transport)
 async::detached Device::runDevice() {
 	transport_->finalizeFeatures();
 	transport_->claimQueues(2);
-	rxQueue_ = transport_->setupQueue(0);
-	txQueue_ = transport_->setupQueue(1);
+	rxQueue_ = co_await transport_->setupQueue(0);
+	txQueue_ = co_await transport_->setupQueue(1);
 
 	auto maxPorts = transport_->space().load(spec::regs::maxPorts);
 	std::cout << "virtio-console: Device supports " << maxPorts << " ports" << std::endl;
@@ -81,7 +81,7 @@ async::detached Device::runDevice() {
 
 		uint64_t dequeue = 0;
 
-		arch::dma_buffer chunkBuffer{&dmaPool_, 1 << 16};
+		arch::dma_buffer chunkBuffer{&dmaPool(), 1 << 16};
 
 		while (true) {
 			auto [size, effectiveDequeue, newDequeue] = co_await getKerncfgByteRingPart(
@@ -96,7 +96,7 @@ async::detached Device::runDevice() {
 
 			virtio_core::Chain chain;
 			chain.append(co_await txQueue_->obtainDescriptor());
-			chain.setupBuffer(virtio_core::hostToDevice, chunkBuffer.subview(0, size));
+			co_await chain.setupBuffer(virtio_core::hostToDevice, chunkBuffer.subview(0, size));
 			co_await txQueue_->submitDescriptor(chain.front());
 		}
 	};
