@@ -81,7 +81,7 @@ struct PfnDb {
 	// Lock-free but protected by RCU.
 	frg::optional<PfnDescriptor> find(uint64_t pa) {
 		assert(!(pa & (kPageSize - 1)));
-		IplGuard<ipl::schedule> guard;
+		IplGuard<ipl::noSchedule> guard;
 
 		auto it = tree_.find(pa);
 		if(!it)

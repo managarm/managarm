@@ -167,7 +167,11 @@ public:
 		using ValueType = std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type;
 
 		auto ipl = currentIpl();
-		assert(ipl < wq->wqIpl());
+		if (wq) {
+			assert(ipl < wq->wqIpl());
+		} else {
+			assert(currentIpl() < ipl::noSchedule);
+		}
 		assert(!(maskedCancelConditions & ~cancelConditions));
 		(void)tag;
 		auto thisThread = getCurrentThread();
