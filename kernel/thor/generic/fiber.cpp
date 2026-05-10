@@ -14,7 +14,9 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 	auto this_fiber = thisFiber();
 	while(true) {
 		// Run the WQ outside of the locks.
-		this_fiber->_associatedWorkQueue->run();
+		auto ipl = currentIpl();
+		if (ipl < ipl::exceptionalWork)
+			this_fiber->_associatedWorkQueue->run();
 
 		StatelessIrqLock irq_lock;
 		auto lock = frg::guard(&this_fiber->_mutex);
@@ -22,8 +24,10 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 		// Those are the important tests; they are protected by the fiber's mutex.
 		if(blocker->_done)
 			break;
-		if(this_fiber->_associatedWorkQueue->check())
-			continue;
+		if (ipl < ipl::exceptionalWork) {
+			if(this_fiber->_associatedWorkQueue->check())
+				continue;
+		}
 
 		assert(!this_fiber->_blocked);
 		this_fiber->_blocked = true;
@@ -156,6 +160,9 @@ void KernelFiber::handlePreemption(IrqImageAccessor image) {
 void KernelFiber::AssociatedWorkQueue::wakeup() {
 	auto irq_lock = frg::guard(&irqMutex());
 	auto lock = frg::guard(&fiber_->_mutex);
+
+	// TODO: As for threads, we should suppress wakeups if the IPL at which the fiber is saved
+	//       does not allow the work queue to run.
 
 	if(!fiber_->_blocked)
 		return;

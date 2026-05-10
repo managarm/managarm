@@ -98,7 +98,7 @@ using CoreAllocator = frg::slab_allocator<CoreSlabPolicy, IrqSpinlock>;
 CoreAllocator &getCoreAllocator();
 
 struct Allocator {
-	struct Guard : IplGuard<ipl::schedule> {
+	struct Guard : IplGuard<ipl::noPreemption> {
 		Guard() {
 			auto cpu = getCpuData();
 			assert(!inSlabPool.get(cpu).load(std::memory_order_relaxed));
