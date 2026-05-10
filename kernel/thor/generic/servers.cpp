@@ -22,11 +22,11 @@ static bool debugLaunch = true;
 frg::manual_box<LaneHandle> mbusClient;
 static frg::manual_box<LaneHandle> futureMbusServer;
 
-frg::ticket_spinlock globalMfsMutex;
+constinit AdaptiveMutex globalMfsMutex;
 
 extern MfsDirectory *mfsRoot;
 
-constinit IrqSpinlock allServersMutex;
+constinit AdaptiveMutex allServersMutex;
 
 // Protected by allServersMutex.
 static frg::manual_box<
@@ -55,8 +55,8 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 	auto copyOutcome = co_await memory->copyTo(0, buffer, size);
 	assert(copyOutcome);
 
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&globalMfsMutex);
+	PreemptionGuard preemptionGuard;
+	AdaptiveMutex::Guard lock{globalMfsMutex};
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -112,8 +112,8 @@ coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t 
 }
 
 MfsNode *resolveModule(frg::string_view path) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&globalMfsMutex);
+	PreemptionGuard preemptionGuard;
+	AdaptiveMutex::Guard lock{globalMfsMutex};
 
 	const char *begin = path.data();
 	const char *end = path.data() + path.size();
@@ -388,7 +388,8 @@ coroutine<void> runMbus() {
 
 	frg::tuple<LaneHandle, LaneHandle> controlStream;
 	{
-		auto lock = frg::guard(&allServersMutex);
+		PreemptionGuard preemptionGuard;
+		AdaptiveMutex::Guard lock{allServersMutex};
 
 		frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
 		assert(!allServers->get(nameStr));
@@ -410,7 +411,8 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 
 	frg::tuple<LaneHandle, LaneHandle> controlStream;
 	{
-		auto lock = frg::guard(&allServersMutex);
+		PreemptionGuard preemptionGuard;
+		AdaptiveMutex::Guard lock{allServersMutex};
 
 		frg::string<KernelAlloc> nameStr{*kernelAlloc, name.data(), name.size()};
 		if(auto server = allServers->get(nameStr); server) {
