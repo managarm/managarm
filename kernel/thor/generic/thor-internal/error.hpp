@@ -22,6 +22,9 @@ enum class Error {
 	noHardwareSupport,
 	alreadyExists,
 	badPermissions,
+	noDescriptor,
+	badDescriptor,
+	other,
 	// Internal error: the remote has violated the IPC protocol.
 	hardwareBroken,
 	protocolViolation,

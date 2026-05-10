@@ -1,8 +1,13 @@
 #pragma once
 
+#include <expected>
+#include <optional>
+#include <utility>
 #include <frg/variant.hpp>
 #include <assert.h>
 #include <smarter.hpp>
+#include <thor-internal/error.hpp>
+#include <thor-internal/ipl.hpp>
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/virtualization.hpp>
 
@@ -264,11 +269,28 @@ public:
 	Universe();
 	~Universe();
 
-	Handle attachDescriptor(Guard &guard, AnyDescriptor descriptor);
+	Handle attachDescriptor(AnyDescriptor descriptor);
 
-	AnyDescriptor *getDescriptor(Guard &guard, Handle handle);
+	std::optional<AnyDescriptor> getDescriptor(Handle handle);
 
-	frg::optional<AnyDescriptor> detachDescriptor(Guard &guard, Handle handle);
+	template<typename Fn>
+	requires requires(Fn fn, AnyDescriptor &desc) {
+		{ fn(desc) };
+	}
+	auto inspectDescriptor(Handle handle, Fn &&fn)
+			-> std::invoke_result_t<Fn, AnyDescriptor &> {
+		using ResultType = std::invoke_result_t<Fn, AnyDescriptor &>;
+
+		auto irqLock = frg::guard(&irqMutex());
+		Guard guard(lock);
+
+		auto *desc = _descriptorMap.get(handle);
+		if(!desc)
+			return ResultType{std::unexpect, Error::noDescriptor};
+		return std::forward<Fn>(fn)(*desc);
+	}
+
+	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
 
 	Lock lock;
 
