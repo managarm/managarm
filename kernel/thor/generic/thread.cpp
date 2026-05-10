@@ -661,6 +661,7 @@ void Thread::invoke() {
 
 	_userContext.migrate(cpuData);
 	AddressSpace::activate(_addressSpace);
+	_executorContext.active.store(true, std::memory_order_relaxed);
 	cpuData->executorContext = &_executorContext;
 	cpuData->activeThread = self;
 	restoreExecutor(&_executor);
@@ -756,6 +757,7 @@ void Thread::_uninvoke() {
 	UserContext::deactivate();
 
 	auto cpuData = getCpuData();
+	_executorContext.active.store(false, std::memory_order_relaxed);
 	cpuData->executorContext = nullptr;
 	cpuData->activeThread = {};
 }
