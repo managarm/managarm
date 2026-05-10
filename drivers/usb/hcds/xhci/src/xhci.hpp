@@ -241,7 +241,8 @@ struct Controller final : proto::BaseController {
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
 			helix::UniqueIrq irq,
-			std::string name);
+			std::string name,
+			helix::UniqueDescriptor ioSpace);
 
 	~Controller() = default;
 
@@ -274,7 +275,7 @@ struct Controller final : proto::BaseController {
 	}
 
 	void setDeviceContext(size_t slot, DeviceContext &ctx) {
-		_dcbaa[slot] = helix::ptrToPhysical(ctx.rawData());
+		_dcbaa[slot] = ctx.iova(_dmaSpace);
 		barrier.writeback(_dcbaa.view_buffer());
 	}
 
@@ -408,6 +409,8 @@ private:
 	void _processExtendedCapabilities();
 
 	arch::contiguous_pool _memoryPool;
+	helix::UniqueDescriptor _ioSpace;
+	arch::dma_space _dmaSpace;
 
 	arch::dma_array<uint64_t> _dcbaa;
 	arch::dma_array<uint64_t> _scratchpadBufArray;
@@ -430,6 +433,11 @@ private:
 	bool _largeCtx;
 
 	mbus_ng::Entity _entity;
+
+public:
+	arch::dma_space &dmaSpace() {
+		return _dmaSpace;
+	}
 };
 
 template<>

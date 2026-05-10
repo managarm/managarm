@@ -1,5 +1,5 @@
 inc = include_directories('include')
-deps = [ libarch_base, hel_dep, frigg ]
+deps = [ libarch_base, hel_dep, frigg, bragi_dep, libasync_dep ]
 
 if build_drivers
 	libarch_libary = shared_library(

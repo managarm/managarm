@@ -167,11 +167,11 @@ EventRing::EventRing(Controller *controller)
 }
 
 uintptr_t EventRing::getErstPtr() {
-	return helix::ptrToPhysical(_erst.data());
+	return _controller->dmaSpace().iova_of(_erst);
 }
 
 uintptr_t EventRing::getEventRingPtr() {
-	return helix::ptrToPhysical(_eventRing.data()) + _dequeue.index * sizeof(RawTrb);
+	return _controller->dmaSpace().iova_of(_eventRing) + (_dequeue.index * sizeof(RawTrb));
 }
 
 size_t EventRing::getErstSize() {
@@ -205,7 +205,7 @@ ProducerRing::ProducerRing(Controller *controller)
 }
 
 uintptr_t ProducerRing::getPtr() {
-	auto ptr = helix::ptrToPhysical(_ring.data());
+	auto ptr = _controller->dmaSpace().iova_of(_ring);
 	assert(!(ptr & 63));
 	return ptr;
 }

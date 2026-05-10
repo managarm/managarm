@@ -708,7 +708,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		PciDevice *dev = static_cast<PciDevice *>(this);
 
 		if(dev->associatedIommu) {
-			dev->associatedIommu->enableDevice(dev);
+			dev->associatedIommu->enableDevice(dev, req->passthrough());
 		} else {
 			auto bridge = dev->parentBus->associatedBridge;
 
@@ -717,8 +717,8 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			}
 
 			if(bridge && bridge->associatedIommu) {
-				bridge->associatedIommu->enableDevice(bridge);
-				bridge->associatedIommu->enableDevice(dev);
+				bridge->associatedIommu->enableDevice(bridge, req->passthrough());
+				bridge->associatedIommu->enableDevice(dev, req->passthrough());
 			} else {
 				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
 			}
@@ -747,6 +747,21 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
+	}else if(preamble.id() == bragi::message_id<managarm::hw::GetIommuSpaceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetIommuSpaceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		IommuSpaceDescriptor descriptor{{}};
+		if (iommuDomain)
+			descriptor = IommuSpaceDescriptor{iommuDomain->space_};
 
 		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 		// TODO: improve error handling here.

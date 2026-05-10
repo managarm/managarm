@@ -64,7 +64,7 @@ enum class TrbType : uint8_t {
 namespace Command {
 	constexpr RawTrb enableSlot(uint8_t slotType) {
 		return RawTrb{
-			0, 0, 0, 
+			0, 0, 0,
 			(uint32_t{slotType} << 16) | (static_cast<uint32_t>(
 					TrbType::enableSlotCommand) << 10)
 		};
@@ -166,14 +166,14 @@ namespace Transfer {
 		return trb;
 	}
 
-	inline void buildTransferChain(std::vector<RawTrb> &trbs, size_t maxPacketSize, arch::dma_buffer_view view, bool setIoc, auto build) {
+	inline void buildTransferChain(std::vector<RawTrb> &trbs, size_t maxPacketSize, arch::dma_space &space, arch::dma_buffer_view view, bool setIoc, auto build) {
 		assert(std::popcount(maxPacketSize) == 1);
 		size_t tdPacketCount = (view.size() + maxPacketSize - 1) / maxPacketSize;
 
 		size_t progress = 0;
 		while(progress < view.size()) {
 			uintptr_t ptr = (uintptr_t)view.data() + progress;
-			uintptr_t pptr = helix::addressToPhysical(ptr);
+			uintptr_t pptr = space.iova_of(view) + progress;
 
 			auto chunk = std::min(view.size() - progress, 0x1000 - (ptr & 0xFFF));
 
@@ -194,20 +194,20 @@ namespace Transfer {
 		}
 	}
 
-	inline std::vector<RawTrb> buildNormalChain(arch::dma_buffer_view view, size_t maxPacketSize) {
+	inline std::vector<RawTrb> buildNormalChain(arch::dma_space &space, arch::dma_buffer_view view, size_t maxPacketSize) {
 		std::vector<RawTrb> trbs;
-		buildTransferChain(trbs, maxPacketSize, view, true, normal);
+		buildTransferChain(trbs, maxPacketSize, space, view, true, normal);
 		return trbs;
 	}
 
-	inline std::vector<RawTrb> buildControlChain(proto::SetupPacket setup, arch::dma_buffer_view view, bool dataIn, size_t maxPacketSize) {
+	inline std::vector<RawTrb> buildControlChain(proto::SetupPacket setup, arch::dma_space &space, arch::dma_buffer_view view, bool dataIn, size_t maxPacketSize) {
 		std::vector<RawTrb> trbs;
 		bool statusIn = !(view.size() && dataIn);
 
 		trbs.push_back(setupStage(setup, view.size(), dataIn));
 
 		auto build = [&] (auto ...ts) { return dataStage(dataIn, ts...); };
-		buildTransferChain(trbs, maxPacketSize, view, false, build);
+		buildTransferChain(trbs, maxPacketSize, space, view, false, build);
 
 		trbs.push_back(withInterrupt(statusStage(statusIn)));
 

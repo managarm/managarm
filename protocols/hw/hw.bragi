@@ -202,6 +202,7 @@ head(128):
 
 message EnableDmaRequest 24 {
 head(128):
+	int8 passthrough;
 }
 
 message GetSmbiosHeaderRequest 25 {
@@ -262,5 +263,9 @@ tail:
 }
 
 message GetVbtRequest 35 {
+head(128):
+}
+
+message GetIommuSpaceRequest 36 {
 head(128):
 }

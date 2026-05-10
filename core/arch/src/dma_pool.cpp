@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <hel-syscalls.h>
 #include <hel.h>
-#include <print>
 
 namespace arch {
 
@@ -24,8 +23,8 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 		auto bkt = &buckets_[b - min_shift];
 
 		if (bkt->freelist.empty()) {
-			auto *p = allocate_pages_(small_region_size);
-			auto rn = new region{this, p};
+			auto [p, handle] = allocate_pages_(small_region_size);
+			auto rn = new region{this, std::move(handle), p, small_region_size};
 			for (size_t off = 0; off + alloc_size <= small_region_size; off += alloc_size) {
 				bkt->freelist.push_back({static_cast<arch::dma_region *>(rn), off});
 			}
@@ -36,8 +35,8 @@ dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 		bkt->freelist.pop_back();
 	} else {
 		// Large allocation. Allocate directly from the kernel.
-		auto *p = allocate_pages_(alloc_size);
-		auto rn = new region{this, p};
+		auto [p, handle] = allocate_pages_(alloc_size);
+		auto rn = new region{this, std::move(handle), p, alloc_size};
 		ptr = {static_cast<arch::dma_region *>(rn), 0};
 	}
 
@@ -67,6 +66,10 @@ void contiguous_pool::deallocate(dma_ptr ptr, size_t size, size_t count, size_t 
 	}
 }
 
+dma_space contiguous_pool::attachDmaSpace(helix::BorrowedDescriptor ioSpace) {
+	return dma_space{attachedDmaSpaces_++, this, ioSpace};
+}
+
 // Power-of-two that is used for a particular allocation.
 int contiguous_pool::shift_of_(size_t size, size_t count, size_t align) {
 	return frg::ceil_log2(
@@ -74,7 +77,7 @@ int contiguous_pool::shift_of_(size_t size, size_t count, size_t align) {
 	);
 }
 
-void *contiguous_pool::allocate_pages_(size_t region_size) {
+std::pair<void *, helix::UniqueDescriptor> contiguous_pool::allocate_pages_(size_t region_size) {
 	HelAllocRestrictions restrictions{};
 	restrictions.addressBits = options_.addressBits;
 
@@ -83,9 +86,9 @@ void *contiguous_pool::allocate_pages_(size_t region_size) {
 	HEL_CHECK(helAllocateMemory(region_size, kHelAllocContinuous, &restrictions, &memory));
 	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr, 0, region_size,
 			kHelMapProtRead | kHelMapProtWrite, &p));
-	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
+
 	assert(p);
-	return p;
+	return {p, helix::UniqueDescriptor{memory}};
 }
 
 void contiguous_pool::deallocate_pages_(void *p, size_t region_size) {

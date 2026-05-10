@@ -18,6 +18,8 @@
 
 namespace thor {
 
+size_t iommuGroups = 0;
+
 struct [[gnu::packed]] DmarHeader {
 	acpi_sdt_hdr acpi;
 	uint8_t host_address_width;
@@ -79,11 +81,13 @@ namespace rootTable {
 
 namespace contextTable {
 	enum class TranslationType : uint8_t {
+		UntranslatedOnly = 0b00,
 		Passthrough = 0b10,
 	};
 
 	// low qword
 	constexpr arch::field<uint64_t, bool> present{0, 1};
+	constexpr arch::field<uint64_t, uint64_t> ssptptr{12, 52};
 	constexpr arch::field<uint64_t, TranslationType> translationType{2, 2};
 
 	// high qword
@@ -260,14 +264,181 @@ size_t nextIommuId = 0;
 
 const char *decodeFaultReason(uint8_t reason) {
 	switch(reason) {
-		case 1: return "Root Entry not present";
-		case 2: return "Context Entry not present";
-		case 3: return "Invalid Programming of Context Entry";
+		case 0x01: return "Root Entry not present";
+		case 0x02: return "Context Entry not present";
+		case 0x03: return "Invalid Programming of Context Entry";
+		case 0x04: return "Address overflow in second-stage translation";
+		case 0x05: return "Write request failed with lack of permission";
+		case 0x06: return "Read request failed with lack of permission";
+		case 0x07: return "Next-level lookup invalid";
+		case 0x08: return "Root-Table Address field invalid";
+		case 0x09: return "Context-Table Pointer field invalid";
+		case 0x0A: return "Non-zero reserved field in present root-entry";
+		case 0x0B: return "Non-zero reserved field in present context-entry";
+		case 0x0C: return "Non-zero reserved field in present second-stage PTE";
 		default: return "Reserved or Unhandled";
 	}
 }
 
 } // namespace
+
+struct IntelIommuCursorPolicy {
+	static inline constexpr size_t maxLevels = 5;
+	static inline constexpr size_t bitsPerLevel = 9;
+
+	static inline constexpr size_t iommuRead = 1 << 0;
+	static inline constexpr size_t iommuWrite = 1 << 1;
+	static inline constexpr size_t iommuExecute = 1 << 2;
+	static inline constexpr size_t iommuIgnorePat = 1 << 6;
+	static inline constexpr size_t iommuDirty = 1 << 9;
+	// Mask for the physical address bits.
+	static inline constexpr size_t iommuAddress = ((1UL << 40) - 1) & ~0xFFF;
+
+	static inline constexpr size_t numLevels() {
+		return 3;
+	}
+
+	static constexpr bool ptePagePresent(uint64_t pte) {
+		return pte & iommuRead;
+	}
+
+	static constexpr bool ptePageCanAccess(uint64_t pte, PageFlags flags) {
+		if(flags & page_access::read && !(pte & iommuRead))
+			return false;
+
+		if (flags & page_access::write && !(pte & iommuWrite))
+			return false;
+
+		if (flags & page_access::execute && !(pte & iommuExecute))
+			return false;
+
+		return true;
+	}
+
+	static constexpr PhysicalAddr ptePageAddress(uint64_t pte) {
+		return pte & iommuAddress;
+	}
+
+	static constexpr PageStatus ptePageStatus(uint64_t pte) {
+		if(!ptePagePresent(pte))
+			return 0;
+		PageStatus status = page_status::present;
+		if(pte & iommuDirty)
+			status |= page_status::dirty;
+		return status;
+	}
+
+	static uint64_t pteClean(uint64_t *ptePtr) {
+		return __atomic_fetch_and(ptePtr, ~iommuDirty, __ATOMIC_RELAXED);
+	}
+
+	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
+		auto pte = physical | iommuIgnorePat | iommuRead; // TODO: Do not always set iommuRead.
+
+		if(flags & page_access::write)
+			pte |= iommuWrite;
+		if(flags & page_access::execute)
+			pte |= iommuExecute;
+		assert(cachingMode == CachingMode::null);
+
+		return pte;
+	}
+
+	static std::pair<uint64_t, bool> pteAge(uint64_t *ptePtr, bool) {
+		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
+	}
+
+	static constexpr void pteWriteBarrier() { }
+	static constexpr void pteSyncICache(uintptr_t) { }
+
+
+	static constexpr bool pteTablePresent(uint64_t pte) {
+		return pte & iommuRead;
+	}
+
+	static constexpr PhysicalAddr pteTableAddress(uint64_t pte) {
+		return pte & iommuAddress;
+	}
+
+	static uint64_t pteNewTable() {
+		auto newPtAddr = physicalAllocator->allocate(kPageSize);
+		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
+
+		PageAccessor accessor{newPtAddr};
+		memset(accessor.get(), 0, kPageSize);
+
+		return newPtAddr | iommuRead | iommuWrite | iommuExecute;
+	}
+};
+
+static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
+
+using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
+
+struct IntelIommu;
+
+struct IntelIommuPageSpace final : DmaPageSpace {
+	IntelIommuPageSpace(PhysicalAddr root, IntelIommu *iommu) : DmaPageSpace{root}, iommu_{iommu} {}
+
+	IntelIommuPageSpace(const IntelIommuPageSpace &) = delete;
+
+	~IntelIommuPageSpace() {
+		// freePt<IntelIommuCursorPolicy>(rootTable());
+	}
+
+	IntelIommuPageSpace &operator= (const IntelIommuPageSpace &) = delete;
+
+private:
+	IntelIommu *iommu_;
+};
+
+struct IntelIommuOperations final : DmaOperations {
+	IntelIommuOperations(IntelIommuPageSpace *pageSpace)
+	: DmaOperations{pageSpace} {}
+
+	void retire(RetireNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+	}
+
+	bool submitShootdown(ShootNode *node) override {
+		// TODO: Invalidate IOTLB/context cache.
+		node->complete();
+		return false;
+	}
+
+	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
+		return mapPresentPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, view, offset, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
+			size_t size, PageFlags flags, CachingMode mode) override {
+		return restrictPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
+		return faultPageByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, view, offset, fetchFlags, flags, mode);
+	}
+
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
+		return cleanPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size);
+	}
+
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
+		return unmapPagesByCursor<IntelIommuCursor>(static_cast<IntelIommuPageSpace *>(pageSpace_),
+				va, size);
+	}
+
+	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
+		return PagesAffected{};
+	}
+};
 
 struct IntelIommu final : Iommu, IrqSink {
 	IntelIommu(uint64_t register_base, uint16_t segment)
@@ -390,7 +561,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::pt;
 	}
 
-	void enableDevice(pci::PciEntity *dev) override {
+	void enableDevice(pci::PciEntity *dev, bool passthrough) override {
 		auto lock = frg::guard(&lock_);
 
 		auto rootEntry = &rootTable_[static_cast<uint8_t>(dev->bus)];
@@ -419,22 +590,37 @@ struct IntelIommu final : Iommu, IrqSink {
 		};
 
 		auto contextEntry = &contextTable[sourceId.devfn()];
+		int domainId = 1;
 
-		contextEntry->high.store(
-			contextTable::addressWidth(sagaw_ - 2) |
-			contextTable::domainId(1)
-		);
+		if (passthrough) {
+			contextEntry->high.store(
+				contextTable::addressWidth(sagaw_ - 2) |
+				contextTable::domainId(1)
+			);
 
-		contextEntry->low.store(
-			contextTable::present(true) |
-			contextTable::translationType(contextTable::TranslationType::Passthrough)
-		);
+			contextEntry->low.store(
+				contextTable::present(true) |
+				contextTable::translationType(contextTable::TranslationType::Passthrough)
+			);
+		} else {
+			domainId = 1 + dev->iommuDomain->id();
+			contextEntry->high.store(
+				contextTable::addressWidth(0b001) |
+				contextTable::domainId(domainId)
+			);
+
+			contextEntry->low.store(
+				contextTable::present(true) |
+				contextTable::ssptptr(dev->iommuDomain->space_->pageSpace_->rootTable() >> 12) |
+				contextTable::translationType(contextTable::TranslationType::UntranslatedOnly)
+			);
+		}
 
 		flush(contextEntry);
 
 		if(initialized_) {
 			invalidateDeviceContext(0, sourceId);
-			invalidateDomainIotlb(1);
+			invalidateDomainIotlb(domainId);
 		}
 	}
 
@@ -795,6 +981,24 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 	return true;
 }
 
+namespace {
+
+IommuDomain *newDomain(pci::PciBus *bus, IntelIommu *iommu) {
+	if (!iommu)
+		iommu = static_cast<IntelIommu *>(bus->associatedBridge->associatedIommu);
+
+	PhysicalAddr rootLevel = physicalAllocator->allocate(kPageSize);
+	assert(rootLevel != static_cast<PhysicalAddr>(-1));
+	PageAccessor accessor{rootLevel};
+	memset(accessor.get(), 0, kPageSize);
+
+	auto pageSpace = frg::construct<IntelIommuPageSpace>(*kernelAlloc, rootLevel, iommu);
+	auto ops = frg::construct<IntelIommuOperations>(*kernelAlloc, pageSpace);
+	return frg::construct<IommuDomain>(*kernelAlloc, iommuGroups++, ops, pageSpace);
+};
+
+}
+
 static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-intel-iommu",
 	initgraph::Requires{acpi::getTablesDiscoveredStage(), pci::getDevicesEnumeratedStage()},
 	[] {
@@ -858,6 +1062,75 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 				break;
 
 			remappingStructureTypes = remappingStructureTypes.subspan(hdr.length);
+		}
+
+		auto walkBus = [](this const auto &walkChildBus, pci::PciBus *bus, bool isRootBus = false) -> void {
+			bool splitDeviceDomains = false;
+
+			// Intel VT-d requires that RCIEs can be split into independent IOMMU domains.
+			if (isRootBus) {
+				splitDeviceDomains = true;
+			} else if (bus->associatedBridge) {
+				auto acs = std::ranges::find(bus->associatedBridge->extendedCaps, 0xD, &pci::PciEntity::ExtendedCapability::type);
+				// TODO: check ACS caps and enable relevant bits
+				if (acs != bus->associatedBridge->extendedCaps.end()) {
+					// infoLogger() << frg::fmt("\tbridge to bus {} supports ACS", bus->associatedBridge->downstreamId) << frg::endlog;
+					// TODO: verify that ACS supports: Source Validation, Request/Completion Redirect, Upstream Forwarding
+					// splitDeviceDomains = true;
+				}
+			}
+
+		    IommuDomain *commonDomain = nullptr;
+		    if (!splitDeviceDomains)
+				commonDomain = newDomain(bus, nullptr);
+
+			std::array<IommuDomain *, 32> multifunctionDomains{};
+
+			for (auto device : bus->childDevices) {
+				uint8_t header_type = bus->io->readConfigByte(bus, device->slot, 0, pci::kPciHeaderType);
+				bool multifunctionDevice = header_type & 0x80;
+				IommuDomain *domain = nullptr;
+
+				if (multifunctionDevice) {
+					if (multifunctionDomains[device->slot] == nullptr)
+						multifunctionDomains[device->slot] = newDomain(bus, static_cast<IntelIommu *>(device->associatedIommu));
+
+					domain = multifunctionDomains[device->slot];
+				} else if (splitDeviceDomains) {
+					domain = newDomain(bus, static_cast<IntelIommu *>(device->associatedIommu));
+				} else {
+					domain = commonDomain;
+				}
+
+				assert(domain);
+				domain->addMember(device);
+			}
+
+			for (auto bridge : bus->childBridges) {
+				uint8_t header_type = bus->io->readConfigByte(bus, bridge->slot, bridge->function, pci::kPciHeaderType);
+				bool multifunctionDevice = header_type & 0x80;
+
+				IommuDomain *domain = nullptr;
+
+				if (multifunctionDevice) {
+					if (multifunctionDomains[bridge->slot] == nullptr)
+						multifunctionDomains[bridge->slot] = newDomain(bus, static_cast<IntelIommu *>(bridge->associatedIommu));
+
+					domain = multifunctionDomains[bridge->slot];
+				} else if (splitDeviceDomains) {
+					domain = newDomain(bus, static_cast<IntelIommu *>(bridge->associatedIommu));
+				} else {
+					domain = commonDomain;
+				}
+
+				domain->addMember(bridge);
+
+				walkChildBus(bridge->associatedBus);
+			}
+		};
+
+		for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
+			walkBus(rootBus, true);
 		}
 
 		for(auto iommu : iommus) {

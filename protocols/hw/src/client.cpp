@@ -900,8 +900,9 @@ async::result<helix::UniqueDescriptor> Device::installDtIrq(uint32_t index) {
 	co_return std::move(irq);
 }
 
-async::result<void> Device::enableDma() {
+async::result<void> Device::enableDma(bool passthrough) {
 	managarm::hw::EnableDmaRequest req;
+	req.set_passthrough(passthrough);
 
 	auto [offer, send_req, recv_head] = co_await helix_ng::exchangeMsgs(
 			_lane,
@@ -1023,6 +1024,24 @@ async::result<std::pair<helix::UniqueDescriptor, uint32_t>> Device::getVbt() {
 
 	auto desc = pull_desc.descriptor();
 	co_return { std::move(desc), resp.vbt_size() };
+}
+
+async::result<helix::UniqueDescriptor> Device::getIommuSpace() {
+	managarm::hw::GetIommuSpaceRequest req;
+
+	auto [offer, send_req, recv_desc] = co_await helix_ng::exchangeMsgs(
+			_lane,
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::pullDescriptor()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(send_req.error());
+	HEL_CHECK(recv_desc.error());
+
+	co_return recv_desc.descriptor();
 }
 
 } // namespace protocols::hw

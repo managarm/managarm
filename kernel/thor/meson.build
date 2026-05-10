@@ -80,6 +80,7 @@ src = files(
 	'generic/work-queue.cpp',
 	'generic/asid.cpp',
 	'generic/cpu-data.cpp',
+	'generic/iommu.cpp',
 	'system/framebuffer/boot-screen.cpp',
 	'system/framebuffer/fb.cpp',
 	'system/pci/dmalog.cpp',

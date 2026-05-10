@@ -36,10 +36,11 @@ namespace proto = protocols::usb;
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
 Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, std::string name)
+		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, std::string name, helix::UniqueDescriptor ioSpace)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
-		_space{_mapping.get()}, _name{name}, _memoryPool{},
+		_space{_mapping.get()}, _name{name}, _memoryPool{}, _ioSpace{std::move(ioSpace)},
+		_dmaSpace{_memoryPool.attachDmaSpace(_ioSpace)},
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
 		_eventRing{this},
 		_enumerator{this}, _largeCtx{false},
@@ -158,20 +159,19 @@ async::detached Controller::initialize() {
 		_scratchpadBufs.push_back(arch::dma_buffer(&_memoryPool,
 					pageSize));
 
-
 		barrier.writeback(_scratchpadBufs.back());
-		_scratchpadBufArray[i] = helix::ptrToPhysical(_scratchpadBufs.back().data());
+		_scratchpadBufArray[i] = _dmaSpace.iova_of(_scratchpadBufs.back());
 	}
 	barrier.writeback(_scratchpadBufArray.view_buffer());
 
 	// Initialize the device context pointer array
 	for (size_t i = 0; i < 256; i++)
 		_dcbaa[i] = 0;
-	_dcbaa[0] = helix::ptrToPhysical(_scratchpadBufArray.data());
+	_dcbaa[0] = nScratchpadBufs ? _dmaSpace.iova_of(_scratchpadBufArray) : 0;
 	barrier.writeback(_dcbaa.view_buffer());
 
 	// Tell the controller about our device context pointer array
-	operational.store(op_regs::dcbaap, helix::ptrToPhysical(_dcbaa.data()));
+	operational.store(op_regs::dcbaap, _dmaSpace.iova_of(_dcbaa));
 
 	// Tell the controller about our command ring
 	operational.store(op_regs::crcr, _cmdRing.getPtr() | 1);
@@ -373,7 +373,7 @@ async::result<frg::expected<proto::UsbError>>
 Controller::addressDevice(uint32_t slotId, InputContext &ctx) {
 	barrier.writeback(ctx.rawData(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::addressDevice(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::addressDevice(slotId, ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} addressDevice({}, ctx) failed: {}",
@@ -387,7 +387,7 @@ async::result<frg::expected<proto::UsbError>>
 Controller::configureEndpoint(uint32_t slotId, InputContext &ctx) {
 	barrier.writeback(ctx.rawData(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::configureEndpoint(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::configureEndpoint(slotId, ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} configureEndpoint({}, ctx) failed: {}",
@@ -401,7 +401,7 @@ async::result<frg::expected<proto::UsbError>>
 Controller::evaluateContext(uint32_t slotId, InputContext &ctx) {
 	barrier.writeback(ctx.rawData(), ctx.rawSize());
 	auto event = co_await submitCommand(
-			Command::evaluateContext(slotId, helix::ptrToPhysical(ctx.rawData())));
+			Command::evaluateContext(slotId, ctx.iova(_dmaSpace)));
 
 	if (event.completionCode != CompletionCode::success)
 		std::println("{} evaluateContext({}, ctx) failed: {}",
@@ -1112,6 +1112,7 @@ async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::ControlTransfer info) {
 	auto trbs = Transfer::buildControlChain(
 		*info.setup.data(),
+		_device->controller()->dmaSpace(),
 		info.buffer,
 		info.flags == proto::kXferToHost,
 		_maxPacketSize);
@@ -1124,7 +1125,7 @@ EndpointState::transfer(proto::ControlTransfer info) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::InterruptTransfer info) {
-	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	auto trbs = Transfer::buildNormalChain(_device->controller()->dmaSpace(), info.buffer, _maxPacketSize);
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
@@ -1133,7 +1134,7 @@ EndpointState::transfer(proto::InterruptTransfer info) {
 
 async::result<frg::expected<proto::UsbError, size_t>>
 EndpointState::transfer(proto::BulkTransfer info) {
-	auto trbs = Transfer::buildNormalChain(info.buffer, _maxPacketSize);
+	auto trbs = Transfer::buildNormalChain(_device->controller()->dmaSpace(), info.buffer, _maxPacketSize);
 	co_return FRG_CO_TRY(co_await _postTd(
 				std::move(trbs),
 				info.buffer,
@@ -1243,12 +1244,14 @@ async::detached bindController(mbus_ng::Entity entity) {
 	}
 
 	co_await device.enableBusmaster();
-	co_await device.enableDma();
+	co_await device.enableDma(false);
+
+	auto ioSpace = co_await device.getIommuSpace();
 
 	helix::Mapping mapping{bar, info.barInfo[0].offset, info.barInfo[0].length};
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(entity), std::move(mapping),
-			std::move(bar), std::move(irq), std::format("pci.{:08x}", info.barInfo[0].address));
+			std::move(bar), std::move(irq), std::format("pci.{:08x}", info.barInfo[0].address), std::move(ioSpace));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }
