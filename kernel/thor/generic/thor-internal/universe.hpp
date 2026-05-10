@@ -8,6 +8,7 @@
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/ipl.hpp>
+#include <thor-internal/kernel-mutexes.hpp>
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/virtualization.hpp>
 
@@ -263,9 +264,6 @@ typedef frg::variant<
 
 struct Universe {
 public:
-	typedef frg::ticket_spinlock Lock;
-	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
-
 	Universe();
 	~Universe();
 
@@ -281,8 +279,8 @@ public:
 			-> std::invoke_result_t<Fn, AnyDescriptor &> {
 		using ResultType = std::invoke_result_t<Fn, AnyDescriptor &>;
 
-		auto irqLock = frg::guard(&irqMutex());
-		Guard guard(lock);
+		PreemptionGuard preemptionGuard;
+		AdaptiveMutex::Guard lock{_mutex};
 
 		auto *desc = _descriptorMap.get(handle);
 		if(!desc)
@@ -292,9 +290,9 @@ public:
 
 	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
 
-	Lock lock;
-
 private:
+	AdaptiveMutex _mutex;
+
 	frg::hash_map<
 		Handle,
 		AnyDescriptor,
