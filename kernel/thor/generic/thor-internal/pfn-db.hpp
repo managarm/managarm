@@ -83,7 +83,7 @@ struct PfnDb {
 		assert(!(pa & (kPageSize - 1)));
 		auto pfn = pa >> kPageShift;
 
-		IplGuard<ipl::schedule> guard;
+		IplGuard<ipl::noSchedule> guard;
 
 		auto it = tree_.find(pfn);
 		if(!it)
