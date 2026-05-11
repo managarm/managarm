@@ -81,6 +81,14 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 		// On this CPU, estimate the load.
 		uint64_t load = 0;
+		frg::intrusive_list<
+			LbControlBlock,
+			frg::locate_member<
+				LbControlBlock,
+				frg::default_list_hook<LbControlBlock>,
+				&LbControlBlock::hook_
+			>
+		> staleCbs;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&thisNode->mutex);
@@ -96,7 +104,7 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 				auto thread = cb->thread_.lock();
 				if (!thread) {
 					thisNode->tasks.erase(currentIt);
-					frg::destruct(*kernelAlloc, cb);
+					staleCbs.push_back(cb);
 					continue;
 				}
 
@@ -110,6 +118,10 @@ coroutine<void> LoadBalancer::run_(CpuData *cpu) {
 
 		thisNode->totalLoad = load;
 		thisNode->currentLoad = load;
+
+		// Destroy stale CBs outside of locks.
+		while(!staleCbs.empty())
+			frg::destruct(*kernelAlloc, staleCbs.pop_front());
 
 		if (debugLb)
 			infoLogger() << "CPU #" << cpu->cpuIndex << " has load " << load << frg::endlog;
