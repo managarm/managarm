@@ -80,7 +80,6 @@ protected:
 
 public:
 	virtual FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) = 0;
-	virtual FutureMaybe<std::shared_ptr<FsNode>> createSocket() = 0;
 
 	virtual async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) = 0;

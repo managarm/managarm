@@ -17,11 +17,6 @@ struct AnonymousSuperblock : FsSuperblock {
 		co_return nullptr;
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
-		std::cout << "posix: createSocket on AnonymousSuperblock unsupported" << std::endl;
-		co_return nullptr;
-	}
-
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	rename(FsLink *, FsNode *, std::string) override {
 		co_return Error::noSuchFile;

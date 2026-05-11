@@ -565,11 +565,6 @@ struct Superblock final : FsSuperblock {
 		co_return std::move(node);
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
-		auto node = std::make_shared<SocketNode>(this);
-		co_return std::move(node);
-	}
-
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>> rename(FsLink *src_fs_link,
 			FsNode *dest_fs_dir, std::string dest_name) override {
 		auto src_link = static_cast<Link *>(src_fs_link);
