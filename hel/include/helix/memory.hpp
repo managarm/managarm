@@ -71,13 +71,26 @@ private:
 template<typename T>
 uintptr_t ptrToPhysical(const T *p) {
 	uintptr_t phys;
-	HEL_CHECK(helPointerPhysical(reinterpret_cast<const void *>(p), &phys));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, reinterpret_cast<const void *>(p), &phys));
+	return phys;
+}
+
+template<typename T>
+uintptr_t ptrToPhysical(helix::BorrowedDescriptor space, const T *p) {
+	uintptr_t phys;
+	HEL_CHECK(helPointerPhysical(space.getHandle(), reinterpret_cast<const void *>(p), &phys));
 	return phys;
 }
 
 inline uintptr_t addressToPhysical(uintptr_t p) {
 	uintptr_t phys;
-	HEL_CHECK(helPointerPhysical(reinterpret_cast<const void *>(p), &phys));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, reinterpret_cast<const void *>(p), &phys));
+	return phys;
+}
+
+inline uintptr_t addressToPhysical(helix::BorrowedDescriptor space, uintptr_t p) {
+	uintptr_t phys;
+	HEL_CHECK(helPointerPhysical(space.getHandle(), reinterpret_cast<const void *>(p), &phys));
 	return phys;
 }
 

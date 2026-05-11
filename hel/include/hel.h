@@ -1042,7 +1042,7 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandl
 //!    	Must be aligned to the system's page size.
 HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size_t size);
 
-HEL_C_LINKAGE HelError helPointerPhysical(const void *pointer, uintptr_t *physical);
+HEL_C_LINKAGE HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_t *physical);
 
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);

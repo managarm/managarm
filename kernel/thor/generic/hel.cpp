@@ -1202,17 +1202,46 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 	return kHelErrNone;
 }
 
-HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
+HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_t *physical) {
 	auto thisThread = getCurrentThread();
-	auto space = thisThread->getAddressSpace().lock();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<DmaSpace> dmaSpace;
+
+	if(spaceHandle == kHelNullHandle) {
+		space = thisThread->getAddressSpace().lock();
+	}else{
+		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
+				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			if(desc.is<AddressSpaceDescriptor>()) {
+				space = desc.get<AddressSpaceDescriptor>().space;
+				return {};
+			} else if(desc.is<DmaSpaceDescriptor>()) {
+				dmaSpace = desc.get<DmaSpaceDescriptor>().space;
+				return {};
+			}
+			return std::unexpected{Error::badDescriptor};
+		});
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+	}
 
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
 	auto pageAddress = reinterpret_cast<VirtualAddr>(pointer) - disp;
 
-	auto physicalOrError = Thread::asyncBlockCurrent(
-		space->retrievePhysical(pageAddress),
-		thisThread->pagingWorkQueue().get()
-	);
+	frg::expected<Error, PhysicalAddr> physicalOrError;
+	if (space) {
+		physicalOrError = Thread::asyncBlockCurrent(
+			space->retrievePhysical(pageAddress),
+			thisThread->pagingWorkQueue().get()
+		);
+	} else {
+		physicalOrError = Thread::asyncBlockCurrent(
+			dmaSpace->retrievePhysical(pageAddress),
+			thisThread->pagingWorkQueue().get()
+		);
+	}
 	if(!physicalOrError) {
 		assert(physicalOrError.error() == Error::fault);
 		return kHelErrFault;

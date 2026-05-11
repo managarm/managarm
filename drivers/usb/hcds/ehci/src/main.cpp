@@ -47,7 +47,7 @@ namespace {
 
 uint32_t physicalPointer(void *ptr) {
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(ptr, &physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, ptr, &physical));
 	assert((physical & 0xFFFFFFFF) == physical);
 	return physical;
 }

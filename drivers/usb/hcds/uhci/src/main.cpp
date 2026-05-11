@@ -44,14 +44,14 @@ namespace {
 
 Pointer Pointer::from(TransferDescriptor *item) {
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(item, &physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
 	assert(physical % sizeof(*item) == 0);
 	assert((physical & 0xFFFFFFFF) == physical);
 	return Pointer(physical, false);
 }
 Pointer Pointer::from(QueueHead *item) {
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(item, &physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
 	assert(physical % sizeof(*item) == 0);
 	assert((physical & 0xFFFFFFFF) == physical);
 	return Pointer(physical, true);
@@ -181,7 +181,7 @@ void Controller::initialize() {
 
 	// Pass the frame list to the controller and run it.
 	uintptr_t list_physical;
-	HEL_CHECK(helPointerPhysical(_frameList, &list_physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, _frameList, &list_physical));
 	assert((list_physical % 0x1000) == 0);
 	_ioSpace.store(op_regs::frameListBase, list_physical);
 	_ioSpace.store(op_regs::command, command::runStop(true));

@@ -193,15 +193,15 @@ extern inline __attribute__ (( always_inline )) HelError helUnmapMemory(HelHandl
 };
 
 
-extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(const void *pointer, 
-		uintptr_t *physical) {
+extern inline __attribute__ (( always_inline )) HelError helPointerPhysical(HelHandle space,
+		const void *pointer, uintptr_t *physical) {
 	HelWord handle_word;
-	HelError error = helSyscall1_1(kHelCallPointerPhysical, (HelWord)pointer, &handle_word);
+	HelError error = helSyscall2_1(kHelCallPointerPhysical, (HelWord) space, (HelWord)pointer, &handle_word);
 	*physical = (uintptr_t)handle_word;
 	return error;
 };
 
-extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle handle, 
+extern inline __attribute__ (( always_inline )) HelError helMemoryInfo(HelHandle handle,
 		size_t *size) {
 	HelWord handle_word;
 	HelError error = helSyscall1_1(kHelCallMemoryInfo, (HelWord)handle, &handle_word);
