@@ -404,8 +404,8 @@ struct AcpiWork {
 	uacpi_work_handler handler_;
 	uacpi_handle ctx_;
 };
-static async::queue<AcpiWork, KernelAlloc> acpiGpeWorkQueue = {*kernelAlloc};
-static async::queue<AcpiWork, KernelAlloc> acpiNotifyWorkQueue = {*kernelAlloc};
+static frg::eternal<async::queue<AcpiWork, KernelAlloc>> acpiGpeWorkQueue{*kernelAlloc};
+static frg::eternal<async::queue<AcpiWork, KernelAlloc>> acpiNotifyWorkQueue{*kernelAlloc};
 static async::recurring_event acpiWorkEvent;
 static std::atomic<uint64_t> acpiWorkCounter;
 
@@ -419,7 +419,7 @@ void thor::acpi::initGlue() {
 	KernelFiber::run(
 	    [] {
 		    while (true) {
-			    auto work = KernelFiber::asyncBlockCurrent(acpiGpeWorkQueue.async_get());
+			    auto work = KernelFiber::asyncBlockCurrent(acpiGpeWorkQueue->async_get());
 			    workExec(*work);
 		    }
 	    },
@@ -428,7 +428,7 @@ void thor::acpi::initGlue() {
 
 	KernelFiber::run([] {
 		while (true) {
-			auto work = KernelFiber::asyncBlockCurrent(acpiNotifyWorkQueue.async_get());
+			auto work = KernelFiber::asyncBlockCurrent(acpiNotifyWorkQueue->async_get());
 			workExec(*work);
 		}
 	});
@@ -440,10 +440,10 @@ uacpi_kernel_schedule_work(uacpi_work_type type, uacpi_work_handler handler, uac
 
 	switch (type) {
 		case UACPI_WORK_GPE_EXECUTION:
-			acpiGpeWorkQueue.put({handler, ctx});
+			acpiGpeWorkQueue->put({handler, ctx});
 			break;
 		case UACPI_WORK_NOTIFICATION:
-			acpiNotifyWorkQueue.put({handler, ctx});
+			acpiNotifyWorkQueue->put({handler, ctx});
 			break;
 		default:
 			return UACPI_STATUS_INVALID_ARGUMENT;
