@@ -54,7 +54,8 @@ initgraph::Task obtainFirmwareTables{
 		    eirRsdpAddr = virtToPhys(rsdp_request.response->address);
 	    }
 	    if (smbios_request.response) {
-		    eirSmbios3Addr = virtToPhys(smbios_request.response->entry_64);
+		    if (smbios_request.response->entry_64)
+			    eirSmbios3Addr = virtToPhys(smbios_request.response->entry_64);
 	    }
     }
 };
