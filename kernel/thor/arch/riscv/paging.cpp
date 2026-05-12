@@ -44,11 +44,13 @@ void invalidatePage(int asid, const void *address) {
 }
 
 void initializeAsidContext(CpuData *cpuData) {
-	auto irqLock = frg::guard(&irqMutex());
-
 	asidData.get(cpuData).initialize(1);
 	asidData.get(cpuData)->globalBinding.initialize(globalBindingId);
-	asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
+	}
 }
 
 // --------------------------------------------------------
