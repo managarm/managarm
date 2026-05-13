@@ -31,7 +31,7 @@ void KernelFiber::blockCurrent(FiberBlocker *blocker) {
 
 		assert(!this_fiber->_blocked);
 		this_fiber->_blocked = true;
-		this_fiber->_executorContext.active.store(false, std::memory_order_relaxed);
+		this_fiber->_executorContext->active.store(false, std::memory_order_relaxed);
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
 		localScheduler.get().update();
@@ -97,14 +97,18 @@ KernelFiber *KernelFiber::post(UniqueKernelStack stack,
 KernelFiber::KernelFiber(UniqueKernelStack stack, AbiParameters abi)
 : _blocked{false}, _fiberContext{std::move(stack)}, _executor{&_fiberContext, abi} {
 	_associatedWorkQueue = smarter::allocate_shared<AssociatedWorkQueue>(*kernelAlloc, this);
-	_executorContext.exceptionalWq = _associatedWorkQueue.get();
+	_executorContext->exceptionalWq = _associatedWorkQueue.get();
+}
+
+KernelFiber::~KernelFiber() {
+	ExecutorContext::retire(_executorContext);
 }
 
 void KernelFiber::invoke() {
 	assert(!intsAreEnabled());
 
-	_executorContext.active.store(true, std::memory_order_relaxed);
-	getCpuData()->executorContext = &_executorContext;
+	_executorContext->active.store(true, std::memory_order_relaxed);
+	getCpuData()->executorContext = _executorContext;
 	getCpuData()->activeFiber = this;
 	restoreExecutor(&_executor);
 }
@@ -119,7 +123,7 @@ void KernelFiber::handlePreemption() {
 	if(scheduler->maybeReschedule()) {
 		auto lock = frg::guard(&_mutex);
 
-		_executorContext.active.store(false, std::memory_order_relaxed);
+		_executorContext->active.store(false, std::memory_order_relaxed);
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
 
@@ -147,7 +151,7 @@ void KernelFiber::handlePreemption(IrqImageAccessor image) {
 		auto lock = frg::guard(&_mutex);
 
 		saveExecutor(&_executor, image);
-		_executorContext.active.store(false, std::memory_order_relaxed);
+		_executorContext->active.store(false, std::memory_order_relaxed);
 		getCpuData()->executorContext = nullptr;
 		getCpuData()->activeFiber = nullptr;
 
