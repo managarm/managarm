@@ -111,6 +111,9 @@ struct Frame {
 struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
 
+	FaultImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
+
 	Word *ip() { return &_frame()->rip; }
 	Word *sp() { return &_frame()->rsp; }
 	Word *cs() { return &_frame()->cs; }
@@ -143,6 +146,9 @@ private:
 };
 
 struct IrqImageAccessor {
+	IrqImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
+
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
@@ -178,6 +184,9 @@ private:
 };
 
 struct SyscallImageAccessor {
+	SyscallImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
+
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
 	Word *number() { return &_frame()->rdi; }
@@ -208,10 +217,8 @@ private:
 };
 
 struct NmiImageAccessor {
-	void **expectedGs() {
-		return &_layout()->expectedGs;
-	}
-
+	NmiImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
 	Word *ip() { return &_frame()->rip; }
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
@@ -222,7 +229,6 @@ struct NmiImageAccessor {
 private:
 	struct Layout {
 		Frame frame;
-		void *expectedGs;
 	};
 
 	Layout *_layout() {
@@ -439,6 +445,7 @@ struct CpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
 
+	bool haveFred;
 	bool haveXsave;
 	bool haveAvx;
 	bool haveZmm;

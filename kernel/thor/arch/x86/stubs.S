@@ -571,6 +571,7 @@ nmiStub:
 	sub $8, %rsp
 
 	mov %rsp, %rdi
+	mov 176(%rsp), %rsi
 	xor %ebp, %ebp
 	cld
 	call onPlatformNmi
@@ -649,6 +650,7 @@ forkExecutorRegisters:
 # arguments: void *pointer
 .section .text.stubs
 .global _restoreExecutorRegisters
+.extern thorFredEnabled
 _restoreExecutorRegisters:
 	# setup the IRET frame
 	pushq .L_imageSs(%rdi)
@@ -672,9 +674,117 @@ _restoreExecutorRegisters:
 	mov .L_imageR12(%rdi), %r12
 	mov .L_imageR13(%rdi), %r13
 	mov .L_imageR14(%rdi), %r14
-	mov .L_imageR15(%rdi), %r15	
-	
+	mov .L_imageR15(%rdi), %r15
+
+	## if fred is enabled dont do an iretq
+	cmpb $1, thorFredEnabled(%rip)
+	je .L_fred
 	mov .L_imageRdi(%rdi), %rdi
 	iretq
+.L_fred:
+	# fred needs a dummy error code
+	pushq $0
+	testb $3, .L_imageCs(%rdi)
+	mov .L_imageRdi(%rdi), %rdi
+	jz .L_erets
+	eretu
+.L_erets:
+	erets
 
 	.section .note.GNU-stack,"",%progbits
+
+.global thorFredRing3Entry
+.global thorFredRing0Entry
+.extern onFredEvent
+.section .text
+.align 4096
+
+thorFredRing3Entry:
+	push %rbp
+	push %r15
+	push %r14
+	push %r13
+	push %r12
+	push %r10
+	push %r9
+	push %r8
+	push %rsi
+	push %rdi
+	push %rdx
+	push %rax
+	push %r11
+	push %rcx
+	push %rbx
+
+	# Reserve space for iplState.
+	sub $8, %rsp
+
+	mov %rsp, %rdi
+	xor %ebp, %ebp
+	call onFredEvent
+
+    # pop iplState.
+	add $8, %rsp
+
+	pop %rbx
+	pop %rcx
+	pop %r11
+	pop %rax
+	pop %rdx
+	pop %rdi
+	pop %rsi
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %r15
+	pop %rbp
+	eretu
+
+.fill 256 - (. - thorFredRing3Entry), 1, 0
+
+thorFredRing0Entry:
+	push %rbp
+	push %r15
+	push %r14
+	push %r13
+	push %r12
+	push %r10
+	push %r9
+	push %r8
+	push %rsi
+	push %rdi
+	push %rdx
+	push %rax
+	push %r11
+	push %rcx
+	push %rbx
+
+	# Reserve space for iplState.
+	sub $8, %rsp
+
+	mov %rsp, %rdi
+	xor %ebp, %ebp
+	call onFredEvent
+
+	# pop iplState.
+	add $8, %rsp
+
+	pop %rbx
+	pop %rcx
+	pop %r11
+	pop %rax
+	pop %rdx
+	pop %rdi
+	pop %rsi
+	pop %r8
+	pop %r9
+	pop %r10
+	pop %r12
+	pop %r13
+	pop %r14
+	pop %r15
+	pop %rbp
+	erets

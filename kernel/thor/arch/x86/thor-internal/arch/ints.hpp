@@ -9,6 +9,7 @@ namespace thor {
 void setupEarlyInterruptHandlers();
 
 void setupIdt(uint32_t *table);
+void setupFred();
 
 inline bool intsAreEnabled() {
 	uint64_t rflags;
