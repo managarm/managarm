@@ -43,6 +43,7 @@ src = files(
 	'generic/credentials.cpp',
 	'generic/debug.cpp',
 	'generic/event.cpp',
+	'generic/executor-context.cpp',
 	'generic/fiber.cpp',
 	'generic/gdbserver.cpp',
 	'generic/hel.cpp',

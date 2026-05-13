@@ -31,7 +31,7 @@ struct KernelFiber final : ScheduleEntity {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(KernelFiber *fiber)
-		: WorkQueue{&fiber->_executorContext, ipl::exceptionalWork}, fiber_{fiber} { }
+		: WorkQueue{fiber->_executorContext, ipl::exceptionalWork}, fiber_{fiber} { }
 
 		void wakeup() override;
 
@@ -168,6 +168,7 @@ public:
 	static KernelFiber *post(UniqueKernelStack stack, void (*function)(void *), void *argument, Scheduler* = &localScheduler.get());
 
 	explicit KernelFiber(UniqueKernelStack stack, AbiParameters abi);
+	~KernelFiber();
 
 	[[ noreturn ]] void invoke() override;
 
@@ -182,9 +183,11 @@ private:
 	frg::ticket_spinlock _mutex;
 	bool _blocked;
 
+	// Used by the AssociatedWorkQueue below so must be initialized before.
+	ExecutorContext *_executorContext{ExecutorContext::create()};
+
 	smarter::shared_ptr<AssociatedWorkQueue> _associatedWorkQueue;
 	FiberContext _fiberContext;
-	ExecutorContext _executorContext;
 	Executor _executor;
 };
 
