@@ -31,7 +31,6 @@ public:
 	}
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *) override;
-	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;

@@ -17,11 +17,6 @@ struct AnonymousSuperblock : FsSuperblock {
 		co_return nullptr;
 	}
 
-	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override {
-		std::cout << "posix: createSocket on AnonymousSuperblock unsupported" << std::endl;
-		co_return nullptr;
-	}
-
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	rename(FsLink *, FsNode *, std::string) override {
 		co_return Error::noSuchFile;
@@ -197,8 +192,11 @@ async::result<Error> FsNode::utimensat(std::optional<timespec> atime, std::optio
 	co_return Error::accessDenied;
 }
 
-async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name) {
+async::result<frg::expected<Error, std::shared_ptr<FsLink>>> FsNode::mksocket(std::string name, mode_t mode, uid_t uid, gid_t gid) {
 	(void) name;
+	(void) mode;
+	(void) uid;
+	(void) gid;
 
 	std::cout << "\e[31m" "posix: mksocket() is not implemented for this FsNode" "\e[39m" << std::endl;
 	co_return Error::illegalOperationTarget;

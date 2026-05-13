@@ -22,11 +22,6 @@ FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createRegular(Process *) {
 	co_return nullptr;
 }
 
-FutureMaybe<std::shared_ptr<FsNode>> SysfsSuperblock::createSocket() {
-	std::cout << "posix: createSocket on SysfsSuperblock unsupported" << std::endl;
-	co_return nullptr;
-}
-
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 SysfsSuperblock::rename(FsLink *, FsNode *, std::string) {
 	co_return Error::noSuchFile;

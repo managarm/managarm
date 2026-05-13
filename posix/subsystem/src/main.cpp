@@ -1,5 +1,7 @@
 #include <memory>
 
+#include <linux/vt.h>
+
 #include <protocols/mbus/client.hpp>
 
 #include "net.hpp"
@@ -206,8 +208,8 @@ int main() {
 	charRegistry.install(createKmsgDevice());
 	charRegistry.install(createTtyDevice());
 	charRegistry.install(createTTY0Device());
-	charRegistry.install(createTTYNDevice(1));
-	charRegistry.install(createTTYNDevice(2));
+	for(int i = 1; i <= MAX_NR_CONSOLES; i++)
+		charRegistry.install(createTTYNDevice(i));
 
 	acpi_subsystem::run();
 	drm_subsystem::run();

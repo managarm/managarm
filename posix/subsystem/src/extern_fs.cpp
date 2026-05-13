@@ -23,7 +23,6 @@ struct Superblock final : FsSuperblock {
 	Superblock(helix::UniqueLane lane, std::shared_ptr<UnixDevice> device);
 
 	FutureMaybe<std::shared_ptr<FsNode>> createRegular(Process *process) override;
-	FutureMaybe<std::shared_ptr<FsNode>> createSocket() override;
 
 	async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 			rename(FsLink *source, FsNode *directory, std::string name) override;
@@ -945,10 +944,6 @@ FutureMaybe<std::shared_ptr<FsNode>> Superblock::createRegular(Process *process)
 	}else{
 		co_return nullptr;
 	}
-}
-
-FutureMaybe<std::shared_ptr<FsNode>> Superblock::createSocket() {
-	throw std::runtime_error("extern_fs: createSocket() is not supported");
 }
 
 async::result<frg::expected<Error, std::shared_ptr<FsLink>>>

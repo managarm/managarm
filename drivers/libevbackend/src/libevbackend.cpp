@@ -366,12 +366,34 @@ File::ioctl(void *object, uint32_t, helix_ng::RecvInlineResult msg,
 	}
 }
 
+async::result<int> File::getFileFlags(void *object) {
+	auto self = static_cast<File *>(object);
+	int flags = O_RDWR;
+	if(self->_nonBlock)
+		flags |= O_NONBLOCK;
+	co_return flags;
+}
+
+async::result<void> File::setFileFlags(void *object, int flags) {
+	auto self = static_cast<File *>(object);
+	if (flags & ~O_NONBLOCK) {
+		std::cout << "libevbackend: setFileFlags on evdev event file called with unknown flags" << std::endl;
+	}
+	if (flags & O_NONBLOCK)
+		self->_nonBlock = true;
+	else
+		self->_nonBlock = false;
+	co_return;
+}
+
 
 constexpr auto fileOperations = protocols::fs::FileOperations{
 	.read = &File::read,
 	.ioctl = &File::ioctl,
 	.pollWait = &File::pollWait,
-	.pollStatus = &File::pollStatus
+	.pollStatus = &File::pollStatus,
+	.getFileFlags = &File::getFileFlags,
+	.setFileFlags = &File::setFileFlags
 };
 
 helix::UniqueLane File::serve(smarter::shared_ptr<File> file) {
