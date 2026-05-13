@@ -588,6 +588,7 @@ Thread::~Thread() {
 		infoLogger() << "thor: Thread is destructed" << frg::endlog;
 	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
+	ExecutorContext::retire(_executorContext);
 }
 
 // This function has to initiate the thread's shutdown.
@@ -661,8 +662,8 @@ void Thread::invoke() {
 
 	_userContext.migrate(cpuData);
 	AddressSpace::activate(_addressSpace);
-	_executorContext.active.store(true, std::memory_order_relaxed);
-	cpuData->executorContext = &_executorContext;
+	_executorContext->active.store(true, std::memory_order_relaxed);
+	cpuData->executorContext = _executorContext;
 	cpuData->activeThread = self;
 	restoreExecutor(&_executor);
 }
@@ -757,7 +758,7 @@ void Thread::_uninvoke() {
 	UserContext::deactivate();
 
 	auto cpuData = getCpuData();
-	_executorContext.active.store(false, std::memory_order_relaxed);
+	_executorContext->active.store(false, std::memory_order_relaxed);
 	cpuData->executorContext = nullptr;
 	cpuData->activeThread = {};
 }
