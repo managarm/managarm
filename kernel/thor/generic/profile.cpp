@@ -22,11 +22,15 @@ namespace {
 			if(!wantKernelProfile)
 				return;
 
+			auto *ring = getGlobalProfileRing();
+			if(!ring)
+				return;
+
 			auto channel = solicitIoChannel("kernel-profile");
 			if(channel) {
 				infoLogger() << "thor: Connecting profiling to I/O channel" << frg::endlog;
 				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
-						dumpRingToChannel(globalProfileRing.get(), std::move(channel), 2048));
+						dumpRingToChannel(ring, std::move(channel), 2048));
 			}
 		}
 	};
@@ -87,6 +91,8 @@ void initializeProfile() {
 }
 
 LogRingBuffer *getGlobalProfileRing() {
+	if(!globalProfileRing.valid())
+		return nullptr;
 	return globalProfileRing.get();
 }
 
