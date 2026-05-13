@@ -1469,4 +1469,89 @@ inline auto invalidateMemory(BorrowedDescriptor memory, uintptr_t offset, size_t
 	return InvalidateMemorySender{std::move(memory), offset, size};
 }
 
+// --------------------------------------------------------------------
+// PopulateSpace
+// --------------------------------------------------------------------
+
+struct PopulateSpaceResult {
+	HelError error() {
+		assert(valid_);
+		return error_;
+	}
+
+	void parse(void *&ptr, const ElementHandle &) {
+		auto result = reinterpret_cast<HelSimpleResult *>(ptr);
+		error_ = result->error;
+		ptr = (char *)ptr + sizeof(HelSimpleResult);
+		valid_ = true;
+	}
+
+private:
+	bool valid_ = false;
+	HelError error_;
+};
+
+template <typename Receiver>
+struct PopulateSpaceOperation : private Context {
+	PopulateSpaceOperation(BorrowedDescriptor space, uintptr_t address, size_t length, Receiver r)
+	: space_{std::move(space)}, address_{address}, length_{length}, r_{std::move(r)} {}
+
+	void start() {
+		HelSqPopulateSpace header;
+		header.handle = space_.getHandle();
+		header.address = address_;
+		header.length = length_;
+
+		std::array segments{
+			std::as_bytes(std::span{&header, 1})
+		};
+
+		auto context = static_cast<Context *>(this);
+		Dispatcher::global().pushSq(kHelSubmitPopulateSpace,
+				reinterpret_cast<uintptr_t>(context), segments);
+	}
+
+	PopulateSpaceOperation(const PopulateSpaceOperation &) = delete;
+	PopulateSpaceOperation &operator= (const PopulateSpaceOperation &) = delete;
+
+private:
+	void complete(ElementHandle element) override {
+		PopulateSpaceResult result;
+		void *ptr = element.data();
+		result.parse(ptr, element);
+		async::execution::set_value(r_, std::move(result));
+	}
+
+	BorrowedDescriptor space_;
+	uintptr_t address_;
+	size_t length_;
+	Receiver r_;
+};
+
+struct [[nodiscard]] PopulateSpaceSender {
+	using value_type = PopulateSpaceResult;
+
+	PopulateSpaceSender(BorrowedDescriptor space, uintptr_t address, size_t length)
+	: space_{std::move(space)}, address_{address}, length_{length} { }
+
+	template<typename Receiver>
+	PopulateSpaceOperation<Receiver> connect(Receiver receiver) {
+		return {std::move(space_), address_, length_, std::move(receiver)};
+	}
+
+private:
+	BorrowedDescriptor space_;
+	uintptr_t address_;
+	size_t length_;
+};
+
+inline async::sender_awaiter<PopulateSpaceSender, PopulateSpaceResult>
+operator co_await (PopulateSpaceSender sender) {
+	return {std::move(sender)};
+}
+
+inline auto populateSpace(BorrowedDescriptor space, uintptr_t address, size_t length) {
+	return PopulateSpaceSender{std::move(space), address, length};
+}
+
 } // namespace helix_ng

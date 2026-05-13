@@ -832,6 +832,47 @@ HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue
 	return kHelErrNone;
 }
 
+HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t addr, size_t len, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto dmaSpaceOutcome = this_universe->inspectDescriptor(handle,
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<DmaSpace>, Error> {
+		if(!desc.is<DmaSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<DmaSpaceDescriptor>().space;
+	});
+	if(!dmaSpaceOutcome)
+		return translateError(dmaSpaceOutcome.error());
+	auto space = std::move(*dmaSpaceOutcome);
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<DmaSpace> space, uintptr_t addr, size_t len,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		frg::expected<Error> outcome{};
+
+		for (size_t progress = 0; progress < len; progress += kPageSize) {
+			outcome = co_await onExceptionalWq(space->handleFault(addr + progress, 0));
+			if (!outcome)
+				break;
+		}
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(space), addr, len, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
 HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -3913,6 +3954,17 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqInvalidateMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size, context);
+		break;
+	}
+	case kHelSubmitPopulateSpace: {
+		if(sqSpan.size() < sizeof(HelSqPopulateSpace)) {
+			infoLogger() << "Bad length for kHelSubmitPopulateSpace" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqPopulateSpace sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitPopulateSpace(sqData.handle, queue, sqData.address, sqData.length, context);
 		break;
 	}
 	default:

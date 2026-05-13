@@ -525,6 +525,8 @@ static const uint32_t kHelSubmitForkMemory = 13;
 static const uint32_t kHelSubmitWritebackFence = 14;
 //! SQ opcode: invalidate memory.
 static const uint32_t kHelSubmitInvalidateMemory = 15;
+//! SQ opcode: populate a space.
+static const uint32_t kHelSubmitPopulateSpace = 16;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -713,6 +715,16 @@ struct HelSqInvalidateMemory {
 	uintptr_t offset;
 	//! Size of the range.
 	size_t size;
+};
+
+//! SQ data for kHelSubmitPopulateSpace.
+struct HelSqPopulateSpace {
+	//! Handle to the memory space.
+	HelHandle handle;
+	//! Address within the memory space.
+	uintptr_t address;
+	//! Length of the range.
+	size_t length;
 };
 
 struct HelSimpleResult {
