@@ -23,7 +23,10 @@ enum {
 	// Extendend features, EDX register
 	kCpuFlagSyscall = 0x800,
 	kCpuFlagNx = 0x100000,
-	kCpuFlagLongMode = 0x20000000
+	kCpuFlagLongMode = 0x20000000,
+
+	// Flexible Return and Event Delivery, EAX Register, Subleaf 1
+	kCpuFred = (1 << 17)
 };
 
 inline frg::array<uint32_t, 4> cpuid(uint32_t eax, uint32_t ecx = 0) {
@@ -46,6 +49,13 @@ enum {
 	kMsrIndexGsBase = 0xC0000101,
 	kMsrIndexKernelGsBase = 0xC0000102,
 	kMsrIndexVmCr = 0xC0010114,
+
+	kMsrFredConfig = 0x000001D4,
+	kMsrFredStkLvl = 0x000001D0,
+	kMsrFredRSP0 = 0x000001CC,
+	kMsrFredRSP1 = 0x000001CD,
+	kMsrFredRSP2 = 0x000001CE,
+	kMsrFredRSP3 = 0x000001CF
 };
 
 enum { kMsrSyscallEnable = 1 };

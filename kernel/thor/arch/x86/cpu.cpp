@@ -11,6 +11,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <x86/machine.hpp>
 
 namespace thor {
 
@@ -88,16 +89,16 @@ Executor::Executor(UserContext *context) {
 Executor::Executor(UserContext *context, void (*launch)())
 : Executor{context} {
 	general()->rip = reinterpret_cast<uintptr_t>(launch);
-	general()->rflags = 0x200;
+	general()->rflags = 0x202;
 	general()->rsp = reinterpret_cast<uintptr_t>(_syscallStack);
 	general()->cs = kSelKernelCode;
-	general()->ss = 0;
+	general()->ss = kSelKernelData;
 }
 
 Executor::Executor(UserContext *context, AbiParameters abi)
 : Executor{context} {
 	general()->rip = abi.ip;
-	general()->rflags = 0x200;
+	general()->rflags = 0x202;
 	general()->rsp = abi.sp;
 	general()->cs = kSelUserCode;
 	general()->ss = kSelUserData;
@@ -116,7 +117,7 @@ Executor::Executor(FiberContext *context, AbiParameters abi)
 	_fxState()->fcw |= fcwInitializer;
 
 	general()->rip = abi.ip;
-	general()->rflags = 0x200;
+	general()->rflags = 0x202;
 	general()->rsp = (uintptr_t)context->stack.basePtr();
 	general()->rdi = abi.argument;
 	general()->cs = kSelKernelCode;
@@ -238,6 +239,7 @@ void doForkExecutor(Executor *executor, void (*functor)(void *), void *context) 
 }
 
 extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
+extern "C" bool thorFredEnabled;
 
 [[ gnu::section(".text.stubs") ]] void restoreExecutor(Executor *executor) {
 	if(executor->_tss) {
@@ -248,6 +250,10 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 	getCpuData()->activeExecutor = executor;
 	getCpuData()->syscallStack = executor->_syscallStack;
+
+	// ensure FRED RSP0 is in sync with the syscall stack
+	if (thorFredEnabled)
+		common::x86::wrmsr(common::x86::kMsrFredRSP0, (uint64_t)executor->_syscallStack);
 
 	// TODO: use wr{fs,gs}base if it is available
 	common::x86::wrmsr(common::x86::kMsrIndexFsBase, executor->general()->clientFs);
@@ -263,7 +269,7 @@ extern "C" [[ noreturn ]] void _restoreExecutorRegisters(void *pointer);
 
 	uint16_t cs = executor->general()->cs;
 	assert(cs == kSelKernelCode || cs == kSelUserCode);
-	if(cs == kSelUserCode)
+	if(cs == kSelUserCode && !thorFredEnabled)
 		asm volatile ( "swapgs" : : : "memory" );
 
 	_restoreExecutorRegisters(executor->general());
@@ -370,6 +376,11 @@ initgraph::Stage *getCpuFeaturesKnownStage() {
 static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
 	initgraph::Entails{getCpuFeaturesKnownStage()},
 	[] {
+		if(common::x86::cpuid(common::x86::kCpuIndexStructuredExtendedFeaturesEnum,1)[0] & common::x86::kCpuFred) {
+			debugLogger() << "thor: CPUs support FRED" << frg::endlog;
+			globalCpuFeatures.haveFred = true;
+		}
+
 		// Enable the XSAVE instruction set and child features
 		if(common::x86::cpuid(0x1)[2] & (uint32_t(1) << 26)) {
 			debugLogger() << "thor: CPUs support XSAVE" << frg::endlog;
@@ -452,8 +463,8 @@ static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerat
 			auto leaf = common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures);
 			if(!(leaf[2] & (1 << 2)))
 				return false; // Unsupported
-			
 			auto vm_cr = common::x86::rdmsr(common::x86::kMsrIndexVmCr);
+
 			if(vm_cr & (1 << 4)) {
 				if(leaf[3] & (1 << 2)) {
 					debugLogger() << "thor: SVM Locked with Key" << frg::endlog;
@@ -556,14 +567,17 @@ void initializeThisProcessor() {
 	cpuData->detachedStack = UniqueKernelStack::make();
 	cpuData->idleStack = UniqueKernelStack::make();
 
-	// We embed some data at the top of the NMI stack.
-	// The NMI handler needs this data to enter a consistent kernel state.
-	struct Embedded {
-		AssemblyCpuData *expectedGs;
-		uint64_t padding;
-	} embedded{cpuData, 0};
+	// if fred is supported / will be enabled do not embed data into the NMI stack
+	if(!globalCpuFeatures.haveFred) {
+		// We embed some data at the top of the NMI stack.
+		// The NMI handler needs this data to enter a consistent kernel state.
+		struct Embedded {
+			AssemblyCpuData *expectedGs;
+			uint64_t padding;
+		} embedded{cpuData, 0};
 
-	cpuData->nmiStack.embed<Embedded>(embedded);
+		cpuData->nmiStack.embed<Embedded>(embedded);
+	}
 
 	// Setup our IST after the did the embedding.
 	auto *tss = &cpuDescriptorTables.get().tss;
@@ -583,11 +597,47 @@ void initializeThisProcessor() {
 	// We need a valid TSS in case an NMI or fault happens here.
 	activateTss(tss);
 
-	// Setup the IDT.
+	// Setup the syscall interface; this needs to be done early
+	// in the case of FRED due to it sharing the IA32_STAR MSR
+	if((common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures)[3]
+		& common::x86::kCpuFlagSyscall) == 0)
+		panicLogger() << "CPU does not support the syscall instruction"
+		<< frg::endlog;
+
+	uint64_t efer = common::x86::rdmsr(common::x86::kMsrEfer);
+	common::x86::wrmsr(common::x86::kMsrEfer,
+					   efer | common::x86::kMsrSyscallEnable);
+
+	common::x86::wrmsr(common::x86::kMsrLstar, (uintptr_t)&syscallStub);
+	// Set user mode rpl bits to work around a qemu bug.
+	common::x86::wrmsr(common::x86::kMsrStar, (uint64_t(kSelUserCompat) << 48)
+	| (uint64_t(kSelKernelCode) << 32));
+	// Mask interrupt and trap flag.
+	common::x86::wrmsr(
+		common::x86::kMsrFmask,
+		0x100   // TF.
+		| 0x200 // IF.
+		| 0x400 // DF.
+		| 0x40000 // AC.
+	);
+
+	// Setup the IDT. (or FRED if supported by the CPU)
 	auto *idt = cpuDescriptorTables.get().idt;
 	for(int i = 0; i < 256; i++)
 		common::x86::makeIdt64NullGate(idt, i);
-	setupIdt(idt);
+
+	if (globalCpuFeatures.haveFred) {
+		// ensure SS has the proper segment for erets
+		asm volatile ( "movw %w0, %%ss" : : "r" (kSelKernelData));
+
+		// set the FRED RSPx MSRs for fault stacks
+		common::x86::wrmsr(common::x86::kMsrFredRSP2, (uintptr_t)cpuData->dfStack.basePtr());
+		common::x86::wrmsr(common::x86::kMsrFredRSP3, (uintptr_t)cpuData->nmiStack.basePtr());
+
+		setupFred();
+	} else {
+		setupIdt(idt);
+	}
 
 	common::x86::Idtr idtr;
 	idtr.limit = 256 * 16;
@@ -702,29 +752,6 @@ void initializeThisProcessor() {
 
 	if(getGlobalCpuFeatures()->haveSvm)
 		cpuData->haveVirtualization = thor::svm::init();
-
-	// Setup the syscall interface.
-	if((common::x86::cpuid(common::x86::kCpuIndexExtendedFeatures)[3]
-			& common::x86::kCpuFlagSyscall) == 0)
-		panicLogger() << "CPU does not support the syscall instruction"
-				<< frg::endlog;
-
-	uint64_t efer = common::x86::rdmsr(common::x86::kMsrEfer);
-	common::x86::wrmsr(common::x86::kMsrEfer,
-			efer | common::x86::kMsrSyscallEnable);
-
-	common::x86::wrmsr(common::x86::kMsrLstar, (uintptr_t)&syscallStub);
-	// Set user mode rpl bits to work around a qemu bug.
-	common::x86::wrmsr(common::x86::kMsrStar, (uint64_t(kSelUserCompat) << 48)
-			| (uint64_t(kSelKernelCode) << 32));
-	// Mask interrupt and trap flag.
-	common::x86::wrmsr(
-		common::x86::kMsrFmask,
-		0x100   // TF.
-		| 0x200 // IF.
-		| 0x400 // DF.
-		| 0x40000 // AC.
-	);
 
 	// Setup the per-CPU work queue.
 	cpuData->wqFiber = KernelFiber::post([] {

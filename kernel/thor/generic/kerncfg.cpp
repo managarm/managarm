@@ -262,8 +262,10 @@ void initializeKerncfg() {
 #endif
 
 		if (wantKernelProfile) {
-			auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, getGlobalProfileRing(), "kernel-profile");
-			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
+			if(auto *profileRing = getGlobalProfileRing()) {
+				auto ring = frg::construct<ByteRingBusObject>(*kernelAlloc, profileRing, "kernel-profile");
+				spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ring->run());
+			}
 		}
 
 		if (wantOsTrace) {

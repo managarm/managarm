@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/int-call.hpp>
 #include <thor-internal/ipl.hpp>
@@ -184,6 +185,29 @@ void setupEarlyInterruptHandlers() {
 	idtr.limit = 256 * 16;
 	idtr.pointer = earlyIdt;
 	asm volatile ( "lidt (%0)" : : "r"( &idtr ) : "memory" );
+}
+
+extern "C" bool thorFredEnabled = false;
+extern "C" void thorFredRing3Entry();
+
+void setupFred() {
+	thorFredEnabled = true;
+
+	// set FRED entry point
+	common::x86::wrmsr(common::x86::kMsrFredConfig, (uint64_t)thorFredRing3Entry);
+
+	// set stack levels for #DF & #NMI
+	#define FRED_STKLVL(n, lvl)  ((uint64_t)(lvl) << ((n) * 2))
+	common::x86::wrmsr(common::x86::kMsrFredStkLvl, FRED_STKLVL(8, 2) | FRED_STKLVL(2, 3));
+	#undef FRED_STKLVL
+
+	// enable CR4.FRED (bit 32)
+	uint64_t cr4 = 0;
+	asm volatile ("mov %%cr4, %0" : "=r" (cr4));
+	cr4 |= 1ull << 32;
+	asm volatile ("mov %0, %%cr4" : : "r" (cr4));
+
+	infoLogger() << "thor: FRED enabled on CPU #" << getCpuData()->cpuIndex << frg::endlog;
 }
 
 void setupIdt(uint32_t *table) {
@@ -697,11 +721,10 @@ namespace {
 	}
 }
 
-extern "C" void onPlatformNmi(NmiImageAccessor image) {
+extern "C" void onPlatformNmi(NmiImageAccessor image, uint64_t expectedGs) {
 	// If we interrupted user space or a kernel stub, we might need to update GS.
 	auto gs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
-	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
-			reinterpret_cast<uintptr_t>(*image.expectedGs()));
+	common::x86::wrmsr(common::x86::kMsrIndexGsBase, expectedGs);
 
 	iplSave(*image.iplState());
 	iplEnterContext(ipl::maximal, *image.iplState());
@@ -775,6 +798,87 @@ extern "C" void onPlatformNmi(NmiImageAccessor image) {
 	// Restore the old value of GS.
 	common::x86::wrmsr(common::x86::kMsrIndexGsBase,
 			reinterpret_cast<uintptr_t>(gs));
+}
+
+extern "C" void onFredEvent(Frame* frame) {
+	uint64_t vector = (frame->ss >> 32) & 0xFF;
+	uint8_t  type   = (frame->ss >> 48) & 0xF;
+	bool     isUser = (frame->cs & 3) == 3;
+
+	// type 7 is syscall
+	if(isUser && (type == 7)) {
+		onPlatformSyscall(SyscallImageAccessor{frame});
+		return;
+	}
+
+	// type 2 is NMI
+	if (type == 2) {
+		assert(vector == 2);
+		uint64_t currentGs = common::x86::rdmsr(common::x86::kMsrIndexGsBase);
+		onPlatformNmi(NmiImageAccessor{frame}, currentGs);
+		return;
+	}
+
+	// type 3 is hardware exception
+	if (type == 3) {
+		assert(vector <= 31);
+		onPlatformFault(FaultImageAccessor{frame}, vector);
+		return;
+	}
+
+	// type 0 is external interrupts
+	if (type == 0) {
+		if (vector == 39) {
+			onPlatformLegacyIrq(IrqImageAccessor{frame}, 7);
+			return;
+		}
+		if (vector == 47) {
+			onPlatformLegacyIrq(IrqImageAccessor{frame}, 15);
+			return;
+		}
+
+		if (vector >= 64 && vector <= 127) {
+			onPlatformIrq(IrqImageAccessor{frame}, vector - 64);
+			return;
+		}
+
+		if (vector == 0xF0) {
+			onPlatformShootdown(IrqImageAccessor{frame});
+			return;
+		}
+		if (vector == 0xF1) {
+			onPlatformPing(IrqImageAccessor{frame});
+			return;
+		}
+		if (vector == 0xF2) {
+			onPlatformCall(IrqImageAccessor{frame});
+			return;
+		}
+		if (vector == 0xFF) {
+			onPlatformPreemption(IrqImageAccessor{frame});
+			return;
+		}
+
+		panicLogger() << "FRED: Unhandled external interrupt" << frg::endlog;
+	}
+
+	// type 4 is oftware interrupt (INT n) (ignored)
+	if (type == 6) {
+		return;
+	}
+
+	// type 5 is privileged software exception (INT1)
+	if (type == 5) {
+		panicLogger() << "FRED: unexpected privileged software exception" << frg::endlog;
+	}
+
+
+	// type 6 is software exception (INT3 or INTO) (ignored)
+	if (type == 6) {
+		return;
+	}
+
+	panicLogger() << "FRED: unexpected event type" << frg::endlog;
 }
 
 extern "C" void enableIntsAndHaltForever();

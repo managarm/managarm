@@ -75,8 +75,44 @@ struct Continuation {
 	void *sp;
 };
 
+// note: this struct is accessed from assembly.
+// do not change the field offsets!
+struct Frame {
+	IplState iplState;
+	// rbx, rcx and r11 are clobbered by syscalls.
+	Word rbx;
+	Word rcx;
+	Word r11;
+	// The remaining registers are preserved by all entry points.
+	Word rax;
+	Word rdx;
+	Word rdi;
+	Word rsi;
+	Word r8;
+	Word r9;
+	Word r10;
+	Word r12;
+	Word r13;
+	Word r14;
+	Word r15;
+	Word rbp;
+
+	// Error for faults.
+	Word code;
+
+	// iret frame.
+	Word rip;
+	Word cs;
+	Word rflags;
+	Word rsp;
+	Word ss;
+};
+
 struct FaultImageAccessor {
 	friend void saveExecutor(Executor *executor, FaultImageAccessor accessor);
+
+	FaultImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
 
 	Word *ip() { return &_frame()->rip; }
 	Word *sp() { return &_frame()->rsp; }
@@ -102,35 +138,6 @@ struct FaultImageAccessor {
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-		IplState iplState;
-		Word rax;
-		Word rbx;
-		Word rcx;
-		Word rdx;
-		Word rdi;
-		Word rsi;
-		Word r8;
-		Word r9;
-		Word r10;
-		Word r11;
-		Word r12;
-		Word r13;
-		Word r14;
-		Word r15;
-		Word rbp;
-		Word code;
-
-		// the following fields are pushed by interrupt
-		Word rip;
-		Word cs;
-		Word rflags;
-		Word rsp;
-		Word ss;
-	};
-
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
@@ -139,6 +146,9 @@ private:
 };
 
 struct IrqImageAccessor {
+	IrqImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
+
 	friend void saveExecutor(Executor *executor, IrqImageAccessor accessor);
 
 	Word *ip() { return &_frame()->rip; }
@@ -166,34 +176,6 @@ struct IrqImageAccessor {
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-		IplState iplState;
-		Word rax;
-		Word rbx;
-		Word rcx;
-		Word rdx;
-		Word rdi;
-		Word rsi;
-		Word r8;
-		Word r9;
-		Word r10;
-		Word r11;
-		Word r12;
-		Word r13;
-		Word r14;
-		Word r15;
-		Word rbp;
-
-		// the following fields are pushed by interrupt
-		Word rip;
-		Word cs;
-		Word rflags;
-		Word rsp;
-		Word ss;
-	};
-
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
@@ -202,6 +184,9 @@ private:
 };
 
 struct SyscallImageAccessor {
+	SyscallImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
+
 	friend void saveExecutor(Executor *executor, SyscallImageAccessor accessor);
 
 	Word *number() { return &_frame()->rdi; }
@@ -224,27 +209,6 @@ struct SyscallImageAccessor {
 	void *frameBase() { return _pointer + sizeof(Frame); }
 
 private:
-	// this struct is accessed from assembly.
-	// do not randomly change its contents.
-	struct Frame {
-		IplState iplState;
-		Word rdi;
-		Word rsi;
-		Word rdx;
-		Word rax;
-		Word r8;
-		Word r9;
-		Word r10;
-		Word r12;
-		Word r13;
-		Word r14;
-		Word r15;
-		Word rbp;
-		Word rsp;
-		Word rip;
-		Word rflags;
-	};
-
 	Frame *_frame() {
 		return reinterpret_cast<Frame *>(_pointer);
 	}
@@ -253,10 +217,8 @@ private:
 };
 
 struct NmiImageAccessor {
-	void **expectedGs() {
-		return &_frame()->expectedGs;
-	}
-
+	NmiImageAccessor(Frame *frame)
+	: _pointer{reinterpret_cast<char *>(frame)} { }
 	Word *ip() { return &_frame()->rip; }
 	Word *cs() { return &_frame()->cs; }
 	Word *rflags() { return &_frame()->rflags; }
@@ -265,38 +227,16 @@ struct NmiImageAccessor {
 	IplState *iplState() { return &_frame()->iplState; }
 
 private:
-	// note: this struct is accessed from assembly.
-	// do not change the field offsets!
-	struct Frame {
-		IplState iplState;
-		Word rax;
-		Word rbx;
-		Word rcx;
-		Word rdx;
-		Word rdi;
-		Word rsi;
-		Word r8;
-		Word r9;
-		Word r10;
-		Word r11;
-		Word r12;
-		Word r13;
-		Word r14;
-		Word r15;
-		Word rbp;
-
-		// the following fields are pushed by interrupt
-		Word rip;
-		Word cs;
-		Word rflags;
-		Word rsp;
-		Word ss;
-
-		void *expectedGs;
+	struct Layout {
+		Frame frame;
 	};
 
+	Layout *_layout() {
+		return reinterpret_cast<Layout *>(_pointer);
+	}
+
 	Frame *_frame() {
-		return reinterpret_cast<Frame *>(_pointer);
+		return &_layout()->frame;
 	}
 
 	char *_pointer;
@@ -505,6 +445,7 @@ struct CpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
 
+	bool haveFred;
 	bool haveXsave;
 	bool haveAvx;
 	bool haveZmm;
