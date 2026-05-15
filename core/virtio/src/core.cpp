@@ -83,6 +83,10 @@ struct LegacyPciTransport : Transport {
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);
 
+	bool isLegacy() override {
+		return true;
+	}
+
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
 	}
@@ -281,6 +285,10 @@ struct StandardPciTransport : Transport {
 			Mapping isr_mapping, Mapping device_mapping,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq,
 			helix::UniqueDescriptor queueMsi);
+
+	bool isLegacy() override {
+		return false;
+	}
 
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
