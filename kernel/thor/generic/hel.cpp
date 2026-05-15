@@ -1010,6 +1010,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapFixed;
 	}else if(flags & kHelMapFixedNoReplace) {
 		map_flags |= AddressSpace::kMapFixedNoReplace;
+	}else if(flags & kHelMapPreferBottom) {
+		map_flags |= AddressSpace::kMapPreferBottom;
 	}else{
 		map_flags |= AddressSpace::kMapPreferTop;
 	}

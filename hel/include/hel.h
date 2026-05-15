@@ -266,7 +266,8 @@ enum HelMapFlags {
 	kHelMapProtExecute = 1024,
 	kHelMapDontRequireBacking = 128,
 	kHelMapFixed = 2048,
-	kHelMapFixedNoReplace = 4096
+	kHelMapFixedNoReplace = 4096,
+	kHelMapPreferBottom = 8192
 };
 
 enum HelSliceFlags {
