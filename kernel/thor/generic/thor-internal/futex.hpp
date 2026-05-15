@@ -12,6 +12,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/kernel-mutexes.hpp>
 #include <thor-internal/work-queue.hpp>
 
 #include <thor-internal/debug.hpp>
@@ -103,8 +104,8 @@ public:
 		auto result = co_await space.withFutex(address, [&](auto futex) {
 			id = futex.getIdentity();
 
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&_mutex);
+			PreemptionGuard preemptionGuard;
+			AdaptiveMutex::Guard lock{_mutex};
 
 			if(futex.read() != expected) {
 				futexRace = true;
@@ -129,8 +130,8 @@ public:
 			[&] {
 				// Remove the node from the futex's wait list.
 				{
-					auto irqLock = frg::guard(&irqMutex());
-					auto lock = frg::guard(&_mutex);
+					PreemptionGuard preemptionGuard;
+					AdaptiveMutex::Guard lock{_mutex};
 
 					if (node.st == State::done)
 						return;
@@ -186,8 +187,8 @@ public:
 			>
 		> pending;
 		{
-			auto irqLock = frg::guard(&irqMutex());
-			auto lock = frg::guard(&_mutex);
+			PreemptionGuard preemptionGuard;
+			AdaptiveMutex::Guard lock{_mutex};
 
 			auto sit = _slots.get(id);
 			if(!sit)
@@ -219,11 +220,9 @@ public:
 	}
 
 private:
-	using Mutex = frg::ticket_spinlock;
-
 	// TODO: use a scalable hash table with fine-grained locks to
 	// improve the scalability of the futex algorithm.
-	Mutex _mutex;
+	AdaptiveMutex _mutex;
 
 	frg::hash_map<
 		FutexIdentity,

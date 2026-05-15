@@ -55,7 +55,7 @@ void handleIplDeferred(Ipl current, Ipl ceiling) {
 		// Note: during this switch, the currentIpl() is not necessarily l.
 		// If handlers rely on running at a certain IPL, they need to raise it.
 		switch (l) {
-			case ipl::schedule: {
+			case ipl::noPreemption: {
 				StatelessIrqLock irqLock;
 				localScheduler.get().checkPreemption();
 				break;
