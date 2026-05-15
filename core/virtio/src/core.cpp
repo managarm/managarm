@@ -83,6 +83,10 @@ struct LegacyPciTransport : Transport {
 	LegacyPciTransport(protocols::hw::Device hw_device,
 			arch::io_space legacy_space, helix::UniqueDescriptor irq);
 
+	bool isLegacy() override {
+		return true;
+	}
+
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
 	}
@@ -179,11 +183,13 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 	auto available_offset = (queue_size * sizeof(spec::Descriptor)
 				+ (available_align - 1))
 			& ~size_t(available_align - 1);
-	auto used_offset = (available_offset + queue_size * sizeof(spec::AvailableRing::Element)
+	auto used_offset = (available_offset + sizeof(spec::AvailableRing)
+				+ queue_size * sizeof(spec::AvailableRing::Element)
 				+ sizeof(spec::AvailableExtra) + (used_align - 1))
 			& ~size_t(used_align - 1);
 
-	auto region_size = used_offset + queue_size * sizeof(spec::UsedRing::Element)
+	auto region_size = used_offset + sizeof(spec::UsedRing)
+				+ queue_size * sizeof(spec::UsedRing::Element)
 				+ sizeof(spec::UsedExtra);
 
 	// Allocate physical memory for the virtq structs.
@@ -279,6 +285,10 @@ struct StandardPciTransport : Transport {
 			Mapping isr_mapping, Mapping device_mapping,
 			unsigned int notify_multiplier, helix::UniqueDescriptor irq,
 			helix::UniqueDescriptor queueMsi);
+
+	bool isLegacy() override {
+		return false;
+	}
 
 	protocols::hw::Device &hwDevice() override {
 		return _hwDevice;
@@ -402,11 +412,13 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 	auto available_offset = (queue_size * sizeof(spec::Descriptor)
 				+ (available_align - 1))
 			& ~size_t(available_align - 1);
-	auto used_offset = (available_offset + queue_size * sizeof(spec::AvailableRing::Element)
+	auto used_offset = (available_offset + sizeof(spec::AvailableRing)
+				+ queue_size * sizeof(spec::AvailableRing::Element)
 				+ sizeof(spec::AvailableExtra) + (used_align - 1))
 			& ~size_t(used_align - 1);
 
-	auto region_size = used_offset + queue_size * sizeof(spec::UsedRing::Element)
+	auto region_size = used_offset + sizeof(spec::UsedRing)
+				+ queue_size * sizeof(spec::UsedRing::Element)
 				+ sizeof(spec::UsedExtra);
 
 	// Allocate physical memory for the virtq structs.

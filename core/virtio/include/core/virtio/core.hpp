@@ -151,6 +151,8 @@ struct Transport {
 
 	virtual ~Transport() = default;
 
+	virtual bool isLegacy() = 0;
+
 	virtual protocols::hw::Device &hwDevice() = 0;
 
 	virtual uint8_t loadConfig8(size_t offset) = 0;

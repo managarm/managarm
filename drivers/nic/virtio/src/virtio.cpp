@@ -9,7 +9,6 @@ namespace {
 
 namespace {
 // Device feature bits.
-constexpr size_t legacyHeaderSize = 10;
 enum {
 	VIRTIO_NET_F_MAC = 5
 };
@@ -52,11 +51,14 @@ private:
 	arch::contiguous_pool dmaPool_;
 	virtio_core::Queue *receiveVq_;
 	virtio_core::Queue *transmitVq_;
+	size_t headerSize_;
 };
 
 VirtioNic::VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Transport> transport)
 	: nic::Link(1500, &dmaPool_), entity_{entity}, transport_ { std::move(transport) }
 {
+	headerSize_ = transport_->isLegacy() ? 10 : sizeof(VirtHeader);
+
 	if(transport_->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
 		for (int i = 0; i < 6; i++) {
 			mac_[i] = transport_->loadConfig8(i);
@@ -110,11 +112,11 @@ async::result<size_t> VirtioNic::receive(arch::dma_buffer_view frame) {
 	virtio_core::Chain chain;
 	chain.append(co_await receiveVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::deviceToHost,
-			header.view_buffer().subview(0, legacyHeaderSize));
+			header.view_buffer().subview(0, headerSize_));
 	chain.append(co_await receiveVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::deviceToHost, frame);
 
-	co_return (co_await receiveVq_->submitDescriptor(chain.front()) - legacyHeaderSize);
+	co_return (co_await receiveVq_->submitDescriptor(chain.front()) - headerSize_);
 }
 
 async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
@@ -128,7 +130,7 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 	virtio_core::Chain chain;
 	chain.append(co_await transmitVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::hostToDevice,
-			header.view_buffer().subview(0, legacyHeaderSize));
+			header.view_buffer().subview(0, headerSize_));
 	chain.append(co_await transmitVq_->obtainDescriptor());
 	chain.setupBuffer(virtio_core::hostToDevice, payload);
 
