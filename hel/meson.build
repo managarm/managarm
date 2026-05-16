@@ -1,24 +1,23 @@
-headers = [
-	'include/hel.h',
-	'include/hel-stubs.h',
-	'include/hel-syscalls.h',
-	'include/hel-types.h',
-	'include/helix/ipc.hpp',
-	'include/helix/memory.hpp',
-	'include/helix/passthrough-fd.hpp'
-]
+subdir('include')
 
 src = files(
 	'src/globals.cpp',
 	'src/passthrough-fd.cpp',
 )
 
-if arch == 'aarch64'
-	headers += 'include/hel-stubs-aarch64.h'
-elif arch == 'riscv64'
-	headers += 'include/hel-stubs-riscv64.h'
-elif arch == 'x86_64'
-	headers += 'include/hel-stubs-x86_64.h'
+if build_headers
+	install_headers(hel_headers,
+		preserve_path: true,
+		subdir: 'hel',
+	)
+
+	pkgconfig.generate(
+		name: 'hel',
+		subdirs: ['hel'],
+		description: 'hel/helix headers',
+	)
+
+	subdir_done()
 endif
 
 inc = [ 'include' ]
@@ -38,7 +37,7 @@ if not provide_deps and not build_kernel
 		include_directories : inc
 	)
 
-	install_headers(headers)
+	install_headers(hel_headers)
 endif
 
 hel_dep = declare_dependency(
