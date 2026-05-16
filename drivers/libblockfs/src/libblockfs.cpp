@@ -448,13 +448,13 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 
 async::detached runDevice(BlockDevice *device) {
 	if (!tracingInitialized) {
-		co_await ostContext.create();
 		tracingInitialized = true;
+		co_await ostContext.create();
 	}
 
 	if(!clkInitialized) {
-		co_await clk::enumerateTracker();
 		clkInitialized = true;
+		co_await clk::enumerateTracker();
 	}
 
 	// TODO(qookie): Don't leak the table.

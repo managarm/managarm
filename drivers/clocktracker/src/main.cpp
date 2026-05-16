@@ -73,6 +73,10 @@ async::detached serve(helix::UniqueLane lane) {
 			helix_ng::accept(
 				helix_ng::recvInline())
 		);
+
+		if(accept.error() == kHelErrEndOfLane)
+			co_return;
+
 		HEL_CHECK(accept.error());
 		HEL_CHECK(recvReq.error());
 
