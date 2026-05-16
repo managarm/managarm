@@ -622,12 +622,72 @@ void SignalQueue::issueSignal(int sn, SignalInfo info, uint64_t seq) {
 	signalBell_.raise();
 }
 
+namespace {
+
+constexpr auto stopSignals = {SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU};
+
+bool isStopSignal(int signal) {
+	return std::ranges::contains(stopSignals, signal);
+}
+
+} // namespace
+
 void ThreadGroup::issueThreadGroupSignal(int sn, SignalInfo info) {
-	signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+	if (isStopSignal(sn)) {
+		// When a stop signal is generated, discard all SIGCONT signals for the process and
+		// all threads.
+		for (auto proc : threads_) {
+			if (proc->delayedSignal && proc->delayedSignal->signalNumber == SIGCONT) {
+				// If there is a pending signal that is now being ignored, remove it.
+				delete proc->delayedSignal;
+				proc->delayedSignal = nullptr;
+				proc->delayedSignalHandling = std::nullopt;
+			}
+
+			while (true) {
+				if (auto item = proc->tryFetchSignal(1 << (SIGCONT - 1)); item)
+					delete item;
+				else
+					break;
+			}
+		}
+
+		auto leaderThread = threads_.front();
+		leaderThread->stoppageState = Process::StoppageState::initiateStop;
+		HEL_CHECK(helInterruptThread(leaderThread->threadDescriptor().getHandle()));
+
+		for (auto thread : threads_ | std::views::drop(1)) {
+			thread->stoppageState = Process::StoppageState::stopRequested;
+			HEL_CHECK(helInterruptThread(thread->threadDescriptor().getHandle()));
+		}
+
+		interruptObservationEvent.raise();
+	} else if (sn == SIGCONT) {
+		for (auto thread : threads_ | std::views::drop(1)) {
+			thread->stoppageState = Process::StoppageState::continueRequested;
+			HEL_CHECK(helInterruptThread(thread->threadDescriptor().getHandle()));
+		}
+
+		// The leader thread sends notifications for the parent once all threads are continued.
+		processSigcontEvent.raise();
+		interruptObservationEvent.raise();
+	} else {
+		// We want to ensure that SIGSTOP/SIGCONT are delivered to processes after their
+		// stop/resume action has propagated to all threads.
+		signalQueue_.issueSignal(sn, info, ++currentSignalSeq_);
+
+		if (sn == SIGKILL)
+			interruptObservationEvent.raise();
+	}
 }
 
 void Process::issueThreadSignal(int sn, SignalInfo info) {
+	if (sn == SIGCONT || std::ranges::contains(stopSignals, sn))
+		return threadGroup()->issueThreadGroupSignal(sn, std::move(info));
+
 	signalQueue.issueSignal(sn, info, ++threadGroup()->currentSignalSeq_);
+	if (sn == SIGKILL)
+		threadGroup()->interruptObservationEvent.raise();
 }
 
 async::result<PollSignalResult>
@@ -787,10 +847,17 @@ SignalContext::SignalHandling SignalContext::determineHandling(SignalItem *item,
 	// Handle default dispositions properly
 	if(handler.disposition == SignalDisposition::none) {
 		switch (item->signalNumber) {
-			// TODO: Handle SIGTSTP, SIGSTOP and SIGCONT
+			case SIGSTOP:
+			case SIGTSTP:
+			case SIGTTIN:
+			case SIGTTOU:
+				result.stopped = true;
+				result.ignored = true;
+				break;
 			case SIGCHLD:
 			case SIGURG:
 			case SIGWINCH:
+			case SIGCONT:
 				// Ignore the signal.
 				result.ignored = true;
 				break;
@@ -1672,11 +1739,11 @@ async::result<void> Process::terminate(bool *lastInGroup) {
 
 async::result<frg::expected<Error, Process::WaitResult>>
 Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
-	if(!(flags & waitExited)) {
+	if(!(flags & (waitExited | waitContinued | waitStopped))) {
 		std::cout << "posix: Unsupported arguments for flags passed to process::wait, waitExited must be set" << std::endl;
 		co_return Error::illegalArguments;
 	}
-	if(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie)) {
+	if(flags & ~(waitNonBlocking | waitExited | waitLeaveZombie | waitContinued | waitStopped)) {
 		std::cout << "posix: Unsupported arguments for flags passed to process::wait, unknown flags are set" << std::endl;
 		co_return Error::illegalArguments;
 	}
@@ -1734,6 +1801,10 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 				continue;
 			if(std::holds_alternative<TerminationBySignal>((*it)->_state) && !(flags & (waitExited)))
 				continue;
+			if(std::holds_alternative<StoppedBySignal>((*it)->_state) && !(flags & (waitStopped)))
+				continue;
+			if(std::holds_alternative<ContinuedBySignal>((*it)->_state) && !(flags & (waitContinued)))
+				continue;
 
 			result = WaitResult{
 				.pid = (*it)->pid(),
@@ -1742,11 +1813,14 @@ Process::wait(int pid, WaitFlags flags, async::cancellation_token ct) {
 				.stats = (*it)->selfUsage(),
 			};
 
-			if(!(flags & waitLeaveZombie)) {
+			if (!(flags & waitLeaveZombie)) {
 				// erasing from the queue invalidates the iterator, so we take a pointer before
 				auto tg = *it;
 				threadGroup()->_notifyQueue.erase(it);
-				ThreadGroup::retire(tg);
+				if (std::holds_alternative<TerminationByExit>((*it)->_state)
+				    || std::holds_alternative<TerminationBySignal>((*it)->_state)) {
+					ThreadGroup::retire(tg);
+				}
 			}
 
 			break;
@@ -1795,9 +1869,63 @@ ThreadGroup *ThreadGroup::create(std::shared_ptr<PidHull> hull, ThreadGroup *par
 	return tg.get();
 }
 
+void ThreadGroup::doSignalStop() {
+	_state = StoppedBySignal{SIGSTOP};
+	if (!notifyHook_.in_list)
+		getParent()->_notifyQueue.push_back(this);
+	getParent()->_notifyBell.raise();
+	notifyType_ = NotifyType::stopped;
+	notifyTypeChange_.raise();
+
+	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
+	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildStopped)) {
+		getParent()->issueThreadGroupSignal(SIGCHLD, ChildSignal{
+			.code = CLD_STOPPED,
+			.pid = pid(),
+			.uid = uid(),
+			.utime = static_cast<clock_t>(_generationUsage.userTime),
+		});
+	}
+}
+
+void ThreadGroup::doSignalContinue() {
+	_state = ContinuedBySignal{};
+	if (!notifyHook_.in_list)
+		getParent()->_notifyQueue.push_back(this);
+	getParent()->_notifyBell.raise();
+	notifyType_ = NotifyType::continued;
+	notifyTypeChange_.raise();
+
+	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
+	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildStopped)) {
+		getParent()->issueThreadGroupSignal(SIGCHLD, ChildSignal{
+			.code = CLD_CONTINUED,
+			.pid = pid(),
+			.uid = uid(),
+			.utime = static_cast<clock_t>(_generationUsage.userTime),
+		});
+	}
+}
+
+bool ThreadGroup::allStopped() const {
+	return std::ranges::all_of(
+	    threads_,
+	    [](auto state) { return state == Process::StoppageState::stopped; },
+	    &Process::stoppageState
+	);
+}
+
+bool ThreadGroup::allContinued() const {
+	return std::ranges::all_of(
+	    threads_,
+	    [](auto state) { return state == Process::StoppageState::none; },
+	    &Process::stoppageState
+	);
+}
+
 async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 	// Only the first terminate() call goes through.
-	if (!std::holds_alternative<std::monostate>(_state))
+	if (std::holds_alternative<TerminationByExit>(_state) && std::holds_alternative<TerminationBySignal>(_state))
 		co_return;
 
 	_state = std::move(state);
@@ -1858,18 +1986,20 @@ async::result<void> ThreadGroup::terminateGroup(TerminationState state) {
 
 	// Notify the parent of our status change.
 	// We need to do that even when not sending SIGCHLD since it wakes up pidfd.
-	assert(notifyType_ == NotifyType::null);
+	assert(notifyType_ == NotifyType::null || notifyType_ == NotifyType::continued);
 	notifyType_ = NotifyType::terminated;
 	notifyTypeChange_.raise();
 
 	auto sigchldHandling = parent_->signalContext()->getHandler(SIGCHLD);
 	if (sigchldHandling.disposition != SignalDisposition::ignore && !(sigchldHandling.flags & signalNoChildWait)) {
-		parent_->_notifyQueue.push_back(this);
+		if (!notifyHook_.in_list)
+			parent_->_notifyQueue.push_back(this);
 		parent_->_notifyBell.raise();
 
 		// Send SIGCHLD to the parent.
 		ChildSignal info;
 		info.pid = hull_->getPid();
+		info.uid = uid();
 		info.utime = _generationUsage.userTime;
 
 		if(std::get_if<TerminationByExit>(&_state)) {

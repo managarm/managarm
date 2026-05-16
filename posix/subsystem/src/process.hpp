@@ -269,6 +269,7 @@ inline constexpr SignalFlags signalOnce = (1 << 1);
 inline constexpr SignalFlags signalReentrant = (1 << 2);
 inline constexpr SignalFlags signalOnStack = (1 << 3);
 inline constexpr SignalFlags signalNoChildWait = (1 << 4);
+inline constexpr SignalFlags signalNoChildStopped = (1 << 5);
 
 struct SignalFlagsView {
 	SignalFlags flags;
@@ -416,6 +417,7 @@ struct SignalContext {
 
 	struct SignalHandling {
 		bool killed = false;
+		bool stopped = false;
 		bool ignored = false;
 		SignalHandler handler;
 	};
@@ -450,7 +452,9 @@ struct std::formatter<SignalContext::SignalHandling> : std::formatter<string_vie
 
 enum class NotifyType {
 	null,
-	terminated
+	terminated,
+	stopped,
+	continued,
 };
 
 struct TerminationByExit {
@@ -461,16 +465,26 @@ struct TerminationBySignal {
 	int signo;
 };
 
+struct StoppedBySignal {
+	int signo;
+};
+
+struct ContinuedBySignal {};
+
 using TerminationState = std::variant<
 	std::monostate,
 	TerminationByExit,
-	TerminationBySignal
+	TerminationBySignal,
+	StoppedBySignal,
+	ContinuedBySignal
 >;
 
 using WaitFlags = uint32_t;
 inline constexpr WaitFlags waitNonBlocking = 1;
 inline constexpr WaitFlags waitLeaveZombie = 2;
 inline constexpr WaitFlags waitExited = 4;
+inline constexpr WaitFlags waitStopped = 8;
+inline constexpr WaitFlags waitContinued = 16;
 
 struct ResourceUsage {
 	uint64_t userTime;
@@ -689,6 +703,19 @@ public:
 	// Forces terminate() to be called on next kHelObserveInterrupt.
 	bool forceTermination = false;
 
+	enum class StoppageState {
+		// Thread is not stopped.
+		none,
+		// We are the lead thread and wait for all other threads in the process to stop.
+		initiateStop,
+		// We are a non-lead thread and asked to stop.
+		stopRequested,
+		// The thread is stopped due to SIGSTOP/SIGTTOU/SIGTTIN.
+		stopped,
+		// Request all threads of the process to continue.
+		continueRequested,
+	} stoppageState = StoppageState::none;
+
 	SignalQueue signalQueue;
 	SignalItem *delayedSignal = nullptr;
 	std::optional<SignalContext::SignalHandling> delayedSignalHandling = std::nullopt;
@@ -771,6 +798,22 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 
 	SignalContext *signalContext() { return _signalContext.get(); }
 	SignalQueue &signalQueue() { return signalQueue_; }
+
+	void doSignalStop();
+	void doSignalContinue();
+
+	// Raised by threads when they enter the stopped state.
+	async::recurring_event threadStoppedEvent;
+	// Raised by threads when they enter the continued state.
+	async::recurring_event threadContinuedEvent;
+	// Raised by a SIGCONT being issued.
+	async::recurring_event processSigcontEvent;
+
+	// Raised when we want to interrupt blocking operations in the observation loop.
+	async::recurring_event interruptObservationEvent;
+
+	bool allStopped() const;
+	bool allContinued() const;
 
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
