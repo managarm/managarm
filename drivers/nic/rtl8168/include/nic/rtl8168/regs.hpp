@@ -249,6 +249,7 @@ namespace mcu {
 namespace misc {
 	constexpr arch::field<uint32_t, bool> rxdv_gate(19, 1);
 	constexpr arch::field<uint32_t, bool> pwm_enable(22, 1);
+	constexpr arch::field<uint32_t, bool> txpla_rst(29, 1);
 }
 
 namespace misc_1 {

@@ -24,7 +24,7 @@ async::result<uint16_t> RealtekNic::readFromEPHY(int reg) {
 
 async::result<void> RealtekNic::initializeEPHY(ephy_info* info, int len) {
 	while(len--) {
-		writeToEPHY(info->offset, (co_await readFromEPHY(info->offset) & ~info->mask) | info->bits);
+		co_await writeToEPHY(info->offset, (co_await readFromEPHY(info->offset) & ~info->mask) | info->bits);
 		info++;
 	}
 }
@@ -98,6 +98,37 @@ async::result<void> RealtekNic::configureHardware() {
 	_mmio.store(regs::timer_interrupt, 0);
 
 	switch(_revision) {
+		case MacRevision::MacVer32:
+		case MacRevision::MacVer33: {
+			auto e_info_8168e_1 = std::to_array<struct ephy_info>({
+			    {0x00, 0x0200, 0x0100},
+			    {0x00, 0x0000, 0x0004},
+			    {0x06, 0x0002, 0x0001},
+			    {0x06, 0x0000, 0x0030},
+			    {0x07, 0x0000, 0x2000},
+			    {0x00, 0x0000, 0x0020},
+			    {0x03, 0x5800, 0x2000},
+			    {0x03, 0x0000, 0x0001},
+			    {0x01, 0x0800, 0x1000},
+			    {0x07, 0x0000, 0x4000},
+			    {0x1e, 0x0000, 0x2000},
+			    {0x19, 0xffff, 0xfe6c},
+			    {0x0a, 0x0000, 0x0040},
+			});
+
+			co_await writeCSIRegister(
+			    0x070C, (co_await readCSIRegister(0x070C) & 0x00FFFFFF) | (0x27 << 24)
+			);
+			co_await initializeEPHY(e_info_8168e_1.data(), e_info_8168e_1.size());
+
+			_mmio.store(regs::misc, _mmio.load(regs::misc) | flags::misc::txpla_rst(true));
+			_mmio.store(regs::misc, _mmio.load(regs::misc) / flags::misc::txpla_rst(false));
+
+			_mmio.store(
+			    regs::config5, _mmio.load(regs::config5) / flags::config5::spi_enable(false)
+			);
+			break;
+		}
 		// MacVer34 seems to have very similar, but slightly different, init logic to MacVers 35/36.
 		case MacRevision::MacVer34: {
 			static const struct ephy_info e_info_8168e_2[] = {

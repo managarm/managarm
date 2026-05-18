@@ -191,7 +191,7 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 
 		device = co_await setupVirtioDevice(baseEntity, std::move(hwDevice));
 	} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
-		device = nic::rtl8168::makeShared(std::move(hwDevice));
+		device = co_await nic::rtl8168::makeShared(std::move(hwDevice));
 #ifdef __x86_64__
 	} else if(vendor_str->value == VENDOR_INTEL) {
 		device = co_await nic::e1000::makeShared(std::move(hwDevice));

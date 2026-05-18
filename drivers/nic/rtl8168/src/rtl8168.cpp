@@ -61,13 +61,13 @@ static const std::unordered_map<RealtekNic::MacRevision, std::string> rtl_chip_i
 	{RealtekNic::MacRevision::MacVer65, "RTL8126A"},
 };
 
-RealtekNic::RealtekNic(protocols::hw::Device device)
-	: nic::Link(1500, &_dmaPool), _device{std::move(device)} {
-		_rxQueue = std::make_unique<RxQueue>(NUM_RX_DESCRIPTORS, *this);
-		_txQueue = std::make_unique<TxQueue>(NUM_TX_DESCRIPTORS, *this);
-
-		async::run(this->init(), helix::currentDispatcher);
-}
+RealtekNic::RealtekNic(
+    protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive
+)
+: nic::Link(1500, &_dmaPool),
+  dmaSpaceHandle_{std::move(dmaSpace)},
+  dmaSpace_{_dmaPool.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  _device{std::move(device)} {}
 
 async::result<void> RealtekNic::getMmio() {
 	auto info = co_await _device.getPciInfo();
@@ -290,7 +290,7 @@ async::result<void> RealtekNic::initializeHardware() {
 
 async::result<bool> RealtekNic::up() {
 	co_await cleanup();
-	startCard();
+	co_await startCard();
 	co_return true;
 }
 
@@ -460,9 +460,10 @@ async::result<void> RealtekNic::init() {
 		}
 	}
 
+	_rxQueue = co_await RxQueue::create(*this, NUM_RX_DESCRIPTORS);
+	_txQueue = co_await TxQueue::create(*this, NUM_TX_DESCRIPTORS);
+
 	_irq = co_await _device.accessIrq();
-	co_await _device.enableBusmaster();
-	co_await _device.enableDma();
 
 	co_await getMmio();
 
@@ -630,8 +631,14 @@ async::detached RealtekNic::processIrqs() {
 
 namespace nic::rtl8168 {
 
-std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
-	return std::make_shared<RealtekNic>(std::move(device));
+async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
+	co_await device.enableBusmaster();
+	co_await device.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await device.getDmaSpace();
+
+	auto nic = std::make_shared<RealtekNic>(std::move(device), std::move(dmaSpace), iommuActive);
+	co_await nic->init();
+	co_return std::move(nic);
 }
 
 } // namespace nic::rtl8168
