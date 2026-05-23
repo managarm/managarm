@@ -33,6 +33,7 @@ address_t physOffset = 0;
 
 PerCpuRegion perCpuRegion{0, 0};
 CpuConfig cpuConfig{0};
+DebugOptions debugOptions{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -502,6 +503,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "BootUartConfig size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &uart::bootUartConfig, sizeof(BootUartConfig));
 		return true;
+	} else if (type == elf_note_type::debugOptions) {
+		if (desc.size() != sizeof(DebugOptions))
+			panicLogger() << "DebugOptions size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &debugOptions, sizeof(DebugOptions));
+		return true;
 	}
 	return false;
 }
@@ -655,9 +661,11 @@ void generateInfo() {
 	// Parse the kernel command line.
 	bool serial{false};
 	bool kernelProfile{false};
+	frg::string_view ubsan;
 	frg::array options = {
 	    frg::option{"serial", frg::store_true(serial)},
 	    frg::option{"kernel-profile", frg::store_true(kernelProfile)},
+	    frg::option{"thor-ubsan", frg::as_string_view(ubsan)},
 	};
 	parseCmdline(options);
 
@@ -667,6 +675,16 @@ void generateInfo() {
 		info_ptr->debugFlags |= eirDebugBochs;
 	if (kernelProfile)
 		info_ptr->debugFlags |= eirDebugKernelProfile;
+
+	if (ubsan.size()) {
+		if (ubsan == "ignore") {
+			debugOptions.ubsanAbort = false;
+		} else if (ubsan == "abort") {
+			debugOptions.ubsanAbort = true;
+		} else {
+			infoLogger() << "eir: Unknown value for 'ubsan' command line: " << ubsan << frg::endlog;
+		}
+	}
 
 	// Pass the command line to Thor.
 	auto cmdlineChunks = getCmdline();

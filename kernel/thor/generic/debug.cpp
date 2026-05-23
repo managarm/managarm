@@ -9,6 +9,8 @@
 
 namespace thor {
 
+THOR_DEFINE_ELF_NOTE(debugOptionsNote){elf_note_type::debugOptions, {}};
+
 namespace {
 	// Protects the globalLogList.
 	constinit IrqSpinlock listMutex;
