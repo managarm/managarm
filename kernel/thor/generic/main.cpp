@@ -68,9 +68,9 @@ extern "C" InitializerPtr __init_array_end[];
 extern "C" void thorInitialize() {
 	initializeArchitecture();
 
-	if(getEirInfo()->debugFlags & eirDebugSerial)
+	if(debugOptionsNote->flags & eirDebugSerial)
 		debugToSerial = true;
-	if(getEirInfo()->debugFlags & eirDebugBochs)
+	if(debugOptionsNote->flags & eirDebugBochs)
 		debugToBochs = true;
 	setupDebugging();
 
@@ -201,7 +201,7 @@ extern "C" void thorMain() {
 				<< frg::endlog;
 
 	// This has to be done after the scheduler is available.
-	if(getEirInfo()->debugFlags & eirDebugKernelProfile)
+	if(debugOptionsNote->flags & eirDebugKernelProfile)
 		wantKernelProfile = true;
 	initializeProfile();
 

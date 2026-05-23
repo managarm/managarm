@@ -43,8 +43,6 @@ struct EirFramebuffer {
 struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
-	uint32_t debugFlags;
-	uint32_t padding;
 
 	uint64_t hartId;
 
@@ -248,5 +246,6 @@ struct BootUartConfig {
 };
 
 struct DebugOptions {
+	uint32_t flags = 0;
 	bool ubsanAbort = true;
 };

@@ -670,11 +670,11 @@ void generateInfo() {
 	parseCmdline(options);
 
 	if (serial)
-		info_ptr->debugFlags |= eirDebugSerial;
+		debugOptions.flags |= eirDebugSerial;
 	if (logE9)
-		info_ptr->debugFlags |= eirDebugBochs;
+		debugOptions.flags |= eirDebugBochs;
 	if (kernelProfile)
-		info_ptr->debugFlags |= eirDebugKernelProfile;
+		debugOptions.flags |= eirDebugKernelProfile;
 
 	if (ubsan.size()) {
 		if (ubsan == "ignore") {
