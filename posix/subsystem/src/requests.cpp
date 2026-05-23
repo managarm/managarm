@@ -54,6 +54,9 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::PidfdGetPidRequest,
 			// From memory.cpp
 			managarm::posix::VmMapRequest,
+			managarm::posix::VmRemapRequest,
+			managarm::posix::VmProtectRequest,
+			managarm::posix::VmUnmapRequest,
 			managarm::posix::MemFdCreateRequest,
 			// From uid-gid.cpp
 			managarm::posix::GetPidRequest,

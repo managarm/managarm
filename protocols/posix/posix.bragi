@@ -41,9 +41,6 @@ consts CntReqType uint32 {
 	FORK = 8,
 	EXEC = 1,
 	WAIT = 56,
-	VM_REMAP = 43,
-	VM_PROTECT = 62,
-	VM_UNMAP = 27,
 
 	MOUNT = 21,
 	CHROOT = 24,
@@ -157,7 +154,6 @@ head(128):
 		tag(9) uint64 child_ip;
 
 		tag(24) @format(hex) uint64 address;
-		tag(23) uint32 new_size;
 
 		// Signal-specific stuff.
 		tag(29) uint64 sig_number;
@@ -892,4 +888,24 @@ tail:
 message FchownAtResponse 140 {
 head(128):
 	Errors error;
+}
+
+message VmRemapRequest 141 {
+head(128):
+	@format(hex) uint64 address;
+	uint64 size;
+	uint64 new_size;
+}
+
+message VmProtectRequest 142 {
+head(128):
+	@format(hex) uint64 address;
+	uint64 size;
+	uint32 mode;
+}
+
+message VmUnmapRequest 143 {
+head(128):
+	@format(hex) uint64 address;
+	uint64 size;
 }
