@@ -43,8 +43,6 @@ struct EirFramebuffer {
 struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
-	uint32_t debugFlags;
-	uint32_t padding;
 
 	uint64_t hartId;
 
@@ -154,6 +152,7 @@ constexpr unsigned int memoryLayout = 0x1000'0000;
 constexpr unsigned int cpuConfig = 0x1000'0001;
 constexpr unsigned int smbiosData = 0x1000'0002;
 constexpr unsigned int bootUartConfig = 0x1000'0003;
+constexpr unsigned int debugOptions = 0x1000'0004;
 // 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -244,4 +243,9 @@ struct BootUartConfig {
 	uint64_t size = 0;
 	uint64_t window = 0;
 	BootUartType type = BootUartType::none;
+};
+
+struct DebugOptions {
+	uint32_t flags = 0;
+	bool ubsanAbort = true;
 };

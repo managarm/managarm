@@ -1,11 +1,16 @@
 #pragma once
 
+#include <eir/interface.hpp>
 #include <frg/list.hpp>
 #include <frg/logging.hpp>
+#include <thor-internal/elf-notes.hpp>
 
 namespace thor {
 
 void panic();
+
+// Boot-time debug options populated by Eir via the debugOptions ELF note.
+extern ManagarmElfNote<DebugOptions> debugOptionsNote;
 
 // --------------------------------------------------------
 // Log infrastructure.

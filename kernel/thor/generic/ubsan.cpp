@@ -1,5 +1,4 @@
 #include <stdint.h>
-#include <atomic>
 
 #include <frg/array.hpp>
 
@@ -70,7 +69,7 @@ namespace {
 	};
 
 	void log_location(struct source_location loc) {
-		thor::infoLogger() << "thor: UBSAN failure at "
+		thor::urgentLogger() << "thor: UBSAN failure at "
 				<< loc.filename << ":" << loc.line << frg::endlog;
 	}
 
@@ -82,140 +81,135 @@ namespace {
 	};
 }
 
-namespace thor {
-	// TODO: Add a kernel command line parameter to set this.
-	constinit std::atomic<bool> ubsanAbort = false;
-}
-
 extern "C" void __ubsan_handle_add_overflow(struct overflow_data *data,
 		uintptr_t, uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, addition overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, addition overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_sub_overflow(struct overflow_data *data,
 		uintptr_t, uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, subtraction overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, subtraction overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_mul_overflow(struct overflow_data *data,
 		uintptr_t, uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, multiplication overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, multiplication overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_divrem_overflow(struct overflow_data *data,
 		uintptr_t, uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, division overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, division overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_negate_overflow(struct overflow_data *data,
 		uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, negation overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, negation overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_pointer_overflow(struct overflow_data *data,
 		uintptr_t base, uintptr_t result) {
-	thor::infoLogger() << "thor: UBSAN failure, pointer overflow"
+	thor::urgentLogger() << "thor: UBSAN failure, pointer overflow"
 			<< " from " << (void *)base << " to " << (void *)result << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_shift_out_of_bounds(struct shift_out_of_bounds_data *data,
 		uintptr_t, uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, shift overflow" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, shift overflow" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_load_invalid_value(struct invalid_value_data *data,
 		uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, load of invalid value" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, load of invalid value" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_out_of_bounds(struct out_of_bounds_data *data,
 		uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, array index out of bounds" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, array index out of bounds" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_type_mismatch_v1(struct type_mismatch_data_v1 *data,
 		uintptr_t ptr) {
 	if(!ptr) {
-		thor::infoLogger() << "thor: UBSAN failure, null pointer access" << frg::endlog;
+		thor::urgentLogger() << "thor: UBSAN failure, null pointer access" << frg::endlog;
 	} else if (ptr & ((1 << data->log_alignment) - 1)) {
-		thor::infoLogger() << "thor: UBSAN failure, use of misaligned pointer" << frg::endlog;
+		thor::urgentLogger() << "thor: UBSAN failure, use of misaligned pointer" << frg::endlog;
 	} else {
 		if(data->type_check_kind >= type_check_kinds.size()) {
-			thor::infoLogger() << "thor: UBSAN failure, unknown type check kind: "
+			thor::urgentLogger() << "thor: UBSAN failure, unknown type check kind: "
 					<< (int)data->type_check_kind << frg::endlog;
-			thor::infoLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
+			thor::urgentLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
 					<< ", expected type: " << data->type->type_name << frg::endlog;
 		} else {
-			thor::infoLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
+			thor::urgentLogger() << "thor: UBSAN failure, type mismatch at " << (void *)ptr
 					<< ", expected type: " << data->type->type_name << ", kind: "
 					<< type_check_kinds[data->type_check_kind] << frg::endlog;
 		}
 	}
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_vla_bound_not_positive(struct vla_bound_data *data,
 		uintptr_t) {
-	thor::infoLogger() << "thor: UBSAN failure, negative VLA size" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, negative VLA size" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_nonnull_return(struct non_null_return_data *,
 		struct source_location *loc) {
-	thor::infoLogger() << "thor: UBSAN failure, non-null return is null" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, non-null return is null" << frg::endlog;
 	log_location(*loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_nonnull_arg(struct nonnull_arg_data *data) {
-	thor::infoLogger() << "thor: UBSAN failure, non-null argument is null" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, non-null argument is null" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_builtin_unreachable(struct unreachable_data *data) {
-	thor::infoLogger() << "thor: UBSAN failure, unreachable code is reached" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, unreachable code is reached" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
 
 extern "C" void __ubsan_handle_invalid_builtin(struct invalid_builtin_data *data) {
-	thor::infoLogger() << "thor: UBSAN failure, invalid invocation of builtin" << frg::endlog;
+	thor::urgentLogger() << "thor: UBSAN failure, invalid invocation of builtin" << frg::endlog;
 	log_location(data->loc);
-	if(thor::ubsanAbort.load(std::memory_order_relaxed))
+	if(thor::debugOptionsNote->ubsanAbort)
 		thor::panic();
 }
