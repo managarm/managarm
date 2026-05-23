@@ -161,6 +161,7 @@ constexpr unsigned int riscvConfig = 0x1100'2000;
 constexpr unsigned int riscvHartCaps = 0x1100'2001;
 // 0x18xx'xxxx range reserved for generic capability notes in Thor (read-only by Eir).
 constexpr unsigned int perCpuRegion = 0x1800'0000;
+constexpr unsigned int debugCapabilities = 0x1800'0001;
 
 inline bool isThorConfiguration(unsigned int type) {
 	return (type & 0xF800'0000) == 0x1000'0000;
@@ -248,4 +249,8 @@ struct BootUartConfig {
 struct DebugOptions {
 	uint32_t flags = 0;
 	bool ubsanAbort = true;
+};
+
+struct DebugCapabilities {
+	bool kasan = false;
 };

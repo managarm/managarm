@@ -60,14 +60,6 @@ endif
 eir_c_args += ['-DUACPI_BAREBONES_MODE', '-DUACPI_OVERRIDE_LIBC']
 eir_cpp_args += ['-DUACPI_BAREBONES_MODE', '-DUACPI_OVERRIDE_LIBC']
 
-if get_option('kernel_kasan')
-	eir_c_args += [
-		'-DEIR_KASAN',
-	]
-	eir_cpp_args += [
-		'-DEIR_KASAN',
-	]
-endif
 if get_option('kernel_log_allocations')
 	eir_cpp_args += '-DKERNEL_LOG_ALLOCATIONS'
 endif

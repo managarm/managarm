@@ -9,6 +9,17 @@
 
 namespace thor {
 
+extern ManagarmElfNote<DebugCapabilities> debugCapabilitiesNote;
+THOR_DEFINE_ELF_NOTE(debugCapabilitiesNote){
+    elf_note_type::debugCapabilities, {
+#ifdef THOR_KASAN
+		.kasan = true
+#else
+		.kasan = false
+#endif
+	}
+};
+
 THOR_DEFINE_ELF_NOTE(debugOptionsNote){elf_note_type::debugOptions, {}};
 
 namespace {
