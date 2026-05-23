@@ -209,11 +209,6 @@ jobs:
                     variant: KASAN
                     variant-suffix: "+kasan"
                     title-suffix: ", KASAN"
-                  - pkg: managarm-kernel-uefi
-                    arch: x86_64 # TODO: Extend to other archs.
-                    variant: KASAN
-                    variant-suffix: "+kasan"
-                    title-suffix: ", KASAN"
         name: Build ${{ matrix.pkg }}${{ matrix.title-suffix }} on ${{ matrix.arch }}
         needs:
           - cache-generic
@@ -343,7 +338,7 @@ jobs:
           - name: Download managarm-kernel-uefi
             uses: actions/download-artifact@v8
             with:
-                name: "${{ matrix.arch }}-managarm-kernel-uefi${{ matrix.variant-suffix }}"
+                name: "${{ matrix.arch }}-managarm-kernel-uefi"
                 path: build/xbps-repo/
           - name: Download managarm-system
             uses: actions/download-artifact@v8
