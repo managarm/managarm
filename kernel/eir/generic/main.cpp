@@ -32,6 +32,8 @@ frg::span<uint8_t> initrd_image{nullptr, 0};
 address_t physOffset = 0;
 
 PerCpuRegion perCpuRegion{0, 0};
+DebugCapabilities eirDebugCapabilities{};
+
 CpuConfig cpuConfig{0};
 DebugOptions debugOptions{};
 
@@ -228,7 +230,6 @@ physaddr_t allocPage() {
 
 // ----------------------------------------------------------------------------
 
-#ifdef EIR_KASAN
 namespace {
 constexpr int kasanShift = 3;
 constexpr address_t kasanShadowDelta = 0xdfffe00000000000;
@@ -273,10 +274,11 @@ void setShadowByte(address_t address, int8_t value) {
 	p[n] = value;
 };
 } // namespace
-#endif // EIR_KASAN
 
 void mapKasanShadow(address_t base, size_t size) {
-#ifdef EIR_KASAN
+	if (!eirDebugCapabilities.kasan)
+		return;
+
 	assert(!(base & (kasanScale - 1)));
 
 	eir::infoLogger() << "eir: Mapping KASAN shadow for 0x" << frg::hex_fmt{base} << ", size: 0x"
@@ -294,14 +296,12 @@ void mapKasanShadow(address_t base, size_t size) {
 		memset(physToVirt<uint8_t>(physical), 0xFF, pageSize);
 		mapSingle4kPage(page, physical, PageFlags::write | PageFlags::global);
 	}
-#else
-	(void)base;
-	(void)size;
-#endif // EIR_KASAN
 }
 
 void unpoisonKasanShadow(address_t base, size_t size) {
-#ifdef EIR_KASAN
+	if (!eirDebugCapabilities.kasan)
+		return;
+
 	assert(!(base & (kasanScale - 1)));
 
 	eir::infoLogger() << "eir: Unpoisoning KASAN shadow for 0x" << frg::hex_fmt{base}
@@ -310,10 +310,6 @@ void unpoisonKasanShadow(address_t base, size_t size) {
 	setShadowRange(base, size & ~(kasanScale - 1), 0);
 	if (size & (kasanScale - 1))
 		setShadowByte(base + (size & ~(kasanScale - 1)), size & (kasanScale - 1));
-#else
-	(void)base;
-	(void)size;
-#endif // EIR_KASAN
 }
 
 // ----------------------------------------------------------------------------
@@ -431,6 +427,11 @@ bool parseGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 		if (desc.size() != sizeof(PerCpuRegion))
 			panicLogger() << "PerCpuRegion size does not match ELF note" << frg::endlog;
 		memcpy(&perCpuRegion, desc.data(), sizeof(PerCpuRegion));
+		return true;
+	} else if (type == elf_note_type::debugCapabilities) {
+		if (desc.size() != sizeof(DebugCapabilities))
+			panicLogger() << "DebugCapabilities size does not match ELF note" << frg::endlog;
+		memcpy(&eirDebugCapabilities, desc.data(), sizeof(DebugCapabilities));
 		return true;
 	}
 	return false;
