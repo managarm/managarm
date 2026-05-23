@@ -5,6 +5,7 @@
 
 .global doCopyFromUser
 .data
+.balign 8
 1:
 	.quad 2f
 	.quad 3f
@@ -36,6 +37,7 @@ doCopyFromUser:
 .global doCopyToUser
 
 .data
+.balign 8
 1:
 	.quad 2f
 	.quad 3f
@@ -67,6 +69,7 @@ doCopyToUser:
 .global doAtomicUserLoad
 
 .data
+.balign 8
 1:
 	.quad 2f
 	.quad 3f
