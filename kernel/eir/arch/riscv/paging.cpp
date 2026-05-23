@@ -68,6 +68,30 @@ mapSingle4kPage(address_t address, address_t physical, uint32_t flags, CachingMo
 	table[vpn0] = pte0;
 }
 
+address_t getSingle4kPage(address_t address) {
+	assert(!(address & (pageSize - 1)));
+
+	// This needs to be determined before getSingle4kPage() is called.
+	assert(riscvConfig.numPtLevels);
+
+	auto *table = physToVirt<uint64_t>(pml4);
+	for (int i = 1; i < riscvConfig.numPtLevels; ++i) {
+		// See mapSingle4k().
+		int n = riscvConfig.numPtLevels - i;
+		int shift = 12 + 9 * n;
+		unsigned int vpn = (address >> shift) & 0x1FF;
+
+		if (!(table[vpn] & pteValid))
+			return -1;
+		table = physToVirt<uint64_t>((table[vpn] & ptePpnMask) << 2);
+	}
+
+	unsigned int vpn0 = (address >> 12) & 0x1FF;
+	if (!(table[vpn0] & pteValid))
+		return -1;
+	return (table[vpn0] & ptePpnMask) << 2;
+}
+
 int getKernelVirtualBits() {
 	assert(riscvConfig.numPtLevels);
 	return 9 * riscvConfig.numPtLevels + 12;
