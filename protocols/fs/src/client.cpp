@@ -93,12 +93,10 @@ async::result<ReadResult>
 File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 	auto cancelId = cancellationId_++;
 
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::READ);
+	managarm::fs::ReadRequest req;
 	req.set_size(max_length);
 	req.set_cancellation_id(cancelId);
 
-	auto ser = req.SerializeAsString();
 	uint8_t buffer[128];
 	managarm::fs::SvrResponse resp;
 	size_t actualLength = 0;
@@ -109,7 +107,7 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 				co_await helix_ng::exchangeMsgs(
 					_lane,
 					helix_ng::offer(
-						helix_ng::sendBuffer(ser.data(), ser.size()),
+						helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 						helix_ng::imbueCredentials(credsToken_),
 						helix_ng::recvBuffer(buffer, 128),
 						helix_ng::recvBuffer(data, max_length)
@@ -159,17 +157,14 @@ File::readSome(void *data, size_t max_length, async::cancellation_token ct) {
 }
 
 async::result<size_t> File::writeSome(const void *data, size_t maxLength) {
-	managarm::fs::CntRequest req;
-	req.set_req_type(managarm::fs::CntReqType::WRITE);
+	managarm::fs::WriteRequest req;
 	req.set_size(maxLength);
-
-	auto ser = req.SerializeAsString();
 
 	auto [offer, sendReq, imbueCreds, sendData, recvResp] =
 		co_await helix_ng::exchangeMsgs(
 			_lane,
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::imbueCredentials(),
 				helix_ng::sendBuffer(data, maxLength),
 				helix_ng::recvInline()
