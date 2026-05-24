@@ -260,6 +260,11 @@ static initgraph::Task discoverOutput{
     [] {
 	    if (!eirDtbPtr)
 		    return;
+	    if (uart::hasBootUart()) {
+		    infoLogger() << "eir: Skipping DT UART discovery (boot UART already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
 	    auto chosen = dt.findNode("/chosen");
