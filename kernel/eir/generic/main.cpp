@@ -659,34 +659,6 @@ void generateInfo() {
 		j++;
 	}
 
-	// Parse the kernel command line.
-	bool serial{false};
-	bool kernelProfile{false};
-	frg::string_view ubsan;
-	frg::array options = {
-	    frg::option{"serial", frg::store_true(serial)},
-	    frg::option{"kernel-profile", frg::store_true(kernelProfile)},
-	    frg::option{"thor-ubsan", frg::as_string_view(ubsan)},
-	};
-	parseCmdline(options);
-
-	if (serial)
-		debugOptions.flags |= eirDebugSerial;
-	if (logE9)
-		debugOptions.flags |= eirDebugBochs;
-	if (kernelProfile)
-		debugOptions.flags |= eirDebugKernelProfile;
-
-	if (ubsan.size()) {
-		if (ubsan == "ignore") {
-			debugOptions.ubsanAbort = false;
-		} else if (ubsan == "abort") {
-			debugOptions.ubsanAbort = true;
-		} else {
-			infoLogger() << "eir: Unknown value for 'ubsan' command line: " << ubsan << frg::endlog;
-		}
-	}
-
 	// Pass the command line to Thor.
 	auto cmdlineChunks = getCmdline();
 
@@ -733,6 +705,42 @@ void generateInfo() {
 		info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
 	}
 }
+
+static initgraph::Task parseCmdlineTask{
+    &globalInitEngine,
+    "generic.parse-cmdline",
+    initgraph::Requires{getCmdlineAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
+	    bool serial{false};
+	    bool kernelProfile{false};
+	    frg::string_view ubsan;
+	    frg::array options = {
+	        frg::option{"serial", frg::store_true(serial)},
+	        frg::option{"kernel-profile", frg::store_true(kernelProfile)},
+	        frg::option{"thor-ubsan", frg::as_string_view(ubsan)},
+	    };
+	    parseCmdline(options);
+
+	    if (serial)
+		    debugOptions.flags |= eirDebugSerial;
+	    if (logE9)
+		    debugOptions.flags |= eirDebugBochs;
+	    if (kernelProfile)
+		    debugOptions.flags |= eirDebugKernelProfile;
+
+	    if (ubsan.size()) {
+		    if (ubsan == "ignore") {
+			    debugOptions.ubsanAbort = false;
+		    } else if (ubsan == "abort") {
+			    debugOptions.ubsanAbort = true;
+		    } else {
+			    infoLogger() << "eir: Unknown value for 'ubsan' command line: " << ubsan
+			                 << frg::endlog;
+		    }
+	    }
+    }
+};
 
 static initgraph::Task generateInfoStruct{
     &globalInitEngine,
