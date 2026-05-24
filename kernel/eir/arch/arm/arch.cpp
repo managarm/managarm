@@ -2,6 +2,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 
 extern "C" void eirExcVectors();
@@ -323,6 +324,13 @@ void initProcessorEarly() {
 		asm volatile("msr vbar_el2, %0" : : "r"(vbar) : "memory");
 	}
 }
+
+static initgraph::Task earlyProcessorInit{
+    &globalInitEngine,
+    "arm.early-processor-init",
+    initgraph::Entails{getMemoryLayoutReservedStage()},
+    [] { initProcessorEarly(); }
+};
 
 void initProcessorPaging() {
 	setupPaging();

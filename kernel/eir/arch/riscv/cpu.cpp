@@ -270,4 +270,11 @@ void initProcessorEarly() {
 	riscv::writeCsr<riscv::Csr::stvec>(reinterpret_cast<uint64_t>(&handleException));
 }
 
+static initgraph::Task earlyProcessorInit{
+    &globalInitEngine,
+    "riscv.early-processor-init",
+    initgraph::Entails{getMemoryLayoutReservedStage()},
+    [] { initProcessorEarly(); }
+};
+
 } // namespace eir

@@ -43,7 +43,7 @@ initgraph::Stage *getKernelMappableStage();
 
 // Before this stage, everything needed to fill out ELF notes but be available.
 // After this stage, the kernel image is loaded and the boot information is finalized.
-// Ordered after getkernelMappableStage().
+// Ordered after getKernelMappableStage().
 initgraph::Stage *getKernelLoadableStage();
 
 extern void *initrd;
