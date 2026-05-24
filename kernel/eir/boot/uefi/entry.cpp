@@ -175,7 +175,10 @@ uint32_t convertIp(frg::string_view ip) {
 }
 
 initgraph::Task preparePxe{
-    &globalInitEngine, "uefi.pxe-setup", initgraph::Entails{getBootservicesDoneStage()}, [] {
+    &globalInitEngine,
+    "uefi.pxe-setup",
+    initgraph::Entails{getBootservicesDoneStage(), getInitrdAvailableStage()},
+    [] {
 	    efi_guid pxe_guid = EFI_PXE_BASE_CODE_PROTOCOL_GUID;
 	    efi_pxe_base_code_protocol *pxe = nullptr;
 
@@ -396,7 +399,7 @@ initgraph::Task readInitrd{
     &globalInitEngine,
     "uefi.read-initrd",
     initgraph::Requires{&preparePxe},
-    initgraph::Entails{getBootservicesDoneStage()},
+    initgraph::Entails{getBootservicesDoneStage(), getInitrdAvailableStage()},
     [] {
 	    if (initrd)
 		    return;
@@ -419,7 +422,10 @@ initgraph::Task readInitrd{
 };
 
 initgraph::Task setupGop{
-    &globalInitEngine, "uefi.setup-gop", initgraph::Entails{getBootservicesDoneStage()}, [] {
+    &globalInitEngine,
+    "uefi.setup-gop",
+    initgraph::Entails{getBootservicesDoneStage(), getFramebufferAvailableStage()},
+    [] {
 	    // Get the frame buffer.
 	    efi_guid gop_protocol = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	    efi_status status =
