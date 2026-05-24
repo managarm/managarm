@@ -17,6 +17,11 @@ initgraph::Task detectCpusFromDtb{
     [] {
 	    if (!eirDtbPtr)
 		    return;
+	    if (cpuConfig.totalCpus) {
+		    infoLogger() << "eir: Skipping DT CPU discovery (CPU count already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 	    size_t cpuCount = 0;

@@ -19,6 +19,11 @@ initgraph::Task detectCpusFromMadt{
     [] {
 	    if (!haveTables())
 		    return;
+	    if (cpuConfig.totalCpus) {
+		    infoLogger() << "eir: Skipping MADT CPU discovery (CPU count already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    uacpi_table madtTbl;
 	    if (uacpi_table_find_by_signature("APIC", &madtTbl) != UACPI_STATUS_OK) {
