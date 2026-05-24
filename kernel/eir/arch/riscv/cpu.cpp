@@ -140,6 +140,11 @@ static initgraph::Task earlyInitAcpi{
     [] {
 	    if (!eirRsdpAddr)
 		    return;
+	    if (riscvConfig.numPtLevels) {
+		    infoLogger() << "eir: Skipping ACPI MMU discovery (page table levels already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    uacpi_table rhct_table;
 	    if (uacpi_table_find_by_signature("RHCT", &rhct_table) != UACPI_STATUS_OK)
@@ -207,6 +212,11 @@ static initgraph::Task earlyInit{
     [] {
 	    if (!eirDtbPtr)
 		    return;
+	    if (riscvConfig.numPtLevels) {
+		    infoLogger() << "eir: Skipping DT MMU discovery (page table levels already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
 	    // Get the first "/cpus/cpu@..."
