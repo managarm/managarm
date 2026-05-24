@@ -8,6 +8,7 @@
 #include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/dtb/discovery.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/uart/uart.hpp>
@@ -15,6 +16,11 @@
 #include <frg/small_vector.hpp>
 
 namespace eir {
+
+initgraph::Stage *getDtbAvailableStage() {
+	static initgraph::Stage s{&globalInitEngine, "dt.dtb-available"};
+	return &s;
+}
 
 size_t findAddressCells(DeviceTreeNode parent) {
 	auto maybeProperty = parent.findProperty("#address-cells");
@@ -249,6 +255,7 @@ constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
 static initgraph::Task discoverOutput{
     &globalInitEngine,
     "dt.discover-stdout",
+    initgraph::Requires{getDtbAvailableStage()},
     initgraph::Entails{uart::getBootUartDeterminedStage()},
     [] {
 	    if (!eirDtbPtr)

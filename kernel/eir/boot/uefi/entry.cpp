@@ -10,6 +10,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/error.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
@@ -143,7 +144,10 @@ initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "uefi.obtain-firmware-tables",
     initgraph::Entails{
-        getBootservicesDoneStage(), getKernelLoadableStage(), acpi::getRsdpAvailableStage()
+        getBootservicesDoneStage(),
+        getKernelLoadableStage(),
+        acpi::getRsdpAvailableStage(),
+        getDtbAvailableStage()
     },
     [] {
 	    eirDtbPtr = findConfigurationTable(EFI_DTB_TABLE_GUID).value_or(0);

@@ -5,6 +5,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/framebuffer.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
@@ -48,7 +49,9 @@ LIMINE_REQUEST(smbios_request, LIMINE_SMBIOS_REQUEST_ID, 0);
 initgraph::Task obtainFirmwareTables{
     &globalInitEngine,
     "limine.obtain-firmware-tables",
-    initgraph::Entails{getKernelLoadableStage(), acpi::getRsdpAvailableStage()},
+    initgraph::Entails{
+        getKernelLoadableStage(), acpi::getRsdpAvailableStage(), getDtbAvailableStage()
+    },
     [] {
 	    if (rsdp_request.response) {
 		    eirRsdpAddr = virtToPhys(rsdp_request.response->address);

@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/arch/riscv.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 #include <riscv/csr.hpp>
@@ -201,7 +202,7 @@ static initgraph::Task earlyInitAcpi{
 static initgraph::Task earlyInit{
     &globalInitEngine,
     "riscv.early-init",
-    initgraph::Requires{getReservedRegionsKnownStage()},
+    initgraph::Requires{getReservedRegionsKnownStage(), getDtbAvailableStage()},
     initgraph::Entails{getMemoryLayoutReservedStage()},
     [] {
 	    if (!eirDtbPtr)
