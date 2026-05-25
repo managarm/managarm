@@ -274,7 +274,10 @@ static initgraph::Task earlyProcessorInit{
     &globalInitEngine,
     "riscv.early-processor-init",
     initgraph::Entails{getMemoryLayoutReservedStage()},
-    [] { initProcessorEarly(); }
+    [] {
+	    initProcessorEarly();
+	    riscvConfig.bspHartId = eirBootHartId;
+    }
 };
 
 } // namespace eir

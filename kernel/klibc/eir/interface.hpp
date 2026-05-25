@@ -44,8 +44,6 @@ struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
 
-	uint64_t hartId;
-
 	EirSize numRegions;
 	EirPtr regionInfo;
 	EirPtr moduleInfo;
@@ -203,7 +201,9 @@ struct RiscvConfig {
 	// 3 for Sv39,
 	// 4 for Sv48,
 	// 5 for Sv57.
-	int numPtLevels{0};
+	int32_t numPtLevels{0};
+	uint32_t pad{0};
+	uint64_t bspHartId{0};
 };
 
 struct RiscvHartCaps {
