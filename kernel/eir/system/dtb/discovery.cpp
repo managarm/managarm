@@ -249,6 +249,20 @@ static initgraph::Task discoverMemory{
 
 #endif
 
+static initgraph::Task passDtbTask{
+    &globalInitEngine,
+    "dt.pass-dtb",
+    initgraph::Requires{getDtbAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
+	    if (!eirDtbPtr)
+		    return;
+	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
+	    dtDataNote.address = eirDtbPtr;
+	    dtDataNote.size = dt.size();
+    }
+};
+
 constinit common::uart::AnyUart dtbUart;
 constinit frg::manual_box<uart::UartLogHandler> dtbUartLogHandler;
 

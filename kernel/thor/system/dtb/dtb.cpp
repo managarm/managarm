@@ -1,5 +1,6 @@
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/debug.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <frg/manual_box.hpp>
@@ -8,6 +9,8 @@
 #include <dtb.hpp>
 
 namespace thor {
+
+THOR_DEFINE_ELF_NOTE(dtDataNote){elf_note_type::dtData, {}};
 
 static inline constexpr bool logNodeInfo = false;
 
@@ -329,15 +332,15 @@ DeviceTreeNode *getDeviceTreeRoot() {
 static initgraph::Task initTablesTask{&globalInitEngine, "dtb.parse-dtb",
 	initgraph::Entails{getDeviceTreeParsedStage()},
 	[] {
-		if (!getEirInfo()->dtbPtr)
+		if (!dtDataNote->address)
 			return;
 
-		size_t dtbPageOff = getEirInfo()->dtbPtr & (kPageSize - 1);
-		size_t dtbSize = (getEirInfo()->dtbSize + dtbPageOff + kPageSize - 1) & ~(kPageSize - 1);
+		size_t dtbPageOff = dtDataNote->address & (kPageSize - 1);
+		size_t dtbSize = (dtDataNote->size + dtbPageOff + kPageSize - 1) & ~(kPageSize - 1);
 
 		auto ptr = KernelVirtualMemory::global().allocate(dtbSize);
 		uintptr_t va = reinterpret_cast<uintptr_t>(ptr);
-		uintptr_t pa = getEirInfo()->dtbPtr & ~(kPageSize - 1);
+		uintptr_t pa = dtDataNote->address & ~(kPageSize - 1);
 
 		for (size_t i = 0; i < dtbSize; i += kPageSize) {
 			KernelPageSpace::global().mapSingle4k(va, pa,
