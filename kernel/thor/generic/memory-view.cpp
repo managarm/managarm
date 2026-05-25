@@ -2183,16 +2183,21 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	// Try to copy from a descendant CoW chain.
 	bool chainHasCopy = false;
 	if(chain) {
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&chain->_mutex);
+		smarter::shared_ptr<CowPage> srcPage;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
 
-		if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
-			auto page = *it;
-			// We can just copy synchronously here -- the descendant is not evicted.
-			assert(page->state == CowState::hasCopy);
-			auto srcPhysical = page->physical;
-			assert(srcPhysical != PhysicalAddr(-1));
-			auto srcAccessor = PageAccessor{srcPhysical};
+			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+				srcPage = *it;
+				assert(srcPage->state == CowState::hasCopy);
+				assert(srcPage->physical != PhysicalAddr(-1));
+			}
+		}
+
+		// Copy outside of the locks (srcPage remains in hasCopy state).
+		if (srcPage) {
+			auto srcAccessor = PageAccessor{srcPage->physical};
 			memcpy(accessor.get(), srcAccessor.get(), kPageSize);
 			chainHasCopy = true;
 		}
