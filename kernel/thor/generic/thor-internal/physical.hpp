@@ -13,6 +13,7 @@
 namespace thor {
 
 extern ManagarmElfNote<MemoryLayout> memoryLayoutNote;
+extern ManagarmElfNote<PhysicalMemory> physicalMemoryNote;
 
 inline uintptr_t directPhysicalOffset() {
 	return memoryLayoutNote->directPhysical;

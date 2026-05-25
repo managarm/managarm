@@ -40,6 +40,7 @@ AcpiData acpiDataNote{};
 constinit DtData dtDataNote{};
 EirFramebuffer framebufferNote{};
 Initrd initrdNote{};
+PhysicalMemory physicalMemoryNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -533,6 +534,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "Initrd size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &initrdNote, sizeof(Initrd));
 		return true;
+	} else if (type == elf_note_type::physicalMemory) {
+		if (desc.size() != sizeof(PhysicalMemory))
+			panicLogger() << "PhysicalMemory size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &physicalMemoryNote, sizeof(PhysicalMemory));
+		return true;
 	}
 	return false;
 }
@@ -645,29 +651,6 @@ void generateInfo() {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == getMemoryLayout().eirInfo);
 	info_ptr->signature = eirSignatureValue;
-
-	// Pass all memory regions to thor.
-	int n = 0;
-	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
-		if (regions[i].regionType == RegionType::allocatable)
-			n++;
-	}
-
-	auto regionInfos = bootAlloc<EirRegion>(n);
-	info_ptr->numRegions = n;
-	info_ptr->regionInfo = mapBootstrapData(regionInfos);
-	int j = 0;
-	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
-		if (regions[i].regionType != RegionType::allocatable)
-			continue;
-
-		regionInfos[j].address = regions[i].address;
-		regionInfos[j].length = regions[i].size;
-		regionInfos[j].order = regions[i].order;
-		regionInfos[j].numRoots = regions[i].numRoots;
-		regionInfos[j].buddyTree = regions[i].buddyMap;
-		j++;
-	}
 
 	// Pass the command line to Thor.
 	auto cmdlineChunks = getCmdline();

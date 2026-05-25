@@ -36,9 +36,6 @@ struct EirFramebuffer {
 struct EirInfo {
 	uint64_t signature;
 	EirPtr commandLine;
-
-	EirSize numRegions;
-	EirPtr regionInfo;
 };
 
 // Please keep this sorted.
@@ -140,6 +137,7 @@ constexpr unsigned int acpiData = 0x1000'0005;
 constexpr unsigned int dtData = 0x1000'0006;
 constexpr unsigned int framebuffer = 0x1000'0007;
 constexpr unsigned int initrd = 0x1000'0008;
+constexpr unsigned int physicalMemory = 0x1000'0009;
 // 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -256,4 +254,11 @@ struct DtData {
 struct Initrd {
 	uint64_t physicalBase = 0;
 	uint64_t length = 0;
+};
+
+struct PhysicalMemory {
+	// Number of regions in the array pointed to by regionInfo.
+	uint64_t numRegions = 0;
+	// Virtual address of an EirRegion[numRegions] array in the bootstrap data area.
+	uint64_t regionInfo = 0;
 };

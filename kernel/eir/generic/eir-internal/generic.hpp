@@ -19,6 +19,7 @@ extern AcpiData acpiDataNote;
 extern DtData dtDataNote;
 extern EirFramebuffer framebufferNote;
 extern Initrd initrdNote;
+extern PhysicalMemory physicalMemoryNote;
 
 enum class RegionType { null, unconstructed, allocatable };
 

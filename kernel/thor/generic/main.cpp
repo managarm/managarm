@@ -98,8 +98,8 @@ extern "C" void thorInitialize() {
 	KernelPageSpace::initialize();
 
 	physicalAllocator.initialize();
-	auto region = reinterpret_cast<EirRegion *>(getEirInfo()->regionInfo);
-	for(size_t i = 0; i < getEirInfo()->numRegions; i++)
+	auto region = reinterpret_cast<EirRegion *>(physicalMemoryNote->regionInfo);
+	for(size_t i = 0; i < physicalMemoryNote->numRegions; i++)
 		physicalAllocator->bootstrapRegion(region[i].address, region[i].order,
 				region[i].numRoots, reinterpret_cast<int8_t *>(region[i].buddyTree));
 	infoLogger() << "thor: Number of available pages: "
