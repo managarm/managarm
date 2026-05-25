@@ -39,6 +39,7 @@ DebugOptions debugOptions{};
 AcpiData acpiDataNote{};
 constinit DtData dtDataNote{};
 EirFramebuffer framebufferNote{};
+Initrd initrdNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -527,6 +528,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "EirFramebuffer size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &framebufferNote, sizeof(EirFramebuffer));
 		return true;
+	} else if (type == elf_note_type::initrd) {
+		if (desc.size() != sizeof(Initrd))
+			panicLogger() << "Initrd size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &initrdNote, sizeof(Initrd));
+		return true;
 	}
 	return false;
 }
@@ -689,18 +695,6 @@ void generateInfo() {
 	infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
 
 	info_ptr->commandLine = mapBootstrapData(cmdlineBuffer);
-
-	auto initrd_module = bootAlloc<EirModule>(1);
-	initrd_module->physicalBase = virtToPhys(initrd);
-	initrd_module->length = initrd_image.size();
-	const char *initrd_mod_name = "initrd.cpio";
-	size_t name_length = strlen(initrd_mod_name);
-	char *name_ptr = bootAlloc<char>(name_length);
-	memcpy(name_ptr, initrd_mod_name, name_length);
-	initrd_module->namePtr = mapBootstrapData(name_ptr);
-	initrd_module->nameLength = name_length;
-
-	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
 }
 
 static initgraph::Task parseCmdlineTask{

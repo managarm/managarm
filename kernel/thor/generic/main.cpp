@@ -9,6 +9,7 @@
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/dtb/dtb.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/framebuffer/fb.hpp>
 #include <thor-internal/irq.hpp>
@@ -54,6 +55,9 @@ extern "C" void frg_panic(const char *cstring) {
 EirInfo *getEirInfo() {
 	return reinterpret_cast<EirInfo *>(memoryLayoutNote->eirInfo);
 }
+
+extern ManagarmElfNote<Initrd> initrdNote;
+THOR_DEFINE_ELF_NOTE(initrdNote){elf_note_type::initrd, {}};
 
 frg::string_view getKernelCmdline() {
 	return *kernelCommandLine;
@@ -223,12 +227,10 @@ extern "C" void thorMain() {
 		smbios::publish();
 
 		// Parse the initrd image.
-		auto modules = reinterpret_cast<EirModule *>(getEirInfo()->moduleInfo);
-
 		mfsRoot = frg::construct<MfsDirectory>(*kernelAlloc);
 		{
-			auto initrdBase = modules[0].physicalBase;
-			auto initrdLength = modules[0].length;
+			auto initrdBase = initrdNote->physicalBase;
+			auto initrdLength = initrdNote->length;
 
 			auto initrdMisalign = initrdBase & (kPageSize - 1);
 			initrdBase &= ~(kPageSize - 1);
@@ -284,7 +286,7 @@ extern "C" void thorMain() {
 			};
 
 			auto p = base;
-			auto limit = base + modules[0].length;
+			auto limit = base + initrdNote->length;
 			while(true) {
 				Header header;
 				assert(p + sizeof(Header) <= limit);

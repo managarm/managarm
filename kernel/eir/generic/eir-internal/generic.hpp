@@ -18,6 +18,7 @@ extern CpuConfig cpuConfig;
 extern AcpiData acpiDataNote;
 extern DtData dtDataNote;
 extern EirFramebuffer framebufferNote;
+extern Initrd initrdNote;
 
 enum class RegionType { null, unconstructed, allocatable };
 

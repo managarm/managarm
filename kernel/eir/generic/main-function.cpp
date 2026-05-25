@@ -74,10 +74,12 @@ static initgraph::Task parseInitrdInfo{
     &globalInitEngine,
     "generic.parse-initrd",
     initgraph::Requires{getInitrdAvailableStage()},
-    initgraph::Entails{getReservedRegionsKnownStage()},
+    initgraph::Entails{getReservedRegionsKnownStage(), getKernelLoadableStage()},
     [] {
 	    assert(initrd);
 	    parseInitrd(initrd);
+	    initrdNote.physicalBase = virtToPhys(initrd);
+	    initrdNote.length = initrd_image.size();
     }
 };
 
