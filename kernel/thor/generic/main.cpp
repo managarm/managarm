@@ -52,10 +52,6 @@ extern "C" void frg_panic(const char *cstring) {
 	panicLogger() << "frg: Panic! " << cstring << frg::endlog;
 }
 
-EirInfo *getEirInfo() {
-	return reinterpret_cast<EirInfo *>(memoryLayoutNote->eirInfo);
-}
-
 extern ManagarmElfNote<Initrd> initrdNote;
 THOR_DEFINE_ELF_NOTE(initrdNote){elf_note_type::initrd, {}};
 
@@ -87,12 +83,6 @@ extern "C" void thorInitialize() {
 			reinterpret_cast<void *>(framebufferNote->fbEarlyWindow));
 
 	infoLogger() << "Starting Thor" << frg::endlog;
-
-	if(getEirInfo()->signature == eirSignatureValue) {
-		infoLogger() << "thor: Bootstrap information signature matches" << frg::endlog;
-	}else{
-		panicLogger() << "thor: Bootstrap information signature mismatch!" << frg::endlog;
-	}
 
 #ifdef THOR_KASAN
 	infoLogger() << "thor: Using KASAN" << frg::endlog;

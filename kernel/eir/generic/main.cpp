@@ -377,7 +377,7 @@ address_t bootstrapDataPointer = 0;
 
 address_t mapBootstrapData(void *p) {
 	if (!bootstrapDataPointer)
-		bootstrapDataPointer = getMemoryLayout().eirInfo;
+		bootstrapDataPointer = getMemoryLayout().bootstrapData;
 
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += pageSize;
@@ -650,15 +650,6 @@ void loadKernelImage(void *imagePtr) {
 
 namespace {
 
-void generateInfo() {
-	// Setup the eir interface struct.
-	auto info_ptr = bootAlloc<EirInfo>();
-	memset(info_ptr, 0, sizeof(EirInfo));
-	auto info_vaddr = mapBootstrapData(info_ptr);
-	assert(info_vaddr == getMemoryLayout().eirInfo);
-	info_ptr->signature = eirSignatureValue;
-}
-
 static initgraph::Task parseCmdlineTask{
     &globalInitEngine,
     "generic.parse-cmdline",
@@ -727,15 +718,6 @@ static initgraph::Task composeCommandLine{
 
 	    commandLineNote.ptr = mapBootstrapData(cmdlineBuffer);
     }
-};
-
-static initgraph::Task generateInfoStruct{
-    &globalInitEngine,
-    "generic.generate-thor-info-struct",
-    initgraph::Requires{
-        getInitrdAvailableStage(), getCmdlineAvailableStage(), getKernelLoadableStage()
-    },
-    [] { generateInfo(); }
 };
 
 } // namespace

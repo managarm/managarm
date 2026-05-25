@@ -4,8 +4,6 @@
 #include <frg/string.hpp>
 #include <stdint.h>
 
-static const uint64_t eirSignatureValue = 0x68692C2074686F72;
-
 static const uint32_t eirDebugSerial = 1;
 static const uint32_t eirDebugBochs = 2;
 static const uint32_t eirDebugKernelProfile = 16;
@@ -31,10 +29,6 @@ struct EirFramebuffer {
 	EirSize fbHeight;
 	EirSize fbBpp;
 	EirSize fbType;
-};
-
-struct EirInfo {
-	uint64_t signature;
 };
 
 // Please keep this sorted.
@@ -179,8 +173,10 @@ struct MemoryLayout {
 	// Address and size of the allocation log ring buffer.
 	uint64_t allocLog;
 	uint64_t allocLogSize;
-	// Address of the EirInfo struct.
-	uint64_t eirInfo;
+	// Base address of the bootstrap data area: a region of Thor's virtual address
+	// space into which Eir maps variable-length boot information (e.g., the kernel
+	// command line and the physical memory map) before handing off to Thor.
+	uint64_t bootstrapData;
 };
 
 struct RiscvConfig {

@@ -58,7 +58,7 @@ void doDetermineMemoryLayout() {
 	ml.directPhysical = assignLayout(UINT64_C(1) << (s - 2));
 	ml.kernelVirtual = assignLayout(ml.kernelVirtualSize);
 	ml.allocLog = assignLayout(ml.allocLogSize);
-	ml.eirInfo = assignLayout(0x200000);           // 2 MiB should be enough.
+	ml.bootstrapData = assignLayout(0x200000);     // 2 MiB should be enough.
 	kernelFrameBuffer = assignLayout(0x4000'0000); // 1 GiB.
 	kernelStack = assignLayout(kernelStackSize);
 	if (earlyMmioSize)
@@ -68,7 +68,7 @@ void doDetermineMemoryLayout() {
 	infoLogger() << "    Direct physical : 0x" << frg::hex_fmt{ml.directPhysical} << frg::endlog;
 	infoLogger() << "    Kernel virtual  : 0x" << frg::hex_fmt{ml.kernelVirtual} << frg::endlog;
 	infoLogger() << "    Allocation ring : 0x" << frg::hex_fmt{ml.allocLog} << frg::endlog;
-	infoLogger() << "    EirInfo         : 0x" << frg::hex_fmt{ml.eirInfo} << frg::endlog;
+	infoLogger() << "    Bootstrap data  : 0x" << frg::hex_fmt{ml.bootstrapData} << frg::endlog;
 	infoLogger() << "    Kernel FB       : 0x" << frg::hex_fmt{kernelFrameBuffer} << frg::endlog;
 	infoLogger() << "    Kernel stack    : 0x" << frg::hex_fmt{kernelStack} << frg::endlog;
 	if (earlyMmioSize)
