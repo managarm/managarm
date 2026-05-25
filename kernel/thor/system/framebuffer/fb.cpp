@@ -16,6 +16,8 @@
 
 namespace thor {
 
+THOR_DEFINE_ELF_NOTE(framebufferNote){elf_note_type::framebuffer, {}};
+
 void publishFreestandingFb(FbInfo *associatedFrameBuffer, BootScreen *associatedScreen);
 
 // ------------------------------------------------------------------------

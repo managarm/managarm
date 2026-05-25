@@ -38,6 +38,7 @@ CpuConfig cpuConfig{0};
 DebugOptions debugOptions{};
 AcpiData acpiDataNote{};
 constinit DtData dtDataNote{};
+EirFramebuffer framebufferNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -521,6 +522,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "DtData size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &dtDataNote, sizeof(DtData));
 		return true;
+	} else if (type == elf_note_type::framebuffer) {
+		if (desc.size() != sizeof(EirFramebuffer))
+			panicLogger() << "EirFramebuffer size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &framebufferNote, sizeof(EirFramebuffer));
+		return true;
 	}
 	return false;
 }
@@ -695,13 +701,6 @@ void generateInfo() {
 	initrd_module->nameLength = name_length;
 
 	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
-
-	// Pass the framebuffer to thor.
-	auto *fb = getFramebuffer();
-	if (fb) {
-		info_ptr->frameBuffer = *fb;
-		info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
-	}
 }
 
 static initgraph::Task parseCmdlineTask{

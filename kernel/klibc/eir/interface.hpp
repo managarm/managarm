@@ -47,8 +47,6 @@ struct EirInfo {
 	EirSize numRegions;
 	EirPtr regionInfo;
 	EirPtr moduleInfo;
-
-	EirFramebuffer frameBuffer;
 };
 
 // Please keep this sorted.
@@ -148,6 +146,7 @@ constexpr unsigned int bootUartConfig = 0x1000'0003;
 constexpr unsigned int debugOptions = 0x1000'0004;
 constexpr unsigned int acpiData = 0x1000'0005;
 constexpr unsigned int dtData = 0x1000'0006;
+constexpr unsigned int framebuffer = 0x1000'0007;
 // 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.

@@ -17,6 +17,7 @@ extern frg::span<uint8_t> initrd_image;
 extern CpuConfig cpuConfig;
 extern AcpiData acpiDataNote;
 extern DtData dtDataNote;
+extern EirFramebuffer framebufferNote;
 
 enum class RegionType { null, unconstructed, allocatable };
 

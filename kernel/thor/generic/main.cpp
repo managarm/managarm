@@ -74,10 +74,10 @@ extern "C" void thorInitialize() {
 		debugToBochs = true;
 	setupDebugging();
 
-	initializeBootFb(getEirInfo()->frameBuffer.fbAddress, getEirInfo()->frameBuffer.fbPitch,
-			getEirInfo()->frameBuffer.fbWidth, getEirInfo()->frameBuffer.fbHeight,
-			getEirInfo()->frameBuffer.fbBpp, getEirInfo()->frameBuffer.fbType,
-			reinterpret_cast<void *>(getEirInfo()->frameBuffer.fbEarlyWindow));
+	initializeBootFb(framebufferNote->fbAddress, framebufferNote->fbPitch,
+			framebufferNote->fbWidth, framebufferNote->fbHeight,
+			framebufferNote->fbBpp, framebufferNote->fbType,
+			reinterpret_cast<void *>(framebufferNote->fbEarlyWindow));
 
 	infoLogger() << "Starting Thor" << frg::endlog;
 

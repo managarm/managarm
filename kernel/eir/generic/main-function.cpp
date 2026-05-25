@@ -170,6 +170,9 @@ static initgraph::Task prepareFramebufferForThor{
 			    );
 		    mapKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
 		    unpoisonKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
+
+		    framebufferNote = *fb;
+		    framebufferNote.fbEarlyWindow = getKernelFrameBuffer();
 	    }
     }
 };
