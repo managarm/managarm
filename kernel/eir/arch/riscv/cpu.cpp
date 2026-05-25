@@ -4,6 +4,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/arch/riscv.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 #include <riscv/csr.hpp>
@@ -139,6 +140,11 @@ static initgraph::Task earlyInitAcpi{
     [] {
 	    if (!eirRsdpAddr)
 		    return;
+	    if (riscvConfig.numPtLevels) {
+		    infoLogger() << "eir: Skipping ACPI MMU discovery (page table levels already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    uacpi_table rhct_table;
 	    if (uacpi_table_find_by_signature("RHCT", &rhct_table) != UACPI_STATUS_OK)
@@ -201,11 +207,16 @@ static initgraph::Task earlyInitAcpi{
 static initgraph::Task earlyInit{
     &globalInitEngine,
     "riscv.early-init",
-    initgraph::Requires{getReservedRegionsKnownStage()},
+    initgraph::Requires{getReservedRegionsKnownStage(), getDtbAvailableStage()},
     initgraph::Entails{getMemoryLayoutReservedStage()},
     [] {
 	    if (!eirDtbPtr)
 		    return;
+	    if (riscvConfig.numPtLevels) {
+		    infoLogger() << "eir: Skipping DT MMU discovery (page table levels already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 
 	    // Get the first "/cpus/cpu@..."
@@ -258,5 +269,12 @@ static initgraph::Task earlyInit{
 void initProcessorEarly() {
 	riscv::writeCsr<riscv::Csr::stvec>(reinterpret_cast<uint64_t>(&handleException));
 }
+
+static initgraph::Task earlyProcessorInit{
+    &globalInitEngine,
+    "riscv.early-processor-init",
+    initgraph::Entails{getMemoryLayoutReservedStage()},
+    [] { initProcessorEarly(); }
+};
 
 } // namespace eir

@@ -40,7 +40,6 @@ void mapSingle4kPage(
 address_t getSingle4kPage(address_t address);
 
 void initPlatform();
-void initProcessorEarly();
 void initProcessorPaging();
 
 // Patches an arch-specific ELF note in thor.

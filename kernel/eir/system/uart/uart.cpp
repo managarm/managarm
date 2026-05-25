@@ -121,6 +121,8 @@ void UartLogHandler::emit(frg::string_view line) {
 
 void setBootUart(common::uart::AnyUart *uartPtr) { bootUartPtr = uartPtr; }
 
+bool hasBootUart() { return bootUartPtr != nullptr; }
+
 void initFromAcpi(common::uart::AnyUart &uart, unsigned int subtype, const acpi_gas &base) {
 	switch (subtype) {
 		case ACPI_DBG2_SUBTYPE_SERIAL_NS16550:

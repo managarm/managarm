@@ -81,14 +81,6 @@ static initgraph::Task parseInitrdInfo{
     }
 };
 
-static initgraph::Task earlyProcessorInit{
-    &globalInitEngine,
-    "generic.early-processor-init",
-    initgraph::Requires{getReservedRegionsKnownStage()},
-    initgraph::Entails{getMemoryLayoutReservedStage()},
-    [] { initProcessorEarly(); }
-};
-
 static initgraph::Task setupRegions{
     &globalInitEngine,
     "generic.setup-regions",

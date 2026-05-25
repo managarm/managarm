@@ -1,6 +1,7 @@
 #include <dtb.hpp>
 #include <eir-internal/cmdline.hpp>
 #include <eir-internal/debug.hpp>
+#include <eir-internal/dtb/dtb.hpp>
 #include <eir-internal/generic.hpp>
 #include <eir-internal/main.hpp>
 
@@ -9,9 +10,18 @@ namespace eir {
 namespace {
 
 initgraph::Task detectCpusFromDtb{
-    &globalInitEngine, "dt.detect-cpu-count", initgraph::Entails{getKernelLoadableStage()}, [] {
+    &globalInitEngine,
+    "dt.detect-cpu-count",
+    initgraph::Requires{getDtbAvailableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
 	    if (!eirDtbPtr)
 		    return;
+	    if (cpuConfig.totalCpus) {
+		    infoLogger() << "eir: Skipping DT CPU discovery (CPU count already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 	    size_t cpuCount = 0;

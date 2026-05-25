@@ -20,6 +20,11 @@ initgraph::Task parseSpcrDbg2{
     [] {
 	    if (!haveTables())
 		    return;
+	    if (uart::hasBootUart()) {
+		    infoLogger() << "eir: Skipping ACPI UART discovery (boot UART already known)"
+		                 << frg::endlog;
+		    return;
+	    }
 
 	    uacpi_table spcrTbl;
 	    uacpi_table dbg2Tbl;

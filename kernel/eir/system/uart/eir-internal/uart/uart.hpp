@@ -27,6 +27,8 @@ extern BootUartConfig bootUartConfig;
 
 void setBootUart(common::uart::AnyUart *uartPtr);
 
+bool hasBootUart();
+
 // Initialize a UART from the DBG2 or SPCR tables.
 // For DBG2, the type (not subtype) must be serial (= 0x8000).
 // The subtype that is passed to this function is also defined by DBG2.

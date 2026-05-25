@@ -2,6 +2,7 @@
 #include <eir-internal/arch.hpp>
 #include <eir-internal/debug.hpp>
 #include <eir-internal/generic.hpp>
+#include <eir-internal/main.hpp>
 #include <eir-internal/memory-layout.hpp>
 #include <x86/gdt.hpp>
 #include <x86/machine.hpp>
@@ -215,6 +216,13 @@ void initProcessorEarly() {
 	uint64_t pat = 0x00'00'01'00'00'00'04'06;
 	common::x86::wrmsr(0x277, pat);
 }
+
+static initgraph::Task earlyProcessorInit{
+    &globalInitEngine,
+    "x86.early-processor-init",
+    initgraph::Entails{getMemoryLayoutReservedStage()},
+    [] { initProcessorEarly(); }
+};
 
 int getKernelVirtualBits() { return 48; }
 
