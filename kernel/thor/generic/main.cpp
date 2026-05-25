@@ -59,6 +59,9 @@ EirInfo *getEirInfo() {
 extern ManagarmElfNote<Initrd> initrdNote;
 THOR_DEFINE_ELF_NOTE(initrdNote){elf_note_type::initrd, {}};
 
+extern ManagarmElfNote<CommandLine> commandLineNote;
+THOR_DEFINE_ELF_NOTE(commandLineNote){elf_note_type::commandLine, {}};
+
 frg::string_view getKernelCmdline() {
 	return *kernelCommandLine;
 }
@@ -190,7 +193,7 @@ extern "C" void thorMain() {
 	infoLogger() << "thor: Entering main function" << frg::endlog;
 
 	kernelCommandLine.initialize(*kernelAlloc,
-			reinterpret_cast<const char *>(getEirInfo()->commandLine));
+			reinterpret_cast<const char *>(commandLineNote->ptr));
 
 	for(int i = 0; i < numIrqSlots; i++)
 		globalIrqSlots[i].initialize();

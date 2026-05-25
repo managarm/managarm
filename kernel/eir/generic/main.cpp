@@ -41,6 +41,7 @@ constinit DtData dtDataNote{};
 EirFramebuffer framebufferNote{};
 Initrd initrdNote{};
 PhysicalMemory physicalMemoryNote{};
+CommandLine commandLineNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -534,6 +535,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "Initrd size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &initrdNote, sizeof(Initrd));
 		return true;
+	} else if (type == elf_note_type::commandLine) {
+		if (desc.size() != sizeof(CommandLine))
+			panicLogger() << "CommandLine size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &commandLineNote, sizeof(CommandLine));
+		return true;
 	} else if (type == elf_note_type::physicalMemory) {
 		if (desc.size() != sizeof(PhysicalMemory))
 			panicLogger() << "PhysicalMemory size does not match ELF note" << frg::endlog;
@@ -651,33 +657,6 @@ void generateInfo() {
 	auto info_vaddr = mapBootstrapData(info_ptr);
 	assert(info_vaddr == getMemoryLayout().eirInfo);
 	info_ptr->signature = eirSignatureValue;
-
-	// Pass the command line to Thor.
-	auto cmdlineChunks = getCmdline();
-
-	// For each chunk: we either have a trailing space or null terminator.
-	auto cmdlineLength = cmdlineChunks.size();
-	for (auto chunk : cmdlineChunks)
-		cmdlineLength += chunk.size();
-
-	if (cmdlineLength > pageSize)
-		panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
-	auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
-
-	char *cmdlinePtr = cmdlineBuffer;
-	for (auto chunk : cmdlineChunks) {
-		if (!chunk.size())
-			continue;
-		if (cmdlinePtr != cmdlineBuffer)
-			*(cmdlinePtr++) = ' ';
-		memcpy(cmdlinePtr, chunk.data(), chunk.size());
-		cmdlinePtr += chunk.size();
-	}
-	*cmdlinePtr = '\0';
-
-	infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
-
-	info_ptr->commandLine = mapBootstrapData(cmdlineBuffer);
 }
 
 static initgraph::Task parseCmdlineTask{
@@ -713,6 +692,40 @@ static initgraph::Task parseCmdlineTask{
 			                 << frg::endlog;
 		    }
 	    }
+    }
+};
+
+static initgraph::Task composeCommandLine{
+    &globalInitEngine,
+    "generic.compose-cmdline",
+    initgraph::Requires{getCmdlineAvailableStage(), getKernelMappableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
+	    auto cmdlineChunks = getCmdline();
+
+	    // For each chunk: we either have a trailing space or null terminator.
+	    auto cmdlineLength = cmdlineChunks.size();
+	    for (auto chunk : cmdlineChunks)
+		    cmdlineLength += chunk.size();
+
+	    if (cmdlineLength > pageSize)
+		    panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
+	    auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
+
+	    char *cmdlinePtr = cmdlineBuffer;
+	    for (auto chunk : cmdlineChunks) {
+		    if (!chunk.size())
+			    continue;
+		    if (cmdlinePtr != cmdlineBuffer)
+			    *(cmdlinePtr++) = ' ';
+		    memcpy(cmdlinePtr, chunk.data(), chunk.size());
+		    cmdlinePtr += chunk.size();
+	    }
+	    *cmdlinePtr = '\0';
+
+	    infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
+
+	    commandLineNote.ptr = mapBootstrapData(cmdlineBuffer);
     }
 };
 
