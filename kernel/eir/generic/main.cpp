@@ -36,6 +36,7 @@ DebugCapabilities eirDebugCapabilities{};
 
 CpuConfig cpuConfig{0};
 DebugOptions debugOptions{};
+AcpiData acpiDataNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -509,6 +510,11 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "DebugOptions size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &debugOptions, sizeof(DebugOptions));
 		return true;
+	} else if (type == elf_note_type::acpiData) {
+		if (desc.size() != sizeof(AcpiData))
+			panicLogger() << "AcpiData size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &acpiDataNote, sizeof(AcpiData));
+		return true;
 	}
 	return false;
 }
@@ -623,9 +629,6 @@ void generateInfo() {
 	info_ptr->signature = eirSignatureValue;
 
 	// Pass firmware tables.
-	if (eirRsdpAddr) {
-		info_ptr->acpiRsdp = eirRsdpAddr;
-	}
 	if (eirDtbPtr) {
 		DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 		info_ptr->dtbPtr = eirDtbPtr;

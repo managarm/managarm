@@ -15,6 +15,7 @@ extern address_t kernel_physical;
 extern frg::span<uint8_t> initrd_image;
 
 extern CpuConfig cpuConfig;
+extern AcpiData acpiDataNote;
 
 enum class RegionType { null, unconstructed, allocatable };
 

@@ -52,8 +52,6 @@ struct EirInfo {
 	EirSize dtbSize;
 
 	EirFramebuffer frameBuffer;
-
-	uint64_t acpiRsdp;
 };
 
 // Please keep this sorted.
@@ -151,6 +149,7 @@ constexpr unsigned int cpuConfig = 0x1000'0001;
 constexpr unsigned int smbiosData = 0x1000'0002;
 constexpr unsigned int bootUartConfig = 0x1000'0003;
 constexpr unsigned int debugOptions = 0x1000'0004;
+constexpr unsigned int acpiData = 0x1000'0005;
 // 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -253,4 +252,8 @@ struct DebugOptions {
 
 struct DebugCapabilities {
 	bool kasan = false;
+};
+
+struct AcpiData {
+	uint64_t rsdp = 0;
 };

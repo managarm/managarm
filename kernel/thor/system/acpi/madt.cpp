@@ -331,7 +331,7 @@ constinit std::array<char, 4096> earlyTableBuffer{};
 
 static initgraph::Task initTablesTask{
     &globalInitEngine, "acpi.init-tables", initgraph::Entails{getTablesDiscoveredStage()}, [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    auto ret = uacpi_setup_early_table_access(earlyTableBuffer.data(), earlyTableBuffer.size());
@@ -347,7 +347,7 @@ static initgraph::Task discoverIoApicsTask{
     initgraph::Requires{getTablesDiscoveredStage(), getFibersAvailableStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    dumpMadt();
@@ -440,7 +440,7 @@ static initgraph::Task loadAcpiNamespaceTask{
     initgraph::Requires{getTaskingAvailableStage(), pci::getBus0AvailableStage()},
     initgraph::Entails{getNsAvailableStage()},
     [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    initGlue();
@@ -476,7 +476,7 @@ static initgraph::Task loadAcpiNamespaceTask{
 
 static initgraph::Task bootApsTask{
     &globalInitEngine, "acpi.boot-aps", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    bootOtherProcessors();
@@ -485,7 +485,7 @@ static initgraph::Task bootApsTask{
 
 static initgraph::Task initPmInterfaceTask{
     &globalInitEngine, "acpi.init-pm-interface", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    initializePmInterface();

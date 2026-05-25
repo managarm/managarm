@@ -136,7 +136,7 @@ initgraph::Task initAPsAcpi{
     "riscv.init-aps-acpi",
     initgraph::Requires{acpi::getTablesDiscoveredStage(), getTaskingAvailableStage()},
     [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    setUpTrampoline();
