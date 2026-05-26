@@ -145,6 +145,10 @@ async::result<void> populateRootView() {
 
 			//std::cout << "posix: Importing " << item.second + "/" + resp.path() << std::endl;
 
+			// Skip the /dev provided by Thor's POSIX emulation (our /dev is created above).
+			if(item.second.empty() && resp.path() == "dev")
+				continue;
+
 			if(resp.file_type() == managarm::fs::FileType::DIRECTORY) {
 				// TODO: Check for errors from mkdir().
 				auto link = std::get<std::shared_ptr<FsLink>>(

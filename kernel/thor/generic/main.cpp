@@ -346,9 +346,11 @@ extern "C" void thorMain() {
 			infoLogger() << "thor: Modules are set up successfully."
 					<< frg::endlog;
 
+
 		// Launch initial user space programs.
 		initializeKerncfg();
 		initializeSvrctl();
+		KernelFiber::asyncBlockCurrent(initPosixEmulation());
 		infoLogger() << "thor: Launching user space." << frg::endlog;
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
