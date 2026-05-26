@@ -352,6 +352,7 @@ extern "C" void thorMain() {
 		infoLogger() << "thor: Launching user space." << frg::endlog;
 		KernelFiber::asyncBlockCurrent(runMbus());
 		initializeKernletCtl();
+		KernelFiber::asyncBlockCurrent(runServer("usr/bin/sif"));
 		KernelFiber::asyncBlockCurrent(runServer("usr/bin/kernletcc"));
 		KernelFiber::asyncBlockCurrent(runServer("usr/bin/clocktracker"));
 		KernelFiber::asyncBlockCurrent(runServer("usr/bin/posix-subsystem"));
