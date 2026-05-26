@@ -284,15 +284,13 @@ public:
 	}
 
 	async::result<frg::expected<protocols::fs::Error>> truncate(size_t size) override {
-		managarm::fs::CntRequest req;
-		req.set_req_type(managarm::fs::CntReqType::PT_TRUNCATE);
+		managarm::fs::TruncateRequest req;
 		req.set_size(size);
 
-		auto ser = req.SerializeAsString();
 		auto [offer, send_req, recv_resp]
 				= co_await helix_ng::exchangeMsgs(getPassthroughLane(),
 			helix_ng::offer(
-				helix_ng::sendBuffer(ser.data(), ser.size()),
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
 				helix_ng::recvInline()
 			)
 		);

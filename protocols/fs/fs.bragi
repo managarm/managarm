@@ -85,9 +85,6 @@ enum CntReqType {
 
 	// File passthrough API.
 	// TODO: Add a PT_ prefix to those requests.
-	READ = 2,
-	PT_TRUNCATE = 20,
-	PT_FALLOCATE = 19,
 	PT_BIND = 21,
 	PT_LISTEN = 23,
 	PT_CONNECT = 22,
@@ -96,7 +93,6 @@ enum CntReqType {
 	PT_SET_FILE_FLAGS = 31,
 	PT_PEERNAME = 42,
 
-	WRITE = 3,
 	SEEK_ABS = 6,
 	SEEK_REL = 7,
 	SEEK_EOF = 8,
@@ -109,15 +105,11 @@ enum CntReqType {
 
 	FLOCK = 73,
 
-	PT_PREAD = 37,
-
 	NODE_CHMOD = 38,
 
 	OPEN_FD_LANE = 47,
 	PT_GET_SEALS = 48,
-	PT_ADD_SEALS = 49,
-
-	PT_PWRITE = 50
+	PT_ADD_SEALS = 49
 }
 
 struct Rect {
@@ -140,10 +132,10 @@ head(128):
 		// used by DEV_OPEN
 		tag(39) uint32 flags;
 
-		// used by FSTAT, READ, WRITE, SEEK_ABS, SEEK_REL, SEEK_EOF, MMAP and CLOSE
+		// used by FSTAT, SEEK_ABS, SEEK_REL, SEEK_EOF, MMAP and CLOSE
 		tag(4) int32 fd;
 
-		// used by READ and WRITE
+		// used by PT_BIND, PT_CONNECT, PT_SOCKNAME and PT_PEERNAME for socket addresses
 		tag(5) int32 size;
 
 		// used by RECVMSG
@@ -968,4 +960,38 @@ head(128):
 message VtSetModeResponse 59 {
 head(128):
 	Errors error;
+}
+
+message ReadRequest 60 {
+head(128):
+	uint64 size;
+	uint64 cancellation_id;
+}
+
+message WriteRequest 61 {
+head(128):
+	uint64 size;
+}
+
+message PreadRequest 62 {
+head(128):
+	int64 offset;
+	uint64 size;
+}
+
+message PwriteRequest 63 {
+head(128):
+	int64 offset;
+	uint64 size;
+}
+
+message TruncateRequest 64 {
+head(128):
+	uint64 size;
+}
+
+message FallocateRequest 65 {
+head(128):
+	int64 rel_offset;
+	uint64 size;
 }

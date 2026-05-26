@@ -63,16 +63,7 @@ namespace stdio {
 				co_return;
 			}
 
-			if (preamble.id() != managarm::fs::CntRequest<KernelAlloc>::message_id) {
-				co_await dismiss(conversation);
-				infoLogger() << "thor: unexpected request ID " << preamble.id() << frg::endlog;
-				co_return;
-			}
-
-			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
-			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
-
-			if(req.req_type() == managarm::fs::CntReqType::WRITE) {
+			if(preamble.id() == managarm::fs::WriteRequest<KernelAlloc>::message_id) {
 				auto [credsError, credentials] = co_await extractCredentials(conversation);
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
@@ -106,19 +97,31 @@ namespace stdio {
 				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				// TODO: improve error handling here.
 				assert(respError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+			}else if(preamble.id() == managarm::fs::CntRequest<KernelAlloc>::message_id) {
+				managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+				req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
+				if(req.req_type() == managarm::fs::CntReqType::SEEK_REL) {
+					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::fs::Errors::SEEK_ON_PIPE);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+				}else{
+					urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+							<< " for kernel provided stdio file" << frg::endlog;
+
+					auto dismissError = co_await dismiss(conversation);
+					// TODO: improve error handling here.
+					assert(dismissError == Error::success);
+				}
 			}else{
-				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+				urgentLogger() << "thor: Illegal request ID " << preamble.id()
 						<< " for kernel provided stdio file" << frg::endlog;
 
 				auto dismissError = co_await dismiss(conversation);
@@ -166,10 +169,20 @@ namespace initrd {
 				co_return;
 			}
 
-			managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
-			req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
+			auto preamble = bragi::read_preamble(reqBuffer);
+			if(preamble.error()) {
+				infoLogger() << "thor: failed to decode preamble" << frg::endlog;
+				co_return;
+			}
 
-			if(req.req_type() == managarm::fs::CntReqType::READ) {
+			if(preamble.id() == managarm::fs::ReadRequest<KernelAlloc>::message_id) {
+				auto req = bragi::parse_head_only<managarm::fs::ReadRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse regular request" << frg::endlog;
+					co_return;
+				}
+
 				auto [credsError, credentials] = co_await extractCredentials(conversation);
 				if(credsError != Error::success) {
 					infoLogger() << "thor: Could not receive stdio credentials"
@@ -178,7 +191,7 @@ namespace initrd {
 				}
 
 				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc,
-						frg::min(size_t(req.size()), file->module->size() - file->offset)};
+						frg::min(req->size(), file->module->size() - file->offset)};
 				auto copyOutcome = co_await file->module->getMemory()->copyFrom(file->offset,
 					dataBuffer.data(), dataBuffer.size());
 				assert(copyOutcome);
@@ -198,37 +211,49 @@ namespace initrd {
 				auto dataError = co_await sendBuffer(conversation, std::move(dataBuffer));
 				// TODO: improve error handling here.
 				assert(dataError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
-				file->offset = req.rel_offset();
+			}else if(preamble.id() == managarm::fs::CntRequest<KernelAlloc>::message_id) {
+				managarm::fs::CntRequest<KernelAlloc> req(*kernelAlloc);
+				req.ParseFromArray(reqBuffer.data(), reqBuffer.size());
 
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+				if(req.req_type() == managarm::fs::CntReqType::SEEK_ABS) {
+					file->offset = req.rel_offset();
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
-			}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
-				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::fs::Errors::SUCCESS);
+					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+				}else if(req.req_type() == managarm::fs::CntReqType::MMAP) {
+					managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-				auto memoryError = co_await pushDescriptor(conversation,
-						MemoryViewDescriptor{file->module->getMemory()});
-				// TODO: improve error handling here.
-				assert(memoryError == Error::success);
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+
+					auto memoryError = co_await pushDescriptor(conversation,
+							MemoryViewDescriptor{file->module->getMemory()});
+					// TODO: improve error handling here.
+					assert(memoryError == Error::success);
+				}else{
+					urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+							<< " for kernel provided regular file" << frg::endlog;
+
+					auto dismissError = co_await dismiss(conversation);
+					// TODO: improve error handling here.
+					assert(dismissError == Error::success);
+				}
 			}else{
-				urgentLogger() << "thor: Illegal request type " << (int32_t)req.req_type()
+				urgentLogger() << "thor: Illegal request ID " << preamble.id()
 						<< " for kernel provided regular file" << frg::endlog;
 
 				auto dismissError = co_await dismiss(conversation);
@@ -454,66 +479,67 @@ namespace posix {
 					co_return;
 				}
 
-				switch(req->request_type()) {
-					case managarm::posix::CntReqType::VM_PROTECT: {
-						if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-							managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-							resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-
-							frg::string<KernelAlloc> ser(*kernelAlloc);
-							resp.SerializeToString(&ser);
-							frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-							memcpy(respBuffer.data(), ser.data(), ser.size());
-							auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-							// TODO: improve error handling here.
-							assert(respError == Error::success);
-							break;
-						}
-
-						uint32_t native_flags = 0;
-						if(req->mode() & PROT_READ)
-							native_flags |= VirtualizedPageSpace::kMapProtRead;
-						if(req->mode() & PROT_WRITE)
-							native_flags |= VirtualizedPageSpace::kMapProtWrite;
-						if(req->mode() & PROT_EXEC)
-							native_flags |= VirtualizedPageSpace::kMapProtExecute;
-
-						auto space = info.thread->getAddressSpace();
-						auto result = co_await space->protect(
-							req->address(), req->size(), native_flags);
-						// TODO: improve error handling here.
-						assert(result);
-
-						managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::SUCCESS);
-
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						break;
-					}
-					case managarm::posix::CntReqType::SIG_ACTION:
-						infoLogger() << "thor: Unexpected legacy POSIX request "
-							<< req->request_type() << frg::endlog;
-						[[fallthrough]];
-					default: {
-						managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-						resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-
-						frg::string<KernelAlloc> ser(*kernelAlloc);
-						resp.SerializeToString(&ser);
-						frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-						memcpy(respBuffer.data(), ser.data(), ser.size());
-						auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-						// TODO: improve error handling here.
-						assert(respError == Error::success);
-						break;
-					}
+				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
+					infoLogger() << "thor: Unexpected legacy POSIX request "
+						<< req->request_type() << frg::endlog;
 				}
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
+			}else if(preamble.id() == bragi::message_id<managarm::posix::VmProtectRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::VmProtectRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+					continue;
+				}
+
+				uint32_t native_flags = 0;
+				if(req->mode() & PROT_READ)
+					native_flags |= VirtualizedPageSpace::kMapProtRead;
+				if(req->mode() & PROT_WRITE)
+					native_flags |= VirtualizedPageSpace::kMapProtWrite;
+				if(req->mode() & PROT_EXEC)
+					native_flags |= VirtualizedPageSpace::kMapProtExecute;
+
+				auto space = info.thread->getAddressSpace();
+				auto result = co_await space->protect(
+					req->address(), req->size(), native_flags);
+				// TODO: improve error handling here.
+				assert(result);
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::SUCCESS);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::OpenAtRequest>) {
 				auto [tailError, tailBuffer] = co_await recvBuffer(conversation);
 				if(tailError != Error::success) {

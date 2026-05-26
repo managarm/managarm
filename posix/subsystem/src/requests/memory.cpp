@@ -83,7 +83,10 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 		auto file = self->fileContext()->getFile(req.fd());
 		assert(file && "Illegal FD for VM_MAP");
 		auto memory = co_await file->accessMemory();
-		assert(memory);
+		if(!memory) {
+			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_return {};
+		}
 		result = co_await self->vmContext()->mapFile(hint,
 				std::move(memory), std::move(file),
 				req.rel_offset(), req.size(), copyOnWrite, nativeFlags);
@@ -159,6 +162,98 @@ HandleRequest::operator()(managarm::posix::MemFdCreateRequest &&req,
         helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
     );
 	HEL_CHECK(sendResp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::VmRemapRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "VM_REMAP");
+
+	auto address = co_await self->vmContext()->remapFile(
+			reinterpret_cast<void *>(req.address()), req.size(), req.new_size());
+
+	managarm::posix::SvrResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_offset(reinterpret_cast<uintptr_t>(address));
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::VmProtectRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "VM_PROTECT");
+
+	if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	uint32_t native_flags = 0;
+	if(req.mode() & PROT_READ)
+		native_flags |= kHelMapProtRead;
+	if(req.mode() & PROT_WRITE)
+		native_flags |= kHelMapProtWrite;
+	if(req.mode() & PROT_EXEC)
+		native_flags |= kHelMapProtExecute;
+
+	co_await self->vmContext()->protectFile(
+			reinterpret_cast<void *>(req.address()), req.size(), native_flags);
+
+	managarm::posix::SvrResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::VmUnmapRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	logRequest(logRequests, self, "VM_UNMAP", "address={:#08x} size={:#x}", req.address(), req.size());
+
+	size_t size = req.size();
+
+	if(req.address() & 0xFFF || size == 0) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	if(size & 0xFFF) {
+		size = (size + 0xFFF) & ~0xFFF;
+	}
+
+	self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);
+
+	managarm::posix::SvrResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
 	logBragiReply(resp);
 	co_return {};
 }
