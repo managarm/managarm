@@ -118,6 +118,7 @@ struct HandlePartition {
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
+			co_return {};
 		}
 
 		helix::UniqueLane local_lane, remote_lane;
