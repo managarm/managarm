@@ -22,6 +22,7 @@ src = [
 	'src/pty.cpp',
 	'src/procfs.cpp',
 	'src/path-resolution.cpp',
+	'src/rename.cpp',
 	'src/pthread-fork-wait.cpp',
 	'src/thread.cpp',
 	'src/poll.cpp',
