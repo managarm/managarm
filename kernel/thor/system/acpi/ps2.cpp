@@ -1,6 +1,7 @@
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-frigg.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <uacpi/utilities.h>
@@ -114,6 +115,8 @@ static initgraph::Task initPS2Task{
     initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
     [] {
 	    if (!acpiRsdpNote->rsdp)
+		    return;
+	    if (debugOptionsNote->useSif)
 		    return;
 
 	    initializePS2();

@@ -8,6 +8,7 @@
 #include <thor-internal/acpi/pm-interface.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/main.hpp>
@@ -442,6 +443,10 @@ static initgraph::Task loadAcpiNamespaceTask{
     [] {
 	    if (!acpiRsdpNote->rsdp)
 		    return;
+	    if (debugOptionsNote->useSif) {
+		    infoLogger() << "thor: Skipping ACPI namespace init (sif)" << frg::endlog;
+		    return;
+	    }
 
 	    initGlue();
 
@@ -486,6 +491,8 @@ static initgraph::Task bootApsTask{
 static initgraph::Task initPmInterfaceTask{
     &globalInitEngine, "acpi.init-pm-interface", initgraph::Requires{&loadAcpiNamespaceTask}, [] {
 	    if (!acpiRsdpNote->rsdp)
+		    return;
+	    if (debugOptionsNote->useSif)
 		    return;
 
 	    initializePmInterface();

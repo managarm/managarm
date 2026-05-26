@@ -232,6 +232,9 @@ struct BootUartConfig {
 struct DebugOptions {
 	uint32_t flags = 0;
 	bool ubsanAbort = true;
+	// Use ACPI + PCI in userspace.
+	// Not really a debug option but expected to be temporary (thus we do not add a new ELF note).
+	bool useSif = false;
 };
 
 struct DebugCapabilities {

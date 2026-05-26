@@ -5,6 +5,7 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/acpi/battery.hpp>
 #include <thor-internal/acpi/helpers.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/mbus.hpp>
@@ -492,7 +493,12 @@ static initgraph::Task initBatteriesTask{
     &globalInitEngine,
     "acpi.init-batteries",
     initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
-    [] { initializeBatteries(); }
+    [] {
+	    if (debugOptionsNote->useSif)
+		    return;
+
+	    initializeBatteries();
+    }
 };
 
 } // namespace thor::acpi
