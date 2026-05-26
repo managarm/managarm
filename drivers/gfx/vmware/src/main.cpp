@@ -587,7 +587,8 @@ async::detached GfxDevice::Configuration::commitConfiguration(std::unique_ptr<dr
 
 	if (primary_plane_state->fb != nullptr) {
 		auto fb = static_pointer_cast<GfxDevice::FrameBuffer>(primary_plane_state->fb);
-		helix::Mapping user_fb{fb->getBufferObject()->getMemory().first, 0, fb->getBufferObject()->getSize()};
+		auto [fbMemory, fbMemoryOffset] = fb->getBufferObject()->getMemory();
+		helix::Mapping user_fb{fbMemory, static_cast<ptrdiff_t>(fbMemoryOffset), fb->getBufferObject()->getSize()};
 		drm_core::fastCopy16(_device->_fbMapping.get(), user_fb.get(), fb->getBufferObject()->getSize());
 		int w = _device->readRegister(register_index::width),
 			h = _device->readRegister(register_index::height);
