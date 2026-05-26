@@ -232,31 +232,16 @@ struct HandlePartition {
 				}
 			}
 
+			// A missing destination is the common case and not an error.
 			auto result = co_await newInode->removeEntry(req.new_name());
-			if(!result) {
-				if(result.error() == protocols::fs::Error::fileNotFound) {
-					// Ignored
-				} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
-					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+			if(!result && result.error() != protocols::fs::Error::fileNotFound) {
+				resp.set_error(result.error() | protocols::fs::toFsError);
 
-					auto ser = resp.SerializeAsString();
-					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-						helix_ng::sendBuffer(ser.data(), ser.size()));
-					HEL_CHECK(send_resp.error());
-					co_return {};
-				} else if(result.error() == protocols::fs::Error::notDirectory) {
-					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
-
-					auto ser = resp.SerializeAsString();
-					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-						helix_ng::sendBuffer(ser.data(), ser.size()));
-					HEL_CHECK(send_resp.error());
-					co_return {};
-				} else {
-					// Handle error
-					std::cout << "libblockfs: rename: unhandled error: " << (int)result.error() << std::endl;
-					assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
-				}
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
 			}
 			auto link_result = co_await newInode->link(req.new_name(),
 					old_file.value().inode, old_file.value().fileType);
@@ -281,8 +266,7 @@ struct HandlePartition {
 
 		auto result = co_await oldInode->removeEntry(req.old_name());
 		if(!result) {
-			assert(result.error() == protocols::fs::Error::fileNotFound);
-			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+			resp.set_error(result.error() | protocols::fs::toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
