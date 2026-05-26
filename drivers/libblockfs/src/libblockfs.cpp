@@ -219,7 +219,17 @@ struct HandlePartition {
 					assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
 				}
 			}
-			co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
+			auto link_result = co_await newInode->link(req.new_name(),
+					old_file.value().inode, old_file.value().fileType);
+			if(!link_result) {
+				resp.set_error(link_result.error() | protocols::fs::toFsError);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
 		} else {
 			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
