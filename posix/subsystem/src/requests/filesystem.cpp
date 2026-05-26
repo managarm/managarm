@@ -681,8 +681,7 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 	auto result = co_await superblock->rename(resolver.currentLink().get(),
 			directory.get(), new_resolver.nextComponent());
 	if(!result) {
-		assert(result.error() == Error::alreadyExists);
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+		co_await sendErrorResponse(conversation, result.error() | toPosixProtoError);
 		co_return {};
 	}
 
