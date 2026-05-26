@@ -12,6 +12,7 @@
 #include <async/result.hpp>
 #include <async/oneshot-event.hpp>
 #include <core/cmdline.hpp>
+#include <core/dispatch.hpp>
 #include <core/kernel-logs.hpp>
 #include <frg/intrusive.hpp>
 #include <helix/ipc.hpp>
@@ -276,22 +277,9 @@ constexpr auto fileOperations = protocols::fs::FileOperations{
 	.write = &write,
 };
 
-async::detached serveTerminal(helix::UniqueLane lane) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-
-		auto conversation = accept.descriptor();
-
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
+struct HandleRequest {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble) {
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
@@ -310,6 +298,23 @@ async::detached serveTerminal(helix::UniqueLane lane) {
 			HEL_CHECK(push_node.error());
 		}else{
 			throw std::runtime_error("Invalid serveTerminal request!");
+		}
+		co_return {};
+	}
+};
+
+async::detached serveTerminal(helix::UniqueLane lane) {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest
+		>(lane, HandleRequest{});
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "uart: dispatch error" << std::endl;
+			continue;
 		}
 	}
 }

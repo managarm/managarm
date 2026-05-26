@@ -418,25 +418,11 @@ File::~File() {
 // EventDevice implementation.
 // ----------------------------------------------------------------------------
 
-async::detached serveDevice(std::shared_ptr<EventDevice> device,
-		helix::UniqueLane lane) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		auto [accept, recv_req] = co_await helix_ng::exchangeMsgs(
-			lane,
-			helix_ng::accept(
-				helix_ng::recvInline())
-		);
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_req.error());
-
-		auto conversation = accept.descriptor();
-		managarm::fs::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
+struct HandleDevice {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, EventDevice *device) {
 		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
-			auto file = smarter::make_shared<File>(device.get(),
+			auto file = smarter::make_shared<File>(device,
 					req.flags() & managarm::fs::OpenFlags::OF_NONBLOCK);
 			device->files_.push_back(file.get());
 			auto remote_lane = File::serve(file);
@@ -457,6 +443,24 @@ async::detached serveDevice(std::shared_ptr<EventDevice> device,
 			HEL_CHECK(push_page.error());
 		}else{
 			throw std::runtime_error("Invalid serveDevice request!");
+		}
+		co_return {};
+	}
+};
+
+async::detached serveDevice(std::shared_ptr<EventDevice> device,
+		helix::UniqueLane lane) {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest
+		>(lane, HandleDevice{}, device.get());
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "libevbackend: dispatch error" << std::endl;
+			continue;
 		}
 	}
 }

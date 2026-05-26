@@ -15,6 +15,7 @@
 namespace libevbackend {
 
 struct EventDevice;
+struct HandleDevice;
 
 // --------------------------------------------
 // Events
@@ -43,6 +44,7 @@ constexpr size_t maxMultitouchSlots = 10;
 
 struct File {
 	friend struct EventDevice;
+	friend struct HandleDevice;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
 	struct HandleIoctl;
@@ -107,6 +109,7 @@ struct EventDevice {
 
 public:
 	friend struct File;
+	friend struct HandleDevice;
 	friend async::detached serveDevice(std::shared_ptr<EventDevice>, helix::UniqueLane);
 
 	EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product);

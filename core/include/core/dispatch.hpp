@@ -33,6 +33,35 @@ doDispatch(helix_ng::RecvInlineResult &recvHead, helix::BorrowedDescriptor conve
 	co_return DispatchError::none;
 }
 
+//! Tag type to select the handler-detaching overload of dispatchRequest().
+struct DetachHandlers {};
+
+// Helper: detached handler coroutine that owns the conversation lane.
+template <typename Message, typename Visitor, typename ...Args>
+async::detached
+doDispatchDetach_(helix::UniqueDescriptor conversation, Message message,
+                  bragi::preamble preamble, Visitor visitor, Args ...args) {
+	co_await visitor(std::move(message), helix::BorrowedDescriptor{conversation},
+	                 preamble, std::move(args)...);
+}
+
+// Helper function for the DetachHandlers overload of dispatchRequest().
+template <typename Message, typename Visitor, typename ...Args>
+DispatchError
+doDispatchDetach(helix_ng::RecvInlineResult &recvHead,
+                 helix::UniqueDescriptor conversation,
+                 bragi::preamble preamble, Visitor &&visitor, Args &&...args) {
+	// Eagerly reset() after parsing to free up space in IPC queue.
+	auto maybeMessage = bragi::parse_head_only<Message>(recvHead);
+	recvHead.reset();
+	if (!maybeMessage)
+		return DispatchError::malformedMessage;
+	doDispatchDetach_<Message>(std::move(conversation), std::move(*maybeMessage),
+	                           preamble, std::forward<Visitor>(visitor),
+	                           std::forward<Args>(args)...);
+	return DispatchError::none;
+}
+
 //! Receive and dispatch the incoming message to the provided handler.
 //!
 //! This function accepts a new conversation lane, receives a Bragi message head,
@@ -85,6 +114,65 @@ dispatchRequest(helix::BorrowedLane lane, Visitor &&visitor, Args &&...args) {
 			preamble.id() == bragi::message_id<Messages>
 			? (err = co_await doDispatch<Messages>(recvHead, std::move(conversation), preamble,
 				std::forward<Visitor>(visitor), std::forward<Args>(args)...), true)
+			: false
+		) || ...
+	);
+	if (!found)
+		co_return std::unexpected(DispatchError::malformedMessage);
+	if (err != DispatchError::none)
+		co_return std::unexpected(err);
+	co_return {};
+}
+
+//! dispatchRequest() overload that detaches each handler coroutine.
+//!
+//! The accept/recv/preamble steps are awaited normally. Once the matching message
+//! type is found and parsed, the handler is launched as a detached coroutine and
+//! this function returns immediately, allowing the caller to accept the next
+//! request before the previous handler has completed.
+//!
+//! Ownership of the accepted conversation lane is transferred to the detached
+//! handler. The visitor and extra arguments must be move-constructible.
+//!
+//! @param[in] lane
+//! Lane on which to accept.
+//! @param[in] visitor
+//! Visitor function object invoked to handle the message (taken by value).
+//! @param[in] args
+//! Extra arguments to pass when invoking message handler (taken by value).
+template <typename ...Messages, typename Visitor, typename ...Args>
+async::result<std::expected<void, DispatchError>>
+dispatchRequest(helix::BorrowedLane lane, DetachHandlers, Visitor visitor, Args ...args) {
+	auto [accept, recvHead] = co_await helix_ng::exchangeMsgs(
+		lane,
+		helix_ng::accept(
+			helix_ng::recvInline()
+		)
+	);
+
+	// Note: only accept can ever return in DispatchError::shutdown.
+	//       Failures in any other message item are always protocol violations (and hence ipcError).
+	if (accept.error() == kHelErrLaneShutdown || accept.error() == kHelErrEndOfLane)
+		co_return std::unexpected(DispatchError::shutdown);
+	if (accept.error() != kHelErrNone)
+		co_return std::unexpected(DispatchError::ipcError);
+	if (recvHead.error() != kHelErrNone)
+		co_return std::unexpected(DispatchError::ipcError);
+
+	auto conversation = accept.descriptor();
+
+	auto preamble = bragi::read_preamble(recvHead);
+
+	if (preamble.error())
+		co_return std::unexpected(DispatchError::malformedMessage);
+
+	DispatchError err = DispatchError::none;
+
+	bool found = (
+		(
+			preamble.id() == bragi::message_id<Messages>
+			? (err = doDispatchDetach<Messages>(recvHead, std::move(conversation), preamble,
+				std::move(visitor), std::move(args)...), true)
 			: false
 		) || ...
 	);

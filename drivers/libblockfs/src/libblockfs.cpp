@@ -8,6 +8,7 @@
 #include <linux/fs.h>
 
 #include <core/clock.hpp>
+#include <core/dispatch.hpp>
 #include <frg/scope_exit.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/fs/server.hpp>
@@ -31,104 +32,12 @@ bool clkInitialized = false;
 BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
 : size(0), sectorSize(sector_size), parentId(parent_id) { }
 
-async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition, std::unique_ptr<raw::RawFs> rawFs) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	// TODO(qookie): Generic file system type
-	std::unique_ptr<BaseFileSystem> fs;
-
-	while(true) {
-		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
-
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_head.error());
-
-		auto conversation = accept.descriptor();
-
-		auto preamble = bragi::read_preamble(recv_head);
-		if(preamble.error()) {
-			std::cout << "libblockfs: error decoding preamble" << std::endl;
-			auto [dismiss] = co_await helix_ng::exchangeMsgs(
-				conversation, helix_ng::dismiss());
-			HEL_CHECK(dismiss.error());
-		}
-
-		managarm::fs::CntRequest req;
-		if (preamble.id() == managarm::fs::CntRequest::message_id) {
-			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_head);
-			recv_head.reset();
-
-			if(!o) {
-				std::cout << "libblockfs: error decoding CntRequest" << std::endl;
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-				continue;
-			}
-
-			req = *o;
-		}
-
-		if(preamble.id() == managarm::fs::MountRequest::message_id) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recv_tail.error());
-
-			auto req = bragi::parse_head_tail<managarm::fs::MountRequest>(recv_head, tail);
-			recv_head.reset();
-
-			if (!req) {
-				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			// Mount the actual file system
-			if (req->fs_type() == "ext2") {
-				fs = std::make_unique<ext2fs::FileSystem>(partition);
-				co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
-				printf("ext2fs is ready!\n");
-			} else if (req->fs_type() == "btrfs") {
-				fs = std::make_unique<btrfs::FileSystem>(partition);
-				co_await static_cast<btrfs::FileSystem *>(fs.get())->init();
-			} else {
-				managarm::fs::SvrResponse resp;
-				resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size()),
-					helix_ng::pushDescriptor({})
-				);
-				HEL_CHECK(send_resp.error());
-				HEL_CHECK(push_node.error());
-			}
-
-			helix::UniqueLane local_lane, remote_lane;
-			std::tie(local_lane, remote_lane) = helix::createStream();
-			protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
-					fs->nodeOps());
-
-			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()),
-				helix_ng::pushDescriptor(remote_lane)
-			);
-			HEL_CHECK(send_resp.error());
-			HEL_CHECK(push_node.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
+struct HandlePartition {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble,
+			gpt::Partition *, raw::RawFs *rawFs, std::unique_ptr<BaseFileSystem> *fsPtr) {
+		if(req.req_type() == managarm::fs::CntReqType::SB_CREATE_REGULAR) {
+			auto &fs = *fsPtr;
 			auto inodeRaw = co_await fs->createRegular(req.uid(), req.gid(), 0);
 			auto inode = std::static_pointer_cast<ext2fs::Inode>(inodeRaw);
 
@@ -150,103 +59,10 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(preamble.id() == managarm::fs::RenameRequest::message_id) {
-			std::vector<std::byte> tail(preamble.tail_size());
-			auto [recv_tail] = co_await helix_ng::exchangeMsgs(
-					conversation,
-					helix_ng::recvBuffer(tail.data(), tail.size())
-				);
-			HEL_CHECK(recv_tail.error());
-
-			auto req = bragi::parse_head_tail<managarm::fs::RenameRequest>(recv_head, tail);
-			recv_head.reset();
-
-			if (!req) {
-				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			auto oldInodeRaw = fs->accessInode(req->inode_source());
-			auto newInodeRaw = fs->accessInode(req->inode_target());
-
-			auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
-			auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
-
-			assert(!req->old_name().empty() && req->old_name() != "." && req->old_name() != "..");
-			auto old_result = co_await oldInode->findEntry(req->old_name());
-			if(!old_result) {
-				managarm::fs::SvrResponse resp;
-				assert(old_result.error() == protocols::fs::Error::notDirectory);
-				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			auto old_file = old_result.value();
-			managarm::fs::SvrResponse resp;
-			if(old_file) {
-				auto result = co_await newInode->removeEntry(req->new_name());
-				if(!result) {
-					if(result.error() == protocols::fs::Error::fileNotFound) {
-						// Ignored
-					} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
-						resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
-
-						auto ser = resp.SerializeAsString();
-						auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-							helix_ng::sendBuffer(ser.data(), ser.size()));
-						HEL_CHECK(send_resp.error());
-						continue;
-					} else if(result.error() == protocols::fs::Error::notDirectory) {
-						resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
-
-						auto ser = resp.SerializeAsString();
-						auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-							helix_ng::sendBuffer(ser.data(), ser.size()));
-						HEL_CHECK(send_resp.error());
-						continue;
-					} else {
-						// Handle error
-						std::cout << "libblockfs: rename: unhandled error: " << (int)result.error() << std::endl;
-						assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
-					}
-				}
-				co_await newInode->link(req->new_name(), old_file.value().inode, old_file.value().fileType);
-			} else {
-				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-
-			auto result = co_await oldInode->removeEntry(req->old_name());
-			if(!result) {
-				assert(result.error() == protocols::fs::Error::fileNotFound);
-				resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
-
-				auto ser = resp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-					helix_ng::sendBuffer(ser.data(), ser.size()));
-				HEL_CHECK(send_resp.error());
-				continue;
-			}
-			resp.set_error(managarm::fs::Errors::SUCCESS);
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()));
-			HEL_CHECK(send_resp.error());
 		}else if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<raw::OpenFile>(rawFs.get());
+			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
 			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
 							file,
 							&raw::rawOperations));
@@ -262,125 +78,37 @@ async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(preamble.id() == managarm::fs::GetFsStatsRequest::message_id) {
-			auto o = bragi::parse_head_only<managarm::fs::GetFsStatsRequest>(recv_head);
-			recv_head.reset();
-
-			if(!o) {
-				std::cout << "libblockfs: error decoding GetFsStatsRequest" << std::endl;
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-				continue;
-			}
-
-			managarm::fs::GetFsStatsResponse resp;
-			if(!fs) {
-				resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
-			} else {
-				auto stats = fs->getFsStats();
-
-				resp.set_error(managarm::fs::Errors::SUCCESS);
-				resp.set_fs_type(stats.fsType);
-				resp.set_block_size(stats.blockSize);
-				resp.set_fragment_size(stats.fragmentSize);
-				resp.set_num_blocks(stats.numBlocks);
-				resp.set_blocks_free(stats.blocksFree);
-				resp.set_blocks_free_user(stats.blocksFreeUser);
-				resp.set_num_inodes(stats.numInodes);
-				resp.set_inodes_free(stats.inodesFree);
-				resp.set_inodes_free_user(stats.inodesFreeUser);
-				resp.set_max_name_length(stats.maxNameLength);
-				resp.set_fsid0(stats.fsid[0]);
-				resp.set_fsid1(stats.fsid[1]);
-				resp.set_flags(stats.flags);
-			}
-
-			auto ser = resp.SerializeAsString();
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(
-				conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size())
-			);
-			HEL_CHECK(send_resp.error());
-		} else if(preamble.id() == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(recv_head);
-			recv_head.reset();
-
-			if(!req) {
-				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			if(req->command() == BLKGETSIZE64) {
-				managarm::fs::GenericIoctlReply rsp;
-				rsp.set_error(managarm::fs::Errors::SUCCESS);
-				rsp.set_size(co_await partition->getSize());
-
-				auto ser = rsp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-						conversation,
-						helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
-			} else {
-				std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
-						<< req->command() << "\e[39m" << std::endl;
-
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-			}
 		}else{
 			std::cout << "Unexpected request type " + std::to_string((int)req.req_type()) << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
+		co_return {};
 	}
-}
 
-async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> rawFs) {
-	std::cout << "unix device: Connection" << std::endl;
-
-	while(true) {
-		auto [accept, recv_head] = co_await helix_ng::exchangeMsgs(
-				lane,
-				helix_ng::accept(
-					helix_ng::recvInline()
-				)
-			);
-
-		HEL_CHECK(accept.error());
-		HEL_CHECK(recv_head.error());
-
-		auto conversation = accept.descriptor();
-
-		auto preamble = bragi::read_preamble(recv_head);
-		if(preamble.error()) {
-			std::cout << "libblockfs: error decoding preamble" << std::endl;
-			auto [dismiss] = co_await helix_ng::exchangeMsgs(
-				conversation, helix_ng::dismiss());
-			HEL_CHECK(dismiss.error());
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::MountRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+			gpt::Partition *partition, raw::RawFs *, std::unique_ptr<BaseFileSystem> *fsPtr) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if(!tailRes) {
+			std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
+			co_return std::unexpected(tailRes.error());
 		}
 
-		managarm::fs::CntRequest req;
-		if (preamble.id() == managarm::fs::CntRequest::message_id) {
-			auto o = bragi::parse_head_only<managarm::fs::CntRequest>(recv_head);
-			recv_head.reset();
-			if(!o) {
-				std::cout << "libblockfs: error decoding CntRequest" << std::endl;
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-				continue;
-			}
+		auto &fs = *fsPtr;
 
-			req = *o;
-		}
-
-		if(preamble.id() == managarm::fs::MountRequest::message_id) {
+		// Mount the actual file system
+		if (req.fs_type() == "ext2") {
+			fs = std::make_unique<ext2fs::FileSystem>(partition);
+			co_await static_cast<ext2fs::FileSystem *>(fs.get())->init();
+			printf("ext2fs is ready!\n");
+		} else if (req.fs_type() == "btrfs") {
+			fs = std::make_unique<btrfs::FileSystem>(partition);
+			co_await static_cast<btrfs::FileSystem *>(fs.get())->init();
+		} else {
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_error(managarm::fs::Errors::NO_BACKING_DEVICE);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
@@ -390,10 +118,209 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		}else if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
+			co_return {};
+		}
+
+		helix::UniqueLane local_lane, remote_lane;
+		std::tie(local_lane, remote_lane) = helix::createStream();
+		protocols::fs::serveNode(std::move(local_lane), fs->accessRoot(),
+				fs->nodeOps());
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::pushDescriptor(remote_lane)
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(push_node.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::RenameRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+			gpt::Partition *, raw::RawFs *, std::unique_ptr<BaseFileSystem> *fsPtr) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if(!tailRes) {
+			std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
+			co_return std::unexpected(tailRes.error());
+		}
+
+		auto &fs = *fsPtr;
+		auto oldInodeRaw = fs->accessInode(req.inode_source());
+		auto newInodeRaw = fs->accessInode(req.inode_target());
+
+		auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
+		auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
+
+		assert(!req.old_name().empty() && req.old_name() != "." && req.old_name() != "..");
+		auto old_result = co_await oldInode->findEntry(req.old_name());
+		if(!old_result) {
+			managarm::fs::SvrResponse resp;
+			assert(old_result.error() == protocols::fs::Error::notDirectory);
+			resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+
+		auto old_file = old_result.value();
+		managarm::fs::SvrResponse resp;
+		if(old_file) {
+			auto result = co_await newInode->removeEntry(req.new_name());
+			if(!result) {
+				if(result.error() == protocols::fs::Error::fileNotFound) {
+					// Ignored
+				} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
+					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				} else if(result.error() == protocols::fs::Error::notDirectory) {
+					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				} else {
+					// Handle error
+					std::cout << "libblockfs: rename: unhandled error: " << (int)result.error() << std::endl;
+					assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
+				}
+			}
+			co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
+		} else {
+			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+
+		auto result = co_await oldInode->removeEntry(req.old_name());
+		if(!result) {
+			assert(result.error() == protocols::fs::Error::fileNotFound);
+			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()));
+		HEL_CHECK(send_resp.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::GetFsStatsRequest &&, helix::BorrowedDescriptor conversation, bragi::preamble,
+			gpt::Partition *, raw::RawFs *, std::unique_ptr<BaseFileSystem> *fsPtr) {
+		auto &fs = *fsPtr;
+		managarm::fs::GetFsStatsResponse resp;
+		if(!fs) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+		} else {
+			auto stats = fs->getFsStats();
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_fs_type(stats.fsType);
+			resp.set_block_size(stats.blockSize);
+			resp.set_fragment_size(stats.fragmentSize);
+			resp.set_num_blocks(stats.numBlocks);
+			resp.set_blocks_free(stats.blocksFree);
+			resp.set_blocks_free_user(stats.blocksFreeUser);
+			resp.set_num_inodes(stats.numInodes);
+			resp.set_inodes_free(stats.inodesFree);
+			resp.set_inodes_free_user(stats.inodesFreeUser);
+			resp.set_max_name_length(stats.maxNameLength);
+			resp.set_fsid0(stats.fsid[0]);
+			resp.set_fsid1(stats.fsid[1]);
+			resp.set_flags(stats.flags);
+		}
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size())
+		);
+		HEL_CHECK(send_resp.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble,
+			gpt::Partition *partition, raw::RawFs *, std::unique_ptr<BaseFileSystem> *) {
+		if(req.command() == BLKGETSIZE64) {
+			managarm::fs::GenericIoctlReply rsp;
+			rsp.set_error(managarm::fs::Errors::SUCCESS);
+			rsp.set_size(co_await partition->getSize());
+
+			auto ser = rsp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+					<< req.command() << "\e[39m" << std::endl;
+
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+		co_return {};
+	}
+};
+
+async::detached servePartition(helix::UniqueLane lane, gpt::Partition *partition, std::unique_ptr<raw::RawFs> rawFs) {
+	std::cout << "unix device: Connection" << std::endl;
+
+	// TODO(qookie): Generic file system type
+	std::unique_ptr<BaseFileSystem> fs;
+
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest,
+			managarm::fs::MountRequest,
+			managarm::fs::RenameRequest,
+			managarm::fs::GetFsStatsRequest,
+			managarm::fs::GenericIoctlRequest
+		>(lane, HandlePartition{}, partition, rawFs.get(), &fs);
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "libblockfs: dispatch error on partition lane" << std::endl;
+			continue;
+		}
+	}
+}
+
+struct HandleDevice {
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::CntRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, raw::RawFs *rawFs) {
+		if(req.req_type() == managarm::fs::CntReqType::DEV_OPEN) {
 			helix::UniqueLane local_lane, remote_lane;
 			std::tie(local_lane, remote_lane) = helix::createStream();
-			auto file = smarter::make_shared<raw::OpenFile>(rawFs.get());
+			auto file = smarter::make_shared<raw::OpenFile>(rawFs);
 			async::detach(protocols::fs::servePassthrough(std::move(local_lane),
 							file,
 							&raw::rawOperations));
@@ -409,39 +336,74 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_node.error());
-		} else if(preamble.id() == managarm::fs::GenericIoctlRequest::message_id) {
-			auto req = bragi::parse_head_only<managarm::fs::GenericIoctlRequest>(recv_head);
-			recv_head.reset();
-
-			if(!req) {
-				std::cout << "libblockfs: Rejecting request due to decoding failure" << std::endl;
-				break;
-			}
-
-			if(req->command() == BLKGETSIZE64) {
-				managarm::fs::GenericIoctlReply rsp;
-				rsp.set_error(managarm::fs::Errors::SUCCESS);
-				rsp.set_size(co_await rawFs->device->getSize());
-
-				auto ser = rsp.SerializeAsString();
-				auto [send_resp] = co_await helix_ng::exchangeMsgs(
-						conversation,
-						helix_ng::sendBuffer(ser.data(), ser.size())
-				);
-				HEL_CHECK(send_resp.error());
-			} else {
-				std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
-						<< req->command() << "\e[39m" << std::endl;
-
-				auto [dismiss] = co_await helix_ng::exchangeMsgs(
-					conversation, helix_ng::dismiss());
-				HEL_CHECK(dismiss.error());
-			}
 		}else{
 			std::cout << "Unexpected request type " + std::to_string((int)req.req_type()) << " to device" << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
+		}
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::MountRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble preamble, raw::RawFs *) {
+		auto tailRes = co_await dispatchTail(req, conversation, preamble);
+		if(!tailRes)
+			co_return std::unexpected(tailRes.error());
+
+		managarm::fs::SvrResponse resp;
+		resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+
+		auto ser = resp.SerializeAsString();
+		auto [send_resp, push_node] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()),
+			helix_ng::pushDescriptor({})
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(push_node.error());
+		co_return {};
+	}
+
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::fs::GenericIoctlRequest &&req, helix::BorrowedDescriptor conversation, bragi::preamble, raw::RawFs *rawFs) {
+		if(req.command() == BLKGETSIZE64) {
+			managarm::fs::GenericIoctlReply rsp;
+			rsp.set_error(managarm::fs::Errors::SUCCESS);
+			rsp.set_size(co_await rawFs->device->getSize());
+
+			auto ser = rsp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+					conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+		} else {
+			std::cout << "\e[31m" "libblockfs: Unknown ioctl() message with ID "
+					<< req.command() << "\e[39m" << std::endl;
+
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+		co_return {};
+	}
+};
+
+async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> rawFs) {
+	std::cout << "unix device: Connection" << std::endl;
+
+	while(true) {
+		auto res = co_await dispatchRequest<
+			managarm::fs::CntRequest,
+			managarm::fs::MountRequest,
+			managarm::fs::GenericIoctlRequest
+		>(lane, HandleDevice{}, rawFs.get());
+		if(!res) {
+			if(res.error() == DispatchError::shutdown)
+				co_return;
+			std::cout << "libblockfs: dispatch error on device lane" << std::endl;
+			continue;
 		}
 	}
 }
