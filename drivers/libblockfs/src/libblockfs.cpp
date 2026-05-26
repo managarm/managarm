@@ -4,6 +4,7 @@
 #include <string.h>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <sys/epoll.h>
 #include <linux/cdrom.h>
 #include <linux/fs.h>
@@ -155,13 +156,27 @@ struct HandlePartition {
 		}
 
 		auto &fs = *fsPtr;
+
+		auto isInvalidName = [](std::string_view name) {
+			return name.empty() || name == "." || name == "..";
+		};
+		if(isInvalidName(req.old_name()) || isInvalidName(req.new_name())) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+
 		auto oldInodeRaw = fs->accessInode(req.inode_source());
 		auto newInodeRaw = fs->accessInode(req.inode_target());
 
 		auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
 		auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
 
-		assert(!req.old_name().empty() && req.old_name() != "." && req.old_name() != "..");
 		auto old_result = co_await oldInode->findEntry(req.old_name());
 		if(!old_result) {
 			managarm::fs::SvrResponse resp;
