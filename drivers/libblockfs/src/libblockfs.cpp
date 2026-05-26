@@ -193,6 +193,45 @@ struct HandlePartition {
 		auto old_file = old_result.value();
 		managarm::fs::SvrResponse resp;
 		if(old_file) {
+			// If new_name names an existing directory, refuse to overwrite
+			// a non-empty one rather than corrupting it via removeEntry.
+			auto new_entry = co_await newInode->findEntry(req.new_name());
+			if(!new_entry) {
+				assert(new_entry.error() == protocols::fs::Error::notDirectory);
+				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
+			if(new_entry.value() && new_entry.value()->fileType == kTypeDirectory) {
+				auto target_inode = std::static_pointer_cast<ext2fs::Inode>(
+						fs->accessInode(new_entry.value()->inode));
+				auto isEmpty = co_await target_inode->isDirectoryEmpty();
+				if(!isEmpty) {
+					std::cout << "libblockfs: rename: isDirectoryEmpty failed: "
+						<< (int)isEmpty.error() << std::endl;
+					resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+				if(!isEmpty.value()) {
+					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
+
 			auto result = co_await newInode->removeEntry(req.new_name());
 			if(!result) {
 				if(result.error() == protocols::fs::Error::fileNotFound) {
