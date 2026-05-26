@@ -194,7 +194,7 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 		device = nic::rtl8168::makeShared(std::move(hwDevice));
 #ifdef __x86_64__
 	} else if(vendor_str->value == VENDOR_INTEL) {
-		device = nic::e1000::makeShared(std::move(hwDevice));
+		device = co_await nic::e1000::makeShared(std::move(hwDevice));
 #endif
 	} else {
 		std::cout << std::format("netserver: skipping PCI device {}:{}\n", vendor_str->value, device_str->value);

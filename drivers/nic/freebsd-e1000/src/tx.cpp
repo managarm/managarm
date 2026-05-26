@@ -37,7 +37,7 @@
 #define TARC_ERRATA_BIT (1 << 26)     /* Note from errata on 82574 */
 
 async::result<void> E1000Nic::txInit() {
-	uint64_t bus_addr = helix::ptrToPhysical(&_txd[0]);
+	uint64_t bus_addr = co_await dmaSpace_.iova_of(_txd);
 
 	/* Base and Len of TX Ring */
 	E1000_WRITE_REG(&_hw, E1000_TDLEN(0), TX_QUEUE_SIZE * sizeof(struct e1000_tx_desc));
