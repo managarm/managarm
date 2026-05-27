@@ -64,6 +64,9 @@ async::detached issueReset() {
 	auto preamble = bragi::read_preamble(hwResp);
 	assert(!preamble.error());
 
+	auto resp = *bragi::parse_head_only<managarm::hw::SvrResponse>(hwResp);
+	hwResp.reset();
+
 	std::vector<std::byte> tailBuffer(preamble.tail_size());
 	auto [recv_tail] = co_await helix_ng::exchangeMsgs(
 			offer.descriptor(),
@@ -72,8 +75,9 @@ async::detached issueReset() {
 
 	HEL_CHECK(recv_tail.error());
 
-	auto resp = *bragi::parse_head_tail<managarm::hw::SvrResponse>(hwResp, tailBuffer);
-	hwResp.reset();
+	bragi::limited_reader reader{tailBuffer.data(), tailBuffer.size()};
+	auto ok = resp.decode_tail(reader);
+	assert(ok);
 
 	assert(resp.error() == managarm::hw::Errors::SUCCESS);
 	throw std::runtime_error("Return from PM_RESET request");
