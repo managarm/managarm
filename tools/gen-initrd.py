@@ -79,6 +79,7 @@ add_file('usr/bin', 'usr/bin', 'posix-init')
 
 # Essential drivers.
 add_file('usr/lib', 'usr/lib', 'libblockfs.so')
+add_file('usr/lib', 'usr/lib', 'libsound.so')
 add_file('usr/bin', 'usr/bin', 'ehci')
 add_file('usr/bin', 'usr/bin', 'xhci')
 add_file('usr/bin', 'usr/bin', 'netserver')
@@ -87,6 +88,7 @@ add_file('usr/bin', 'usr/bin', 'block-nvme')
 add_file('usr/bin', 'usr/bin', 'storage')
 add_file('usr/bin', 'usr/bin', 'virtio-block')
 add_file('usr/bin', 'usr/bin', 'virtio-console')
+add_file('usr/bin', 'usr/bin', 'snd-hda')
 
 if args.arch == 'x86_64-managarm':
 	add_file('usr/bin', 'usr/bin', 'uhci')

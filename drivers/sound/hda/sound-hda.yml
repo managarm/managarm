@@ -1,0 +1,4 @@
+name: snd-hda
+exec: /usr/bin/snd-hda
+files:
+  - /usr/bin/snd-hda

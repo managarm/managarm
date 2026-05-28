@@ -226,6 +226,11 @@ int main() {
 		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/storage", nullptr);
 	}else assert(block_usb != -1);
 
+	auto snd_hda = fork();
+	if(!snd_hda) {
+		execl("/usr/bin/runsvr", "/usr/bin/runsvr", "runsvr", "/usr/bin/snd-hda", nullptr);
+	}else assert(snd_hda != -1);
+
 	Cmdline cmdlineHelper{};
 	auto cmdline = async::run(cmdlineHelper.get(), helix::currentDispatcher);
 
