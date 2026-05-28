@@ -285,7 +285,7 @@ initgraph::Task initPlicAcpi{
     initgraph::Requires{acpi::getTablesDiscoveredStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
-	    auto rsdp = getEirInfo()->acpiRsdp;
+	    auto rsdp = acpiRsdpNote->rsdp;
 	    if (!rsdp)
 		    return;
 

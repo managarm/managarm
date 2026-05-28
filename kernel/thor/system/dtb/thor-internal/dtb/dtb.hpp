@@ -15,6 +15,8 @@
 
 namespace thor {
 
+extern ManagarmElfNote<DtData> dtDataNote;
+
 namespace dt {
 struct IrqController;
 struct MbusNode;

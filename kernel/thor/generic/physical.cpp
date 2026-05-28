@@ -9,6 +9,7 @@ namespace thor {
 static bool logPhysicalAllocs = false;
 
 THOR_DEFINE_ELF_NOTE(memoryLayoutNote){elf_note_type::memoryLayout, {}};
+THOR_DEFINE_ELF_NOTE(physicalMemoryNote){elf_note_type::physicalMemory, {}};
 
 void poisonPhysicalAccess(PhysicalAddr physical) {
 	auto address = directPhysicalOffset() + physical;

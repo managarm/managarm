@@ -193,7 +193,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	initgraph::Requires{acpi::getTablesDiscoveredStage()},
 	initgraph::Entails{getBus0AvailableStage()},
 	[] {
-		if (!getEirInfo()->acpiRsdp)
+		if (!acpiRsdpNote->rsdp)
 			return;
 
 		uacpi_table mcfgTbl;
@@ -236,7 +236,7 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 	initgraph::Requires{getTaskingAvailableStage(), acpi::getNsAvailableStage()},
 	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
-		if (!getEirInfo()->acpiRsdp)
+		if (!acpiRsdpNote->rsdp)
 			return;
 
 		static const char *pciRootIds[] = {

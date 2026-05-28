@@ -11,6 +11,7 @@
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/fiber.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernel-heap.hpp>
@@ -600,6 +601,12 @@ void uacpi_kernel_unlock_spinlock(uacpi_handle opaque, uacpi_cpu_flags) {
 }
 
 uacpi_status uacpi_kernel_get_rsdp(uacpi_phys_addr *out_rsdp_address) {
-	*out_rsdp_address = getEirInfo()->acpiRsdp;
+	*out_rsdp_address = thor::acpiRsdpNote->rsdp;
 	return UACPI_STATUS_OK;
 }
+
+namespace thor {
+
+THOR_DEFINE_ELF_NOTE(acpiRsdpNote){elf_note_type::acpiData, {}};
+
+} // namespace thor

@@ -5,7 +5,6 @@
 
 namespace thor {
 
-EirInfo *getEirInfo();
 frg::string_view getKernelCmdline();
 
 struct GlobalInitEngine : public initgraph::Engine {

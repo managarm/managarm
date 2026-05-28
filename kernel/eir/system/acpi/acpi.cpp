@@ -13,7 +13,7 @@ initgraph::Task setupTables{
     &globalInitEngine,
     "acpi.setup-tables",
     initgraph::Requires{getRsdpAvailableStage()},
-    initgraph::Entails{getTablesAvailableStage()},
+    initgraph::Entails{getTablesAvailableStage(), getKernelLoadableStage()},
     [] {
 	    if (!eirRsdpAddr) {
 		    infoLogger() << "eir: No RSDP available, skipping ACPI table setup" << frg::endlog;
@@ -25,6 +25,7 @@ initgraph::Task setupTables{
 	    );
 
 	    haveTablesFlag = true;
+	    acpiDataNote.rsdp = eirRsdpAddr;
     }
 };
 

@@ -2,8 +2,10 @@
 
 #include <async/oneshot-event.hpp>
 #include <async/queue.hpp>
+#include <eir/interface.hpp>
 #include <initgraph.hpp>
 #include <smarter.hpp>
+#include <thor-internal/elf-notes.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/stream.hpp>
@@ -11,6 +13,8 @@
 #include <uacpi/utilities.h>
 
 namespace thor {
+
+extern ManagarmElfNote<AcpiData> acpiRsdpNote;
 
 // Stores the global IRQ information (GSI, trigger mode, polarity)
 // (in constrast to bus-specific information, e.g., for IRQs on the ISA bus).

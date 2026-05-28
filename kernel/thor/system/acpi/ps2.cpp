@@ -113,7 +113,7 @@ static initgraph::Task initPS2Task{
     "acpi.init-ps2",
     initgraph::Requires{getNsAvailableStage(), getAcpiFiberAvailableStage()},
     [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    initializePS2();

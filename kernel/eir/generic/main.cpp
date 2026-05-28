@@ -36,6 +36,12 @@ DebugCapabilities eirDebugCapabilities{};
 
 CpuConfig cpuConfig{0};
 DebugOptions debugOptions{};
+AcpiData acpiDataNote{};
+constinit DtData dtDataNote{};
+EirFramebuffer framebufferNote{};
+Initrd initrdNote{};
+PhysicalMemory physicalMemoryNote{};
+CommandLine commandLineNote{};
 
 // ----------------------------------------------------------------------------
 // Memory region management.
@@ -371,7 +377,7 @@ address_t bootstrapDataPointer = 0;
 
 address_t mapBootstrapData(void *p) {
 	if (!bootstrapDataPointer)
-		bootstrapDataPointer = getMemoryLayout().eirInfo;
+		bootstrapDataPointer = getMemoryLayout().bootstrapData;
 
 	auto pointer = bootstrapDataPointer;
 	bootstrapDataPointer += pageSize;
@@ -509,6 +515,36 @@ bool patchGenericManagarmElfNote(unsigned int type, frg::span<char> desc) {
 			panicLogger() << "DebugOptions size does not match ELF note" << frg::endlog;
 		memcpy(desc.data(), &debugOptions, sizeof(DebugOptions));
 		return true;
+	} else if (type == elf_note_type::acpiData) {
+		if (desc.size() != sizeof(AcpiData))
+			panicLogger() << "AcpiData size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &acpiDataNote, sizeof(AcpiData));
+		return true;
+	} else if (type == elf_note_type::dtData) {
+		if (desc.size() != sizeof(DtData))
+			panicLogger() << "DtData size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &dtDataNote, sizeof(DtData));
+		return true;
+	} else if (type == elf_note_type::framebuffer) {
+		if (desc.size() != sizeof(EirFramebuffer))
+			panicLogger() << "EirFramebuffer size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &framebufferNote, sizeof(EirFramebuffer));
+		return true;
+	} else if (type == elf_note_type::initrd) {
+		if (desc.size() != sizeof(Initrd))
+			panicLogger() << "Initrd size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &initrdNote, sizeof(Initrd));
+		return true;
+	} else if (type == elf_note_type::commandLine) {
+		if (desc.size() != sizeof(CommandLine))
+			panicLogger() << "CommandLine size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &commandLineNote, sizeof(CommandLine));
+		return true;
+	} else if (type == elf_note_type::physicalMemory) {
+		if (desc.size() != sizeof(PhysicalMemory))
+			panicLogger() << "PhysicalMemory size does not match ELF note" << frg::endlog;
+		memcpy(desc.data(), &physicalMemoryNote, sizeof(PhysicalMemory));
+		return true;
 	}
 	return false;
 }
@@ -614,98 +650,6 @@ void loadKernelImage(void *imagePtr) {
 
 namespace {
 
-void generateInfo() {
-	// Setup the eir interface struct.
-	auto info_ptr = bootAlloc<EirInfo>();
-	memset(info_ptr, 0, sizeof(EirInfo));
-	auto info_vaddr = mapBootstrapData(info_ptr);
-	assert(info_vaddr == getMemoryLayout().eirInfo);
-	info_ptr->signature = eirSignatureValue;
-
-	// Pass firmware tables.
-	if (eirRsdpAddr) {
-		info_ptr->acpiRsdp = eirRsdpAddr;
-	}
-	if (eirDtbPtr) {
-		DeviceTree dt{physToVirt<void>(eirDtbPtr)};
-		info_ptr->dtbPtr = eirDtbPtr;
-		info_ptr->dtbSize = dt.size();
-	}
-
-#ifdef __riscv
-	info_ptr->hartId = eirBootHartId;
-#endif
-
-	// Pass all memory regions to thor.
-	int n = 0;
-	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
-		if (regions[i].regionType == RegionType::allocatable)
-			n++;
-	}
-
-	auto regionInfos = bootAlloc<EirRegion>(n);
-	info_ptr->numRegions = n;
-	info_ptr->regionInfo = mapBootstrapData(regionInfos);
-	int j = 0;
-	for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
-		if (regions[i].regionType != RegionType::allocatable)
-			continue;
-
-		regionInfos[j].address = regions[i].address;
-		regionInfos[j].length = regions[i].size;
-		regionInfos[j].order = regions[i].order;
-		regionInfos[j].numRoots = regions[i].numRoots;
-		regionInfos[j].buddyTree = regions[i].buddyMap;
-		j++;
-	}
-
-	// Pass the command line to Thor.
-	auto cmdlineChunks = getCmdline();
-
-	// For each chunk: we either have a trailing space or null terminator.
-	auto cmdlineLength = cmdlineChunks.size();
-	for (auto chunk : cmdlineChunks)
-		cmdlineLength += chunk.size();
-
-	if (cmdlineLength > pageSize)
-		panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
-	auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
-
-	char *cmdlinePtr = cmdlineBuffer;
-	for (auto chunk : cmdlineChunks) {
-		if (!chunk.size())
-			continue;
-		if (cmdlinePtr != cmdlineBuffer)
-			*(cmdlinePtr++) = ' ';
-		memcpy(cmdlinePtr, chunk.data(), chunk.size());
-		cmdlinePtr += chunk.size();
-	}
-	*cmdlinePtr = '\0';
-
-	infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
-
-	info_ptr->commandLine = mapBootstrapData(cmdlineBuffer);
-
-	auto initrd_module = bootAlloc<EirModule>(1);
-	initrd_module->physicalBase = virtToPhys(initrd);
-	initrd_module->length = initrd_image.size();
-	const char *initrd_mod_name = "initrd.cpio";
-	size_t name_length = strlen(initrd_mod_name);
-	char *name_ptr = bootAlloc<char>(name_length);
-	memcpy(name_ptr, initrd_mod_name, name_length);
-	initrd_module->namePtr = mapBootstrapData(name_ptr);
-	initrd_module->nameLength = name_length;
-
-	info_ptr->moduleInfo = mapBootstrapData(initrd_module);
-
-	// Pass the framebuffer to thor.
-	auto *fb = getFramebuffer();
-	if (fb) {
-		info_ptr->frameBuffer = *fb;
-		info_ptr->frameBuffer.fbEarlyWindow = getKernelFrameBuffer();
-	}
-}
-
 static initgraph::Task parseCmdlineTask{
     &globalInitEngine,
     "generic.parse-cmdline",
@@ -742,13 +686,38 @@ static initgraph::Task parseCmdlineTask{
     }
 };
 
-static initgraph::Task generateInfoStruct{
+static initgraph::Task composeCommandLine{
     &globalInitEngine,
-    "generic.generate-thor-info-struct",
-    initgraph::Requires{
-        getInitrdAvailableStage(), getCmdlineAvailableStage(), getKernelLoadableStage()
-    },
-    [] { generateInfo(); }
+    "generic.compose-cmdline",
+    initgraph::Requires{getCmdlineAvailableStage(), getKernelMappableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
+	    auto cmdlineChunks = getCmdline();
+
+	    // For each chunk: we either have a trailing space or null terminator.
+	    auto cmdlineLength = cmdlineChunks.size();
+	    for (auto chunk : cmdlineChunks)
+		    cmdlineLength += chunk.size();
+
+	    if (cmdlineLength > pageSize)
+		    panicLogger() << "eir: Command line exceeds page size" << frg::endlog;
+	    auto cmdlineBuffer = bootAlloc<char>(cmdlineLength);
+
+	    char *cmdlinePtr = cmdlineBuffer;
+	    for (auto chunk : cmdlineChunks) {
+		    if (!chunk.size())
+			    continue;
+		    if (cmdlinePtr != cmdlineBuffer)
+			    *(cmdlinePtr++) = ' ';
+		    memcpy(cmdlinePtr, chunk.data(), chunk.size());
+		    cmdlinePtr += chunk.size();
+	    }
+	    *cmdlinePtr = '\0';
+
+	    infoLogger() << "eir: Kernel command line: '" << cmdlineBuffer << "'" << frg::endlog;
+
+	    commandLineNote.ptr = mapBootstrapData(cmdlineBuffer);
+    }
 };
 
 } // namespace

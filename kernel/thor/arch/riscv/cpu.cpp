@@ -230,7 +230,7 @@ void setupBootCpuContext() {
 	auto context = getCpuData(0);
 	writeToTp(context);
 
-	context->hartId = getEirInfo()->hartId;
+	context->hartId = riscvConfigNote->bspHartId;
 }
 
 static initgraph::Task probeSbiFeatures{

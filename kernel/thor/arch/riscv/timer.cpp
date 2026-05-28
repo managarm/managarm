@@ -27,7 +27,7 @@ initgraph::Task initTimerAcpi{
     initgraph::Requires{acpi::getTablesDiscoveredStage()},
     initgraph::Entails{getTaskingAvailableStage()},
     [] {
-	    if (!getEirInfo()->acpiRsdp)
+	    if (!acpiRsdpNote->rsdp)
 		    return;
 
 	    uint32_t freqSeconds;

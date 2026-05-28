@@ -4,8 +4,6 @@
 #include <frg/string.hpp>
 #include <stdint.h>
 
-static const uint64_t eirSignatureValue = 0x68692C2074686F72;
-
 static const uint32_t eirDebugSerial = 1;
 static const uint32_t eirDebugBochs = 2;
 static const uint32_t eirDebugKernelProfile = 16;
@@ -23,13 +21,6 @@ struct EirRegion {
 	EirPtr buddyTree;
 };
 
-struct EirModule {
-	EirPtr physicalBase;
-	EirSize length;
-	EirPtr namePtr;
-	EirSize nameLength;
-};
-
 struct EirFramebuffer {
 	EirPtr fbAddress;
 	EirPtr fbEarlyWindow;
@@ -38,24 +29,6 @@ struct EirFramebuffer {
 	EirSize fbHeight;
 	EirSize fbBpp;
 	EirSize fbType;
-};
-
-struct EirInfo {
-	uint64_t signature;
-	EirPtr commandLine;
-
-	uint64_t hartId;
-
-	EirSize numRegions;
-	EirPtr regionInfo;
-	EirPtr moduleInfo;
-
-	EirPtr dtbPtr;
-	EirSize dtbSize;
-
-	EirFramebuffer frameBuffer;
-
-	uint64_t acpiRsdp;
 };
 
 // Please keep this sorted.
@@ -153,6 +126,12 @@ constexpr unsigned int cpuConfig = 0x1000'0001;
 constexpr unsigned int smbiosData = 0x1000'0002;
 constexpr unsigned int bootUartConfig = 0x1000'0003;
 constexpr unsigned int debugOptions = 0x1000'0004;
+constexpr unsigned int acpiData = 0x1000'0005;
+constexpr unsigned int dtData = 0x1000'0006;
+constexpr unsigned int framebuffer = 0x1000'0007;
+constexpr unsigned int initrd = 0x1000'0008;
+constexpr unsigned int physicalMemory = 0x1000'0009;
+constexpr unsigned int commandLine = 0x1000'000a;
 // 0x11xx'xxxx range reserved for arch-specific configuration notes in Thor (write-only by Eir).
 // 0x1100'0xxx range reserved for x86.
 // 0x1100'1xxx range reserved for aarch64.
@@ -194,8 +173,10 @@ struct MemoryLayout {
 	// Address and size of the allocation log ring buffer.
 	uint64_t allocLog;
 	uint64_t allocLogSize;
-	// Address of the EirInfo struct.
-	uint64_t eirInfo;
+	// Base address of the bootstrap data area: a region of Thor's virtual address
+	// space into which Eir maps variable-length boot information (e.g., the kernel
+	// command line and the physical memory map) before handing off to Thor.
+	uint64_t bootstrapData;
 };
 
 struct RiscvConfig {
@@ -203,7 +184,9 @@ struct RiscvConfig {
 	// 3 for Sv39,
 	// 4 for Sv48,
 	// 5 for Sv57.
-	int numPtLevels{0};
+	int32_t numPtLevels{0};
+	uint32_t pad{0};
+	uint64_t bspHartId{0};
 };
 
 struct RiscvHartCaps {
@@ -253,4 +236,30 @@ struct DebugOptions {
 
 struct DebugCapabilities {
 	bool kasan = false;
+};
+
+struct AcpiData {
+	uint64_t rsdp = 0;
+};
+
+struct DtData {
+	uint64_t address = 0;
+	uint64_t size = 0;
+};
+
+struct Initrd {
+	uint64_t physicalBase = 0;
+	uint64_t length = 0;
+};
+
+struct PhysicalMemory {
+	// Number of regions in the array pointed to by regionInfo.
+	uint64_t numRegions = 0;
+	// Virtual address of an EirRegion[numRegions] array in the bootstrap data area.
+	uint64_t regionInfo = 0;
+};
+
+struct CommandLine {
+	// Virtual address of a null-terminated string in the bootstrap data area.
+	uint64_t ptr = 0;
 };

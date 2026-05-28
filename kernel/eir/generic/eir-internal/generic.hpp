@@ -15,6 +15,12 @@ extern address_t kernel_physical;
 extern frg::span<uint8_t> initrd_image;
 
 extern CpuConfig cpuConfig;
+extern AcpiData acpiDataNote;
+extern DtData dtDataNote;
+extern EirFramebuffer framebufferNote;
+extern Initrd initrdNote;
+extern PhysicalMemory physicalMemoryNote;
+extern CommandLine commandLineNote;
 
 enum class RegionType { null, unconstructed, allocatable };
 

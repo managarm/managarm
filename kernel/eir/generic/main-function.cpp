@@ -74,10 +74,12 @@ static initgraph::Task parseInitrdInfo{
     &globalInitEngine,
     "generic.parse-initrd",
     initgraph::Requires{getInitrdAvailableStage()},
-    initgraph::Entails{getReservedRegionsKnownStage()},
+    initgraph::Entails{getReservedRegionsKnownStage(), getKernelLoadableStage()},
     [] {
 	    assert(initrd);
 	    parseInitrd(initrd);
+	    initrdNote.physicalBase = virtToPhys(initrd);
+	    initrdNote.length = initrd_image.size();
     }
 };
 
@@ -113,11 +115,35 @@ static initgraph::Task setupPageTables{
 };
 
 static initgraph::Task mapRegions{
-    &globalInitEngine, "generic.map-regions", initgraph::Requires{getKernelMappableStage()}, [] {
+    &globalInitEngine,
+    "generic.map-regions",
+    initgraph::Requires{getKernelMappableStage()},
+    initgraph::Entails{getKernelLoadableStage()},
+    [] {
 	    mapRegionsAndStructs();
 #ifdef KERNEL_LOG_ALLOCATIONS
 	    allocLogRingBuffer();
 #endif
+
+	    int n = 0;
+	    for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
+		    if (regions[i].regionType == RegionType::allocatable)
+			    n++;
+	    }
+	    auto regionInfos = bootAlloc<EirRegion>(n);
+	    int j = 0;
+	    for (size_t i = 0; i < eirMaxMemoryRegions; ++i) {
+		    if (regions[i].regionType != RegionType::allocatable)
+			    continue;
+		    regionInfos[j].address = regions[i].address;
+		    regionInfos[j].length = regions[i].size;
+		    regionInfos[j].order = regions[i].order;
+		    regionInfos[j].numRoots = regions[i].numRoots;
+		    regionInfos[j].buddyTree = regions[i].buddyMap;
+		    j++;
+	    }
+	    physicalMemoryNote.numRegions = n;
+	    physicalMemoryNote.regionInfo = mapBootstrapData(regionInfos);
     }
 };
 
@@ -170,6 +196,9 @@ static initgraph::Task prepareFramebufferForThor{
 			    );
 		    mapKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
 		    unpoisonKasanShadow(getKernelFrameBuffer(), fb->fbPitch * fb->fbHeight);
+
+		    framebufferNote = *fb;
+		    framebufferNote.fbEarlyWindow = getKernelFrameBuffer();
 	    }
     }
 };
