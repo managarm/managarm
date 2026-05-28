@@ -126,8 +126,11 @@ void uploadRaspberryPi4Vl805Firmware(PciDevice *dev) {
 	// Not a VL805.
 	if (dev->deviceId != 0x3483) return;
 
+	auto root = getDeviceTreeRoot();
+	if (!root) return;
+
 	DeviceTreeNode *rpiFwResetNode = nullptr;
-	getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	root->forEach([&](DeviceTreeNode *node) -> bool {
 		if (node->isCompatible<1>({"raspberrypi,firmware-reset"})) {
 			rpiFwResetNode = node;
 			return true;
@@ -140,7 +143,7 @@ void uploadRaspberryPi4Vl805Firmware(PciDevice *dev) {
 	if (!rpiFwResetNode) return;
 
 	DeviceTreeNode *rpiMboxNode = nullptr;
-	getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+	root->forEach([&](DeviceTreeNode *node) -> bool {
 		if (node->isCompatible<1>({"brcm,bcm2835-mbox"})) {
 			rpiMboxNode = node;
 			return true;

@@ -2,8 +2,14 @@
 
 #include <thor-internal/arch/gic.hpp>
 #include <frg/manual_box.hpp>
+#include <frg/span.hpp>
 
 namespace thor {
+
+struct GicRedistributorRange {
+	uintptr_t address;
+	size_t size;
+};
 
 struct GicDistributorV3;
 
@@ -71,12 +77,18 @@ struct GicV3 : public Gic {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
 	Pin *getPin(uint32_t irq) override;
+	uint32_t irqCount() override;
 
 private:
 	frg::vector<GicPinV3 *, KernelAlloc> irqPins_;
 };
 
 bool initGicV3();
+bool initGicV3FromAcpi(
+    uintptr_t distributor,
+    size_t distributorSize,
+    frg::span<const GicRedistributorRange> redistributorRanges
+);
 void initGicOnThisCpuV3();
 
 }
