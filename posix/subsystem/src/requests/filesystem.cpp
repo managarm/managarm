@@ -674,7 +674,10 @@ HandleRequest::operator()(managarm::posix::RenameAtRequest &&req,
 
 	auto superblock = resolver.currentLink()->getTarget()->superblock();
 	auto directory = new_resolver.currentLink()->getTarget();
-	assert(superblock == directory->superblock());
+	if(superblock != directory->superblock()) {
+		co_await sendErrorResponse(conversation, managarm::posix::Errors::CROSS_DEVICE_LINK);
+		co_return {};
+	}
 	auto result = co_await superblock->rename(resolver.currentLink().get(),
 			directory.get(), new_resolver.nextComponent());
 	if(!result) {
