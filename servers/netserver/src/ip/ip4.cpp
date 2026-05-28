@@ -13,11 +13,19 @@
 #include <iostream>
 #include <iomanip>
 #include <protocols/fs/server.hpp>
+#include <helix/timer.hpp>
 #include <queue>
 
 using namespace protocols::fs;
 
 using Route = Ip4Router::Route;
+
+namespace {
+
+constexpr uint64_t fragmentExpiryTimeoutNs = uint64_t{30} * 1'000'000'000;
+constexpr uint64_t fragmentRouteExpiryTimeoutTicks = 4;
+
+} // anonymous namespace
 
 Ip4Router &ip4Router() {
 	static Ip4Router inst;
@@ -79,7 +87,11 @@ bool operator==(const Route &lhs, const Route &rhs) {
 	return operator<=>(lhs, rhs) == 0;
 }
 
-bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
+bool Ip4::FragmentRouteIdentification::operator<(const FragmentRouteIdentification &rhs) const {
+	return std::tie(sourceIp, destIp, protocol) < std::tie(rhs.sourceIp, rhs.destIp, rhs.protocol);
+}
+
+bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool resizeData) {
 	buffer_ = std::move(owner);
 	data = frame;
 	if (data.size() < sizeof(header)) {
@@ -94,8 +106,15 @@ bool Ip4Packet::parse(arch::dma_buffer owner, arch::dma_buffer_view frame) {
 	header.ensureEndian();
 
 	header.ihl = header.ihl & 0x0f;
-	// ensure we only access the correct parts of the buffer
-	data = data.subview(0, header.length);
+
+	// if this is a normal non-fragmented packet (fragmented packets may exceed header.length)
+	// ensure we only access the correct parts of the buffer.
+	if (resizeData)
+		data = data.subview(0, header.length);
+
+	if (data.size() < header.ihl * 4) {
+		return false;
+	}
 
 	Checksum csum;
 	csum.update(header_view());
@@ -241,9 +260,13 @@ async::result<frg::expected<protocols::fs::Error, size_t>> Ip4Socket::sendmsg(vo
 }
 
 Ip4::Ip4()
-: icmp{std::make_unique<Icmp>()},
+: fragmentIdentPrng{std::random_device{}()},
+	icmp{std::make_unique<Icmp>()},
 	tcp{std::make_unique<Tcp4>()},
-	udp{std::make_unique<Udp4>()} {}
+	udp{std::make_unique<Udp4>()} {
+
+	fragmentTimer_();
+}
 
 async::result<std::optional<Ip4TargetInfo>>
 Ip4::targetByRemote(uint32_t remote, std::shared_ptr<nic::Link> link) {
@@ -289,65 +312,109 @@ async::result<protocols::fs::Error> Ip4::sendFrame(Ip4TargetInfo ti,
 	using arch::convert_endian;
 	using arch::endian;
 
-	// TODO(arsen): fragmentation
 	// calculate header size
 	size_t header_size = sizeof(Ip4Packet::Header);
-	size_t packet_size = len + header_size;
+	size_t fragmentMtu = len + header_size;
+
 	// TODO(arsen): options
-	if (ti.route.mtu != 0 && ti.route.mtu < packet_size) {
-		std::cout << "netserver: cant fragment 1" << std::endl;
-		co_return protocols::fs::Error::messageSize;
+	if (ti.route.mtu != 0 && ti.route.mtu < fragmentMtu) {
+		fragmentMtu = ti.route.mtu;
 	}
 
 	auto &target = ti.link;
-	if (target->mtu < packet_size) {
-		std::cout << "netserver: cant fragment 2" << std::endl;
-		co_return protocols::fs::Error::messageSize;
+	if (target->mtu < fragmentMtu) {
+		fragmentMtu = target->mtu;
 	}
 
-	Ip4Packet::Header hdr;
-	// TODO(arsen): options
-	hdr.ihl = 0x45;
-	hdr.tos = 0;
-	hdr.length = packet_size;
-	// TODO(arsen): fragmentation
-	hdr.flags_offset = 0;
-	hdr.ttl = 64;
-	hdr.protocol = proto;
-	// filled out later, 0 for purposes of computation
-	hdr.checksum = 0;
-	hdr.source = ti.source;
-	hdr.destination = ti.remote;
-
-	hdr.ensureEndian();
-
-	Checksum chk;
-	// TODO(arsen): accomodate for options
-	chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
-	hdr.checksum = convert_endian<endian::big>(chk.finalize());
-
-	nic::Link::AllocatedBuffer fb;
-
+	std::optional<nic::MacAddress> mac;
 	if(!target->rawIp()) {
 		auto macTarget = ti.route.gateway;
 		if (macTarget == 0) {
 			macTarget = ti.remote;
 		}
 
-		auto mac = co_await neigh4().tryResolve(macTarget, ti.source);
+		mac = co_await neigh4().tryResolve(macTarget, ti.source);
 		if (!mac) {
 			co_return protocols::fs::Error::hostUnreachable;
 		}
-
-		fb = target->allocateFrame(*mac, nic::ETHER_TYPE_IP4, packet_size);
-	} else {
-		fb = target->allocateFrame(packet_size);
 	}
 
-	std::memcpy(fb.payload.data(), &hdr, sizeof(hdr));
-	std::memcpy(fb.payload.subview(header_size).byte_data(), data, len);
+	if(fragmentMtu < header_size + 8) {
+		std::cout << "netserver: fragment MTU is less than IP header size + 8"
+			<< std::endl;
+		co_return protocols::fs::Error::messageSize;
+	}
 
-	co_await target->send(std::move(fb.frame));
+	Ip4Packet::Header originalHdr;
+	// TODO(arsen): options
+	originalHdr.ihl = 0x45;
+	originalHdr.tos = 0;
+	originalHdr.length = 0;
+	originalHdr.ident = 0;
+	originalHdr.flags_offset = 0;
+	originalHdr.ttl = 64;
+	originalHdr.protocol = proto;
+	// filled out later, 0 for purposes of computation
+	originalHdr.checksum = 0;
+	originalHdr.source = ti.source;
+	originalHdr.destination = ti.remote;
+
+	size_t fragment8Bytes = (fragmentMtu - header_size) / 8;
+
+	// If the data fits to one packet increment fragment8Bytes to make sure that the data
+	// is fully sent in one packet even if the length is not evenly divisible by 8.
+	if(len <= fragmentMtu - header_size) {
+		fragment8Bytes++;
+	} else {
+		// The data is fragmented and needs an identifier.
+
+		FragmentRouteIdentification identification{
+			.sourceIp = ti.source,
+			.destIp = ti.remote,
+			.protocol = static_cast<uint8_t>(proto)
+		};
+
+		auto fragmentRoute = getOrCreateFragmentRoute_(identification);
+		originalHdr.ident = fragmentRoute->sendIdent++;
+	}
+
+	size_t progress = 0;
+	do {
+		size_t fragmentLength = std::min(len - progress, fragment8Bytes * 8);
+		bool last = fragmentLength == len - progress;
+
+		Ip4Packet::Header hdr = originalHdr;
+
+		hdr.length = fragmentLength + header_size;
+		if (!last) {
+			hdr.flags_offset |= ip4FlagMoreFragments << 13;
+		}
+
+		hdr.flags_offset |= (progress / 8);
+
+		hdr.ensureEndian();
+
+		Checksum chk;
+		// TODO(arsen): accomodate for options
+		chk.update(reinterpret_cast<void *>(&hdr), sizeof(hdr));
+		hdr.checksum = convert_endian<endian::big>(chk.finalize());
+
+		nic::Link::AllocatedBuffer fb;
+		if(mac) {
+			fb = target->allocateFrame(*mac, nic::ETHER_TYPE_IP4, fragmentLength + header_size);
+		} else {
+			fb = target->allocateFrame(fragmentLength + header_size);
+		}
+
+		auto dataPtr = reinterpret_cast<const char *>(data) + progress;
+		std::memcpy(fb.payload.data(), &hdr, sizeof(hdr));
+		std::memcpy(fb.payload.subview(header_size).byte_data(), dataPtr, fragmentLength);
+
+		co_await target->send(std::move(fb.frame));
+
+		progress += fragmentLength;
+	} while (progress < len);
+
 	co_return protocols::fs::Error::none;
 }
 
@@ -356,7 +423,7 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 	Ip4Packet hdr{};
 	hdr.link = link;
 
-	if (!hdr.parse(std::move(owner), frame)) {
+	if (!hdr.parse(std::move(owner), frame, true)) {
 		std::cout << "netserver: runt, or otherwise invalid, ip4 frame received"
 			<< std::endl;
 		return;
@@ -368,6 +435,112 @@ void Ip4::feedPacket(nic::MacAddress, nic::MacAddress,
 			&& proto != static_cast<uint16_t>(IpProto::udp)
 			&& proto != static_cast<uint16_t>(IpProto::tcp)) {
 		return;
+	}
+
+	uint8_t flags = hdr.header.flags_offset >> 13;
+	uint16_t fragmentOffset = hdr.header.flags_offset & 0x1fff;
+
+	if (fragmentOffset != 0 || (flags & ip4FlagMoreFragments)) {
+		FragmentRouteIdentification routeIdentification{
+			.sourceIp = hdr.header.source,
+			.destIp = hdr.header.destination,
+			.protocol = hdr.header.protocol
+		};
+
+		uint16_t fragmentIdent = hdr.header.ident;
+
+		auto fragmentRoute = getOrCreateFragmentRoute_(routeIdentification);
+
+		auto &fragmentedPackets = fragmentRoute->receivedPackets;
+		auto fragmentPacketInsertResult = fragmentedPackets.insert({fragmentIdent, FragmentedPacket{}});
+		auto fragmentedPacket = &fragmentPacketInsertResult.first->second;
+
+		// If this is the first packet set the timer tick.
+		if (fragmentPacketInsertResult.second)
+			fragmentedPacket->packetReceivedTimerTick = fragmentTimerTick;
+
+		uint32_t fragmentOffsetBytes = static_cast<uint32_t>(fragmentOffset) * 8;
+		uint32_t fragmentSize = hdr.payload().size();
+
+		if (fragmentSize != 0) {
+			auto it = std::find_if(fragmentedPacket->fragments.begin(), fragmentedPacket->fragments.end(),
+					[&](const auto &existing) {
+				auto start = existing.first;
+				auto end = start + existing.second.size;
+				return fragmentOffsetBytes < end && start < fragmentOffsetBytes + fragmentSize;
+			});
+
+			if (it != fragmentedPacket->fragments.end()) {
+				std::cout << "netserver: received multiple overlapping fragments"
+					<< std::endl;
+				return;
+			}
+
+			auto result = fragmentedPacket->fragments.insert({fragmentOffsetBytes, {fragmentSize}});
+			assert(result.second);
+		}
+
+		size_t end = fragmentOffsetBytes + fragmentSize;
+		if (end > fragmentedPacket->data.size()) {
+			if (fragmentedPacket->lastReceived) {
+				std::cout << "netserver: received invalid packet fragment exceeding final packet size"
+					<< std::endl;
+				return;
+			}
+
+			fragmentedPacket->data.resize(end);
+		}
+
+		memcpy(fragmentedPacket->data.data() + fragmentOffsetBytes, hdr.payload().data(), fragmentSize);
+
+		if (!(flags & ip4FlagMoreFragments)) {
+			if (fragmentedPacket->lastReceived) {
+				std::cout << "netserver: received multiple fragmented end packets"
+					<< std::endl;
+				return;
+			}
+
+			fragmentedPacket->lastReceived = true;
+		}
+
+		if (fragmentedPacket->lastReceived) {
+			uint32_t progress = 0;
+			while (progress < fragmentedPacket->data.size()) {
+				auto it = fragmentedPacket->fragments.find(progress);
+				if (it == fragmentedPacket->fragments.end()) {
+					return;
+				}
+
+				progress += it->second.size;
+			}
+
+			arch::dma_buffer buffer{nullptr, fragmentedPacket->data.size() + sizeof(Ip4Packet::Header)};
+			memcpy(static_cast<char *>(buffer.data()) + sizeof(Ip4Packet::Header), fragmentedPacket->data.data(),
+					fragmentedPacket->data.size());
+
+			auto newHdr = hdr.header;
+			newHdr.ihl = 0x45;
+			newHdr.flags_offset = 0;
+			newHdr.checksum = 0;
+			newHdr.length = std::min<size_t>(fragmentedPacket->data.size() + sizeof(Ip4Packet::Header), UINT16_MAX);
+			newHdr.ensureEndian();
+
+			Checksum chk;
+			chk.update(&newHdr, sizeof(newHdr));
+			newHdr.checksum = arch::convert_endian<arch::endian::big>(chk.finalize());
+
+			memcpy(buffer.data(), &newHdr, sizeof(newHdr));
+
+			arch::dma_buffer_view view = buffer;
+
+			// The header is already parsed once so it has to be valid.
+			bool hdrParseResult = hdr.parse(std::move(buffer), view, false);
+			assert(hdrParseResult);
+
+			fragmentedPackets.erase(fragmentIdent);
+		} else {
+			return;
+		}
 	}
 
 	auto hdrs = smarter::make_shared<const Ip4Packet>(std::move(hdr));
@@ -470,5 +643,57 @@ managarm::fs::Errors Ip4::serveSocket(helix::UniqueLane ctrlLane, helix::UniqueL
 		return managarm::fs::Errors::SUCCESS;
 	default:
 		return managarm::fs::Errors::ILLEGAL_ARGUMENT;
+	}
+}
+
+Ip4::FragmentRouteInfo *Ip4::getOrCreateFragmentRoute_(const FragmentRouteIdentification &ident) {
+	static std::uniform_int_distribution<uint16_t> dist{
+		0, 0xffff
+	};
+
+	if(auto it = fragmentRoutes.find(ident); it != fragmentRoutes.end()) {
+		it->second.lastAccessedTimerTick = fragmentTimerTick;
+		return &it->second;
+	} else {
+		FragmentRouteInfo fragmentRouteInfo{};
+
+		fragmentRouteInfo.sendIdent = dist(fragmentIdentPrng);
+		fragmentRouteInfo.lastAccessedTimerTick = fragmentTimerTick;
+
+		return &fragmentRoutes.insert({ident, std::move(fragmentRouteInfo)}).first->second;
+	}
+}
+
+async::detached Ip4::fragmentTimer_() {
+	std::cout << "netserver: starting fragment timer" << std::endl;
+
+	while (true) {
+		co_await helix::sleepFor(fragmentExpiryTimeoutNs);
+
+		for (auto routeIt = fragmentRoutes.begin(); routeIt != fragmentRoutes.end();) {
+			auto &route = routeIt->second;
+
+			// Discard fragment routes if they aren't active anymore.
+			if (route.lastAccessedTimerTick + fragmentRouteExpiryTimeoutTicks < fragmentTimerTick) {
+				routeIt = fragmentRoutes.erase(routeIt);
+				continue;
+			}
+
+			auto &fragmentedPackets = route.receivedPackets;
+			for (auto it = fragmentedPackets.begin(); it != fragmentedPackets.end();) {
+				auto &packet = it->second;
+				if (packet.packetReceivedTimerTick != fragmentTimerTick) {
+					std::cout << "netserver: discarding fragmented packet due to timeout" << std::endl;
+					it = fragmentedPackets.erase(it);
+				}
+				else {
+					it++;
+				}
+			}
+
+			routeIt++;
+		}
+
+		fragmentTimerTick++;
 	}
 }

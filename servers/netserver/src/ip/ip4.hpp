@@ -4,6 +4,7 @@
 #include <arch/dma_structs.hpp>
 #include <helix/ipc.hpp>
 #include <map>
+#include <unordered_map>
 #include <smarter.hpp>
 #include <netserver/nic.hpp>
 #include <protocols/fs/common.hpp>
@@ -11,6 +12,8 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <random>
+#include <vector>
 
 #include <netserver/nic.hpp>
 #include "fs.bragi.hpp"
@@ -73,6 +76,11 @@ private:
 	std::set<Route> routes;
 };
 
+enum Ip4Flags {
+	ip4FlagMoreFragments = 1 << 0,
+	ip4FlagDontFragment = 1 << 1
+};
+
 class Ip4Packet {
 	arch::dma_buffer buffer_;
 public:
@@ -118,7 +126,7 @@ public:
 	}
 
 	// assumes frame is a valid view into owner
-	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame);
+	bool parse(arch::dma_buffer owner, arch::dma_buffer_view frame, bool resizeData);
 };
 
 struct Ip4TargetInfo {
@@ -150,8 +158,42 @@ struct Ip4 {
 		void*, size_t,
 		uint16_t);
 private:
+	struct FragmentedPacket {
+		struct Fragment {
+			uint32_t size;
+		};
+
+		std::vector<char> data;
+		std::unordered_map<uint32_t, Fragment> fragments;
+		uint64_t packetReceivedTimerTick;
+		bool lastReceived;
+	};
+
+	struct FragmentRouteIdentification {
+		uint32_t sourceIp;
+		uint32_t destIp;
+		uint8_t protocol;
+
+		bool operator<(const FragmentRouteIdentification &rhs) const;
+	};
+
+	struct FragmentRouteInfo {
+		std::unordered_map<uint16_t, FragmentedPacket> receivedPackets;
+		uint16_t sendIdent;
+		uint64_t lastAccessedTimerTick;
+	};
+
+	FragmentRouteInfo *getOrCreateFragmentRoute_(const FragmentRouteIdentification &ident);
+
+	async::detached fragmentTimer_();
+
+	// TODO: Use a CSPRNG, see also TCP/UDP.
+	std::mt19937 fragmentIdentPrng;
+	uint64_t fragmentTimerTick = 0;
+
 	std::multimap<int, smarter::shared_ptr<Ip4Socket>> sockets;
 	std::map<CidrAddress, std::weak_ptr<nic::Link>> ips;
+	std::map<FragmentRouteIdentification, FragmentRouteInfo> fragmentRoutes;
 
 	std::unique_ptr<Icmp> icmp;
 	std::unique_ptr<Tcp4> tcp;
