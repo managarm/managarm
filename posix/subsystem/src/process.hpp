@@ -734,7 +734,7 @@ private:
 	std::array<char, 16> credentials_{};
 };
 
-std::shared_ptr<Process> findProcessWithCredentials(helix_ng::CredentialsView);
+std::optional<std::shared_ptr<Process>> findProcessWithCredentials(helix_ng::CredentialsView);
 
 struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	friend struct Process;

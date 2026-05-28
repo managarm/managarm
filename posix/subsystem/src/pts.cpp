@@ -652,7 +652,20 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 		HEL_CHECK(extractCreds.error());
 
 		auto creds = extractCreds.credentials();
-		auto process = findProcessWithCredentials(creds);
+		auto maybeProcess = findProcessWithCredentials(creds);
+		if(!maybeProcess) {
+			std::cout << "posix: TIOCSCTTY with unknown process credentials" << std::endl;
+			managarm::fs::GenericIoctlReply resp;
+			resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			auto ser = resp.SerializeAsString();
+			auto [sendResp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(sendResp.error());
+			co_return;
+		}
+		auto process = *maybeProcess;
 
 		managarm::fs::GenericIoctlReply resp;
 		if(auto e = cts.assignSessionOf(process.get()); e == Error::illegalArguments) {
@@ -681,7 +694,18 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 		HEL_CHECK(extractCreds.error());
 
 		auto creds = extractCreds.credentials();
-		auto process = findProcessWithCredentials(creds);
+		auto maybeProcess = findProcessWithCredentials(creds);
+		if(!maybeProcess) {
+			std::cout << "posix: TIOCNOTTY with unknown process credentials" << std::endl;
+			resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+		auto process = *maybeProcess;
 
 		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
@@ -709,7 +733,19 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 		HEL_CHECK(extractCreds.error());
 
 		auto creds = extractCreds.credentials();
-		auto process = findProcessWithCredentials(creds);
+		auto maybeProcess = findProcessWithCredentials(creds);
+		if(!maybeProcess) {
+			std::cout << "posix: TIOCGPGRP with unknown process credentials" << std::endl;
+			resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+		auto process = *maybeProcess;
 
 		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
@@ -753,7 +789,17 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 		}
 
 		auto creds = extractCreds.credentials();
-		auto process = findProcessWithCredentials(creds);
+		auto maybeProcess = findProcessWithCredentials(creds);
+		if(!maybeProcess) {
+			std::cout << "posix: TIOCSPGRP with unknown process credentials" << std::endl;
+			resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+		auto process = *maybeProcess;
 		if (!cts.getSession()
 				|| process->pgPointer()->getSession()->getSessionId()
 						!= cts.getSession()->getSessionId()
@@ -810,7 +856,19 @@ Channel::commonIoctl(managarm::fs::GenericIoctlRequest req, helix::BorrowedDescr
 		HEL_CHECK(extractCreds.error());
 
 		auto creds = extractCreds.credentials();
-		auto process = findProcessWithCredentials(creds);
+		auto maybeProcess = findProcessWithCredentials(creds);
+		if(!maybeProcess) {
+			std::cout << "posix: TIOCGSID with unknown process credentials" << std::endl;
+			resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(
+				conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size())
+			);
+			HEL_CHECK(send_resp.error());
+			co_return;
+		}
+		auto process = *maybeProcess;
 
 		if(&cts != process->pgPointer()->getSession()->getControllingTerminal()) {
 			resp.set_error(managarm::fs::Errors::NOT_A_TERMINAL);
