@@ -71,6 +71,7 @@ else:
 	add_file('usr/lib64', 'usr/lib64', 'libstdc++.so.6')
 
 # User-space core components.
+add_file('usr/bin', 'usr/bin', 'sif')
 add_file('usr/bin', 'usr/bin', 'mbus')
 add_file('usr/bin', 'usr/bin', 'kernletcc')
 add_file('usr/bin', 'usr/bin', 'clocktracker')

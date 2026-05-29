@@ -5,6 +5,7 @@
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/address-space.hpp>
 #include <thor-internal/acpi/acpi.hpp>
+#include <thor-internal/debug.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/pci/pci_legacy.hpp>
 #include <thor-internal/pci/pcie_ecam.hpp>
@@ -195,6 +196,8 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "pci.discover-a
 	[] {
 		if (!acpiRsdpNote->rsdp)
 			return;
+		if (debugOptionsNote->useSif)
+			return;
 
 		uacpi_table mcfgTbl;
 
@@ -237,6 +240,8 @@ static initgraph::Task discoverAcpiRootBuses{&globalInitEngine, "pci.discover-ac
 	initgraph::Entails{getRootsDiscoveredStage()},
 	[] {
 		if (!acpiRsdpNote->rsdp)
+			return;
+		if (debugOptionsNote->useSif)
 			return;
 
 		static const char *pciRootIds[] = {

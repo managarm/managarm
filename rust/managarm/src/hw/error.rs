@@ -6,6 +6,7 @@ pub enum Error {
     IllegalArguments,
     ResourceExhaustion,
     DeviceError,
+    PropertyNotFound,
     HelError(hel::Error),
     IoError(std::io::Error),
 }
@@ -17,6 +18,7 @@ impl std::fmt::Display for Error {
             Error::IllegalArguments => write!(f, "Illegal arguments"),
             Error::ResourceExhaustion => write!(f, "Resource exhaustion"),
             Error::DeviceError => write!(f, "Device error"),
+            Error::PropertyNotFound => write!(f, "Property not found"),
             Error::HelError(err) => write!(f, "Hel error: {:?}", err),
             Error::IoError(err) => write!(f, "IO error: {}", err),
         }
@@ -41,6 +43,7 @@ impl From<Errors> for Error {
             Errors::IllegalArguments => Error::IllegalArguments,
             Errors::ResourceExhaustion => Error::ResourceExhaustion,
             Errors::DeviceError => Error::DeviceError,
+            Errors::PropertyNotFound => Error::PropertyNotFound,
         }
     }
 }

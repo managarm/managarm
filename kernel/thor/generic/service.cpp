@@ -10,6 +10,7 @@
 #include <thor-internal/gdbserver.hpp>
 #include <thor-internal/load-balancing.hpp>
 #include <thor-internal/module.hpp>
+#include <thor-internal/random.hpp>
 #include <thor-internal/servers.hpp>
 #include <thor-internal/stream.hpp>
 #include <protocols/posix/data.hpp>
@@ -22,6 +23,11 @@
 namespace thor {
 
 extern frg::manual_box<LaneHandle> mbusClient;
+
+coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
+		MfsRegular **out);
+
+static MfsRegular *urandomNode = nullptr;
 
 void runService(frg::string<KernelAlloc> name, LaneHandle controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
 
@@ -354,6 +360,74 @@ namespace initrd {
 	}
 } // namepace initrd
 
+namespace urandom {
+	struct OpenUrandom : OpenFile { };
+
+	coroutine<void> runUrandomRequests(OpenUrandom *, LaneHandle lane) {
+		while(true) {
+			auto [acceptError, conversation] = co_await accept(lane);
+			if(acceptError == Error::endOfLane)
+				break;
+			if(acceptError != Error::success) {
+				infoLogger() << "thor: Could not accept urandom lane" << frg::endlog;
+				co_return;
+			}
+			auto [reqError, reqBuffer] = co_await recvBuffer(conversation);
+			if(reqError != Error::success) {
+				infoLogger() << "thor: Could not receive urandom request" << frg::endlog;
+				co_return;
+			}
+
+			auto preamble = bragi::read_preamble(reqBuffer);
+			if(preamble.error()) {
+				infoLogger() << "thor: failed to decode preamble" << frg::endlog;
+				co_return;
+			}
+
+			if(preamble.id() == managarm::fs::ReadRequest<KernelAlloc>::message_id) {
+				auto req = bragi::parse_head_only<managarm::fs::ReadRequest>(
+						reqBuffer, *kernelAlloc);
+				if(!req) {
+					infoLogger() << "thor: Could not parse urandom request" << frg::endlog;
+					co_return;
+				}
+
+				auto [credsError, credentials] = co_await extractCredentials(conversation);
+				if(credsError != Error::success) {
+					infoLogger() << "thor: Could not receive urandom credentials"
+							<< frg::endlog;
+					co_return;
+				}
+
+				frg::unique_memory<KernelAlloc> dataBuffer{*kernelAlloc, req->size()};
+				generateRandomBytes(dataBuffer.data(), dataBuffer.size());
+
+				managarm::fs::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
+
+				auto dataError = co_await sendBuffer(conversation, std::move(dataBuffer));
+				// TODO: improve error handling here.
+				assert(dataError == Error::success);
+			}else{
+				urgentLogger() << "thor: Illegal request ID " << preamble.id()
+						<< " for kernel provided urandom file" << frg::endlog;
+
+				auto dismissError = co_await dismiss(conversation);
+				// TODO: improve error handling here.
+				assert(dismissError == Error::success);
+			}
+		}
+	}
+} // namespace urandom
+
 namespace posix {
 	struct ThreadInfo {
 		smarter::shared_ptr<Thread, ActiveHandle> thread;
@@ -469,9 +543,6 @@ namespace posix {
 			assert(!preamble.error());
 
 			if(preamble.id() == bragi::message_id<managarm::posix::CntRequest>) {
-				// This case is only really needed to return an error from SIG_ACTION,
-				// since mlibc tries to install a signal handler to support cancellation.
-
 				auto req = bragi::parse_head_only<managarm::posix::CntRequest>(
 						reqBuffer, *kernelAlloc);
 				if(!req) {
@@ -479,21 +550,36 @@ namespace posix {
 					co_return;
 				}
 
-				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
-					infoLogger() << "thor: Unexpected legacy POSIX request "
-						<< req->request_type() << frg::endlog;
+				if(req->request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
+					// Rust calls poll() during program startup.
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+				} else {
+					// mlibc tries to install a signal handler to support cancellation.
+					if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
+						infoLogger() << "thor: Unexpected legacy POSIX request "
+							<< req->request_type() << frg::endlog;
+					}
+
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
 				}
-
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-
-				frg::string<KernelAlloc> ser(*kernelAlloc);
-				resp.SerializeToString(&ser);
-				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-				memcpy(respBuffer.data(), ser.data(), ser.size());
-				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-				// TODO: improve error handling here.
-				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmProtectRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::VmProtectRequest>(
 						reqBuffer, *kernelAlloc);
@@ -562,6 +648,30 @@ namespace posix {
 				if(!module) {
 					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+
+					frg::string<KernelAlloc> ser(*kernelAlloc);
+					resp.SerializeToString(&ser);
+					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+					memcpy(respBuffer.data(), ser.data(), ser.size());
+					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+					// TODO: improve error handling here.
+					assert(respError == Error::success);
+					continue;
+				}
+
+				if(module == urandomNode) {
+					auto stream = createStream();
+					auto file = frg::construct<urandom::OpenUrandom>(*kernelAlloc);
+					file->clientLane = std::move(stream.get<1>());
+
+					spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(),
+							runUrandomRequests(file, std::move(stream.get<0>())));
+
+					auto fd = co_await attachFile(info.thread, file);
+
+					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_fd(fd);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
 					resp.SerializeToString(&ser);
@@ -1033,6 +1143,10 @@ namespace posix {
 		}
 	}
 } // namepace posix
+
+coroutine<void> initPosixEmulation() {
+	co_await createMfsFile("/dev/urandom", nullptr, 0, &urandomNode);
+}
 
 void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
