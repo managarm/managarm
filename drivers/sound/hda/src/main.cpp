@@ -41,7 +41,9 @@ async::detached handleIrqs(helix::BorrowedDescriptor irq, UhdaIrqHandlerFn fn, v
 async::detached bindController(mbus_ng::Entity entity) {
 	protocols::hw::Device dev{(co_await entity.getRemoteLane()).unwrap()};
 
-	auto controller = std::make_unique<Controller>(std::move(dev));
+	auto info = co_await dev.getPciInfo();
+
+	auto controller = std::make_unique<Controller>(std::move(dev), info.numMsis != 0);
 
 	UhdaController *uhdaCtrl;
 	auto status = uhda_init(controller.get(), &uhdaCtrl);

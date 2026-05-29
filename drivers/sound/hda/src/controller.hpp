@@ -10,8 +10,8 @@ struct UhdaStream;
 struct UhdaPath;
 
 struct Controller final : sound::Card {
-	Controller(protocols::hw::Device device) : device{std::move(device)}, uhda{}, codecs{},
-			codecCount{} { }
+	Controller(protocols::hw::Device device, bool msiAvailable) : device{std::move(device)}, uhda{}, codecs{},
+			codecCount{}, msiAvailable{msiAvailable}, useMsi{} { }
 
 	async::result<void> run();
 
@@ -19,6 +19,8 @@ struct Controller final : sound::Card {
 	UhdaController *uhda;
 	const UhdaCodec *const *codecs;
 	size_t codecCount;
+	bool msiAvailable;
+	bool useMsi;
 };
 
 struct Stream final : sound::Stream {
