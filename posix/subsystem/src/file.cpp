@@ -54,32 +54,48 @@ async::result<protocols::fs::ReadResult>
 File::ptRead(void *object, helix_ng::CredentialsView credentials,
 		void *buffer, size_t length, async::cancellation_token ce) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	co_return (co_await self->readSome(process.get(), buffer, length, ce))
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptRead with unknown process credentials" << std::endl;
+		co_return std::unexpected{Error::badProcessCredentials | protocols::fs::toFsProtoError};
+	}
+	co_return (co_await self->readSome(maybeProcess->get(), buffer, length, ce))
 		.transform_error(protocols::fs::toFsProtoError);
 }
 
 async::result<protocols::fs::ReadResult>
 File::ptPread(void *object, int64_t offset, helix_ng::CredentialsView credentials, void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	co_return (co_await self->pread(process.get(), offset, buffer, length))
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptPread with unknown process credentials" << std::endl;
+		co_return std::unexpected{Error::badProcessCredentials | protocols::fs::toFsProtoError};
+	}
+	co_return (co_await self->pread(maybeProcess->get(), offset, buffer, length))
 		.transform_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptWrite(void *object, helix_ng::CredentialsView credentials,
 		const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	co_return (co_await self->writeAll(process.get(), buffer, length))
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptWrite with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	co_return (co_await self->writeAll(maybeProcess->get(), buffer, length))
 		.map_error(protocols::fs::toFsProtoError);
 }
 
 async::result<frg::expected<protocols::fs::Error, size_t>> File::ptPwrite(void *object, int64_t offset, helix_ng::CredentialsView credentials,
 			const void *buffer, size_t length) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	auto result = co_await self->pwrite(process.get(), offset, buffer, length);
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptPwrite with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	auto result = co_await self->pwrite(maybeProcess->get(), offset, buffer, length);
 	if(!result) {
 		switch(result.error()) {
 		case Error::noSpaceLeft:
@@ -113,8 +129,12 @@ async::result<protocols::fs::Error> File::ptBind(void *object,
 		helix_ng::CredentialsView credentials,
 		const void *addr_ptr, size_t addr_length) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	return self->bind(process.get(), addr_ptr, addr_length);
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptBind with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	co_return co_await self->bind(maybeProcess->get(), addr_ptr, addr_length);
 }
 
 async::result<protocols::fs::Error> File::ptListen(void *object) {
@@ -125,8 +145,12 @@ async::result<protocols::fs::Error> File::ptListen(void *object) {
 async::result<protocols::fs::Error> File::ptConnect(void *object,
 		helix_ng::CredentialsView credentials, const void *addr, size_t addr_len) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(credentials);
-	return self->connect(process.get(), addr, addr_len);
+	auto maybeProcess = findProcessWithCredentials(credentials);
+	if(!maybeProcess) {
+		std::cout << "posix: ptConnect with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	co_return co_await self->connect(maybeProcess->get(), addr, addr_len);
 }
 
 async::result<size_t> File::ptSockname(void *object, void *addr_ptr, size_t max_addr_length) {
@@ -171,8 +195,12 @@ File::ptRecvMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 		void *addr, size_t addr_len,
 		size_t max_ctrl_len) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(creds);
-	return self->recvMsg(process.get(), flags,
+	auto maybeProcess = findProcessWithCredentials(creds);
+	if(!maybeProcess) {
+		std::cout << "posix: ptRecvMsg with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	co_return co_await self->recvMsg(maybeProcess->get(), flags,
 			data, len,
 			addr, addr_len,
 			max_ctrl_len);
@@ -184,7 +212,11 @@ File::ptSendMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 		void *addr, size_t addr_len,
 		std::vector<uint32_t> fds, struct ucred ucreds) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(creds);
+	auto maybeProcess = findProcessWithCredentials(creds);
+	if(!maybeProcess) {
+		std::cout << "posix: ptSendMsg with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
 
 	if(flags & ~(MSG_DONTWAIT | MSG_CMSG_CLOEXEC | MSG_NOSIGNAL)) {
 		std::cout << "\e[31mposix: Unknown SENDMSG flags: 0x" << std::hex << flags
@@ -194,12 +226,12 @@ File::ptSendMsg(void *object, helix_ng::CredentialsView creds, uint32_t flags,
 
 	std::vector<smarter::shared_ptr<File, FileHandle>> files;
 	for(auto fd : fds) {
-		auto file = process->fileContext()->getFile(fd);
+		auto file = (*maybeProcess)->fileContext()->getFile(fd);
 		assert(file && "Illegal FD for SENDMSG cmsg");
 		files.push_back(std::move(file));
 	}
 
-	return self->sendMsg(process.get(), flags,
+	co_return co_await self->sendMsg(maybeProcess->get(), flags,
 			data, len,
 			addr, addr_len,
 			std::move(files), ucreds);
@@ -220,8 +252,12 @@ async::result<frg::expected<protocols::fs::Error>> File::ptSetSocketOption(void 
 async::result<frg::expected<protocols::fs::Error>> File::ptGetSocketOption(void *object,
 	helix_ng::CredentialsView creds, int layer, int number, std::vector<char> &optbuf) {
 	auto self = static_cast<File *>(object);
-	auto process = findProcessWithCredentials(creds);
-	co_return co_await self->getSocketOption(process.get(), layer, number, optbuf);
+	auto maybeProcess = findProcessWithCredentials(creds);
+	if(!maybeProcess) {
+		std::cout << "posix: ptGetSocketOption with unknown process credentials" << std::endl;
+		co_return Error::badProcessCredentials | protocols::fs::toFsProtoError;
+	}
+	co_return co_await self->getSocketOption(maybeProcess->get(), layer, number, optbuf);
 }
 
 async::result<protocols::fs::Error> File::ptShutdown(void *object, int how) {

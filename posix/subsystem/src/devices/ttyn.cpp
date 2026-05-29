@@ -188,8 +188,18 @@ private:
 			HEL_CHECK(extractCreds.error());
 
 			auto creds = extractCreds.credentials();
-			auto process = findProcessWithCredentials(creds);
-			self->_controllingProcess = process;
+			auto maybeProcess = findProcessWithCredentials(creds);
+			if(!maybeProcess) {
+				std::cout << "posix: VT_SETMODE with unknown process credentials" << std::endl;
+				managarm::fs::VtSetModeResponse resp;
+				resp.set_error(Error::badProcessCredentials | protocols::fs::toFsProtoError | protocols::fs::toFsError);
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+				);
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
+			self->_controllingProcess = *maybeProcess;
 
 			if(logVTRequests) {
 				std::println("posix: VT_SETMODE: \tmode: {}, waitv: {}, relsig: {}, acqsig: {}, frsig: {}",

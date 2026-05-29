@@ -109,6 +109,10 @@ enum class Error {
 
 	// Corresponds with EBADF
 	badFileDescriptor,
+
+	// Credentials passed in a request did not match any known process.
+	// Maps to EIO.
+	badProcessCredentials,
 };
 
 inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
@@ -143,6 +147,7 @@ inline protocols::fs::Error operator|(Error e, protocols::fs::ToFsProtoError) {
 		case Error::noFileDescriptorsAvailable: return protocols::fs::Error::noFileDescriptorsAvailable;
 		case Error::notSupported: return protocols::fs::Error::notSupported;
 		case Error::badFileDescriptor: return protocols::fs::Error::badFileDescriptor;
+		case Error::badProcessCredentials: return protocols::fs::Error::internalError;
 		default:
 			std::cout << std::format("posix: unmapped Error {}", static_cast<int>(e)) << std::endl;
 			return protocols::fs::Error::internalError;
@@ -181,6 +186,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::noSuchProcess: return managarm::posix::Errors::NO_SUCH_RESOURCE;
 		case Error::noFileDescriptorsAvailable: return managarm::posix::Errors::NO_FILE_DESCRIPTORS_AVAILABLE;
 		case Error::notSupported: return managarm::posix::Errors::NOT_SUPPORTED;
+		case Error::badProcessCredentials: return managarm::posix::Errors::INTERNAL_ERROR;
 		case Error::fileClosed:
 		case Error::badExecutable:
 		case Error::seekOnPipe:

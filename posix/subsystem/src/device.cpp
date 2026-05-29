@@ -330,19 +330,24 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 			HEL_CHECK(recv_handle.error());
 
 			auto creds = helix_ng::CredentialsView{req.passthrough_credentials()};
-			auto process = findProcessWithCredentials(creds);
+			auto maybeProcess = findProcessWithCredentials(creds);
 
 			auto handle = helix::UniqueLane(recv_handle.descriptor());
 			auto dev_file = smarter::make_shared<PassthroughFile>(std::move(handle));
 			dev_file->setupWeakFile(dev_file);
 			auto file = File::constructHandle(std::move(dev_file));
 
-			auto fd = process->fileContext()->attachFile(file);
-			if (fd) {
-				resp.set_error(managarm::posix::Errors::SUCCESS);
-				resp.set_fd(fd.value());
+			if(!maybeProcess) {
+				std::cout << "posix: FD_SERVE with unknown process credentials" << std::endl;
+				resp.set_error(Error::badProcessCredentials | toPosixProtoError);
 			} else {
-				resp.set_error(fd.error() | toPosixProtoError);
+				auto fd = (*maybeProcess)->fileContext()->attachFile(file);
+				if (fd) {
+					resp.set_error(managarm::posix::Errors::SUCCESS);
+					resp.set_fd(fd.value());
+				} else {
+					resp.set_error(fd.error() | toPosixProtoError);
+				}
 			}
 
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
