@@ -87,12 +87,15 @@ UhdaStatus uhda_kernel_pci_write(void *pci_device, uint8_t offset, uint8_t size,
 async::detached handleIrqs(helix::BorrowedDescriptor irq, UhdaIrqHandlerFn fn, void *arg);
 
 UhdaStatus uhda_kernel_pci_allocate_irq(void *pci_device, UhdaIrqHint hint, UhdaIrqHandlerFn fn, void *arg, void **opaque_irq) {
-	// TODO: Don't ignore hint
-	(void)hint;
-
 	auto ctrl = static_cast<Controller *>(pci_device);
 
-	auto irq = async::run(ctrl->device.accessIrq(), helix::currentDispatcher);
+	helix::UniqueDescriptor irq;
+	if (ctrl->msiAvailable && hint != UHDA_IRQ_HINT_INTX) {
+		ctrl->useMsi = true;
+		irq = async::run(ctrl->device.installMsi(0), helix::currentDispatcher);
+	} else {
+		irq = async::run(ctrl->device.accessIrq(), helix::currentDispatcher);
+	}
 
 	handleIrqs(irq, fn, arg);
 
@@ -110,7 +113,11 @@ void uhda_kernel_pci_enable_irq(void* pci_device, void *, bool enable) {
 	auto ctrl = static_cast<Controller *>(pci_device);
 
 	if (enable) {
-		async::run(ctrl->device.enableBusIrq(), helix::currentDispatcher);
+		if (ctrl->useMsi) {
+			async::run(ctrl->device.enableMsi(), helix::currentDispatcher);
+		} else {
+			async::run(ctrl->device.enableBusIrq(), helix::currentDispatcher);
+		}
 	}
 }
 
