@@ -349,6 +349,12 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			co_return frg::success;
 		}
 
+		if(!static_cast<PciDevice *>(this)->getIrqPin()) {
+			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+			co_return frg::success;
+		}
+
 		auto object = static_cast<PciDevice *>(this)->obtainIrqObject();
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
