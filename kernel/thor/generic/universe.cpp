@@ -17,8 +17,8 @@ Universe::~Universe() {
 }
 
 Handle Universe::attachDescriptor(AnyDescriptor descriptor) {
-	auto irqLock = frg::guard(&irqMutex());
-	Guard guard(lock);
+	PreemptionGuard preemptionGuard;
+	AdaptiveMutex::Guard lock{_mutex};
 
 	Handle handle = _nextHandle++;
 	_descriptorMap.insert(handle, std::move(descriptor));
@@ -26,8 +26,8 @@ Handle Universe::attachDescriptor(AnyDescriptor descriptor) {
 }
 
 std::optional<AnyDescriptor> Universe::getDescriptor(Handle handle) {
-	auto irqLock = frg::guard(&irqMutex());
-	Guard guard(lock);
+	PreemptionGuard preemptionGuard;
+	AdaptiveMutex::Guard lock{_mutex};
 
 	auto *desc = _descriptorMap.get(handle);
 	if(!desc)
@@ -36,8 +36,8 @@ std::optional<AnyDescriptor> Universe::getDescriptor(Handle handle) {
 }
 
 frg::optional<AnyDescriptor> Universe::detachDescriptor(Handle handle) {
-	auto irqLock = frg::guard(&irqMutex());
-	Guard guard(lock);
+	PreemptionGuard preemptionGuard;
+	AdaptiveMutex::Guard lock{_mutex};
 
 	return _descriptorMap.remove(handle);
 }

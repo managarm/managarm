@@ -103,14 +103,16 @@ KernelPageSpace &KernelPageSpace::global() {
 static constexpr int maxPcidCount = 8;
 
 void initializeAsidContext(CpuData *cpuData) {
-	auto irqLock = frg::guard(&irqMutex());
-
 	// If PCIDs are not supported, create only one binding.
 	auto pcidCount = getCpuData()->havePcids ? maxPcidCount : 1;
 
 	asidData.get(cpuData).initialize(pcidCount);
 	asidData.get(cpuData)->globalBinding.initialize(globalBindingId);
-	asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		asidData.get(cpuData)->globalBinding.initialBind(*kernelSpacePtr);
+	}
 }
 
 

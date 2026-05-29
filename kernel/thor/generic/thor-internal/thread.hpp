@@ -73,7 +73,7 @@ struct Thread final : ScheduleEntity, Credentials {
 private:
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(Thread *thread, Ipl wqIpl)
-		: WorkQueue{&thread->_executorContext, wqIpl}, _thread{thread} { }
+		: WorkQueue{thread->_executorContext, wqIpl}, _thread{thread} { }
 
 		void wakeup() override;
 
@@ -134,7 +134,7 @@ public:
 		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
 				std::move(universe), std::move(address_space), abi);
 		thread->self = thread;
-		thread->_executorContext.exceptionalWq = &thread->_pagingWorkQueue;
+		thread->_executorContext->exceptionalWq = &thread->_pagingWorkQueue;
 
 		// The kernel owns one reference to the thread until the thread finishes execution.
 		thread.policy().increment();
@@ -167,7 +167,11 @@ public:
 		using ValueType = std::invoke_result_t<SenderFactory, async::cancellation_token>::value_type;
 
 		auto ipl = currentIpl();
-		assert(ipl < wq->wqIpl());
+		if (wq) {
+			assert(ipl < wq->wqIpl());
+		} else {
+			assert(currentIpl() < ipl::noSchedule);
+		}
 		assert(!(maskedCancelConditions & ~cancelConditions));
 		(void)tag;
 		auto thisThread = getCurrentThread();
@@ -443,6 +447,9 @@ private:
 		resumeFromInterrupt,
 	};
 
+	// Used by the AssociatedWorkQueues below so must be initialized before.
+	ExecutorContext *_executorContext{ExecutorContext::create()};
+
 	AssociatedWorkQueue _mainWorkQueue;
 	AssociatedWorkQueue _pagingWorkQueue;
 
@@ -482,7 +489,6 @@ private:
 	std::atomic<int> _runCount;
 
 	UserContext _userContext;
-	ExecutorContext _executorContext;
 	// Depends on _userContext, MUST come after it in the struct due to initialization order.
 	Executor _executor;
 	// Register image that is saved/restored by the interrupt state.
