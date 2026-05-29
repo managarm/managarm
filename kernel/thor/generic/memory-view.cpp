@@ -1863,37 +1863,7 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 	smarter::shared_ptr<CopyOnWriteMemory> forked;
 	smarter::shared_ptr<CowChain> newChain;
 	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> inProgressPages{*kernelAlloc};
-
-	auto doCopyOnePage = [&] (size_t pg, smarter::borrowed_ptr<CowPage> page) {
-		// The page is locked. We *need* to keep it in the old address space.
-		if(page->lockCount /*|| disableCow */) {
-			// Allocate a new physical page for a copy.
-			auto copyPhysical = physicalAllocator->allocate(kPageSize);
-			assert(copyPhysical != PhysicalAddr(-1) && "OOM");
-
-			// As the page is locked anyway, we can just copy it synchronously.
-			PageAccessor lockedAccessor{page->physical};
-			PageAccessor copyAccessor{copyPhysical};
-			memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
-
-			// Update the chains.
-			auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
-			copyPage->state = CowState::hasCopy;
-			copyPage->physical = copyPhysical;
-			globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
-			auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
-			*copyIt = copyPage;
-		}else{
-			auto physical = page->physical;
-			assert(physical != PhysicalAddr(-1));
-
-			// Update the chains.
-			auto pageOffset = _viewOffset + pg;
-			auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
-			*newIt = page.lock();
-			_ownedPages.erase(pg >> kPageShift);
-		}
-	};
+	frg::vector<frg::tuple<size_t, smarter::shared_ptr<CowPage>>, KernelAlloc> lockedCopies{*kernelAlloc};
 
 	{
 		auto irqLock = frg::guard(&irqMutex());
@@ -1946,7 +1916,17 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 			}else
 				assert(page->state == CowState::hasCopy);
 
-			doCopyOnePage(pg, page);
+			if(page->lockCount /*|| disableCow */) {
+				// The page is locked. We *need* to keep it in the old address space.
+				lockedCopies.push(frg::make_tuple(pg, page));
+			}else{
+				assert(page->physical != PhysicalAddr(-1));
+
+				auto pageOffset = _viewOffset + pg;
+				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
+				*newIt = page;
+				_ownedPages.erase(pg >> kPageShift);
+			}
 		}
 	}
 
@@ -1973,8 +1953,36 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		// Copy all the previously in progress pages now that they're done copying.
 		for (auto [pg, page] : inProgressPages) {
 			assert(page->state == CowState::hasCopy);
-			doCopyOnePage(pg, page);
+
+			if(page->lockCount /*|| disableCow */) {
+				// The page is locked. We *need* to keep it in the old address space.
+				lockedCopies.push(frg::make_tuple(pg, page));
+			}else{
+				assert(page->physical != PhysicalAddr(-1));
+
+				auto pageOffset = _viewOffset + pg;
+				auto newIt = newChain->_pages.insert(pageOffset >> kPageShift);
+				*newIt = page;
+				_ownedPages.erase(pg >> kPageShift);
+			}
 		}
+	}
+
+	// Copy all the pages that were locked.
+	for(auto [pg, src] : lockedCopies) {
+		auto copyPhysical = physicalAllocator->allocate(kPageSize);
+		assert(copyPhysical != PhysicalAddr(-1) && "OOM");
+
+		PageAccessor lockedAccessor{src->physical};
+		PageAccessor copyAccessor{copyPhysical};
+		memcpy(copyAccessor.get(), lockedAccessor.get(), kPageSize);
+
+		auto copyPage = smarter::allocate_shared<CowPage>(*kernelAlloc);
+		copyPage->state = CowState::hasCopy;
+		copyPage->physical = copyPhysical;
+		globalPfnDb().insert(copyPhysical, PfnDescriptor::otherPage());
+		auto copyIt = forked->_ownedPages.insert(pg >> kPageShift);
+		*copyIt = copyPage;
 	}
 
 	co_await _evictQueue.breakRange(0, _length);
@@ -2183,16 +2191,21 @@ CopyOnWriteMemory::touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flag
 	// Try to copy from a descendant CoW chain.
 	bool chainHasCopy = false;
 	if(chain) {
-		auto irqLock = frg::guard(&irqMutex());
-		auto lock = frg::guard(&chain->_mutex);
+		smarter::shared_ptr<CowPage> srcPage;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&chain->_mutex);
 
-		if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
-			auto page = *it;
-			// We can just copy synchronously here -- the descendant is not evicted.
-			assert(page->state == CowState::hasCopy);
-			auto srcPhysical = page->physical;
-			assert(srcPhysical != PhysicalAddr(-1));
-			auto srcAccessor = PageAccessor{srcPhysical};
+			if(auto it = chain->_pages.find(pageOffset >> kPageShift); it) {
+				srcPage = *it;
+				assert(srcPage->state == CowState::hasCopy);
+				assert(srcPage->physical != PhysicalAddr(-1));
+			}
+		}
+
+		// Copy outside of the locks (srcPage remains in hasCopy state).
+		if (srcPage) {
+			auto srcAccessor = PageAccessor{srcPage->physical};
 			memcpy(accessor.get(), srcAccessor.get(), kPageSize);
 			chainHasCopy = true;
 		}
