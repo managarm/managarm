@@ -81,18 +81,23 @@ struct PfnDb {
 	// Lock-free but protected by RCU.
 	frg::optional<PfnDescriptor> find(uint64_t pa) {
 		assert(!(pa & (kPageSize - 1)));
+		auto pfn = pa >> kPageShift;
+
 		IplGuard<ipl::schedule> guard;
 
-		auto it = tree_.find(pa);
+		auto it = tree_.find(pfn);
 		if(!it)
 			return frg::null_opt;
 		return it->load(std::memory_order_relaxed);
 	}
 
 	void insert(uint64_t pa, PfnDescriptor descriptor) {
+		assert(!(pa & (kPageSize - 1)));
+		auto pfn = pa >> kPageShift;
+
 		auto lock = frg::guard(&mutex_);
 
-		auto [it, wasInserted] = tree_.find_or_insert(pa);
+		auto [it, wasInserted] = tree_.find_or_insert(pfn);
 		if (!wasInserted)
 			panicLogger() << "thor: PFN collision for address 0x"
 				<< frg::hex_fmt{pa}
@@ -103,9 +108,12 @@ struct PfnDb {
 	}
 
 	void erase(uint64_t pa) {
+		assert(!(pa & (kPageSize - 1)));
+		auto pfn = pa >> kPageShift;
+
 		auto lock = frg::guard(&mutex_);
 
-		tree_.erase(pa);
+		tree_.erase(pfn);
 	}
 
 	// Calls fn with the current value (or frg::null_opt on insertion),
@@ -115,9 +123,12 @@ struct PfnDb {
 		{ fn(descriptor) } -> std::same_as<PfnDescriptor>;
 	}
 	void insertOrExchange(uint64_t pa, F &&fn) {
+		assert(!(pa & (kPageSize - 1)));
+		auto pfn = pa >> kPageShift;
+
 		auto lock = frg::guard(&mutex_);
 
-		auto [it, wasInserted] = tree_.find_or_insert(pa);
+		auto [it, wasInserted] = tree_.find_or_insert(pfn);
 		frg::optional<PfnDescriptor> current;
 		if (!wasInserted)
 			current = it->load(std::memory_order_relaxed);
@@ -131,20 +142,25 @@ struct PfnDb {
 		{ fn(descriptor) } -> std::same_as<frg::optional<PfnDescriptor>>;
 	}
 	void exchangeOrErase(uint64_t pa, F &&fn) {
+		assert(!(pa & (kPageSize - 1)));
+		auto pfn = pa >> kPageShift;
+
 		auto lock = frg::guard(&mutex_);
 
-		auto it = tree_.find(pa);
+		auto it = tree_.find(pfn);
 		assert(it);
 		auto result = fn(it->load(std::memory_order_relaxed));
 		if(result) {
 			it->store(*result, std::memory_order_relaxed);
 		} else {
-			tree_.erase(pa);
+			tree_.erase(pfn);
 		}
 	}
 
 private:
 	IrqSpinlock mutex_;
+	// Note that tree_ is keyed by PFN and not by physical address.
+	// Keying by address would leave gaps in the radix tree.
 	frg::rcu_radixtree<std::atomic<PfnDescriptor>, Allocator, RcuPolicy> tree_;
 };
 
