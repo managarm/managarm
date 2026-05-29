@@ -30,6 +30,7 @@
 #include "subsystem/nvme.hpp"
 #include "subsystem/pci.hpp"
 #include "subsystem/power_supply.hpp"
+#include "subsystem/sound.hpp"
 #include "subsystem/tty.hpp"
 #include "subsystem/usb/usb.hpp"
 #include "subsystem/usbmisc.hpp"
@@ -219,6 +220,7 @@ int main() {
 	tty_subsystem::run();
 	usbmisc_subsystem::run();
 	power_supply_subsystem::run();
+	sound_subsystem::run();
 	graphics_subsystem::run();
 
 	block_subsystem::run();

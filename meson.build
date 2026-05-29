@@ -174,6 +174,8 @@ if build_kernel
 endif
 
 if build_drivers
+	uhda_dep = dependency('uhda')
+
 	bakesvr = find_program('bakesvr')
 
 	libudev_dep = dependency('libudev')
@@ -204,7 +206,7 @@ if build_drivers or provide_deps
 	posix = [ 'subsystem', 'init' ]
 	drivers = [
 		# libraries
-		'libblockfs', 'libevbackend',
+		'libblockfs', 'libevbackend', 'libsound',
 		# storage
 		'block/ata', 'block/virtio-blk', 'block/ahci', 'block/nvme',
 		# net
@@ -216,6 +218,8 @@ if build_drivers or provide_deps
 		# usb
 		'usb/hcds/uhci', 'usb/hcds/ehci', 'usb/hcds/xhci',
 		'usb/devices/hid', 'usb/devices/storage', 'usb/devices/serial',
+		# sound
+		'sound/hda',
 		# misc
 		'kernletcc'
 	]

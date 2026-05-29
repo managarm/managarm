@@ -523,6 +523,12 @@ head(128):
 		tag(42) int64 pgid;
 
 		tag(46) uint64 ticks;
+
+		tag(47) int32 snd_pcm_prefer_subdevice;
+		tag(48) int32 snd_pcm_user_pversion;
+		tag(49) int32 snd_pcm_ttstamp;
+		tag(50) uint64 snd_pcm_frames;
+		tag(51) int32 snd_device;
 	}
 }
 
@@ -633,6 +639,11 @@ head(128):
 		tag(73) uint64 size;
 
 		tag(74) uint32 status;
+
+		tag(75) int32 snd_pversion;
+		tag(76) uint64 snd_frame_size;
+		tag(77) int64 snd_result;
+		tag(78) int32 snd_device;
 	}
 }
 
