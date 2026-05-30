@@ -136,6 +136,50 @@ private:
 };
 static_assert(sizeof(SourceID) == 2);
 
+namespace qi {
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> type{0, 4};
+
+	// VT-d specification rev 4.1, 6.5.2.1 Context-cache Invalidate Descriptor
+	namespace context_cache_invalidate {
+		enum class InvalidationGranularity : uint8_t {
+			global = 0b01,
+			domain = 0b10,
+			device = 0b11,
+		};
+
+		[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{16, 16};
+		[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{32, 16};
+		[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{4, 2};
+	} // namespace context_cache_invalidate
+
+	// VT-d specification rev 4.1, 6.5.2.3 IOTLB Invalidate
+	namespace iotlb_invalidate {
+		enum class InvalidationGranularity : uint8_t {
+			global = 0b01,
+			domain = 0b10,
+			page = 0b11,
+		};
+
+		[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{4, 2};
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> drainWrites{6, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> drainReads{7, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{16, 16};
+
+		// high qword
+		[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> addressMask{0, 6};
+		[[maybe_unused]] constexpr arch::field<uint64_t, uint64_t> pageNumber{12, 52};
+	} // namespace iotlb_invalidate
+
+	// VT-d specification rev 4.1, 6.5.2.8 Invalidation Wait Descriptor
+	namespace wait {
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> interruptFlag{4, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> statusWrite{5, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> fenceFlag{6, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, bool> pageRequestDrain{7, 1};
+		[[maybe_unused]] constexpr arch::field<uint64_t, uint32_t> statusData{32, 32};
+	} // namespace wait
+} // namespace qi
+
 namespace regs {
 	constexpr arch::bit_register<uint32_t> version{0x00};
 	constexpr arch::bit_register<uint64_t> capability{0x08};
@@ -150,6 +194,15 @@ namespace regs {
 	constexpr arch::scalar_register<uint32_t> faultEventAddress{0x40};
 	constexpr arch::scalar_register<uint32_t> faultEventUpperAddress{0x44};
 	constexpr arch::bit_register<uint32_t> protectedMemoryEnable{0x64};
+	[[maybe_unused]] constexpr arch::scalar_register<uint64_t> invalidationQueueHead{0x80};
+	[[maybe_unused]] constexpr arch::scalar_register<uint64_t> invalidationQueueTail{0x88};
+	[[maybe_unused]] constexpr arch::bit_register<uint64_t> invalidationQueueAddress{0x90};
+	[[maybe_unused]] constexpr arch::bit_register<uint32_t> invalidationCompletionStatus{0x9C};
+	[[maybe_unused]] constexpr arch::bit_register<uint32_t> invalidationEventControl{0xA0};
+	[[maybe_unused]] constexpr arch::scalar_register<uint32_t> invalidationEventData{0xA4};
+	[[maybe_unused]] constexpr arch::scalar_register<uint32_t> invalidationEventAddress{0xA8};
+	[[maybe_unused]] constexpr arch::scalar_register<uint32_t> invalidationEventUpperAddress{0xAC};
+	[[maybe_unused]] constexpr arch::bit_register<uint64_t> invalidationQueueErrorRecord{0xB0};
 
 	// IOTLB registers, to be used as offsets into the IOTLB mem_space
 	constexpr arch::bit_register<uint64_t> iotlbInvalidateAddress{0x00};
@@ -172,16 +225,19 @@ namespace capability {
 	constexpr arch::field<uint64_t, uint8_t> sagaw{8, 5};
 	constexpr arch::field<uint64_t, uint8_t> fro{24, 8};
 	constexpr arch::field<uint64_t, uint8_t> nfr{40, 8};
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> maximumAddressMask{48, 6};
 } // namespace capability
 
 namespace extendedCapability {
 	constexpr arch::field<uint64_t, bool> coherent{0, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, bool> queuedInvalidation{1, 1};
 	constexpr arch::field<uint64_t, bool> pt{6, 1};
 	constexpr arch::field<uint64_t, uint16_t> ivo{8, 10};
 } // namespace extendedCapability
 
 namespace globalStatus {
 	constexpr arch::field<uint32_t, bool> interruptRemappingPointerStatus{24, 1};
+	[[maybe_unused]] constexpr arch::field<uint32_t, bool> queuedInvalidationStatus{26, 1};
 	constexpr arch::field<uint32_t, bool> writeBufferFlushStatus{27, 1};
 	constexpr arch::field<uint32_t, bool> faultLogStatus{29, 1};
 	constexpr arch::field<uint32_t, bool> rootTablePointerStatus{30, 1};
@@ -230,6 +286,26 @@ namespace protectedMemoryEnable {
 	constexpr arch::field<uint32_t, bool> prs{0, 1};
 	constexpr arch::field<uint32_t, bool> epm{31, 1};
 } // namespace protectedMemoryEnable
+
+namespace invalidationCompletionStatus {
+	[[maybe_unused]] constexpr arch::field<uint32_t, bool> complete{0, 1};
+} // namespace invalidationCompletionStatus
+
+namespace invalidationEventControl {
+	[[maybe_unused]] constexpr arch::field<uint32_t, bool> interruptMask{31, 1};
+	[[maybe_unused]] constexpr arch::field<uint32_t, bool> interruptPending{30, 1};
+} // namespace invalidationEventControl
+
+namespace invalidationQueue {
+	enum class DescriptorWidth : uint8_t {
+		Legacy128 = 0,
+		Scalable256 = 1,
+	};
+
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> queueSize{0, 3};
+	[[maybe_unused]] constexpr arch::field<uint64_t, DescriptorWidth> descriptorWidth{11, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint64_t> queueBasePage{12, 52};
+} // namespace invalidationQueue
 
 namespace iotlbInvalidate {
 	enum class InvalidationGranularity : uint8_t {
