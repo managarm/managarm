@@ -1,4 +1,5 @@
 #include "sound.hpp"
+#include "rules.hpp"
 
 #include <protocols/mbus/client.hpp>
 #include <protocols/fs/server.hpp>
@@ -14,9 +15,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/epoll.h>
+#include <sys/time.h>
 
 #include <print>
 #include <functional>
+#include <ctime>
 
 namespace {
 
@@ -26,6 +29,11 @@ constexpr bool logWrites = false;
 }
 
 namespace alsa {
+
+struct ApplyRulesResult {
+	uint32_t cmask;
+	bool invalid;
+};
 
 struct DeviceFile {
 	static async::result<void>
@@ -66,6 +74,8 @@ struct DeviceFile {
 	static helix::UniqueLane serve(smarter::shared_ptr<DeviceFile> file);
 
 	DeviceFile(sound::Device *device, bool non_block) : device{device}, nonBlock{non_block} {
+		statusPage.update(eventSequence, 0);
+
 		auto pageSize = getpagesize();
 
 		size_t statusSize = (sizeof(snd_pcm_mmap_status) + pageSize - 1) & ~(pageSize - 1);
@@ -76,6 +86,7 @@ struct DeviceFile {
 
 		memory = helix::UniqueDescriptor{handle};
 
+		bufferMapping = helix::Mapping{memory, 0, SNDRV_PCM_MMAP_OFFSET_STATUS_OLD};
 		statusMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_STATUS, statusSize};
 		controlMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_CONTROL, controlSize};
 
@@ -84,357 +95,327 @@ struct DeviceFile {
 
 		*status = {};
 		*control = {};
+
+		Rule hwChannelsRule{
+			SNDRV_PCM_HW_PARAM_CHANNELS,
+			{SNDRV_PCM_HW_PARAM_CHANNELS},
+			[this](Params &params) {
+				snd_interval constraint{};
+				constraint.min = this->device->limits.channels.min;
+				constraint.max = this->device->limits.channels.max;
+				constraint.integer = 1;
+
+				params.intersect_interval(SNDRV_PCM_HW_PARAM_CHANNELS, constraint);
+			}
+		};
+
+		Rule hwRateRule{
+			SNDRV_PCM_HW_PARAM_RATE,
+			{SNDRV_PCM_HW_PARAM_RATE},
+			[this](Params &params) {
+				snd_interval constraint{};
+				constraint.min = UINT32_MAX;
+				constraint.integer = 1;
+
+				for (auto rate : this->device->limits.sampleRates) {
+					constraint.min = std::min(constraint.min, rate);
+					constraint.max = std::max(constraint.max, rate);
+				}
+
+				params.intersect_interval(SNDRV_PCM_HW_PARAM_RATE, constraint);
+			}
+		};
+
+		Rule hwPeriodBytesRule{
+			SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+			{SNDRV_PCM_HW_PARAM_PERIOD_BYTES},
+			[this](Params &params) {
+				snd_interval constraint{};
+				constraint.min = this->device->limits.periodSize.min;
+				constraint.max = this->device->limits.periodSize.max;
+				constraint.integer = 1;
+
+				params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES, constraint);
+			}
+		};
+
+		Rule hwPeriodsRule{
+			SNDRV_PCM_HW_PARAM_PERIODS,
+			{SNDRV_PCM_HW_PARAM_PERIODS},
+			[this](Params &params) {
+				snd_interval constraint{};
+				constraint.min = this->device->limits.periodCount.min;
+				constraint.max = this->device->limits.periodCount.max;
+				constraint.integer = 1;
+
+				params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIODS, constraint);
+			}
+		};
+
+		Rule hwPeriodBytesAlignRule{
+			SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+			{SNDRV_PCM_HW_PARAM_PERIOD_BYTES},
+			[this](Params &params) {
+				auto &periodBytes = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES);
+
+				auto constraint = utils::intervalStep(periodBytes, this->device->limits.periodSizeAlign);
+
+				params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES, constraint);
+			}
+		};
+
+		dynamicRules.push_back(std::move(hwChannelsRule));
+		dynamicRules.push_back(std::move(hwRateRule));
+		dynamicRules.push_back(std::move(hwPeriodBytesRule));
+		dynamicRules.push_back(std::move(hwPeriodsRule));
+
+		if (device->limits.forcePow2PeriodSizes) {
+			Rule hwPeriodBytesPow2Rule{
+				SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
+				{SNDRV_PCM_HW_PARAM_PERIOD_BYTES},
+				[](Params &params) {
+					auto &periodBytes = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES);
+
+					auto constraint = utils::intervalPow2(periodBytes);
+
+					params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES, constraint);
+				}
+			};
+
+			dynamicRules.push_back(std::move(hwPeriodBytesPow2Rule));
+		}
+
+		dynamicRules.push_back(std::move(hwPeriodBytesAlignRule));
 	}
+
+	snd_pcm_uframes_t getAvailableFrames() const {
+		auto stream = device->attachedStream;
+
+		snd_pcm_uframes_t available;
+		if (stream->isCapture()) {
+			available = status->hw_ptr - control->appl_ptr;
+			if (static_cast<snd_pcm_sframes_t>(available) < 0)
+				available += swParams.boundary;
+		} else {
+			available = bufferSizeFrames + status->hw_ptr - control->appl_ptr;
+			if (available >= swParams.boundary)
+				available -= swParams.boundary;
+			else if (static_cast<snd_pcm_sframes_t>(available) < 0)
+				available += swParams.boundary;
+		}
+
+		return available;
+	}
+
+	snd_pcm_uframes_t getHwDelayFrames() const {
+		if (device->attachedStream->isCapture())
+			return getAvailableFrames();
+		else
+			return bufferSizeFrames - getAvailableFrames();
+	}
+
+	ApplyRulesResult applyRules(Params &params, uint32_t rmask);
+
+	void updatePosition();
+
+	void periodCallback();
+
+	async::result<frg::expected<protocols::fs::Error, size_t>> writeFrames(const std::vector<uint8_t> &data);
 
 	sound::Device *device;
 	helix::UniqueDescriptor memory;
+	helix::Mapping bufferMapping;
 	helix::Mapping statusMapping;
 	helix::Mapping controlMapping;
 	snd_pcm_mmap_status *status;
 	snd_pcm_mmap_control *control;
+	protocols::fs::StatusPageProvider statusPage;
 	bool nonBlock;
+
 	snd_pcm_hw_params hwParams{};
 	snd_pcm_sw_params swParams{};
-	size_t frameSize{};
-	uint32_t lastRemaining{};
+
 	uint64_t eventSequence{};
 	async::recurring_event eventBell;
+
+	uint32_t bufferSizeFrames{};
+	uint32_t frameSize{};
+	size_t lastPeriodPosition{};
+
+	std::vector<Rule> dynamicRules;
 };
 
-struct Params {
-	constexpr snd_mask &mask(uint32_t what) {
-		return values.masks[what - SNDRV_PCM_HW_PARAM_FIRST_MASK];
-	}
+ApplyRulesResult DeviceFile::applyRules(Params &params, uint32_t rmask) {
+	ApplyRulesResult result{};
 
-	constexpr snd_interval &interval(uint32_t what) {
-		return values.intervals[what - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL];
-	}
+	while (true) {
+		params.values.cmask = 0;
 
-	constexpr void change(uint32_t what) {
-		values.cmask |= 1U << what;
-	}
+		for (auto rule : rules::commonRules) {
+			if (rmask & rule->dependencies) {
+				rule->func(params);
 
-	[[nodiscard]] constexpr bool intersect_interval(uint32_t what, snd_interval other) {
-		auto &range = interval(what);
-
-		bool changed = false;
-
-		if (other.min > range.min) {
-			range.min = other.min;
-			range.openmin = other.openmin;
-			changed = true;
-		} else if (other.min == range.min) {
-			changed |= other.openmin && !range.openmin;
-			range.openmin |= other.openmin;
-		}
-
-		if (other.max < range.max) {
-			range.max = other.max;
-			range.openmax = other.openmax;
-			changed = true;
-		} else if (other.max == range.max) {
-			changed |= other.openmax && !range.openmax;
-			range.openmax |= other.openmax;
-		}
-
-		changed |= other.integer && !range.integer;
-		range.integer |= other.integer;
-
-		if (range.min > range.max ||
-				(range.min == range.max && (range.openmin || range.openmax))) {
-			changed |= !range.empty;
-			range.empty = 1;
-		} else {
-			changed |= range.empty;
-			range.empty = 0;
-		}
-
-		return changed;
-	}
-
-	snd_pcm_hw_params values;
-};
-
-struct Rule {
-	template<size_t N>
-	Rule(const uint32_t (&deps)[N], std::function<void (Params &params)> func)
-			: func{std::move(func)} {
-		for (auto dep : deps) {
-			dependencies |= 1U << dep;
-		}
-	}
-
-	uint32_t dependencies{};
-	std::function<void (Params &params)> func;
-};
-
-namespace rules {
-
-Rule sampleBitsRule{
-	{SNDRV_PCM_HW_PARAM_FORMAT},
-	[](Params &params) {
-		auto &formats = params.mask(SNDRV_PCM_HW_PARAM_FORMAT);
-
-		auto has_format = [&](uint32_t format) {
-			return formats.bits[0] & (1U << format);
-		};
-
-		snd_interval constraint{};
-		constraint.min = UINT32_MAX;
-		constraint.integer = 1;
-
-		if (has_format(SNDRV_PCM_FORMAT_S8)) {
-			constraint.min = 8;
-			constraint.max = 8;
-		}
-		if (has_format(SNDRV_PCM_FORMAT_S16_LE)) {
-			constraint.min = std::min(constraint.min, 16U);
-			constraint.max = std::max(constraint.max, 16U);
-		}
-		if (has_format(SNDRV_PCM_FORMAT_S32_LE)) {
-			constraint.min = std::min(constraint.min, 32U);
-			constraint.max = std::max(constraint.max, 32U);
-		}
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_SAMPLE_BITS, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_SAMPLE_BITS);
-		}
-	}
-};
-
-Rule frameBitsRule{
-	{SNDRV_PCM_HW_PARAM_SAMPLE_BITS, SNDRV_PCM_HW_PARAM_CHANNELS},
-	[](Params &params) {
-		auto &sampleBits = params.interval(SNDRV_PCM_HW_PARAM_SAMPLE_BITS);
-		auto &channels = params.interval(SNDRV_PCM_HW_PARAM_CHANNELS);
-
-		snd_interval constraint{};
-		constraint.integer = sampleBits.integer && channels.integer;
-		constraint.openmin = sampleBits.openmin || channels.openmin;
-		constraint.openmax = sampleBits.openmax || channels.openmax;
-		constraint.min = sampleBits.min * channels.min;
-		constraint.max = sampleBits.max * channels.max;
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_FRAME_BITS, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_FRAME_BITS);
-		}
-	}
-};
-
-constexpr uint32_t usInSecond = 1000 * 1000;
-
-Rule periodTimeRule{
-	{SNDRV_PCM_HW_PARAM_PERIOD_SIZE, SNDRV_PCM_HW_PARAM_RATE},
-	[](Params &params) {
-		auto &periodSize = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-		auto &rate = params.interval(SNDRV_PCM_HW_PARAM_RATE);
-
-		snd_interval constraint{};
-		constraint.integer = 0;
-		auto minMul = static_cast<uint64_t>(periodSize.min) * rate.min;
-		auto maxMul = static_cast<uint64_t>(periodSize.max) * rate.max;
-
-		constraint.min = minMul / usInSecond;
-		constraint.openmin = minMul % usInSecond || periodSize.openmin || rate.openmin;
-		constraint.max = maxMul / usInSecond;
-		if (maxMul % usInSecond) {
-			++constraint.max;
-			constraint.openmax = 1;
-		} else {
-			constraint.openmax = periodSize.openmax || rate.openmax;
-		}
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_TIME, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_PERIOD_TIME);
-		}
-	}
-};
-
-Rule periodSizeRule{
-	{SNDRV_PCM_HW_PARAM_PERIOD_TIME, SNDRV_PCM_HW_PARAM_RATE},
-	[](Params &params) {
-		auto &periodTime = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_TIME);
-		auto &rate = params.interval(SNDRV_PCM_HW_PARAM_RATE);
-
-		snd_interval constraint{};
-		constraint.integer = 0;
-		auto minMul = static_cast<uint64_t>(periodTime.min) * rate.min;
-		auto maxMul = static_cast<uint64_t>(periodTime.max) * rate.max;
-
-		constraint.min = minMul / usInSecond;
-		constraint.openmin = minMul % usInSecond || periodTime.openmin || rate.openmin;
-		constraint.max = maxMul / usInSecond;
-		if (maxMul % usInSecond) {
-			++constraint.max;
-			constraint.openmax = 1;
-		} else {
-			constraint.openmax = periodTime.openmax || rate.openmax;
-		}
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-		}
-	}
-};
-
-Rule periodSizeFromBufferRule{
-	{SNDRV_PCM_HW_PARAM_BUFFER_SIZE, SNDRV_PCM_HW_PARAM_PERIODS},
-	[](Params &params) {
-		auto &bufferSize = params.interval(SNDRV_PCM_HW_PARAM_BUFFER_SIZE);
-		auto &periods = params.interval(SNDRV_PCM_HW_PARAM_PERIODS);
-
-		snd_interval constraint{};
-		constraint.integer = 0;
-
-		constraint.min = bufferSize.min / periods.max;
-		constraint.openmin = bufferSize.min % periods.max || bufferSize.openmin || periods.openmax;
-		if (periods.min) {
-			constraint.max = bufferSize.max / periods.min;
-			if (bufferSize.max % periods.min) {
-				++constraint.max;
-				constraint.openmax = 1;
-			} else {
-				constraint.openmax = bufferSize.openmax || periods.openmin;
+				if ((params.values.cmask & (1U << rule->what)) && params.interval(rule->what).empty) {
+					std::println(std::cout, "libsound: interval {} is empty", rule->what);
+					result.cmask |= params.values.cmask;
+					result.invalid = true;
+					return result;
+				}
 			}
-		} else {
-			constraint.max = UINT32_MAX;
-			constraint.openmax = 0;
 		}
 
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-		}
-	}
-};
+		for (auto rule : dynamicRules) {
+			if (rmask & rule.dependencies) {
+				rule.func(params);
 
-Rule periodBytesRule{
-	{SNDRV_PCM_HW_PARAM_PERIOD_SIZE, SNDRV_PCM_HW_PARAM_FRAME_BITS},
-	[](Params &params) {
-		auto &periodSize = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-		auto &frameBits = params.interval(SNDRV_PCM_HW_PARAM_FRAME_BITS);
-
-		snd_interval constraint{};
-		constraint.integer = periodSize.integer && frameBits.integer;
-		constraint.openmin = periodSize.openmin || frameBits.openmin;
-		constraint.openmax = periodSize.openmax || frameBits.openmax;
-		constraint.min = periodSize.min * (frameBits.min / 8);
-		constraint.max = periodSize.max * (frameBits.max / 8);
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_PERIOD_BYTES);
-		}
-	}
-};
-
-Rule periodsRule{
-	{SNDRV_PCM_HW_PARAM_BUFFER_SIZE, SNDRV_PCM_HW_PARAM_PERIOD_SIZE},
-	[](Params &params) {
-		auto &bufferSize = params.interval(SNDRV_PCM_HW_PARAM_BUFFER_SIZE);
-		auto &periodSize = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-
-		snd_interval constraint{};
-		constraint.integer = 0;
-
-		constraint.min = bufferSize.min / periodSize.max;
-		constraint.openmin = bufferSize.min % periodSize.max || bufferSize.openmin || periodSize.openmax;
-		if (periodSize.min) {
-			constraint.max = bufferSize.max / periodSize.min;
-			if (bufferSize.max % periodSize.min) {
-				++constraint.max;
-				constraint.openmax = 1;
-			} else {
-				constraint.openmax = bufferSize.openmax || periodSize.openmin;
+				if ((params.values.cmask & (1U << rule.what)) && params.interval(rule.what).empty) {
+					std::println(std::cout, "libsound: interval {} is empty", rule.what);
+					result.cmask |= params.values.cmask;
+					result.invalid = true;
+					return result;
+				}
 			}
-		} else {
-			constraint.max = UINT32_MAX;
-			constraint.openmax = 0;
 		}
 
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_PERIODS, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_PERIODS);
+		rmask = params.values.cmask;
+		if (rmask == 0) {
+			break;
+		}
+		result.cmask |= rmask;
+	}
+
+	return result;
+}
+
+void DeviceFile::updatePosition() {
+	auto position = device->attachedStream->getPosition();
+	assert(position);
+
+	size_t delta;
+	if (position.value() >= lastPeriodPosition)
+		delta = position.value() - lastPeriodPosition;
+	else
+		delta = position.value() + (bufferSizeFrames * frameSize - lastPeriodPosition);
+
+	lastPeriodPosition = position.value();
+
+	snd_pcm_uframes_t hwPtr = status->hw_ptr;
+
+	hwPtr += delta / frameSize;
+	if (hwPtr >= swParams.boundary)
+		hwPtr -= swParams.boundary;
+
+	status->hw_ptr = hwPtr;
+
+	if (swParams.tstamp_mode == SNDRV_PCM_TSTAMP_ENABLE) {
+		switch (swParams.tstamp_type) {
+		case SNDRV_PCM_TSTAMP_TYPE_GETTIMEOFDAY: {
+			timeval tv{};
+			gettimeofday(&tv, nullptr);
+			TIMEVAL_TO_TIMESPEC(&tv, &status->tstamp);
+			break;
+		}
+		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC:
+			clock_gettime(CLOCK_MONOTONIC, &status->tstamp);
+			break;
+		case SNDRV_PCM_TSTAMP_TYPE_MONOTONIC_RAW:
+			clock_gettime(CLOCK_MONOTONIC_RAW, &status->tstamp);
+			break;
+		default:
+			break;
 		}
 	}
-};
 
-Rule bufferTimeRule{
-	{SNDRV_PCM_HW_PARAM_BUFFER_SIZE, SNDRV_PCM_HW_PARAM_RATE},
-	[](Params &params) {
-		auto &bufferSize = params.interval(SNDRV_PCM_HW_PARAM_BUFFER_SIZE);
-		auto &rate = params.interval(SNDRV_PCM_HW_PARAM_RATE);
+	auto result = async::run(pollStatus(this), helix::currentDispatcher);
+	assert(result);
+	int pollResult = std::get<1>(result.value());
 
-		snd_interval constraint{};
-		constraint.integer = 0;
-		auto minMul = static_cast<uint64_t>(bufferSize.min) * rate.min;
-		auto maxMul = static_cast<uint64_t>(bufferSize.max) * rate.max;
+	if (pollResult) {
+		statusPage.update(++eventSequence, pollResult);
+		eventBell.raise();
+	}
+}
 
-		constraint.min = minMul / usInSecond;
-		constraint.openmin = minMul % usInSecond || bufferSize.openmin || rate.openmin;
-		constraint.max = maxMul / usInSecond;
-		if (maxMul % usInSecond) {
-			++constraint.max;
-			constraint.openmax = 1;
-		} else {
-			constraint.openmax = bufferSize.openmax || rate.openmax;
+void DeviceFile::periodCallback() {
+	updatePosition();
+}
+
+async::result<frg::expected<protocols::fs::Error, size_t>> DeviceFile::writeFrames(const std::vector<uint8_t> &data) {
+	if (!device->attachedStream)
+		co_return protocols::fs::Error::illegalArguments;
+
+	size_t totalFrames = data.size() / frameSize;
+	size_t progress = 0;
+	while (progress < totalFrames) {
+		auto available = getAvailableFrames();
+
+		auto applPtr = control->appl_ptr;
+		auto realApplPtr = applPtr % bufferSizeFrames;
+		size_t toCopy = std::min({available, totalFrames - progress, bufferSizeFrames - realApplPtr});
+
+		if (toCopy == 0) {
+			if (nonBlock)
+				break;
+			else {
+				auto pollResult = co_await pollWait(this, eventSequence, 0, {});
+				assert(pollResult);
+			}
 		}
 
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_BUFFER_TIME, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_BUFFER_TIME);
+		void *ptr = reinterpret_cast<void *>(uintptr_t(bufferMapping.get()) + realApplPtr * frameSize);
+		memcpy(ptr, data.data() + progress * frameSize, toCopy * frameSize);
+
+		applPtr += toCopy;
+		if (applPtr >= swParams.boundary)
+			applPtr -= swParams.boundary;
+
+		control->appl_ptr = applPtr;
+
+		available -= toCopy;
+
+		auto stream = device->attachedStream;
+		if (stream->isPaused && bufferSizeFrames - available >= swParams.start_threshold) {
+			std::println(std::cout, "libsound: starting stream (trip threshold {})", swParams.start_threshold);
+			auto streamStatus = stream->play();
+			assert(streamStatus);
+			status->state = SNDRV_PCM_STATE_RUNNING;
+			stream->isPaused = false;
+		}
+
+		progress += toCopy;
+	}
+
+	if (progress)
+		co_return progress;
+	else
+		co_return protocols::fs::Error::wouldBlock;
+}
+
+snd_mask soundFormatsToAlsa(const sound::DeviceLimits &limits) {
+	snd_mask mask{};
+
+	for (auto format : limits.formats) {
+		switch (format) {
+		case sound::Format::pcmS8:
+			mask.bits[0] |= 1U << SNDRV_PCM_FORMAT_S8;
+			break;
+		case sound::Format::pcmS16:
+			mask.bits[0] |= 1U << SNDRV_PCM_FORMAT_S16_LE;
+			break;
+		case sound::Format::pcmS20:
+			mask.bits[0] |= 1U << SNDRV_PCM_FORMAT_S20_LE;
+			break;
+		case sound::Format::pcmS24:
+			mask.bits[0] |= 1U << SNDRV_PCM_FORMAT_S24_LE;
+			break;
+		case sound::Format::pcmS32:
+			mask.bits[0] |= 1U << SNDRV_PCM_FORMAT_S32_LE;
+			break;
 		}
 	}
-};
 
-Rule bufferSizeRule{
-	{SNDRV_PCM_HW_PARAM_PERIODS, SNDRV_PCM_HW_PARAM_PERIOD_SIZE},
-	[](Params &params) {
-		auto &periods = params.interval(SNDRV_PCM_HW_PARAM_PERIODS);
-		auto &periodSize = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_SIZE);
-
-		snd_interval constraint{};
-		constraint.integer = periods.integer && periodSize.integer;
-		constraint.openmin = periods.openmin || periodSize.openmin;
-		constraint.openmax = periods.openmax || periodSize.openmax;
-		constraint.min = periods.min * periodSize.min;
-		constraint.max = periods.max * periodSize.max;
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_BUFFER_SIZE, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_BUFFER_SIZE);
-		}
-	}
-};
-
-Rule bufferBytesRule{
-	{SNDRV_PCM_HW_PARAM_PERIODS, SNDRV_PCM_HW_PARAM_PERIOD_BYTES},
-	[](Params &params) {
-		auto &periods = params.interval(SNDRV_PCM_HW_PARAM_PERIODS);
-		auto &periodBytes = params.interval(SNDRV_PCM_HW_PARAM_PERIOD_BYTES);
-
-		snd_interval constraint{};
-		constraint.integer = periods.integer && periodBytes.integer;
-		constraint.openmin = periods.openmin || periodBytes.openmin;
-		constraint.openmax = periods.openmax || periodBytes.openmax;
-		constraint.min = periods.min * periodBytes.min;
-		constraint.max = periods.max * periodBytes.max;
-
-		if (params.intersect_interval(SNDRV_PCM_HW_PARAM_BUFFER_BYTES, constraint)) {
-			params.change(SNDRV_PCM_HW_PARAM_BUFFER_BYTES);
-		}
-	}
-};
-
-std::pair<uint32_t, Rule*> rules[]{
-	{SNDRV_PCM_HW_PARAM_SAMPLE_BITS, &sampleBitsRule},
-	{SNDRV_PCM_HW_PARAM_FRAME_BITS, &frameBitsRule},
-	{SNDRV_PCM_HW_PARAM_PERIOD_TIME, &periodTimeRule},
-	{SNDRV_PCM_HW_PARAM_PERIOD_SIZE, &periodSizeRule},
-	{SNDRV_PCM_HW_PARAM_PERIOD_SIZE, &periodSizeFromBufferRule},
-	{SNDRV_PCM_HW_PARAM_PERIOD_BYTES, &periodBytesRule},
-	{SNDRV_PCM_HW_PARAM_PERIODS, &periodsRule},
-	{SNDRV_PCM_HW_PARAM_BUFFER_TIME, &bufferTimeRule},
-	{SNDRV_PCM_HW_PARAM_BUFFER_SIZE, &bufferSizeRule},
-	{SNDRV_PCM_HW_PARAM_BUFFER_BYTES, &bufferBytesRule}
-};
-
-} // namespace rules
+	return mask;
+}
 
 async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvInlineResult msg,
 		helix::UniqueLane conversation) {
@@ -515,8 +496,11 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		HEL_CHECK(send_resp.error());
 	} else if (req->command() == SNDRV_PCM_IOCTL_TTSTAMP) {
 		if constexpr (logRequests) {
-			std::println(std::cout, "libsound: pcm ttstamp {} is ignored", req->snd_pcm_ttstamp());
+			std::println(std::cout, "libsound: pcm ttstamp {}", req->snd_pcm_ttstamp());
 		}
+
+		self->swParams.tstamp_type = req->snd_pcm_ttstamp();
+		self->swParams.tstamp_mode = SNDRV_PCM_TSTAMP_ENABLE;
 
 		managarm::fs::GenericIoctlReply resp;
 
@@ -543,28 +527,61 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 		uint32_t rmask = params.values.rmask;
 		uint32_t cmask = 0;
+		bool invalid = false;
 
-		while (true) {
-			params.values.cmask = 0;
+		auto applyHwMaskConstraint = [&](uint32_t what, uint32_t supported) {
+			auto &value = params.mask(what);
 
-			for (auto [index, rule] : rules::rules) {
-				if (rmask & rule->dependencies) {
-					rule->func(params);
-				}
+			bool changed = (value.bits[0] & supported) != value.bits[0];
+
+			value.bits[0] &= supported;
+
+			for (size_t i = 1; i < sizeof(value.bits) / sizeof(*value.bits); i++) {
+				changed |= value.bits[i] != 0;
+				value.bits[i] = 0;
 			}
 
-			rmask = params.values.cmask;
-			if (rmask == 0) {
-				break;
+			if (changed) {
+				params.values.cmask |= 1U << what;
+				auto applyResult = self->applyRules(params, what);
+				cmask |= applyResult.cmask;
+				invalid |= applyResult.invalid;
 			}
-			cmask |= rmask;
+		};
+
+		if (rmask & (1U << SNDRV_PCM_HW_PARAM_ACCESS)) {
+			constexpr uint32_t supported = (1U << SNDRV_PCM_ACCESS_RW_INTERLEAVED)
+					| (1U << SNDRV_PCM_ACCESS_MMAP_INTERLEAVED);
+			applyHwMaskConstraint(SNDRV_PCM_HW_PARAM_ACCESS, supported);
+		}
+
+		if ((rmask & (1U << SNDRV_PCM_HW_PARAM_FORMAT)) && !invalid) {
+			auto supported = soundFormatsToAlsa(self->device->limits);
+			applyHwMaskConstraint(SNDRV_PCM_HW_PARAM_FORMAT, supported.bits[0]);
+		}
+
+		if ((rmask & (1U << SNDRV_PCM_HW_PARAM_SUBFORMAT)) && !invalid) {
+			constexpr uint32_t supported = (1U << SNDRV_PCM_SUBFORMAT_STD);
+			applyHwMaskConstraint(SNDRV_PCM_HW_PARAM_SUBFORMAT, supported);
+		}
+
+		if (!invalid) {
+			auto applyResult = self->applyRules(params, rmask);
+			cmask |= applyResult.cmask;
+			invalid = applyResult.invalid;
 		}
 
 		params.values.cmask = cmask;
+		params.values.rmask = cmask;
 
 		managarm::fs::GenericIoctlReply resp;
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		if (invalid) {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		} else {
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		}
+
 		resp.set_result(0);
 
 		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
@@ -590,6 +607,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		// TODO: verify parameters
 
 		self->hwParams = params;
+		self->bufferSizeFrames = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_BUFFER_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
 		self->frameSize = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_FRAME_BITS - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min / 8;
 
 		managarm::fs::GenericIoctlReply resp;
@@ -617,13 +635,23 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		);
 		HEL_CHECK(recv_buffer.error());
 
+		if (self->bufferSizeFrames != 0) {
+			params.boundary = self->bufferSizeFrames;
+			while (params.boundary * 2 <= LONG_MAX - self->bufferSizeFrames)
+				params.boundary *= 2;
+		}
+
 		// TODO: verify parameters
 
 		self->swParams = params;
 
 		managarm::fs::GenericIoctlReply resp;
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
+		if (self->bufferSizeFrames != 0)
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		else
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
 		resp.set_result(0);
 
 		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
@@ -633,12 +661,135 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		);
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_data.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_DELAY) {
+		if constexpr (logRequests) {
+			// std::println(std::cout, "libsound: pcm delay");
+		}
+
+		snd_pcm_sframes_t delay{};
+
+		auto [recv_buffer] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(&delay, sizeof(delay))
+		);
+		HEL_CHECK(recv_buffer.error());
+
+		self->updatePosition();
+
+		if (self->device->attachedStream) {
+			delay = self->getHwDelayFrames();
+		} else {
+			delay = 0;
+		}
+
+		managarm::fs::GenericIoctlReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_result(0);
+
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(&delay, sizeof(delay))
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_HWSYNC) {
+		if constexpr (logRequests) {
+			// std::println(std::cout, "libsound: pcm hwsync");
+		}
+
+		managarm::fs::GenericIoctlReply resp;
+
+		if (self->device->attachedStream) {
+			self->updatePosition();
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		resp.set_result(0);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_STATUS_EXT) {
+		if constexpr (logRequests) {
+			std::println(std::cout, "libsound: pcm status ext");
+		}
+
+		snd_pcm_status status{};
+
+		auto [recv_buffer] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(&status, sizeof(status))
+		);
+		HEL_CHECK(recv_buffer.error());
+
+		status.state = self->status->state;
+		status.tstamp = self->status->tstamp;
+		status.appl_ptr = self->control->appl_ptr;
+		status.hw_ptr = self->status->hw_ptr;
+
+		if (self->status->state == SNDRV_PCM_STATE_RUNNING && self->device->attachedStream) {
+			status.avail = self->getAvailableFrames();
+			status.delay = self->getHwDelayFrames();
+		} else {
+			status.avail = 0;
+			status.delay = 0;
+		}
+
+		managarm::fs::GenericIoctlReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_result(0);
+
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(&status, sizeof(status))
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_CHANNEL_INFO) {
+		if constexpr (logRequests) {
+			std::println(std::cout, "libsound: pcm channel info");
+		}
+
+		snd_pcm_channel_info channelInfo{};
+
+		auto [recv_buffer] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::recvBuffer(&channelInfo, sizeof(channelInfo))
+		);
+		HEL_CHECK(recv_buffer.error());
+
+		uint32_t sampleBits = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_SAMPLE_BITS - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
+
+		channelInfo.offset = 0;
+		channelInfo.first = channelInfo.channel * sampleBits;
+		channelInfo.step = self->frameSize * 8;
+
+		managarm::fs::GenericIoctlReply resp;
+
+		resp.set_error(managarm::fs::Errors::SUCCESS);
+		resp.set_result(0);
+
+		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+			helix_ng::sendBuffer(&channelInfo, sizeof(channelInfo))
+		);
+		HEL_CHECK(send_resp.error());
+		HEL_CHECK(send_data.error());
 	} else if (req->command() == SNDRV_PCM_IOCTL_PREPARE) {
 		if constexpr (logRequests) {
 			std::println(std::cout, "libsound: pcm prepare");
 		}
 
-		if (self->status->state == SNDRV_PCM_STATE_OPEN) {
+		if (self->status->state == SNDRV_PCM_STATE_OPEN || self->status->state == SNDRV_PCM_STATE_XRUN) {
 			auto &fmtBits = self->hwParams.masks[SNDRV_PCM_HW_PARAM_FORMAT].bits;
 
 			auto checkFmt = [&](snd_pcm_format_t fmt) {
@@ -647,7 +798,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 			sound::Format fmt{};
 
-			if (checkFmt(SNDRV_PCM_FORMAT_S8) || checkFmt(SNDRV_PCM_FORMAT_U8)) {
+			if (checkFmt(SNDRV_PCM_FORMAT_S8)) {
 				fmt = sound::Format::pcmS8;
 			} else if (checkFmt(SNDRV_PCM_FORMAT_S16_LE)) {
 				fmt = sound::Format::pcmS16;
@@ -664,17 +815,37 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 			auto bufferSize = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_BUFFER_BYTES - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
 			assert(bufferSize);
-			assert(self->frameSize);
-			std::println(std::cout, "libsound: buffer size {} frame size {}", bufferSize, self->frameSize);
+			auto periods = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_PERIODS - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
+			auto periodBytes = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_PERIOD_BYTES - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min;
+			assert(periodBytes);
+
+			if constexpr (logRequests) {
+				std::println(std::cout, "libsound: buffer size {} ({} periods * {})", bufferSize, periods, periodBytes);
+			}
+
+			std::vector<sound::PeriodChunk> periodChunks;
+			for (size_t i = 0; i < bufferSize / periodBytes; i++) {
+				void *virt = reinterpret_cast<void *>(uintptr_t(self->bufferMapping.get()) + i * periodBytes);
+				sound::PeriodChunk chunk{
+					.virt = virt,
+					.phys = helix::ptrToPhysical(virt)
+				};
+				periodChunks.push_back(chunk);
+			}
 
 			sound::StreamParameters streamParams{
 				.sampleRate = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_RATE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min,
 				.channels = self->hwParams.intervals[SNDRV_PCM_HW_PARAM_CHANNELS - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL].min,
-				.bufferSize = bufferSize,
-				.format = fmt
+				.periodCount = periods,
+				.periodSize = periodBytes,
+				.format = fmt,
+				.periodCallback{[=] { self->periodCallback(); }},
+				.periodChunks{std::move(periodChunks)}
 			};
 
-			std::println(std::cout, "libsound: sample rate {}, channels {}", streamParams.sampleRate, streamParams.channels);
+			if constexpr (logRequests) {
+				std::println(std::cout, "libsound: sample rate {}, channels {}", streamParams.sampleRate, streamParams.channels);
+			}
 
 			sound::Stream *stream;
 			if (self->device->type == sound::DeviceType::playback) {
@@ -690,6 +861,12 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 			status = self->device->attachToStream(stream);
 			assert(status);
+			status = self->device->setVolume(100);
+			assert(status);
+
+			self->status->hw_ptr = 0;
+			self->control->appl_ptr = 0;
+			self->lastPeriodPosition = 0;
 		}
 
 		managarm::fs::GenericIoctlReply resp;
@@ -698,6 +875,66 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		resp.set_result(0);
 
 		self->status->state = SNDRV_PCM_STATE_PREPARED;
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_START) {
+		if constexpr (logRequests) {
+			std::println(std::cout, "libsound: pcm start");
+		}
+
+		managarm::fs::GenericIoctlReply resp;
+
+		auto stream = self->device->attachedStream;
+
+		if (stream) {
+			auto streamStatus = stream->play();
+			assert(streamStatus);
+			self->status->state = SNDRV_PCM_STATE_RUNNING;
+			stream->isPaused = false;
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		resp.set_result(0);
+
+		auto [send_resp] = co_await helix_ng::exchangeMsgs(
+			conversation,
+			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+		);
+		HEL_CHECK(send_resp.error());
+	} else if (req->command() == SNDRV_PCM_IOCTL_XRUN) {
+		if constexpr (logRequests) {
+			std::println(std::cout, "libsound: pcm xrun");
+		}
+
+		managarm::fs::GenericIoctlReply resp;
+
+		auto stream = self->device->attachedStream;
+
+		if (stream) {
+			auto status = stream->pause();
+			assert(status);
+			stream->isPaused = true;
+
+			status = stream->stop();
+			assert(status);
+			stream->isReady = false;
+			self->device->attachedStream = nullptr;
+
+			self->status->state = SNDRV_PCM_STATE_XRUN;
+
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+		}
+
+		resp.set_result(0);
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
 			conversation,
@@ -730,28 +967,13 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		);
 		HEL_CHECK(recv_buffer.error());
 
-		assert(self->device->attachedStream);
-		auto stream = self->device->attachedStream;
+		auto result = co_await self->writeFrames(data);
 
-		assert(data.size() <= UINT32_MAX);
-		uint32_t size = data.size();
-		auto result = stream->queueData(data.data(), size);
-		assert(result);
-		size = result.value();
+		if (result)
+			resp.set_snd_result(result.value());
+		else
+			resp.set_error(result.error() | protocols::fs::toFsError);
 
-		if (stream->isPaused) {
-			result = stream->getRemaining();
-			assert(result);
-
-			if (result.value() >= self->control->avail_min * self->frameSize) {
-				std::println(std::cout, "libsound: starting stream (trip threshold {})", self->control->avail_min * self->frameSize);
-				auto status = stream->play();
-				assert(status);
-				self->status->state = SNDRV_PCM_STATE_RUNNING;
-			}
-		}
-
-		resp.set_snd_result(size / self->frameSize);
 		resp.set_result(0);
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -766,17 +988,18 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 
 		managarm::fs::GenericIoctlReply resp;
 
-		resp.set_error(managarm::fs::Errors::SUCCESS);
 		resp.set_result(0);
 
 		if (self->status->state != SNDRV_PCM_STATE_OPEN) {
-			assert(self->device->attachedStream);
+			if (self->device->attachedStream) {
+				auto stream = self->device->attachedStream;
+				auto status = stream->pause();
+				assert(status);
+			}
 
-			auto stream = self->device->attachedStream;
-			auto status = stream->pause();
-			assert(status);
-			status = stream->clearData();
-			assert(status);
+			resp.set_error(managarm::fs::Errors::SUCCESS);
+		} else {
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
 		}
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -797,8 +1020,11 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 		if (auto stream = self->device->attachedStream) {
 			auto status = stream->pause();
 			assert(status);
+			stream->isPaused = true;
 			status = stream->stop();
 			assert(status);
+			stream->isReady = false;
+			self->device->attachedStream = nullptr;
 		}
 
 		self->status->state = SNDRV_PCM_STATE_OPEN;
@@ -831,30 +1057,41 @@ DeviceFile::pollWait(void *object, uint64_t sequence, int mask,
 	while(sequence == self->eventSequence)
 		co_await self->eventBell.async_wait_if([&] { return sequence == self->eventSequence; });
 
-	uint32_t bufferSize = self->device->attachedStream->params.bufferSize;
-	auto result = self->device->attachedStream->getRemaining();
+	auto result = co_await pollStatus(object);
 	assert(result);
 
-	int s = 0;
-
-	if(bufferSize - result.value() >= self->swParams.boundary)
-		s |= EPOLLOUT;
-
-	co_return protocols::fs::PollWaitResult{self->eventSequence, s};
+	co_return protocols::fs::PollWaitResult{self->eventSequence, std::get<1>(result.value())};
 }
 
 async::result<frg::expected<protocols::fs::Error, protocols::fs::PollStatusResult>>
 DeviceFile::pollStatus(void *object) {
 	auto self = static_cast<DeviceFile *>(object);
 
-	uint32_t bufferSize = self->device->attachedStream->params.bufferSize;
-	auto result = self->device->attachedStream->getRemaining();
-	assert(result);
+	auto available = self->getAvailableFrames();
+
+	auto stream = self->device->attachedStream;
+	int pollSuccess = stream->isCapture() ? (EPOLLIN | EPOLLRDNORM) : (EPOLLOUT | EPOLLWRNORM);
 
 	int s = 0;
 
-	if(bufferSize - result.value() >= self->swParams.boundary)
-		s |= EPOLLOUT;
+	switch (self->status->state) {
+	case SNDRV_PCM_STATE_PREPARED:
+	case SNDRV_PCM_STATE_RUNNING:
+	case SNDRV_PCM_STATE_PAUSED:
+		if (available >= self->control->avail_min)
+			s |= pollSuccess;
+		break;
+	case SNDRV_PCM_STATE_DRAINING:
+		if (stream->isCapture()) {
+			s |= pollSuccess;
+			if (available == 0)
+				s |= EPOLLERR;
+		}
+		break;
+	default:
+		s |= EPOLLERR;
+		break;
+	}
 
 	co_return protocols::fs::PollStatusResult{self->eventSequence, s};
 }
@@ -905,14 +1142,17 @@ async::detached serveDevice(sound::Device *device,
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(managarm::fs::Errors::SUCCESS);
+			resp.set_caps(managarm::fs::FileCaps::FC_STATUS_PAGE);
 
-			auto [send_resp, push_pt] = co_await helix_ng::exchangeMsgs(
+			auto [send_resp, push_pt, push_page] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-				helix_ng::pushDescriptor(remote_lane)
+				helix_ng::pushDescriptor(remote_lane),
+				helix_ng::pushDescriptor(file->statusPage.getMemory())
 			);
 			HEL_CHECK(send_resp.error());
 			HEL_CHECK(push_pt.error());
+			HEL_CHECK(push_page.error());
 		} else {
 			throw std::runtime_error("Invalid serveDevice request!");
 		}

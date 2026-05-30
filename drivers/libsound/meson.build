@@ -1,6 +1,7 @@
 src = [
 	'src/card.cpp',
 	'src/device.cpp',
+	'src/rules.cpp',
 ]
 inc = [ 'include' ]
 deps = [ core_dep, fs_proto_dep, mbus_proto_dep ]

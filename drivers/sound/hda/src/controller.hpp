@@ -13,7 +13,7 @@ struct Controller final : sound::Card {
 	Controller(protocols::hw::Device device, bool msiAvailable) : device{std::move(device)}, uhda{}, codecs{},
 			codecCount{}, msiAvailable{msiAvailable}, useMsi{} { }
 
-	async::result<void> run();
+	async::result<void> run(uint64_t numDevices);
 
 	protocols::hw::Device device;
 	UhdaController *uhda;
@@ -32,17 +32,13 @@ struct Stream final : sound::Stream {
 	frg::expected<sound::Status> play() override;
 	frg::expected<sound::Status> pause() override;
 
-	frg::expected<sound::Status, size_t> getRemaining() override;
-
-	frg::expected<sound::Status, size_t> queueData(const void *data, size_t size) override;
-	frg::expected<sound::Status> clearData() override;
+	frg::expected<sound::Status, size_t> getPosition() override;
 
 	UhdaStream *uhda;
 };
 
 struct Device final : sound::Device {
-	Device(Controller *ctrl, UhdaPath *path, sound::DeviceType type, mbus_ng::EntityId parentId)
-			: sound::Device{type, parentId, ctrl}, path{path} { }
+	Device(Controller *ctrl, UhdaPath *path, sound::DeviceType type, mbus_ng::EntityId parentId);
 
 	frg::expected<sound::Status> attachToStream(sound::Stream *stream) override;
 
