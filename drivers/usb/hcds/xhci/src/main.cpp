@@ -381,7 +381,11 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case portStatusChangeEvent:
-			assert(ev.portId <= _ports.size());
+			if (ev.portId == 0 || ev.portId > _ports.size()) {
+				std::println("{} Port event for unexpected port {}", this, ev.portId);
+				break;
+			}
+
 			if (_ports[ev.portId - 1])
 				_ports[ev.portId - 1]->_doorbell.raise();
 			break;
