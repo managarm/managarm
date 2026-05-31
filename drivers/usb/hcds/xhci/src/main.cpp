@@ -374,6 +374,15 @@ void Controller::processEvent(Event ev) {
 			break;
 
 		case transferEvent:
+			if (!_devices[ev.slotId]) {
+				std::println("{} Transfer event for unexpected slot {}", this, ev.slotId);
+				break;
+			}
+			if (ev.endpointId == 0 || ev.endpointId > 31) {
+				std::println("{} Transfer event for unexpected endpoint ID {} on slot {}", this, ev.endpointId, ev.slotId);
+				break;
+			}
+
 			if (auto ep = _devices[ev.slotId]->endpoint(ev.endpointId))
 				ep->transferRing().processEvent(ev);
 			else
