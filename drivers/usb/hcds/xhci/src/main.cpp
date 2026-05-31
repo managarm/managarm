@@ -236,9 +236,6 @@ async::detached Controller::initialize() {
 		co_return;
 	}
 
-	while(operational.load(op_regs::usbsts) & usbsts::hcHalted)
-		;
-
 	// Set up root hubs for each protocol
 	for (auto &p : _supportedProtocols) {
 		std::println("{} USB {:x}.{:02x}: {} ports ({}-{}), slot type {}",
