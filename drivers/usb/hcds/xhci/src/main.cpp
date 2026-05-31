@@ -52,10 +52,47 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 	std::println("{} {} ports in total", this, _numPorts);
 }
 
-void Controller::_processExtendedCapabilities() {
+async::result<void> Controller::_biosHandoff(uint32_t cap) {
+	arch::bit_register<uint32_t> sts{cap + 0x00};
+	arch::bit_register<uint32_t> ctl{cap + 0x04};
+
+	auto val = _space.load(sts);
+
+	if (val & handoff_sts::hcBiosOwned) {
+		_space.store(sts, val | handoff_sts::hcOsOwned(true));
+
+		auto checkOwned = [&] { return !(_space.load(sts) & handoff_sts::hcBiosOwned); };
+		if (!co_await helix::kindaBusyWait(1'000'000'000, checkOwned)) {
+			std::println("{} BIOS handoff failed. Handoff status={:08x}", this,
+					static_cast<uint32_t>(_space.load(sts)));
+
+			_space.store(sts, val / handoff_sts::hcBiosOwned(false));
+		}
+	}
+
+	val = _space.load(ctl);
+
+	// Clear enable bits
+	val /= handoff_ctl::smiEnable(false);
+	val /= handoff_ctl::smiHseEnable(false);
+	val /= handoff_ctl::smiOsOwnerEnable(false);
+	val /= handoff_ctl::smiPciCmdEnable(false);
+	val /= handoff_ctl::smiBarEnable(false);
+
+	// Clear RW1C bits
+	val |= handoff_ctl::smiOsOwner(true);
+	val |= handoff_ctl::smiPciCmd(true);
+	val |= handoff_ctl::smiBar(true);
+
+	_space.store(ctl, val);
+
+	std::println("{} Controller ownership obtained from BIOS", this);
+}
+
+async::result<void> Controller::_processExtendedCapabilities() {
 	auto cur = (_space.load(cap_regs::hccparams1) & hccparams1::extCapPtr) * 4u;
 	if(!cur)
-		return;
+		co_return;
 
 	while(1) {
 		auto val = arch::scalar_load<uint32_t>(_space, cur);
@@ -68,13 +105,7 @@ void Controller::_processExtendedCapabilities() {
 
 		if(id == 1) {
 			std::println("{} USB Legacy Support capability at {}", this, cur);
-
-			while(arch::scalar_load<uint8_t>(_space, cur + 0x2)) {
-				arch::scalar_store<uint8_t>(_space, cur + 0x3, 1);
-				sleep(1);
-			}
-
-			std::println("{} Controller ownership obtained from BIOS", this);
+			co_await _biosHandoff(cur);
 		} else if(id == 2) {
 			SupportedProtocol proto;
 
@@ -108,7 +139,7 @@ async::detached Controller::initialize() {
 	auto opOffset = _space.load(cap_regs::caplength);
 	auto operational = _space.subspace(opOffset);
 
-	_processExtendedCapabilities();
+	co_await _processExtendedCapabilities();
 
 	std::println("{} Initializing controller", this);
 
