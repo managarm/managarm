@@ -125,9 +125,16 @@ async::detached Controller::initialize() {
 	// Reset the controller and wait for it to complete
 	operational.store(op_regs::usbcmd, usbcmd::hcReset(1));
 
+	auto checkReset = [&] { return !(operational.load(op_regs::usbcmd) & usbcmd::hcReset); };
+	if (!co_await helix::kindaBusyWait(5'000'000'000, checkReset)) {
+		std::println("{} Controller not come out of reset after 5s! USBCMD={:08x}", this,
+				static_cast<uint32_t>(operational.load(op_regs::usbcmd)));
+		co_return;
+	}
+
 	auto checkReady = [&] { return !(operational.load(op_regs::usbsts) & usbsts::controllerNotReady); };
 	if (!co_await helix::kindaBusyWait(5'000'000'000, checkReady)) {
-		std::println("{} Controller not ready after reset after 5s! USBSTS={:08x}", this,
+		std::println("{} Controller not ready after 5s! USBSTS={:08x}", this,
 				static_cast<uint32_t>(operational.load(op_regs::usbsts)));
 		co_return;
 	}
