@@ -300,7 +300,7 @@ void ProducerRing::_updateLink(bool initialCycle) {
 		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
 		static_cast<uint32_t>(getPtr() >> 32),
 		0,
-		static_cast<uint32_t>(initialCycle | (1 << 1) | (1 << 5) | (6 << 10))
+		static_cast<uint32_t>(initialCycle | (1 << 1) | (6 << 10))
 	}};
 }
 
