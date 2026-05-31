@@ -598,9 +598,15 @@ void Controller::Port::transitionToLinkStatus(uint8_t status) {
 }
 
 async::detached Controller::Port::initPort() {
-	if (!isPowered()) {
-		std::println("{} Port {} is not powered on", _controller, _id);
-	}
+	std::println("{} Powering off port {}", _controller, _id);
+	_space.store(port::portsc, portsc::portPower(false));
+
+	co_await helix_ng::sleepFor(1'000'000'000);
+
+	std::println("{} Powering on port {}", _controller, _id);
+	_space.store(port::portsc, portsc::portPower(true));
+
+	co_await helix_ng::sleepFor(1'000'000'000);
 
 	// Wait for something to connect to the port
 	co_await awaitFlag(portsc::connectStatus, true);
