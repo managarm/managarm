@@ -37,6 +37,28 @@ inline constexpr arch::bit_register<uint32_t> hccparams2(0x1C);
 
 } // namespace cap_regs
 
+namespace handoff_sts {
+
+inline constexpr arch::field<uint32_t, bool> hcBiosOwned(16, 1);
+inline constexpr arch::field<uint32_t, bool> hcOsOwned(24, 1);
+
+} // namespace handoff_sts
+
+namespace handoff_ctl {
+
+inline constexpr arch::field<uint32_t, bool> smiEnable(0, 1);
+inline constexpr arch::field<uint32_t, bool> smiHseEnable(4, 1);
+inline constexpr arch::field<uint32_t, bool> smiOsOwnerEnable(13, 1);
+inline constexpr arch::field<uint32_t, bool> smiPciCmdEnable(14, 1);
+inline constexpr arch::field<uint32_t, bool> smiBarEnable(15, 1);
+
+// RW1C
+inline constexpr arch::field<uint32_t, bool> smiOsOwner(29, 1);
+inline constexpr arch::field<uint32_t, bool> smiPciCmd(30, 1);
+inline constexpr arch::field<uint32_t, bool> smiBar(31, 1);
+
+} // namespace handoff_ctl
+
 namespace hcsparams1 {
 
 inline constexpr arch::field<uint32_t, uint8_t> maxPorts(24, 8);
