@@ -3,6 +3,7 @@
 #include <fcntl.h>
 
 #include "file.hpp"
+#include "fs.hpp"
 
 struct MemoryFile final : File {
 public:
@@ -42,6 +43,10 @@ public:
 		return _passthrough;
 	}
 
+	size_t fileSize() const {
+		return _fileSize;
+	}
+
 private:
 	async::result<frg::expected<Error>> _resizeFile(size_t new_size);
 
@@ -55,4 +60,70 @@ private:
 	size_t _areaSize = 0;
 	size_t _fileSize = 0;
 	int _seals = 0;
+};
+
+// ----------------------------------------------------------------------------
+// MemoryFileLink class.
+// ----------------------------------------------------------------------------
+
+struct MemoryFileLink final : FsLink, std::enable_shared_from_this<MemoryFileLink> {
+private:
+	struct PrivateTag { }; // To tag-dispatch to private methods.
+
+public:
+	static std::shared_ptr<MemoryFileLink> makeMemoryFileLink(int mode) {
+		return std::make_shared<MemoryFileLink>(PrivateTag{}, mode);
+	}
+
+	MemoryFileLink(PrivateTag, int mode)
+	: mode_{mode} { }
+
+	void setFile(smarter::shared_ptr<MemoryFile> file) {
+		file_ = std::move(file);
+	}
+
+public:
+	std::shared_ptr<FsNode> getTarget() override {
+		return {shared_from_this(), &embeddedNode_};
+	}
+
+	std::shared_ptr<FsNode> getOwner() override {
+		return nullptr;
+	}
+
+	std::string getName() override {
+		throw std::runtime_error("MemoryFileLink has no name");
+	}
+
+	std::optional<std::string> getProcFsDescription() override {
+		return "memory_inode:unimplemented";
+	}
+
+private:
+	// MemoryFileLink can never be linked into "real" file systems,
+	// hence the can only ever be one link per node.
+	struct EmbeddedNode final : FsNode {
+		EmbeddedNode() : FsNode(getAnonymousSuperblock()) {}
+
+		VfsType getType() override {
+			return VfsType::regular;
+		}
+
+		async::result<frg::expected<Error, FileStats>> getStats() override {
+			auto node = frg::container_of(this, &MemoryFileLink::embeddedNode_);
+			FileStats stats{};
+			stats.inodeNumber = 1;
+			stats.fileSize = node->file_->fileSize();
+			stats.numLinks = 1;
+			stats.mode = node->mode_;
+			stats.uid = 0;
+			stats.gid = 0;
+			// TODO: Linux returns the current time for all timestamps.
+			co_return stats;
+		}
+	};
+
+	smarter::shared_ptr<MemoryFile> file_;
+	int mode_;
+	[[no_unique_address]] EmbeddedNode embeddedNode_;
 };

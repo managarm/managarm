@@ -136,8 +136,9 @@ HandleRequest::operator()(managarm::posix::MemFdCreateRequest &&req,
 		co_return {};
 	}
 
-	auto link = SpecialLink::makeSpecialLink(VfsType::regular, 0777);
-	auto memFile = smarter::make_shared<MemoryFile>(nullptr, link, (req.flags() & MFD_ALLOW_SEALING) == true);
+	auto link = MemoryFileLink::makeMemoryFileLink(0777);
+	auto memFile = smarter::make_shared<MemoryFile>(nullptr, link, (req.flags() & MFD_ALLOW_SEALING));
+	link->setFile(memFile);
 	MemoryFile::serve(memFile);
 	memFile->setupWeakFile(memFile);
 	auto file = File::constructHandle(std::move(memFile));
