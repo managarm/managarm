@@ -67,15 +67,17 @@ public:
 	}
 
 	async::result<Error> store(sysfs::Object *object, std::string data) override {
-		(void) data;
-
 		auto device = static_cast<Device *>(object);
 
 		UeventProperties ue;
 		device->composeStandardUevent(ue);
 		device->composeUevent(ue);
 
-		udev::emitAddEvent(device->getSysfsPath(), ue);
+		if (data.starts_with("add"))
+			udev::emitAddEvent(device->getSysfsPath(), ue);
+		else if (data.starts_with("change"))
+			udev::emitChangeEvent(device->getSysfsPath(), ue);
+
 		co_return Error::success;
 	}
 };
