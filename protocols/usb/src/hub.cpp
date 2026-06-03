@@ -149,25 +149,26 @@ private:
 
 async::result<frg::expected<UsbError>> StandardHub::initialize() {
 	// Read the generic USB device configuration.
-	std::optional<int> cfgNumber;
 	std::optional<int> intfNumber;
 	std::optional<int> endNumber;
 
 	auto cfgDescriptor = FRG_CO_TRY(co_await device_.configurationDescriptor(0));
-	walkConfiguration(cfgDescriptor, [&] (int type, size_t, void *, const auto &info) {
-		if(type == descriptor_type::configuration) {
-			assert(!cfgNumber);
-			cfgNumber = info.configNumber;
-		}else if(type == descriptor_type::interface) {
-			if(!intfNumber)
-				intfNumber = info.interfaceNumber;
-		}else if(type == descriptor_type::endpoint) {
-			if(!endNumber)
-				endNumber = info.endpointNumber;
-		}
-	});
+	auto cfgRange = configurationRange(cfgDescriptor);
 
-	auto cfg = FRG_CO_TRY(co_await device_.useConfiguration(0, cfgNumber.value()));
+	auto configDesc = configDescriptorFrom(cfgRange);
+	if(!configDesc)
+		co_return UsbError::other;
+
+	for(auto [intf, body] : groupByInterface(cfgRange)) {
+		intfNumber = intf.interfaceNumber;
+		for(auto ep : endpointsOf(body)) {
+			endNumber = ep.endpointAddress & 0x0F;
+			break;
+		}
+		break;
+	}
+
+	auto cfg = FRG_CO_TRY(co_await device_.useConfiguration(0, configDesc->configValue));
 	auto intf = FRG_CO_TRY(co_await cfg.useInterface(intfNumber.value(), 0));
 	endpoint_ = FRG_CO_TRY(co_await intf.getEndpoint(PipeType::in, endNumber.value()));
 
