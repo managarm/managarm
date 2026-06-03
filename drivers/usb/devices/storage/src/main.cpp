@@ -31,20 +31,16 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	std::optional<int> in_endp_number;
 	std::optional<int> out_endp_number;
 
-	proto::walkConfiguration(descriptor, [&] (int type, size_t, void *, const auto &info) {
-		if(type == proto::descriptor_type::endpoint) {
-			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber;
-			}else if(!info.endpointIn.value()) {
-				out_endp_number = info.endpointNumber;
-			}else {
-				throw std::runtime_error("Illegal endpoint!\n");
-			}
-		}else{
-			if(logEnumeration)
-				printf("block-usb: Unexpected descriptor type: %d!\n", type);
+	for(auto [intf, body] : proto::groupByInterface(proto::configurationRange(descriptor))) {
+		if(intf.interfaceNumber != intf_num)
+			continue;
+		for(auto ep : proto::endpointsOf(body)) {
+			if(ep.endpointAddress & 0x80)
+				in_endp_number = ep.endpointAddress & 0x0F;
+			else
+				out_endp_number = ep.endpointAddress & 0x0F;
 		}
-	});
+	}
 
 	if(logSteps)
 		std::cout << "block-usb: Setting up configuration" << std::endl;
@@ -135,30 +131,29 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 		co_return;
 	}
 
-	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
-		if(type == proto::descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber;
-		}else if(type == proto::descriptor_type::interface) {
-			if(intf_number) {
-				std::cout << "block-usb: Ignoring interface "
-						<< info.interfaceNumber.value() << std::endl;
-				return;
-			}
-			if(logEnumeration)
-				std::cout << "block-usb: Found interface: " << info.interfaceNumber.value()
-						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
-			intf_number = info.interfaceNumber;
+	auto cfg = proto::configurationRange(descriptorOrError.value());
 
-			assert(!intf_class);
-			assert(!intf_subclass);
-			assert(!intf_protocol);
-			auto desc = (proto::InterfaceDescriptor *)p;
-			intf_class = desc->interfaceClass;
-			intf_subclass = desc->interfaceSubClass;
-			intf_protocol = desc->interfaceProtocol;
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		std::cout << "block-usb: Missing configuration descriptor" << std::endl;
+		co_return;
+	}
+	config_number = configDesc->configValue;
+
+	for(auto intf : proto::interfacesOf(cfg)) {
+		if(intf_number) {
+			std::cout << "block-usb: Ignoring interface "
+					<< int{intf.interfaceNumber} << std::endl;
+			continue;
 		}
-	});
+		if(logEnumeration)
+			std::cout << "block-usb: Found interface: " << int{intf.interfaceNumber}
+					<< ", alternative: " << int{intf.alternateSetting} << std::endl;
+		intf_number = intf.interfaceNumber;
+		intf_class = intf.interfaceClass;
+		intf_subclass = intf.interfaceSubClass;
+		intf_protocol = intf.interfaceProtocol;
+	}
 
 	if(logEnumeration)
 		std::cout << "block-usb: Device class: 0x" << std::hex << intf_class.value()
