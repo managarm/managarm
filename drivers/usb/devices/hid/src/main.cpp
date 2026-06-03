@@ -639,35 +639,54 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	std::optional<int> in_endp_number;
 	size_t in_endp_pktsize;
 
-//	std::cout << "usb-hid: Device configuration:" << std::endl;
-	proto::walkConfiguration(descriptor, [&] (int type, size_t, void *p, const auto &info) {
-//		std::cout << "    Descriptor: " << type << std::endl;
-		if(type == proto::descriptor_type::hid) {
-			if(info.configNumber.value() != config_num
-					|| info.interfaceNumber.value() != intf_num)
-				return;
+	auto cfg = proto::configurationRange(descriptor);
 
-			auto desc = static_cast<HidDescriptor *>(p);
-			assert(desc->length == sizeof(HidDescriptor)
-					+ (desc->numDescriptors * sizeof(HidDescriptor::Entry)));
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc || configDesc->configValue != config_num) {
+		std::cout << "usb-hid: Configuration value mismatch" << std::endl;
+		co_return;
+	}
+
+	for(auto [intf, body] : proto::groupByInterface(cfg)) {
+		if(intf.interfaceNumber != intf_num)
+			continue;
+
+		for(auto [head, bytes] : body) {
+			if(head.descriptorType != proto::descriptor_type::hid)
+				continue;
+
+			// HidDescriptor has a trailing Entry array, so it cannot be a value
+			// type; validate its size and read the fixed header in place.
+			if(bytes.size() < sizeof(HidDescriptor)) {
+				std::cout << "usb-hid: Truncated HID descriptor" << std::endl;
+				continue;
+			}
+			auto desc = reinterpret_cast<const HidDescriptor *>(bytes.data());
+
+			auto entriesSize = desc->numDescriptors * sizeof(HidDescriptor::Entry);
+			if(bytes.size() < sizeof(HidDescriptor) + entriesSize) {
+				std::cout << "usb-hid: HID descriptor entries are truncated" << std::endl;
+				continue;
+			}
 
 			for(size_t i = 0; i < desc->numDescriptors; i++) {
-				assert(desc->entries[i].descriptorType == proto::descriptor_type::report);
-				report_descs.push_back(desc->entries[i].descriptorLength);
-			}
-		}else if(type == proto::descriptor_type::endpoint) {
-			if(info.configNumber.value() != config_num
-					|| info.interfaceNumber.value() != intf_num)
-				return;
-
-			auto desc = static_cast<proto::EndpointDescriptor *>(p);
-
-			if (!in_endp_number) {
-				in_endp_number = info.endpointNumber;
-				in_endp_pktsize = desc->maxPacketSize;
+				auto entry = proto::extractDescriptor<HidDescriptor::Entry>(
+						bytes.subspan(sizeof(HidDescriptor) + i * sizeof(HidDescriptor::Entry)));
+				// We later fetch these as Report descriptors, so skip any other
+				// class descriptor type (e.g. Physical descriptors).
+				if(entry->descriptorType != proto::descriptor_type::report)
+					continue;
+				report_descs.push_back(entry->descriptorLength);
 			}
 		}
-	});
+
+		for(auto ep : proto::endpointsOf(body)) {
+			if(!in_endp_number) {
+				in_endp_number = ep.endpointAddress & 0x0F;
+				in_endp_pktsize = ep.maxPacketSize;
+			}
+		}
+	}
 
 	std::cout << "usb-hid: Using endpoint number " << in_endp_number.value() << std::endl;
 
@@ -846,30 +865,32 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 		co_return;
 	}
 
-	std::optional<int> config_number;
 	std::optional<int> intf_number;
 	std::optional<int> intf_alternative;
 
-	proto::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *p, const auto &info) {
-		if(type == proto::descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber;
-		}else if(type == proto::descriptor_type::interface) {
-			auto desc = reinterpret_cast<proto::InterfaceDescriptor *>(p);
-			if(desc->interfaceClass != protocols::usb::usb_class::hid)
-				return;
+	auto cfg = proto::configurationRange(descriptorOrError.value());
 
-			if(intf_number) {
-				std::cout << "usb-hid: Ignoring secondary HID interface: "
-						<< info.interfaceNumber.value()
-						<< ", alternative: " << info.interfaceAlternative.value() << std::endl;
-				return;
-			}
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		std::cout << "usb-hid: Missing configuration descriptor" << std::endl;
+		co_return;
+	}
+	auto config_number = configDesc->configValue;
 
-			intf_number = info.interfaceNumber;
-			intf_alternative = info.interfaceAlternative;
+	for(auto intf : proto::interfacesOf(cfg)) {
+		if(intf.interfaceClass != protocols::usb::usb_class::hid)
+			continue;
+
+		if(intf_number) {
+			std::cout << "usb-hid: Ignoring secondary HID interface: "
+					<< int{intf.interfaceNumber}
+					<< ", alternative: " << int{intf.alternateSetting} << std::endl;
+			continue;
 		}
-	});
+
+		intf_number = intf.interfaceNumber;
+		intf_alternative = intf.alternateSetting;
+	}
 
 	if(!intf_number)
 		co_return;
@@ -878,7 +899,7 @@ async::detached bindDevice(mbus_ng::Entity entity) {
 			<< ", alternative: " << intf_alternative.value() << std::endl;
 
 	HidDevice* hid_device = new HidDevice(entity.id());
-	hid_device->run(device, config_number.value(), intf_number.value());
+	hid_device->run(device, config_number, intf_number.value());
 }
 
 async::detached observeDevices() {
