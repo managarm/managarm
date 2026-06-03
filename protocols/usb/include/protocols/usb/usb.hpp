@@ -274,55 +274,6 @@ enum class EndpointType {
 	interrupt
 };
 
-template<typename F>
-void walkConfiguration(std::string buffer, F functor) {
-	struct {
-		std::optional<int> configNumber;
-		std::optional<int> interfaceNumber;
-		std::optional<int> interfaceAlternative;
-		std::optional<int> endpointNumber;
-		std::optional<bool> endpointIn;
-		std::optional<EndpointType> endpointType;
-		std::optional<uint8_t> endpointInterval;
-	} info;
-
-	auto p = &buffer[0];
-	auto limit = &buffer[0] + buffer.size();
-	while(p < limit) {
-		auto base = (DescriptorBase *)p;
-		p += base->length;
-
-		if(base->descriptorType == descriptor_type::configuration) {
-			auto desc = (ConfigDescriptor *)base;
-			assert(desc->length == sizeof(ConfigDescriptor));
-
-			info.configNumber = desc->configValue;
-			info.interfaceNumber = std::nullopt;
-			info.interfaceAlternative = std::nullopt;
-			info.endpointNumber = std::nullopt;
-			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::interface) {
-			auto desc = (InterfaceDescriptor *)base;
-			assert(desc->length == sizeof(InterfaceDescriptor));
-
-			info.interfaceNumber = desc->interfaceNumber;
-			info.interfaceAlternative = desc->alternateSetting;
-			info.endpointNumber = std::nullopt;
-			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::endpoint) {
-			auto desc = (EndpointDescriptor *)base;
-			assert(desc->length == sizeof(EndpointDescriptor));
-
-			info.endpointNumber = desc->endpointAddress & 0x0F;
-			info.endpointIn = desc->endpointAddress & 0x80;
-			info.endpointType = static_cast<EndpointType>(desc->attributes & 0x03);
-			info.endpointInterval = desc->interval;
-		}
-
-		functor(base->descriptorType, base->length, base, info);
-	}
-}
-
 // One descriptor within a configuration buffer: its header plus the bytes
 // covering the whole descriptor (header included).
 using DescriptorEntry = std::pair<DescriptorBase, std::span<const std::byte>>;
