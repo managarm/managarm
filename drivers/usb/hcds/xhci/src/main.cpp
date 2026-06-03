@@ -765,6 +765,7 @@ int bIntervalIntoMicroframes(proto::DeviceSpeed speed, proto::EndpointType type,
 async::result<frg::expected<proto::UsbError, proto::Configuration>>
 Device::useConfiguration(uint8_t index, uint8_t value) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(index));
+	auto cfg = proto::configurationRange(descriptor);
 
 	struct EndpointInfo {
 		int pipe;
@@ -776,38 +777,33 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 
 	std::vector<EndpointInfo> _eps = {};
 
-	std::optional<uint8_t> valueByIndex;
+	// useConfiguration sets up every interface's endpoints in the configuration.
+	for(auto [intf, body] : proto::groupByInterface(cfg)) {
+		(void)intf;
+		for(auto ep : proto::endpointsOf(body)) {
+			auto packetSize = ep.maxPacketSize & 0x7FF;
+			auto epType = static_cast<proto::EndpointType>(ep.attributes & 0x03);
+			auto interval = ep.interval;
 
-	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		(void)length;
-
-		if(type == proto::descriptor_type::configuration) {
-			auto desc = (proto::ConfigDescriptor *)p;
-			valueByIndex = desc->configValue;
+			int pipe = ep.endpointAddress & 0x0F;
+			if (ep.endpointAddress & 0x80) {
+				_eps.push_back({pipe, proto::PipeType::in, packetSize, epType, interval});
+			} else {
+				_eps.push_back({pipe, proto::PipeType::out, packetSize, epType, interval});
+			}
 		}
+	}
 
-		if(type != proto::descriptor_type::endpoint)
-			return;
-		auto desc = (proto::EndpointDescriptor *)p;
-
-		// TODO: Pay attention to interface/alternative.
-		auto packetSize = desc->maxPacketSize & 0x7FF;
-		auto epType = info.endpointType.value();
-		auto interval = info.endpointInterval.value();
-
-		int pipe = info.endpointNumber.value();
-		if (info.endpointIn.value()) {
-			_eps.push_back({pipe, proto::PipeType::in, packetSize, epType, interval});
-		} else {
-			_eps.push_back({pipe, proto::PipeType::out, packetSize, epType, interval});
-		}
-	});
-
-	assert(valueByIndex);
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		std::println("{} useConfiguration({:d}, {:d}) called, but that configuration has no valid configuration descriptor",
+				_controller, index, value);
+		co_return proto::UsbError::other;
+	}
 	// Bail out if the user has no idea what they're asking for
-	if (*valueByIndex != value) {
+	if (configDesc->configValue != value) {
 		std::println("{} useConfiguration({:d}, {:d}) called, but that configuration has bConfigurationValue = {:d} ???",
-				_controller, index, value, *valueByIndex);
+				_controller, index, value, configDesc->configValue);
 		co_return proto::UsbError::other;
 	}
 
