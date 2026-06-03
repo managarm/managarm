@@ -64,26 +64,30 @@ async::result<void> Cp2102::initialize() {
 	auto descriptorOrError = co_await hw().configurationDescriptor(0);
 	assert(descriptorOrError);
 
-	std::optional<int> config_number;
+	auto cfg = protocols::usb::configurationRange(descriptorOrError.value());
+
+	auto configDesc = protocols::usb::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		std::cout << "usb-serial: Missing configuration descriptor" << std::endl;
+		co_return;
+	}
+	auto config_number = configDesc->configValue;
+
 	std::optional<int> in_endp_number;
 	std::optional<int> out_endp_number;
 
-	protocols::usb::walkConfiguration(descriptorOrError.value(), [&] (int type, size_t, void *, const auto &info) {
-		if(type == protocols::usb::descriptor_type::configuration) {
-			assert(!config_number);
-			config_number = info.configNumber;
-		} else if(type == protocols::usb::descriptor_type::interface) {
-			intfNumber_ = info.interfaceNumber.value();
-		} else if(type == protocols::usb::descriptor_type::endpoint) {
-			if(info.endpointIn.value()) {
-				in_endp_number = info.endpointNumber;
-			} else {
-				out_endp_number = info.endpointNumber;
-			}
+	for(auto [intf, body] : protocols::usb::groupByInterface(cfg)) {
+		intfNumber_ = intf.interfaceNumber;
+		for(auto ep : protocols::usb::endpointsOf(body)) {
+			if(ep.endpointAddress & 0x80)
+				in_endp_number = ep.endpointAddress & 0x0F;
+			else
+				out_endp_number = ep.endpointAddress & 0x0F;
 		}
-	});
+		break;
+	}
 
-	auto config = (co_await hw().useConfiguration(0, *config_number)).unwrap();
+	auto config = (co_await hw().useConfiguration(0, config_number)).unwrap();
 	if_ = (co_await config.useInterface(intfNumber_, 0)).unwrap();
 	in_ = (co_await if_->getEndpoint(protocols::usb::PipeType::in, in_endp_number.value())).unwrap();
 	out_ = (co_await if_->getEndpoint(protocols::usb::PipeType::out, out_endp_number.value())).unwrap();
