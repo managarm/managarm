@@ -207,26 +207,32 @@ UsbMbimNic::UsbMbimNic(mbus_ng::EntityId entity, protocols::usb::Device hw_devic
 async::result<void> UsbMbimNic::initialize() {
 	auto raw_descs = (co_await device_.configurationDescriptor(config_index_)).value();
 
-	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &) {
-		if(type == protocols::usb::descriptor_type::cs_interface) {
-			auto desc = reinterpret_cast<protocols::usb::CdcDescriptor *>(descriptor);
+	for(const auto &[head, body] : protocols::usb::configurationRange(raw_descs)) {
+		if(head.descriptorType != protocols::usb::descriptor_type::cs_interface)
+			continue;
 
-			switch(desc->subtype) {
-				using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
+		auto desc = protocols::usb::extractDescriptor<protocols::usb::CdcDescriptor>(body);
+		if(!desc)
+			continue;
+		switch(desc->subtype) {
+			using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
 
-				case CdcSubType::Mbim: {
-					auto mbim_hdr = reinterpret_cast<protocols::usb::CdcMbim *>(descriptor);
+			case CdcSubType::Mbim: {
+				auto mbim_hdr = protocols::usb::extractDescriptor<protocols::usb::CdcMbim>(body);
+				if(mbim_hdr)
 					wMaxControlMessage = mbim_hdr->wMaxControlMessage;
-					break;
-				}
-				default: {
-					break;
-				}
+				break;
+			}
+			default: {
+				break;
 			}
 		}
-	});
+	}
 
-	assert(wMaxControlMessage);
+	if(!wMaxControlMessage) {
+		std::cout << "usb-mbim: No usable MBIM functional descriptor found" << std::endl;
+		co_return;
+	}
 
 	auto config_val = (co_await device_.currentConfigurationValue()).value();
 	mbus_ng::Properties descriptor{

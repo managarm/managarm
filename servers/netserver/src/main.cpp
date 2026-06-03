@@ -218,95 +218,111 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 		nic::usb_net::ConfigurationInfo usb_info{};
 
 		auto raw_descs = (co_await dev.configurationDescriptor(configuration)).value();
-		protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &info) {
-			if(type == protocols::usb::descriptor_type::cs_interface) {
-				auto desc = reinterpret_cast<protocols::usb::CdcDescriptor *>(descriptor);
-
-				switch(desc->subtype) {
-					using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
-
-					case CdcSubType::Header: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcHeader *>(descriptor);
-						printf("netserver: CDC version 0x%x\n", hdr->bcdCDC);
-						break;
-					}
-					case CdcSubType::AbstractControl: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcAbstractControl *>(descriptor);
-						printf("netserver: ACM capabilities 0x%02x\n", hdr->bmCapabilities);
-						break;
-					}
-					case CdcSubType::Union: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcUnion *>(descriptor);
-						assert(hdr->length >= 5);
-						usb_info.data_if = hdr->bSubordinateInterface[0];
-						break;
-					}
-					case CdcSubType::EthernetNetworking: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcEthernetNetworking *>(descriptor);
-						usb_info.iMACAddress = hdr->iMACAddress;
-						if(!usb_info.control_if)
-							usb_info.control_if = info.interfaceNumber;
-						break;
-					}
-					case CdcSubType::Ncm: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcNcm *>(descriptor);
-						printf("netserver: NCM %x\n", hdr->bcdNcmVersion);
-						usb_info.ncm = true;
-						break;
-					}
-					case CdcSubType::Mbim: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcMbim *>(descriptor);
-						printf("netserver: MBIM %x\n", hdr->bcdMBIMVersion);
-						if(!usb_info.control_if)
-							usb_info.control_if = info.interfaceNumber;
-						break;
-					}
-					case CdcSubType::MbimExtended: {
-						auto hdr = reinterpret_cast<protocols::usb::CdcMbimExtended *>(descriptor);
-						printf("netserver: MBIM Extended MTU %u\n", hdr->wMTU);
-						break;
-					}
-					default: {
-						std::cout << std::format("netserver: unhandled Function Descriptor SubType {}", uint8_t(desc->subtype)) << std::endl;
-						break;
-					}
-				}
-			} else if(type == protocols::usb::descriptor_type::interface) {
-				auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
-
-				if(desc->interfaceClass != protocols::usb::usb_class::cdc)
-					return;
-
-				switch(desc->interfaceSubClass) {
+		for(auto [intf, body] : protocols::usb::groupByInterface(protocols::usb::configurationRange(raw_descs))) {
+			if(intf.interfaceClass == protocols::usb::usb_class::cdc) {
+				switch(intf.interfaceSubClass) {
 					case protocols::usb::cdc_subclass::ethernet:
 						usb_info.subclass = protocols::usb::cdc_subclass::ethernet;
+						usb_info.valid = true;
 						break;
 					case protocols::usb::cdc_subclass::ncm:
 						usb_info.subclass = protocols::usb::cdc_subclass::ncm;
+						usb_info.valid = true;
 						break;
 					case protocols::usb::cdc_subclass::mbim:
 						usb_info.subclass = protocols::usb::cdc_subclass::mbim;
+						usb_info.valid = true;
 						break;
 					default:
-						std::cout << std::format("netserver: unknown CDC subclass 0x{:x}\n", desc->interfaceSubClass);
-						return;
-				}
-
-				usb_info.valid = true;
-			} else if(type == protocols::usb::descriptor_type::endpoint) {
-				if(info.interfaceNumber && usb_info.data_if && info.interfaceNumber == usb_info.data_if
-						&& info.endpointType == protocols::usb::EndpointType::bulk) {
-					if(info.endpointIn.value()) {
-						usb_info.in_endp_number = info.endpointNumber;
-					} else {
-						usb_info.out_endp_number = info.endpointNumber;
-					}
-				} else if(info.interfaceNumber && info.endpointType == protocols::usb::EndpointType::interrupt
-						&& usb_info.control_if && usb_info.control_if == info.interfaceNumber) {
-					usb_info.int_endp_number = info.endpointNumber;
+						std::cout << std::format("netserver: unknown CDC subclass 0x{:x}\n", intf.interfaceSubClass);
+						break;
 				}
 			}
-		});
+
+			for(const auto &[head, bytes] : body) {
+				if(head.descriptorType == protocols::usb::descriptor_type::cs_interface) {
+					auto desc = protocols::usb::extractDescriptor<protocols::usb::CdcDescriptor>(bytes);
+					if(!desc)
+						continue;
+
+					switch(desc->subtype) {
+						using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
+
+						case CdcSubType::Header: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcHeader>(bytes);
+							if(hdr)
+								printf("netserver: CDC version 0x%x\n", hdr->bcdCDC);
+							break;
+						}
+						case CdcSubType::AbstractControl: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcAbstractControl>(bytes);
+							if(hdr)
+								printf("netserver: ACM capabilities 0x%02x\n", hdr->bmCapabilities);
+							break;
+						}
+						case CdcSubType::Union: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcUnion>(bytes);
+							if(hdr)
+								usb_info.data_if = hdr->bSubordinateInterface[0];
+							break;
+						}
+						case CdcSubType::EthernetNetworking: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcEthernetNetworking>(bytes);
+							if(hdr) {
+								usb_info.iMACAddress = hdr->iMACAddress;
+								if(!usb_info.control_if)
+									usb_info.control_if = intf.interfaceNumber;
+							}
+							break;
+						}
+						case CdcSubType::Ncm: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcNcm>(bytes);
+							if(hdr) {
+								printf("netserver: NCM %x\n", hdr->bcdNcmVersion);
+								usb_info.ncm = true;
+							}
+							break;
+						}
+						case CdcSubType::Mbim: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcMbim>(bytes);
+							if(hdr) {
+								printf("netserver: MBIM %x\n", hdr->bcdMBIMVersion);
+								if(!usb_info.control_if)
+									usb_info.control_if = intf.interfaceNumber;
+							}
+							break;
+						}
+						case CdcSubType::MbimExtended: {
+							auto hdr = protocols::usb::extractDescriptor<protocols::usb::CdcMbimExtended>(bytes);
+							if(hdr)
+								printf("netserver: MBIM Extended MTU %u\n", hdr->wMTU);
+							break;
+						}
+						default: {
+							std::cout << std::format("netserver: unhandled Function Descriptor SubType {}", uint8_t(desc->subtype)) << std::endl;
+							break;
+						}
+					}
+				} else if(head.descriptorType == protocols::usb::descriptor_type::endpoint) {
+					auto ep = protocols::usb::extractDescriptor<protocols::usb::EndpointDescriptor>(bytes);
+					if(!ep)
+						continue;
+					auto epType = static_cast<protocols::usb::EndpointType>(ep->attributes & 0x03);
+
+					if(usb_info.data_if && usb_info.data_if == intf.interfaceNumber
+							&& epType == protocols::usb::EndpointType::bulk) {
+						if(ep->endpointAddress & 0x80) {
+							usb_info.in_endp_number = ep->endpointAddress & 0x0F;
+						} else {
+							usb_info.out_endp_number = ep->endpointAddress & 0x0F;
+						}
+					} else if(epType == protocols::usb::EndpointType::interrupt
+							&& usb_info.control_if && usb_info.control_if == intf.interfaceNumber) {
+						usb_info.int_endp_number = ep->endpointAddress & 0x0F;
+					}
+				}
+			}
+		}
 
 		if(usb_info.valid && usb_info.control_if && usb_info.data_if) {
 			usb_info.configuration_index = configuration;
