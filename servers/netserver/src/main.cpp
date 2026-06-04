@@ -239,6 +239,10 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 				}
 			}
 
+			// Bulk endpoints found within this single alternate setting.
+			std::optional<int> alt_in;
+			std::optional<int> alt_out;
+
 			for(const auto &[head, bytes] : body) {
 				if(head.descriptorType == protocols::usb::descriptor_type::cs_interface) {
 					auto desc = protocols::usb::extractDescriptor<protocols::usb::CdcDescriptor>(bytes);
@@ -312,15 +316,23 @@ async::result<protocols::svrctl::Error> doBindUsb(mbus_ng::Entity baseEntity) {
 					if(usb_info.data_if && usb_info.data_if == intf.interfaceNumber
 							&& epType == protocols::usb::EndpointType::bulk) {
 						if(ep->endpointAddress & 0x80) {
-							usb_info.in_endp_number = ep->endpointAddress & 0x0F;
+							alt_in = ep->endpointAddress & 0x0F;
 						} else {
-							usb_info.out_endp_number = ep->endpointAddress & 0x0F;
+							alt_out = ep->endpointAddress & 0x0F;
 						}
 					} else if(epType == protocols::usb::EndpointType::interrupt
 							&& usb_info.control_if && usb_info.control_if == intf.interfaceNumber) {
 						usb_info.int_endp_number = ep->endpointAddress & 0x0F;
 					}
 				}
+			}
+
+			// Mirror Linux: pick the first alternate setting that provides both bulk IN and bulk OUT.
+			if(usb_info.data_if && usb_info.data_if == intf.interfaceNumber
+					&& alt_in && alt_out && !usb_info.in_endp_number) {
+				usb_info.data_if_alt = intf.alternateSetting;
+				usb_info.in_endp_number = alt_in;
+				usb_info.out_endp_number = alt_out;
 			}
 		}
 
