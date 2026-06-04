@@ -767,33 +767,6 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(index));
 	auto cfg = proto::configurationRange(descriptor);
 
-	struct EndpointInfo {
-		int pipe;
-		proto::PipeType dir;
-		int packetSize;
-		proto::EndpointType type;
-		int interval;
-	};
-
-	std::vector<EndpointInfo> _eps = {};
-
-	// useConfiguration sets up every interface's endpoints in the configuration.
-	for(auto [intf, body] : proto::groupByInterface(cfg)) {
-		(void)intf;
-		for(auto ep : proto::endpointsOf(body)) {
-			auto packetSize = ep.maxPacketSize & 0x7FF;
-			auto epType = static_cast<proto::EndpointType>(ep.attributes & 0x03);
-			auto interval = ep.interval;
-
-			int pipe = ep.endpointAddress & 0x0F;
-			if (ep.endpointAddress & 0x80) {
-				_eps.push_back({pipe, proto::PipeType::in, packetSize, epType, interval});
-			} else {
-				_eps.push_back({pipe, proto::PipeType::out, packetSize, epType, interval});
-			}
-		}
-	}
-
 	auto configDesc = proto::configDescriptorFrom(cfg);
 	if(!configDesc) {
 		std::println("{} useConfiguration({:d}, {:d}) called, but that configuration has no valid configuration descriptor",
@@ -807,16 +780,6 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 		co_return proto::UsbError::other;
 	}
 
-	for (auto &ep : _eps) {
-		auto interval = bIntervalIntoMicroframes(_speed, ep.type, ep.interval);
-
-		std::println("{} Setting up {} endpoint {} (max packet size: {}) (bInterval {} = 2**{} microframes)",
-				_controller, ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize,
-				ep.interval, interval);
-
-		FRG_CO_TRY(co_await setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type, interval));
-	}
-
 	arch::dma_object<proto::SetupPacket> setConfig{setupPool()};
 	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard | proto::setup_type::toDevice;
 	setConfig->request = proto::request_type::setConfig;
@@ -828,7 +791,7 @@ Device::useConfiguration(uint8_t index, uint8_t value) {
 
 	std::println("{} Configuration set", _controller);
 
-	co_return proto::Configuration{std::make_shared<ConfigurationState>(shared_from_this())};
+	co_return proto::Configuration{std::make_shared<ConfigurationState>(shared_from_this(), index)};
 }
 
 async::result<frg::expected<proto::UsbError, size_t>>
@@ -1088,6 +1051,37 @@ ConfigurationState::useInterface(int number, int alternative) {
 	desc->index = number;
 	desc->length = 0;
 
+	struct EndpointInfo {
+		int pipe;
+		proto::PipeType dir;
+		int packetSize;
+		proto::EndpointType type;
+		int interval;
+	};
+
+	std::vector<EndpointInfo> _eps = {};
+
+	auto descriptor = FRG_CO_TRY(co_await _device->configurationDescriptor(_index));
+	auto cfg = proto::configurationRange(descriptor);
+
+	for(auto [intf, body] : proto::groupByInterface(cfg)) {
+		if(intf.interfaceNumber != number || intf.alternateSetting != alternative)
+			continue;
+
+		for(auto ep : proto::endpointsOf(body)) {
+			auto packetSize = ep.maxPacketSize & 0x7FF;
+			auto epType = static_cast<proto::EndpointType>(ep.attributes & 0x03);
+			auto interval = ep.interval;
+
+			int pipe = ep.endpointAddress & 0x0F;
+			if (ep.endpointAddress & 0x80) {
+				_eps.push_back({pipe, proto::PipeType::in, packetSize, epType, interval});
+			} else {
+				_eps.push_back({pipe, proto::PipeType::out, packetSize, epType, interval});
+			}
+		}
+	}
+
 	// The device might stall if only the default setting is
 	// supported so just ignore that.
 	auto res = co_await _device->transfer({proto::kXferToDevice, desc, {}});
@@ -1097,6 +1091,15 @@ ConfigurationState::useInterface(int number, int alternative) {
 		FRG_CO_TRY(res);
 	}
 
+	for (auto &ep : _eps) {
+		auto interval = bIntervalIntoMicroframes(_device->speed(), ep.type, ep.interval);
+
+		std::println("{} Setting up {} endpoint {} (max packet size: {}) (bInterval {} = 2**{} microframes)",
+				_device->controller(), ep.dir == proto::PipeType::in ? "in" : "out", ep.pipe, ep.packetSize,
+				ep.interval, interval);
+
+		FRG_CO_TRY(co_await _device->setupEndpoint(ep.pipe, ep.dir, ep.packetSize, ep.type, interval));
+	}
 	co_return proto::Interface{std::make_shared<InterfaceState>(_device, number)};
 }
 

@@ -149,6 +149,10 @@ struct Device final : proto::DeviceData, std::enable_shared_from_this<Device> {
 		return _controller;
 	}
 
+	proto::DeviceSpeed speed() const {
+		return _speed;
+	}
+
 	std::shared_ptr<EndpointState> endpoint(int endpointId) {
 		return _endpoints[endpointId - 1];
 	}
@@ -207,14 +211,15 @@ private:
 
 
 struct ConfigurationState final : proto::ConfigurationData {
-	explicit ConfigurationState(std::shared_ptr<Device> device)
-	: _device{device} { }
+	explicit ConfigurationState(std::shared_ptr<Device> device, uint8_t index)
+	: _device{device}, _index{index} { }
 
 	async::result<frg::expected<proto::UsbError, proto::Interface>>
 	useInterface(int number, int alternative) override;
 
 private:
 	std::shared_ptr<Device> _device;
+	uint8_t _index;
 };
 
 
