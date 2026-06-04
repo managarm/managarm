@@ -77,6 +77,10 @@ async::result<void> Cp2102::initialize() {
 	std::optional<int> out_endp_number;
 
 	for(auto [intf, body] : protocols::usb::groupByInterface(cfg)) {
+		// Use only alternateSetting zero.
+		// Matches Linux which only ever uses the current altenate setting and never switches away from zero.
+		if(intf.alternateSetting != 0)
+			continue;
 		intfNumber_ = intf.interfaceNumber;
 		for(auto ep : protocols::usb::endpointsOf(body)) {
 			if(ep.endpointAddress & 0x80)

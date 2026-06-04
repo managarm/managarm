@@ -32,7 +32,10 @@ async::detached StorageDevice::run(int config_num, int intf_num) {
 	std::optional<int> out_endp_number;
 
 	for(auto [intf, body] : proto::groupByInterface(proto::configurationRange(descriptor))) {
-		if(intf.interfaceNumber != intf_num)
+		// Use only alternateSetting zero.
+		// Matches Linux which only ever uses the current altenate setting and never switches away from zero (for bulk-only).
+		// TODO: Linux does use a non-zero alternateSetting if UAS is available.
+		if(intf.interfaceNumber != intf_num || intf.alternateSetting != 0)
 			continue;
 		for(auto ep : proto::endpointsOf(body)) {
 			if(ep.endpointAddress & 0x80)

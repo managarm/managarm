@@ -648,7 +648,9 @@ async::detached HidDevice::run(proto::Device device, int config_num, int intf_nu
 	}
 
 	for(auto [intf, body] : proto::groupByInterface(cfg)) {
-		if(intf.interfaceNumber != intf_num)
+		// Use only alternateSetting zero.
+		// Matches Linux which only ever uses the current altenate setting and never switches away from zero.
+		if(intf.interfaceNumber != intf_num || intf.alternateSetting != 0)
 			continue;
 
 		for(auto [head, bytes] : body) {
