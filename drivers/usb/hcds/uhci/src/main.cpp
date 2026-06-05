@@ -35,7 +35,7 @@ std::vector<std::shared_ptr<Controller>> globalControllers;
 // ----------------------------------------------------------------------------
 
 namespace {
-	arch::contiguous_pool schedulePool;
+	arch::contiguous_pool schedulePool{{.addressBits = 32}};
 }
 
 // ----------------------------------------------------------------------------

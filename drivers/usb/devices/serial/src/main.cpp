@@ -45,7 +45,7 @@ using WriteQueue = frg::intrusive_list<
 
 std::vector<smarter::shared_ptr<Controller>> controllers;
 
-arch::contiguous_pool pool;
+arch::contiguous_pool pool{{.addressBits = 64}};
 
 WriteQueue sendRequests;
 

@@ -39,7 +39,15 @@ Controller::Controller(protocols::hw::Device hw_device, mbus_ng::Entity entity, 
 		helix::UniqueDescriptor mmio, helix::UniqueIrq irq, std::string name)
 : _hw_device{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
-		_space{_mapping.get()}, _name{name}, _memoryPool{},
+		_space{_mapping.get()}, _name{name},
+#ifdef __aarch64__
+// TODO: When we have a way to query the platform this could be restricted to RPI4 only.
+		_memoryPool{{.addressBits = 31}},
+#else
+// TODO: It is theoretically possible that there could be controllers that don't support 64-bit
+// addresses, to support those this would have to be conditional.
+		_memoryPool{{.addressBits = 64}},
+#endif
 		_dcbaa{&_memoryPool, 256}, _cmdRing{this},
 		_eventRing{this},
 		_enumerator{this}, _largeCtx{false},

@@ -10,7 +10,7 @@
 namespace arch {
 
 struct contiguous_pool_options {
-	size_t addressBits{32};
+	size_t addressBits{};
 	// Gap in bytes between the base addresses of two allocations.
 	// When doing non-coherent DMA, this is needed to ensure that different allocations
 	// end up on different cache lines (such that writes to an allocation cannot cause
