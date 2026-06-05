@@ -783,12 +783,40 @@ async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Erro
 DirectoryFile::readEntries() {
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
+		auto type = (*_iter)->getTarget()->getType();
 		_iter++;
+
+		int64_t fileType = managarm::fs::FileType::REGULAR;
+
+		switch(type) {
+		case VfsType::null:
+		case VfsType::regular:
+			break;
+		case VfsType::directory:
+			fileType = managarm::fs::FileType::DIRECTORY;
+			break;
+		case VfsType::symlink:
+			fileType = managarm::fs::FileType::SYMLINK;
+			break;
+		case VfsType::charDevice:
+			fileType = managarm::fs::FileType::CHAR_DEVICE;
+			break;
+		case VfsType::blockDevice:
+			fileType = managarm::fs::FileType::BLOCK_DEVICE;
+			break;
+		case VfsType::socket:
+			fileType = managarm::fs::FileType::SOCKET;
+			break;
+		case VfsType::fifo:
+			fileType = managarm::fs::FileType::FIFO;
+			break;
+		}
 
 		co_return protocols::fs::ReadEntriesResult{
 			.name = name,
 			.inode = 0,
-			.offset = std::distance(_node->_entries.begin(), _iter)
+			.offset = std::distance(_node->_entries.begin(), _iter),
+			.fileType = fileType
 		};
 	}else{
 		co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);

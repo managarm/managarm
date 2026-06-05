@@ -43,7 +43,10 @@ consts FileType int64 {
 	REGULAR = 1,
 	DIRECTORY = 2,
 	SYMLINK = 3,
-	SOCKET = 4
+	SOCKET = 4,
+	CHAR_DEVICE = 5,
+	BLOCK_DEVICE = 6,
+	FIFO = 7
 }
 
 enum Command {

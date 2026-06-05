@@ -4,8 +4,51 @@
 
 #include <print>
 
-async::result<void> Controller::run() {
-	sound::runCard(this);
+std::vector<sound::PeriodChunk> globalPeriodChunks;
+
+Device::Device(Controller *ctrl, UhdaPath *path, sound::DeviceType type, mbus_ng::EntityId parentId)
+		: sound::Device{type, parentId, ctrl}, path{path} {
+	auto info = uhda_path_get_info(path);
+
+	for (uint32_t i = 0; i < info.supported_sample_rate_count; i++) {
+		limits.sampleRates.push_back(info.supported_sample_rates[i]);
+	}
+
+	for (uint32_t i = 0; i < info.supported_formats_count; i++) {
+		switch (info.supported_formats[i]) {
+		case UHDA_FORMAT_PCM8:
+			limits.formats.push_back(sound::Format::pcmS8);
+			break;
+		case UHDA_FORMAT_PCM16:
+			limits.formats.push_back(sound::Format::pcmS16);
+			break;
+		case UHDA_FORMAT_PCM20:
+			limits.formats.push_back(sound::Format::pcmS20);
+			break;
+		case UHDA_FORMAT_PCM24:
+			limits.formats.push_back(sound::Format::pcmS24);
+			break;
+		case UHDA_FORMAT_PCM32:
+			limits.formats.push_back(sound::Format::pcmS32);
+			break;
+		}
+	}
+
+	limits.channels.min = 1;
+	limits.channels.max = 16;
+
+	limits.periodCount.min = UHDA_MIN_PERIODS;
+	limits.periodCount.max = UHDA_MAX_PERIODS;
+
+	limits.periodSize.min = 128;
+	limits.periodSize.max = 0x1000;
+
+	limits.periodSizeAlign = 128;
+	limits.forcePow2PeriodSizes = true;
+}
+
+async::result<void> Controller::run(uint64_t numDevices) {
+	sound::runCard(this, numDevices);
 	co_return;
 }
 
@@ -32,16 +75,28 @@ static UhdaStreamParams paramsToUhda(const sound::StreamParameters &params) {
 	return {
 		.sample_rate = params.sampleRate,
 		.channels = params.channels,
-		.fmt = fmt
+		.fmt = fmt,
+		.period_count = params.periodCount,
+		.period_size = params.periodSize,
+		.period_callback_distance = 1,
+		.period_callback = [](UhdaStream *, void *arg) {
+			(*static_cast<std::function<void()> *>(arg))();
+		},
+		.period_callback_arg = (void *) &params.periodCallback
 	};
 }
 
-frg::expected<sound::Status> Stream::setup(const sound::StreamParameters &params) {
+frg::expected<sound::Status> Stream::setup(const sound::StreamParameters &newParams) {
+	params = newParams;
 	auto uhdaParams = paramsToUhda(params);
 
-	auto status = uhda_stream_setup(uhda, &uhdaParams, params.bufferSize, nullptr, nullptr,
-			0, nullptr, nullptr);
+	globalPeriodChunks = std::move(params.periodChunks);
+
+	auto status = uhda_stream_setup(uhda, &uhdaParams);
 	assert(status == UHDA_STATUS_SUCCESS);
+
+	isReady = true;
+
 	return frg::success;
 }
 
@@ -65,24 +120,9 @@ frg::expected<sound::Status> Stream::pause() {
 	return frg::success;
 }
 
-frg::expected<sound::Status, size_t> Stream::getRemaining() {
-	uint32_t remaining;
-	auto status = uhda_stream_get_remaining(uhda, &remaining);
-	assert(status == UHDA_STATUS_SUCCESS);
-	return static_cast<size_t>(remaining);
-}
-
-frg::expected<sound::Status, size_t> Stream::queueData(const void *data, size_t size) {
-	uint32_t uhdaSize = size;
-	auto status = uhda_stream_queue_data(uhda, data, &uhdaSize);
-	assert(status == UHDA_STATUS_SUCCESS);
-	return static_cast<size_t>(uhdaSize);
-}
-
-frg::expected<sound::Status> Stream::clearData() {
-	auto status = uhda_stream_clear_queue(uhda);
-	assert(status == UHDA_STATUS_SUCCESS);
-	return frg::success;
+frg::expected<sound::Status, size_t> Stream::getPosition() {
+	uint32_t position = uhda_stream_get_position(uhda);
+	return static_cast<size_t>(position);
 }
 
 frg::expected<sound::Status> Device::attachToStream(sound::Stream *stream) {
@@ -91,6 +131,9 @@ frg::expected<sound::Status> Device::attachToStream(sound::Stream *stream) {
 	auto params = paramsToUhda(stream->params);
 
 	auto status = uhda_path_setup(path, &params, hdaStream->uhda);
+	if (status != UHDA_STATUS_SUCCESS) {
+		std::println(std::cout, "sound/hda: uhda_path_setup failed: {}", static_cast<int>(status));
+	}
 	assert(status == UHDA_STATUS_SUCCESS);
 
 	attachedStream = stream;

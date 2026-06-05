@@ -121,7 +121,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 		controller->playbackStreams.push_back(std::move(hdaStream));
 	}
 
-	co_await controller->run();
+	co_await controller->run(1);
 
 	co_await controller->mbusPublishedEvent.wait();
 	auto device = std::make_unique<Device>(controller.get(), path, sound::DeviceType::playback, controller->mbusId);

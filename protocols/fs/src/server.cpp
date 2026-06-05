@@ -997,6 +997,7 @@ struct HandleFileRequest {
 			resp.set_path(result->name);
 			resp.set_ino(result->inode);
 			resp.set_offset(result->offset);
+			resp.set_file_type(result->fileType);
 		}else{
 			resp.set_error(result.error());
 		}

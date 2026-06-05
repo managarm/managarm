@@ -178,6 +178,28 @@ void uhda_kernel_deallocate_physical(uintptr_t phys, size_t size) {
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping->second, size));
 }
 
+extern std::vector<sound::PeriodChunk> globalPeriodChunks;
+
+UhdaStatus uhda_kernel_allocate_scatter(size_t count, size_t size, UhdaScatterChunk *res) {
+	(void) size;
+
+	assert(count == globalPeriodChunks.size());
+
+	for (size_t i = 0; i < count; i++) {
+		auto &chunk = res[i];
+		chunk.virt = globalPeriodChunks[i].virt;
+		chunk.phys = globalPeriodChunks[i].phys;
+	}
+
+	return UHDA_STATUS_SUCCESS;
+}
+
+void uhda_kernel_deallocate_scatter(UhdaScatterChunk *chunks, size_t count, size_t size) {
+	(void) chunks;
+	(void) count;
+	(void) size;
+}
+
 UhdaStatus uhda_kernel_map(uintptr_t phys, size_t, void **virt) {
 	auto mapping = physicalMappings.find(phys);
 	assert(mapping != physicalMappings.end());

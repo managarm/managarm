@@ -241,10 +241,11 @@ async::detached serveCard(sound::Card *card,
 
 namespace sound {
 
-async::detached runCard(Card *card) {
+async::detached runCard(Card *card, uint64_t numDevices) {
 	mbus_ng::Properties soundCardDescriptor{
 		{"unix.subsystem", mbus_ng::StringItem{"sound"}},
-		{"class", mbus_ng::StringItem{"sound-card"}}
+		{"class", mbus_ng::StringItem{"sound-card"}},
+		{"sound.num-devices", mbus_ng::StringItem{std::to_string(numDevices)}}
 	};
 
 	auto entity = (co_await mbus_ng::Instance::global().createEntity(

@@ -154,6 +154,7 @@ struct ReadEntriesResult {
 	std::string name;
 	ino_t inode;
 	long offset;
+	int64_t fileType;
 };
 
 using PollResult = std::tuple<uint64_t, int, int>;
