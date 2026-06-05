@@ -647,62 +647,56 @@ Controller::useConfiguration(int address, int configuration) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative) {
-	(void) interface;
-	assert(!alternative);
-
-	std::optional<uint8_t> valueByIndex;
-
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, configIndex));
-	bool fail = false;
-	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		(void)length;
+	auto cfg = proto::configurationRange(descriptor);
 
-		if(type == proto::descriptor_type::configuration) {
-			auto desc = (proto::ConfigDescriptor *)p;
-			valueByIndex = desc->configValue;
-		}
-
-		if(type != proto::descriptor_type::endpoint)
-			return;
-		auto desc = (proto::EndpointDescriptor *)p;
-
-		// TODO: Pay attention to interface/alternative.
-		std::cout << "uhci: Interval is " << (int)desc->interval << std::endl;
-
-		int pipe = info.endpointNumber.value();
-		QueueEntity *entity;
-		if(info.endpointIn.value()) {
-			std::cout << "uhci: Setting up IN endpoint " << pipe << std::endl;
-			entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
-			_activeDevices[address].inStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].inStates[pipe].queueEntity = entity;
-		}else{
-			std::cout << "uhci: Setting up OUT endpoint " << pipe << std::endl;
-			entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
-			_activeDevices[address].outStates[pipe].maxPacketSize = desc->maxPacketSize;
-			_activeDevices[address].outStates[pipe].queueEntity = entity;
-		}
-
-		if (info.endpointType == proto::EndpointType::interrupt) {
-			auto order = 1 << (CHAR_BIT * sizeof(int) - __builtin_clz(desc->interval) - 1);
-			std::cout << "uhci: Using order " << order << std::endl;
-			this->_linkInterrupt(entity, order, 0);
-		} else if (info.endpointType == proto::EndpointType::bulk){
-			this->_linkAsync(entity);
-		} else {
-			std::cout << "uhci: Unsupported endpoint type in Controller::useInterface!" << std::endl;
-			fail = true;
-			return;
-		}
-	});
-
-	assert(valueByIndex);
-	// Bail out if the user has no idea what they're asking for
-	// A little late, but better late than never...
-	if (*valueByIndex != configValue) {
-		printf("uhci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
-				configIndex, configValue, *valueByIndex);
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		printf("uhci: useInterface(%u) called, but configuration %u has no valid configuration descriptor\n",
+				configValue, configIndex);
 		co_return proto::UsbError::other;
+	}
+	// Bail out if the user has no idea what they're asking for.
+	if(configDesc->configValue != configValue) {
+		printf("uhci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
+				configIndex, configValue, configDesc->configValue);
+		co_return proto::UsbError::other;
+	}
+
+	bool fail = false;
+	for(auto [intf, body] : proto::groupByInterface(cfg)) {
+		if(intf.interfaceNumber != interface || intf.alternateSetting != alternative)
+			continue;
+
+		for(auto ep : proto::endpointsOf(body)) {
+			std::cout << "uhci: Interval is " << (int)ep.interval << std::endl;
+
+			int pipe = ep.endpointAddress & 0x0F;
+			QueueEntity *entity;
+			if(ep.endpointAddress & 0x80) {
+				std::cout << "uhci: Setting up IN endpoint " << pipe << std::endl;
+				entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
+				_activeDevices[address].inStates[pipe].maxPacketSize = ep.maxPacketSize;
+				_activeDevices[address].inStates[pipe].queueEntity = entity;
+			}else{
+				std::cout << "uhci: Setting up OUT endpoint " << pipe << std::endl;
+				entity = new QueueEntity{arch::dma_object<QueueHead>{&schedulePool}};
+				_activeDevices[address].outStates[pipe].maxPacketSize = ep.maxPacketSize;
+				_activeDevices[address].outStates[pipe].queueEntity = entity;
+			}
+
+			auto epType = static_cast<proto::EndpointType>(ep.attributes & 0x03);
+			if (epType == proto::EndpointType::interrupt) {
+				auto order = 1 << (CHAR_BIT * sizeof(int) - __builtin_clz(ep.interval) - 1);
+				std::cout << "uhci: Using order " << order << std::endl;
+				this->_linkInterrupt(entity, order, 0);
+			} else if (epType == proto::EndpointType::bulk){
+				this->_linkAsync(entity);
+			} else {
+				std::cout << "uhci: Unsupported endpoint type in Controller::useInterface!" << std::endl;
+				fail = true;
+			}
+		}
 	}
 
 	if (fail)

@@ -65,34 +65,38 @@ async::result<void> UsbNcmNic::initialize() {
 		}
 	}(std::move(netClassEntity));
 
-	protocols::usb::CdcEthernetNetworking *ecm_hdr = nullptr;
-	protocols::usb::CdcNcm *ncm_hdr = nullptr;
+	std::optional<protocols::usb::CdcEthernetNetworking> ecm_hdr;
+	std::optional<protocols::usb::CdcNcm> ncm_hdr;
 	auto raw_descs = (co_await device_.configurationDescriptor(config_index_)).value();
 
-	protocols::usb::walkConfiguration(raw_descs, [&] (int type, size_t, void *descriptor, const auto &) {
-		if(type == protocols::usb::descriptor_type::cs_interface) {
-			auto desc = reinterpret_cast<protocols::usb::CdcDescriptor *>(descriptor);
+	for(const auto &[head, body] : protocols::usb::configurationRange(raw_descs)) {
+		if(head.descriptorType != protocols::usb::descriptor_type::cs_interface)
+			continue;
 
-			switch(desc->subtype) {
-				using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
+		auto desc = protocols::usb::extractDescriptor<protocols::usb::CdcDescriptor>(body);
+		if(!desc)
+			continue;
+		switch(desc->subtype) {
+			using CdcSubType = protocols::usb::CdcDescriptor::CdcSubType;
 
-				case CdcSubType::EthernetNetworking: {
-					ecm_hdr = reinterpret_cast<protocols::usb::CdcEthernetNetworking *>(descriptor);
-					break;
-				}
-				case CdcSubType::Ncm: {
-					ncm_hdr = reinterpret_cast<protocols::usb::CdcNcm *>(descriptor);
-					break;
-				}
-				default: {
-					break;
-				}
+			case CdcSubType::EthernetNetworking: {
+				ecm_hdr = protocols::usb::extractDescriptor<protocols::usb::CdcEthernetNetworking>(body);
+				break;
+			}
+			case CdcSubType::Ncm: {
+				ncm_hdr = protocols::usb::extractDescriptor<protocols::usb::CdcNcm>(body);
+				break;
+			}
+			default: {
+				break;
 			}
 		}
-	});
+	}
 
-	assert(ecm_hdr != nullptr);
-	assert(ncm_hdr != nullptr);
+	if(!ecm_hdr || !ncm_hdr) {
+		std::cout << "usb-ncm: Missing ECM/NCM functional descriptors" << std::endl;
+		co_return;
+	}
 
 	// wMaxSegmentSize includes MTU and the ethernet header, but not CRC
 	max_mtu = ecm_hdr->wMaxSegmentSize - sizeof(ether_header);

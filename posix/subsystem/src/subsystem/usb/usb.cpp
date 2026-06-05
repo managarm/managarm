@@ -224,42 +224,44 @@ async::result<void> bindDevice(mbus_ng::Entity entity, mbus_ng::Properties prope
 		device->descriptors.insert(device->descriptors.end(), raw_descs.begin(), raw_descs.end());
 	}
 
-	protocols::usb::walkConfiguration(raw_desc, [&] (int type, size_t, void *descriptor, const auto &info) {
-		if(type == protocols::usb::descriptor_type::configuration) {
-			auto desc = reinterpret_cast<protocols::usb::ConfigDescriptor *>(descriptor);
-			device->maxPower = desc->maxPower * 2;
-			device->numInterfaces = desc->numInterfaces;
+	auto cfg = protocols::usb::configurationRange(raw_desc);
 
-			if(info.configNumber == config_val) {
-				device->bmAttributes = desc->bmAttributes;
-			}
-		} else if(type == protocols::usb::descriptor_type::interface) {
-			auto desc = reinterpret_cast<protocols::usb::InterfaceDescriptor *>(descriptor);
+	// An unconfigured device (no active configuration) still appears in sysfs,
+	// just without any interfaces, so only populate those if there is one.
+	auto cfgDesc = protocols::usb::configDescriptorFrom(cfg);
+	if(cfgDesc) {
+		device->maxPower = cfgDesc->maxPower * 2;
+		device->numInterfaces = cfgDesc->numInterfaces;
+		// raw_desc is the active configuration, so configValue == config_val.
+		device->bmAttributes = cfgDesc->bmAttributes;
 
-			auto if_sysfs_name = std::format("{}:{}.{}", sysfs_name, *info.configNumber, desc->interfaceNumber);
+		for(auto [intf, body] : protocols::usb::groupByInterface(cfg)) {
+			auto if_sysfs_name = std::format("{}:{}.{}", sysfs_name, cfgDesc->configValue, intf.interfaceNumber);
 			auto interface = std::make_shared<UsbInterface>(if_sysfs_name, entity.id(), device);
 
-			interface->interfaceClass = desc->interfaceClass;
-			interface->interfaceSubClass = desc->interfaceSubClass;
-			interface->interfaceProtocol = desc->interfaceProtocol;
-			interface->alternateSetting = desc->alternateSetting;
-			interface->interfaceNumber = desc->interfaceNumber;
-			interface->endpointCount = desc->numEndpoints;
+			interface->interfaceClass = intf.interfaceClass;
+			interface->interfaceSubClass = intf.interfaceSubClass;
+			interface->interfaceProtocol = intf.interfaceProtocol;
+			interface->alternateSetting = intf.alternateSetting;
+			interface->interfaceNumber = intf.interfaceNumber;
+			interface->endpointCount = intf.numEndpoints;
 			interface->descriptors = device->descriptors;
 
-			device->interfaces.push_back(interface);
-		} else if(type == protocols::usb::descriptor_type::endpoint) {
-			auto desc = reinterpret_cast<protocols::usb::EndpointDescriptor *>(descriptor);
+			for(auto ep : protocols::usb::endpointsOf(body)) {
+				auto ep_sysfs_name = std::format("ep_{:02x}", ep.endpointAddress & 0x8F);
+				auto endpoint = std::make_shared<UsbEndpoint>(ep_sysfs_name, entity.id(), interface);
+				endpoint->endpointAddress = ep.endpointAddress;
+				endpoint->interval = ep.interval;
+				endpoint->attributes = ep.attributes;
+				endpoint->maxPacketSize = ep.maxPacketSize;
+				interface->endpoints.push_back(endpoint);
+			}
 
-			auto ep_sysfs_name = std::format("ep_{:02x}", desc->endpointAddress & 0x8F);
-			auto ep = std::make_shared<UsbEndpoint>(ep_sysfs_name, entity.id(), device->interfaces.back());
-			ep->endpointAddress = desc->endpointAddress;
-			ep->interval = desc->interval;
-			ep->attributes = desc->attributes;
-			ep->maxPacketSize = desc->maxPacketSize;
-			device->interfaces.back()->endpoints.push_back(ep);
+			device->interfaces.push_back(interface);
 		}
-	});
+	} else {
+		std::cout << "posix: USB device has no active configuration descriptor" << std::endl;
+	}
 
 	drvcore::registerMbusDevice(entity.id(), device);
 	drvcore::installDevice(device);

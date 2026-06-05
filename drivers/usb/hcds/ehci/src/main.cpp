@@ -625,61 +625,54 @@ Controller::useConfiguration(int address, int configuration) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative) {
-	(void) interface;
-	assert(!alternative);
-
-	std::optional<uint8_t> valueByIndex;
-
 	auto descriptor = FRG_CO_TRY(co_await configurationDescriptor(address, configIndex));
-	proto::walkConfiguration(descriptor, [&] (int type, size_t length, void *p, const auto &info) {
-		(void)length;
+	auto cfg = proto::configurationRange(descriptor);
 
-		if(type == proto::descriptor_type::configuration) {
-			auto desc = (proto::ConfigDescriptor *)p;
-			valueByIndex = desc->configValue;
-		}
-
-		if(type != proto::descriptor_type::endpoint)
-			return;
-		auto desc = (proto::EndpointDescriptor *)p;
-
-		// TODO: Pay attention to interface/alternative.
-
-		auto packet_size = desc->maxPacketSize & 0x7FF;
-
-		// TODO: Set QH multiplier for high-bandwidth endpoints.
-		if(desc->maxPacketSize & 0x1800)
-			std::cout << "\e[35mehci: Endpoint is high bandwidth\e[39m" << std::endl;
-
-		int pipe = info.endpointNumber.value();
-		if(info.endpointIn.value()) {
-			if(logDeviceEnumeration)
-				std::cout << "ehci: Setting up IN pipe " << pipe
-						<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
-			_activeDevices[address].inStates[pipe].maxPacketSize = packet_size;
-			_activeDevices[address].inStates[pipe].queueEntity
-					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
-							address, pipe, proto::PipeType::in, desc->maxPacketSize};
-			this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
-		}else{
-			if(logDeviceEnumeration)
-				std::cout << "ehci: Setting up OUT pipe " << pipe
-						<< " (max. packet size: " << desc->maxPacketSize << ")" << std::endl;
-			_activeDevices[address].outStates[pipe].maxPacketSize = packet_size;
-			_activeDevices[address].outStates[pipe].queueEntity
-					= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
-							address, pipe, proto::PipeType::out, desc->maxPacketSize};
-			this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
-		}
-	});
-
-	assert(valueByIndex);
-	// Bail out if the user has no idea what they're asking for
-	// A little late, but better late than never...
-	if (*valueByIndex != configValue) {
-		printf("ehci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
-				configIndex, configValue, *valueByIndex);
+	auto configDesc = proto::configDescriptorFrom(cfg);
+	if(!configDesc) {
+		printf("ehci: useInterface(%u) called, but configuration %u has no valid configuration descriptor\n",
+				configValue, configIndex);
 		co_return proto::UsbError::other;
+	}
+	// Bail out if the user has no idea what they're asking for.
+	if(configDesc->configValue != configValue) {
+		printf("ehci: useConfiguration(%u, %u) called, but that configuration has bConfigurationValue = %u???\n",
+				configIndex, configValue, configDesc->configValue);
+		co_return proto::UsbError::other;
+	}
+
+	for(auto [intf, body] : proto::groupByInterface(cfg)) {
+		if(intf.interfaceNumber != interface || intf.alternateSetting != alternative)
+			continue;
+
+		for(auto ep : proto::endpointsOf(body)) {
+			auto packet_size = ep.maxPacketSize & 0x7FF;
+
+			// TODO: Set QH multiplier for high-bandwidth endpoints.
+			if(ep.maxPacketSize & 0x1800)
+				std::cout << "\e[35mehci: Endpoint is high bandwidth\e[39m" << std::endl;
+
+			int pipe = ep.endpointAddress & 0x0F;
+			if(ep.endpointAddress & 0x80) {
+				if(logDeviceEnumeration)
+					std::cout << "ehci: Setting up IN pipe " << pipe
+							<< " (max. packet size: " << ep.maxPacketSize << ")" << std::endl;
+				_activeDevices[address].inStates[pipe].maxPacketSize = packet_size;
+				_activeDevices[address].inStates[pipe].queueEntity
+						= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+								address, pipe, proto::PipeType::in, ep.maxPacketSize};
+				this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
+			}else{
+				if(logDeviceEnumeration)
+					std::cout << "ehci: Setting up OUT pipe " << pipe
+							<< " (max. packet size: " << ep.maxPacketSize << ")" << std::endl;
+				_activeDevices[address].outStates[pipe].maxPacketSize = packet_size;
+				_activeDevices[address].outStates[pipe].queueEntity
+						= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+								address, pipe, proto::PipeType::out, ep.maxPacketSize};
+				this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
+			}
+		}
 	}
 
 	co_return frg::success;

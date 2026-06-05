@@ -1,11 +1,18 @@
 #pragma once
 
 #include <arch/bits.hpp>
+#include <array>
 #include <assert.h>
+#include <bit>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
+#include <ranges>
+#include <span>
 #include <string>
+#include <string_view>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace protocols::usb {
@@ -267,53 +274,204 @@ enum class EndpointType {
 	interrupt
 };
 
-template<typename F>
-void walkConfiguration(std::string buffer, F functor) {
-	struct {
-		std::optional<int> configNumber;
-		std::optional<int> interfaceNumber;
-		std::optional<int> interfaceAlternative;
-		std::optional<int> endpointNumber;
-		std::optional<bool> endpointIn;
-		std::optional<EndpointType> endpointType;
-		std::optional<uint8_t> endpointInterval;
-	} info;
+// One descriptor within a configuration buffer: its header plus the bytes
+// covering the whole descriptor (header included).
+using DescriptorEntry = std::pair<DescriptorBase, std::span<const std::byte>>;
 
-	auto p = &buffer[0];
-	auto limit = &buffer[0] + buffer.size();
-	while(p < limit) {
-		auto base = (DescriptorBase *)p;
-		p += base->length;
+// Forward view over the descriptors of a single configuration buffer.
+// The current entry is cached so the iterator's reference type is a true
+// lvalue reference, which keeps it a std::forward_iterator (required by the
+// std::views adaptors layered on top).
+class ConfigurationView : public std::ranges::view_interface<ConfigurationView> {
+public:
+	class iterator {
+	public:
+		using value_type = DescriptorEntry;
+		using difference_type = std::ptrdiff_t;
+		using iterator_concept = std::forward_iterator_tag;
 
-		if(base->descriptorType == descriptor_type::configuration) {
-			auto desc = (ConfigDescriptor *)base;
-			assert(desc->length == sizeof(ConfigDescriptor));
+		iterator() = default;
 
-			info.configNumber = desc->configValue;
-			info.interfaceNumber = std::nullopt;
-			info.interfaceAlternative = std::nullopt;
-			info.endpointNumber = std::nullopt;
-			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::interface) {
-			auto desc = (InterfaceDescriptor *)base;
-			assert(desc->length == sizeof(InterfaceDescriptor));
-
-			info.interfaceNumber = desc->interfaceNumber;
-			info.interfaceAlternative = desc->alternateSetting;
-			info.endpointNumber = std::nullopt;
-			info.endpointIn = std::nullopt;
-		}else if(base->descriptorType == descriptor_type::endpoint) {
-			auto desc = (EndpointDescriptor *)base;
-			assert(desc->length == sizeof(EndpointDescriptor));
-
-			info.endpointNumber = desc->endpointAddress & 0x0F;
-			info.endpointIn = desc->endpointAddress & 0x80;
-			info.endpointType = static_cast<EndpointType>(desc->attributes & 0x03);
-			info.endpointInterval = desc->interval;
+		explicit iterator(std::span<const std::byte> rest)
+		: rest_{rest} {
+			parse_();
 		}
 
-		functor(base->descriptorType, base->length, base, info);
+		const DescriptorEntry &operator* () const {
+			return cur_;
+		}
+
+		const DescriptorEntry *operator-> () const {
+			return &cur_;
+		}
+
+		iterator &operator++ () {
+			rest_ = rest_.subspan(cur_.first.length);
+			parse_();
+			return *this;
+		}
+
+		iterator operator++ (int) {
+			auto copy = *this;
+			++*this;
+			return copy;
+		}
+
+		bool operator== (const iterator &other) const {
+			return rest_.data() == other.rest_.data();
+		}
+
+		bool operator== (std::default_sentinel_t) const {
+			return rest_.empty();
+		}
+
+	private:
+		// Reads the current descriptor header and computes the entry. A header
+		// that does not fit, or whose length would over-/under-run the buffer,
+		// terminates iteration (rest_ is emptied so we compare equal to end()).
+		void parse_() {
+			if(rest_.size() < sizeof(DescriptorBase)) {
+				rest_ = rest_.subspan(rest_.size());
+				return;
+			}
+			DescriptorBase base;
+			std::memcpy(&base, rest_.data(), sizeof(DescriptorBase));
+			if(base.length < sizeof(DescriptorBase) || base.length > rest_.size()) {
+				rest_ = rest_.subspan(rest_.size());
+				return;
+			}
+			cur_ = DescriptorEntry{base, rest_.subspan(0, base.length)};
+		}
+
+		std::span<const std::byte> rest_;
+		DescriptorEntry cur_;
+	};
+
+	ConfigurationView() = default;
+
+	explicit ConfigurationView(std::span<const std::byte> buffer)
+	: buffer_{buffer} { }
+
+	iterator begin() const {
+		return iterator{buffer_};
 	}
+
+	std::default_sentinel_t end() const {
+		return {};
+	}
+
+	std::span<const std::byte> bytes() const {
+		return buffer_;
+	}
+
+private:
+	std::span<const std::byte> buffer_;
+};
+
+inline ConfigurationView configurationRange(std::span<const std::byte> buffer) {
+	return ConfigurationView{buffer};
+}
+
+inline ConfigurationView configurationRange(std::string_view buffer) {
+	return ConfigurationView{std::as_bytes(std::span{buffer.data(), buffer.size()})};
+}
+
+// Copies a descriptor out of an entry's byte span, validating that the span is
+// large enough to hold the whole (fixed-size) descriptor. Returns std::nullopt
+// for a truncated descriptor instead of reading out of bounds. Returning a copy
+// also avoids reading through a potentially unaligned pointer into the buffer.
+template<typename T>
+std::optional<T> extractDescriptor(std::span<const std::byte> bytes) {
+	if(bytes.size() < sizeof(T))
+		return std::nullopt;
+	std::array<std::byte, sizeof(T)> storage;
+	std::memcpy(storage.data(), bytes.data(), sizeof(T));
+	return std::bit_cast<T>(storage);
+}
+
+// The configuration descriptor is always the first entry of a config buffer.
+inline std::optional<ConfigDescriptor> configDescriptorFrom(ConfigurationView cfg) {
+	for(const auto &[head, body] : cfg) {
+		if(head.descriptorType != descriptor_type::configuration)
+			break;
+		return extractDescriptor<ConfigDescriptor>(body);
+	}
+	return std::nullopt;
+}
+
+namespace _detail {
+	inline bool isInterface(const DescriptorEntry &entry) {
+		return entry.first.descriptorType == descriptor_type::interface;
+	}
+
+	inline bool isEndpoint(const DescriptorEntry &entry) {
+		return entry.first.descriptorType == descriptor_type::endpoint;
+	}
+
+	// A truncated interface/endpoint descriptor degrades to a zeroed one rather
+	// than reading out of bounds; the views above filter purely on the type byte.
+	template<typename T>
+	T descriptorValue(const DescriptorEntry &entry) {
+		return extractDescriptor<T>(entry.second).value_or(T{});
+	}
+}
+
+// Groups a configuration range into (InterfaceDescriptor, children) pairs. The
+// children subrange covers the descriptors after the interface descriptor up to
+// (excluding) the next interface descriptor.
+template<std::ranges::forward_range R>
+requires std::same_as<std::ranges::range_value_t<R>, DescriptorEntry>
+auto groupByInterface(R cfg) {
+	return std::forward<R>(cfg)
+		| std::views::chunk_by([] (const DescriptorEntry &, const DescriptorEntry &next) {
+			return !_detail::isInterface(next);
+		})
+		| std::views::filter([] (auto &&chunk) {
+			return _detail::isInterface(*std::ranges::begin(chunk));
+		})
+		| std::views::transform([] (auto &&chunk) {
+			auto desc = _detail::descriptorValue<InterfaceDescriptor>(*std::ranges::begin(chunk));
+			return std::pair{desc, std::forward<decltype(chunk)>(chunk) | std::views::drop(1)};
+		});
+}
+
+// Groups a configuration range into (EndpointDescriptor, children) pairs. The
+// children subrange covers the descriptors after the endpoint descriptor up to
+// the next endpoint or interface descriptor. Treating interface descriptors as
+// boundaries (and discarding interface-led chunks) makes this correct whether
+// it is applied to a whole configuration or to a single interface's children.
+template<std::ranges::forward_range R>
+requires std::same_as<std::ranges::range_value_t<R>, DescriptorEntry>
+auto groupByEndpoint(R cfg) {
+	return std::forward<R>(cfg)
+		| std::views::chunk_by([] (const DescriptorEntry &, const DescriptorEntry &next) {
+			return !_detail::isEndpoint(next) && !_detail::isInterface(next);
+		})
+		| std::views::filter([] (auto &&chunk) {
+			return _detail::isEndpoint(*std::ranges::begin(chunk));
+		})
+		| std::views::transform([] (auto &&chunk) {
+			auto desc = _detail::descriptorValue<EndpointDescriptor>(*std::ranges::begin(chunk));
+			return std::pair{desc, std::forward<decltype(chunk)>(chunk) | std::views::drop(1)};
+		});
+}
+
+// Yields the InterfaceDescriptors of a configuration range, without subranges.
+template<std::ranges::forward_range R>
+requires std::same_as<std::ranges::range_value_t<R>, DescriptorEntry>
+auto interfacesOf(R cfg) {
+	return std::forward<R>(cfg)
+		| std::views::filter(_detail::isInterface)
+		| std::views::transform(_detail::descriptorValue<InterfaceDescriptor>);
+}
+
+// Yields the EndpointDescriptors of a configuration range, without subranges.
+template<std::ranges::forward_range R>
+requires std::same_as<std::ranges::range_value_t<R>, DescriptorEntry>
+auto endpointsOf(R cfg) {
+	return std::forward<R>(cfg)
+		| std::views::filter(_detail::isEndpoint)
+		| std::views::transform(_detail::descriptorValue<EndpointDescriptor>);
 }
 
 } // namespace protocols::usb

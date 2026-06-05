@@ -21,7 +21,7 @@ async::result<std::shared_ptr<nic::Link>> makeShared(mbus_ng::EntityId entity, p
 	auto ctrl_intf = (co_await config.useInterface(*info.control_if, 0)).unwrap();
 	auto ctrl_ep = (co_await ctrl_intf.getEndpoint(protocols::usb::PipeType::in, *info.int_endp_number)).value();
 
-	auto data_intf = (co_await config.useInterface(*info.data_if, 1)).unwrap();
+	auto data_intf = (co_await config.useInterface(*info.data_if, info.data_if_alt)).unwrap();
 	auto data_in = (co_await data_intf.getEndpoint(protocols::usb::PipeType::in, info.in_endp_number.value())).unwrap();
 	auto data_out = (co_await data_intf.getEndpoint(protocols::usb::PipeType::out, info.out_endp_number.value())).unwrap();
 

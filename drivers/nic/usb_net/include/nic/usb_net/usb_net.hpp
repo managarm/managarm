@@ -39,6 +39,8 @@ struct ConfigurationInfo {
 	std::optional<uint8_t> iMACAddress;
 	std::optional<uint8_t> control_if;
 	std::optional<uint8_t> data_if;
+	// Alternate setting of the data interface that carries the bulk endpoints.
+	uint8_t data_if_alt = 0;
 
 	std::optional<int> int_endp_number;
 	std::optional<int> in_endp_number;

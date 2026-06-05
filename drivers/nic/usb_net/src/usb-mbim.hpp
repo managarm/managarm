@@ -62,7 +62,7 @@ private:
 	smarter::shared_ptr<CdcWdmDevice> cdcWdmDev_;
 
 public:
-	uint16_t wMaxControlMessage;
+	uint16_t wMaxControlMessage = 0;
 
 	async::queue<PacketInfo, frg::stl_allocator> queue_;
 
