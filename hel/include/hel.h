@@ -266,7 +266,8 @@ enum HelMapFlags {
 	kHelMapProtExecute = 1024,
 	kHelMapDontRequireBacking = 128,
 	kHelMapFixed = 2048,
-	kHelMapFixedNoReplace = 4096
+	kHelMapFixedNoReplace = 4096,
+	kHelMapPreferBottom = 8192
 };
 
 enum HelSliceFlags {
@@ -525,6 +526,8 @@ static const uint32_t kHelSubmitForkMemory = 13;
 static const uint32_t kHelSubmitWritebackFence = 14;
 //! SQ opcode: invalidate memory.
 static const uint32_t kHelSubmitInvalidateMemory = 15;
+//! SQ opcode: populate a space.
+static const uint32_t kHelSubmitPopulateSpace = 16;
 
 //! In-memory kernel/user-space queue.
 struct HelQueue {
@@ -713,6 +716,16 @@ struct HelSqInvalidateMemory {
 	uintptr_t offset;
 	//! Size of the range.
 	size_t size;
+};
+
+//! SQ data for kHelSubmitPopulateSpace.
+struct HelSqPopulateSpace {
+	//! Handle to the memory space.
+	HelHandle handle;
+	//! Address within the memory space.
+	uintptr_t address;
+	//! Length of the range.
+	size_t length;
 };
 
 struct HelSimpleResult {
@@ -1042,7 +1055,7 @@ HEL_C_LINKAGE HelError helMapMemory(HelHandle memoryHandle, HelHandle spaceHandl
 //!    	Must be aligned to the system's page size.
 HEL_C_LINKAGE HelError helUnmapMemory(HelHandle spaceHandle, void *pointer, size_t size);
 
-HEL_C_LINKAGE HelError helPointerPhysical(const void *pointer, uintptr_t *physical);
+HEL_C_LINKAGE HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_t *physical);
 
 HEL_C_LINKAGE HelError helMemoryInfo(HelHandle handle,
 		size_t *size);

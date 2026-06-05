@@ -167,7 +167,7 @@ struct Device {
 	async::result<void> enableBusIrq();
 	async::result<void> enableMsi();
 	async::result<void> enableBusmaster();
-	async::result<void> enableDma();
+	async::result<void> enableDma(bool passthrough = true);
 
 	async::result<uint32_t> loadPciSpace(size_t offset, unsigned int size);
 	async::result<void> storePciSpace(size_t offset, unsigned int size, uint32_t word);
@@ -176,6 +176,8 @@ struct Device {
 	async::result<FbInfo> getFbInfo();
 	async::result<helix::UniqueDescriptor> accessFbMemory();
 	async::result<std::pair<helix::UniqueDescriptor, uint32_t>> getVbt();
+
+	async::result<std::pair<bool, helix::UniqueDescriptor>> getDmaSpace();
 
 	async::result<void> getBatteryState(BatteryState &state, bool block = false);
 

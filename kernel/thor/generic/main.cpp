@@ -690,7 +690,7 @@ void handleSyscall(SyscallImageAccessor image) {
 	} break;
 	case kHelCallPointerPhysical: {
 		uintptr_t physical;
-		*image.error() = helPointerPhysical((void *)arg0, &physical);
+		*image.error() = helPointerPhysical((HelHandle)arg0, (void *)arg1, &physical);
 		*image.out0() = physical;
 	} break;
 	case kHelCallMemoryInfo: {

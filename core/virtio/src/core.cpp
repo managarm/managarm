@@ -210,7 +210,7 @@ Queue *LegacyPciTransport::setupQueue(unsigned int queue_index) {
 
 	// Hand the queue to the device.
 	uintptr_t table_physical;
-	HEL_CHECK(helPointerPhysical(table, &table_physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, table, &table_physical));
 	_legacySpace.store(PCI_L_QUEUE_ADDRESS, table_physical >> 12);
 
 	return _queues[queue_index].get();
@@ -440,9 +440,9 @@ Queue *StandardPciTransport::setupQueue(unsigned int queue_index) {
 
 	// Hand the queue to the device.
 	uintptr_t table_physical, available_physical, used_physical;
-	HEL_CHECK(helPointerPhysical(table, &table_physical));
-	HEL_CHECK(helPointerPhysical(available, &available_physical));
-	HEL_CHECK(helPointerPhysical(used, &used_physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, table, &table_physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, available, &available_physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, used, &used_physical));
 	_commonSpace().store(PCI_QUEUE_TABLE[0], table_physical);
 	_commonSpace().store(PCI_QUEUE_TABLE[1], table_physical >> 32);
 	_commonSpace().store(PCI_QUEUE_AVAILABLE[0], available_physical);
@@ -739,7 +739,7 @@ void Handle::setupBuffer(HostToDeviceType, arch::dma_buffer_view view) {
 	assert(view.size());
 
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(view.data(), &physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, view.data(), &physical));
 
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);
@@ -750,7 +750,7 @@ void Handle::setupBuffer(DeviceToHostType, arch::dma_buffer_view view) {
 	assert(view.size());
 
 	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(view.data(), &physical));
+	HEL_CHECK(helPointerPhysical(kHelNullHandle, view.data(), &physical));
 
 	auto descriptor = _queue->_table + _tableIndex;
 	descriptor->address.store(physical);

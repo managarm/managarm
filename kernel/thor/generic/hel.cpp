@@ -14,6 +14,7 @@
 #include <thor-internal/event.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/io.hpp>
+#include <thor-internal/iommu.hpp>
 #include <thor-internal/ipc-queue.hpp>
 #include <thor-internal/irq.hpp>
 #include <thor-internal/kernlet.hpp>
@@ -831,6 +832,47 @@ HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue
 	return kHelErrNone;
 }
 
+HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
+		uintptr_t addr, size_t len, uintptr_t context) {
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto dmaSpaceOutcome = this_universe->inspectDescriptor(handle,
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<DmaSpace>, Error> {
+		if(!desc.is<DmaSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<DmaSpaceDescriptor>().space;
+	});
+	if(!dmaSpaceOutcome)
+		return translateError(dmaSpaceOutcome.error());
+	auto space = std::move(*dmaSpaceOutcome);
+
+	if(!queue->validSize(ipcSourceSize(sizeof(HelSimpleResult))))
+		return kHelErrQueueTooSmall;
+
+	[](smarter::shared_ptr<DmaSpace> space, uintptr_t addr, size_t len,
+			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
+			enable_detached_coroutine) -> void {
+		frg::expected<Error> outcome{};
+
+		for (size_t progress = 0; progress < len; progress += kPageSize) {
+			outcome = co_await onExceptionalWq(space->handleFault(addr + progress, 0));
+			if (!outcome)
+				break;
+		}
+
+		HelSimpleResult helResult{.error = kHelErrNone, .reserved = {}};
+		if (!outcome)
+			helResult.error = translateError(outcome.error());
+
+		QueueSource ipcSource{&helResult, sizeof(HelSimpleResult), nullptr};
+		co_await queue->submit(&ipcSource, context);
+	}(std::move(space), addr, len, std::move(queue), context,
+		enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+
+	return kHelErrNone;
+}
+
 HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
@@ -968,6 +1010,8 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 		map_flags |= AddressSpace::kMapFixed;
 	}else if(flags & kHelMapFixedNoReplace) {
 		map_flags |= AddressSpace::kMapFixedNoReplace;
+	}else if(flags & kHelMapPreferBottom) {
+		map_flags |= AddressSpace::kMapPreferBottom;
 	}else{
 		map_flags |= AddressSpace::kMapPreferTop;
 	}
@@ -1019,6 +1063,9 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 			} else if(desc.is<VirtualizedSpaceDescriptor>()) {
 				isVspace = true;
 				vspace = desc.get<VirtualizedSpaceDescriptor>().space;
+			} else if(desc.is<DmaSpaceDescriptor>()) {
+				isVspace = true;
+				vspace = desc.get<DmaSpaceDescriptor>().space;
 			} else {
 				return std::unexpected{Error::badDescriptor};
 			}
@@ -1117,24 +1164,40 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<VirtualSpace> vspace;
+
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> {
-			if(!desc.is<AddressSpaceDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<AddressSpaceDescriptor>().space;
+				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			if(desc.is<AddressSpaceDescriptor>()) {
+				space = desc.get<AddressSpaceDescriptor>().space;
+				return {};
+			}else if(desc.is<DmaSpaceDescriptor>()) {
+				vspace = desc.get<DmaSpaceDescriptor>().space;
+				return {};
+			}
+
+			return std::unexpected{Error::badDescriptor};
 		});
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
-		space = std::move(*spaceOutcome);
 	}
 
-	auto outcome = Thread::asyncBlockCurrent(
-		space->unmap((VirtualAddr)pointer, length),
-		getCurrentThread()->pagingWorkQueue().get()
-	);
+	frg::expected<thor::Error> outcome = Error::illegalArgs;
+	if (space) {
+		outcome = Thread::asyncBlockCurrent(
+			space->unmap((VirtualAddr)pointer, length),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
+	} else {
+		assert(vspace);
+		outcome = Thread::asyncBlockCurrent(
+			vspace->unmap((VirtualAddr)pointer, length),
+			getCurrentThread()->pagingWorkQueue().get()
+		);
+	}
 	if(!outcome) {
 		assert(outcome.error() == Error::illegalArgs);
 		return kHelErrIllegalArgs;
@@ -1182,17 +1245,46 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 	return kHelErrNone;
 }
 
-HelError helPointerPhysical(const void *pointer, uintptr_t *physical) {
+HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_t *physical) {
 	auto thisThread = getCurrentThread();
-	auto space = thisThread->getAddressSpace().lock();
+	auto thisUniverse = thisThread->getUniverse();
+
+	smarter::shared_ptr<AddressSpace, BindableHandle> space;
+	smarter::shared_ptr<DmaSpace> dmaSpace;
+
+	if(spaceHandle == kHelNullHandle) {
+		space = thisThread->getAddressSpace().lock();
+	}else{
+		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
+				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			if(desc.is<AddressSpaceDescriptor>()) {
+				space = desc.get<AddressSpaceDescriptor>().space;
+				return {};
+			} else if(desc.is<DmaSpaceDescriptor>()) {
+				dmaSpace = desc.get<DmaSpaceDescriptor>().space;
+				return {};
+			}
+			return std::unexpected{Error::badDescriptor};
+		});
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+	}
 
 	auto disp = (reinterpret_cast<uintptr_t>(pointer) & (kPageSize - 1));
 	auto pageAddress = reinterpret_cast<VirtualAddr>(pointer) - disp;
 
-	auto physicalOrError = Thread::asyncBlockCurrent(
-		space->retrievePhysical(pageAddress),
-		thisThread->pagingWorkQueue().get()
-	);
+	frg::expected<Error, PhysicalAddr> physicalOrError;
+	if (space) {
+		physicalOrError = Thread::asyncBlockCurrent(
+			space->retrievePhysical(pageAddress),
+			thisThread->pagingWorkQueue().get()
+		);
+	} else {
+		physicalOrError = Thread::asyncBlockCurrent(
+			dmaSpace->retrievePhysical(pageAddress),
+			thisThread->pagingWorkQueue().get()
+		);
+	}
 	if(!physicalOrError) {
 		assert(physicalOrError.error() == Error::fault);
 		return kHelErrFault;
@@ -3864,6 +3956,17 @@ void thor::submitFromSq(smarter::shared_ptr<IpcQueue> queue, uint32_t opcode,
 		HelSqInvalidateMemory sqData;
 		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
 		error = doSubmitInvalidateMemory(sqData.handle, queue, sqData.offset, sqData.size, context);
+		break;
+	}
+	case kHelSubmitPopulateSpace: {
+		if(sqSpan.size() < sizeof(HelSqPopulateSpace)) {
+			infoLogger() << "Bad length for kHelSubmitPopulateSpace" << frg::endlog;
+			error = kHelErrBufferTooSmall;
+			break;
+		}
+		HelSqPopulateSpace sqData;
+		memcpy(&sqData, sqSpan.data(), sizeof(sqData));
+		error = doSubmitPopulateSpace(sqData.handle, queue, sqData.address, sqData.length, context);
 		break;
 	}
 	default:

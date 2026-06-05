@@ -44,6 +44,8 @@ frg::manual_box<
 	>
 > allConfigSpaces;
 
+frg::manual_box<smarter::shared_ptr<NoopDmaSpace>> noopDmaSpace;
+
 initgraph::Stage *getBus0AvailableStage() {
 	static initgraph::Stage s{&globalInitEngine, "pci.bus0-available"};
 	return &s;
@@ -211,6 +213,21 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		if (respTailError != Error::success)
 			co_return respTailError;
+
+		co_return frg::success;
+	};
+
+	auto sendResponseHead = [] (LaneHandle &conversation,
+			auto &&resp) -> coroutine<frg::expected<Error>> {
+		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+			resp.head_size};
+
+		bragi::write_head_only(resp, respHeadBuffer);
+
+		auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
+
+		if (respHeadError != Error::success)
+			co_return respHeadError;
 
 		co_return frg::success;
 	};
@@ -714,7 +731,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		PciDevice *dev = static_cast<PciDevice *>(this);
 
 		if(dev->associatedIommu) {
-			dev->associatedIommu->enableDevice(dev);
+			dev->associatedIommu->enableDevice(dev, req->passthrough());
 		} else {
 			auto bridge = dev->parentBus->associatedBridge;
 
@@ -723,8 +740,8 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			}
 
 			if(bridge && bridge->associatedIommu) {
-				bridge->associatedIommu->enableDevice(bridge);
-				bridge->associatedIommu->enableDevice(dev);
+				bridge->associatedIommu->enableDevice(bridge, req->passthrough());
+				bridge->associatedIommu->enableDevice(dev, req->passthrough());
 			} else {
 				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
 			}
@@ -754,6 +771,25 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
+		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
+		// TODO: improve error handling here.
+		assert(descError == Error::success);
+	}else if(preamble.id() == bragi::message_id<managarm::hw::GetDmaSpaceRequest>) {
+		auto req = bragi::parse_head_only<managarm::hw::GetDmaSpaceRequest>(reqBuffer, *kernelAlloc);
+
+		if (!req) {
+			infoLogger() << "thor: Closing lane due to illegal HW request." << frg::endlog;
+			co_return Error::protocolViolation;
+		}
+
+		DmaSpaceDescriptor descriptor{*noopDmaSpace};
+		if (iommuDomain)
+			descriptor = DmaSpaceDescriptor{iommuDomain->space_};
+
+		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
+		resp.set_iommu_active(iommuDomain != nullptr);
+
+		FRG_CO_TRY(co_await sendResponseHead(conversation, std::move(resp)));
 		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
 		// TODO: improve error handling here.
 		assert(descError == Error::success);
@@ -2077,6 +2113,9 @@ void enumerateAll() {
 
 	if (!allDevices)
 		allDevices.initialize(*kernelAlloc);
+
+	if (!noopDmaSpace)
+		noopDmaSpace.initialize(NoopDmaSpace::create());
 
 	for(size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];

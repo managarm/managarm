@@ -62,7 +62,7 @@ struct Pointer {
 struct TransferBufferPointer {
 	static TransferBufferPointer from(void *item) {
 		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(item, &physical));
+		HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
 		assert((physical & 0xFFFFFFFF) == physical);
 		return TransferBufferPointer(physical);
 	}
@@ -118,12 +118,12 @@ struct FrameListPointer {
 
 	static FrameListPointer from(QueueHead *item) {
 		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(item, &physical));
+		HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
 		assert(physical % sizeof(*item) == 0);
 		assert((physical & 0xFFFFFFFF) == physical);
 		return FrameListPointer{static_cast<uint32_t>(physical), true};
 	}
-	
+
 	FrameListPointer()
 	: _bits{1 << TerminateBit} { }
 
