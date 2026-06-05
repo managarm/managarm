@@ -1,4 +1,5 @@
 #include <async/cancellation.hpp>
+#include <async/mutex.hpp>
 #include <stdio.h>
 #include <string.h>
 #include <iostream>
@@ -28,6 +29,8 @@
 namespace blockfs {
 
 bool clkInitialized = false;
+
+async::mutex globalInitializationMutex;
 
 BlockDevice::BlockDevice(size_t sector_size, int64_t parent_id)
 : size(0), sectorSize(sector_size), parentId(parent_id) { }
@@ -409,14 +412,19 @@ async::detached serveDevice(helix::UniqueLane lane, std::unique_ptr<raw::RawFs> 
 }
 
 async::detached runDevice(BlockDevice *device) {
-	if (!tracingInitialized) {
-		co_await ostContext.create();
-		tracingInitialized = true;
-	}
+	{
+		co_await globalInitializationMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, globalInitializationMutex};
 
-	if(!clkInitialized) {
-		co_await clk::enumerateTracker();
-		clkInitialized = true;
+		if (!tracingInitialized) {
+			co_await ostContext.create();
+			tracingInitialized = true;
+		}
+
+		if(!clkInitialized) {
+			co_await clk::enumerateTracker();
+			clkInitialized = true;
+		}
 	}
 
 	// TODO(qookie): Don't leak the table.

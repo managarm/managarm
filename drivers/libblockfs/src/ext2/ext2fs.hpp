@@ -1,3 +1,4 @@
+#pragma once
 
 #include <expected>
 #include <functional>
@@ -30,6 +31,35 @@ namespace ext2fs {
 using FlockManager = protocols::fs::FlockManager;
 using Flock = protocols::fs::Flock;
 
+struct ExtentHeader {
+	uint16_t magic;
+	uint16_t entries;
+	uint16_t max;
+	uint16_t depth;
+	uint32_t generation;
+};
+static_assert(sizeof(ExtentHeader) == 12, "Bad ExtentHeader struct size");
+
+enum {
+	EXT4_EXTENT_MAGIC = 0xF30A
+};
+
+struct ExtentIndex {
+	uint32_t block;
+	uint32_t leafLow;
+	uint16_t leafHigh;
+	uint16_t unused;
+};
+static_assert(sizeof(ExtentIndex) == 12, "Bad ExtentIndex struct size");
+
+struct Extent {
+	uint32_t block;
+	uint16_t len;
+	uint16_t startHigh;
+	uint32_t startLow;
+};
+static_assert(sizeof(Extent) == 12, "Bad Extent struct size");
+
 union FileData {
 	struct Blocks {
 		uint32_t direct[12];
@@ -38,7 +68,13 @@ union FileData {
 		uint32_t tripleIndirect;
 	};
 
+	struct Extents {
+		ExtentHeader hdr;
+		Extent extents[4];
+	};
+
 	Blocks blocks;
+	Extents extents;
 	uint8_t embedded[60];
 };
 static_assert(sizeof(FileData) == 60, "Bad FileData struct size");
@@ -83,7 +119,10 @@ struct DiskSuperblock {
 	//-- Performance Hints --
 	uint8_t preallocBlocks;
 	uint8_t preallocDirBlocks;
-	uint16_t alignment;
+	union {
+		uint16_t alignment;
+		uint16_t reservedGdtBlocks;
+	};
 	//-- Journaling Support --
 	uint8_t journalUuid[16];
 	uint32_t journalInum;
@@ -92,13 +131,88 @@ struct DiskSuperblock {
 	//-- Directory Indexing Support --
 	uint32_t hashSeed[4];
 	uint8_t defHashVersion;
-	uint8_t padding[3];
+	uint8_t jnlBackupType;
+	// Valid only with EXT4_INCOMPAT_64BIT
+	uint16_t groupDescSize;
 	//-- Other options --
 	uint32_t defaultMountOptions;
 	uint32_t firstMetaBg;
-	uint8_t unused[760];
+
+	uint32_t mkfsTime;
+	uint32_t jnlBlocks[17];
+	//-- Valid only with EXT4_INCOMPAT_64BIT --
+	uint32_t blocksCountHigh;
+	uint32_t rBlocksCountHigh;
+	uint32_t freeBlocksCountHigh;
+	uint16_t minExtraIsize;
+	uint16_t wantExtraIsize;
+	uint32_t flags;
+	uint16_t s_raid_stride;
+	uint16_t mmpInterval;
+	uint64_t mmpBlock;
+	uint32_t raidStripeWidth;
+	uint8_t logGroupsPerFlex;
+	uint8_t checksumType;
+	uint8_t encryptionLevel;
+	uint8_t alignment1;
+	uint64_t kbytesWritten;
+	uint32_t snapshotInum;
+	uint32_t snapshotId;
+	uint64_t snapshotRBlocksCount;
+	uint32_t snapshotList;
+	uint32_t errorCount;
+	uint32_t firstErrorTime;
+	uint32_t firstErrorIno;
+	uint64_t firstErrorBlock;
+	uint8_t firstErrorFunc[32];
+	uint32_t firstErrorLine;
+	uint32_t lastErrorTime;
+	uint32_t lastErrorIno;
+	uint32_t lastErrorLine;
+	uint64_t lastErrorBlock;
+	uint8_t lastErrorFunc[32];
+	uint8_t mountOpts[64];
+	uint32_t usrQuotaInum;
+	uint32_t grpQuotaInum;
+	uint32_t overheadBlocks;
+	// Valid only with EXT4_COMPAT_SPARSE_SUPER2
+	uint32_t backupBgs[2];
+	uint8_t encryptAlgos[4];
+	uint8_t encryptPwSalt[16];
+	uint32_t lpfIno;
+	uint32_t prjQuotaInum;
+	uint32_t checksumSeed;
+	uint8_t wtimeHigh;
+	uint8_t mtimeHigh;
+	uint8_t mkfsTimeHigh;
+	uint8_t lastcheckHigh;
+	uint8_t firstErrorTimeHigh;
+	uint8_t lastErrorTimeHigh;
+	uint8_t firstErrorErrcode;
+	uint8_t lastErrorErrcode;
+	uint16_t encoding;
+	uint16_t encodingFlags;
+	uint32_t orphanFileInum;
+	uint32_t unused[94];
+	uint32_t checksum;
 };
 static_assert(sizeof(DiskSuperblock) == 1024, "Bad DiskSuperblock struct size");
+
+enum {
+	EXT4_COMPAT_HAS_JOURNAL = 0x4
+};
+
+enum {
+	EXT4_INCOMPAT_EXTENTS = 0x40,
+	EXT4_INCOMPAT_64BIT = 0x80,
+	EXT4_INCOMPAT_FLEX_BG = 0x200,
+	EXT4_INCOMPAT_CSUM_SEED = 0x2000,
+	EXT4_INCOMPAT_LARGEDIR = 0x4000
+};
+
+enum {
+	EXT4_RO_COMPAT_METADATA_CSUM = 0x400
+};
 
 struct DiskGroupDesc {
 	uint32_t blockBitmap;
@@ -107,10 +221,26 @@ struct DiskGroupDesc {
 	uint16_t freeBlocksCount;
 	uint16_t freeInodesCount;
 	uint16_t usedDirsCount;
-	uint16_t pad;
-	uint8_t reserved[12];
+	uint16_t flags;
+	uint32_t excludeBitmapLow;
+	uint16_t blockBitmapCsumLow;
+	uint16_t inodeBitmapCsumLow;
+	uint16_t itableUnusedLow;
+	uint16_t checksum;
+	//-- Valid only with EXT4_INCOMPAT_64BIT and desc size > 32 --
+	uint32_t blockBitmapHigh;
+	uint32_t inodeBitmapHigh;
+	uint32_t inodeTableHigh;
+	uint16_t freeBlocksCountHigh;
+	uint16_t freeInodesCountHigh;
+	uint16_t usedDirsCountHigh;
+	uint16_t itableUnusedHigh;
+	uint32_t excludeBitmapHigh;
+	uint16_t blockBitmapCsumHigh;
+	uint16_t inodeBitmapCsumHigh;
+	uint32_t unused;
 };
-static_assert(sizeof(DiskGroupDesc) == 32, "Bad DiskGroupDesc struct size");
+static_assert(sizeof(DiskGroupDesc) == 64, "Bad DiskGroupDesc struct size");
 
 struct DiskInode {
 	uint16_t mode;
@@ -130,9 +260,29 @@ struct DiskInode {
 	uint32_t fileAcl;
 	uint32_t dirAcl;
 	uint32_t faddr;
-	uint8_t osd2[12];
+	union {
+		uint8_t data[12];
+
+		struct {
+			uint16_t blocksHigh;
+			uint16_t fileAclHigh;
+			uint16_t uidHigh;
+			uint16_t gidHigh;
+			uint16_t checksumLow;
+			uint16_t reserved;
+		};
+	} osd2;
+	uint16_t extraSize;
+	uint16_t checksumHigh;
+	uint32_t ctimeExtra;
+	uint32_t mtimeExtra;
+	uint32_t atimeExtra;
+	uint32_t crtime;
+	uint32_t crtimeExtra;
+	uint32_t versionHigh;
+	uint32_t projid;
 };
-static_assert(sizeof(DiskInode) == 128, "Bad DiskInode struct size");
+static_assert(sizeof(DiskInode) == 160, "Bad DiskInode struct size");
 
 enum {
 	EXT2_ROOT_INO = 2
@@ -143,6 +293,12 @@ enum {
 	EXT2_S_IFLNK = 0xA000,
 	EXT2_S_IFREG = 0x8000,
 	EXT2_S_IFDIR = 0x4000
+};
+
+enum {
+	EXT4_INDEX_FL = 0x1000,
+	EXT4_EXTENTS_FL = 0x80000,
+	EXT4_INLINE_DATA_FL = 0x10000000
 };
 
 struct DiskDirEntry {
@@ -166,6 +322,17 @@ enum {
 struct DirEntry {
 	uint32_t inode;
 	FileType fileType;
+};
+
+// --------------------------------------------------------
+// ExtentBlockRange
+// --------------------------------------------------------
+
+struct ExtentBlockRange {
+	uint64_t relativeStartBlock;
+	uint64_t absoluteStartBlock;
+	uint64_t size;
+	bool found;
 };
 
 // --------------------------------------------------------
@@ -236,6 +403,31 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// Caches indirection blocks reachable from order 2 blocks.
 	// - Indirection level 3/3 for triple indirect blocks.
 	helix::UniqueDescriptor indirectOrder3;
+
+	bool usesExtents;
+};
+
+// --------------------------------------------------------
+// BlockGroupDescriptorTable
+// --------------------------------------------------------
+
+struct BlockGroupDescriptorTable {
+	inline void init(std::byte *ptr, uint16_t descriptorSize) {
+		ptr_ = ptr;
+		descriptorSize_ = descriptorSize;
+	}
+
+	inline DiskGroupDesc& operator[](size_t index) {
+		return *reinterpret_cast<DiskGroupDesc *>(ptr_ + index * descriptorSize_);
+	}
+
+	uint16_t descriptorSize() const {
+		return descriptorSize_;
+	}
+
+private:
+	std::byte *ptr_;
+	uint16_t descriptorSize_;
 };
 
 // --------------------------------------------------------
@@ -289,6 +481,18 @@ struct FileSystem final : BaseFileSystem {
 	async::result<void> writeDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			size_t num_blocks, const void *buffer);
 
+
+	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
+			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
+
+	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
+			uint64_t block_offset, size_t num_blocks);
+
+	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
+			size_t num_blocks, void *buffer);
+	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
+			size_t num_blocks, const void *buffer);
+
 	BlockDevice *device;
 	uint16_t inodeSize;
 	uint32_t blockShift;
@@ -300,8 +504,15 @@ struct FileSystem final : BaseFileSystem {
 	uint32_t inodesPerGroup;
 	uint32_t blocksCount;
 	uint32_t inodesCount;
+	uint8_t uuid[16];
 	std::vector<std::byte> blockGroupDescriptorBuffer;
-	DiskGroupDesc *bgdt;
+	BlockGroupDescriptorTable bgdt;
+
+	uint32_t metadataChecksumSeed;
+	bool is64Bit;
+	bool usesExtents;
+	bool metadataChecksum;
+	bool bgdtChecksum;
 
 	helix::UniqueDescriptor blockBitmap;
 	helix::Mapping blockBitmapMapping;
