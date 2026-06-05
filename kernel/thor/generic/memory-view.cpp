@@ -1247,12 +1247,12 @@ coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 		_managed->numPages = newPages;
 	}
 
-	if(newPages > _managed->numPages) {
+	if(newPages > oldPages) {
 		// Do nothing for now.
-	}else if(newPages < _managed->numPages) {
+	}else if(newPages < oldPages) {
 		// TODO: also free the affected pages!
 		co_await _managed->_evictQueue.breakRange(newPages << kPageShift,
-				oldPages << kPageShift);
+				(oldPages - newPages) << kPageShift);
 	}
 
 	co_return {};
