@@ -43,7 +43,7 @@ private:
 	// Mapping is owned by Controller
 	arch::mem_space regs_;
 
-	arch::contiguous_pool dmaPool_;
+	arch::contiguous_pool dmaPool_{{.addressBits = 32}};
 	arch::dma_object<commandList> commandList_;
 	arch::dma_array<commandTable> commandTables_;
 	arch::dma_object<receivedFis> receivedFis_;

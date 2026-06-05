@@ -88,7 +88,7 @@ private:
 	std::vector<arch::dma_buffer> txBufs_;
 	std::vector<arch::dma_buffer> rxBufs_;
 	arch::mem_space space_;
-	arch::contiguous_pool dmaPool_;
+	arch::contiguous_pool dmaPool_{{.addressBits = 64}};
 	nic::PhyMode phyMode_;
 
 	async::recurring_event rxEvent_;

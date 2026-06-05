@@ -14,7 +14,7 @@ struct UsbNic : nic::Link {
 protected:
 	virtual async::detached listenForNotifications() = 0;
 
-	arch::contiguous_pool dmaPool_;
+	arch::contiguous_pool dmaPool_{{.addressBits = 64}};
 	protocols::usb::Device device_;
 
 	/* the control interface */

@@ -48,7 +48,7 @@ struct VirtioNic : nic::Link {
 private:
 	mbus_ng::EntityId entity_;
 	std::unique_ptr<virtio_core::Transport> transport_;
-	arch::contiguous_pool dmaPool_;
+	arch::contiguous_pool dmaPool_{{.addressBits = 64}};
 	virtio_core::Queue *receiveVq_;
 	virtio_core::Queue *transmitVq_;
 	size_t headerSize_;

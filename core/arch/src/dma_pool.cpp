@@ -12,7 +12,9 @@ namespace {
 } // namespace
 
 contiguous_pool::contiguous_pool(contiguous_pool_options options)
-: options_{options} { }
+: options_{options} {
+	assert(options.addressBits != 0 && "options.addressBits must be provided");
+}
 
 dma_ptr contiguous_pool::allocate(size_t size, size_t count, size_t align) {
 	auto b = shift_of_(size, count, align);
