@@ -6,6 +6,7 @@ struct ExecuteResult {
 	helix::UniqueDescriptor thread;
 	void *auxBegin = nullptr;
 	void *auxEnd = nullptr;
+	std::string path;
 };
 
 async::result<frg::expected<Error, ExecuteResult>>
