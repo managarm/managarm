@@ -42,6 +42,8 @@ async::detached bindController(mbus_ng::Entity entity) {
 	protocols::hw::Device dev{(co_await entity.getRemoteLane()).unwrap()};
 
 	auto info = co_await dev.getPciInfo();
+	co_await dev.enableBusmaster();
+	co_await dev.enableDma();
 
 	auto controller = std::make_unique<Controller>(std::move(dev), info.numMsis != 0);
 
