@@ -153,6 +153,9 @@ void bootOtherProcessors() {
 
 	infoLogger() << "thor: Booting APs." << frg::endlog;
 
+	// The BSP is already running and occupies CPU index 0; skip its MADT entry.
+	auto bspApicId = getLocalApicId();
+
 	size_t apCpuIndex = 1;
 	size_t offset = sizeof(acpi_sdt_hdr) + sizeof(MadtHeader);
 	while (offset < madt->length) {
@@ -161,8 +164,7 @@ void bootOtherProcessors() {
 			case ACPI_MADT_ENTRY_TYPE_LAPIC: {
 				auto entry = (MadtLocalEntry *)generic;
 
-				// TODO: Support BSPs with APIC ID != 0.
-				if ((entry->flags & local_flags::enabled) && entry->localApicId != 0) {
+				if ((entry->flags & local_flags::enabled) && entry->localApicId != bspApicId) {
 					if (apCpuIndex < cpuConfigNote->effectiveCpus)
 						bootSecondary(entry->localApicId, apCpuIndex);
 					apCpuIndex++;
@@ -171,8 +173,7 @@ void bootOtherProcessors() {
 			case ACPI_MADT_ENTRY_TYPE_LOCAL_X2APIC: {
 				auto entry = (MadtLocalX2Entry *)generic;
 
-				// TODO: Support BSPs with APIC ID != 0.
-				if ((entry->flags & local_flags::enabled) && entry->localX2ApicId != 0) {
+				if ((entry->flags & local_flags::enabled) && entry->localX2ApicId != bspApicId) {
 					if (apCpuIndex < cpuConfigNote->effectiveCpus)
 						bootSecondary(entry->localX2ApicId, apCpuIndex);
 					apCpuIndex++;
