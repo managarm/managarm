@@ -37,7 +37,7 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
-	{ T::pteWriteBarrier() } -> std::same_as<void>;
+	{ T::pteWriteBarrier(ptePtr) } -> std::same_as<void>;
 	// Synchronize the I-Cache for a page that is about to become executable.
 	{ T::pteSyncICache(pa) } -> std::same_as<void>;
 
@@ -145,7 +145,7 @@ public:
 			Policy::pteSyncICache(pa);
 
 		auto oldPte = exchangeCurrentPte_(newPte);
-		Policy::pteWriteBarrier();
+		Policy::pteWriteBarrier(currentPtePtr_());
 
 		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte)};
 	}
@@ -159,7 +159,7 @@ public:
 
 		auto ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 		ptEnt = exchangeCurrentPte_(ptEnt);
-		Policy::pteWriteBarrier();
+		Policy::pteWriteBarrier(currentPtePtr_());
 
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
@@ -186,7 +186,7 @@ public:
 			if (success)
 				break;
 		}
-		Policy::pteWriteBarrier();
+		Policy::pteWriteBarrier(currentPtePtr_());
 
 		bool restricted = false;
 		if (!(flags & page_access::write) && Policy::ptePageCanAccess(oldPte, page_access::write))
@@ -209,7 +209,7 @@ public:
 			return {0, 0};
 
 		auto ptEnt = exchangeCurrentPte_(0);
-		Policy::pteWriteBarrier();
+		Policy::pteWriteBarrier(currentPtePtr_());
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
@@ -218,7 +218,7 @@ public:
 			return {0, PhysicalAddr(-1), false};
 		auto [oldPte, unmapped] = Policy::pteAge(currentPtePtr_(), vacate);
 		if(unmapped)
-			Policy::pteWriteBarrier();
+			Policy::pteWriteBarrier(currentPtePtr_());
 		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte), unmapped};
 	}
 
@@ -270,7 +270,7 @@ private:
 		subPt = PageAccessor{subPtPtr};
 
 		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
-		Policy::pteWriteBarrier();
+		Policy::pteWriteBarrier(ptPtr);
 	}
 
 	void realizeLevel_(size_t level) {

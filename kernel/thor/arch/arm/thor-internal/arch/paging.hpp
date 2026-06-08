@@ -110,7 +110,7 @@ struct ARMCursorPolicy {
 
 	static uint64_t pteClean(uint64_t *ptePtr) {
 		uint64_t pte = __atomic_fetch_or(ptePtr, kPageRO, __ATOMIC_RELAXED);
-		pteWriteBarrier();
+		pteWriteBarrier(ptePtr);
 		return pte;
 	}
 
@@ -169,7 +169,7 @@ struct ARMCursorPolicy {
 		}
 	}
 
-	static constexpr void pteWriteBarrier() {
+	static constexpr void pteWriteBarrier(uint64_t *) {
 		// TODO(qookie): Linux avoids the barrier for the innermost level user pages,
 		// by letting them potentially (rarely) taking an extra no-op page fault.
 		// Investigate whether it's worth doing this as well.

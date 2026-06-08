@@ -71,7 +71,7 @@ struct EptCursorPolicy {
 		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
 	}
 
-	static constexpr void pteWriteBarrier() { }
+	static constexpr void pteWriteBarrier(uint64_t *) { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
 

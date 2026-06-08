@@ -129,7 +129,7 @@ struct X86CursorPolicy {
 		}
 	}
 
-	static constexpr void pteWriteBarrier() { }
+	static constexpr void pteWriteBarrier(uint64_t *) { }
 	static constexpr void pteSyncICache(uintptr_t) { }
 
 
