@@ -19,6 +19,9 @@
 .global trampoline
 trampoline:
 	cli
+	# APs boot with CR0.CD = 1 and CR0.NW = 1 (caching disabled).
+	# Immediately writeback + invalidate stale cache lines. This matches Linux.
+	wbinvd
 
 	# We assume that the APIC SIPI loads IP with 0.
 	mov %cs, %bx
@@ -26,6 +29,11 @@ trampoline:
 
 	# Load our base address into EBX. We need it once we enter a linear address space.
 	shl $4, %ebx
+
+	# Enable caching by clearing CR0.CD and CR0.NW together.
+	mov %cr0, %eax
+	and $0x9FFFFFFF, %eax
+	mov %eax, %cr0
 
 	# Inform the BSP that we're awake.
 	movl $1, statusTargetStage
