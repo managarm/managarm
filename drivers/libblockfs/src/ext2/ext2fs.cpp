@@ -796,7 +796,7 @@ async::result<void> FileSystem::init() {
 
 	blockGroupDescriptorBuffer = arch::dma_buffer{
 	    pool,
-	    (numBlockGroups * sizeof(DiskGroupDesc) + device->sectorSize - 1)
+	    (numBlockGroups * blockGroupDescriptorSize + device->sectorSize - 1)
 	        & ~(device->sectorSize - 1)
 	};
 	bgdt.init(blockGroupDescriptorBuffer.byte_data(), blockGroupDescriptorSize);

@@ -86,7 +86,7 @@ struct ExtentWalker {
 			uint64_t nextBlock = static_cast<uint64_t>(idx.leafLow)
 					| (static_cast<uint64_t>(idx.leafHigh) << 32);
 
-			subview = blockBuffer.subview((pathCount - 1) * bufferBytesPerBlock, sizeof(ExtentHeader));
+			subview = blockBuffer.subview((pathCount - 1) * bufferBytesPerBlock, bufferBytesPerBlock);
 			co_await fs->device->readSectors(nextBlock * fs->sectorsPerBlock, subview);
 			currentBlock = nextBlock;
 			hdr = reinterpret_cast<ExtentHeader *>(subview.data());
