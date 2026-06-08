@@ -70,16 +70,30 @@ PhysicalAddr PhysicalChunkAllocator::allocate(size_t size, int addressBits) {
 	if(logPhysicalAllocs)
 		infoLogger() << "thor: Allocating physical memory of order "
 					<< (target + kPageShift) << frg::endlog;
-	for(int i = 0; i < _numRegions; i++) {
-		if(target > _allRegions[i].buddyAccessor.tableOrder())
-			continue;
+	// Prefer allocating from regions above 4 GiB so that low memory stays available
+	// for allocations that are constrained to a limited address width (e.g. 32-bit DMA).
+	struct Pass {
+		bool allowLow;
+	};
+	std::array<Pass, 2> passes{
+		Pass{.allowLow = false},
+		Pass{.allowLow = true},
+	};
+	for(auto pass : passes) {
+		for(int i = 0; i < _numRegions; i++) {
+			// Note that Eir cuts regions in such a way that they never cross 4GiB.
+			if(!pass.allowLow && _allRegions[i].physicalBase < (PhysicalAddr{1} << 32))
+				continue;
+			if(target > _allRegions[i].buddyAccessor.tableOrder())
+				continue;
 
-		auto physical = _allRegions[i].buddyAccessor.allocate(target, addressBits);
-		if(physical == BuddyAccessor::illegalAddress)
-			continue;
-	//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
-		assert(!(physical % (size_t(kPageSize) << target)));
-		return physical;
+			auto physical = _allRegions[i].buddyAccessor.allocate(target, addressBits);
+			if(physical == BuddyAccessor::illegalAddress)
+				continue;
+		//	infoLogger() << "Allocate " << (void *)physical << frg::endlog;
+			assert(!(physical % (size_t(kPageSize) << target)));
+			return physical;
+		}
 	}
 
 	return static_cast<PhysicalAddr>(-1);

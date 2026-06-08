@@ -63,6 +63,15 @@ Region *obtainRegion() {
 void createInitialRegion(address_t base, address_t size) {
 	auto limit = base + size;
 
+	// Split regions into parts below 4 GiB and above 4 GiB.
+	// This allows Thor to leave more memory available for devices that support only 32-bit DMA.
+	constexpr address_t low4GiB = address_t{1} << 32;
+	if (base < low4GiB && limit > low4GiB) {
+		createInitialRegion(base, low4GiB - base);
+		createInitialRegion(low4GiB, limit - low4GiB);
+		return;
+	}
+
 	address_t address = base;
 
 	// Align address to 2 MiB.
