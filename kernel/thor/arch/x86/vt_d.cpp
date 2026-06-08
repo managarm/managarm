@@ -357,6 +357,13 @@ const char *decodeFaultReason(uint8_t reason) {
 } // namespace
 
 struct IntelIommuCursorPolicy {
+private:
+	size_t levels_;
+	bool coherent_;
+
+public:
+	IntelIommuCursorPolicy(size_t levels, bool coherent) : levels_{levels}, coherent_{coherent} {}
+
 	static inline constexpr size_t maxLevels = 5;
 	static inline constexpr size_t bitsPerLevel = 9;
 
@@ -367,8 +374,8 @@ struct IntelIommuCursorPolicy {
 	// Mask for the physical address bits.
 	static inline constexpr size_t iommuAddress = 0x000F'FFFF'FFFF'F000;
 
-	static inline constexpr size_t numLevels() {
-		return 3;
+	inline constexpr size_t numLevels() {
+		return levels_;
 	}
 
 	static constexpr bool ptePagePresent(uint64_t pte) {
@@ -423,7 +430,11 @@ struct IntelIommuCursorPolicy {
 		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
 	}
 
-	static constexpr void pteWriteBarrier() { }
+	void pteWriteBarrier(uint64_t *ptePtr) {
+		if (!coherent_)
+			cacheFlush(ptePtr);
+	}
+
 	static constexpr void pteSyncICache(uintptr_t) { }
 
 
@@ -435,18 +446,18 @@ struct IntelIommuCursorPolicy {
 		return pte & iommuAddress;
 	}
 
-	static uint64_t pteNewTable() {
+	uint64_t pteNewTable() {
 		auto newPtAddr = physicalAllocator->allocate(kPageSize);
 		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
 
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
+		if (!coherent_)
+			cacheFlush(accessor.get(), kPageSize);
 
 		return newPtAddr | iommuRead | iommuWrite;
 	}
 };
-
-static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
 
 using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
 
@@ -470,27 +481,17 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 	}
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
-		return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode);
-	}
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) override {
-		return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode);
-	}
+			size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
-		return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode);
-	}
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
-		return cleanPagesByCursor<IntelIommuCursor>(this, va, size);
-	}
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override;
 
-	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
-		return unmapPagesByCursor<IntelIommuCursor>(this, va, size);
-	}
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
 
 	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
 		return PagesAffected{};
@@ -549,11 +550,16 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		cap_ = regs_.load(regs::capability);
 		ecap_ = regs_.load(regs::extendedCapability);
+
 		auto sagaw = cap_ & capability::sagaw;
 		assert(sagaw);
-		// calculate the value (AW, bits 66:64) we need to set in the translation tables for the
-		// highest level of supported page tables, e.g. bit 2 (for 48-bits, 4 levels) this is 2
-		sagaw_ = ((sizeof(unsigned int) * 8) - __builtin_clz(sagaw)) + 1;
+		if (sagaw & 2) { // bit 1: 39-bit AGAW (3-level paging)
+			sagaw_ = 3;
+		} else if (sagaw & 4) { // bit 2: 48-bit AGAW (4-level paging)
+			sagaw_ = 4;
+		} else {
+			panicLogger() << "thor: IOMMU does not support 3-level or 4-level paging" << frg::endlog;
+		}
 
 		auto iotlbOffset = 16 * (ecap_ & extendedCapability::ivo);
 		iotlbWindow_ = {register_base + iotlbOffset, 16, CachingMode::mmio};
@@ -659,6 +665,10 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::pt;
 	}
 
+	bool pageWalkingCoherent() const {
+		return ecap_ & extendedCapability::coherent;
+	}
+
 	void enableDevice(pci::PciEntity *dev, bool passthrough) override {
 		auto lock = frg::guard(&lock_);
 
@@ -702,7 +712,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		} else {
 			domainId = static_cast<IntelIommuDomain *>(dev->iommuDomain)->hwDomainId();
 			contextEntry->high.store(
-			    contextTable::addressWidth(0b001) | contextTable::domainId(domainId)
+			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(domainId)
 			);
 
 			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->iommuDomain->space_);
@@ -720,6 +730,10 @@ struct IntelIommu final : Iommu, IrqSink {
 			invalidateDeviceContext(0, sourceId);
 			invalidateDomainIotlb(domainId);
 		}
+	}
+
+	uint8_t sagaw() const {
+		return sagaw_;
 	}
 
 	uint16_t allocateHardwareDomainId() {
@@ -1083,6 +1097,34 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 	}
 
 	return true;
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr va, size_t size) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, policy);
 }
 
 namespace {
