@@ -44,7 +44,10 @@ async::detached bindDevice(mbus_ng::Entity hwEntity) {
 async::detached observeDevices() {
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"pci-vendor", "1af4"},
-		mbus_ng::EqualsFilter{"pci-device", "1001"}
+		mbus_ng::Disjunction({
+			mbus_ng::EqualsFilter{"pci-device", "1001"},
+			mbus_ng::EqualsFilter{"pci-device", "1042"},
+		})
 	}};
 
 	auto enumerator = mbus_ng::Instance::global().enumerate(filter);
