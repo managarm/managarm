@@ -41,19 +41,22 @@ bool operator==(const LilModeInfo &lil, const drm_mode_modeinfo &drm) {
 	       && lil.vtotal == drm.vtotal;
 }
 
-GfxDevice::GfxDevice(protocols::hw::Device hw_device, uint16_t pch_devid)
+GfxDevice::GfxDevice(
+    protocols::hw::Device hw_device,
+    uint16_t pch_devid,
+    bool iommuActive,
+    helix::UniqueDescriptor dmaSpace
+)
 : _hwDevice{std::move(hw_device)},
   _vramAllocator(26, 12),
-  _pchDevId{pch_devid} {
+  _pchDevId{pch_devid},
+  dmaSpaceHandle_{std::move(dmaSpace)},
+  dmaSpace_{_pool.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
 
   };
 
 async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() {
 	std::vector<drm_core::Assignment> assignments;
-
-	/* we want to get exclusive access to the GPU here already, as we will be modifying the GTT
-	 * during the setup */
-	co_await _hwDevice.claimDevice();
 
 	apertureHandle_ = co_await _hwDevice.accessBar(2);
 
@@ -63,7 +66,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	std::println("gfx/intel-lil: GPU init done");
 
 	gttScratch_ = arch::dma_buffer{&_pool, 0x1000};
-	uintptr_t phys = helix::ptrToPhysical(gttScratch_.data());
+	uintptr_t phys = co_await dmaSpace_.iova_of(gttScratch_);
 
 	for (size_t i = 0; i < _gpu->gtt_size / 8; i++) {
 		_gpu->vmem_map(_gpu, phys, i << 12);
@@ -226,29 +229,13 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	size_t mappingSize = frg::align_up(size, 0x1000);
 
 	auto gpuVa = _vramAllocator.allocate(size);
-
-	HelHandle handle;
-	void *cpuVaPtr = nullptr;
-	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
-	helix::UniqueDescriptor allocationHandle{handle};
-
-	HEL_CHECK(helMapMemory(
-	    allocationHandle.getHandle(),
-	    kHelNullHandle,
-	    nullptr,
-	    0,
-	    mappingSize,
-	    kHelMapProtRead,
-	    &cpuVaPtr
-	));
+	auto dmaBuffer = arch::dma_buffer{&_pool, size};
 
 	for (size_t page = 0; page < mappingSize; page += 0x1000) {
-		uintptr_t phys = helix::addressToPhysical(uintptr_t(cpuVaPtr) + page);
+		auto phys = async::run(dmaSpace_.iova_of(dmaBuffer.subview(page, 0x1000)), helix::currentDispatcher);
 
 		_gpu->vmem_map(_gpu, phys, gpuVa + page);
 	}
-
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, cpuVaPtr, mappingSize));
 
 	HelHandle sliceHandle;
 	HEL_CHECK(helCreateSliceView(
@@ -257,7 +244,7 @@ GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
 	helix::UniqueDescriptor apertureMemoryView{sliceHandle};
 
 	auto buffer = std::make_shared<GfxDevice::BufferObject>(
-	    this, gpuVa, std::move(allocationHandle), std::move(apertureMemoryView), width, height, size
+	    this, gpuVa, std::move(dmaBuffer), std::move(apertureMemoryView), width, height, size
 	);
 
 	auto mapping = installMapping(buffer.get());
@@ -477,7 +464,7 @@ GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() { return _bo.
 GfxDevice::BufferObject::BufferObject(
     GfxDevice *device,
     GpuAddr gpu_addr,
-    helix::UniqueDescriptor allocationHandle,
+    arch::dma_buffer allocationHandle,
     helix::UniqueDescriptor apertureHandle,
     uint32_t width,
     uint32_t height,
