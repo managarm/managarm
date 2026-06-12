@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/elf-notes.hpp>
 #include <thor-internal/fiber.hpp>
@@ -18,6 +19,7 @@
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/timer.hpp>
+#include <thor-internal/work-queue.hpp>
 
 #ifdef __x86_64__
 #include <thor-internal/arch/pic.hpp>
@@ -370,10 +372,16 @@ struct SciDevice final : IrqSink {
 	uacpi_interrupt_handler handler;
 	uacpi_handle ctx;
 
+	// Sequence number that the worker coroutine passes to ackSink()/nackSink().
+	std::atomic<uint64_t> irqSequence{0};
+	async::recurring_event irqEvent;
+
 	SciDevice() : IrqSink{frg::string<KernelAlloc>{*kernelAlloc, "acpi-sci"}} {}
 
 	IrqStatus raise() override {
-		return handler(ctx) & UACPI_INTERRUPT_HANDLED ? IrqStatus::acked : IrqStatus::nacked;
+		irqSequence.store(currentSequence(), std::memory_order_release);
+		irqEvent.raise();
+		return IrqStatus::indefinite;
 	}
 };
 
@@ -392,6 +400,23 @@ uacpi_status uacpi_kernel_install_interrupt_handler(
 #ifdef __x86_64__
 	IrqPin::attachSink(acpi::getGlobalSystemIrq(sciOverride.gsi), sciDevice.get());
 #endif
+
+	// Defer the SCI handler to a kernel fiber since it may allocate.
+	[](SciDevice *dev, enable_detached_coroutine) -> void {
+		uint64_t seq = 0;
+		while (true) {
+			co_await dev->irqEvent.async_wait_if([&] {
+				return dev->irqSequence.load(std::memory_order_acquire) == seq;
+			});
+			seq = dev->irqSequence.load(std::memory_order_acquire);
+
+			uacpi_interrupt_ret ret = dev->handler(dev->ctx);
+			if (ret & UACPI_INTERRUPT_HANDLED)
+				IrqPin::ackSink(dev, seq);
+			else
+				IrqPin::nackSink(dev, seq);
+		}
+	}(sciDevice.get(), enable_detached_coroutine{WorkQueue::generalQueue().lock()});
 
 	*out_irq_handle = &sciDevice;
 	return UACPI_STATUS_OK;
