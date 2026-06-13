@@ -3,6 +3,7 @@
 #include <async/recurring-event.hpp>
 #include <frg/cmdline.hpp>
 #include <frg/scope_exit.hpp>
+#include <frg/small_vector.hpp>
 #include <frg/span.hpp>
 #include <initgraph.hpp>
 #include <thor-internal/acpi/acpi.hpp>
@@ -524,6 +525,8 @@ struct IntelIommuDmaSpace final : DmaSpace {
 	IntelIommuOperations *intelIommuOps() const {
 		return iommuOps_;
 	}
+
+	frg::vector<smarter::shared_ptr<HardwareMemory>, KernelAlloc> reservedRegions_{*kernelAlloc};
 
 private:
 	IntelIommuOperations *iommuOps_;
@@ -1355,6 +1358,35 @@ bool IntelIommuOperations::submitShootdown(ShootNode *node) {
 	return false;
 }
 
+namespace {
+
+IntelIommu *findIommu(pci::PciEntity *entity) {
+	if (!entity)
+		return nullptr;
+
+	Iommu *iommu = nullptr;
+	if (entity->type() == pci::PciEntityType::Device) {
+		iommu = static_cast<pci::PciDevice *>(entity)->associatedIommu;
+	} else if (entity->type() == pci::PciEntityType::Bridge) {
+		iommu = static_cast<pci::PciBridge *>(entity)->associatedIommu;
+	}
+
+	if (iommu)
+		return static_cast<IntelIommu *>(iommu);
+
+	pci::PciBridge *bridge = entity->parentBus ? entity->parentBus->associatedBridge : nullptr;
+	while (bridge && bridge->parentBus && !bridge->associatedIommu) {
+		bridge = bridge->parentBus->associatedBridge;
+	}
+
+	if (bridge)
+		return static_cast<IntelIommu *>(bridge->associatedIommu);
+
+	return nullptr;
+}
+
+} // namespace
+
 IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	DmarDrhd drhd;
 	memcpy(&drhd, remappingStructureTypes.data(), sizeof(drhd));
@@ -1493,9 +1525,12 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 
 	auto device_scope = remappingStructureTypes.subspan(sizeof(rmrr), rmrr.hdr.length - sizeof(rmrr));
 
+	// List of DMA spaces we already registered this RMRR range with
+	frg::small_vector<IntelIommuDmaSpace *, 4, KernelAlloc> mappedSpaces{*kernelAlloc};
+
 	while(device_scope.size()) {
 		if(sizeof(DeviceScope) > device_scope.size())
-			break;
+			return false;
 
 		DeviceScope dev;
 		memcpy(&dev, device_scope.data(), sizeof(dev));
@@ -1515,16 +1550,34 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 			break;
 		}
 
+		bool skipEntry = false;
+
 		for(size_t pathOffset = 0; pathOffset < (dev.length - 6); pathOffset += 2) {
-			switch(dev.type) {
-				case 1: {
-					if(!bus)
-						return false;
+			if(!bus) {
+				skipEntry = true;
+				break;
+			}
 
-					uint8_t slot, func;
-					memcpy(&slot, device_scope.subspan(sizeof(DeviceScope) + pathOffset).data(), sizeof(uint8_t));
-					memcpy(&func, device_scope.subspan(sizeof(DeviceScope) + pathOffset + 1).data(), sizeof(uint8_t));
+			uint8_t slot, func;
+			memcpy(&slot, device_scope.subspan(sizeof(DeviceScope) + pathOffset).data(), sizeof(uint8_t));
+			memcpy(&func, device_scope.subspan(sizeof(DeviceScope) + pathOffset + 1).data(), sizeof(uint8_t));
 
+			bool isLast = (pathOffset + 2 == dev.length - 6);
+			if (!isLast) {
+				pci::PciBus *newbus = nullptr;
+				for(auto b : bus->childBridges) {
+					if(b->slot == slot && b->function == func) {
+						newbus = b->associatedBus;
+						break;
+					}
+				}
+				if(!newbus || newbus == bus) {
+					skipEntry = true;
+					break;
+				}
+				bus = newbus;
+			} else {
+				if (dev.type == 1) {
 					pci::PciDevice *pciDev = nullptr;
 					for(auto d : bus->childDevices) {
 						if(d->slot == slot && d->function == func) {
@@ -1532,78 +1585,121 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							break;
 						}
 					}
-
-					if(!pciDev)
-						return false;
-
-					infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has RMRR",
-						rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
-
-					if(pciDev->associatedIommu) {
-						KernelFiber::asyncBlockCurrent(pciDev->associatedIommu->enableDevice(pciDev));
-					} else {
-						auto bridge = pciDev->parentBus->associatedBridge;
-
-						while(bridge && bridge->parentBus && !bridge->associatedIommu)
-							bridge = bridge->parentBus->associatedBridge;
-
-						if(bridge && bridge->associatedIommu)
-							KernelFiber::asyncBlockCurrent(bridge->associatedIommu->enableDevice(bridge));
-						else
-							infoLogger() << frg::fmt("thor: no bridge with associated IOMMU for {:04x}:{:02x}:{:02x}.{}",
-								rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
-					}
-
-					break;
-				}
-				case 2: {
-					if(!bus)
-						return false;
-
-					uint8_t slot, func;
-					memcpy(&slot, device_scope.subspan(sizeof(DeviceScope) + pathOffset).data(), sizeof(uint8_t));
-					memcpy(&func, device_scope.subspan(sizeof(DeviceScope) + pathOffset + 1).data(), sizeof(uint8_t));
-
-					pci::PciBus *newbus = nullptr;
-					for(auto b : bus->childBridges) {
-						if(b->slot != slot)
-							continue;
-						if(b->function != func)
-							continue;
-
-						newbus = b->associatedBus;
+					if(!pciDev) {
+						skipEntry = true;
 						break;
 					}
 
-					if(!newbus || newbus == bus)
-						return false;
+					if (pciDev->iommuDomain) {
+						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(pciDev->iommuDomain->space_);
+						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
+						// to multiple devices, and they may share the IOMMU domain.
+						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
+							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
+							infoLogger() << frg::fmt(
+							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+							    "device {:04x}:{:02x}:{:02x}.{}",
+							    rmrr.memory_base,
+							    size,
+							    rmrr.segment,
+							    dev.start_bus_number,
+							    slot,
+							    func
+							) << frg::endlog;
 
+							auto reservedMemory = smarter::allocate_shared<HardwareMemory>(
+							    *kernelAlloc, rmrr.memory_base, size, CachingMode::null
+							);
+							space->reservedRegions_.push_back(std::move(reservedMemory));
+
+							auto slice = smarter::allocate_shared<MemorySlice>(
+							    *kernelAlloc, space->reservedRegions_.back(), 0, size
+							);
+
+							auto res = KernelFiber::asyncBlockCurrent(space->map(
+							    std::move(slice),
+							    rmrr.memory_base,
+							    0,
+							    size,
+							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
+							));
+							assert(res);
+							mappedSpaces.push_back(space.get());
+						}
+					} else {
+						infoLogger() << frg::fmt("thor: PCI device {:04x}:{:02x}:{:02x}.{} has no IOMMU domain for RMRR",
+							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
+					}
+				} else if (dev.type == 2) {
+					pci::PciBus *newbus = nullptr;
+					for(auto b : bus->childBridges) {
+						if(b->slot == slot && b->function == func) {
+							newbus = b->associatedBus;
+							break;
+						}
+					}
+					if(!newbus || newbus == bus) {
+						skipEntry = true;
+						break;
+					}
 					bus = newbus;
 
-					infoLogger() << frg::fmt("thor: PCI bridge at {:04x}:{:02x}:{:02x}.{} to bus {} has RMRR",
-						rmrr.segment, dev.start_bus_number, slot, func, bus->busId) << frg::endlog;
-
 					auto bridge = bus->associatedBridge;
-
 					while(bridge && bridge->parentBus && !bridge->associatedIommu)
 						bridge = bridge->parentBus->associatedBridge;
 
-					if(bridge && bridge->associatedIommu)
-						KernelFiber::asyncBlockCurrent(bridge->associatedIommu->enableDevice(bridge));
-					else
-						infoLogger() << frg::fmt("thor: no bridge with associated IOMMU for {:04x}:{:02x}:{:02x}.{}",
-							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
+					if (bridge && bridge->iommuDomain) {
+						auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(bridge->iommuDomain->space_);
+						// Only map the RMRR into an IOMMU domain once; a RMRR may legally refer
+						// to multiple devices, and they may share the IOMMU domain.
+						if (std::ranges::find(mappedSpaces, space.get()) == mappedSpaces.end()) {
+							auto size = rmrr.memory_limit - rmrr.memory_base + 1;
+							infoLogger() << frg::fmt(
+							    "thor: punching through RMRR at 0x{:010x} (size 0x{:x}) for PCI "
+							    "bridge {:04x}:{:02x}:{:02x}.{}",
+							    rmrr.memory_base,
+							    size,
+							    rmrr.segment,
+							    dev.start_bus_number,
+							    slot,
+							    func
+							) << frg::endlog;
 
-					break;
+							auto reservedMemory = smarter::allocate_shared<HardwareMemory>(
+							    *kernelAlloc, rmrr.memory_base, size, CachingMode::null
+							);
+							space->reservedRegions_.push_back(std::move(reservedMemory));
+
+							auto slice = smarter::allocate_shared<MemorySlice>(
+							    *kernelAlloc, space->reservedRegions_.back(), 0, size
+							);
+
+							auto res = KernelFiber::asyncBlockCurrent(space->map(
+							    std::move(slice),
+							    rmrr.memory_base,
+							    0,
+							    size,
+							    VirtualSpace::kMapFixed | VirtualSpace::kMapProtRead | VirtualSpace::kMapProtWrite | VirtualSpace::kMapPopulate
+							));
+							assert(res);
+
+							mappedSpaces.push_back(space.get());
+						}
+					} else {
+						infoLogger() << frg::fmt("thor: PCI bridge {:04x}:{:02x}:{:02x}.{} has no IOMMU domain/associated IOMMU for RMRR",
+							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
+					}
+				} else {
+					infoLogger() << frg::fmt("thor: unhandled RMRR device scope type {}", dev.type) << frg::endlog;
 				}
-				default:
-					infoLogger() << frg::fmt("thor: device scope type {}", dev.type) << frg::endlog;
-					break;
 			}
 		}
 
+		if (skipEntry)
+			warningLogger() << frg::fmt("thor: skipping RMRR device scope (type {}) because resolution failed", dev.type) << frg::endlog;
+
 		if(dev.length > device_scope.size())
-			break;
+			return false;
 
 		device_scope = device_scope.subspan(dev.length);
 	}
@@ -1640,31 +1736,6 @@ frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr
 }
 
 namespace {
-
-IntelIommu *findIommu(pci::PciEntity *entity) {
-	if (!entity)
-		return nullptr;
-
-	Iommu *iommu = nullptr;
-	if (entity->type() == pci::PciEntityType::Device) {
-		iommu = static_cast<pci::PciDevice *>(entity)->associatedIommu;
-	} else if (entity->type() == pci::PciEntityType::Bridge) {
-		iommu = static_cast<pci::PciBridge *>(entity)->associatedIommu;
-	}
-
-	if (iommu)
-		return static_cast<IntelIommu *>(iommu);
-
-	pci::PciBridge *bridge = entity->parentBus ? entity->parentBus->associatedBridge : nullptr;
-	while (bridge && bridge->parentBus && !bridge->associatedIommu) {
-		bridge = bridge->parentBus->associatedBridge;
-	}
-
-	if (bridge)
-		return static_cast<IntelIommu *>(bridge->associatedIommu);
-
-	return nullptr;
-}
 
 IommuDomain *newDomain(IntelIommu *iommu) {
 	if (!iommu)
@@ -1714,6 +1785,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 
 		frg::span<uint8_t> remappingStructureTypes{reinterpret_cast<uint8_t *>(dmarTbl.virt_addr + sizeof(DmarHeader)), dmarTbl.hdr->length - sizeof(DmarHeader)};
 		frg::vector<IntelIommu *, KernelAlloc> iommus{*kernelAlloc};
+		frg::vector<frg::span<uint8_t>, KernelAlloc> rmrrSpans{*kernelAlloc};
 
 		while(remappingStructureTypes.size()) {
 			if(sizeof(DmarRemappingStructureType) > remappingStructureTypes.size())
@@ -1732,10 +1804,7 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 					break;
 				}
 				case DmarRemappingStructureTypes::Rmrr: {
-					if(!handleRmrr(remappingStructureTypes)) {
-						warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
-						return;
-					}
+					rmrrSpans.push_back(remappingStructureTypes.subspan(0, hdr.length));
 					break;
 				}
 				default:
@@ -1820,6 +1889,37 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 		if (!iommus.empty()) {
 			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
 				walkBus(rootBus, true);
+			}
+		}
+
+		for (auto rmrrSpan : rmrrSpans) {
+			if(!handleRmrr(rmrrSpan)) {
+				warningLogger() << frg::fmt("thor: skipping IOMMU setup due to invalid RMRR") << frg::endlog;
+				return;
+			}
+		}
+
+		auto walkSetupIommu = [](this const auto &self, pci::PciBus *bus) -> void {
+			if (!bus)
+				return;
+			for (auto device : bus->childDevices) {
+				auto iommu = findIommu(device);
+				if (iommu && device->iommuDomain) {
+					KernelFiber::asyncBlockCurrent(iommu->enableDevice(device, false));
+				}
+			}
+			for (auto bridge : bus->childBridges) {
+				auto iommu = findIommu(bridge);
+				if (iommu && bridge->iommuDomain) {
+					KernelFiber::asyncBlockCurrent(iommu->enableDevice(bridge, false));
+				}
+				if (bridge->associatedBus)
+					self(bridge->associatedBus);
+			}
+		};
+		if (!iommus.empty()) {
+			for (auto rootBus : std::ranges::subrange(pci::allRootBuses->begin(), pci::allRootBuses->end())) {
+				walkSetupIommu(rootBus);
 			}
 		}
 
