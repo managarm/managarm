@@ -2,6 +2,7 @@
 
 #include <frg/vector.hpp>
 #include <thor-internal/address-space.hpp>
+#include <thor-internal/coroutine.hpp>
 #include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <stddef.h>
@@ -22,7 +23,7 @@ struct Iommu {
 		return id_;
 	}
 
-	virtual void enableDevice(pci::PciEntity *dev, bool passthrough = true) = 0;
+	virtual coroutine<void> enableDevice(pci::PciEntity *dev, bool passthrough = true) = 0;
 
 private:
 	const size_t id_;

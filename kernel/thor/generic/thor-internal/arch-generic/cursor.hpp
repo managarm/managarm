@@ -13,12 +13,12 @@
 namespace thor {
 
 template <typename T>
-concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
+concept CursorPolicy = requires (T policy, uint64_t pte, uint64_t *ptePtr,
 		PhysicalAddr pa, PageFlags flags, CachingMode cachingMode) {
 	// Maximum possible number of table levels.
 	{ T::maxLevels } -> std::convertible_to<size_t>;
-	// Amount of levels currently in use.
-	{ T::numLevels() } -> std::convertible_to<size_t>;
+	// Amount of levels currently in use. May depend on the policy state.
+	{ policy.numLevels() } -> std::convertible_to<size_t>;
 	// How many bits of the address each level resolves.
 	{ T::bitsPerLevel } -> std::convertible_to<size_t>;
 
@@ -37,7 +37,7 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	// Construct a new PTE from the given parameters.
 	{ T::pteBuild(pa, flags, cachingMode) } -> std::same_as<uint64_t>;
 	// Synchronize the page table write with the page table walker.
-	{ T::pteWriteBarrier() } -> std::same_as<void>;
+	{ policy.pteWriteBarrier(ptePtr) } -> std::same_as<void>;
 	// Synchronize the I-Cache for a page that is about to become executable.
 	{ T::pteSyncICache(pa) } -> std::same_as<void>;
 
@@ -46,16 +46,19 @@ concept CursorPolicy = requires (uint64_t pte, uint64_t *ptePtr,
 	// Get the table address from the given PTE.
 	{ T::pteTableAddress(pte) } -> std::same_as<PhysicalAddr>;
 	// Allocate a new page table and construct a PTE for it.
-	{ T::pteNewTable() } -> std::same_as<uint64_t>;
+	{ policy.pteNewTable() } -> std::same_as<uint64_t>;
 };
 
 template <CursorPolicy Policy>
 struct PageCursor {
+	using PolicyType = Policy;
+
 	inline static constexpr uintptr_t levelMask = (uintptr_t{1} << Policy::bitsPerLevel) - 1;
 	inline static constexpr size_t lastLevel = Policy::maxLevels - 1;
 
-	PageCursor(PageSpace *space, uintptr_t va)
-	: space_{space}, va_{}, initialLevel_{Policy::maxLevels - Policy::numLevels()} {
+	PageCursor(PageSpace *space, uintptr_t va, Policy policy = {})
+	: space_{space}, va_{}, policy_{policy},
+			initialLevel_{Policy::maxLevels - policy_.numLevels()} {
 		accessors_[initialLevel_] = {space->rootTable()};
 		moveTo(va);
 	}
@@ -145,7 +148,7 @@ public:
 			Policy::pteSyncICache(pa);
 
 		auto oldPte = exchangeCurrentPte_(newPte);
-		Policy::pteWriteBarrier();
+		policy_.pteWriteBarrier(currentPtePtr_());
 
 		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte)};
 	}
@@ -159,7 +162,7 @@ public:
 
 		auto ptEnt = Policy::pteBuild(pa, flags, cachingMode);
 		ptEnt = exchangeCurrentPte_(ptEnt);
-		Policy::pteWriteBarrier();
+		policy_.pteWriteBarrier(currentPtePtr_());
 
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
@@ -186,7 +189,7 @@ public:
 			if (success)
 				break;
 		}
-		Policy::pteWriteBarrier();
+		policy_.pteWriteBarrier(currentPtePtr_());
 
 		bool restricted = false;
 		if (!(flags & page_access::write) && Policy::ptePageCanAccess(oldPte, page_access::write))
@@ -200,7 +203,8 @@ public:
 		if(!accessors_[lastLevel])
 			return {0, PhysicalAddr(-1)};
 
-		auto ptEnt = Policy::pteClean(currentPtePtr_());
+		auto ptEnt = policy_.pteClean(currentPtePtr_());
+		policy_.pteWriteBarrier(currentPtePtr_());
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
@@ -209,7 +213,7 @@ public:
 			return {0, 0};
 
 		auto ptEnt = exchangeCurrentPte_(0);
-		Policy::pteWriteBarrier();
+		policy_.pteWriteBarrier(currentPtePtr_());
 		return {Policy::ptePageStatus(ptEnt), Policy::ptePageAddress(ptEnt)};
 	}
 
@@ -218,7 +222,7 @@ public:
 			return {0, PhysicalAddr(-1), false};
 		auto [oldPte, unmapped] = Policy::pteAge(currentPtePtr_(), vacate);
 		if(unmapped)
-			Policy::pteWriteBarrier();
+			policy_.pteWriteBarrier(currentPtePtr_());
 		return {Policy::ptePageStatus(oldPte), Policy::ptePageAddress(oldPte), unmapped};
 	}
 
@@ -265,12 +269,12 @@ private:
 			return;
 		}
 
-		ptEnt = Policy::pteNewTable();
+		ptEnt = policy_.pteNewTable();
 		auto subPtPtr = Policy::pteTableAddress(ptEnt);
 		subPt = PageAccessor{subPtPtr};
 
 		__atomic_store_n(ptPtr, ptEnt, __ATOMIC_RELEASE);
-		Policy::pteWriteBarrier();
+		policy_.pteWriteBarrier(ptPtr);
 	}
 
 	void realizeLevel_(size_t level) {
@@ -292,6 +296,8 @@ private:
 private:
 	PageSpace *space_;
 	uintptr_t va_;
+
+	[[no_unique_address]] Policy policy_;
 
 	size_t initialLevel_;
 

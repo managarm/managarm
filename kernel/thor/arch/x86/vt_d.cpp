@@ -1,15 +1,20 @@
-#include <frg/scope_exit.hpp>
 #include <arch/bits.hpp>
 #include <arch/variable.hpp>
+#include <async/recurring-event.hpp>
 #include <frg/cmdline.hpp>
+#include <frg/scope_exit.hpp>
 #include <frg/span.hpp>
+#include <initgraph.hpp>
 #include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/cache.hpp>
 #include <thor-internal/arch/pic.hpp>
+#include <thor-internal/coroutine.hpp>
+#include <thor-internal/fiber.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/pci/pci.hpp>
 #include <thor-internal/physical.hpp>
-#include <initgraph.hpp>
+#include <thor-internal/util.hpp>
+#include <variant>
 
 #include <uacpi/acpi.h>
 #include <uacpi/uacpi.h>
@@ -189,7 +194,7 @@ namespace regs {
 	constexpr arch::bit_register<uint32_t> globalCommand{0x18};
 	constexpr arch::bit_register<uint32_t> globalStatus{0x1C};
 	constexpr arch::scalar_register<uint64_t> rootEntryTable{0x20};
-	constexpr arch::bit_register<uint64_t> contextCommand{0x28};
+	[[maybe_unused]] constexpr arch::bit_register<uint64_t> contextCommand{0x28};
 	constexpr arch::bit_register<uint32_t> faultStatus{0x34};
 	constexpr arch::bit_register<uint32_t> faultEventControl{0x38};
 	constexpr arch::scalar_register<uint32_t> faultEventData{0x3C};
@@ -207,8 +212,8 @@ namespace regs {
 	[[maybe_unused]] constexpr arch::bit_register<uint64_t> invalidationQueueErrorRecord{0xB0};
 
 	// IOTLB registers, to be used as offsets into the IOTLB mem_space
-	constexpr arch::bit_register<uint64_t> iotlbInvalidateAddress{0x00};
-	constexpr arch::bit_register<uint64_t> iotlbInvalidate{0x08};
+	[[maybe_unused]] constexpr arch::bit_register<uint64_t> iotlbInvalidateAddress{0x00};
+	[[maybe_unused]] constexpr arch::bit_register<uint64_t> iotlbInvalidate{0x08};
 
 	// Fault record registers, to be used as offsets into the faultRecord mem_space
 	constexpr arch::scalar_register<uint64_t> faultRecordInfo{0x00};
@@ -226,20 +231,21 @@ namespace capability {
 	constexpr arch::field<uint64_t, bool> phmr{6, 1};
 	constexpr arch::field<uint64_t, uint8_t> sagaw{8, 5};
 	constexpr arch::field<uint64_t, uint8_t> fro{24, 8};
+	constexpr arch::field<uint64_t, bool> psi{39, 1};
 	constexpr arch::field<uint64_t, uint8_t> nfr{40, 8};
-	[[maybe_unused]] constexpr arch::field<uint64_t, uint8_t> maximumAddressMask{48, 6};
+	constexpr arch::field<uint64_t, uint8_t> maximumAddressMask{48, 6};
 } // namespace capability
 
 namespace extendedCapability {
 	constexpr arch::field<uint64_t, bool> coherent{0, 1};
-	[[maybe_unused]] constexpr arch::field<uint64_t, bool> queuedInvalidation{1, 1};
+	constexpr arch::field<uint64_t, bool> queuedInvalidation{1, 1};
 	constexpr arch::field<uint64_t, bool> pt{6, 1};
 	constexpr arch::field<uint64_t, uint16_t> ivo{8, 10};
 } // namespace extendedCapability
 
 namespace globalStatus {
 	constexpr arch::field<uint32_t, bool> interruptRemappingPointerStatus{24, 1};
-	[[maybe_unused]] constexpr arch::field<uint32_t, bool> queuedInvalidationStatus{26, 1};
+	constexpr arch::field<uint32_t, bool> queuedInvalidationStatus{26, 1};
 	constexpr arch::field<uint32_t, bool> writeBufferFlushStatus{27, 1};
 	constexpr arch::field<uint32_t, bool> faultLogStatus{29, 1};
 	constexpr arch::field<uint32_t, bool> rootTablePointerStatus{30, 1};
@@ -257,10 +263,10 @@ namespace contextCommand {
 		Device = 0b11,
 	};
 
-	constexpr arch::field<uint64_t, uint16_t> domainId{0, 16};
-	constexpr arch::field<uint64_t, SourceID> sourceId{16, 16};
-	constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{61, 2};
-	constexpr arch::field<uint64_t, bool> invalidateContextCache{63, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{0, 16};
+	[[maybe_unused]] constexpr arch::field<uint64_t, SourceID> sourceId{16, 16};
+	[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{61, 2};
+	[[maybe_unused]] constexpr arch::field<uint64_t, bool> invalidateContextCache{63, 1};
 } // namespace contextCommand
 
 namespace faultStatus {
@@ -316,11 +322,11 @@ namespace iotlbInvalidate {
 		Page = 0b011,
 	};
 
-	constexpr arch::field<uint64_t, uint16_t> domainId{32, 16};
-	constexpr arch::field<uint64_t, bool> drainWrites{48, 1};
-	constexpr arch::field<uint64_t, bool> drainReads{49, 1};
-	constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{60, 3};
-	constexpr arch::field<uint64_t, bool> invalidateIotlb{63, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, uint16_t> domainId{32, 16};
+	[[maybe_unused]] constexpr arch::field<uint64_t, bool> drainWrites{48, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, bool> drainReads{49, 1};
+	[[maybe_unused]] constexpr arch::field<uint64_t, InvalidationGranularity> invalidationGranularity{60, 3};
+	[[maybe_unused]] constexpr arch::field<uint64_t, bool> invalidateIotlb{63, 1};
 } // namespace iotlbInvalidate
 
 namespace faultRecording {
@@ -357,6 +363,13 @@ const char *decodeFaultReason(uint8_t reason) {
 } // namespace
 
 struct IntelIommuCursorPolicy {
+private:
+	size_t levels_;
+	bool coherent_;
+
+public:
+	IntelIommuCursorPolicy(size_t levels, bool coherent) : levels_{levels}, coherent_{coherent} {}
+
 	static inline constexpr size_t maxLevels = 5;
 	static inline constexpr size_t bitsPerLevel = 9;
 
@@ -367,8 +380,8 @@ struct IntelIommuCursorPolicy {
 	// Mask for the physical address bits.
 	static inline constexpr size_t iommuAddress = 0x000F'FFFF'FFFF'F000;
 
-	static inline constexpr size_t numLevels() {
-		return 3;
+	inline constexpr size_t numLevels() {
+		return levels_;
 	}
 
 	static constexpr bool ptePagePresent(uint64_t pte) {
@@ -423,9 +436,12 @@ struct IntelIommuCursorPolicy {
 		return {__atomic_load_n(ptePtr, __ATOMIC_RELAXED), false};
 	}
 
-	static constexpr void pteWriteBarrier() { }
-	static constexpr void pteSyncICache(uintptr_t) { }
+	void pteWriteBarrier(uint64_t *ptePtr) {
+		if (!coherent_)
+			cacheFlush(ptePtr);
+	}
 
+	static constexpr void pteSyncICache(uintptr_t) { }
 
 	static constexpr bool pteTablePresent(uint64_t pte) {
 		return pte & iommuRead;
@@ -435,18 +451,18 @@ struct IntelIommuCursorPolicy {
 		return pte & iommuAddress;
 	}
 
-	static uint64_t pteNewTable() {
+	uint64_t pteNewTable() {
 		auto newPtAddr = physicalAllocator->allocate(kPageSize);
 		assert(newPtAddr != PhysicalAddr(-1) && "OOM");
 
 		PageAccessor accessor{newPtAddr};
 		memset(accessor.get(), 0, kPageSize);
+		if (!coherent_)
+			cacheFlush(accessor.get(), kPageSize);
 
 		return newPtAddr | iommuRead | iommuWrite;
 	}
 };
-
-static_assert(thor::CursorPolicy<IntelIommuCursorPolicy>);
 
 using IntelIommuCursor = thor::PageCursor<IntelIommuCursorPolicy>;
 
@@ -463,34 +479,20 @@ struct IntelIommuOperations final : PageSpace, VirtualOperations {
 		node->complete();
 	}
 
-	bool submitShootdown(ShootNode *node) override {
-		// TODO: Invalidate IOTLB/context cache.
-		node->complete();
-		return false;
-	}
+	bool submitShootdown(ShootNode *node) override;
 
 	frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override {
-		return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode);
-	}
+			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
-			size_t size, PageFlags flags, CachingMode mode) override {
-		return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode);
-	}
+			size_t size, PageFlags flags, CachingMode mode) override;
 
 	frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
-			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override {
-		return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode);
-	}
+			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) override;
 
-	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override {
-		return cleanPagesByCursor<IntelIommuCursor>(this, va, size);
-	}
+	frg::expected<Error, PagesAffected> cleanPages(VirtualAddr va, size_t size) override;
 
-	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override {
-		return unmapPagesByCursor<IntelIommuCursor>(this, va, size);
-	}
+	frg::expected<Error, PagesAffected> unmapPages(VirtualAddr va, size_t size) override;
 
 	frg::expected<Error, PagesAffected> agePages(VirtualAddr, size_t, bool) override {
 		return PagesAffected{};
@@ -539,21 +541,31 @@ private:
 };
 
 struct IntelIommu final : Iommu, IrqSink {
+	friend IntelIommuOperations;
+
+	static constexpr size_t invalidationQueueSize = 256;
+
 	IntelIommu(uint64_t register_base, uint16_t segment)
 	: Iommu(nextIommuId++),
 	IrqSink(frg::string(*kernelAlloc, "iommu") +
 		frg::to_allocated_string(*kernelAlloc, id())),
+	qi_{this},
 	segment_{segment} {
 		registerWindow_ = {register_base, 0x1000, CachingMode::mmio};
 		regs_ = arch::mem_space{registerWindow_.get()};
 
 		cap_ = regs_.load(regs::capability);
 		ecap_ = regs_.load(regs::extendedCapability);
+
 		auto sagaw = cap_ & capability::sagaw;
 		assert(sagaw);
-		// calculate the value (AW, bits 66:64) we need to set in the translation tables for the
-		// highest level of supported page tables, e.g. bit 2 (for 48-bits, 4 levels) this is 2
-		sagaw_ = ((sizeof(unsigned int) * 8) - __builtin_clz(sagaw)) + 1;
+		if (sagaw & 2) { // bit 1: 39-bit AGAW (3-level paging)
+			sagaw_ = 3;
+		} else if (sagaw & 4) { // bit 2: 48-bit AGAW (4-level paging)
+			sagaw_ = 4;
+		} else {
+			panicLogger() << "thor: IOMMU does not support 3-level or 4-level paging" << frg::endlog;
+		}
 
 		auto iotlbOffset = 16 * (ecap_ & extendedCapability::ivo);
 		iotlbWindow_ = {register_base + iotlbOffset, 16, CachingMode::mmio};
@@ -565,6 +577,8 @@ struct IntelIommu final : Iommu, IrqSink {
 		faultRecords_ = arch::mem_space{faultRecordsWindow_.get()};
 
 		rootTablePhys_ = physicalAllocator->allocate(0x1000);
+		if (rootTablePhys_ == static_cast<PhysicalAddr>(-1))
+			panicLogger() << "thor: failed to allocate physical memory for IOMMU root table" << frg::endlog;
 		PageAccessor rootTable{rootTablePhys_};
 		memset(rootTable.get(), 0, 0x1000);
 		flush(rootTable.get(), 0x1000);
@@ -572,8 +586,519 @@ struct IntelIommu final : Iommu, IrqSink {
 		rootTable_ = frg::span{reinterpret_cast<rootTable::Entry *>(rootTable.get()), 0x1000 / sizeof(rootTable::Entry)};
 	}
 
-	void init() {
-		auto lock = frg::guard(&lock_);
+	struct InvalidationQueue : public IrqSink {
+		InvalidationQueue(IntelIommu *iommu)
+		: IrqSink(
+		      frg::string(*kernelAlloc, iommu->name())
+		      + frg::string<KernelAlloc>{*kernelAlloc, "-qi"}
+		  ),
+		  iommu_{iommu} {
+			qiRingPhys_ = physicalAllocator->allocate(0x1000);
+			if (qiRingPhys_ == static_cast<PhysicalAddr>(-1))
+				panicLogger() << "thor: failed to allocate physical memory for IOMMU queued invalidation ring" << frg::endlog;
+			PageAccessor qiRing{qiRingPhys_};
+			memset(qiRing.get(), 0, 0x1000);
+			qiStatusPhys_ = physicalAllocator->allocate(0x1000);
+			if (qiStatusPhys_ == static_cast<PhysicalAddr>(-1))
+				panicLogger() << "thor: failed to allocate physical memory for IOMMU queued invalidation status" << frg::endlog;
+			PageAccessor qiStatus{qiStatusPhys_};
+			memset(qiStatus.get(), 0, 0x1000);
+			std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(qiStatus.get())};
+			statusWord.store(0xFFFFFFFF, std::memory_order_relaxed);
+		}
+
+		std::expected<void, thor::Error> init() {
+			auto name = frg::string<KernelAlloc>{*kernelAlloc, "iommu"}
+			            + frg::to_allocated_string(*kernelAlloc, iommu_->id())
+			            + frg::string<KernelAlloc>{*kernelAlloc, "-invalidation-msi"};
+
+			auto interrupt = allocateApicMsi(name);
+			if (!interrupt)
+				return std::unexpected{thor::Error::other};
+			IrqPin::attachSink(interrupt, this);
+
+			iommu_->regs_.store(regs::invalidationEventControl, invalidationEventControl::interruptMask(true));
+
+			// Disable possibly pre-existing queued invalidation ring
+			auto initialStatus = iommu_->regs_.load(regs::globalStatus);
+			if (initialStatus & globalStatus::queuedInvalidationStatus) {
+				auto status = initialStatus & arch::bit_mask(uint32_t(~globalStatus::clearedOnCompletion));
+				iommu_->regs_.store(
+				    regs::globalCommand,
+				    status / globalStatus::queuedInvalidationStatus(false)
+				);
+			}
+			while (iommu_->regs_.load(regs::globalStatus) & globalStatus::queuedInvalidationStatus)
+				;
+
+			// reset
+			iommu_->regs_.store(regs::invalidationQueueTail, 0);
+			iommu_->regs_.store(
+			    regs::invalidationQueueAddress,
+			    invalidationQueue::queueSize(0)
+			        | invalidationQueue::descriptorWidth(
+			            invalidationQueue::DescriptorWidth::Legacy128
+			        )
+			        | invalidationQueue::queueBasePage(qiRingPhys_ >> 12)
+			);
+
+			// enable queued invalidation
+			iommu_->setGlobalBit(globalStatus::queuedInvalidationStatus(true));
+			while (
+			    !(iommu_->regs_.load(regs::globalStatus) & globalStatus::queuedInvalidationStatus)
+			)
+				;
+
+			iommu_->regs_.store(regs::invalidationEventAddress, interrupt->getMessageAddress());
+			iommu_->regs_.store(regs::invalidationEventUpperAddress, interrupt->getMessageAddress() >> 32);
+			iommu_->regs_.store(regs::invalidationEventData, interrupt->getMessageData());
+
+			iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
+			iommu_->regs_.store(regs::invalidationEventControl, invalidationEventControl::interruptMask(false));
+
+			spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), runSubmissionLoop());
+			return {};
+		}
+
+	private:
+		IrqStatus raise() override {
+			if (iommu_->regs_.load(regs::invalidationCompletionStatus) & invalidationCompletionStatus::complete) {
+				iommu_->regs_.store(regs::invalidationCompletionStatus, invalidationCompletionStatus::complete(true));
+
+				PageAccessor statusPage{qiStatusPhys_};
+				std::atomic_ref<uint32_t> statusWord{*reinterpret_cast<uint32_t *>(statusPage.get())};
+				uint32_t completedSeq = statusWord.load(std::memory_order_relaxed);
+				uint32_t head = qiHead_.load(std::memory_order_relaxed);
+
+				if (completedSeq != head) {
+					for (uint32_t seq = head + 1; seq != completedSeq + 1; seq++) {
+						auto index = QueueIndex<invalidationQueueSize>{seq};
+						auto a = completions_[index].exchange(nullptr, std::memory_order_acquire);
+						if (a)
+							a->complete();
+					}
+					qiHead_.store(completedSeq, std::memory_order_release);
+					qiProgressEvent_.raise();
+				}
+			} else {
+				return IrqStatus::nacked;
+			}
+
+			return IrqStatus::acked;
+		}
+
+		// must be called with `qiRingLock_` held.
+		bool isCompleted(uint32_t seq) {
+			uint32_t head = qiHead_.load(std::memory_order_acquire);
+			return static_cast<int32_t>(head - seq) >= 0;
+		}
+
+		// must be called with `qiRingLock_` held.
+		std::pair<QueueIndex<invalidationQueueSize>, uint32_t> allocateSeq() {
+			uint32_t seq = qiTail_.load(std::memory_order_relaxed);
+			qiTail_.store(seq + 1, std::memory_order_release);
+			return {QueueIndex<invalidationQueueSize>{seq}, seq};
+		}
+
+		// must be called with `qiRingLock_` held.
+		size_t freeSlots() {
+			uint32_t head = qiHead_.load(std::memory_order_acquire);
+			uint32_t tail = qiTail_.load(std::memory_order_relaxed);
+			size_t used = tail - head;
+			return invalidationQueueSize - 1 - used;
+		}
+
+		struct InvalidationRequest {
+			enum class Type {
+				globalContext,
+				deviceContext,
+				globalIotlb,
+				domainIotlb,
+				range
+			} type;
+
+			using Data = std::variant<std::monostate, SourceID, ShootNode *>;
+
+			uint16_t domain;
+			Data data;
+
+			uint32_t sequence;
+			bool submitted = false;
+			bool completed = false;
+			frg::default_list_hook<InvalidationRequest> hook;
+		};
+
+		template <typename F>
+		coroutine<void> submitSyncInvalidation(InvalidationRequest::Type type, F func, uint16_t domain = 0, InvalidationRequest::Data data = std::monostate{}) {
+			auto lock = frg::guard(&qiRingLock_);
+			uint32_t seq = 0;
+
+			if (pendingQueue_.empty() && freeSlots() >= 2) {
+				PageAccessor qiRing{qiRingPhys_};
+				frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+				auto [index, _] = allocateSeq();
+				auto &entry = qiRingEntries[index];
+
+				func(entry);
+
+				seq = submitSyncWait();
+				lock.unlock();
+
+				while (co_await qiProgressEvent_.async_wait_if([&] {
+					auto irqLock = frg::guard(&qiRingLock_);
+					return !isCompleted(seq);
+				}))
+					;
+			} else {
+				InvalidationRequest req;
+				req.type = type;
+				req.domain = domain;
+				req.data = data;
+
+				pendingQueue_.push_back(&req);
+				pendingQueueEvent_.raise();
+				lock.unlock();
+
+				while (co_await qiProgressEvent_.async_wait_if([&] {
+					auto irqLock = frg::guard(&qiRingLock_);
+					if (!req.submitted)
+						return true;
+					return !isCompleted(req.sequence);
+				}))
+					;
+			}
+		}
+
+	public:
+		coroutine<void> invalidateGlobalContext() {
+			return submitSyncInvalidation(
+			    InvalidationRequest::Type::globalContext, [](auto &entry) {
+				    entry.high = arch::bit_value<uint64_t>{0};
+				    entry.low = qi::type(1);
+				    entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+				        qi::context_cache_invalidate::InvalidationGranularity::global
+				    );
+			    }
+			);
+		}
+
+		coroutine<void> invalidateDeviceContext(uint16_t domain, SourceID device) {
+			return submitSyncInvalidation(
+			    InvalidationRequest::Type::deviceContext, [&](auto &entry) {
+				    entry.high = arch::bit_value<uint64_t>{0};
+				    entry.low = qi::type(1);
+				    entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+				        qi::context_cache_invalidate::InvalidationGranularity::device
+				    );
+				    entry.low |= qi::context_cache_invalidate::domainId(domain);
+				    entry.low |= qi::context_cache_invalidate::sourceId(device);
+			    }, domain, device
+			);
+		}
+
+		coroutine<void> invalidateGlobalIotlb() {
+			return submitSyncInvalidation(InvalidationRequest::Type::globalIotlb, [](auto &entry) {
+				entry.high = arch::bit_value<uint64_t>{0};
+				entry.low = qi::type(2);
+				entry.low |= qi::iotlb_invalidate::invalidationGranularity(
+				    qi::iotlb_invalidate::InvalidationGranularity::global
+				);
+				entry.low |= qi::iotlb_invalidate::drainWrites(true);
+				entry.low |= qi::iotlb_invalidate::drainReads(true);
+			});
+		}
+
+		coroutine<void> invalidateDomainIotlb(uint16_t domain) {
+			return submitSyncInvalidation(
+			    InvalidationRequest::Type::domainIotlb,
+			    [&](auto &entry) {
+				    entry.high = arch::bit_value<uint64_t>{0};
+				    entry.low = qi::type(2);
+				    entry.low |= qi::iotlb_invalidate::invalidationGranularity(
+				        qi::iotlb_invalidate::InvalidationGranularity::domain
+				    );
+				    entry.low |= qi::iotlb_invalidate::drainWrites(true);
+				    entry.low |= qi::iotlb_invalidate::drainReads(true);
+				    entry.low |= qi::iotlb_invalidate::domainId(domain);
+			    },
+			    domain
+			);
+		}
+
+		void invalidateRange(uint16_t domain, ShootNode *node) {
+			auto [psi, required] = calculateRangeInvalidationParameters(node->address, node->size);
+			auto lock = frg::guard(&qiRingLock_);
+
+			if (pendingQueue_.empty() && freeSlots() >= required) {
+				submitRange(domain, node, required, psi);
+			} else {
+				auto req = frg::construct<InvalidationRequest>(*kernelAlloc);
+				req->type = InvalidationRequest::Type::range;
+				req->domain = domain;
+				req->data = node;
+
+				pendingQueue_.push_back(req);
+				pendingQueueEvent_.raise();
+			}
+		}
+
+	private:
+		// 128-bit QI descriptor
+		struct QiRingEntry128 {
+			arch::bit_value<uint64_t> low;
+			arch::bit_value<uint64_t> high;
+		};
+
+		// must be called with `qiRingLock_` held.
+		template <typename F>
+		void submitAsync(F func) {
+			auto [index, seq] = allocateSeq();
+			PageAccessor qiRing{qiRingPhys_};
+			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+			auto &entry = qiRingEntries[index];
+
+			entry.low = qi::type(5);
+			entry.low |= qi::wait::interruptFlag(true);
+			entry.low |= qi::wait::statusWrite(true);
+			entry.low |= qi::wait::statusData(seq);
+			entry.low |= qi::wait::fenceFlag(true);
+			entry.high = arch::bit_value<uint64_t>(qiStatusPhys_);
+
+			func(index);
+
+			iommu_->regs_.store(regs::invalidationQueueTail, (index + 1) << 4);
+		}
+
+		size_t submitSyncWait() {
+			size_t seq = qiTail_.load(std::memory_order_relaxed);
+			submitAsync([](size_t) {});
+			return seq;
+		}
+
+		// Returns whether page-selective invalidation (PSI) is used (bool) and the number
+		// of descriptors that the request takes (size_t).
+		// Whether PSI is used for a request or not depends on controller capabilities,
+		// invalidation address alignment and size.
+		std::pair<bool, size_t> calculateRangeInvalidationParameters(uint64_t address, size_t size) {
+			// If no controller support for PSI, invalidate the entire domain.
+			if (!(iommu_->cap_ & capability::psi))
+				return {false, 2};
+
+			// Calculate the number of descriptors that PSI would take.
+			size_t count = 0;
+			auto length = size;
+			auto addr = address;
+			uint8_t maxAddressMask = iommu_->cap_ & capability::maximumAddressMask;
+			size_t maxChunkPages = 1uz << maxAddressMask;
+			size_t maxChunk = maxChunkPages << 12;
+
+			while (length) {
+				size_t alignment = (addr == 0) ? maxChunk : (addr & -addr);
+				size_t largestFittingChunk = std::bit_floor(length);
+				size_t chunk = std::min({alignment, largestFittingChunk, maxChunk});
+				count++;
+				addr += chunk;
+				length -= chunk;
+			}
+
+			if (count + 1 < (invalidationQueueSize / 2))
+				return {true, count + 1};
+
+			// If we need more than half of the ring descriptors, fall back to invalidating
+			// the entire domain instead. Filling up the ring buffer would be a DoS.
+			return {false, 2};
+		}
+
+		// must be called with `qiRingLock_` held.
+		void submitRange(uint16_t domain, ShootNode *node, size_t slots, bool psi) {
+			assert((node->address & 0xFFF) == 0);
+
+			PageAccessor qiRing{qiRingPhys_};
+			frg::span<QiRingEntry128> qiRingEntries{reinterpret_cast<QiRingEntry128 *>(qiRing.get()), invalidationQueueSize};
+
+			if (psi) {
+				auto length = node->size;
+				assert(length);
+				assert((length & 0xFFF) == 0);
+
+				auto addr = node->address;
+				uint8_t maxAddressMask = iommu_->cap_ & capability::maximumAddressMask;
+				size_t maxChunkPages = 1uz << maxAddressMask;
+				size_t maxChunk = maxChunkPages << 12;
+
+				while (length) {
+					// Determine the natural alignment of this address.
+					// (addr & -addr) isolates the lowest set bit, yielding the max power-of-2 alignment.
+					size_t alignment = (addr == 0) ? maxChunk : (addr & -addr);
+					size_t largestFittingChunk = std::bit_floor(length);
+					size_t chunk = std::min({alignment, largestFittingChunk, maxChunk});
+					assert(chunk);
+					auto am = std::countr_zero(chunk) - 12;
+
+					auto [index, seq] = allocateSeq();
+					auto &entry = qiRingEntries[index];
+
+					entry.high = qi::iotlb_invalidate::addressMask(am);
+					entry.high |= qi::iotlb_invalidate::pageNumber(addr >> 12);
+					entry.low = qi::type(2);
+					entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::page);
+					entry.low |= qi::iotlb_invalidate::drainWrites(true);
+					entry.low |= qi::iotlb_invalidate::drainReads(true);
+					entry.low |= qi::iotlb_invalidate::domainId(domain);
+
+					addr += chunk;
+					length -= chunk;
+					slots--;
+				}
+
+				assert(slots == 1);
+			} else {
+				assert(slots == 2);
+
+				auto [index, seq] = allocateSeq();
+				auto &entry = qiRingEntries[index];
+
+				entry.high = arch::bit_value<uint64_t>{0};
+				entry.low = qi::type(2);
+				entry.low |= qi::iotlb_invalidate::invalidationGranularity(qi::iotlb_invalidate::InvalidationGranularity::domain);
+				entry.low |= qi::iotlb_invalidate::drainWrites(true);
+				entry.low |= qi::iotlb_invalidate::drainReads(true);
+				entry.low |= qi::iotlb_invalidate::domainId(domain);
+			}
+
+			submitAsync([&](size_t index) {
+				completions_[index].store(node, std::memory_order_release);
+			});
+		}
+
+		coroutine<void> runSubmissionLoop() {
+			while (true) {
+				while (co_await pendingQueueEvent_.async_wait_if([&] {
+					auto irqLock = frg::guard(&qiRingLock_);
+					return pendingQueue_.empty();
+				}))
+					;
+
+				InvalidationRequest *req = nullptr;
+				{
+					auto irqLock = frg::guard(&qiRingLock_);
+					assert(!pendingQueue_.empty());
+					req = pendingQueue_.front();
+					pendingQueue_.pop_front();
+				}
+
+				if (!req)
+					continue;
+
+				size_t slots = 0;
+				bool psi = false;
+
+				if (req->type == InvalidationRequest::Type::range) {
+					auto node = std::get<ShootNode *>(req->data);
+					std::tie(psi, slots) =
+					    calculateRangeInvalidationParameters(node->address, node->size);
+				} else {
+					slots = 2;
+				}
+
+				while (true) {
+					while (co_await qiProgressEvent_.async_wait_if([&] {
+						auto irqLock = frg::guard(&qiRingLock_);
+						return freeSlots() < slots;
+					}))
+						;
+
+					auto irqLock = frg::guard(&qiRingLock_);
+					if (freeSlots() >= slots) {
+						uint32_t seq = 0;
+						if (req->type == InvalidationRequest::Type::range) {
+							submitRange(req->domain, std::get<ShootNode *>(req->data), slots, psi);
+							frg::destruct(*kernelAlloc, req);
+						} else {
+							PageAccessor qiRing{qiRingPhys_};
+							frg::span<QiRingEntry128> qiRingEntries{
+							    reinterpret_cast<QiRingEntry128 *>(qiRing.get()),
+							    invalidationQueueSize
+							};
+							auto [index, _] = allocateSeq();
+							auto &entry = qiRingEntries[index];
+
+							entry.high = arch::bit_value<uint64_t>{0};
+							if (req->type == InvalidationRequest::Type::globalContext) {
+								entry.low = qi::type(1);
+								entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+								    qi::context_cache_invalidate::InvalidationGranularity::global
+								);
+							} else if (req->type == InvalidationRequest::Type::deviceContext) {
+								entry.low = qi::type(1);
+								entry.low |= qi::context_cache_invalidate::invalidationGranularity(
+								    qi::context_cache_invalidate::InvalidationGranularity::device
+								);
+								entry.low |= qi::context_cache_invalidate::domainId(req->domain);
+								entry.low |= qi::context_cache_invalidate::sourceId(
+								    std::get<SourceID>(req->data)
+								);
+							} else if (req->type == InvalidationRequest::Type::globalIotlb) {
+								entry.low = qi::type(2);
+								entry.low |= qi::iotlb_invalidate::invalidationGranularity(
+								    qi::iotlb_invalidate::InvalidationGranularity::global
+								);
+								entry.low |= qi::iotlb_invalidate::drainWrites(true);
+								entry.low |= qi::iotlb_invalidate::drainReads(true);
+							} else if (req->type == InvalidationRequest::Type::domainIotlb) {
+								entry.low = qi::type(2);
+								entry.low |= qi::iotlb_invalidate::invalidationGranularity(
+								    qi::iotlb_invalidate::InvalidationGranularity::domain
+								);
+								entry.low |= qi::iotlb_invalidate::drainWrites(true);
+								entry.low |= qi::iotlb_invalidate::drainReads(true);
+								entry.low |= qi::iotlb_invalidate::domainId(req->domain);
+							}
+							seq = submitSyncWait();
+							req->sequence = seq;
+							req->submitted = true;
+							qiProgressEvent_.raise();
+						}
+						break;
+					}
+				}
+			}
+		}
+
+		IntelIommu *iommu_;
+
+		IrqSpinlock qiRingLock_;
+		PhysicalAddr qiRingPhys_;
+		// Index of the next QI entry to be used.
+		std::atomic<uint32_t> qiTail_{0};
+		// The status page is used for the `Status Write` notifications for QI completion.
+		PhysicalAddr qiStatusPhys_;
+
+		// State tracking for the QI ring
+		std::atomic<uint32_t> qiHead_{UINT32_MAX};
+		async::recurring_event qiProgressEvent_;
+
+		// Pending queue of requests waiting to be submitted to the QI ring
+		async::recurring_event pendingQueueEvent_;
+
+		using PendingQueue = frg::intrusive_list<
+			InvalidationRequest,
+			frg::locate_member<
+				InvalidationRequest,
+				frg::default_list_hook<InvalidationRequest>,
+				&InvalidationRequest::hook
+			>
+		>;
+
+		PendingQueue pendingQueue_;
+
+		// Completion events to be fired
+		std::array<std::atomic<ShootNode *>, invalidationQueueSize> completions_{};
+	};
+
+	coroutine<std::expected<void, thor::Error>> init() {
+		co_await lock_.async_lock();
+		frg::unique_lock logGuard{frg::adopt_lock, lock_};
 
 		auto v = regs_.load(regs::version);
 		infoLogger() << frg::fmt("thor: IOMMU version {}.{}",
@@ -584,11 +1109,15 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		auto name = frg::string<KernelAlloc>{*kernelAlloc, "iommu"} +
 			frg::to_allocated_string(*kernelAlloc, id()) +
-			frg::string<KernelAlloc>{*kernelAlloc, "-msi"};
+			frg::string<KernelAlloc>{*kernelAlloc, "-fault-msi"};
 
-		auto interrupt = allocateApicMsi(name);
-		assert(interrupt);
+		auto interrupt = allocateApicMsi(std::move(name));
+		if (!interrupt)
+			co_return std::unexpected{thor::Error::other};
 		IrqPin::attachSink(interrupt, this);
+
+		if (auto res = qi_.init(); !res)
+			co_return res;
 
 		// needs to be done before enabling translation
 		writeBufferFlush();
@@ -602,7 +1131,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		regs_.store(regs::faultStatus, faultStatus::stickyBits);
 		regs_.store(regs::faultEventControl, faultEventControl::interruptMask(false));
 
-		setRootEntryTable(rootTablePhys_);
+		co_await setRootEntryTable(rootTablePhys_);
 
 		// sanitize firmware state by disabling this (optional) feature
 		if(cap_ & capability::plmr || cap_ & capability::phmr) {
@@ -614,6 +1143,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		setGlobalBit(globalStatus::translationEnable(true));
 
 		initialized_ = true;
+		co_return {};
 	}
 
 	IrqStatus raise() override {
@@ -659,8 +1189,17 @@ struct IntelIommu final : Iommu, IrqSink {
 		return ecap_ & extendedCapability::pt;
 	}
 
-	void enableDevice(pci::PciEntity *dev, bool passthrough) override {
-		auto lock = frg::guard(&lock_);
+	bool pageWalkingCoherent() const {
+		return ecap_ & extendedCapability::coherent;
+	}
+
+	bool supportsQueuedInvalidation() const {
+		return ecap_ & extendedCapability::queuedInvalidation;
+	}
+
+	coroutine<void> enableDevice(pci::PciEntity *dev, bool passthrough) override {
+		co_await lock_.async_lock();
+		frg::unique_lock logGuard{frg::adopt_lock, lock_};
 
 		auto rootEntry = &rootTable_[static_cast<uint8_t>(dev->bus)];
 		PageAccessor context;
@@ -668,6 +1207,8 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		if(!(rootEntry->entry.load() & rootTable::present)) {
 			auto contextPhys = physicalAllocator->allocate(0x1000);
+			if (contextPhys == static_cast<PhysicalAddr>(-1))
+				panicLogger() << "thor: failed to allocate physical memory for IOMMU context table" << frg::endlog;
 			context = {contextPhys};
 
 			memset(context.get(), 0, 0x1000);
@@ -688,6 +1229,9 @@ struct IntelIommu final : Iommu, IrqSink {
 		};
 
 		auto contextEntry = &contextTable[sourceId.devfn()];
+		bool oldPresent = contextEntry->low.load() & contextTable::present;
+		uint16_t oldDomainId = oldPresent ? (contextEntry->high.load() & contextTable::domainId) : 0;
+
 		int domainId = 1;
 
 		if (passthrough) {
@@ -702,7 +1246,7 @@ struct IntelIommu final : Iommu, IrqSink {
 		} else {
 			domainId = static_cast<IntelIommuDomain *>(dev->iommuDomain)->hwDomainId();
 			contextEntry->high.store(
-			    contextTable::addressWidth(0b001) | contextTable::domainId(domainId)
+			    contextTable::addressWidth(sagaw_ - 2) | contextTable::domainId(domainId)
 			);
 
 			auto space = smarter::static_pointer_cast<IntelIommuDmaSpace>(dev->iommuDomain->space_);
@@ -716,10 +1260,18 @@ struct IntelIommu final : Iommu, IrqSink {
 
 		flush(contextEntry);
 
-		if(initialized_) {
-			invalidateDeviceContext(0, sourceId);
-			invalidateDomainIotlb(domainId);
+		bool do_invalidate = initialized_;
+		logGuard.unlock();
+
+		if(do_invalidate) {
+			uint16_t invalidationDomainId = oldPresent ? oldDomainId : domainId;
+			co_await qi_.invalidateDeviceContext(invalidationDomainId, sourceId);
+			co_await qi_.invalidateDomainIotlb(domainId);
 		}
+	}
+
+	uint8_t sagaw() const {
+		return sagaw_;
 	}
 
 	uint16_t allocateHardwareDomainId() {
@@ -760,57 +1312,19 @@ private:
 		runGlobalCommand(globalStatus::writeBufferFlushStatus(true));
 	}
 
-	void invalidateGlobalContext() {
-		regs_.store(regs::contextCommand, contextCommand::invalidateContextCache(true) |
-		contextCommand::invalidationGranularity(contextCommand::InvalidationGranularity::Global));
-
-		while(regs_.load(regs::contextCommand) & contextCommand::invalidateContextCache);
-	}
-
-	void invalidateDeviceContext(uint16_t domain, SourceID device) {
-		regs_.store(regs::contextCommand, contextCommand::invalidateContextCache(true) |
-			contextCommand::invalidationGranularity(contextCommand::InvalidationGranularity::Device) |
-			contextCommand::sourceId(device) | contextCommand::domainId(domain));
-
-		while(regs_.load(regs::contextCommand) & contextCommand::invalidateContextCache);
-	}
-
-	void invalidateGlobalIotlb() {
-		while(iotlb_.load(regs::iotlbInvalidate) & iotlbInvalidate::invalidateIotlb);
-
-		iotlb_.store(regs::iotlbInvalidateAddress, arch::bit_value{0UL});
-		iotlb_.store(regs::iotlbInvalidate, iotlbInvalidate::invalidateIotlb(true) |
-			iotlbInvalidate::invalidationGranularity(iotlbInvalidate::InvalidationGranularity::Global) |
-			iotlbInvalidate::drainReads(true) | iotlbInvalidate::drainWrites(true));
-
-		while(iotlb_.load(regs::iotlbInvalidate) & iotlbInvalidate::invalidateIotlb);
-	}
-
-	void invalidateDomainIotlb(uint16_t domain) {
-		while(iotlb_.load(regs::iotlbInvalidate) & iotlbInvalidate::invalidateIotlb);
-
-		iotlb_.store(regs::iotlbInvalidateAddress, arch::bit_value{0UL});
-		iotlb_.store(regs::iotlbInvalidate, iotlbInvalidate::invalidateIotlb(true) |
-			iotlbInvalidate::invalidationGranularity(iotlbInvalidate::InvalidationGranularity::Domain) |
-			iotlbInvalidate::drainReads(true) | iotlbInvalidate::drainWrites(true) |
-			iotlbInvalidate::domainId(domain));
-
-		while(iotlb_.load(regs::iotlbInvalidate) & iotlbInvalidate::invalidateIotlb);
-	}
-
-	void setRootEntryTable(uintptr_t physical) {
+	coroutine<void> setRootEntryTable(uintptr_t physical) {
 		assert((physical & 0xFFF) == 0);
 		regs_.store(regs::rootEntryTable, physical);
 
 		setGlobalBit(globalStatus::rootTablePointerStatus(true));
 
-		invalidateGlobalContext();
-		invalidateGlobalIotlb();
+		co_await qi_.invalidateGlobalContext();
+		co_await qi_.invalidateGlobalIotlb();
 	}
 
 	bool initialized_ = false;
 
-	IrqSpinlock lock_;
+	async::mutex lock_;
 
 	PhysicalWindow registerWindow_;
 	PhysicalWindow iotlbWindow_;
@@ -823,6 +1337,8 @@ private:
 	frg::span<rootTable::Entry> rootTable_;
 	PhysicalAddr rootTablePhys_;
 
+	InvalidationQueue qi_;
+
 	uint16_t segment_;
 
 	arch::bit_value<uint64_t> cap_ = arch::bit_value<uint64_t>{0};
@@ -834,6 +1350,11 @@ private:
 	uint16_t hwDidAlloc_ = 1;
 };
 
+bool IntelIommuOperations::submitShootdown(ShootNode *node) {
+	iommu()->qi_.invalidateRange(domainId(), node);
+	return false;
+}
+
 IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 	DmarDrhd drhd;
 	memcpy(&drhd, remappingStructureTypes.data(), sizeof(drhd));
@@ -842,6 +1363,11 @@ IntelIommu *handleDrhd(frg::span<uint8_t> remappingStructureTypes) {
 
 	if(!iommu->supportsPassthrough()) {
 		infoLogger() << "thor: IOMMU does not support passthrough, ignoring" << frg::endlog;
+		return nullptr;
+	}
+
+	if(!iommu->supportsQueuedInvalidation()) {
+		infoLogger() << "thor: IOMMU does not support queued invalidations, ignoring" << frg::endlog;
 		return nullptr;
 	}
 
@@ -1014,7 +1540,7 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 						rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
 
 					if(pciDev->associatedIommu) {
-						pciDev->associatedIommu->enableDevice(pciDev);
+						KernelFiber::asyncBlockCurrent(pciDev->associatedIommu->enableDevice(pciDev));
 					} else {
 						auto bridge = pciDev->parentBus->associatedBridge;
 
@@ -1022,7 +1548,7 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							bridge = bridge->parentBus->associatedBridge;
 
 						if(bridge && bridge->associatedIommu)
-							bridge->associatedIommu->enableDevice(bridge);
+							KernelFiber::asyncBlockCurrent(bridge->associatedIommu->enableDevice(bridge));
 						else
 							infoLogger() << frg::fmt("thor: no bridge with associated IOMMU for {:04x}:{:02x}:{:02x}.{}",
 								rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
@@ -1063,7 +1589,7 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 						bridge = bridge->parentBus->associatedBridge;
 
 					if(bridge && bridge->associatedIommu)
-						bridge->associatedIommu->enableDevice(bridge);
+						KernelFiber::asyncBlockCurrent(bridge->associatedIommu->enableDevice(bridge));
 					else
 						infoLogger() << frg::fmt("thor: no bridge with associated IOMMU for {:04x}:{:02x}:{:02x}.{}",
 							rmrr.segment, dev.start_bus_number, slot, func) << frg::endlog;
@@ -1083,6 +1609,34 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 	}
 
 	return true;
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::mapPresentPages(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return mapPresentPagesByCursor<IntelIommuCursor>(this, va, view, offset, size, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::restrictPages(VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return restrictPagesByCursor<IntelIommuCursor>(this, va, size, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::faultPage(VirtualAddr va, MemoryView *view,
+		uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return faultPageByCursor<IntelIommuCursor>(this, va, view, offset, fetchFlags, flags, mode, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::cleanPages(VirtualAddr va, size_t size) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return cleanPagesByCursor<IntelIommuCursor>(this, va, size, policy);
+}
+
+frg::expected<Error, PagesAffected> IntelIommuOperations::unmapPages(VirtualAddr va, size_t size) {
+	IntelIommuCursorPolicy policy{iommu_->sagaw(), iommu_->pageWalkingCoherent()};
+	return unmapPagesByCursor<IntelIommuCursor>(this, va, size, policy);
 }
 
 namespace {
@@ -1117,7 +1671,9 @@ IommuDomain *newDomain(IntelIommu *iommu) {
 		return nullptr;
 
 	PhysicalAddr rootLevel = physicalAllocator->allocate(kPageSize);
-	assert(rootLevel != static_cast<PhysicalAddr>(-1));
+	if (rootLevel == static_cast<PhysicalAddr>(-1))
+		panicLogger() << "thor: failed to allocate physical memory for IOMMU page tables" << frg::endlog;
+
 	PageAccessor accessor{rootLevel};
 	memset(accessor.get(), 0, kPageSize);
 
@@ -1268,7 +1824,9 @@ static initgraph::Task discoverConfigIoSpaces{&globalInitEngine, "x86.discover-i
 		}
 
 		for(auto iommu : iommus) {
-			iommu->init();
+			auto res = KernelFiber::asyncBlockCurrent(iommu->init());
+			if (!res)
+				warningLogger() << frg::fmt("thor: VT-d IOMMU {} failed to init, ignoring it", iommu->id());
 		}
 	}
 };

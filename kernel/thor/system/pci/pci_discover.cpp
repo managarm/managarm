@@ -731,7 +731,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		PciDevice *dev = static_cast<PciDevice *>(this);
 
 		if(dev->associatedIommu) {
-			dev->associatedIommu->enableDevice(dev, req->passthrough());
+			co_await dev->associatedIommu->enableDevice(dev, req->passthrough());
 		} else {
 			auto bridge = dev->parentBus->associatedBridge;
 
@@ -740,8 +740,8 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			}
 
 			if(bridge && bridge->associatedIommu) {
-				bridge->associatedIommu->enableDevice(bridge, req->passthrough());
-				bridge->associatedIommu->enableDevice(dev, req->passthrough());
+				co_await bridge->associatedIommu->enableDevice(bridge, req->passthrough());
+				co_await bridge->associatedIommu->enableDevice(dev, req->passthrough());
 			} else {
 				resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
 			}

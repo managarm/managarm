@@ -66,13 +66,14 @@ inline CachingMode determineCachingMode(CachingMode physicalRangeCaching,
 
 template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode,
+		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 	while(c.virtualAddress() < va + size) {
 		auto progress = c.virtualAddress() - va;
 		auto physicalRange = view->peekRange(offset + progress, fetchNone);
@@ -105,13 +106,21 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 }
 
 template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) {
+	return mapPresentPagesByCursor<Cursor>(ps, va, view, offset, size, flags, mode,
+			typename Cursor::PolicyType{});
+}
+
+template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
-		size_t size, PageFlags flags, CachingMode mode) {
+		size_t size, PageFlags flags, CachingMode mode,
+		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 	while(c.virtualAddress() < va + size) {
 		auto [status, physical, restricted] = c.restrict4k(flags, mode);
 		if((status & page_status::present) && (status & page_status::dirty)) {
@@ -126,13 +135,21 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 }
 
 template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, VirtualAddr va,
+		size_t size, PageFlags flags, CachingMode mode) {
+	return restrictPagesByCursor<Cursor>(ps, va, size, flags, mode,
+			typename Cursor::PolicyType{});
+}
+
+template<typename Cursor, typename PageSpace>
 frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
-		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
+		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode,
+		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 
 	auto physicalRange = view->peekRange(offset, fetchFlags);
 	if(physicalRange.physical == PhysicalAddr(-1))
@@ -160,12 +177,20 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr va,
+		MemoryView *view, uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) {
+	return faultPageByCursor<Cursor>(ps, va, view, offset, fetchFlags, flags, mode,
+			typename Cursor::PolicyType{});
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 	while(c.findDirty(va + size)) {
 		auto [status, physical] = c.clean4k();
 		assert(status & page_status::present);
@@ -179,12 +204,18 @@ frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAdd
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+frg::expected<Error, PagesAffected> cleanPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+	return cleanPagesByCursor<Cursor>(ps, va, size, typename Cursor::PolicyType{});
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
 		auto [status, physical] = c.unmap4k();
 		assert(status & page_status::present);
@@ -203,12 +234,18 @@ frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAdd
 }
 
 template<typename Cursor, typename PageSpace>
-frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size, bool vacate) {
+frg::expected<Error, PagesAffected> unmapPagesByCursor(PageSpace *ps, VirtualAddr va, size_t size) {
+	return unmapPagesByCursor<Cursor>(ps, va, size, typename Cursor::PolicyType{});
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		bool vacate, typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
 
 	PagesAffected affected{};
-	Cursor c{ps, va};
+	Cursor c{ps, va, policy};
 	while(c.findPresent(va + size)) {
 		affected.scanned += kPageSize;
 		auto [status, physical, unmapped] = c.age4k(vacate);
@@ -225,6 +262,12 @@ frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr 
 		c.advance4k();
 	}
 	return affected;
+}
+
+template<typename Cursor, typename PageSpace>
+frg::expected<Error, PagesAffected> agePagesByCursor(PageSpace *ps, VirtualAddr va, size_t size,
+		bool vacate) {
+	return agePagesByCursor<Cursor>(ps, va, size, vacate, typename Cursor::PolicyType{});
 }
 
 struct VirtualOperations {
