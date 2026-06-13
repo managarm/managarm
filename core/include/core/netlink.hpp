@@ -256,6 +256,12 @@ struct NetlinkAttrs {
 		}
 
 		/**
+		 * Iterator for a nested `struct rtattr` array.
+		 */
+		Iterator begin();
+		Iterator end();
+
+		/**
 		 * Return the rtattr data as a `std::string`.
 		 */
 		std::optional<std::string> str() const {
@@ -321,6 +327,18 @@ private:
 	const T *_s;
 	std::optional<const struct rtattr *> _attrs = std::nullopt;
 };
+
+template<typename T>
+NetlinkAttrs<T>::Iterator NetlinkAttrs<T>::Attr::begin() {
+	auto attrs = reinterpret_cast<const struct rtattr *>(RTA_DATA(_attr));
+	return Iterator{attrs};
+}
+
+template<typename T>
+NetlinkAttrs<T>::Iterator NetlinkAttrs<T>::Attr::end() {
+	auto ptr = uintptr_t(_attr) + length();
+	return Iterator{reinterpret_cast<const struct rtattr *>(ptr)};
+}
 
 namespace nl::packets {
 	struct ifaddr{};

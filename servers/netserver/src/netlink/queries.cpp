@@ -5,6 +5,8 @@
 #include <arpa/inet.h>
 #include <linux/neighbour.h>
 
+#include <optional>
+
 namespace nl {
 
 using core::netlink::netlinkMessage;
@@ -147,6 +149,37 @@ void NetlinkSocket::newRoute(struct nlmsghdr *hdr) {
 				int metric = attr.data<int>().value_or(0);
 				route.metric = metric;
 				route_changed = true;
+				break;
+			}
+			case RTA_METRICS: {
+				std::optional<uint32_t> rtax_mtu;
+
+				for(auto rtax_attr : attr) {
+					switch(rtax_attr.type()) {
+						case RTAX_MTU: {
+							if(auto value = rtax_attr.data<uint32_t>()) {
+								rtax_mtu = value;
+							} else {
+								sendError(this, hdr, EINVAL);
+								return;
+							}
+							break;
+						}
+						default:
+							std::cout << "netlink: ignoring unknown metrics attr " << rtax_attr.type() << std::endl;
+							if(rtax_attr.type() > RTAX_MAX) {
+								sendError(this, hdr, EINVAL);
+								return;
+							}
+							break;
+					}
+				}
+
+				if(rtax_mtu) {
+					route.mtu = *rtax_mtu;
+					route_changed = true;
+				}
+
 				break;
 			}
 			default:
