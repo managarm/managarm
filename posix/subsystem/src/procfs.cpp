@@ -673,19 +673,16 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 	for (auto area : *vmContext) {
 		auto startSize = stream.tellp();
 
-		stream << std::hex << std::setfill('0') << std::setw(8) << area.baseAddress();
-		stream << "-";
-		stream << std::hex << std::setfill('0') << std::setw(8) << area.baseAddress() + area.size();
-		stream << " ";
-		stream << (area.isReadable() ? "r" : "-");
-		stream << (area.isWritable() ? "w" : "-");
-		stream << (area.isExecutable() ? "x" : "-");
-		stream << (area.isPrivate() ? "p" : "s");
-		stream << " ";
+		std::format_to(std::ostreambuf_iterator(stream),
+				"{:08x}-{:08x} {}{}{}{} ",
+				area.baseAddress(), area.baseAddress() + area.size(),
+				area.isReadable() ? "r" : "-",
+				area.isWritable() ? "w" : "-",
+				area.isExecutable() ? "x" : "-",
+				area.isPrivate() ? "p" : "s");
+
 		auto backingFile = area.backingFile();
 		if(backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
-			stream << std::setfill('0') << std::setw(8) << area.backingFileOffset();
-			stream << " ";
 			auto fsNode = backingFile->associatedLink()->getTarget();
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
@@ -695,11 +692,12 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
-			stream << std::hex << std::setfill('0') << std::setw(2) << deviceId.first << ":"
-					<< std::setw(2) << deviceId.second;
-			stream << " ";
-			stream << std::dec << std::setw(0) << fileStats.value().inodeNumber;
-			stream << " ";
+			std::format_to(std::ostreambuf_iterator(stream),
+					"{:08x} {:02x}:{:02x} {} ",
+					area.backingFileOffset(),
+					deviceId.first,
+					deviceId.second,
+					fileStats.value().inodeNumber);
 
 			auto endSize = stream.tellp();
 
