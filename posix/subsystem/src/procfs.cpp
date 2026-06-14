@@ -696,12 +696,23 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 			stream << std::setw(0) << fileStats.value().inodeNumber;
 			stream << "    ";
 			stream << viewPath.getPath(p->fsContext()->getRoot());
+		} else if(area.isStack()) {
+			stream << "00000000 00:00 0 ";
+
+			auto endSize = stream.tellp();
+
+			for(size_t i = endSize - startSize; i < 25 + sizeof(void *) * 6 - 1; i++) {
+				stream << " ";
+			}
+
+			stream << " [stack]";
 		} else {
 			// TODO: In the case of memfd files, show the name here.
 			stream << "00000000 00:00 0";
 		}
 		stream << "\n";
 	}
+
 	co_return stream.str();
 }
 
