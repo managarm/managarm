@@ -669,15 +669,18 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 
 	auto vmContext = p->vmContext();
 	std::stringstream stream;
+
 	for (auto area : *vmContext) {
-		stream << std::hex << area.baseAddress();
+		auto startSize = stream.tellp();
+
+		stream << std::hex << std::setfill('0') << std::setw(8) << area.baseAddress();
 		stream << "-";
-		stream << std::hex << area.baseAddress() + area.size();
+		stream << std::hex << std::setfill('0') << std::setw(8) << area.baseAddress() + area.size();
 		stream << " ";
 		stream << (area.isReadable() ? "r" : "-");
 		stream << (area.isWritable() ? "w" : "-");
 		stream << (area.isExecutable() ? "x" : "-");
-		stream << (area.isPrivate() ? "p" : "-");
+		stream << (area.isPrivate() ? "p" : "s");
 		stream << " ";
 		auto backingFile = area.backingFile();
 		if(backingFile && backingFile->associatedLink() && backingFile->associatedMount()) {
@@ -687,14 +690,25 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 			ViewPath viewPath = {backingFile->associatedMount(), backingFile->associatedLink()};
 			auto fileStats = co_await fsNode->getStats();
 			DeviceId deviceId{};
+			// TODO: Fill in the device id for other files too.
 			if (fsNode->getType() == VfsType::charDevice || fsNode->getType() == VfsType::blockDevice)
 				deviceId = fsNode->readDevice();
 			assert(fileStats);
 
-			stream << std::dec << std::setfill('0') << std::setw(2) << deviceId.first << ":" << deviceId.second;
+			stream << std::hex << std::setfill('0') << std::setw(2) << deviceId.first << ":"
+					<< std::setw(2) << deviceId.second;
 			stream << " ";
-			stream << std::setw(0) << fileStats.value().inodeNumber;
-			stream << "    ";
+			stream << std::dec << std::setw(0) << fileStats.value().inodeNumber;
+			stream << " ";
+
+			auto endSize = stream.tellp();
+
+			for(size_t i = endSize - startSize; i < 25 + sizeof(void *) * 6 - 1; i++) {
+				stream << " ";
+			}
+
+			stream << " ";
+
 			stream << viewPath.getPath(p->fsContext()->getRoot());
 		} else if(area.isStack()) {
 			stream << "00000000 00:00 0 ";
@@ -708,7 +722,7 @@ async::result<std::expected<std::string, Error>> MapNode::show(Process *) {
 			stream << " [stack]";
 		} else {
 			// TODO: In the case of memfd files, show the name here.
-			stream << "00000000 00:00 0";
+			stream << "00000000 00:00 0 ";
 		}
 		stream << "\n";
 	}
