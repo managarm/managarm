@@ -90,6 +90,12 @@ RegularFile::readSome(Process *process, void *data, size_t max_length, async::ca
 
 	assert(_offset <= _buffer.size());
 	size_t chunk = std::min(_buffer.size() - _offset, max_length);
+
+	if(chunk == max_length && chunk != 0) {
+		while(chunk != 0 && _buffer[_offset + chunk - 1] != '\n')
+			chunk--;
+	}
+
 	memcpy(data, _buffer.data() + _offset, chunk);
 	_offset += chunk;
 	co_return chunk;
