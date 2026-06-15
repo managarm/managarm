@@ -60,11 +60,11 @@ async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view v
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
-	auto num_sectors = view.size() / sectorSize;
+	auto num_sectors = view.size() >> sectorShift;
 
 	for(size_t progress = 0; progress < num_sectors; progress += max_sectors) {
 		auto subview = view.subview(
-		    sectorSize * progress, std::min(num_sectors - progress, max_sectors) * sectorSize
+		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
 		);
 		auto request = new UserRequest(false, sector + progress, subview);
 		_pendingQueue.push(request);
@@ -82,11 +82,11 @@ async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view 
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
-	auto num_sectors = view.size() / sectorSize;
+	auto num_sectors = view.size() >> sectorShift;
 
 	for(size_t progress = 0; progress < num_sectors; progress += max_sectors) {
 		auto subview = view.subview(
-		    sectorSize * progress, std::min(num_sectors - progress, max_sectors) * sectorSize
+		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
 		);
 		auto request = new UserRequest(true, sector + progress, subview);
 		_pendingQueue.push(request);
@@ -109,7 +109,7 @@ async::detached Device::_processRequests() {
 
 		auto request = _pendingQueue.front();
 		_pendingQueue.pop();
-		auto numSectors = request->view.size() / sectorSize;
+		auto numSectors = request->view.size() >> sectorShift;
 		assert(numSectors);
 
 		// Setup the descriptor for the request header.
@@ -131,9 +131,9 @@ async::detached Device::_processRequests() {
 		for(size_t i = 0; i < numSectors; i++) {
 			chain.append(co_await _requestQueue->obtainDescriptor());
 			if(request->write) {
-				co_await chain.setupBuffer(virtio_core::hostToDevice, request->view.subview(sectorSize * i, sectorSize));
+				co_await chain.setupBuffer(virtio_core::hostToDevice, request->view.subview(i << sectorShift, sectorSize));
 			}else{
-				co_await chain.setupBuffer(virtio_core::deviceToHost, request->view.subview(sectorSize * i, sectorSize));
+				co_await chain.setupBuffer(virtio_core::deviceToHost, request->view.subview(i << sectorShift, sectorSize));
 			}
 		}
 

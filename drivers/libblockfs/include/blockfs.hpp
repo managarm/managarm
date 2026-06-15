@@ -33,6 +33,7 @@ struct BlockDevice {
 
 	size_t size;
 	const size_t sectorSize;
+	const size_t sectorShift;
 	int64_t parentId = -1;
 
 	std::string diskNamePrefix = "sd";

@@ -217,7 +217,7 @@ auto Controller::_waitForBsyIrq() -> async::result<IoResult> {
 }
 
 async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_view view) {
-	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
 	request.isWrite = false;
@@ -232,7 +232,7 @@ async::result<void> Controller::readSectors(uint64_t sector, arch::dma_buffer_vi
 }
 
 async::result<void> Controller::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
-	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	Request request{};
 	request.isWrite = true;

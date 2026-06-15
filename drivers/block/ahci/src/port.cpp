@@ -333,13 +333,13 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 }
 
 async::result<void> Port::readSectors(uint64_t sector, arch::dma_buffer_view view) {
-	Command cmd{controller_, sector, view.size() / sectorSize, view, CommandType::read};
+	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::read};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }
 
 async::result<void> Port::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
-	Command cmd{controller_, sector, view.size() / sectorSize, view, CommandType::write};
+	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::write};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }

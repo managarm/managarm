@@ -1904,7 +1904,7 @@ async::result<void> FileSystem::readDataBlocksUsingExtents(std::shared_ptr<Inode
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
-	size_t num_blocks = buf.size() / blockSize;
+	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, false);
 
 	size_t progress = 0;
@@ -1932,7 +1932,7 @@ async::result<void> FileSystem::writeDataBlocksUsingExtents(std::shared_ptr<Inod
 	co_await inode->readyEvent.wait();
 	// TODO: Assert that we do not read past the EOF.
 
-	size_t num_blocks = buf.size() / blockSize;
+	size_t num_blocks = buf.size() >> blockShift;
 	auto blockRanges = co_await lookupBlocksUsingExtent(inode.get(), block_offset, num_blocks, true);
 
 	size_t progress = 0;
@@ -2151,7 +2151,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 
 async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, arch::dma_buffer_view buf) {
-	size_t num_blocks = buf.size() / blockSize;
+	size_t num_blocks = buf.size() >> blockShift;
 
 	if(inode->usesExtents) {
 		co_await readDataBlocksUsingExtents(std::move(inode), offset, buf);
@@ -2278,7 +2278,7 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 //       Refactor common code into a another method.
 async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 		uint64_t offset, arch::dma_buffer_view buf) {
-	size_t num_blocks = buf.size() / blockSize;
+	size_t num_blocks = buf.size() >> blockShift;
 
 	if(inode->usesExtents) {
 		co_await writeDataBlocksUsingExtents(std::move(inode), offset, buf);

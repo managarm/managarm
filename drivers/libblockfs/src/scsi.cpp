@@ -188,7 +188,7 @@ async::detached StorageDevice::runScsi() {
 		}
 
 		auto req = queue_.pop_front();
-		auto numSectors = req->view.size() / sectorSize;
+		auto numSectors = req->view.size() >> sectorShift;
 
 		if (logRequests)
 			std::println(std::cout, "block-scsi: Reading {} sectors", numSectors);

@@ -37,7 +37,7 @@ async::result<void> Namespace::readSectors(uint64_t sector, arch::dma_buffer_vie
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().readWrite;
 
-	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	cmdBuf.opcode = spec::kRead;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid_);
@@ -55,7 +55,7 @@ async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_vi
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().readWrite;
 
-	auto numSectors = (view.size() + sectorSize - 1) / sectorSize;
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	cmdBuf.opcode = spec::kWrite;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid_);
