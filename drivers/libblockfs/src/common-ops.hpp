@@ -129,8 +129,9 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 
 	if (append)
 		offset = inode->fileSize();
-	if (offset >= inode->fileSize())
-		FRG_CO_TRY(co_await inode->resizeFile(offset + length));
+	auto requiredSize = offset + length;
+	if (requiredSize > inode->fileSize())
+		FRG_CO_TRY(co_await inode->resizeFile(requiredSize));
 
 	// TODO: Add a recvToMemory action to exchangeMsgs to avoid
 	// having to copy this data twice.
