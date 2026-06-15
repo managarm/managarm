@@ -356,10 +356,13 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			auto target = std::static_pointer_cast<Inode>(fs.accessInode(disk_entry->inode));
 			co_await target->readyEvent.wait();
 
-			// The directory should start with "." and "..". As those entries are never deleted,
-			// we can assume that a previous entry exists.
-			assert(previous_entry);
-			previous_entry->recordLength += disk_entry->recordLength;
+			auto targetIno = disk_entry->inode;
+			if(offset & (fs.blockSize - 1)) {
+				previous_entry->recordLength += disk_entry->recordLength;
+			} else {
+				// The directory entry is at the start of a block. We mark it as unused instead of merging it.
+				disk_entry->inode = 0;
+			}
 
 			// Flush the data to disk.
 			// TODO: It would be enough to flush only one or two pages here.
@@ -373,7 +376,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 				target->diskInode()->dtime = clk::getRealtime().tv_sec;
 			}
 
-			updateInodeChecksum(fs, target->diskInode(), disk_entry->inode);
+			updateInodeChecksum(fs, target->diskInode(), targetIno);
 
 			auto syncInode = co_await helix_ng::synchronizeSpace(
 					helix::BorrowedDescriptor{kHelNullHandle},
