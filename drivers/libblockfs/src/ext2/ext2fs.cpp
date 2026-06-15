@@ -32,6 +32,15 @@ namespace {
 	constexpr int pageShift = 12;
 	constexpr size_t pageSize = size_t{1} << pageShift;
 
+	uint64_t getSuperblockFreeBlocks(const DiskSuperblock &sb) {
+		return uint64_t{sb.freeBlocksCount} | (uint64_t{sb.freeBlocksCountHigh} << 32);
+	}
+
+	void setSuperblockFreeBlocks(DiskSuperblock &sb, uint64_t value) {
+		sb.freeBlocksCount = value & 0xFFFFFFFF;
+		sb.freeBlocksCountHigh = value >> 32;
+	}
+
 	void updateInodeChecksum(FileSystem &fs, DiskInode *inode, uint32_t number) {
 		if(fs.metadataChecksum) {
 			inode->osd2.checksumLow = 0;
@@ -737,16 +746,15 @@ const protocols::fs::NodeOperations *FileSystem::nodeOps() {
 }
 
 async::result<void> FileSystem::init() {
-	size_t deviceSuperBlockSector = superBlockOffset / device->sectorSize;
-	size_t deviceSuperBlockOffset = superBlockOffset % device->sectorSize;
+	deviceSuperBlockSector = superBlockOffset / device->sectorSize;
+	deviceSuperBlockOffset = superBlockOffset % device->sectorSize;
 
-	size_t deviceSuperBlockSectors = (1024 + deviceSuperBlockOffset + device->sectorSize - 1) / device->sectorSize;
+	deviceSuperBlockSectors = (1024 + deviceSuperBlockOffset + device->sectorSize - 1) / device->sectorSize;
 
-	std::vector<uint8_t> buffer(deviceSuperBlockSectors * device->sectorSize);
-	co_await device->readSectors(deviceSuperBlockSector, buffer.data(), deviceSuperBlockSectors);
+	superblockBuffer.resize(deviceSuperBlockSectors * device->sectorSize);
+	co_await device->readSectors(deviceSuperBlockSector, superblockBuffer.data(), deviceSuperBlockSectors);
 
-	DiskSuperblock sb;
-	memcpy(&sb, buffer.data() + deviceSuperBlockOffset, sizeof(DiskSuperblock));
+	auto &sb = *superblock();
 	assert(sb.magic == 0xEF53);
 
 	inodeSize = sb.inodeSize;
@@ -842,6 +850,11 @@ async::result<void> FileSystem::init() {
 async::detached FileSystem::handleBgdtWriteback() {
 	while(true) {
 		co_await bdgtWriteback.async_wait();
+		co_await metadataMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, metadataMutex};
+
+		co_await device->writeSectors(deviceSuperBlockSector,
+				superblockBuffer.data(), deviceSuperBlockSectors);
 
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
@@ -1127,12 +1140,7 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 		disk_inode->flags |= EXT4_EXTENTS_FL;
 	}
 
-	// update usedDirsCount in the respective bgdt for this inode
-	auto bg_idx = (ino - 1) / inodesPerGroup;
-	bgdt[bg_idx].usedDirsCount++;
-	bdgtWriteback.raise();
-
-	updateInodeChecksum(*this, disk_inode, ino);
+		updateInodeChecksum(*this, disk_inode, ino);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
 			helix::BorrowedDescriptor{kHelNullHandle},
@@ -1370,6 +1378,27 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	protocols::ostrace::Timer timer;
 	std::vector<uint32_t> result;
 
+	auto commitBlockAllocation = [&](uint32_t bg, uint32_t *words, size_t count)
+			-> async::result<void> {
+		if(!count)
+			co_return;
+
+		co_await metadataMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, metadataMutex};
+
+		assert(bgdt[bg].freeBlocksCount >= count);
+		bgdt[bg].freeBlocksCount -= count;
+
+		auto freeBlocks = getSuperblockFreeBlocks(*superblock());
+		assert(freeBlocks >= count);
+		setSuperblockFreeBlocks(*superblock(), freeBlocks - count);
+
+		updateBlockBitmapChecksum(*this, &bgdt[bg], words, blockSize);
+		updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+		bdgtWriteback.raise();
+		co_return;
+	};
+
 	if (ino) {
 		uint32_t preferred_bg = (*ino - 1) / inodesPerGroup;
 
@@ -1382,52 +1411,49 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 			co_await submit_bitmap.async_wait();
 			HEL_CHECK(lock_bitmap.error());
 
-			auto words = reinterpret_cast<uint32_t *>(
-				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (preferred_bg << blockPagesShift));
+				auto words = reinterpret_cast<uint32_t *>(
+					reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (preferred_bg << blockPagesShift));
+				size_t allocatedInGroup = 0;
 
-			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
-				if(words[i] == 0xFFFFFFFF)
-					continue;
-				for(int j = 0; j < 32; j++) {
-					if(i * 32 + j >= blocksPerGroup)
-						break;
-					if(words[i] & (static_cast<uint32_t>(1) << j))
+				for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+					if(words[i] == 0xFFFFFFFF)
 						continue;
-					// TODO: Make sure we never return reserved blocks.
-					// TODO: Make sure we never return blocks higher than the max. block in the SB.
-					auto block = preferred_bg * blocksPerGroup + i * 32 + j;
-					assert(block);
-					assert(block < blocksCount);
-					words[i] |= static_cast<uint32_t>(1) << j;
+					for(int j = 0; j < 32; j++) {
+						if(i * 32 + j >= blocksPerGroup)
+							break;
+						if(words[i] & (static_cast<uint32_t>(1) << j))
+							continue;
+						// TODO: Make sure we never return reserved blocks.
+						// TODO: Make sure we never return blocks higher than the max. block in the SB.
+						auto block = preferred_bg * blocksPerGroup + i * 32 + j;
+						assert(block);
+						assert(block < blocksCount);
+						words[i] |= static_cast<uint32_t>(1) << j;
+						allocatedInGroup++;
+						result.push_back(block);
+						if(result.size() == num) {
+							co_await commitBlockAllocation(preferred_bg, words, allocatedInGroup);
 
-					bgdt[preferred_bg].freeBlocksCount--;
+							auto syncBitmap = co_await helix_ng::synchronizeSpace(
+									helix::BorrowedDescriptor{kHelNullHandle},
+									words, 1 << blockPagesShift);
+							HEL_CHECK(syncBitmap.error());
 
-					result.push_back(block);
-					if(result.size() == num) {
-						updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
-						updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
-
-						auto syncBitmap = co_await helix_ng::synchronizeSpace(
-								helix::BorrowedDescriptor{kHelNullHandle},
-								words, 1 << blockPagesShift);
-						HEL_CHECK(syncBitmap.error());
-
-						ostContext.emit(
-							ostEvtExt2AllocateBlocks,
-							ostAttrTime(timer.elapsed())
-						);
-						co_return result;
+							ostContext.emit(
+								ostEvtExt2AllocateBlocks,
+								ostAttrTime(timer.elapsed())
+							);
+							co_return result;
+						}
 					}
 				}
-			}
 
-			if(!result.empty()) {
-				updateBlockBitmapChecksum(*this, &bgdt[preferred_bg], words, blockSize);
-				updateBlockGroupChecksum(*this, &bgdt[preferred_bg], preferred_bg);
+				if(allocatedInGroup) {
+					co_await commitBlockAllocation(preferred_bg, words, allocatedInGroup);
 
-				auto syncBitmap = co_await helix_ng::synchronizeSpace(
-						helix::BorrowedDescriptor{kHelNullHandle},
-						words, 1 << blockPagesShift);
+					auto syncBitmap = co_await helix_ng::synchronizeSpace(
+							helix::BorrowedDescriptor{kHelNullHandle},
+							words, 1 << blockPagesShift);
 				HEL_CHECK(syncBitmap.error());
 			}
 		}
@@ -1445,49 +1471,47 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 		co_await submit_bitmap.async_wait();
 		HEL_CHECK(lock_bitmap.error());
 
-		auto words = reinterpret_cast<uint32_t *>(
-				reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (bg_idx << blockPagesShift));
-		for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
-			if(words[i] == 0xFFFFFFFF)
-				continue;
-			for(int j = 0; j < 32; j++) {
-				if(i * 32 + j >= blocksPerGroup)
-					break;
-				if(words[i] & (static_cast<uint32_t>(1) << j))
+			auto words = reinterpret_cast<uint32_t *>(
+					reinterpret_cast<std::byte *>(blockBitmapMapping.get()) + (bg_idx << blockPagesShift));
+			size_t allocatedInGroup = 0;
+			for(unsigned int i = 0; i < (blocksPerGroup + 31) / 32; i++) {
+				if(words[i] == 0xFFFFFFFF)
 					continue;
-				// TODO: Make sure we never return reserved blocks.
-				// TODO: Make sure we never return blocks higher than the max. block in the SB.
-				auto block = bg_idx * blocksPerGroup + i * 32 + j;
-				assert(block);
-				assert(block < blocksCount);
-				words[i] |= static_cast<uint32_t>(1) << j;
+				for(int j = 0; j < 32; j++) {
+					if(i * 32 + j >= blocksPerGroup)
+						break;
+					if(words[i] & (static_cast<uint32_t>(1) << j))
+						continue;
+					// TODO: Make sure we never return reserved blocks.
+					// TODO: Make sure we never return blocks higher than the max. block in the SB.
+					auto block = bg_idx * blocksPerGroup + i * 32 + j;
+					assert(block);
+					assert(block < blocksCount);
+					words[i] |= static_cast<uint32_t>(1) << j;
+					allocatedInGroup++;
+					result.push_back(block);
+					if(result.size() == num) {
+						co_await commitBlockAllocation(bg_idx, words, allocatedInGroup);
 
-				bgdt[bg_idx].freeBlocksCount--;
-				result.push_back(block);
-				if(result.size() == num) {
-					updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
-					updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+						auto syncBitmap = co_await helix_ng::synchronizeSpace(
+								helix::BorrowedDescriptor{kHelNullHandle},
+								words, 1 << blockPagesShift);
+						HEL_CHECK(syncBitmap.error());
 
-					auto syncBitmap = co_await helix_ng::synchronizeSpace(
-							helix::BorrowedDescriptor{kHelNullHandle},
-							words, 1 << blockPagesShift);
-					HEL_CHECK(syncBitmap.error());
-
-					ostContext.emit(
-						ostEvtExt2AllocateBlocks,
-						ostAttrTime(timer.elapsed())
-					);
-					co_return result;
-				}
+						ostContext.emit(
+							ostEvtExt2AllocateBlocks,
+							ostAttrTime(timer.elapsed())
+						);
+						co_return result;
+					}
+					}
 			}
-		}
 
-		updateBlockBitmapChecksum(*this, &bgdt[bg_idx], words, blockSize);
-		updateBlockGroupChecksum(*this, &bgdt[bg_idx], bg_idx);
+			co_await commitBlockAllocation(bg_idx, words, allocatedInGroup);
 
-		auto syncBitmap = co_await helix_ng::synchronizeSpace(
-				helix::BorrowedDescriptor{kHelNullHandle},
-				words, 1 << blockPagesShift);
+			auto syncBitmap = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle},
+					words, 1 << blockPagesShift);
 		HEL_CHECK(syncBitmap.error());
 	}
 
@@ -1524,14 +1548,21 @@ async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool direc
 				assert(ino < inodesCount);
 				words[i] |= static_cast<uint32_t>(1) << j;
 
-				bgdt[bg].freeInodesCount--;
-				if(directory)
-					bgdt[bg].usedDirsCount++;
+				{
+					co_await metadataMutex.async_lock();
+					frg::unique_lock lock{frg::adopt_lock, metadataMutex};
 
-				updateInodeBitmapChecksum(*this, &bgdt[bg], words, blockSize);
-				updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+					bgdt[bg].freeInodesCount--;
+					assert(superblock()->freeInodesCount);
+					superblock()->freeInodesCount--;
+					if(directory)
+						bgdt[bg].usedDirsCount++;
 
-				bdgtWriteback.raise();
+					updateInodeBitmapChecksum(*this, &bgdt[bg], words, blockSize);
+					updateBlockGroupChecksum(*this, &bgdt[bg], bg);
+
+					bdgtWriteback.raise();
+				}
 
 				auto syncBitmap = co_await helix_ng::synchronizeSpace(
 						helix::BorrowedDescriptor{kHelNullHandle},
