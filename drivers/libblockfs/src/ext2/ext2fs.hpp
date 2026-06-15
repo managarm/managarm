@@ -494,6 +494,11 @@ struct FileSystem final : BaseFileSystem {
 			size_t num_blocks, const void *buffer);
 
 	BlockDevice *device;
+	async::mutex metadataMutex;
+	size_t deviceSuperBlockSector;
+	size_t deviceSuperBlockSectors;
+	size_t deviceSuperBlockOffset;
+	std::vector<uint8_t> superblockBuffer;
 	uint16_t inodeSize;
 	uint32_t blockShift;
 	uint32_t blockSize;
@@ -522,6 +527,14 @@ struct FileSystem final : BaseFileSystem {
 	helix::Mapping inodeTableMapping;
 
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
+
+	DiskSuperblock *superblock() {
+		return reinterpret_cast<DiskSuperblock *>(superblockBuffer.data() + deviceSuperBlockOffset);
+	}
+
+	const DiskSuperblock *superblock() const {
+		return reinterpret_cast<const DiskSuperblock *>(superblockBuffer.data() + deviceSuperBlockOffset);
+	}
 };
 
 // --------------------------------------------------------
