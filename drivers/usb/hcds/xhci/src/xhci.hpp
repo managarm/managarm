@@ -69,7 +69,7 @@ struct Interrupter {
 	Interrupter(EventRing *ring, arch::mem_space space)
 	: _ring{ring}, _space{space} { }
 
-	void initialize();
+	async::result<void> initialize();
 	async::detached handleIrqs(helix::UniqueIrq &irq);
 	async::detached pollIrqs();
 
@@ -164,7 +164,7 @@ private:
 
 	DeviceContext _devCtx;
 
-	void _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval);
+	async::result<void> _initEpCtx(InputContext &ctx, int endpoint, proto::PipeType dir, size_t maxPacketSize, proto::EndpointType type, int interval);
 
 	std::array<std::shared_ptr<EndpointState>, 31> _endpoints;
 
@@ -246,7 +246,9 @@ struct Controller final : proto::BaseController {
 			helix::Mapping mapping,
 			helix::UniqueDescriptor mmio,
 			helix::UniqueIrq irq,
-			std::string name);
+			std::string name,
+			bool iommuActive,
+			helix::UniqueDescriptor dmaSpaceHandle);
 
 	~Controller() = default;
 
@@ -279,7 +281,7 @@ struct Controller final : proto::BaseController {
 	}
 
 	void setDeviceContext(size_t slot, DeviceContext &ctx) {
-		_dcbaa[slot] = helix::ptrToPhysical(ctx.rawData());
+		_dcbaa[slot] = ctx.iova();
 		barrier.writeback(_dcbaa.view_buffer());
 	}
 
@@ -413,6 +415,8 @@ private:
 	void _processExtendedCapabilities();
 
 	arch::contiguous_pool _memoryPool;
+	helix::UniqueDescriptor _dmaSpaceHandle;
+	arch::dma_space _dmaSpace;
 
 	arch::dma_array<uint64_t> _dcbaa;
 	arch::dma_array<uint64_t> _scratchpadBufArray;
@@ -435,6 +439,11 @@ private:
 	bool _largeCtx;
 
 	mbus_ng::Entity _entity;
+
+public:
+	arch::dma_space &dmaSpace() {
+		return _dmaSpace;
+	}
 };
 
 template<>

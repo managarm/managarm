@@ -70,7 +70,7 @@ public:
 		  backingMemoryOffset_{backingMemoryOffset},
 		  imported_{false} {
 			void *p = nullptr;
-			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, 0, s,
+			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
 			kHelMapProtRead | kHelMapProtWrite, &p));
 			base_va = reinterpret_cast<uintptr_t>(p);
 		}
@@ -89,7 +89,7 @@ public:
 		  backingMemoryOffset_{backingMemoryOffset},
 		  imported_{imported} {
 			void *p = nullptr;
-			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, 0, s,
+			HEL_CHECK(helMapMemory(borrowedMemory_.getHandle(), kHelNullHandle, nullptr, backingMemoryOffset, s,
 			kHelMapProtRead | kHelMapProtWrite, &p));
 			base_va = reinterpret_cast<uintptr_t>(p);
 		}

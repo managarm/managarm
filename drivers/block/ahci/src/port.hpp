@@ -1,22 +1,23 @@
 #pragma once
 
-#include <queue>
-
 #include <arch/mem_space.hpp>
 #include <arch/dma_structs.hpp>
 #include <arch/dma_pool.hpp>
 #include <async/recurring-event.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
+#include <frg/std_compat.hpp>
 
 #include <blockfs.hpp>
 
 #include "spec.hpp"
 #include "command.hpp"
 
+class Controller;
+
 class Port : public blockfs::BlockDevice {
 public:
-	Port(int64_t parentId, int index, size_t numCommandSlots, bool staggeredSpinUp,
+	Port(Controller *controller, int64_t parentId, int index, size_t numCommandSlots, bool staggeredSpinUp,
 			arch::mem_space regs);
 
 public:
@@ -26,8 +27,8 @@ public:
 	void dumpState();
 	void checkErrors();
 
-	async::result<void> readSectors(uint64_t sector, void *buf, size_t numSectors) override;
-	async::result<void> writeSectors(uint64_t sector, const void *buf, size_t numSectors) override;
+	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 	async::result<size_t> getSize() override;
 
 	int getIndex() const { return portIndex_; }
@@ -40,25 +41,12 @@ private:
 	void stop_();
 
 private:
+	Controller *controller_;
+
 	// Mapping is owned by Controller
 	arch::mem_space regs_;
 
-	arch::contiguous_pool dmaPool_{{.addressBits = 32}};
-	arch::dma_object<commandList> commandList_;
-	arch::dma_array<commandTable> commandTables_;
-	arch::dma_object<receivedFis> receivedFis_;
-
-	// TODO: Move this to libasync
-	struct stl_allocator {
-		void *allocate(size_t size) {
-			return operator new(size);
-		}
-
-		void deallocate(void *p, size_t) {
-			return operator delete(p);
-		}
-	};
-	async::queue<Command *, stl_allocator> pendingCmdQueue_;
+	async::queue<Command *, frg::stl_allocator> pendingCmdQueue_{frg::stl_allocator{}};
 
 	std::array<Command *, limits::maxCmdSlots> submittedCmds_{};
 	async::recurring_event freeSlotDoorbell_;
@@ -68,4 +56,8 @@ private:
 	size_t commandsInFlight_;
 	int portIndex_;
 	bool staggeredSpinUp_;
+
+	arch::dma_object<commandList> commandList_;
+	arch::dma_array<commandTable> commandTables_;
+	arch::dma_object<receivedFis> receivedFis_;
 };

@@ -29,12 +29,20 @@ async::detached bindController(mbus_ng::Entity hwEntity) {
 	}
 
 	co_await device.enableBusmaster();
-	co_await device.enableDma();
+	co_await device.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await device.getDmaSpace();
 
 	helix::Mapping mapping{ahciBar, ahciBarInfo.offset, ahciBarInfo.length};
 
-	auto controller = std::make_unique<Controller>(hwEntity.id(), std::move(device),
-			std::move(mapping), std::move(irq), info.numMsis > 0);
+	auto controller = std::make_unique<Controller>(
+	    hwEntity.id(),
+	    std::move(device),
+	    std::move(mapping),
+	    std::move(irq),
+	    info.numMsis > 0,
+	    std::move(dmaSpace),
+	    iommuActive
+	);
 	controller->run();
 	globalControllers.push_back(std::move(controller));
 }

@@ -56,9 +56,13 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	struct BufferObject final : drm_core::BufferObject, std::enable_shared_from_this<BufferObject> {
-		BufferObject(GfxDevice *device, uint32_t id, size_t size, helix::UniqueDescriptor memory,
-			uint32_t width, uint32_t height)
-		: drm_core::BufferObject{width, height}, _device{device}, _resourceId{id}, _size{size}, _memory{std::move(memory)}, _mapping{_memory, 0, _size} {
+		BufferObject(
+		    GfxDevice *device, uint32_t id, arch::dma_buffer buf, uint32_t width, uint32_t height
+		)
+		: drm_core::BufferObject{width, height},
+		  _device{device},
+		  _resourceId{id},
+		  dmaObject_{std::move(buf)} {
 		};
 
 		~BufferObject();
@@ -73,9 +77,7 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	private:
 		GfxDevice *_device;
 		uint32_t _resourceId;
-		size_t _size;
-		helix::UniqueDescriptor _memory;
-		helix::Mapping _mapping;
+		arch::dma_buffer dmaObject_;
 		async::oneshot_event _jump;
 	};
 
@@ -118,6 +120,14 @@ struct GfxDevice final : drm_core::Device, std::enable_shared_from_this<GfxDevic
 	};
 
 	GfxDevice(std::unique_ptr<virtio_core::Transport> transport);
+
+	arch::contiguous_pool &dmaPool() const {
+		return _transport->memoryPool_;
+	}
+
+	arch::dma_space &dmaSpace() const {
+		return _transport->dmaSpace_;
+	}
 
 	async::result<std::unique_ptr<drm_core::Configuration>> initialize();
 	std::unique_ptr<drm_core::Configuration> createConfiguration() override;

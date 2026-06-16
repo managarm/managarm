@@ -1,12 +1,8 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <deque>
-#include <optional>
-#include <functional>
 #include <iostream>
 #include <memory>
-#include <numeric>
 
 #include <arch/bits.hpp>
 #include <arch/register.hpp>
@@ -77,8 +73,8 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	_transport->finalizeFeatures();
 	_transport->claimQueues(2);
 
-	_controlQ = _transport->setupQueue(0);
-	_cursorQ = _transport->setupQueue(1);
+	_controlQ = co_await _transport->setupQueue(0);
+	_cursorQ = co_await _transport->setupQueue(1);
 
 	_transport->runDevice();
 
@@ -134,7 +130,7 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 	auto info = co_await Cmd::getDisplayInfo(this);
 
 	for(size_t i = 0; i < 16; i++) {
-		if(info.modes[i].enabled) {
+		if(info->modes[i].enabled) {
 			auto connector = std::make_shared<Connector>(this);
 			connector->setupWeakPtr(connector);
 			connector->setupState(connector);
@@ -151,17 +147,17 @@ async::result<std::unique_ptr<drm_core::Configuration>> GfxDevice::initialize() 
 			registerObject(connector.get());
 			attachConnector(connector.get());
 
-			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcWProperty(), info.modes[i].rect.width << 16));
-			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcHProperty(), info.modes[i].rect.height << 16));
-			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcWProperty(), info.modes[i].rect.width));
-			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcHProperty(), info.modes[i].rect.height));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcWProperty(), info->modes[i].rect.width << 16));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), srcHProperty(), info->modes[i].rect.height << 16));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcWProperty(), info->modes[i].rect.width));
+			assignments.push_back(drm_core::Assignment::withInt(crtc->primaryPlane()->sharedModeObject(), crtcHProperty(), info->modes[i].rect.height));
 
 			assignments.push_back(drm_core::Assignment::withInt(connector, dpmsProperty(), 3));
 			assignments.push_back(drm_core::Assignment::withModeObj(connector, crtcIdProperty(), crtc));
 
 			std::vector<drm_mode_modeinfo> supported_modes;
-			drm_core::addDmtModes(supported_modes, info.modes[i].rect.width,
-					info.modes[i].rect.height);
+			drm_core::addDmtModes(supported_modes, info->modes[i].rect.width,
+					info->modes[i].rect.height);
 			connector->setModeList(supported_modes);
 
 			_activeConnectors[i] = connector;
@@ -189,7 +185,7 @@ std::shared_ptr<drm_core::FrameBuffer> GfxDevice::createFrameBuffer(std::shared_
 	assert(pitch / 4 >= width);
 	assert(bo->getSize() >= pitch * height);
 
-	auto fb = std::make_shared<FrameBuffer>(this, bo);
+	auto fb = std::make_shared<FrameBuffer>(this, std::move(bo));
 	fb->setupWeakPtr(fb);
 	registerObject(fb.get());
 	return fb;
@@ -205,12 +201,10 @@ std::tuple<std::string, std::string, std::string> GfxDevice::driverInfo() {
 
 std::pair<std::shared_ptr<drm_core::BufferObject>, uint32_t>
 GfxDevice::createDumb(uint32_t width, uint32_t height, uint32_t bpp) {
-	HelHandle handle;
 	auto size = ((width * height * bpp / 8) + (4096 - 1)) & ~(4096 - 1);
-	HEL_CHECK(helAllocateMemory(size, 0, nullptr, &handle));
+	arch::dma_buffer buf{&dmaPool(), size};
 
-	auto bo = std::make_shared<BufferObject>(this, _resourceIdAllocator.allocate(), size,
-			helix::UniqueDescriptor(handle), width, height);
+	auto bo = std::make_shared<BufferObject>(this, _resourceIdAllocator.allocate(), std::move(buf), width, height);
 	uint32_t pitch = width * bpp / 8;
 
 	auto mapping = installMapping(bo.get());
@@ -367,12 +361,10 @@ int GfxDevice::Crtc::scanoutId() {
 // GfxDevice::FrameBuffer.
 // ----------------------------------------------------------------
 
-GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device,
-		std::shared_ptr<GfxDevice::BufferObject> bo)
-: drm_core::FrameBuffer { device, device->allocator.allocate() } {
-	_bo = bo;
-	_device = device;
-}
+GfxDevice::FrameBuffer::FrameBuffer(GfxDevice *device, std::shared_ptr<GfxDevice::BufferObject> bo)
+: drm_core::FrameBuffer{device, device->allocator.allocate()},
+  _bo{std::move(bo)},
+  _device{device} {}
 
 GfxDevice::BufferObject *GfxDevice::FrameBuffer::getBufferObject() {
 	return _bo.get();
@@ -412,16 +404,14 @@ int GfxDevice::Plane::scanoutId() {
 // GfxDevice: BufferObject.
 // ----------------------------------------------------------------
 
-GfxDevice::BufferObject::~BufferObject() {
-	_memory.release();
-}
+GfxDevice::BufferObject::~BufferObject() {}
 
 std::shared_ptr<drm_core::BufferObject> GfxDevice::BufferObject::sharedBufferObject() {
 	return this->shared_from_this();
 }
 
 size_t GfxDevice::BufferObject::getSize() {
-	return _size;
+	return dmaObject_.size();
 }
 
 uint32_t GfxDevice::BufferObject::resourceId() {
@@ -433,12 +423,13 @@ async::result<void> GfxDevice::BufferObject::wait() {
 }
 
 std::pair<helix::BorrowedDescriptor, uint64_t> GfxDevice::BufferObject::getMemory() {
-	return std::make_pair(helix::BorrowedDescriptor{_memory}, 0);
+	auto region = static_cast<arch::contiguous_pool::region *>(dmaObject_.get_dma_ptr().region());
+	return region->getMemory();
 }
 
 async::detached GfxDevice::BufferObject::_initHw() {
 	co_await Cmd::create2d(getWidth(), getHeight(), _resourceId, _device);
-	co_await Cmd::attachBacking(_resourceId, _mapping.get(), getSize(), _device);
+	co_await Cmd::attachBacking(_resourceId, dmaObject_, _device);
 
 	_jump.raise();
 }
@@ -449,7 +440,6 @@ async::detached GfxDevice::BufferObject::_initHw() {
 
 async::result<void> doBind(mbus_ng::Entity hwEntity) {
 	protocols::hw::Device hwDevice((co_await hwEntity.getRemoteLane()).unwrap());
-	co_await hwDevice.enableBusmaster();
 	auto transport = co_await virtio_core::discover(std::move(hwDevice),
 			virtio_core::DiscoverMode::modernOnly);
 

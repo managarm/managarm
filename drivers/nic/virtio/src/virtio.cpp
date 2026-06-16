@@ -48,15 +48,15 @@ struct VirtioNic : nic::Link {
 private:
 	mbus_ng::EntityId entity_;
 	std::unique_ptr<virtio_core::Transport> transport_;
-	arch::contiguous_pool dmaPool_{{.addressBits = 64}};
 	virtio_core::Queue *receiveVq_;
 	virtio_core::Queue *transmitVq_;
 	size_t headerSize_;
 };
 
 VirtioNic::VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Transport> transport)
-	: nic::Link(1500, &dmaPool_), entity_{entity}, transport_ { std::move(transport) }
-{
+: nic::Link(1500, &transport->memoryPool_),
+  entity_{entity},
+  transport_{std::move(transport)} {
 	headerSize_ = transport_->isLegacy() ? 10 : sizeof(VirtHeader);
 
 	if(transport_->checkDeviceFeature(VIRTIO_NET_F_MAC)) {
@@ -71,11 +71,13 @@ VirtioNic::VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Tran
 			<< ms << std::endl;
 		transport_->acknowledgeDriverFeature(VIRTIO_NET_F_MAC);
 	}
+}
 
+async::result<void> VirtioNic::initialize() {
 	transport_->finalizeFeatures();
 	transport_->claimQueues(2);
-	receiveVq_ = transport_->setupQueue(0);
-	transmitVq_ = transport_->setupQueue(1);
+	receiveVq_ = co_await transport_->setupQueue(0);
+	transmitVq_ = co_await transport_->setupQueue(1);
 
 	promiscuous_ = true;
 	all_multicast_ = true;
@@ -84,9 +86,7 @@ VirtioNic::VirtioNic(mbus_ng::EntityId entity, std::unique_ptr<virtio_core::Tran
 	l1_up_ = true;
 
 	transport_->runDevice();
-}
 
-async::result<void> VirtioNic::initialize() {
 	mbus_ng::Properties netProperties{
 		{"drvcore.mbus-parent", mbus_ng::StringItem{std::to_string(entity_)}},
 		{"unix.subsystem", mbus_ng::StringItem{"net"}},
@@ -107,14 +107,15 @@ async::result<void> VirtioNic::initialize() {
 }
 
 async::result<size_t> VirtioNic::receive(arch::dma_buffer_view frame) {
-	arch::dma_object<VirtHeader> header { &dmaPool_ };
+	arch::dma_object<VirtHeader> header { &transport_->memoryPool_ };
 
 	virtio_core::Chain chain;
 	chain.append(co_await receiveVq_->obtainDescriptor());
-	chain.setupBuffer(virtio_core::deviceToHost,
-			header.view_buffer().subview(0, headerSize_));
+	co_await chain.setupBuffer(
+	    virtio_core::deviceToHost, header.view_buffer().subview(0, headerSize_)
+	);
 	chain.append(co_await receiveVq_->obtainDescriptor());
-	chain.setupBuffer(virtio_core::deviceToHost, frame);
+	co_await chain.setupBuffer(virtio_core::deviceToHost, frame);
 
 	co_return (co_await receiveVq_->submitDescriptor(chain.front()) - headerSize_);
 }
@@ -124,15 +125,16 @@ async::result<void> VirtioNic::send(const arch::dma_buffer_view payload) {
 		throw std::runtime_error("data exceeds mtu");
 	}
 
-	arch::dma_object<VirtHeader> header { &dmaPool_ };
+	arch::dma_object<VirtHeader> header { &transport_->memoryPool_ };
 	memset(header.data(), 0, sizeof(VirtHeader));
 
 	virtio_core::Chain chain;
 	chain.append(co_await transmitVq_->obtainDescriptor());
-	chain.setupBuffer(virtio_core::hostToDevice,
-			header.view_buffer().subview(0, headerSize_));
+	co_await chain.setupBuffer(
+	    virtio_core::hostToDevice, header.view_buffer().subview(0, headerSize_)
+	);
 	chain.append(co_await transmitVq_->obtainDescriptor());
-	chain.setupBuffer(virtio_core::hostToDevice, payload);
+	co_await chain.setupBuffer(virtio_core::hostToDevice, payload);
 
 	if(logFrames) {
 		std::cout << "virtio-driver: sending frame" << std::endl;

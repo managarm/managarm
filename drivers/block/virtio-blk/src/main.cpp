@@ -26,7 +26,7 @@ async::detached bindDevice(mbus_ng::Entity hwEntity) {
 			virtio_core::DiscoverMode::transitional);
 
 	auto device = new block::virtio::Device{std::move(transport), hwEntity.id()};
-	device->runDevice();
+	co_await device->runDevice();
 
 /*
 	auto info = co_await hw_device.getPciInfo();

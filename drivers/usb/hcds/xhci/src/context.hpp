@@ -34,7 +34,28 @@ struct ContextArray {
 		memset(ctx_, 0, rawSize());
 	}
 
-	void *rawData() {
+	async::result<void> initialize(arch::dma_space &space) {
+		if (largeCtx_) {
+			_cachedIova = co_await space.iova_of(largeArr_);
+		} else {
+			_cachedIova = co_await space.iova_of(smallArr_);
+		}
+	}
+
+	uintptr_t iova() const {
+		assert(_cachedIova != 0);
+		return _cachedIova;
+	}
+
+	async::result<uintptr_t> iova(arch::dma_space &space) {
+		if (largeCtx_) {
+			co_return co_await space.iova_of(largeArr_);
+		} else {
+			co_return co_await space.iova_of(smallArr_);
+		}
+	}
+
+	void *data() {
 		return ctx_;
 	}
 
@@ -59,6 +80,7 @@ private:
 	arch::dma_object<SmallArr> smallArr_{};
 	arch::dma_object<LargeArr> largeArr_{};
 	RawContext *ctx_ = nullptr;
+	uintptr_t _cachedIova = 0;
 };
 
 using InputContext = ContextArray<34>;

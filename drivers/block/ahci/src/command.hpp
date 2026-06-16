@@ -1,6 +1,7 @@
 #pragma once
 
 #include <async/oneshot-event.hpp>
+#include <arch/dma_pool.hpp>
 
 #include "spec.hpp"
 
@@ -10,33 +11,36 @@ enum class CommandType {
 	identify
 };
 
+class Controller;
+
 struct Command {
 public:
-	Command(uint64_t sector, size_t numSectors, size_t numBytes, void *buffer, CommandType type);
+	Command(Controller *controller, uint64_t sector, size_t numSectors, arch::dma_buffer_view view, CommandType type);
 	Command() = delete;
 	Command(Command&) = delete;
 	Command& operator=(Command &) = delete;
 
-	Command(identifyDevice *buffer, CommandType type)
-		: Command(0, 0, sizeof(identifyDevice), reinterpret_cast<void *>(buffer), type) {
+	Command(Controller *controller, arch::dma_object_view<identifyDevice> buffer, CommandType type)
+		: Command(controller, 0, 0, buffer.view_buffer(), type) {
 		assert(type == CommandType::identify);
 	}
 
-	void prepare(commandTable& table, commandHeader& header);
-	void notifyCompletion(); 
+	async::result<void> prepare(arch::dma_object_view<commandTable> table, commandHeader& header);
+	void notifyCompletion();
 
 	auto getFuture() {
 		return event_.wait();
 	}
 
 private:
-	size_t writeScatterGather_(commandTable& table);
+	async::result<size_t> writeScatterGather_(arch::dma_object_view<commandTable> table);
 
-private:
+	Controller *controller_;
+
 	uint64_t sector_;
 	size_t numSectors_;
 	size_t numBytes_;
-	void *buffer_;
+	arch::dma_buffer_view view_;
 	CommandType type_;
 	async::oneshot_primitive event_;
 };

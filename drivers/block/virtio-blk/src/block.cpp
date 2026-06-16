@@ -1,4 +1,5 @@
 
+#include <async/basic.hpp>
 #include <stdlib.h>
 #include <iostream>
 
@@ -13,21 +14,23 @@ static bool logInitiateRetire = false;
 // UserRequest
 // --------------------------------------------------------
 
-UserRequest::UserRequest(bool write_, uint64_t sector_, void *buffer_, size_t num_sectors_)
-: write{write_}, sector{sector_}, buffer{buffer_}, numSectors{num_sectors_} { }
+UserRequest::UserRequest(bool write_, uint64_t sector_, arch::dma_buffer_view view_)
+: write{write_}, sector{sector_}, view{view_} { }
 
 // --------------------------------------------------------
 // Device
 // --------------------------------------------------------
 
 Device::Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id)
-: blockfs::BlockDevice{512, parent_id}, _transport{std::move(transport)},
-		_requestQueue{nullptr}, _size{0} { }
+: blockfs::BlockDevice{512, parent_id, &transport->memoryPool_},
+  _transport{std::move(transport)},
+  _requestQueue{nullptr},
+  _size{0} {}
 
-void Device::runDevice() {
+async::result<void> Device::runDevice() {
 	_transport->finalizeFeatures();
 	_transport->claimQueues(1);
-	_requestQueue = _transport->setupQueue(0);
+	_requestQueue = co_await _transport->setupQueue(0);
 
 	auto size = static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[0]))
 			| (static_cast<uint64_t>(_transport->space().load(spec::regs::capacity[1])) << 32);
@@ -37,11 +40,11 @@ void Device::runDevice() {
 	_transport->runDevice();
 
 	// perform device specific setup
-	virtRequestBuffer = new VirtRequest[_requestQueue->numDescriptors()];
-	statusBuffer = new uint8_t[_requestQueue->numDescriptors()];
+	virtRequestBuffer = arch::dma_array<VirtRequest>{pagePool, _requestQueue->numDescriptors()};
+	statusBuffer = arch::dma_array<uint8_t>{pagePool, _requestQueue->numDescriptors()};
 
 	// natural alignment makes sure that request headers do not cross page boundaries
-	assert((uintptr_t)virtRequestBuffer % sizeof(VirtRequest) == 0);
+	assert((uintptr_t)virtRequestBuffer.byte_data() % sizeof(VirtRequest) == 0);
 
 	// setup an interrupt for the device
 	_processRequests();
@@ -49,20 +52,21 @@ void Device::runDevice() {
 	blockfs::runDevice(this);
 }
 
-async::result<void> Device::readSectors(uint64_t sector,
-		void *buffer, size_t num_sectors) {
+async::result<void> Device::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
-	assert(!((uintptr_t)buffer % 512));
+	assert(!((uintptr_t)view.data() % 512));
 //	printf("readSectors(%lu, %lu)\n", sector, num_sectors);
 
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
+	auto num_sectors = view.size() >> sectorShift;
 
 	for(size_t progress = 0; progress < num_sectors; progress += max_sectors) {
-		auto request = new UserRequest(false, sector + progress,
-				(char *)buffer + 512 * progress,
-				std::min(num_sectors - progress, max_sectors));
+		auto subview = view.subview(
+		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
+		);
+		auto request = new UserRequest(false, sector + progress, subview);
 		_pendingQueue.push(request);
 		_pendingDoorbell.raise();
 		co_await request->event.wait();
@@ -70,20 +74,21 @@ async::result<void> Device::readSectors(uint64_t sector,
 	}
 }
 
-async::result<void> Device::writeSectors(uint64_t sector,
-		const void *buffer, size_t num_sectors) {
+async::result<void> Device::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	// Natural alignment makes sure a sector does not cross a page boundary.
-	assert(!((uintptr_t)buffer % 512));
+	assert(!((uintptr_t)view.data() % 512));
 //	printf("writeSectors(%lu, %lu)\n", sector, num_sectors);
 
 	// Limit to ensure that we don't monopolize the device.
 	auto max_sectors = _requestQueue->numDescriptors() / 4;
 	assert(max_sectors >= 1);
+	auto num_sectors = view.size() >> sectorShift;
 
 	for(size_t progress = 0; progress < num_sectors; progress += max_sectors) {
-		auto request = new UserRequest(true, sector + progress,
-				(char *)buffer + 512 * progress,
-				std::min(num_sectors - progress, max_sectors));
+		auto subview = view.subview(
+		    progress << sectorShift, std::min(num_sectors - progress, max_sectors) << sectorShift
+		);
+		auto request = new UserRequest(true, sector + progress, subview);
 		_pendingQueue.push(request);
 		_pendingDoorbell.raise();
 		co_await request->event.wait();
@@ -104,13 +109,14 @@ async::detached Device::_processRequests() {
 
 		auto request = _pendingQueue.front();
 		_pendingQueue.pop();
-		assert(request->numSectors);
+		auto numSectors = request->view.size() >> sectorShift;
+		assert(numSectors);
 
 		// Setup the descriptor for the request header.
 		virtio_core::Chain chain;
 		chain.append(co_await _requestQueue->obtainDescriptor());
 
-		VirtRequest *header = &virtRequestBuffer[chain.front().tableIndex()];
+		auto header = virtRequestBuffer.object_view(chain.front().tableIndex());
 		if(request->write) {
 			header->type = VIRTIO_BLK_T_OUT;
 		}else{
@@ -119,36 +125,35 @@ async::detached Device::_processRequests() {
 		header->reserved = 0;
 		header->sector = request->sector;
 
-		chain.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
-				header, sizeof(VirtRequest)});
+		co_await chain.setupBuffer(virtio_core::hostToDevice, header.view_buffer());
 
 		// Setup descriptors for the transfered data.
-		for(size_t i = 0; i < request->numSectors; i++) {
+		for(size_t i = 0; i < numSectors; i++) {
 			chain.append(co_await _requestQueue->obtainDescriptor());
 			if(request->write) {
-				chain.setupBuffer(virtio_core::hostToDevice, arch::dma_buffer_view{nullptr,
-						(char *)request->buffer + 512 * i, 512});
+				co_await chain.setupBuffer(virtio_core::hostToDevice, request->view.subview(i << sectorShift, sectorSize));
 			}else{
-				chain.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
-						(char *)request->buffer + 512 * i, 512});
+				co_await chain.setupBuffer(virtio_core::deviceToHost, request->view.subview(i << sectorShift, sectorSize));
 			}
 		}
 
 		if(logInitiateRetire)
-			std::cout << "Submitting " << request->numSectors
+			std::cout << "Submitting " << numSectors
 					<< " data descriptors" << std::endl;
 
 		// Setup a descriptor for the status byte.
 		chain.append(co_await _requestQueue->obtainDescriptor());
-		chain.setupBuffer(virtio_core::deviceToHost, arch::dma_buffer_view{nullptr,
-				&statusBuffer[chain.front().tableIndex()], 1});
+		co_await chain.setupBuffer(
+		    virtio_core::deviceToHost,
+		    statusBuffer.object_view(chain.front().tableIndex()).view_buffer()
+		);
 
 		// Submit the request to the device
 		_requestQueue->postDescriptor(chain.front(), request,
 				[] (virtio_core::Request *base_request) {
 			auto request = static_cast<UserRequest *>(base_request);
 			if(logInitiateRetire)
-				std::cout << "Retiring " << request->numSectors
+				std::cout << "Retiring " << (request->view.size() / 512uz)
 						<< " data descriptors" << std::endl;
 			request->event.raise();
 		});

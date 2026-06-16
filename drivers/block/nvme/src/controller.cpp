@@ -40,10 +40,20 @@ namespace flags {
 	} // namespace csts
 } // namespace flags
 
-PciExpressController::PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping)
-	: Controller(parentId, location, ControllerType::PciExpress), hwDevice_{std::move(hwDevice)},
-		regsMapping_{std::move(regsMapping)}, regs_{regsMapping_.get()} {
-}
+PciExpressController::PciExpressController(
+    int64_t parentId,
+    protocols::hw::Device hwDevice,
+    std::string location,
+    helix::Mapping regsMapping,
+	helix::UniqueDescriptor ioSpace,
+	bool iommuActive
+)
+: Controller(parentId, location, ControllerType::PciExpress),
+  hwDevice_{std::move(hwDevice)},
+  regsMapping_{std::move(regsMapping)},
+  regs_{regsMapping_.get()},
+  ioSpace_{std::move(ioSpace)},
+  dmaSpace_{pool_.attachDmaSpace(ioSpace_, iommuActive)} {}
 
 async::detached PciExpressController::run(mbus_ng::EntityId subsystem) {
 	co_await reset();
@@ -177,23 +187,23 @@ async::result<void> PciExpressController::reset() {
 		handleIrqs(std::move(irq));
 	}
 
-	auto adminQ = std::make_unique<PciExpressQueue>(0, 32, regs_.subspace(doorbellsOffset));
+	auto adminQ = std::make_unique<PciExpressQueue>(this, 0, 32, regs_.subspace(doorbellsOffset));
 	co_await adminQ->init();
 
 	uint32_t aqa = (31 << 16) | 31;
 	regs_.store(regs::aqa, aqa);
-	regs_.store(regs::asq, adminQ->getSqPhysAddr());
-	regs_.store(regs::acq, adminQ->getCqPhysAddr());
+	regs_.store(regs::asq, co_await dmaSpace_.iova_of(adminQ->getSq()));
+	regs_.store(regs::acq, co_await dmaSpace_.iova_of(adminQ->getCq()));
 
 	adminQ->run();
 	activeQueues_.push_back(std::move(adminQ));
 
 	co_await enable();
 
-	requestIoQueues(1, 1);
+	co_await requestIoQueues(1, 1);
 
 	co_await setupIOQueueInterrupts(1, 1);
-	auto ioQ = std::make_unique<PciExpressQueue>(1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_), 1);
+	auto ioQ = std::make_unique<PciExpressQueue>(this, 1, queueDepth_, regs_.subspace(doorbellsOffset + 1 * 8 * dbStride_), 1);
 	co_await ioQ->init();
 
 	if (co_await setupIoQueue(ioQ.get())) {
@@ -239,13 +249,13 @@ async::result<Command::Result> PciExpressController::createCQ(PciExpressQueue *q
 	uint16_t flags = spec::kQueuePhysContig | spec::kCQIrqEnabled;
 
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateCQ);
-	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getCqPhysAddr());
+	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(co_await dmaSpace_.iova_of(q->getCq()));
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
 	cmdBuf.cqFlags = convert_endian<endian::little, endian::native>((uint16_t)flags);
 	cmdBuf.irqVector = q->interruptVector();
 
-	return adminQ->submitCommand(std::move(cmd));
+	co_return co_await adminQ->submitCommand(std::move(cmd));
 }
 
 async::result<Command::Result> PciExpressController::createSQ(PciExpressQueue *q) {
@@ -259,25 +269,25 @@ async::result<Command::Result> PciExpressController::createSQ(PciExpressQueue *q
 	uint16_t flags = spec::kQueuePhysContig;
 
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::CreateSQ);
-	cmdBuf.prp1 = convert_endian<endian::little, endian::native>((uint64_t)q->getSqPhysAddr());
+	cmdBuf.prp1 = convert_endian<endian::little, endian::native>(co_await dmaSpace_.iova_of(q->getSq()));
 	cmdBuf.sqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 	cmdBuf.qSize = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueDepth() - 1);
 	cmdBuf.sqFlags = convert_endian<endian::little, endian::native>((uint16_t)flags);
 	cmdBuf.cqid = convert_endian<endian::little, endian::native>((uint16_t)q->getQueueId());
 
-	return adminQ->submitCommand(std::move(cmd));
+	co_return co_await adminQ->submitCommand(std::move(cmd));
 }
 
-async::result<Command::Result> Controller::identifyController(spec::IdentifyController &id) {
+async::result<Command::Result> Controller::identifyController(arch::dma_object_view<spec::IdentifyController> id) {
 	auto &adminQ = activeQueues_.front();
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().identify;
 
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyController;
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
+	co_await cmd->setupBuffer(this, id.view_buffer(), preferredDataTransfer_);
 
-	return adminQ->submitCommand(std::move(cmd));
+	co_return co_await adminQ->submitCommand(std::move(cmd));
 }
 
 async::result<Command::Result> Controller::identifyNamespaceList(unsigned int nsid, arch::dma_buffer_view list) {
@@ -291,12 +301,12 @@ async::result<Command::Result> Controller::identifyNamespaceList(unsigned int ns
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyActiveList;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
-	cmd->setupBuffer(list, preferredDataTransfer_);
+	co_await cmd->setupBuffer(this, list, preferredDataTransfer_);
 
-	return adminQ->submitCommand(std::move(cmd));
+	co_return co_await adminQ->submitCommand(std::move(cmd));
 }
 
-async::result<Command::Result> Controller::identifyNamespace(unsigned int nsid, spec::IdentifyNamespace &id) {
+async::result<Command::Result> Controller::identifyNamespace(unsigned int nsid, arch::dma_object_view<spec::IdentifyNamespace> id) {
 	using arch::convert_endian;
 	using arch::endian;
 
@@ -307,22 +317,22 @@ async::result<Command::Result> Controller::identifyNamespace(unsigned int nsid, 
 	cmdBuf.opcode = static_cast<uint8_t>(spec::AdminOpcode::Identify);
 	cmdBuf.cns = spec::kIdentifyNamespace;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid);
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &id, sizeof(id)}, preferredDataTransfer_);
+	co_await cmd->setupBuffer(this, id.view_buffer(), preferredDataTransfer_);
 
-	return adminQ->submitCommand(std::move(cmd));
+	co_return co_await adminQ->submitCommand(std::move(cmd));
 }
 
 async::result<void> Controller::scanNamespaces() {
 	using arch::convert_endian;
 	using arch::endian;
 
-	spec::IdentifyController idCtrl;
+	arch::dma_object<spec::IdentifyController> idCtrl{&pool_};
 	int nn;
 
-	if (!(co_await identifyController(idCtrl)).first.successful())
+	if (!(co_await identifyController({idCtrl})).first.successful())
 		co_return;
 
-	auto type = idCtrl.cntrltype;
+	auto type = idCtrl->cntrltype;
 	if (version_ >= flags::vs::version(1, 4, 0)) {
 		// error out on reserved controller type
 		if(type == 0) {
@@ -340,14 +350,14 @@ async::result<void> Controller::scanNamespaces() {
 		co_return;
 	}
 
-	nn = convert_endian<endian::little>(idCtrl.nn);
+	nn = convert_endian<endian::little>(idCtrl->nn);
 
-	model = std::string{idCtrl.mn, sizeof(idCtrl.mn)};
-	serial = std::string{idCtrl.sn, sizeof(idCtrl.sn)};
-	fw_rev = std::string{idCtrl.fr, sizeof(idCtrl.fr)};
+	model = std::string{idCtrl->mn, sizeof(idCtrl->mn)};
+	serial = std::string{idCtrl->sn, sizeof(idCtrl->sn)};
+	fw_rev = std::string{idCtrl->fr, sizeof(idCtrl->fr)};
 
 	if (version_ >= flags::vs::version(1, 1, 0)) {
-		auto nsList = arch::dma_array<uint32_t>{nullptr, 1024};
+		auto nsList = arch::dma_array<uint32_t>{&pool_, 1024};
 		int numLists = (nn + 1023) >> 10;
 		unsigned int prev = 0;
 		for (auto i = 0; i < numLists; i++) {
@@ -377,19 +387,19 @@ async::result<void> Controller::scanNamespaces() {
 }
 
 async::result<void> Controller::createNamespace(unsigned int nsid) {
-	spec::IdentifyNamespace id;
+	arch::dma_object<spec::IdentifyNamespace> id{&pool_};
 
 	if (!(co_await identifyNamespace(nsid, id)).first.successful())
 		co_return;
 
-	if (!id.ncap)
+	if (!id->ncap)
 		co_return;
 
-	auto lbaShift = id.lbaf[id.flbas & 0xf].ds;
+	auto lbaShift = id->lbaf[id->flbas & 0xf].ds;
 	if (!lbaShift)
 		lbaShift = 9;
 
-	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift, id.nsze);
+	auto ns = std::make_unique<Namespace>(this, nsid, lbaShift, id->nsze);
 	activeNamespaces_.push_back(std::move(ns));
 }
 
@@ -403,4 +413,8 @@ async::result<Command::Result> PciExpressController::submitIoCommand(std::unique
 	auto &ioQ = activeQueues_.back();
 
 	return ioQ->submitCommand(std::move(cmd));
+}
+
+async::result<std::optional<uintptr_t>> PciExpressController::prpAddressOf(arch::dma_buffer_view view) {
+	co_return co_await dmaSpace_.iova_of(view);
 }

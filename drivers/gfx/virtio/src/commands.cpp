@@ -34,143 +34,190 @@ private:
 };
 
 async::result<void> Cmd::transferToHost2d(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
-	spec::XferToHost2d xfer;
-	memset(&xfer, 0, sizeof(spec::XferToHost2d));
-	xfer.header.type = spec::cmd::xferToHost2d;
-	xfer.rect.x = 0;
-	xfer.rect.y = 0;
-	xfer.rect.width = width;
-	xfer.rect.height = height;
-	xfer.resourceId = resourceId;
+	arch::dma_object<spec::XferToHost2d> xfer{
+	    &device->dmaPool(),
+	    spec::XferToHost2d{
+	        .header{.type = spec::cmd::xferToHost2d},
+	        .rect{
+	            .x = 0,
+	            .y = 0,
+	            .width = width,
+	            .height = height,
+	        },
+	        .resourceId = resourceId,
+	    }
+	};
 
-	spec::Header xfer_result;
+	arch::dma_object<spec::Header> xfer_result{
+	    &device->dmaPool(),
+	    spec::Header{}
+	};
 	virtio_core::Chain xfer_chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 			xfer_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &xfer, sizeof(spec::XferToHost2d)});
+			xfer.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 			xfer_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &xfer_result, sizeof(spec::Header)});
+			xfer_result.view_buffer());
 	co_await AwaitableRequest{device->_controlQ, xfer_chain.front()};
-	assert(xfer_result.type == spec::resp::noData);
+	assert(xfer_result->type == spec::resp::noData);
 }
 
 async::result<void> Cmd::setScanout(uint32_t width, uint32_t height, uint32_t scanoutId, uint32_t resourceId, GfxDevice *device) {
-	spec::SetScanout scanout;
-	memset(&scanout, 0, sizeof(spec::SetScanout));
-	scanout.header.type = spec::cmd::setScanout;
-	scanout.rect.x = 0;
-	scanout.rect.y = 0;
-	scanout.rect.width = width;
-	scanout.rect.height = height;
-	scanout.scanoutId = scanoutId;
-	scanout.resourceId = resourceId;
+	arch::dma_object<spec::SetScanout> scanout{
+	    &device->dmaPool(),
+	    spec::SetScanout{
+	        .header{.type = spec::cmd::setScanout},
+	        .rect{
+	            .x = 0,
+	            .y = 0,
+	            .width = width,
+	            .height = height,
+	        },
+	        .scanoutId = scanoutId,
+	        .resourceId = resourceId,
+	    }
+	};
 
-	spec::Header scanout_result;
+	arch::dma_object<spec::Header> scanout_result{
+	    &device->dmaPool(),
+	    spec::Header{}
+	};
 	virtio_core::Chain scanout_chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice,
 			scanout_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &scanout, sizeof(spec::SetScanout)});
+			scanout.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost,
 			scanout_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &scanout_result, sizeof(spec::Header)});
+			scanout_result.view_buffer());
 	co_await AwaitableRequest{device->_controlQ, scanout_chain.front()};
 
-	assert(scanout_result.type == spec::resp::noData);
+	assert(scanout_result->type == spec::resp::noData);
 }
 
 async::result<void> Cmd::resourceFlush(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
-	spec::ResourceFlush flush;
-	memset(&flush, 0, sizeof(spec::ResourceFlush));
-	flush.header.type = spec::cmd::resourceFlush;
-	flush.rect.x = 0;
-	flush.rect.y = 0;
-	flush.rect.width = width;
-	flush.rect.height = height;
-	flush.resourceId = resourceId;
+	arch::dma_object<spec::ResourceFlush> flush{
+	    &device->dmaPool(),
+	    spec::ResourceFlush{
+	        .header{.type = spec::cmd::resourceFlush},
+	        .rect{
+	            .x = 0,
+	            .y = 0,
+	            .width = width,
+	            .height = height,
+	        },
+	        .resourceId = resourceId,
+	    }
+	};
 
-	spec::Header flush_result;
+	arch::dma_object<spec::Header> flush_result{
+	    &device->dmaPool(),
+	    spec::Header{}
+	};
 	virtio_core::Chain flush_chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice, flush_chain, device->_controlQ,
-		arch::dma_buffer_view{nullptr, &flush, sizeof(spec::ResourceFlush)});
+		flush.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost, flush_chain, device->_controlQ,
-		arch::dma_buffer_view{nullptr, &flush_result, sizeof(spec::Header)});
+		flush_result.view_buffer());
 	co_await AwaitableRequest{device->_controlQ, flush_chain.front()};
 
-	assert(flush_result.type == spec::resp::noData);
+	assert(flush_result->type == spec::resp::noData);
 }
 
-async::result<spec::DisplayInfo> Cmd::getDisplayInfo(GfxDevice *device) {
-	spec::Header header;
-	header.type = spec::cmd::getDisplayInfo;
-	header.flags = 0;
-	header.fenceId = 0;
-	header.contextId = 0;
-	header.padding = 0;
+async::result<arch::dma_object<spec::DisplayInfo>> Cmd::getDisplayInfo(GfxDevice *device) {
+	arch::dma_object<spec::Header> header{
+	    &device->dmaPool(),
+	    spec::Header{
+	        .type = spec::cmd::getDisplayInfo,
+	        .flags = 0,
+	        .fenceId = 0,
+	        .contextId = 0,
+	        .padding = 0,
+	    }
+	};
 
-	spec::DisplayInfo info;
+	arch::dma_object<spec::DisplayInfo> info{
+	    &device->dmaPool(),
+	    spec::DisplayInfo{}
+	};
 
 	virtio_core::Chain chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &header, sizeof(spec::Header)});
+			header.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &info, sizeof(spec::DisplayInfo)});
+			info.view_buffer());
 
 	co_await AwaitableRequest{device->_controlQ, chain.front()};
 
-	co_return info;
+	co_return std::move(info);
 }
 
 async::result<void> Cmd::create2d(uint32_t width, uint32_t height, uint32_t resourceId, GfxDevice *device) {
-	spec::Create2d buffer;
-	memset(&buffer, 0, sizeof(spec::Create2d));
-	buffer.header.type = spec::cmd::create2d;
-	buffer.resourceId = resourceId;
-	buffer.format = spec::format::bgrx;
-	buffer.width = width;
-	buffer.height = height;
+	arch::dma_object<spec::Create2d> buffer{
+	    &device->dmaPool(),
+	    spec::Create2d{
+	        .header{.type = spec::cmd::create2d},
+	        .resourceId = resourceId,
+	        .format = spec::format::bgrx,
+	        .width = width,
+	        .height = height,
+	    }
+	};
 
-	spec::Header result;
+	arch::dma_object<spec::Header> result{
+	    &device->dmaPool(),
+	    spec::Header{}
+	};
 	virtio_core::Chain chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice, chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &buffer, sizeof(spec::Create2d)});
+			buffer.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost, chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &result, sizeof(spec::Header)});
+			result.view_buffer());
 	co_await AwaitableRequest{device->_controlQ, chain.front()};
 
-	assert(result.type == spec::resp::noData);
+	assert(result->type == spec::resp::noData);
 }
 
-async::result<void> Cmd::attachBacking(uint32_t resourceId, void *ptr, size_t size, GfxDevice *device) {
-	assert(ptr);
+async::result<void> Cmd::attachBacking(uint32_t resourceId, arch::dma_buffer_view view, GfxDevice *device) {
+	assert(view.size());
+	assert((reinterpret_cast<uintptr_t>(view.data()) & 0xFFF) == 0);
+	auto &space = device->dmaSpace();
+	size_t pages = (view.size() + 0xFFF) >> 12;
+	size_t memEntries = space.iommuActive() ? 1 : pages;
 
-	std::vector<spec::MemEntry> entries;
-	for(size_t page = 0; page < size; page += 4096) {
-		spec::MemEntry entry;
-		memset(&entry, 0, sizeof(spec::MemEntry));
-		uintptr_t physical;
-
-		HEL_CHECK(helPointerPhysical(kHelNullHandle, (reinterpret_cast<char *>(ptr) + page), &physical));
-		entry.address = physical;
-		entry.length = 4096;
-		entries.push_back(entry);
+	arch::dma_array<spec::MemEntry> entries{&device->dmaPool(), memEntries};
+	if (space.iommuActive()) {
+		entries[0].address = co_await device->dmaSpace().iova_of(view);
+		entries[0].length = pages << 12;
+	} else {
+		for(size_t page = 0; page < pages; page++) {
+			uintptr_t physical = co_await device->dmaSpace().iova_of(view.subview(page << 12, 0x1000));
+			entries[page].address = physical;
+			entries[page].length = 4096;
+		}
 	}
 
-	spec::AttachBacking attachment;
-	memset(&attachment, 0, sizeof(spec::AttachBacking));
-	attachment.header.type = spec::cmd::attachBacking;
-	attachment.resourceId = resourceId;
-	attachment.numEntries = entries.size();
+	arch::dma_object<spec::AttachBacking> attachment{
+	    &device->dmaPool(),
+	    spec::AttachBacking{
+	        .header{.type = spec::cmd::attachBacking},
+	        .resourceId = resourceId,
+	        .numEntries = static_cast<uint32_t>(entries.size()),
+	    }
+	};
 
-	spec::Header attach_result;
+	arch::dma_object<spec::Header> attach_result{
+	    &device->dmaPool(),
+	    spec::Header{}
+	};
 	virtio_core::Chain attach_chain;
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &attachment, sizeof(spec::AttachBacking)});
+			attachment.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::hostToDevice, attach_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, entries.data(), entries.size() * sizeof(spec::MemEntry)});
+			entries.view_buffer());
 	co_await virtio_core::scatterGather(virtio_core::deviceToHost, attach_chain, device->_controlQ,
-			arch::dma_buffer_view{nullptr, &attach_result, sizeof(spec::Header)});
+			attach_result.view_buffer());
 	co_await AwaitableRequest{device->_controlQ, attach_chain.front()};
 
-	assert(attach_result.type == spec::resp::noData);
+	assert(attach_result->type == spec::resp::noData);
 }

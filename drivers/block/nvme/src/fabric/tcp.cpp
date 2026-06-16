@@ -8,8 +8,8 @@
 
 namespace nvme::fabric {
 
-TcpQueue::TcpQueue(uint16_t cid, unsigned int index, unsigned int depth, in_addr addr, in_port_t port, helix::BorrowedLane lane, std::span<uint8_t, 16> uuid)
-: Queue(index, depth), addr_{addr}, port_{port}, lane_{std::move(lane)}, controllerId_{cid}, uuid_{uuid} {
+TcpQueue::TcpQueue(Tcp *controller, uint16_t cid, unsigned int index, unsigned int depth, in_addr addr, in_port_t port, helix::BorrowedLane lane, std::span<uint8_t, 16> uuid)
+: Queue(controller, index, depth), addr_{addr}, port_{port}, lane_{std::move(lane)}, controllerId_{cid}, uuid_{uuid} {
 }
 
 async::result<protocols::fs::Error> TcpQueue::connect() {
@@ -99,7 +99,7 @@ async::result<void> TcpQueue::init() {
 		uuid_[8], uuid_[9], uuid_[10], uuid_[11], uuid_[12], uuid_[13], uuid_[14], uuid_[15]);
 	strncpy(connectData.hostNqn, nqn.c_str(), sizeof(connectData.hostNqn));
 
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, &connectData, sizeof(connectData)}, spec::DataTransfer::SGL);
+	co_await cmd->setupBuffer(controller_, arch::dma_buffer_view{nullptr, &connectData, sizeof(connectData)}, spec::DataTransfer::SGL);
 	auto res = co_await submitCommand(std::move(cmd));
 	if(!res.first.successful()) {
 		std::cout << "block/nvme: failed to set up queue " << qid_ << std::endl;
@@ -120,7 +120,7 @@ async::detached TcpQueue::keepAlive() {
 		auto cmd = std::make_unique<Command>();
 		auto &packet = cmd->getCommandBuffer().common;
 		packet.opcode = static_cast<uint8_t>(spec::AdminOpcode::KeepAlive);
-		cmd->setupBuffer(arch::dma_buffer_view{}, spec::DataTransfer::SGL);
+		co_await cmd->setupBuffer(controller_, arch::dma_buffer_view{}, spec::DataTransfer::SGL);
 		co_await submitCommand(std::move(cmd));
 	}
 }
@@ -279,7 +279,7 @@ async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 	uuid[6] = (uuid[6] & 0x0F) | 0x40;
 	uuid[8] = (uuid[8] & 0x3F) | 0x80;
 
-	auto adminq = std::make_unique<TcpQueue>(0xFFFF, 0, 32, serverAddr_, serverPort_, netserverLane_, std::span<uint8_t, 16>{uuid});
+	auto adminq = std::make_unique<TcpQueue>(this, 0xFFFF, 0, 32, serverAddr_, serverPort_, netserverLane_, std::span<uint8_t, 16>{uuid});
 	adminq->run();
 	co_await adminq->init();
 	auto cid = adminq->controllerId();
@@ -320,11 +320,11 @@ async::detached Tcp::run(mbus_ng::EntityId subsystem) {
 	setFeature.data[0] = 0x07;
 	setFeature.data[1] = 0;
 
-	cmd->setupBuffer(arch::dma_buffer_view{}, preferredDataTransfer_);
+	co_await cmd->setupBuffer(this, arch::dma_buffer_view{}, preferredDataTransfer_);
 	co_await activeQueues_.front()->submitCommand(std::move(cmd));
 
 	// // setup I/O queue
-	auto ioq = std::make_unique<TcpQueue>(cid, 1, 128, serverAddr_, serverPort_, netserverLane_, std::span<uint8_t, 16>{uuid});
+	auto ioq = std::make_unique<TcpQueue>(this, cid, 1, 128, serverAddr_, serverPort_, netserverLane_, std::span<uint8_t, 16>{uuid});
 	ioq->run();
 	co_await ioq->init();
 	activeQueues_.push_back(std::move(ioq));

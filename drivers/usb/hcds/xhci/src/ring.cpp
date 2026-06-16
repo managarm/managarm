@@ -156,9 +156,14 @@ EventRing::EventRing(Controller *controller)
 	for (size_t i = 0; i < eventRingSize; i++) {
 		_eventRing->ent[i] = {{0, 0, 0, 0}};
 	}
+}
 
-	_erst[0].ringSegmentBaseLow = getEventRingPtr() & 0xFFFFFFFF;
-	_erst[0].ringSegmentBaseHi = getEventRingPtr() >> 32;
+async::result<void> EventRing::init() {
+	_cachedEventRingIova = co_await _controller->dmaSpace().iova_of(_eventRing);
+	_cachedErstIova = co_await _controller->dmaSpace().iova_of(_erst);
+
+	_erst[0].ringSegmentBaseLow = _cachedEventRingIova & 0xFFFFFFFF;
+	_erst[0].ringSegmentBaseHi = _cachedEventRingIova >> 32;
 	_erst[0].ringSegmentSize = eventRingSize;
 	_erst[0].reserved = 0;
 
@@ -167,11 +172,13 @@ EventRing::EventRing(Controller *controller)
 }
 
 uintptr_t EventRing::getErstPtr() {
-	return helix::ptrToPhysical(_erst.data());
+	assert(_cachedErstIova != 0);
+	return _cachedErstIova;
 }
 
 uintptr_t EventRing::getEventRingPtr() {
-	return helix::ptrToPhysical(_eventRing.data()) + _dequeue.index * sizeof(RawTrb);
+	assert(_cachedEventRingIova != 0);
+	return _cachedEventRingIova + _dequeue.index * sizeof(RawTrb);
 }
 
 size_t EventRing::getErstSize() {
@@ -204,10 +211,14 @@ ProducerRing::ProducerRing(Controller *controller)
 	_controller->barrier.writeback(_ring.view_buffer());
 }
 
+async::result<void> ProducerRing::initialize() {
+	_cachedRingIova = co_await _controller->dmaSpace().iova_of(_ring);
+	assert(!(_cachedRingIova & 63));
+}
+
 uintptr_t ProducerRing::getPtr() {
-	auto ptr = helix::ptrToPhysical(_ring.data());
-	assert(!(ptr & 63));
-	return ptr;
+	assert(_cachedRingIova != 0);
+	return _cachedRingIova;
 }
 
 void ProducerRing::processEvent(Event ev) {
@@ -296,9 +307,10 @@ void ProducerRing::retire(RingPointer newDequeue) {
 void ProducerRing::_updateLink(bool initialCycle) {
 	if (_enqueue.cycle == initialCycle) return;
 
+	auto ptr = getPtr();
 	_ring->ent[ringSize - 1] = {{
-		static_cast<uint32_t>(getPtr() & 0xFFFFFFFF),
-		static_cast<uint32_t>(getPtr() >> 32),
+		static_cast<uint32_t>(ptr & 0xFFFFFFFF),
+		static_cast<uint32_t>(ptr >> 32),
 		0,
 		static_cast<uint32_t>(initialCycle | (1 << 1) | (1 << 5) | (6 << 10))
 	}};

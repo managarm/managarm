@@ -1,5 +1,6 @@
 #pragma once
 
+#include <arch/dma_pool.hpp>
 #include <arch/mem_space.hpp>
 #include <async/result.hpp>
 #include <helix/memory.hpp>
@@ -31,6 +32,8 @@ struct Controller {
 	virtual async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) = 0;
 	virtual async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) = 0;
 
+	virtual async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) = 0;
+
 	inline int64_t getParentId() const {
 		return parentId_;
 	}
@@ -46,14 +49,18 @@ struct Controller {
 
 	async::result<void> scanNamespaces();
 
-	async::result<Command::Result> identifyController(spec::IdentifyController &id);
+	async::result<Command::Result> identifyController(arch::dma_object_view<spec::IdentifyController> id);
 	async::result<Command::Result> identifyNamespaceList(unsigned int nsid, arch::dma_buffer_view list);
-	async::result<Command::Result> identifyNamespace(unsigned int nsid, spec::IdentifyNamespace &id);
+	async::result<Command::Result> identifyNamespace(unsigned int nsid, arch::dma_object_view<spec::IdentifyNamespace> id);
 
 	async::result<void> createNamespace(unsigned int nsid);
 
 	spec::DataTransfer dataTransferPolicy() const {
 		return preferredDataTransfer_;
+	}
+
+	arch::contiguous_pool &memoryPool() {
+		return pool_;
 	}
 
 protected:
@@ -65,6 +72,8 @@ protected:
 	std::string location_;
 	const ControllerType type_;
 
+	arch::contiguous_pool pool_{{.addressBits = 64, .allocFlags = 0}};
+
 	std::string serial;
 	std::string model;
 	std::string fw_rev;
@@ -74,12 +83,22 @@ protected:
 };
 
 struct PciExpressController final : public Controller {
-	PciExpressController(int64_t parentId, protocols::hw::Device hwDevice, std::string location, helix::Mapping regsMapping);
+	PciExpressController(
+	    int64_t parentId,
+	    protocols::hw::Device hwDevice,
+	    std::string location,
+	    helix::Mapping regsMapping,
+	    helix::UniqueDescriptor ioSpace,
+		bool iommuActive
+	);
 
 	async::detached run(mbus_ng::EntityId subsystem) override;
 
 	async::result<Command::Result> submitAdminCommand(std::unique_ptr<Command> cmd) override;
 	async::result<Command::Result> submitIoCommand(std::unique_ptr<Command> cmd) override;
+
+	async::result<std::optional<uintptr_t>> prpAddressOf(arch::dma_buffer_view) override;
+
 private:
 	async::result<void> setupIOQueueInterrupts(size_t queueId, size_t vector);
 
@@ -89,6 +108,9 @@ private:
 	std::string location_;
 	helix::Mapping regsMapping_;
 	arch::mem_space regs_;
+
+	helix::UniqueDescriptor ioSpace_;
+	arch::dma_space dmaSpace_;
 
 	unsigned int queueDepth_;
 	uint32_t dbStride_;

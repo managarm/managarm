@@ -38,12 +38,11 @@ struct Device;
 // --------------------------------------------------------
 
 struct UserRequest : virtio_core::Request {
-	UserRequest(bool write, uint64_t sector, void *buffer, size_t num_sectors);
+	UserRequest(bool write, uint64_t sector, arch::dma_buffer_view view);
 
 	bool write;
 	uint64_t sector;
-	void *buffer;
-	size_t numSectors;
+	arch::dma_buffer_view view;
 
 	async::oneshot_primitive event;
 };
@@ -55,13 +54,10 @@ struct UserRequest : virtio_core::Request {
 struct Device : blockfs::BlockDevice {
 	Device(std::unique_ptr<virtio_core::Transport> transport, int64_t parent_id);
 
-	void runDevice();
+	async::result<void> runDevice();
 
-	async::result<void> readSectors(uint64_t sector,
-			void *buffer, size_t num_sectors) override;
-
-	async::result<void> writeSectors(uint64_t sector,
-			const void *buffer, size_t num_sectors) override;
+	async::result<void> readSectors(uint64_t sector, arch::dma_buffer_view view) override;
+	async::result<void> writeSectors(uint64_t sector, arch::dma_buffer_view view) override;
 
 	async::result<size_t> getSize() override;
 
@@ -80,8 +76,8 @@ private:
 
 	// these two buffer store virtio-block request header and status bytes
 	// they are indexed by the index of the request's first descriptor
-	VirtRequest *virtRequestBuffer;
-	uint8_t *statusBuffer;
+	arch::dma_array<VirtRequest> virtRequestBuffer;
+	arch::dma_array<uint8_t> statusBuffer;
 
 	// The size of the disk
 	size_t _size;

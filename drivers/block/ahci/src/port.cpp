@@ -1,8 +1,10 @@
 #include <inttypes.h>
+#include <print>
 
 #include <helix/memory.hpp>
 #include <helix/timer.hpp>
 
+#include "controller.hpp"
 #include "port.hpp"
 
 namespace regs {
@@ -50,12 +52,22 @@ namespace {
 }
 
 // TODO: We can use a more appropriate block size, but this breaks other parts of the OS.
-Port::Port(int64_t parentId, int portIndex, size_t numCommandSlots, bool staggeredSpinUp, arch::mem_space regs)
-	: BlockDevice{::sectorSize, parentId},  regs_{regs}, deviceSize_{0},
-	numCommandSlots_{numCommandSlots}, commandsInFlight_{0}, portIndex_{portIndex}, 
-	staggeredSpinUp_{staggeredSpinUp}
-{
-}
+Port::Port(
+    Controller *controller,
+    int64_t parentId,
+    int portIndex,
+    size_t numCommandSlots,
+    bool staggeredSpinUp,
+    arch::mem_space regs
+)
+: BlockDevice{::sectorSize, parentId, &controller->pool()},
+  controller_{controller},
+  regs_{regs},
+  deviceSize_{0},
+  numCommandSlots_{numCommandSlots},
+  commandsInFlight_{0},
+  portIndex_{portIndex},
+  staggeredSpinUp_{staggeredSpinUp} {}
 
 async::result<bool> Port::init() {
 	// If PxSSTS.DET != 3, PxSSTS.IPM != 1 at this point, then ignore the device for now
@@ -128,7 +140,7 @@ void Port::dumpState() {
 
 // Start port (10.3.1).
 async::result<bool> Port::run() {
-	printf("block/ahci: Starting port %d\n", portIndex_);
+	std::println("block/ahci: Starting port {}", portIndex_);
 
 	// Clear errors
 	regs_.store(regs::sErr, regs_.load(regs::sErr));
@@ -136,16 +148,12 @@ async::result<bool> Port::run() {
 	// Allocate memory for command list, received FIS, and command tables.
 	// arch::dma_* structs should guarantee that these are always present in memory,
 	// and are physically contiguous.
-	commandList_ = arch::dma_object<commandList>{&dmaPool_};
-	commandTables_ = arch::dma_array<commandTable>{&dmaPool_, numCommandSlots_};
-	receivedFis_ = arch::dma_object<receivedFis>{&dmaPool_};
+	commandList_ = {arch::dma_object<commandList>{&controller_->pool()}};
+	commandTables_ = {arch::dma_array<commandTable>{&controller_->pool(), numCommandSlots_}};
+	receivedFis_ = {arch::dma_object<receivedFis>{&controller_->pool()}};
 
-	uintptr_t clPhys = helix::ptrToPhysical(commandList_.data()),
-			  ctPhys = helix::ptrToPhysical(&commandTables_[0]),
-			  rfPhys = helix::ptrToPhysical(receivedFis_.data());
-	assert((clPhys & 0x3FF) == 0 && clPhys < std::numeric_limits<uint32_t>::max());
-	assert((ctPhys & 0x7F) == 0 && ctPhys < std::numeric_limits<uint32_t>::max());
-	assert((rfPhys & 0xFF) == 0 && rfPhys < std::numeric_limits<uint32_t>::max());
+	auto clPhys = co_await controller_->dmaSpace().iova_of(commandList_);
+	auto rfPhys = co_await controller_->dmaSpace().iova_of(receivedFis_);
 
 	regs_.store(regs::clBase, static_cast<uint32_t>(clPhys));
 	regs_.store(regs::clBaseUpper, 0);
@@ -174,9 +182,9 @@ async::result<bool> Port::run() {
 
 	size_t slot = co_await findFreeSlot_();
 
-	arch::dma_object<identifyDevice> identify{&dmaPool_};
-	Command cmd = Command(identify.data(), CommandType::identify);
-	cmd.prepare(commandTables_[slot], commandList_->slots[slot]);
+	arch::dma_object<identifyDevice> identify{&controller_->pool()};
+	Command cmd{controller_, identify, CommandType::identify};
+	co_await cmd.prepare(commandTables_.object_view(slot), commandList_->slots[slot]);
 
 	regs_.store(regs::commandIssue, 1u << slot);
 
@@ -310,7 +318,7 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	assert(!submittedCmds_[slot]);
 
 	// Setup command table and FIS
-	cmd->prepare(commandTables_[slot], commandList_->slots[slot]);
+	co_await cmd->prepare(commandTables_.object_view(slot), commandList_->slots[slot]);
 
 	// Issue command
 	submittedCmds_[slot] = cmd;
@@ -324,16 +332,14 @@ async::result<void> Port::submitCommand_(Command *cmd) {
 	co_return;
 }
 
-async::result<void> Port::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
-	Command cmd{sector, numSectors, numSectors * sectorSize,
-			buffer, CommandType::read};
+async::result<void> Port::readSectors(uint64_t sector, arch::dma_buffer_view view) {
+	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::read};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }
 
-async::result<void> Port::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
-	Command cmd{sector, numSectors, numSectors * sectorSize,
-			const_cast<void *>(buffer), CommandType::write};
+async::result<void> Port::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
+	Command cmd{controller_, sector, view.size() >> sectorShift, view, CommandType::write};
 	pendingCmdQueue_.put(&cmd);
 	co_await cmd.getFuture();
 }

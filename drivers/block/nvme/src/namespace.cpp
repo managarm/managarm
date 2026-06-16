@@ -7,7 +7,7 @@
 #include "controller.hpp"
 
 Namespace::Namespace(Controller *controller, unsigned int nsid, int lbaShift, size_t lbaCount)
-	: BlockDevice{(size_t)1 << lbaShift, -1}, controller_(controller), nsid_(nsid),
+	: BlockDevice{(size_t)1 << lbaShift, -1, &controller->memoryPool()}, controller_(controller), nsid_(nsid),
 	  lbaShift_(lbaShift), lbaCount_{lbaCount} {
 	diskNamePrefix = "nvme";
 	diskNameSuffix = std::format("n{}", nsid);
@@ -30,34 +30,38 @@ async::detached Namespace::run() {
 	co_return;
 }
 
-async::result<void> Namespace::readSectors(uint64_t sector, void *buffer, size_t numSectors) {
+async::result<void> Namespace::readSectors(uint64_t sector, arch::dma_buffer_view view) {
 	using arch::convert_endian;
 	using arch::endian;
 
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().readWrite;
+
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
 
 	cmdBuf.opcode = spec::kRead;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid_);
 	cmdBuf.startLba = convert_endian<endian::little, endian::native>(sector);
-	cmdBuf.length = convert_endian<endian::little, endian::native>((uint16_t)numSectors - 1);
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, buffer, numSectors << lbaShift_}, controller_->dataTransferPolicy());
+	cmdBuf.length = convert_endian<endian::little, endian::native>(numSectors - 1);
+	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
 	co_await controller_->submitIoCommand(std::move(cmd));
 }
 
-async::result<void> Namespace::writeSectors(uint64_t sector, const void *buffer, size_t numSectors) {
+async::result<void> Namespace::writeSectors(uint64_t sector, arch::dma_buffer_view view) {
 	using arch::convert_endian;
 	using arch::endian;
 
 	auto cmd = std::make_unique<Command>();
 	auto &cmdBuf = cmd->getCommandBuffer().readWrite;
 
+	auto numSectors = (view.size() + sectorSize - 1) >> sectorShift;
+
 	cmdBuf.opcode = spec::kWrite;
 	cmdBuf.nsid = convert_endian<endian::little, endian::native>(nsid_);
 	cmdBuf.startLba = convert_endian<endian::little, endian::native>(sector);
-	cmdBuf.length = convert_endian<endian::little, endian::native>((uint16_t)numSectors - 1);
-	cmd->setupBuffer(arch::dma_buffer_view{nullptr, (char *)buffer, numSectors << lbaShift_}, controller_->dataTransferPolicy());
+	cmdBuf.length = convert_endian<endian::little, endian::native>(numSectors - 1);
+	co_await cmd->setupBuffer(controller_, view, controller_->dataTransferPolicy());
 
 	co_await controller_->submitIoCommand(std::move(cmd));
 }
@@ -111,7 +115,7 @@ async::result<void> Namespace::handleIoctl(managarm::fs::GenericIoctlRequest &re
 		);
 		HEL_CHECK(recv_data.error());
 
-		cmd->setupBuffer(arch::dma_buffer_view{nullptr, data_buf.data(), data_size}, controller_->dataTransferPolicy());
+		co_await cmd->setupBuffer(controller_, arch::dma_buffer_view{nullptr, data_buf.data(), data_size}, controller_->dataTransferPolicy());
 
 		auto res = co_await controller_->submitAdminCommand(std::move(cmd));
 
