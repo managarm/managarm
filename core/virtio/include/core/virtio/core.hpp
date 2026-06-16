@@ -175,8 +175,8 @@ struct Transport {
 
 	virtual void runDevice() = 0;
 
-	arch::contiguous_pool memoryPool_{{.addressBits = 64, .allocFlags = 0}};
-	arch::contiguous_pool contiguousPool_{{.addressBits = 64, .allocFlags = kHelAllocContinuous}};
+	arch::contiguous_pool memoryPool_{{.addressBits = 64, .allocateContigous = false}};
+	arch::contiguous_pool contiguousPool_{{.addressBits = 64, .allocateContigous = true}};
 	helix::UniqueDescriptor dmaSpaceHandle_;
 	arch::dma_space dmaSpace_;
 	arch::dma_space contiguousDmaSpace_;

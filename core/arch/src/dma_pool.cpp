@@ -97,7 +97,7 @@ helix::UniqueDescriptor contiguous_pool::allocate_pages_(size_t region_size) {
 	restrictions.addressBits = options_.addressBits;
 
 	HelHandle memory;
-	HEL_CHECK(helAllocateMemory(region_size, options_.allocFlags, &restrictions, &memory));
+	HEL_CHECK(helAllocateMemory(region_size, options_.allocateContigous ? kHelAllocContinuous : 0, &restrictions, &memory));
 
 	return helix::UniqueDescriptor{memory};
 }

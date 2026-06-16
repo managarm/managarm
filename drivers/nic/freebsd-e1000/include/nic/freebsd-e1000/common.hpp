@@ -36,7 +36,7 @@ enum class NicType {
 #define IFF_ALLMULTI 0x200
 
 struct E1000Nic : nic::Link {
-	E1000Nic(protocols::hw::Device device);
+	E1000Nic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive);
 
 	async::result<size_t> receive(arch::dma_buffer_view) override;
 	async::result<void> send(const arch::dma_buffer_view) override;
@@ -65,7 +65,9 @@ private:
 	helix::Mapping _mmio_mapping;
 	arch::mem_space _mmio;
 
-	arch::contiguous_pool _dmaPool{{.addressBits = 64}};
+	arch::contiguous_pool _dmaPool;
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
 	protocols::hw::Device _device;
 
 	helix::UniqueDescriptor _irq;
@@ -75,9 +77,11 @@ private:
 
 	arch::dma_array<struct e1000_rx_desc> _rxd;
 	arch::dma_array<DescriptorSpace> _rxdbuf;
+	std::vector<uintptr_t> rxdIova_;
 
 	arch::dma_array<struct e1000_tx_desc> _txd;
 	arch::dma_array<DescriptorSpace> _txdbuf;
+	std::vector<uintptr_t> txdIova_;
 
 	std::queue<Request *> _requests;
 
@@ -94,6 +98,6 @@ void e1000_osdep_set_pci(struct e1000_osdep *st, protocols::hw::Device &pci);
 
 namespace nic::e1000 {
 
-std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device);
+async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device);
 
 }

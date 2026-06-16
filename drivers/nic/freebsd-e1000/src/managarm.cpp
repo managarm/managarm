@@ -38,19 +38,20 @@
 #include <nic/freebsd-e1000/common.hpp>
 #include <unistd.h>
 
-E1000Nic::E1000Nic(protocols::hw::Device device)
-	: nic::Link(1500, &_dmaPool), _device{std::move(device)},
-	_rxIndex(0, RX_QUEUE_SIZE), _txIndex(0, TX_QUEUE_SIZE) {
-	async::run(this->init(), helix::currentDispatcher);
-}
+E1000Nic::E1000Nic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive)
+: nic::Link(1500, &_dmaPool),
+  _dmaPool{{.addressBits = 64, .allocateContigous = !iommuActive}},
+  dmaSpaceHandle_{std::move(dmaSpace)},
+  dmaSpace_{_dmaPool.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  _device{std::move(device)},
+  _rxIndex(0, RX_QUEUE_SIZE),
+  _txIndex(0, TX_QUEUE_SIZE) {}
 
 async::result<void> E1000Nic::init() {
 	u32 reg_rctl = 0;
 
 	auto info = co_await _device.getPciInfo();
 	_irq = co_await _device.accessIrq();
-	co_await _device.enableBusmaster();
-	co_await _device.enableDma();
 
 	co_await identifyHardware();
 
@@ -171,11 +172,16 @@ async::result<void> E1000Nic::init() {
 
 	memset(_rxd.data(), 0, RX_QUEUE_SIZE * sizeof(struct e1000_rx_desc));
 
+	for(size_t i = 0; i < RX_QUEUE_SIZE; i++) {
+		auto iova = co_await dmaSpace_.iova_of(_rxdbuf.object_view(i));
+		rxdIova_.push_back(iova);
+	}
+
 	if(_hw.mac.type >= em_mac_min) {
 		em_rxd_setup();
 	} else {
 		for(size_t i = 0; i < RX_QUEUE_SIZE; i++) {
-			_rxd[i].buffer_addr = helix_ng::ptrToPhysical(&_rxdbuf[i]);
+			_rxd[i].buffer_addr = rxdIova_[i];
 			_rxd[i].length = 2048;
 		}
 	}
@@ -186,7 +192,9 @@ async::result<void> E1000Nic::init() {
 	memset(_txd.data(), 0, TX_QUEUE_SIZE * sizeof(struct e1000_tx_desc));
 
 	for(size_t i = 0; i < TX_QUEUE_SIZE; i++) {
-		_txd[i].buffer_addr = helix_ng::ptrToPhysical(&_txdbuf[i]);
+		auto iova = co_await dmaSpace_.iova_of(_txdbuf.object_view(i));
+		txdIova_.push_back(iova);
+		_txd[i].buffer_addr = iova;
 		_txd[i].lower.data = 0;
 		_txd[i].upper.data = 0;
 	}
@@ -279,8 +287,15 @@ void E1000Nic::pciRead(u32 reg, u8 *value) {
 
 namespace nic::e1000 {
 
-std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
-	return std::make_shared<E1000Nic>(std::move(device));
+async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
+	co_await device.enableBusmaster();
+
+	co_await device.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await device.getDmaSpace();
+
+	auto nic = std::make_shared<E1000Nic>(std::move(device), std::move(dmaSpace), iommuActive);
+	co_await nic->init();
+	co_return std::move(nic);
 }
 
 } // namespace nic::intel8254x

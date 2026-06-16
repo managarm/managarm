@@ -38,7 +38,7 @@ void E1000Nic::em_eth_rx_ack() {
 	union e1000_rx_desc_extended* desc = (union e1000_rx_desc_extended*)&_rxd[n];
 
 	/* Zero out the receive descriptors status. */
-	desc->read.buffer_addr = helix::ptrToPhysical(&_rxdbuf[n]);
+	desc->read.buffer_addr = rxdIova_[n];
 	desc->wb.upper.status_error = 0;
 }
 
@@ -46,7 +46,7 @@ void E1000Nic::em_rxd_setup() {
 	union e1000_rx_desc_extended* rxd = (union e1000_rx_desc_extended*) &_rxd[0];
 
 	for (size_t n = 0; n < RX_QUEUE_SIZE; n++) {
-		rxd[n].read.buffer_addr = helix::ptrToPhysical(&_rxdbuf[n]);
+		rxd[n].read.buffer_addr = rxdIova_[n];
 		/* DD bits must be cleared */
 		rxd[n].wb.upper.status_error = 0;
 	}
@@ -179,7 +179,7 @@ async::result<void> E1000Nic::rxInit() {
 	}
 
 	/* Setup the Base and Length of the Rx Descriptor Ring */
-	u64 bus_addr = helix::ptrToPhysical(&_rxd[0]);
+	u64 bus_addr = co_await dmaSpace_.iova_of(_rxd);
 	E1000_WRITE_REG(&_hw, E1000_RDLEN(0), RX_QUEUE_SIZE * sizeof(union e1000_rx_desc_extended));
 	E1000_WRITE_REG(&_hw, E1000_RDBAH(0), (u32)(bus_addr >> 32));
 	E1000_WRITE_REG(&_hw, E1000_RDBAL(0), (u32)bus_addr);
@@ -205,7 +205,7 @@ async::result<void> E1000Nic::rxInit() {
 		rctl |= E1000_RCTL_SZ_2048;
 
 		/* Setup the Base and Length of the Rx Descriptor Rings */
-		bus_addr = helix::ptrToPhysical(&_rxd[0]);
+		bus_addr = co_await dmaSpace_.iova_of(_rxd);
 
 		u32 rxdctl;
 		srrctl |= E1000_SRRCTL_DESCTYPE_ADV_ONEBUF;

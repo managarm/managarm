@@ -21,7 +21,7 @@ struct contiguous_pool_options {
 	size_t minAllocationGap{64};
 	// TODO: default to non-continous, so that devices requiring contigous physical allocations
 	// have to opt-in to this behavior.
-	int allocFlags = kHelAllocContinuous;
+	bool allocateContigous = true;
 	// Additional flags passed when mapping the memory into DMA space.
 	uint32_t dmaMapFlags = 0;
 };
