@@ -1233,7 +1233,7 @@ void findPciCaps(PciEntity *entity) {
 			// TODO:
 			size_t size = -1;
 			if(type == 0x09)
-				size = io->readConfigHalf(entity->parentBus, entity->slot, entity->function, offset + 2);
+				size = io->readConfigByte(entity->parentBus, entity->slot, entity->function, offset + 2);
 
 			entity->caps.push({type, offset, size});
 
@@ -1252,8 +1252,13 @@ void findPciCaps(PciEntity *entity) {
 			// The bottom 2 bits are reserved and must be masked out.
 			// This offset is relative to the start of the entire configuration space.
 			uint16_t nextOffset = (data >> 20) & 0xFFC;
+			if (nextOffset > 0 && nextOffset < 0x100) {
+				warningLogger() << frg::fmt("thor: invalid 'Next Capability Offset' 0x{:x}, skipping", nextOffset) << frg::endlog;
+				break;
+			}
 
-			if (extendedCapId == 0xFFFF && nextOffset == 0)
+			// Any one of these conditions signals that there are no further extended capabilities.
+			if (extendedCapId == 0xFFFF || extendedCapId == 0 || !nextOffset)
 				break;
 
 			// We have a valid Extended Capability
