@@ -4,7 +4,7 @@
 
 #include <print>
 
-std::vector<sound::PeriodChunk> globalPeriodChunks;
+std::vector<arch::dma_buffer_view> globalPeriodChunks;
 
 Device::Device(Controller *ctrl, UhdaPath *path, sound::DeviceType type, mbus_ng::EntityId parentId)
 		: sound::Device{type, parentId, ctrl}, path{path} {
@@ -57,7 +57,7 @@ static UhdaStreamParams paramsToUhda(const sound::StreamParameters &params) {
 	switch (params.format) {
 	case sound::Format::pcmS8:
 		fmt = UHDA_FORMAT_PCM8;
-		break;	
+		break;
 	case sound::Format::pcmS16:
 		fmt = UHDA_FORMAT_PCM16;
 		break;

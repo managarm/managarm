@@ -1,13 +1,12 @@
 #include "sound.hpp"
 #include "rules.hpp"
 
-#include <protocols/mbus/client.hpp>
-#include <protocols/fs/server.hpp>
-
+#include <arch/dma_pool.hpp>
 #include <async/recurring-event.hpp>
-
 #include <bragi/helpers-all.hpp>
 #include <bragi/helpers-std.hpp>
+#include <protocols/fs/server.hpp>
+#include <protocols/mbus/client.hpp>
 
 #include <linux/types.h>
 #include <sound/asound.h>
@@ -86,7 +85,7 @@ struct DeviceFile {
 
 		memory = helix::UniqueDescriptor{handle};
 
-		bufferMapping = helix::Mapping{memory, 0, SNDRV_PCM_MMAP_OFFSET_STATUS_OLD};
+		bufferMapping = device->card->pool->importMemory(memory, 0, SNDRV_PCM_MMAP_OFFSET_STATUS_OLD);
 		statusMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_STATUS, statusSize};
 		controlMapping = helix::Mapping{memory, SNDRV_PCM_MMAP_OFFSET_CONTROL, controlSize};
 
@@ -224,7 +223,7 @@ struct DeviceFile {
 
 	sound::Device *device;
 	helix::UniqueDescriptor memory;
-	helix::Mapping bufferMapping;
+	arch::imported_dma_buffer bufferMapping;
 	helix::Mapping statusMapping;
 	helix::Mapping controlMapping;
 	snd_pcm_mmap_status *status;
@@ -362,7 +361,7 @@ async::result<frg::expected<protocols::fs::Error, size_t>> DeviceFile::writeFram
 			}
 		}
 
-		void *ptr = reinterpret_cast<void *>(uintptr_t(bufferMapping.get()) + realApplPtr * frameSize);
+		auto ptr = bufferMapping.view().byte_data() + realApplPtr * frameSize;
 		memcpy(ptr, data.data() + progress * frameSize, toCopy * frameSize);
 
 		applPtr += toCopy;
@@ -823,14 +822,9 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 				std::println(std::cout, "libsound: buffer size {} ({} periods * {})", bufferSize, periods, periodBytes);
 			}
 
-			std::vector<sound::PeriodChunk> periodChunks;
+			std::vector<arch::dma_buffer_view> periodChunks;
 			for (size_t i = 0; i < bufferSize / periodBytes; i++) {
-				void *virt = reinterpret_cast<void *>(uintptr_t(self->bufferMapping.get()) + i * periodBytes);
-				sound::PeriodChunk chunk{
-					.virt = virt,
-					.phys = helix::ptrToPhysical(virt)
-				};
-				periodChunks.push_back(chunk);
+				periodChunks.push_back(self->bufferMapping.view().subview(i * periodBytes, periodBytes));
 			}
 
 			sound::StreamParameters streamParams{
@@ -856,7 +850,7 @@ async::result<void> DeviceFile::ioctl(void *object, uint32_t id, helix_ng::RecvI
 				assert(stream);
 			}
 
-			auto status = stream->setup(streamParams);
+			auto status = stream->setup(std::move(streamParams));
 			assert(status);
 
 			status = self->device->attachToStream(stream);
