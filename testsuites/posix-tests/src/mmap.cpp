@@ -191,6 +191,14 @@ DEFINE_TEST(mmap_fixed_replace_right, ([] {
 	});
 }))
 
+DEFINE_TEST(mmap_fixed_noreplace, ([] {
+	void *original_addr = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	assert(original_addr != MAP_FAILED);
+	void *fixed_addr = mmap(original_addr, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+	assert(fixed_addr == MAP_FAILED);
+	munmap(original_addr, 0x1000);
+}))
+
 DEFINE_TEST(mmap_partial_protect_middle, ([] {
 	void *mem = mmap(nullptr, pageSize * 3, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 	assert_errno("mmap", mem != MAP_FAILED);
