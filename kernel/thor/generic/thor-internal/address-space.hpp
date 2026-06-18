@@ -71,6 +71,8 @@ frg::expected<Error, PagesAffected> mapPresentPagesByCursor(PageSpace *ps, Virtu
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
+	// At least one access bit is always set; see VirtualOperations.
+	assert(flags & (page_access::read | page_access::write | page_access::execute));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
@@ -118,6 +120,8 @@ frg::expected<Error, PagesAffected> restrictPagesByCursor(PageSpace *ps, Virtual
 		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(size & (kPageSize - 1)));
+	// At least one access bit is always set; see VirtualOperations.
+	assert(flags & (page_access::read | page_access::write | page_access::execute));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
@@ -147,6 +151,8 @@ frg::expected<Error, PagesAffected> faultPageByCursor(PageSpace *ps, VirtualAddr
 		typename Cursor::PolicyType policy) {
 	assert(!(va & (kPageSize - 1)));
 	assert(!(offset & (kPageSize - 1)));
+	// At least one access bit is always set; see VirtualOperations.
+	assert(flags & (page_access::read | page_access::write | page_access::execute));
 
 	PagesAffected affected{};
 	Cursor c{ps, va, policy};
@@ -275,12 +281,15 @@ struct VirtualOperations {
 
 	virtual bool submitShootdown(ShootNode *node) = 0;
 
+	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> mapPresentPages(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, size_t size, PageFlags flags, CachingMode mode) = 0;
 
+	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> restrictPages(VirtualAddr va,
 			size_t size, PageFlags flags, CachingMode mode) = 0;
 
+	// Precondition: flags has at least one access bit (read/write/execute) set.
 	virtual frg::expected<Error, PagesAffected> faultPage(VirtualAddr va, MemoryView *view,
 			uintptr_t offset, FetchFlags fetchFlags, PageFlags flags, CachingMode mode) = 0;
 

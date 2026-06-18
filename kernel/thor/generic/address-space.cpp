@@ -503,7 +503,8 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 			if((actualMappingFlags & MappingFlags::permissionMask) & MappingFlags::protRead)
 				pageFlags |= page_access::read;
 
-			{
+			// PROT_NONE mappings have no accessible pages to populate.
+			if(pageFlags) {
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
 				auto mapOutcome = _ops->mapPresentPages(mapping->address, mapping->view.get(),
@@ -582,10 +583,18 @@ VirtualSpace::protect(VirtualAddr address, size_t length, uint32_t flags) {
 		{
 			LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
 
-			auto restrictOutcome = _ops->restrictPages(mapping->address,
-					mapping->length, pageFlags, caching);
-			assert(restrictOutcome);
-			anyRevoked = restrictOutcome.value().anyRevoked;
+			// A present page is always readable, so dropping all access requires unmapping.
+			if(pageFlags) {
+				auto restrictOutcome = _ops->restrictPages(mapping->address,
+						mapping->length, pageFlags, caching);
+				assert(restrictOutcome);
+				anyRevoked = restrictOutcome.value().anyRevoked;
+			}else{
+				auto unmapOutcome = _ops->unmapPages(mapping->address, mapping->length);
+				assert(unmapOutcome);
+				notifyRss_(unmapOutcome.value());
+				anyRevoked = unmapOutcome.value().anyRevoked;
+			}
 
 			if(anyRevoked)
 				co_await _ops->shootdown(mapping->address, mapping->length);
@@ -681,6 +690,9 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 			if (!(flags & MappingFlags::protExecute))
 				co_return Error::badPermissions;
 		}
+		// A mapping without any permission (PROT_NONE) faults on every access.
+		if(!(flags & MappingFlags::permissionMask))
+			co_return Error::badPermissions;
 
 		// TODO: Aligning should not be necessary here.
 		auto offset = (address - mapping->address) & ~(kPageSize - 1);
@@ -707,6 +719,10 @@ VirtualSpace::handleFault(VirtualAddr address, uint32_t faultFlags) {
 			if (mapping->state.load(std::memory_order_relaxed) != MappingState::active)
 				continue;
 			auto flags = mapping->flags.load(std::memory_order_relaxed);
+			// Re-check under the RCU guard: a concurrent protect() may have dropped all
+			// access and unmapped the range, so the page must not be made present again.
+			if(!(flags & MappingFlags::permissionMask))
+				co_return Error::badPermissions;
 
 			{
 				LocalRcuEngine::Guard revokeGuard{mapping->revokeRcu};
