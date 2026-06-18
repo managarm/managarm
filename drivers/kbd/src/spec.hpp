@@ -9,6 +9,7 @@ constexpr int writeByte0 = 0x60;
 constexpr int disable2ndPort = 0xA7;
 constexpr int enable2ndPort = 0xA8;
 constexpr int disable1stPort = 0xAD;
+constexpr int performSelfTest = 0xAA;
 constexpr int enable1stPort = 0xAE;
 constexpr int write2ndNextByte = 0xD4;
 

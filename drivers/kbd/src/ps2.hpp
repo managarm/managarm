@@ -31,6 +31,7 @@ namespace controller_cmd {
 	struct GetByte0 {};
 	struct SetByte0 {};
 	struct SendBytePort2 {};
+	struct SelfTest {};
 }
 
 namespace device_cmd {
@@ -172,6 +173,7 @@ struct Controller {
 	uint8_t submitCommand(controller_cmd::GetByte0 tag);
 	void submitCommand(controller_cmd::SetByte0 tag, uint8_t val);
 	void submitCommand(controller_cmd::SendBytePort2 tag);
+	bool submitCommand(controller_cmd::SelfTest);
 
 private:
 	bool processData(int port);

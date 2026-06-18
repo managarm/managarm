@@ -156,6 +156,11 @@ async::detached Controller::init() {
 	while(_commandSpace.load(kbd_register::status) & status_bits::outBufferStatus)
 		_dataSpace.load(kbd_register::data);
 
+	if (!submitCommand(controller_cmd::SelfTest{})) {
+		std::println("ps2-hid: controller self-test failed, skipping further init");
+		co_return;
+	}
+
 	// enable interrupt for second device
 	auto configuration = submitCommand(controller_cmd::GetByte0{});
 	_hasSecondPort = (configuration & (1 << 5)) && _hasSecondPort;
@@ -286,6 +291,12 @@ void Controller::submitCommand(controller_cmd::SetByte0, uint8_t val) {
 
 void Controller::submitCommand(controller_cmd::SendBytePort2) {
 	sendCommandByte(0xD4); // TODO: define a constant?
+}
+
+bool Controller::submitCommand(controller_cmd::SelfTest) {
+	sendCommandByte(performSelfTest);
+	auto result = recvResponseByte(default_timeout);
+	return (result && *result == 0x55);
 }
 
 async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
