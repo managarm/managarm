@@ -1,44 +1,12 @@
 .set kEferLme, 0x100
 .set kEferNx, 0x800
 
-.section .data
-gdtr:
-	.short 0
-	.int 0
-
 .section .bss
 	.align 16
 eirStackBottom:
 	.skip 0x100000 # reserve 1 MiB for the stack
 	.global eirStackTop
 eirStackTop:
-
-.section .text
-
-.global eirLoadGdt
-eirLoadGdt:
-
-	mov 4(%esp), %eax
-	mov 8(%esp), %ecx
-	
-	# construct gdtr and load it
-	mov %cx, (gdtr)
-	mov %eax, (gdtr + 2)
-	lgdt (gdtr)
-
-	# reload code segment
-	ljmp $0x8, $.Lgdt_reload
-
-.Lgdt_reload:
-	# reload data segments
-	mov $0x10, %ax
-	mov %ax, %ds
-	mov %ax, %es
-	mov %ax, %ss
-	mov $0, %ax
-	mov %ax, %fs
-	mov %ax, %gs
-	ret
 
 .section .trampoline
 .global eirEnterKernel
