@@ -138,14 +138,18 @@ private:
 };
 
 struct imported_dma_buffer {
-	imported_dma_buffer() : pool_{nullptr}, size_{0} {}
+	imported_dma_buffer() : pool_{nullptr}, ptr_{}, size_{0} {}
 
 	imported_dma_buffer(contiguous_pool *pool, dma_ptr ptr, size_t size)
-	: pool_{pool}, ptr_{ptr}, size_{size} {}
+	: pool_{pool}, ptr_{ptr}, size_{size} {
+		assert(pool_);
+	}
 
 	~imported_dma_buffer() {
-		auto rn = static_cast<contiguous_pool::region *>(ptr_.region());
-		delete rn;
+		if (pool_) {
+			auto rn = static_cast<contiguous_pool::region *>(ptr_.region());
+			delete rn;
+		}
 	}
 
 	friend void swap(imported_dma_buffer &a, imported_dma_buffer &b) {
@@ -156,10 +160,9 @@ struct imported_dma_buffer {
 	}
 
 	imported_dma_buffer(const imported_dma_buffer &) = delete;
-	imported_dma_buffer &operator=(const imported_dma_buffer &) = delete;
 
 	imported_dma_buffer(imported_dma_buffer &&other) noexcept
-	: arch::imported_dma_buffer() {
+	: imported_dma_buffer() {
 		swap(*this, other);
 	}
 

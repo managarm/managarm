@@ -1,23 +1,22 @@
-#include <iostream>
-#include <format>
-
-#include <protocols/mbus/client.hpp>
-#include <protocols/hw/client.hpp>
-
 #include <helix/memory.hpp>
-
+#include <protocols/hw/client.hpp>
+#include <protocols/mbus/client.hpp>
 #include <uhda/uhda.h>
 
 #include "controller.hpp"
+
+namespace {
 
 struct PciDeviceId {
 	uint16_t vendor;
 	uint16_t device;
 };
 
-constexpr PciDeviceId uhdaDevices[]{UHDA_MATCHING_DEVICES};
+constexpr auto uhdaDevices = std::to_array<PciDeviceId>({UHDA_MATCHING_DEVICES});
 
 std::vector<std::unique_ptr<Controller>> globalControllers;
+
+} // namespace
 
 async::detached handleIrqs(helix::BorrowedDescriptor irq, UhdaIrqHandlerFn fn, void *arg) {
 	uint64_t irqSequence = 0;
@@ -43,12 +42,13 @@ async::detached bindController(mbus_ng::Entity entity) {
 
 	auto info = co_await dev.getPciInfo();
 	co_await dev.enableBusmaster();
-	co_await dev.enableDma();
+	co_await dev.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await dev.getDmaSpace();
 
-	auto controller = std::make_unique<Controller>(std::move(dev), info.numMsis != 0);
+	auto controller = std::make_unique<Controller>(std::move(dev), info.numMsis != 0, std::move(dmaSpace), iommuActive);
 
 	UhdaController *uhdaCtrl;
-	auto status = uhda_init(controller.get(), &uhdaCtrl);
+	auto status = uhda_init(reinterpret_cast<uintptr_t>(controller.get()), &uhdaCtrl);
 	assert(status == UHDA_STATUS_SUCCESS);
 
 	const UhdaCodec *const *codecs;

@@ -42,10 +42,10 @@ async::result<void> unmapBar(protocols::hw::Device &dev, int bar, void *ptr) {
 	HEL_CHECK(helUnmapMemory(kHelNullHandle, ptr, info.barInfo[bar].length));
 }
 
-}
+} // namespace
 
-UhdaStatus uhda_kernel_pci_read(void *pci_device, uint8_t offset, uint8_t size, uint32_t *res) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+UhdaStatus uhda_kernel_pci_read(uintptr_t handle, uint8_t offset, uint8_t size, uint32_t *res) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	switch (size) {
 	case 1:
@@ -64,8 +64,8 @@ UhdaStatus uhda_kernel_pci_read(void *pci_device, uint8_t offset, uint8_t size, 
 	return UHDA_STATUS_SUCCESS;
 }
 
-UhdaStatus uhda_kernel_pci_write(void *pci_device, uint8_t offset, uint8_t size, uint32_t value) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+UhdaStatus uhda_kernel_pci_write(uintptr_t handle, uint8_t offset, uint8_t size, uint32_t value) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	switch (size) {
 	case 1:
@@ -86,8 +86,8 @@ UhdaStatus uhda_kernel_pci_write(void *pci_device, uint8_t offset, uint8_t size,
 
 async::detached handleIrqs(helix::BorrowedDescriptor irq, UhdaIrqHandlerFn fn, void *arg);
 
-UhdaStatus uhda_kernel_pci_allocate_irq(void *pci_device, UhdaIrqHint hint, UhdaIrqHandlerFn fn, void *arg, void **opaque_irq) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+UhdaStatus uhda_kernel_pci_allocate_irq(uintptr_t handle, UhdaIrqHint hint, UhdaIrqHandlerFn fn, void *arg, void **opaque_irq) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	helix::UniqueDescriptor irq;
 	if (ctrl->msiAvailable && hint != UHDA_IRQ_HINT_INTX) {
@@ -105,12 +105,12 @@ UhdaStatus uhda_kernel_pci_allocate_irq(void *pci_device, UhdaIrqHint hint, Uhda
 	return UHDA_STATUS_SUCCESS;
 }
 
-void uhda_kernel_pci_deallocate_irq(void *, void *opaque_irq) {
+void uhda_kernel_pci_deallocate_irq(uintptr_t, void *opaque_irq) {
 	helix::UniqueDescriptor irq{reinterpret_cast<HelHandle>(opaque_irq)};
 }
 
-void uhda_kernel_pci_enable_irq(void* pci_device, void *, bool enable) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+void uhda_kernel_pci_enable_irq(uintptr_t handle, void *, bool enable) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	if (enable) {
 		if (ctrl->useMsi) {
@@ -121,15 +121,15 @@ void uhda_kernel_pci_enable_irq(void* pci_device, void *, bool enable) {
 	}
 }
 
-UhdaStatus uhda_kernel_pci_map_bar(void *pci_device, uint32_t bar, void **virt) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+UhdaStatus uhda_kernel_pci_map_bar(uintptr_t handle, uint32_t bar, void **virt) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	*virt = async::run(mapBar(ctrl->device, bar), helix::currentDispatcher);
 	return UHDA_STATUS_SUCCESS;
 }
 
-void uhda_kernel_pci_unmap_bar(void* pci_device, uint32_t bar, void* virt) {
-	auto ctrl = static_cast<Controller *>(pci_device);
+void uhda_kernel_pci_unmap_bar(uintptr_t handle, uint32_t bar, void* virt) {
+	auto ctrl = reinterpret_cast<Controller *>(handle);
 
 	async::run(unmapBar(ctrl->device, bar, virt), helix::currentDispatcher);
 }
@@ -150,45 +150,37 @@ void uhda_kernel_log(const char *str) {
 	std::cout << "sound/hda: uHDA: " << str << std::endl;
 }
 
-namespace {
+UhdaStatus uhda_kernel_allocate_physical(uintptr_t handle, size_t size, uintptr_t *res) {
+	auto controller = reinterpret_cast<Controller *>(handle);
 
-std::unordered_map<uintptr_t, void *> physicalMappings;
+	arch::dma_buffer buf{controller->pool, size};
+	auto iova = async::run(controller->dmaSpace.iova_of(buf), helix::currentDispatcher);
+	controller->physicalMappings.emplace(iova, std::move(buf));
 
-}
-
-UhdaStatus uhda_kernel_allocate_physical(size_t size, uintptr_t *res) {
-	HelHandle memory;
-	void *window;
-	HEL_CHECK(helAllocateMemory(size, kHelAllocContinuous, nullptr, &memory));
-	HEL_CHECK(helMapMemory(memory, kHelNullHandle, nullptr,
-		0, size, kHelMapProtRead | kHelMapProtWrite, &window));
-	HEL_CHECK(helCloseDescriptor(kHelThisUniverse, memory));
-
-	*res = helix::ptrToPhysical(window);
-
-	physicalMappings.insert({*res, window});
-
+	*res = iova;
 	return UHDA_STATUS_SUCCESS;
 }
 
-void uhda_kernel_deallocate_physical(uintptr_t phys, size_t size) {
-	auto mapping = physicalMappings.find(phys);
-	assert(mapping != physicalMappings.end());
-
-	HEL_CHECK(helUnmapMemory(kHelNullHandle, mapping->second, size));
+void uhda_kernel_deallocate_physical(uintptr_t handle, uintptr_t phys, size_t size) {
+	auto controller = reinterpret_cast<Controller *>(handle);
+	auto mapping = controller->physicalMappings.find(phys);
+	assert(mapping != controller->physicalMappings.end());
+	assert(mapping->second.size() == size);
+	controller->physicalMappings.erase(mapping);
 }
 
-extern std::vector<sound::PeriodChunk> globalPeriodChunks;
+extern std::vector<arch::dma_buffer_view> globalPeriodChunks;
 
-UhdaStatus uhda_kernel_allocate_scatter(size_t count, size_t size, UhdaScatterChunk *res) {
+UhdaStatus uhda_kernel_allocate_scatter(uintptr_t handle, size_t count, size_t size, UhdaScatterChunk *res) {
 	(void) size;
+	auto controller = reinterpret_cast<Controller *>(handle);
 
 	assert(count == globalPeriodChunks.size());
 
 	for (size_t i = 0; i < count; i++) {
 		auto &chunk = res[i];
-		chunk.virt = globalPeriodChunks[i].virt;
-		chunk.phys = globalPeriodChunks[i].phys;
+		chunk.virt = globalPeriodChunks[i].data();
+		chunk.phys = async::run(controller->dmaSpace.iova_of(globalPeriodChunks[i]), helix::currentDispatcher);
 	}
 
 	return UHDA_STATUS_SUCCESS;
@@ -200,11 +192,12 @@ void uhda_kernel_deallocate_scatter(UhdaScatterChunk *chunks, size_t count, size
 	(void) size;
 }
 
-UhdaStatus uhda_kernel_map(uintptr_t phys, size_t, void **virt) {
-	auto mapping = physicalMappings.find(phys);
-	assert(mapping != physicalMappings.end());
+UhdaStatus uhda_kernel_map(uintptr_t handle, uintptr_t phys, size_t, void **virt) {
+	auto controller = reinterpret_cast<Controller *>(handle);
+	auto mapping = controller->physicalMappings.find(phys);
+	assert(mapping != controller->physicalMappings.end());
 
-	*virt = mapping->second;
+	*virt = mapping->second.data();
 	return UHDA_STATUS_SUCCESS;
 }
 
