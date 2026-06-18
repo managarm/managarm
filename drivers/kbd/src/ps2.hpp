@@ -31,6 +31,7 @@ namespace controller_cmd {
 	struct GetByte0 {};
 	struct SetByte0 {};
 	struct SendBytePort2 {};
+	struct SelfTest {};
 }
 
 namespace device_cmd {
@@ -40,6 +41,7 @@ namespace device_cmd {
 
 	// mouse specific
 	struct SetReportRate {};
+	struct Reset {};
 
 	// keyboard specific
 	struct SetScancodeSet {};
@@ -158,6 +160,9 @@ struct Controller {
 		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetReportRate tag, int rate);
 
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::Reset);
+
 		async::detached processReports();
 
 		Port *_port;
@@ -172,6 +177,7 @@ struct Controller {
 	uint8_t submitCommand(controller_cmd::GetByte0 tag);
 	void submitCommand(controller_cmd::SetByte0 tag, uint8_t val);
 	void submitCommand(controller_cmd::SendBytePort2 tag);
+	bool submitCommand(controller_cmd::SelfTest);
 
 private:
 	bool processData(int port);

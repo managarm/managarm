@@ -1,6 +1,7 @@
 
 #include <iostream>
 #include <format>
+#include <print>
 
 #include <stdio.h>
 #include <string.h>
@@ -156,6 +157,11 @@ async::detached Controller::init() {
 	while(_commandSpace.load(kbd_register::status) & status_bits::outBufferStatus)
 		_dataSpace.load(kbd_register::data);
 
+	if (!submitCommand(controller_cmd::SelfTest{})) {
+		std::println("ps2-hid: controller self-test failed, skipping further init");
+		co_return;
+	}
+
 	// enable interrupt for second device
 	auto configuration = submitCommand(controller_cmd::GetByte0{});
 	_hasSecondPort = (configuration & (1 << 5)) && _hasSecondPort;
@@ -286,6 +292,12 @@ void Controller::submitCommand(controller_cmd::SetByte0, uint8_t val) {
 
 void Controller::submitCommand(controller_cmd::SendBytePort2) {
 	sendCommandByte(0xD4); // TODO: define a constant?
+}
+
+bool Controller::submitCommand(controller_cmd::SelfTest) {
+	sendCommandByte(performSelfTest);
+	auto result = recvResponseByte(default_timeout);
+	return (result && *result == 0x55);
 }
 
 async::detached Controller::handleIrqsFor(helix::UniqueIrq &irq, int port) {
@@ -518,6 +530,9 @@ async::result<void> Controller::KbdDevice::run() {
 
 async::result<void> Controller::MouseDevice::run() {
 	_deviceType = _port->deviceType();
+
+	auto res0 = co_await submitCommand(device_cmd::Reset{});
+	assert(res0);
 
 	// attempt to enable scroll wheel
 	auto res1 = co_await submitCommand(device_cmd::SetReportRate{}, 200);
@@ -1070,6 +1085,29 @@ Controller::MouseDevice::submitCommand(device_cmd::SetReportRate, int rate) {
 				_port->getIndex(), *outResp);
 		co_return Ps2Error::nack;
 	}
+
+	co_return {};
+}
+
+async::result<frg::expected<Ps2Error>>
+Controller::MouseDevice::submitCommand(device_cmd::Reset) {
+	auto cmdResp = co_await _port->transferByte(0xFF);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after Reset command on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto bat0 = co_await _port->recvResponseByte(default_timeout);
+	if (!bat0)
+		co_return Ps2Error::timeout;
+
+	auto bat1 = co_await _port->recvResponseByte(default_timeout);
+	if (!bat1)
+		co_return Ps2Error::timeout;
+	std::println("ps2-hid: mouse device ID 0x{:02x}", *bat1);
 
 	co_return {};
 }
