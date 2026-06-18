@@ -406,3 +406,44 @@ DEFINE_TEST(mprotect_check_whether_three_way_split_mappings_are_handled_correctl
 		assert(ensureNotWritable(offsetBy(mem, pageSize * 2)));
 	});
 }))
+
+DEFINE_TEST(mmap_prot_none, ([] {
+	void *mem = mmap(nullptr, pageSize, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	assert_errno("mmap", mem != MAP_FAILED);
+
+	runChecks([&] {
+		assert(ensureNotReadable(mem));
+		assert(ensureNotWritable(mem));
+	});
+
+	int ret = munmap(mem, pageSize);
+	assert_errno("munmap", ret != -1);
+}))
+
+DEFINE_TEST(mprotect_prot_none, ([] {
+	void *mem = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	assert_errno("mmap", mem != MAP_FAILED);
+
+	// Touch the page so that it is actually present before we drop access.
+	*reinterpret_cast<volatile uint8_t *>(mem) = 42;
+
+	int ret = mprotect(mem, pageSize, PROT_NONE);
+	assert_errno("mprotect", ret != -1);
+
+	runChecks([&] {
+		assert(ensureNotReadable(mem));
+		assert(ensureNotWritable(mem));
+	});
+
+	// Restoring access must fault the page back in on demand.
+	ret = mprotect(mem, pageSize, PROT_READ | PROT_WRITE);
+	assert_errno("mprotect", ret != -1);
+
+	runChecks([&] {
+		assert(ensureReadable(mem));
+		assert(ensureWritable(mem));
+	});
+
+	ret = munmap(mem, pageSize);
+	assert_errno("munmap", ret != -1);
+}))
