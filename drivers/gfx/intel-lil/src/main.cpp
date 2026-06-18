@@ -20,7 +20,15 @@ async::result<void> setupDevice(mbus_ng::Entity entity) {
 
 	co_await pchRead.wait();
 
-	auto gfx = std::make_shared<GfxDevice>(std::move(dev), *pch_dev);
+	/* we want to get exclusive access to the GPU here already, as we will be modifying the GTT
+	 * during the setup */
+	co_await dev.claimDevice();
+
+	co_await dev.enableBusmaster();
+	co_await dev.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await dev.getDmaSpace();
+
+	auto gfx = std::make_shared<GfxDevice>(std::move(dev), *pch_dev, iommuActive, std::move(dmaSpace));
 	auto config = co_await gfx->initialize();
 
 	mbus_ng::Properties descriptor{

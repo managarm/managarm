@@ -34,7 +34,7 @@ public:
 		BufferObject(
 		    GfxDevice *device,
 		    GpuAddr gpu_addr,
-		    helix::UniqueDescriptor allocationHandle,
+		    arch::dma_buffer allocationHandle,
 		    helix::UniqueDescriptor apertureHandle,
 		    uint32_t width,
 		    uint32_t height,
@@ -50,7 +50,7 @@ public:
 		[[maybe_unused]] GfxDevice *_device;
 		GpuAddr _gpuAddr;
 		size_t _size;
-		helix::UniqueDescriptor allocationHandle_;
+		arch::dma_buffer allocationHandle_;
 		helix::UniqueDescriptor apertureHandle_;
 	};
 
@@ -119,8 +119,16 @@ private:
 	std::vector<std::shared_ptr<Encoder>> encoders_;
 	std::vector<std::shared_ptr<BufferObject>> bos_;
 
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
+
 public:
-	GfxDevice(protocols::hw::Device hw_device, uint16_t pch_devid);
+	GfxDevice(
+	    protocols::hw::Device hw_device,
+	    uint16_t pch_devid,
+	    bool iommuActive,
+	    helix::UniqueDescriptor dmaSpace
+	);
 
 	async::result<std::unique_ptr<drm_core::Configuration>> initialize();
 };
