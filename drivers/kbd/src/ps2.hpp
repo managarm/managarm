@@ -41,6 +41,7 @@ namespace device_cmd {
 
 	// mouse specific
 	struct SetReportRate {};
+	struct Reset {};
 
 	// keyboard specific
 	struct SetScancodeSet {};
@@ -158,6 +159,9 @@ struct Controller {
 	private:
 		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetReportRate tag, int rate);
+
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::Reset);
 
 		async::detached processReports();
 
