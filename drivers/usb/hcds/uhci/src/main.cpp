@@ -12,8 +12,8 @@
 #include <arch/io_space.hpp>
 #include <arch/dma_pool.hpp>
 #include <async/result.hpp>
-#include <boost/intrusive/list.hpp>
 #include <fafnir/dsl.hpp>
+#include <frg/list.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/kernlet/compiler.hpp>
@@ -313,7 +313,7 @@ void Controller::_updateFrame() {
 
 	// This is where we perform actual reclamation.
 	while(!_reclaimQueue.empty()) {
-		auto item = &_reclaimQueue.front();
+		auto item = _reclaimQueue.front();
 		if(item->reclaimFrame > _frameCounter)
 			break;
 		_reclaimQueue.pop_front();
@@ -899,7 +899,7 @@ void Controller::_linkInterrupt(QueueEntity *entity, int order, int index) {
 	// If there is no lower-order periodic entity, link to the async schedule.
 	if(!so) {
 		assert(!_asyncSchedule.empty());
-		auto successor = &_asyncSchedule.front();
+		auto successor = _asyncSchedule.front();
 		entity->head->_linkPointer = Pointer(successor->headIova(), true);
 	}
 
@@ -914,10 +914,10 @@ void Controller::_linkInterrupt(QueueEntity *entity, int order, int index) {
 			_linkIntoScheduleTree(order << 1, index + order, entity);
 		}
 	}else{
-		auto predecessor = &_interruptSchedule[n].back();
+		auto predecessor = _interruptSchedule[n].back();
 		predecessor->head->_linkPointer = Pointer(entity->headIova(), true);
 	}
-	_interruptSchedule[n].push_back(*entity);
+	_interruptSchedule[n].push_back(entity);
 	_activeEntities.push_back(entity);
 }
 
@@ -927,10 +927,10 @@ void Controller::_linkAsync(QueueEntity *entity) {
 		// Link the front of the schedule to the new entity.
 		_linkIntoScheduleTree(1, 0, entity);
 	}else{
-		_asyncSchedule.back().head->_linkPointer
+		_asyncSchedule.back()->head->_linkPointer
 				= Pointer(entity->headIova(), true);
 	}
-	_asyncSchedule.push_back(*entity);
+	_asyncSchedule.push_back(entity);
 	_activeEntities.push_back(entity);
 }
 
@@ -947,7 +947,7 @@ void Controller::_linkIntoScheduleTree(int order, int index, QueueEntity *entity
 			_linkIntoScheduleTree(order << 1, index + order, entity);
 		}
 	}else{
-		auto predecessor = &_interruptSchedule[n].back();
+		auto predecessor = _interruptSchedule[n].back();
 		predecessor->head->_linkPointer = Pointer(entity->headIova(), true);
 	}
 }
@@ -967,7 +967,7 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 		queue->head->_elementPointer = Pointer(transaction->cachedTransfersIova, false);
 	}
 
-	queue->transactions.push_back(*transaction);
+	queue->transactions.push_back(transaction);
 }
 
 void Controller::_progressSchedule() {
@@ -985,7 +985,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	if(entity->transactions.empty())
 		return;
 
-	auto front = &entity->transactions.front();
+	auto front = entity->transactions.front();
 
 	auto handleError = [&] () {
 		// TODO: This could also mean that the TD is not retired because of SPD.
@@ -1045,7 +1045,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 	if(entity->transactions.empty()) {
 		entity->head->_elementPointer = QueueHead::LinkPointer{};
 	}else{
-		auto front = &entity->transactions.front();
+		auto front = entity->transactions.front();
 		entity->head->_elementPointer = Pointer(front->cachedTransfersIova, false);
 	}
 
@@ -1058,7 +1058,7 @@ void Controller::_reclaim(ScheduleItem *item) {
 
 	_updateFrame();
 	item->reclaimFrame = _frameCounter + 1;
-	_reclaimQueue.push_back(*item);
+	_reclaimQueue.push_back(item);
 }
 
 // ----------------------------------------------------------------------------

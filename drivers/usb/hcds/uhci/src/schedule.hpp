@@ -5,7 +5,7 @@
 #include <async/mutex.hpp>
 #include <async/promise.hpp>
 #include <async/recurring-event.hpp>
-#include <boost/intrusive/list.hpp>
+#include <frg/list.hpp>
 #include <frg/std_compat.hpp>
 #include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
@@ -78,7 +78,7 @@ private:
 	// Base class for classes that represent elements of the UHCI schedule.
 	// All those classes are linked into a list that represents a part of the schedule.
 	// They need to be freed through the reclaim mechansim.
-	struct ScheduleItem : boost::intrusive::list_base_hook<> {
+	struct ScheduleItem {
 		ScheduleItem()
 		: reclaimFrame(-1) { }
 
@@ -87,6 +87,7 @@ private:
 		}
 
 		int64_t reclaimFrame;
+		frg::default_list_hook<ScheduleItem> reclaimHook_;
 	};
 
 	struct Transaction : ScheduleItem {
@@ -103,6 +104,7 @@ private:
 		bool allowShortPackets;
 		async::promise<frg::expected<proto::UsbError, size_t>, frg::stl_allocator> promise;
 		uintptr_t cachedTransfersIova = 0;
+		frg::default_list_hook<Transaction> hook_;
 	};
 
 	struct QueueEntity : ScheduleItem {
@@ -117,7 +119,11 @@ private:
 
 		arch::dma_object<QueueHead> head;
 		bool toggleState;
-		boost::intrusive::list<Transaction> transactions;
+		frg::default_list_hook<QueueEntity> hook_;
+		frg::intrusive_list<
+			Transaction,
+			frg::locate_member<Transaction, frg::default_list_hook<Transaction>, &Transaction::hook_>
+		> transactions;
 
 	private:
 		uintptr_t cachedHeadIova_ = 0;
@@ -199,13 +205,22 @@ private:
 
 	void _reclaim(ScheduleItem *item);
 
-	boost::intrusive::list<QueueEntity> _interruptSchedule[2 * 1024 - 1];
-	boost::intrusive::list<QueueEntity> _asyncSchedule;
+	frg::intrusive_list<
+		QueueEntity,
+		frg::locate_member<QueueEntity, frg::default_list_hook<QueueEntity>, &QueueEntity::hook_>
+	> _interruptSchedule[2 * 1024 - 1];
+	frg::intrusive_list<
+		QueueEntity,
+		frg::locate_member<QueueEntity, frg::default_list_hook<QueueEntity>, &QueueEntity::hook_>
+	> _asyncSchedule;
 	std::vector<QueueEntity *> _activeEntities;
 
 	// This queue holds all schedule structs that are currently
 	// being garbage collected.
-	boost::intrusive::list<ScheduleItem> _reclaimQueue;
+	frg::intrusive_list<
+		ScheduleItem,
+		frg::locate_member<ScheduleItem, frg::default_list_hook<ScheduleItem>, &ScheduleItem::reclaimHook_>
+	> _reclaimQueue;
 
 	FrameList *_frameList;
 
