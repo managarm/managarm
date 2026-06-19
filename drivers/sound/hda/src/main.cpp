@@ -104,7 +104,10 @@ async::detached bindController(mbus_ng::Entity entity) {
 		}
 	}
 
-	assert(chosenOutput);
+	if (!chosenOutput) {
+		uhda_destroy(uhdaCtrl);
+		co_return;
+	}
 
 	UhdaPath *path;
 	status = uhda_find_path(chosenOutput, nullptr, 0, false, &path);
