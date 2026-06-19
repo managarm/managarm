@@ -2,6 +2,7 @@
 #include <queue>
 
 #include <arch/mem_space.hpp>
+#include <arch/dma_pool.hpp>
 #include <arch/dma_structs.hpp>
 #include <async/sequenced-event.hpp>
 #include <async/promise.hpp>
@@ -34,7 +35,8 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 	Controller(protocols::hw::Device hw_device,
 			mbus_ng::EntityManager entity,
 			helix::Mapping mapping,
-			helix::UniqueDescriptor mmio, helix::UniqueIrq irq);
+			helix::UniqueDescriptor mmio, helix::UniqueIrq irq,
+			bool iommuActive, helix::UniqueDescriptor dmaSpaceHandle);
 
 	async::detached initialize();
 	async::detached handleIrqs();
@@ -46,11 +48,17 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 	// ------------------------------------------------------------------------
 
 	struct Transaction {
-		explicit Transaction(arch::dma_array<TransferDescriptor> transfers, size_t size)
-		: transfers{std::move(transfers)}, fullSize{size},
-				numComplete{0}, lostSize{0} { }
+		explicit Transaction(
+		    arch::dma_array<TransferDescriptor> transfers, uintptr_t transfersIova, size_t size
+		)
+		: transfers{std::move(transfers)},
+		  cachedTransfersIova{transfersIova},
+		  fullSize{size},
+		  numComplete{0},
+		  lostSize{0} {}
 
 		arch::dma_array<TransferDescriptor> transfers;
+		uintptr_t cachedTransfersIova;
 		size_t fullSize;
 		size_t numComplete;
 		size_t lostSize; // Size lost in short packets.
@@ -62,15 +70,22 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 		QueueEntity(arch::dma_object<QueueHead> the_head, int address,
 				int pipe, proto::PipeType type, size_t packet_size);
 
+		async::result<void> initialize(arch::dma_space &space);
+
 		bool getReclaim();
 		void setReclaim(bool reclaim);
 		void setAddress(int address);
+		uintptr_t headIova() const { return cachedHeadIova_; }
+
 		arch::dma_object<QueueHead> head;
 		frg::default_list_hook<QueueEntity> hook_;
 		frg::intrusive_list<
 			Transaction,
 			frg::locate_member<Transaction, frg::default_list_hook<Transaction>, &Transaction::hook_>
 		> transactions;
+
+	private:
+		uintptr_t cachedHeadIova_ = 0;
 	};
 
 
@@ -81,6 +96,7 @@ struct Controller final : proto::BaseController, std::enable_shared_from_this<Co
 	struct EndpointSlot {
 		size_t maxPacketSize;
 		QueueEntity *queueEntity;
+		async::mutex submissionMutex;
 	};
 
 	struct DeviceSlot {
@@ -141,10 +157,10 @@ public:
 	// Transfer functions.
 	// ------------------------------------------------------------------------
 
-	static Transaction *_buildControl(proto::XferFlags dir,
+	async::result<Transaction *> _buildControl(proto::XferFlags dir,
 			arch::dma_object_view<proto::SetupPacket> setup, arch::dma_buffer_view buffer,
 			size_t max_packet_size);
-	static Transaction *_buildInterruptOrBulk(proto::XferFlags dir,
+	async::result<Transaction *> _buildInterruptOrBulk(proto::XferFlags dir,
 			arch::dma_buffer_view buffer, size_t max_packet_size,
 			bool lazy_notification);
 
@@ -189,6 +205,10 @@ public:
 	async::result<frg::expected<proto::UsbError, void>>
 	resetPort(int number);
 
+	arch::contiguous_pool *memoryPool() {
+		return &pool_;
+	}
+
 	// ----------------------------------------------------------------------------
 	// Debugging functions.
 	// ----------------------------------------------------------------------------
@@ -209,6 +229,12 @@ private:
 	proto::Enumerator _enumerator;
 
 	mbus_ng::EntityManager _entity;
+
+	arch::contiguous_pool pool_{
+	    {.addressBits = 32, .allocateContigous = true, .dmaMapFlags = kHelMapPreferBottom}
+	};
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
 };
 
 // ----------------------------------------------------------------------------
