@@ -77,7 +77,8 @@ public:
 		MacVer53 = 53,
 		MacVer61 = 61,
 		MacVer63 = 63,
-		MacVer65 = 65,
+		MacVer70 = 70,
+		MacVer80 = 80,
 	};
 	enum class DashType : uint8_t {
 		DashNone,

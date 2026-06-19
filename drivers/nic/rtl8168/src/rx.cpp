@@ -47,7 +47,7 @@ void RealtekNic::setRxConfigRegisters() {
 				);
 			break;
 		}
-		case MacRevision::MacVer61 ... MacRevision::MacVer63: {
+		case MacRevision::MacVer61 ... MacRevision::MacVer70: {
 			_mmio.store(regs::receive_config,
 				flags::receive_config::rx_fetch(flags::receive_config::rx_fetch_default_8125) |
 				flags::receive_config::mxdma(flags::receive_config::mxdma_unlimited) |

@@ -12,7 +12,7 @@ namespace regs {
 	constexpr arch::scalar_register<uint32_t> thpds_low{0x28};
 	constexpr arch::scalar_register<uint32_t> thpds_high{0x2C};
 	constexpr arch::scalar_register<uint32_t> rbstart{0x30};
-	constexpr arch::scalar_register<uint8_t> int_cfg0_8125{0x34};
+	constexpr arch::bit_register<uint8_t> int_cfg0_8125{0x34};
 	constexpr arch::bit_register<uint8_t> cmd{0x37};
 	constexpr arch::bit_register<uint8_t> tppoll{0x38};
 	constexpr arch::bit_register<uint8_t> config1{0x52};
@@ -62,6 +62,7 @@ namespace rtl8125 {
 	constexpr arch::scalar_register<uint32_t> interrupt_mask_val{0x38};
 	constexpr arch::bit_register<uint32_t> interrupt_status{0x3C};
 	constexpr arch::scalar_register<uint32_t> interrupt_status_val{0x3C};
+	constexpr arch::bit_register<uint16_t> tx_start{0x90};
 }
 
 } // namespace regs
@@ -101,17 +102,17 @@ namespace config5 {
 }
 
 namespace interrupt_status {
-	constexpr arch::field<uint16_t, bool> rx_ok{0, 1};
-	constexpr arch::field<uint16_t, bool> rx_err{1, 1};
-	constexpr arch::field<uint16_t, bool> tx_ok{2, 1};
-	constexpr arch::field<uint16_t, bool> tx_err{3, 1};
-	constexpr arch::field<uint16_t, bool> rx_overflow{4, 1};
-	constexpr arch::field<uint16_t, bool> link_change{5, 1};
-	constexpr arch::field<uint16_t, bool> rx_fifo_overflow{6, 1};
-	constexpr arch::field<uint16_t, bool> tx_desc_unavailable{7, 1};
-	constexpr arch::field<uint16_t, bool> sw_int{9, 1};
-	constexpr arch::field<uint16_t, bool> pcs_timeout{14, 1};
-	constexpr arch::field<uint16_t, bool> system_error{15, 1};
+	constexpr arch::field<uint32_t, bool> rx_ok{0, 1};
+	constexpr arch::field<uint32_t, bool> rx_err{1, 1};
+	constexpr arch::field<uint32_t, bool> tx_ok{2, 1};
+	constexpr arch::field<uint32_t, bool> tx_err{3, 1};
+	constexpr arch::field<uint32_t, bool> rx_overflow{4, 1};
+	constexpr arch::field<uint32_t, bool> link_change{5, 1};
+	constexpr arch::field<uint32_t, bool> rx_fifo_overflow{6, 1};
+	constexpr arch::field<uint32_t, bool> tx_desc_unavailable{7, 1};
+	constexpr arch::field<uint32_t, bool> sw_int{9, 1};
+	constexpr arch::field<uint32_t, bool> pcs_timeout{14, 1};
+	constexpr arch::field<uint32_t, bool> system_error{15, 1};
 }
 
 namespace phy_access {
@@ -255,5 +256,11 @@ namespace misc {
 namespace misc_1 {
 	constexpr arch::field<uint8_t, bool> pfm_d3cold_en(6, 1);
 }
+
+namespace rtl8125 {
+	namespace tx_start {
+		constexpr arch::field<uint16_t, bool> start(0, 1);
+	} // namespace tx_start
+} // namespace rtl8125
 
 } // namespace flags
