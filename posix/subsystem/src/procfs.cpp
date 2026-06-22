@@ -1,5 +1,7 @@
 #include <async/cancellation.hpp>
+#include <bragi/helpers-std.hpp>
 #include <functional>
+#include <kerncfg.bragi.hpp>
 #include <linux/magic.h>
 #include <print>
 #include <string.h>
@@ -11,6 +13,7 @@
 #include "procfs.hpp"
 #include "process.hpp"
 #include "protocols/fs/common.hpp"
+#include "requests.hpp"
 
 #include <bitset>
 #include <sys/epoll.h>
@@ -303,6 +306,7 @@ std::shared_ptr<Link> DirectoryNode::createRootDirectory() {
 	the_node->_entries.insert(std::move(self_thread_link));
 
 	the_node->directMkregular("uptime", std::make_shared<UptimeNode>());
+	the_node->directMkregular("cpuinfo", std::make_shared<CpuInfoNode>());
 	the_node->directMknode("mounts", std::make_shared<MountsLink>());
 
 	auto sysLink = the_node->directMkdir("sys");
@@ -508,6 +512,118 @@ async::result<void> UptimeNode::store(std::string) {
 	// TODO: proper error reporting.
 	std::cout << "posix: Can't store to a /proc/uptime file" << std::endl;
 	co_return;
+}
+
+async::result<std::expected<std::string, Error>> CpuInfoNode::show(Process *) {
+	managarm::kerncfg::GetNumCpuRequest req;
+
+	auto [offer, sendReq, recvResp] =
+		co_await helix_ng::exchangeMsgs(
+			getKerncfgLane(),
+			helix_ng::offer(
+				helix_ng::sendBragiHeadOnly(req, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(offer.error());
+	HEL_CHECK(sendReq.error());
+	HEL_CHECK(recvResp.error());
+
+	auto resp = *bragi::parse_head_only<managarm::kerncfg::GetNumCpuResponse>(recvResp);
+	recvResp.reset();
+	assert(resp.error() == managarm::kerncfg::Error::SUCCESS);
+
+#if defined(__x86_64__)
+	managarm::kerncfg::GetCpuInfoRequest cpuInfoReq;
+	auto [cpuInfoOffer, sendCpuInfoReq, recvCpuInfoHead] =
+		co_await helix_ng::exchangeMsgs(
+			getKerncfgLane(),
+			helix_ng::offer(
+				helix_ng::want_lane,
+				helix_ng::sendBragiHeadOnly(cpuInfoReq, frg::stl_allocator{}),
+				helix_ng::recvInline()
+			)
+		);
+
+	HEL_CHECK(cpuInfoOffer.error());
+	HEL_CHECK(sendCpuInfoReq.error());
+	HEL_CHECK(recvCpuInfoHead.error());
+
+	auto cpuInfoPreamble = bragi::read_preamble(recvCpuInfoHead);
+	assert(!cpuInfoPreamble.error());
+
+	std::vector<std::byte> cpuInfoTail(cpuInfoPreamble.tail_size());
+	auto [recvCpuInfoTail] = co_await helix_ng::exchangeMsgs(
+		cpuInfoOffer.descriptor(),
+		helix_ng::recvBuffer(cpuInfoTail.data(), cpuInfoTail.size())
+	);
+	HEL_CHECK(recvCpuInfoTail.error());
+
+	auto cpuInfoResp = *bragi::parse_head_tail<managarm::kerncfg::GetCpuInfoResponse>(
+		recvCpuInfoHead, cpuInfoTail);
+	recvCpuInfoHead.reset();
+	assert(cpuInfoResp.error() == managarm::kerncfg::Error::SUCCESS);
+#endif
+
+	std::stringstream stream;
+	for(uint64_t cpu = 0; cpu < resp.num_cpu(); ++cpu) {
+#if defined(__x86_64__)
+		stream << "processor\t: " << cpu << '\n'
+			<< "vendor_id\t: " << cpuInfoResp.vendor_id() << '\n'
+			<< "cpu family\t: " << cpuInfoResp.cpu_family() << '\n'
+			<< "model\t\t: " << cpuInfoResp.model() << '\n'
+			<< "model name\t: " << cpuInfoResp.model_name() << '\n'
+			<< "stepping\t: " << cpuInfoResp.stepping() << '\n'
+			<< "microcode\t: 0x" << std::hex << cpuInfoResp.microcode_revision()
+			<< std::dec << '\n'
+			<< "cpu MHz\t\t: " << (cpuInfoResp.frequency_hz() / 1'000'000) << '.'
+			<< std::setw(3) << std::setfill('0')
+			<< ((cpuInfoResp.frequency_hz() % 1'000'000) / 1'000)
+			<< std::setfill(' ') << '\n'
+			<< "cache size\t: 0 KB\n"
+			<< "physical id\t: 0\n"
+			<< "siblings\t: 1\n"
+			<< "core id\t\t: " << cpu << '\n'
+			<< "cpu cores\t: 1\n"
+			<< "apicid\t\t: " << cpu << '\n'
+			<< "initial apicid\t: " << cpu << '\n'
+			<< "fpu\t\t: yes\n"
+			<< "fpu_exception\t: yes\n"
+			<< "cpuid level\t: 0\n"
+			<< "wp\t\t: yes\n"
+			<< "flags\t\t:\n"
+			<< "bugs\t\t:\n"
+			<< "bogomips\t: 0.00\n"
+			<< "clflush size\t: 0\n"
+			<< "cache_alignment\t: 0\n"
+			<< "address sizes\t: 0 bits physical, 0 bits virtual\n"
+			<< "power management:\n\n";
+#elif defined(__aarch64__)
+		stream << "processor\t: " << cpu << '\n'
+			<< "BogoMIPS\t: 0.00\n"
+			<< "Features\t:\n"
+			<< "CPU implementer\t: 0x00\n"
+			<< "CPU architecture: 8\n"
+			<< "CPU variant\t: 0x0\n"
+			<< "CPU part\t: 0x000\n"
+			<< "CPU revision\t: 0\n\n";
+#elif defined(__riscv)
+		stream << "processor\t: " << cpu << '\n'
+			<< "hart\t\t: " << cpu << '\n'
+			<< "isa\t\t: rv64\n"
+			<< "mmu\t\t: sv39\n"
+			<< "uarch\t\t: managarm,placeholder\n\n";
+#else
+#error Unsupported architecture
+#endif
+	}
+
+	co_return stream.str();
+}
+
+async::result<void> CpuInfoNode::store(std::string) {
+	throw std::runtime_error("Cannot store to /proc/cpuinfo");
 }
 
 async::result<std::expected<std::string, Error>> OstypeNode::show(Process *) {
