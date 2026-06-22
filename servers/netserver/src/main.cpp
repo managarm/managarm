@@ -38,6 +38,7 @@
 #include <nic/bcmgenet/bcmgenet.hpp>
 #ifdef __x86_64__
 # include <nic/freebsd-e1000/common.hpp>
+# include <nic/igc/igc.hpp>
 #endif
 #include <nic/usb_net/usb_net.hpp>
 #include <protocols/ostrace/ostrace.hpp>
@@ -66,7 +67,7 @@ std::unordered_set<std::string_view> nic_vendor_ids = {
 	VENDOR_COREGA, /* rtl8168 */
 	VENDOR_LINKSYS, /* rtl8168 */
 	VENDOR_US_ROBOTICS, /* rtl8168 */
-	VENDOR_INTEL, /* e1000 */
+	VENDOR_INTEL, /* e1000, igc */
 };
 
 std::unordered_set<std::string_view> virtio_device_ids = {
@@ -94,6 +95,15 @@ std::unordered_set<std::string_view> intel_device_ids = {
 	"100e", /* QEMU's e1000 device */
 	"10d3", /* QEMU's e1000e device */
 	"15d8", /* i219-V (4) */
+};
+
+std::unordered_set<std::string_view> igc_device_ids = {
+	"125c", /* i226-V */
+	"125b", /* i226-LM */
+	"125d", /* i226-IT */
+	"15f2", /* i225-LM */
+	"15f3", /* i225-V */
+	"0d9f", /* i225-IT */
 };
 
 std::unordered_map<int64_t, std::shared_ptr<nic::Link>> &nic::Link::getLinks() {
@@ -193,6 +203,8 @@ async::result<protocols::svrctl::Error> doBindPci(mbus_ng::Entity baseEntity) {
 	} else if(determineRTL8168Support(vendor_str->value, device_str->value)) {
 		device = nic::rtl8168::makeShared(std::move(hwDevice));
 #ifdef __x86_64__
+	} else if(vendor_str->value == VENDOR_INTEL && igc_device_ids.contains(device_str->value)) {
+		device = co_await nic::igc::makeShared(std::move(hwDevice));
 	} else if(vendor_str->value == VENDOR_INTEL) {
 		device = co_await nic::e1000::makeShared(std::move(hwDevice));
 #endif

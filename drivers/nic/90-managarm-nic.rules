@@ -33,4 +33,12 @@ ATTR{vendor}=="0x8086", ATTR{device}=="0x100e", RUN+="/usr/bin/runsvr --fork bin
 ATTR{vendor}=="0x8086", ATTR{device}=="0x10d3", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 ATTR{vendor}=="0x8086", ATTR{device}=="0x15d8", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
 
+## Intel igc driver
+ATTR{vendor}=="0x8086", ATTR{device}=="0x125c", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x8086", ATTR{device}=="0x125b", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x8086", ATTR{device}=="0x125d", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x8086", ATTR{device}=="0x15f2", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x8086", ATTR{device}=="0x15f3", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+ATTR{vendor}=="0x8086", ATTR{device}=="0x0d9f", RUN+="/usr/bin/runsvr --fork bind /usr/lib/managarm/server/netserver.bin", GOTO="managarm_nic_end"
+
 LABEL="managarm_nic_end"
