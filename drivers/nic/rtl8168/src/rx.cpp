@@ -47,7 +47,7 @@ void RealtekNic::setRxConfigRegisters() {
 				);
 			break;
 		}
-		case MacRevision::MacVer61 ... MacRevision::MacVer63: {
+		case MacRevision::MacVer61 ... MacRevision::MacVer70: {
 			_mmio.store(regs::receive_config,
 				flags::receive_config::rx_fetch(flags::receive_config::rx_fetch_default_8125) |
 				flags::receive_config::mxdma(flags::receive_config::mxdma_unlimited) |
@@ -78,28 +78,40 @@ void RealtekNic::closeRX() {
 	_mmio.store(regs::receive_config, _mmio.load(regs::receive_config) / flags::receive_config::accept_mask_bits(0));
 }
 
-RxQueue::RxQueue(size_t descriptors, RealtekNic &nic) : _descriptor_count{descriptors}, _last_rx_index(0, descriptors), _next_index(0, descriptors) {
-	_descriptors = arch::dma_array<Descriptor>(nic.dmaPool(), _descriptor_count);
-	_descriptor_buffers.reserve(_descriptor_count);
+async::result<std::unique_ptr<RxQueue>> RxQueue::create(RealtekNic &nic, size_t descriptorCount) {
+	arch::dma_array<Descriptor> descriptors{nic.dmaPool(), descriptorCount};
+	std::vector<arch::dma_buffer> descriptorBuffers;
 
-	for(size_t i = 0; i < _descriptor_count; i++) {
-		auto buf = arch::dma_buffer(nic.dmaPool(), 2048);
-		memset(buf.data(), 0, buf.size());
-		uintptr_t addr = helix_ng::ptrToPhysical(buf.data());
+	for(size_t i = 0; i < descriptorCount; i++) {
+		descriptorBuffers.emplace_back(nic.dmaPool(), 2048);
+		memset(descriptorBuffers.back().data(), 0, 2048);
 
-		_descriptor_buffers.push_back(std::move(buf));
+		uintptr_t addr = co_await nic.dmaSpace().iova_of(descriptorBuffers.back());
 
-		_descriptors[i].flags = flags::rx::ownership(flags::rx::owner_nic) | flags::rx::frame_length(2048);
-		_descriptors[i].vlan = 0;
-		_descriptors[i].base_low = addr & 0xFFFF'FFFF;
-		_descriptors[i].base_high = (addr >> 32) & 0xFFFF'FFFF;
+		descriptors[i].flags = flags::rx::ownership(flags::rx::owner_nic) | flags::rx::frame_length(2048);
+		descriptors[i].vlan = 0;
+		descriptors[i].base_low = addr & 0xFFFF'FFFF;
+		descriptors[i].base_high = (addr >> 32) & 0xFFFF'FFFF;
 	}
 
-	_descriptors[_descriptor_count - 1].flags |= flags::rx::eor(true);
+	descriptors[descriptorCount - 1].flags |= flags::rx::eor(true);
+
+	auto descriptorIova = co_await nic.dmaSpace().iova_of(descriptors);
+	auto rx = std::make_unique<RxQueue>(std::move(descriptors), std::move(descriptorBuffers));
+	rx->_descriptorIova = descriptorIova;
+	co_return rx;
 }
 
+RxQueue::RxQueue(
+    arch::dma_array<Descriptor> descriptors, std::vector<arch::dma_buffer> descriptorBuffers
+)
+: _descriptors{std::move(descriptors)},
+  _descriptor_buffers{std::move(descriptorBuffers)},
+  _last_rx_index(0, _descriptors.size()),
+  _next_index(0, _descriptors.size()) {}
+
 async::result<size_t> RxQueue::submitDescriptor(arch::dma_buffer_view frame, RealtekNic &nic) {
-	auto ev_req = std::make_shared<Request>(_descriptor_count);
+	auto ev_req = std::make_shared<Request>(_descriptors.size());
 
 	co_await postDescriptor(frame, nic, ev_req);
 

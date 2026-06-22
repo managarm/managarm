@@ -1,12 +1,10 @@
 #include <async/basic.hpp>
 #include <cstdint>
-#include <initializer_list>
 #include <nic/rtl8168/common.hpp>
 #include <nic/rtl8168/rtl8168.hpp>
 #include <nic/rtl8168/regs.hpp>
 #include <frg/logging.hpp>
 #include <helix/timer.hpp>
-#include <memory>
 #include <unistd.h>
 
 // TODO: the linux kernel locks on these
@@ -150,7 +148,11 @@ async::result<void> RealtekNic::enableExitL1() {
 }
 
 void RealtekNic::ringDoorbell() {
-	_mmio.store(regs::tppoll, flags::tppoll::poll_normal_prio(true));
+	if(_model == PciModel::RTL8125) {
+		_mmio.store(regs::rtl8125::tx_start, flags::rtl8125::tx_start::start(true));
+	} else {
+		_mmio.store(regs::tppoll, flags::tppoll::poll_normal_prio(true));
+	}
 }
 
 void RealtekNic::printRegisters() {
@@ -160,8 +162,13 @@ void RealtekNic::printRegisters() {
 	frg::to(std::cout) << frg::fmt("\t config2: 0x{:02x}", uint8_t(_mmio.load(regs::config2))) << frg::endlog;
 	frg::to(std::cout) << frg::fmt("\t config3: 0x{:02x}", uint8_t(_mmio.load(regs::config3))) << frg::endlog;
 	frg::to(std::cout) << frg::fmt("\t config5: 0x{:02x}", uint8_t(_mmio.load(regs::config5))) << frg::endlog;
-	frg::to(std::cout) << frg::fmt("\t interrupt_mask: 0x{:04x}", uint16_t(_mmio.load(regs::interrupt_mask))) << frg::endlog;
-	frg::to(std::cout) << frg::fmt("\t interrupt_status: 0x{:04x}", uint16_t(_mmio.load(regs::interrupt_status))) << frg::endlog;
+	if(_model == PciModel::RTL8125) {
+		frg::to(std::cout) << frg::fmt("\t interrupt_mask: 0x{:08x}", uint32_t(_mmio.load(regs::rtl8125::interrupt_mask))) << frg::endlog;
+		frg::to(std::cout) << frg::fmt("\t interrupt_status: 0x{:08x}", uint32_t(_mmio.load(regs::rtl8125::interrupt_status))) << frg::endlog;
+	} else {
+		frg::to(std::cout) << frg::fmt("\t interrupt_mask: 0x{:04x}", uint16_t(_mmio.load(regs::interrupt_mask))) << frg::endlog;
+		frg::to(std::cout) << frg::fmt("\t interrupt_status: 0x{:04x}", uint16_t(_mmio.load(regs::interrupt_status))) << frg::endlog;
+	}
 	frg::to(std::cout) << frg::fmt("\t transmit_config: 0x{:08x}", uint32_t(_mmio.load(regs::transmit_config))) << frg::endlog;
 	frg::to(std::cout) << frg::fmt("\t receive_config: 0x{:08x}", uint32_t(_mmio.load(regs::receive_config))) << frg::endlog;
 	frg::to(std::cout) << frg::fmt("\t dllpr: 0x{:02x}", uint8_t(_mmio.load(regs::dllpr))) << frg::endlog;

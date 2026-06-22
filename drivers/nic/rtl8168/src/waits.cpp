@@ -90,10 +90,14 @@ async::result<bool> RealtekNic::waitTxRxFifoEmpty() {
 			break;
 		}
 		case MacRevision::MacVer61: {
-			assert(!"Not Implemented");
+			_mmio.store(regs::cmd, _mmio.load(regs::cmd) / flags::cmd::stop_req(true));
+			co_await busyWaitFor([this] () {
+				auto reg = _mmio.load(regs::mcu);
+				return (reg & flags::mcu::rx_empty) && (reg & flags::mcu::tx_empty);
+			}, loopTimes, loopDelay);
 			break;
 		}
-		case MacRevision::MacVer63 ... MacRevision::MacVer65: {
+		case MacRevision::MacVer63 ... MacRevision::MacVer70: {
 			_mmio.store(regs::cmd, _mmio.load(regs::cmd) / flags::cmd::stop_req(true));
 			co_await busyWaitFor([this] () {
 				auto reg = _mmio.load(regs::mcu);

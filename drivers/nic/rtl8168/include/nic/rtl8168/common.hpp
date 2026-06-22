@@ -13,6 +13,7 @@ constexpr size_t NUM_RX_DESCRIPTORS = 256;
 constexpr size_t NUM_TX_DESCRIPTORS = 256;
 
 struct RxQueue;
+struct TxQueue;
 struct TxQueue8168;
 
 enum class PciModel : uint16_t {
@@ -28,7 +29,7 @@ enum class PciModel : uint16_t {
 struct RealtekNic : nic::Link {
 	friend TxQueue8168;
 public:
-	RealtekNic(protocols::hw::Device device);
+	RealtekNic(protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive);
 
 	enum MacRevision : uint16_t {
 		MacVerNone = 0, // Error case
@@ -76,7 +77,8 @@ public:
 		MacVer53 = 53,
 		MacVer61 = 61,
 		MacVer63 = 63,
-		MacVer65 = 65,
+		MacVer70 = 70,
+		MacVer80 = 80,
 	};
 	enum class DashType : uint8_t {
 		DashNone,
@@ -92,6 +94,10 @@ public:
 	void ringDoorbell();
 
 	void printRegisters();
+
+	arch::dma_space &dmaSpace() {
+		return dmaSpace_;
+	}
 
 	// Workarounds
 	bool restart_transmitter_on_tx_ok_and_tx_desc_unavailable = true;
@@ -219,6 +225,8 @@ private:
 	arch::mem_space _mmio;
 
 	arch::contiguous_pool _dmaPool{{.addressBits = 64}};
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
 	protocols::hw::Device _device;
 
 	helix::UniqueDescriptor _irq;

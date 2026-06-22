@@ -20,28 +20,41 @@ void RealtekNic::setTxConfigRegisters() {
 	_mmio.store(regs::transmit_config, val);
 }
 
-TxQueue::TxQueue(size_t descriptors, RealtekNic &nic) : _descriptor_count{descriptors}, _amount_free_descriptors{descriptors}, tx_index{0, descriptors}, hw_tx_index{0, descriptors} {
-	_descriptors = arch::dma_array<Descriptor>(nic.dmaPool(), _descriptor_count);
-	_descriptor_buffers.reserve(_descriptor_count);
+async::result<std::unique_ptr<TxQueue>> TxQueue::create(RealtekNic &nic, size_t descriptorCount) {
+	arch::dma_array<Descriptor> descriptors{nic.dmaPool(), descriptorCount};
+	std::vector<arch::dma_buffer> descriptorBuffers;
 
-	for(size_t i = 0; i < _descriptor_count; i++) {
-		auto buf = arch::dma_buffer(nic.dmaPool(), 2048);
-		memset(buf.data(), 0, buf.size());
-		uintptr_t addr = helix_ng::ptrToPhysical(buf.data());
+	for(size_t i = 0; i < descriptorCount; i++) {
+		descriptorBuffers.emplace_back(nic.dmaPool(), 2048);
+		memset(descriptorBuffers.back().data(), 0, 2048);
 
-		_descriptor_buffers.push_back(std::move(buf));
+		uintptr_t addr = co_await nic.dmaSpace().iova_of(descriptorBuffers.back());
 
-		_descriptors[i].flags = flags::tx::frame_length(0);
-		_descriptors[i].vlan = 0;
-		_descriptors[i].base_low = addr & 0xFFFF'FFFF;
-		_descriptors[i].base_high = (addr >> 32) & 0xFFFF'FFFF;
+		descriptors[i].flags = flags::tx::frame_length(0);
+		descriptors[i].vlan = 0;
+		descriptors[i].base_low = addr & 0xFFFF'FFFF;
+		descriptors[i].base_high = (addr >> 32) & 0xFFFF'FFFF;
 	}
 
-	_descriptors[_descriptor_count - 1].flags |= flags::tx::eor(true);
+	descriptors[descriptorCount - 1].flags |= flags::tx::eor(true);
+
+	auto descriptorIova = co_await nic.dmaSpace().iova_of(descriptors);
+	auto tx = std::make_unique<TxQueue>(std::move(descriptors), std::move(descriptorBuffers));
+	tx->_descriptorIova = descriptorIova;
+	co_return tx;
 }
 
+TxQueue::TxQueue(
+    arch::dma_array<Descriptor> descriptors, std::vector<arch::dma_buffer> descriptorBuffers
+)
+: _descriptor_buffers{std::move(descriptorBuffers)},
+  _descriptors{std::move(descriptors)},
+  _amount_free_descriptors{_descriptors.size()},
+  tx_index{0, _descriptors.size()},
+  hw_tx_index{0, _descriptors.size()} {}
+
 async::result<void> TxQueue::submitDescriptor(arch::dma_buffer_view payload, RealtekNic &nic) {
-	auto ev_req = std::make_shared<Request>(_descriptor_count);
+	auto ev_req = std::make_shared<Request>(_descriptors.size());
 
 	co_await postDescriptor(payload, nic, ev_req);
 	co_await ev_req->event.wait();

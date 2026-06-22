@@ -58,16 +58,17 @@ static const std::unordered_map<RealtekNic::MacRevision, std::string> rtl_chip_i
 	{RealtekNic::MacRevision::MacVer53, "RTL8168fp/RTL8117"},
 	{RealtekNic::MacRevision::MacVer61, "RTL8125A"},
 	{RealtekNic::MacRevision::MacVer63, "RTL8125B"},
-	{RealtekNic::MacRevision::MacVer65, "RTL8126A"},
+	{RealtekNic::MacRevision::MacVer70, "RTL8126A"},
+	{RealtekNic::MacRevision::MacVer80, "RTL8127A"},
 };
 
-RealtekNic::RealtekNic(protocols::hw::Device device)
-	: nic::Link(1500, &_dmaPool), _device{std::move(device)} {
-		_rxQueue = std::make_unique<RxQueue>(NUM_RX_DESCRIPTORS, *this);
-		_txQueue = std::make_unique<TxQueue>(NUM_TX_DESCRIPTORS, *this);
-
-		async::run(this->init(), helix::currentDispatcher);
-}
+RealtekNic::RealtekNic(
+    protocols::hw::Device device, helix::UniqueDescriptor dmaSpace, bool iommuActive
+)
+: nic::Link(1500, &_dmaPool),
+  dmaSpaceHandle_{std::move(dmaSpace)},
+  dmaSpace_{_dmaPool.attachDmaSpace(dmaSpaceHandle_, iommuActive)},
+  _device{std::move(device)} {}
 
 async::result<void> RealtekNic::getMmio() {
 	auto info = co_await _device.getPciInfo();
@@ -106,9 +107,12 @@ void RealtekNic::determineMacRevision() {
 	// This structure was adapted from the linux kernel driver. It seems to be the only sane way to detect
 	// exactly which card we have: it compares various bits from the TxConfig register and applies some masks
 	// over the identification registers.
-	static const std::array<struct rtl_mac_info, 47> mac_info = {{
+	static const auto mac_info = std::to_array<struct rtl_mac_info>({
+		// 8127A family.
+		{ 0x7cf, 0x6c9,	MacRevision::MacVer80 },
+
 		// 8126A family.
-		{ 0x7cf, 0x649,	MacRevision::MacVer65 },
+		{ 0x7cf, 0x649,	MacRevision::MacVer70 },
 
 		// 8125B family.
 		{ 0x7cf, 0x641,	MacRevision::MacVer63 },
@@ -185,7 +189,7 @@ void RealtekNic::determineMacRevision() {
 		// If a card fails to be detected properly,
 		// it will be assigned this mac revision
 		{ 0x000, 0x000,	MacRevision::MacVerNone }
-	}};
+	});
 	uint16_t xid = (_mmio.load(regs::transmit_config) & flags::transmit_config::detect_bits) & 0xFCF;
 
 	for(auto &v : mac_info) {
@@ -263,7 +267,7 @@ async::result<void> RealtekNic::initializeHardware() {
 
 			break;
 		}
-		case MacRevision::MacVer61 ... MacRevision::MacVer63: {
+		case MacRevision::MacVer61 ... MacRevision::MacVer70: {
 			co_await enableRXDVGate();
 			auto cmd = _mmio.load(regs::cmd);
 			cmd /= flags::cmd::transmitter(false);
@@ -290,7 +294,7 @@ async::result<void> RealtekNic::initializeHardware() {
 
 async::result<bool> RealtekNic::up() {
 	co_await cleanup();
-	startCard();
+	co_await startCard();
 	co_return true;
 }
 
@@ -312,7 +316,7 @@ async::result<bool> RealtekNic::cleanup() {
 			assert(!"Not Implemented");
 			break;
 		}
-		case MacRevision::MacVer40 ... MacRevision::MacVer65: {
+		case MacRevision::MacVer40 ... MacRevision::MacVer70: {
 			co_await enableRXDVGate();
 			co_await helix::sleepFor(2'000'000);
 			break;
@@ -358,13 +362,23 @@ async::result<bool> RealtekNic::startCard() {
 	if(_revision <= MacRevision::MacVer06) {
 		assert(!"Not Implemented"); // rtl_hw_start_8169
 	} else if(_model == PciModel::RTL8125) {
-		_mmio.store(regs::int_cfg0_8125, 0x00);
+		arch::bit_mask<uint8_t> int_cfg0_mask{0xFF};
+		if (_revision == MacVer80)
+			int_cfg0_mask = arch::bit_mask<uint8_t>{0xBF};
+		else if (_revision != MacVer61)
+			int_cfg0_mask = arch::bit_mask<uint8_t>{0xFE};
+
+		_mmio.store(regs::int_cfg0_8125, _mmio.load(regs::int_cfg0_8125) & int_cfg0_mask);
 
 		switch(_revision) {
-			case MacVer61:
-				assert(!"Not Implemented");
+			case MacVer61: {
+				for(int i = 0xA00; i < 0xB00; i += 4) {
+					_mmio.store(arch::scalar_register<uint32_t>{i}, 0);
+				}
+				break;
+			}
 			case MacVer63:
-			case MacVer65: {
+			case MacVer70: {
 				for(int i = 0xA00; i < 0xA80; i += 4) {
 					_mmio.store(arch::scalar_register<uint32_t>{i}, 0);
 				}
@@ -375,7 +389,7 @@ async::result<bool> RealtekNic::startCard() {
 				break;
 		}
 
-		assert(!"unimplemented");
+		disableRXDVGate();
 	} else {
 		if (_revision >= MacRevision::MacVer34 &&
 			_revision != MacRevision::MacVer37 &&
@@ -460,9 +474,10 @@ async::result<void> RealtekNic::init() {
 		}
 	}
 
+	_rxQueue = co_await RxQueue::create(*this, NUM_RX_DESCRIPTORS);
+	_txQueue = co_await TxQueue::create(*this, NUM_TX_DESCRIPTORS);
+
 	_irq = co_await _device.accessIrq();
-	co_await _device.enableBusmaster();
-	co_await _device.enableDma();
 
 	co_await getMmio();
 
@@ -554,17 +569,26 @@ async::detached RealtekNic::processIrqs() {
 		HEL_CHECK(await.error());
 		sequence = await.sequence();
 
-		auto status = _mmio.load(regs::interrupt_status);
-		if(logIRQs) {
-			frg::to(std::cout) << frg::fmt("drivers/rtl8168: IRQ received status 0x{:04x}", uint16_t(status)) << frg::endlog;
+		arch::bit_value<uint32_t> status{0};
+		if(_model == PciModel::RTL8125) {
+			status = _mmio.load(regs::rtl8125::interrupt_status);
+		} else {
+			status = arch::bit_value<uint32_t>{uint16_t(_mmio.load(regs::interrupt_status))};
 		}
 
-		if(uint16_t(status) == 0x0000) {
+		if constexpr (logIRQs)
+			std::println("drivers/rtl8168: IRQ received status 0x{:08x}", uint32_t(status));
+
+		if(!uint32_t(status)) {
 			HEL_CHECK(helAcknowledgeIrq(_irq.getHandle(), kHelAckAcknowledge, sequence));
 			continue;
 		}
 
-		_mmio.store(regs::interrupt_status, status);
+		if(_model == PciModel::RTL8125) {
+			_mmio.store(regs::rtl8125::interrupt_status, arch::bit_value<uint32_t>(status));
+		} else {
+			_mmio.store(regs::interrupt_status, arch::bit_value<uint16_t>(uint32_t(status)));
+		}
 
 		// Did the status of the network link change?
 		if(status & flags::interrupt_status::link_change) {
@@ -630,8 +654,14 @@ async::detached RealtekNic::processIrqs() {
 
 namespace nic::rtl8168 {
 
-std::shared_ptr<nic::Link> makeShared(protocols::hw::Device device) {
-	return std::make_shared<RealtekNic>(std::move(device));
+async::result<std::shared_ptr<nic::Link>> makeShared(protocols::hw::Device device) {
+	co_await device.enableBusmaster();
+	co_await device.enableDma(false);
+	auto [iommuActive, dmaSpace] = co_await device.getDmaSpace();
+
+	auto nic = std::make_shared<RealtekNic>(std::move(device), std::move(dmaSpace), iommuActive);
+	co_await nic->init();
+	co_return std::move(nic);
 }
 
 } // namespace nic::rtl8168
