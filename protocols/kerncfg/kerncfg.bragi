@@ -57,3 +57,20 @@ head(128):
 	Error error;
 	uint64 num_cpu;
 }
+
+message GetCpuInfoRequest 8 {
+head(128):
+}
+
+message GetCpuInfoResponse 9 {
+head(128):
+	Error error;
+	uint32 cpu_family;
+	uint32 model;
+	uint32 stepping;
+	uint32 microcode_revision;
+	uint64 frequency_hz;
+tail:
+	string vendor_id;
+	string model_name;
+}

@@ -12,6 +12,10 @@
 #include <thor-internal/mbus.hpp>
 #include <thor-internal/physical.hpp>
 
+#ifdef __x86_64__
+#include <thor-internal/arch/cpu.hpp>
+#endif
+
 #include <bragi/helpers-frigg.hpp>
 #include <bragi/helpers-all.hpp>
 #include "kerncfg.frigg_bragi.hpp"
@@ -107,6 +111,36 @@ private:
 			if(respError != Error::success) {
 				co_return respError;
 			}
+#ifdef __x86_64__
+		}else if(preamble.id() == bragi::message_id<managarm::kerncfg::GetCpuInfoRequest>) {
+			auto req = bragi::parse_head_only<managarm::kerncfg::GetCpuInfoRequest>(reqBuffer, *kernelAlloc);
+
+			if(!req)
+				co_return Error::protocolViolation;
+
+			auto cpuFeatures = getGlobalCpuFeatures();
+			managarm::kerncfg::GetCpuInfoResponse<KernelAlloc> resp(*kernelAlloc);
+			resp.set_error(managarm::kerncfg::Error::SUCCESS);
+			resp.set_cpu_family(cpuFeatures->family);
+			resp.set_model(cpuFeatures->model);
+			resp.set_stepping(cpuFeatures->stepping);
+			resp.set_microcode_revision(cpuFeatures->microcodeRevision);
+			resp.set_frequency_hz(cpuFeatures->frequencyHz);
+			resp.set_vendor_id(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->vendorId});
+			resp.set_model_name(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->modelName});
+
+			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.size_of_head()};
+			frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
+			bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+			auto respHeadError = co_await sendBuffer(lane, std::move(respHeadBuffer));
+			if(respHeadError != Error::success)
+				co_return respHeadError;
+
+			auto respTailError = co_await sendBuffer(lane, std::move(respTailBuffer));
+			if(respTailError != Error::success)
+				co_return respTailError;
+#endif
 		}else{
 			managarm::kerncfg::SvrResponse<KernelAlloc> resp(*kernelAlloc);
 			resp.set_error(managarm::kerncfg::Error::ILLEGAL_REQUEST);
