@@ -590,14 +590,15 @@ async::result<std::expected<std::string, Error>> CpuInfoNode::show(Process *) {
 			<< "initial apicid\t: " << cpu << '\n'
 			<< "fpu\t\t: yes\n"
 			<< "fpu_exception\t: yes\n"
-			<< "cpuid level\t: 0\n"
+			<< "cpuid level\t: " << cpuInfoResp.cpuid_level() << '\n'
 			<< "wp\t\t: yes\n"
 			<< "flags\t\t:\n"
 			<< "bugs\t\t:\n"
 			<< "bogomips\t: 0.00\n"
 			<< "clflush size\t: 0\n"
 			<< "cache_alignment\t: 0\n"
-			<< "address sizes\t: 0 bits physical, 0 bits virtual\n"
+			<< "address sizes\t: " << cpuInfoResp.physical_address_bits()
+			<< " bits physical, " << cpuInfoResp.virtual_address_bits() << " bits virtual\n"
 			<< "power management:\n\n";
 #elif defined(__aarch64__)
 		stream << "processor\t: " << cpu << '\n'
