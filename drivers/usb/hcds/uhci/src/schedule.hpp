@@ -1,17 +1,20 @@
+#pragma once
 
-#include <queue>
 #include <arch/dma_pool.hpp>
 #include <arch/io_space.hpp>
-#include <async/recurring-event.hpp>
-#include <async/promise.hpp>
 #include <async/mutex.hpp>
-#include <boost/intrusive/list.hpp>
+#include <async/promise.hpp>
+#include <async/recurring-event.hpp>
+#include <frg/list.hpp>
+#include <frg/std_compat.hpp>
+#include <helix/ipc.hpp>
 #include <protocols/hw/client.hpp>
 #include <protocols/mbus/client.hpp>
 #include <protocols/usb/api.hpp>
 #include <protocols/usb/hub.hpp>
+#include <queue>
 
-#include <frg/std_compat.hpp>
+#include "uhci.hpp"
 
 namespace proto = protocols::usb;
 
@@ -36,9 +39,10 @@ struct Controller final : std::enable_shared_from_this<Controller>, proto::BaseC
 	};
 
 	Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager entity,
-			uintptr_t base, arch::io_space space, helix::UniqueIrq irq);
+			uintptr_t base, arch::io_space space, helix::UniqueIrq irq,
+			bool iommuActive, helix::UniqueDescriptor dmaSpaceHandle);
 
-	void initialize();
+	async::result<void> initialize();
 	async::detached _handleIrqs();
 	async::detached _refreshFrame();
 
@@ -58,6 +62,13 @@ private:
 
 	mbus_ng::EntityManager _entity;
 
+	arch::contiguous_pool pool_{
+	    {.addressBits = 32, .allocateContigous = true, .dmaMapFlags = kHelMapPreferBottom}
+	};
+	helix::UniqueDescriptor dmaSpaceHandle_;
+	arch::dma_space dmaSpace_;
+	arch::dma_object<FrameList> _frameListObj{memoryPool()};
+
 	void _updateFrame();
 
 	// ------------------------------------------------------------------------
@@ -67,7 +78,7 @@ private:
 	// Base class for classes that represent elements of the UHCI schedule.
 	// All those classes are linked into a list that represents a part of the schedule.
 	// They need to be freed through the reclaim mechansim.
-	struct ScheduleItem : boost::intrusive::list_base_hook<> {
+	struct ScheduleItem {
 		ScheduleItem()
 		: reclaimFrame(-1) { }
 
@@ -76,6 +87,7 @@ private:
 		}
 
 		int64_t reclaimFrame;
+		frg::default_list_hook<ScheduleItem> reclaimHook_;
 	};
 
 	struct Transaction : ScheduleItem {
@@ -91,6 +103,8 @@ private:
 		size_t lengthComplete;
 		bool allowShortPackets;
 		async::promise<frg::expected<proto::UsbError, size_t>, frg::stl_allocator> promise;
+		uintptr_t cachedTransfersIova = 0;
+		frg::default_list_hook<Transaction> hook_;
 	};
 
 	struct QueueEntity : ScheduleItem {
@@ -100,9 +114,19 @@ private:
 			head->_elementPointer = QueueHead::ElementPointer();
 		}
 
+		async::result<void> initialize(arch::dma_space &space);
+		uintptr_t headIova() const { return cachedHeadIova_; }
+
 		arch::dma_object<QueueHead> head;
 		bool toggleState;
-		boost::intrusive::list<Transaction> transactions;
+		frg::default_list_hook<QueueEntity> hook_;
+		frg::intrusive_list<
+			Transaction,
+			frg::locate_member<Transaction, frg::default_list_hook<Transaction>, &Transaction::hook_>
+		> transactions;
+
+	private:
+		uintptr_t cachedHeadIova_ = 0;
 	};
 
 	// ------------------------------------------------------------------------
@@ -112,6 +136,7 @@ private:
 	struct EndpointSlot {
 		size_t maxPacketSize;
 		QueueEntity *queueEntity;
+		async::mutex submissionMutex;
 	};
 
 	struct DeviceSlot {
@@ -135,14 +160,18 @@ public:
 	async::result<frg::expected<proto::UsbError>>
 	useInterface(int address, uint8_t configIndex, uint8_t configValue, int interface, int alternative);
 
+	arch::contiguous_pool *memoryPool() {
+		return &pool_;
+	}
+
 	// ------------------------------------------------------------------------
 	// Transfer functions.
 	// ------------------------------------------------------------------------
 
-	static Transaction *_buildControl(int address, int pipe, proto::XferFlags dir,
+	async::result<Transaction *> _buildControl(int address, int pipe, proto::XferFlags dir,
 			arch::dma_object_view<proto::SetupPacket> setup, arch::dma_buffer_view buffer,
 			bool low_speed, size_t max_packet_size);
-	static Transaction *_buildInterruptOrBulk(int address, int pipe, proto::XferFlags dir,
+	async::result<Transaction *> _buildInterruptOrBulk(int address, int pipe, proto::XferFlags dir,
 			arch::dma_buffer_view buffer,
 			bool low_speed, size_t max_packet_size,
 			bool allow_short_packets);
@@ -176,13 +205,22 @@ private:
 
 	void _reclaim(ScheduleItem *item);
 
-	boost::intrusive::list<QueueEntity> _interruptSchedule[2 * 1024 - 1];
-	boost::intrusive::list<QueueEntity> _asyncSchedule;
+	frg::intrusive_list<
+		QueueEntity,
+		frg::locate_member<QueueEntity, frg::default_list_hook<QueueEntity>, &QueueEntity::hook_>
+	> _interruptSchedule[2 * 1024 - 1];
+	frg::intrusive_list<
+		QueueEntity,
+		frg::locate_member<QueueEntity, frg::default_list_hook<QueueEntity>, &QueueEntity::hook_>
+	> _asyncSchedule;
 	std::vector<QueueEntity *> _activeEntities;
 
 	// This queue holds all schedule structs that are currently
 	// being garbage collected.
-	boost::intrusive::list<ScheduleItem> _reclaimQueue;
+	frg::intrusive_list<
+		ScheduleItem,
+		frg::locate_member<ScheduleItem, frg::default_list_hook<ScheduleItem>, &ScheduleItem::reclaimHook_>
+	> _reclaimQueue;
 
 	FrameList *_frameList;
 

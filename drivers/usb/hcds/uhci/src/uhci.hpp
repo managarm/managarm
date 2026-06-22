@@ -1,5 +1,8 @@
+#pragma once
 
 #include <arch/variable.hpp>
+#include <assert.h>
+#include <iostream>
 
 struct TransferDescriptor;
 struct QueueHead;
@@ -36,9 +39,6 @@ namespace td_token {
 }
 
 struct Pointer {
-	static Pointer from(TransferDescriptor *item);
-	static Pointer from(QueueHead *item);
-
 	static constexpr uint32_t TerminateBit = 0;
 	static constexpr uint32_t QhSelectBit = 1;
 	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
@@ -60,11 +60,8 @@ struct Pointer {
 };
 
 struct TransferBufferPointer {
-	static TransferBufferPointer from(void *item) {
-		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
-		assert((physical & 0xFFFFFFFF) == physical);
-		return TransferBufferPointer(physical);
+	static TransferBufferPointer from(uint32_t pointer) {
+		return TransferBufferPointer(pointer);
 	}
 
 	TransferBufferPointer() {
@@ -106,7 +103,7 @@ static_assert(sizeof(TransferDescriptor) == 16, "Bad sizeof(TransferDescriptor)"
 struct alignas(16) QueueHead {
 	typedef Pointer LinkPointer;
 	typedef Pointer ElementPointer;
-	
+
 	LinkPointer _linkPointer;
 	ElementPointer _elementPointer;
 };
@@ -115,14 +112,6 @@ struct FrameListPointer {
 	static constexpr uint32_t TerminateBit = 0;
 	static constexpr uint32_t QhSelectBit = 1;
 	static constexpr uint32_t PointerMask = 0xFFFFFFF0;
-
-	static FrameListPointer from(QueueHead *item) {
-		uintptr_t physical;
-		HEL_CHECK(helPointerPhysical(kHelNullHandle, item, &physical));
-		assert(physical % sizeof(*item) == 0);
-		assert((physical & 0xFFFFFFFF) == physical);
-		return FrameListPointer{static_cast<uint32_t>(physical), true};
-	}
 
 	FrameListPointer()
 	: _bits{1 << TerminateBit} { }
@@ -139,7 +128,7 @@ struct FrameListPointer {
 	uint32_t _bits;
 };
 
-struct FrameList {
+struct alignas(0x1000) FrameList {
 	arch::scalar_variable<uint32_t> entries[1024];
 };
 

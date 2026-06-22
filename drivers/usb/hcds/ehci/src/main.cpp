@@ -33,31 +33,6 @@ namespace proto = protocols::usb;
 
 std::vector<std::shared_ptr<Controller>> globalControllers;
 
-// ----------------------------------------------------------------------------
-// Memory management.
-// ----------------------------------------------------------------------------
-
-namespace {
-	arch::contiguous_pool schedulePool{{.addressBits = 32}};
-}
-
-// ----------------------------------------------------------------------------
-// Pointer.
-// ----------------------------------------------------------------------------
-
-uint32_t physicalPointer(void *ptr) {
-	uintptr_t physical;
-	HEL_CHECK(helPointerPhysical(kHelNullHandle, ptr, &physical));
-	assert((physical & 0xFFFFFFFF) == physical);
-	return physical;
-}
-
-uint32_t schedulePointer(void *ptr) {
-	auto physical = physicalPointer(ptr);
-	assert(!(physical & 0x1F));
-	return physical;
-}
-
 // ----------------------------------------------------------------
 // DeviceState
 // ----------------------------------------------------------------
@@ -66,11 +41,11 @@ DeviceState::DeviceState(std::shared_ptr<Controller> controller, int device)
 : _controller{std::move(controller)}, _device(device) { }
 
 arch::dma_pool *DeviceState::setupPool() {
-	return &schedulePool;
+	return _controller->memoryPool();
 }
 
 arch::dma_pool *DeviceState::bufferPool() {
-	return &schedulePool;
+	return _controller->memoryPool();
 }
 
 async::result<frg::expected<proto::UsbError, std::string>> DeviceState::deviceDescriptor() {
@@ -148,11 +123,14 @@ async::result<frg::expected<proto::UsbError, size_t>> EndpointState::transfer(pr
 // ----------------------------------------------------------------
 
 Controller::Controller(protocols::hw::Device hw_device, mbus_ng::EntityManager entity, helix::Mapping mapping,
-		helix::UniqueDescriptor mmio, helix::UniqueIrq irq)
+		helix::UniqueDescriptor mmio, helix::UniqueIrq irq,
+		bool iommuActive, helix::UniqueDescriptor dmaSpaceHandle)
 : _hwDevice{std::move(hw_device)}, _mapping{std::move(mapping)},
 		_mmio{std::move(mmio)}, _irq{std::move(irq)},
 		_space{_mapping.get()}, _enumerator{this},
-		_entity{std::move(entity)} {
+		_entity{std::move(entity)},
+		dmaSpaceHandle_{std::move(dmaSpaceHandle)},
+		dmaSpace_{pool_.attachDmaSpace(dmaSpaceHandle_, iommuActive)} {
 	auto offset = _space.load(cap_regs::caplength);
 	_operational = _space.subspace(offset);
 	_numPorts = _space.load(cap_regs::hcsparams) & hcsparams::nPorts;
@@ -295,8 +273,9 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 		co_return proto::UsbError::other;
 
 	// This queue will become the default control pipe of our new device.
-	auto dma_obj = arch::dma_object<QueueHead>{&schedulePool};
+	auto dma_obj = arch::dma_object<QueueHead>{memoryPool()};
 	auto queue = new QueueEntity{std::move(dma_obj), 0, 0, proto::PipeType::control, 64};
+	co_await queue->initialize(dmaSpace_);
 	_linkAsync(queue);
 
 	// Allocate an address for the device.
@@ -307,7 +286,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	if(logDeviceEnumeration)
 		std::cout << "ehci: Setting device address" << std::endl;
 
-	arch::dma_object<proto::SetupPacket> set_address{&schedulePool};
+	arch::dma_object<proto::SetupPacket> set_address{memoryPool()};
 	set_address->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toDevice;
 	set_address->request = proto::request_type::setAddress;
@@ -324,7 +303,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	if(logDeviceEnumeration)
 		std::cout << "ehci: Getting device descriptor header" << std::endl;
 
-	arch::dma_object<proto::SetupPacket> get_header{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_header{memoryPool()};
 	get_header->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_header->request = proto::request_type::getDescriptor;
@@ -332,7 +311,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	get_header->index = 0;
 	get_header->length = 8;
 
-	arch::dma_object<proto::DeviceDescriptor> descriptor{&schedulePool};
+	arch::dma_object<proto::DeviceDescriptor> descriptor{memoryPool()};
 	auto transfer0 = co_await _directTransfer(proto::ControlTransfer{proto::kXferToHost,
 			get_header, descriptor.view_buffer().subview(0, 8)}, queue, 8);
 	if (!transfer0) {
@@ -347,7 +326,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	if(logDeviceEnumeration)
 		std::cout << "ehci: Getting full device descriptor" << std::endl;
 
-	arch::dma_object<proto::SetupPacket> get_descriptor{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_descriptor{memoryPool()};
 	get_descriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_descriptor->request = proto::request_type::getDescriptor;
@@ -364,8 +343,8 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	assert(descriptor->length == sizeof(proto::DeviceDescriptor));
 
 	// Read the configuration descriptor
-	arch::dma_object<proto::SetupPacket> getConfigDescriptor{&schedulePool};
-	arch::dma_object<proto::ConfigDescriptor> configDescriptor{&schedulePool};
+	arch::dma_object<proto::SetupPacket> getConfigDescriptor{memoryPool()};
+	arch::dma_object<proto::ConfigDescriptor> configDescriptor{memoryPool()};
 
 	getConfigDescriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
@@ -383,7 +362,7 @@ Controller::enumerateDevice(std::shared_ptr<proto::Hub> hub, int port, proto::De
 	assert(configDescriptor->length == sizeof(proto::ConfigDescriptor));
 
 	// Select the first configuration in order to exit the addressing state
-	arch::dma_object<proto::SetupPacket> setConfig{&schedulePool};
+	arch::dma_object<proto::SetupPacket> setConfig{memoryPool()};
 	setConfig->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toDevice;
 	setConfig->request = proto::request_type::setConfig;
@@ -545,7 +524,7 @@ async::detached Controller::handleIrqs() {
 
 async::result<frg::expected<proto::UsbError, std::string>>
 Controller::deviceDescriptor(int address) {
-	arch::dma_object<proto::SetupPacket> get_header{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_header{memoryPool()};
 	get_header->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_header->request = proto::request_type::getDescriptor;
@@ -553,12 +532,12 @@ Controller::deviceDescriptor(int address) {
 	get_header->index = 0;
 	get_header->length = 8;
 
-	arch::dma_object<proto::DeviceDescriptor> descriptor{&schedulePool};
+	arch::dma_object<proto::DeviceDescriptor> descriptor{memoryPool()};
 	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
 			get_header, descriptor.view_buffer().subview(0, 8)}));
 
 	// Read the rest of the device descriptor.
-	arch::dma_object<proto::SetupPacket> get_descriptor{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_descriptor{memoryPool()};
 	get_descriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_descriptor->request = proto::request_type::getDescriptor;
@@ -577,7 +556,7 @@ Controller::deviceDescriptor(int address) {
 async::result<frg::expected<proto::UsbError, std::string>>
 Controller::configurationDescriptor(int address, uint8_t configuration) {
 	// Read the descriptor header that contains the hierachy size.
-	arch::dma_object<proto::SetupPacket> get_header{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_header{memoryPool()};
 	get_header->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_header->request = proto::request_type::getDescriptor;
@@ -585,13 +564,13 @@ Controller::configurationDescriptor(int address, uint8_t configuration) {
 	get_header->index = 0;
 	get_header->length = sizeof(proto::ConfigDescriptor);
 
-	arch::dma_object<proto::ConfigDescriptor> header{&schedulePool};
+	arch::dma_object<proto::ConfigDescriptor> header{memoryPool()};
 	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
 			get_header, header.view_buffer()}));
 	assert(header->length == sizeof(proto::ConfigDescriptor));
 
 	// Read the whole descriptor hierachy.
-	arch::dma_object<proto::SetupPacket> get_descriptor{&schedulePool};
+	arch::dma_object<proto::SetupPacket> get_descriptor{memoryPool()};
 	get_descriptor->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toHost;
 	get_descriptor->request = proto::request_type::getDescriptor;
@@ -599,7 +578,7 @@ Controller::configurationDescriptor(int address, uint8_t configuration) {
 	get_descriptor->index = 0;
 	get_descriptor->length = header->totalLength;
 
-	arch::dma_buffer descriptor{&schedulePool, header->totalLength};
+	arch::dma_buffer descriptor{memoryPool(), header->totalLength};
 	FRG_CO_TRY(co_await transfer(address, 0, proto::ControlTransfer{proto::kXferToHost,
 			get_descriptor, descriptor}));
 
@@ -610,7 +589,7 @@ Controller::configurationDescriptor(int address, uint8_t configuration) {
 
 async::result<frg::expected<proto::UsbError>>
 Controller::useConfiguration(int address, int configuration) {
-	arch::dma_object<proto::SetupPacket> set_config{&schedulePool};
+	arch::dma_object<proto::SetupPacket> set_config{memoryPool()};
 	set_config->type = proto::setup_type::targetDevice | proto::setup_type::byStandard
 			| proto::setup_type::toDevice;
 	set_config->request = proto::request_type::setConfig;
@@ -658,19 +637,21 @@ Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, 
 					std::cout << "ehci: Setting up IN pipe " << pipe
 							<< " (max. packet size: " << ep.maxPacketSize << ")" << std::endl;
 				_activeDevices[address].inStates[pipe].maxPacketSize = packet_size;
-				_activeDevices[address].inStates[pipe].queueEntity
-						= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+				auto queue = new QueueEntity{arch::dma_object<QueueHead>{memoryPool()},
 								address, pipe, proto::PipeType::in, ep.maxPacketSize};
-				this->_linkAsync(_activeDevices[address].inStates[pipe].queueEntity);
+				co_await queue->initialize(dmaSpace_);
+				_activeDevices[address].inStates[pipe].queueEntity = queue;
+				_linkAsync(queue);
 			}else{
 				if(logDeviceEnumeration)
 					std::cout << "ehci: Setting up OUT pipe " << pipe
 							<< " (max. packet size: " << ep.maxPacketSize << ")" << std::endl;
 				_activeDevices[address].outStates[pipe].maxPacketSize = packet_size;
-				_activeDevices[address].outStates[pipe].queueEntity
-						= new QueueEntity{arch::dma_object<QueueHead>{&schedulePool},
+				auto queue = new QueueEntity{arch::dma_object<QueueHead>{memoryPool()},
 								address, pipe, proto::PipeType::out, ep.maxPacketSize};
-				this->_linkAsync(_activeDevices[address].outStates[pipe].queueEntity);
+				co_await queue->initialize(dmaSpace_);
+				_activeDevices[address].outStates[pipe].queueEntity = queue;
+				_linkAsync(queue);
 			}
 		}
 	}
@@ -685,9 +666,7 @@ Controller::useInterface(int address, uint8_t configIndex, uint8_t configValue, 
 Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 		int address, int pipe, proto::PipeType type, size_t packet_size)
 : head(std::move(the_head)) {
-	head->horizontalPtr.store(qh_horizontal::terminate(false)
-			| qh_horizontal::typeSelect(0x01)
-			| qh_horizontal::horizontalPtr(schedulePointer(head.data())));
+	head->horizontalPtr.store(qh_horizontal::terminate(true));
 	head->flags.store(qh_flags::deviceAddr(address)
 			| qh_flags::endpointNumber(pipe)
 			| qh_flags::endpointSpeed(0x02)
@@ -704,6 +683,13 @@ Controller::QueueEntity::QueueEntity(arch::dma_object<QueueHead> the_head,
 	head->bufferPtr2.store(qh_buffer::bufferPtr(0));
 	head->bufferPtr3.store(qh_buffer::bufferPtr(0));
 	head->bufferPtr4.store(qh_buffer::bufferPtr(0));
+}
+
+async::result<void> Controller::QueueEntity::initialize(arch::dma_space &space) {
+	cachedHeadIova_ = co_await space.iova_of(head);
+	head->horizontalPtr.store(qh_horizontal::terminate(false)
+			| qh_horizontal::typeSelect(0x01)
+			| qh_horizontal::horizontalPtr(cachedHeadIova_));
 }
 
 bool Controller::QueueEntity::getReclaim() {
@@ -729,10 +715,17 @@ Controller::transfer(int address, int pipe, proto::ControlTransfer info) {
 	auto device = &_activeDevices[address];
 	auto endpoint = &device->controlStates[pipe];
 
-	auto transaction = _buildControl(info.flags,
-			info.setup, info.buffer,  endpoint->maxPacketSize);
+	Transaction *transaction = nullptr;
+	{
+		co_await endpoint->submissionMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, endpoint->submissionMutex};
+
+		transaction =
+		    co_await _buildControl(info.flags, info.setup, info.buffer, endpoint->maxPacketSize);
+		_linkTransaction(endpoint->queueEntity, transaction);
+	}
+
 	auto future = transaction->promise.get_future();
-	_linkTransaction(endpoint->queueEntity, transaction);
 	co_return *(co_await future.get());
 }
 
@@ -749,10 +742,18 @@ Controller::transfer(int address, proto::PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = _buildInterruptOrBulk(info.flags,
-			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
+	Transaction *transaction = nullptr;
+	{
+		co_await endpoint->submissionMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, endpoint->submissionMutex};
+
+		transaction = co_await _buildInterruptOrBulk(
+		    info.flags, info.buffer, endpoint->maxPacketSize, info.lazyNotification
+		);
+		_linkTransaction(endpoint->queueEntity, transaction);
+	}
+
 	auto future = transaction->promise.get_future();
-	_linkTransaction(endpoint->queueEntity, transaction);
 	co_return *(co_await future.get());
 }
 
@@ -769,47 +770,58 @@ Controller::transfer(int address, proto::PipeType type, int pipe,
 		endpoint = &device->outStates[pipe];
 	}
 
-	auto transaction = _buildInterruptOrBulk(info.flags,
-			info.buffer, endpoint->maxPacketSize, info.lazyNotification);
+	Transaction *transaction = nullptr;
+	{
+		co_await endpoint->submissionMutex.async_lock();
+		frg::unique_lock lock{frg::adopt_lock, endpoint->submissionMutex};
+
+		transaction = co_await _buildInterruptOrBulk(
+		    info.flags, info.buffer, endpoint->maxPacketSize, info.lazyNotification
+		);
+		_linkTransaction(endpoint->queueEntity, transaction);
+	}
+
 	auto future = transaction->promise.get_future();
-	_linkTransaction(endpoint->queueEntity, transaction);
 	co_return *(co_await future.get());
 }
 
 
-auto Controller::_buildControl(proto::XferFlags dir,
+async::result<Controller::Transaction *> Controller::_buildControl(proto::XferFlags dir,
 		arch::dma_object_view<proto::SetupPacket> setup, arch::dma_buffer_view buffer,
-		size_t) -> Transaction * {
+		size_t) {
 	assert((dir == proto::kXferToDevice) || (dir == proto::kXferToHost));
 
 	size_t num_data = (buffer.size() + 0x3FFF) / 0x4000;
 	assert(num_data <= 1);
-	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data + 2};
+	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data + 2};
 
+	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
 	// TODO: This code is horribly broken if the setup packet or
 	// one of the data packets crosses a page boundary.
-	auto setupAddr = reinterpret_cast<uintptr_t>(setup.data());
-	assert((setupAddr & ~0xFFFULL) == ((setupAddr + sizeof(*setup) - 1) & ~0xFFFULL));
+	auto setupIova = co_await dmaSpace_.iova_of(setup);
+	assert((setupIova & ~0xFFFULL) == ((setupIova + sizeof(*setup) - 1) & ~0xFFFULL));
 
-	transfers[0].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[1]))
+	transfers[0].nextTd.store(td_ptr::ptr(transfersIova + sizeof(TransferDescriptor))
 			| td_ptr::terminate(false));
 	transfers[0].altTd.store(td_ptr::terminate(true));
 	transfers[0].status.store(td_status::active(true)
 			| td_status::pidCode(2)
 			| td_status::interruptOnComplete(true)
 			| td_status::totalBytes(sizeof(proto::SetupPacket)));
-	transfers[0].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer(setup.data())));
+	transfers[0].bufferPtr0.store(td_buffer::bufferPtr(setupIova));
 	transfers[0].extendedPtr0.store(0);
 
 	size_t progress = 0;
 
-	auto dataAddr = reinterpret_cast<uintptr_t>(buffer.data());
-	assert(!num_data || (dataAddr & ~0xFFFULL) == ((dataAddr + buffer.size() - 1) & ~0xFFFULL));
+	uintptr_t bufferIova = 0;
+	if (num_data)
+		bufferIova = co_await dmaSpace_.iova_of(buffer);
+	assert(!num_data || (bufferIova & ~0xFFFULL) == ((bufferIova + buffer.size() - 1) & ~0xFFFULL));
 
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(size_t(0x4000), buffer.size() - progress);
 		assert(chunk);
-		transfers[i + 1].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[i + 2])));
+		transfers[i + 1].nextTd.store(td_ptr::ptr(transfersIova + (i + 2) * sizeof(TransferDescriptor)));
 		transfers[i + 1].altTd.store(td_ptr::terminate(true));
 		// TODO: If there is more than one TD we need to compute the correct data toggle.
 		transfers[i + 1].status.store(td_status::active(true)
@@ -818,8 +830,7 @@ auto Controller::_buildControl(proto::XferFlags dir,
 				| td_status::totalBytes(chunk)
 				| td_status::dataToggle(true));
 		// FIXME: Support larger buffers!
-		transfers[i + 1].bufferPtr0.store(td_buffer::bufferPtr(
-				physicalPointer((char *)buffer.data() + progress)));
+		transfers[i + 1].bufferPtr0.store(td_buffer::bufferPtr(bufferIova + progress));
 		transfers[i + 1].extendedPtr0.store(0);
 		progress += chunk;
 	}
@@ -832,12 +843,12 @@ auto Controller::_buildControl(proto::XferFlags dir,
 			| td_status::interruptOnComplete(true)
 			| td_status::dataToggle(true));
 
-	return new Transaction{std::move(transfers), buffer.size()};
+	co_return new Transaction{std::move(transfers), transfersIova, buffer.size()};
 }
 
-auto Controller::_buildInterruptOrBulk(proto::XferFlags dir,
+async::result<Controller::Transaction *> Controller::_buildInterruptOrBulk(proto::XferFlags dir,
 		arch::dma_buffer_view buffer, size_t max_packet_size,
-		bool lazy_notification) -> Transaction * {
+		bool lazy_notification) {
 	assert((dir == proto::kXferToDevice) || (dir == proto::kXferToHost));
 
 	// Maximum size that can be transferred in a single qTD starting from a certain offset.
@@ -860,14 +871,17 @@ auto Controller::_buildInterruptOrBulk(proto::XferFlags dir,
 		std::cout << "ehci: Building transfer using " << num_data << " TDs" << std::endl;
 
 	// Finally construct each qTD.
-	arch::dma_array<TransferDescriptor> transfers{&schedulePool, num_data};
+	arch::dma_array<TransferDescriptor> transfers{memoryPool(), num_data};
+
+	auto transfersIova = co_await dmaSpace_.iova_of(transfers);
+	auto bufferIova = co_await dmaSpace_.iova_of(buffer);
 
 	size_t progress = 0;
 	for(size_t i = 0; i < num_data; i++) {
 		size_t chunk = std::min(td_size(progress), buffer.size() - progress);
 		assert(chunk);
 		if(i + 1 < num_data) {
-			transfers[i].nextTd.store(td_ptr::ptr(schedulePointer(&transfers[i + 1])));
+			transfers[i].nextTd.store(td_ptr::ptr(transfersIova + (i + 1) * sizeof(TransferDescriptor)));
 		}else{
 			transfers[i].nextTd.store(td_ptr::terminate(true));
 		}
@@ -877,42 +891,37 @@ auto Controller::_buildInterruptOrBulk(proto::XferFlags dir,
 				| td_status::interruptOnComplete(i + 1 == num_data && !lazy_notification)
 				| td_status::totalBytes(chunk));
 
-		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
-				+ progress)));
+		transfers[i].bufferPtr0.store(td_buffer::bufferPtr(bufferIova + progress));
 		transfers[i].extendedPtr0.store(0);
 
-		auto misalign = ((uintptr_t)buffer.data() + progress) & 0xFFF;
+		auto misalign = (bufferIova + progress) & 0xFFF;
 		if(progress + 0x1000 - misalign < buffer.size()) {
-			transfers[i].bufferPtr1.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
-					+ progress + 0x1000 - misalign)));
+			transfers[i].bufferPtr1.store(td_buffer::bufferPtr(bufferIova + progress + 0x1000 - misalign));
 			transfers[i].extendedPtr1.store(0);
 		}
 		if(progress + 0x2000 - misalign < buffer.size()) {
-			transfers[i].bufferPtr2.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
-					+ progress + 0x2000 - misalign)));
+			transfers[i].bufferPtr2.store(td_buffer::bufferPtr(bufferIova + progress + 0x2000 - misalign));
 			transfers[i].extendedPtr2.store(0);
 		}
 		if(progress + 0x3000 - misalign < buffer.size()) {
-			transfers[i].bufferPtr3.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
-					+ progress + 0x3000 - misalign)));
+			transfers[i].bufferPtr3.store(td_buffer::bufferPtr(bufferIova + progress + 0x3000 - misalign));
 			transfers[i].extendedPtr3.store(0);
 		}
 		if(progress + 0x4000 - misalign < buffer.size()) {
-			transfers[i].bufferPtr4.store(td_buffer::bufferPtr(physicalPointer((char *)buffer.data()
-					+ progress + 0x4000 - misalign)));
+			transfers[i].bufferPtr4.store(td_buffer::bufferPtr(bufferIova + progress + 0x4000 - misalign));
 			transfers[i].extendedPtr4.store(0);
 		}
 		progress += chunk;
 	}
 	assert(progress == buffer.size());
 
-	return new Transaction{std::move(transfers), buffer.size()};
+	co_return new Transaction{std::move(transfers), transfersIova, buffer.size()};
 }
 
 
 async::result<frg::expected<proto::UsbError, size_t>> Controller::_directTransfer(proto::ControlTransfer info,
 		QueueEntity *queue, size_t max_packet_size) {
-	auto transaction = _buildControl(info.flags,
+	auto transaction = co_await _buildControl(info.flags,
 			info.setup, info.buffer, max_packet_size);
 	auto future = transaction->promise.get_future();
 	_linkTransaction(queue, transaction);
@@ -927,17 +936,17 @@ void Controller::_linkAsync(QueueEntity *entity) {
 	entity->setReclaim(true);
 	if(_asyncSchedule.empty()) {
 		entity->head->horizontalPtr.store(
-				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data()))
+				qh_horizontal::horizontalPtr(entity->headIova())
 				| qh_horizontal::typeSelect(1));
-		_operational.store(op_regs::asynclistaddr, schedulePointer(entity->head.data()));
+		_operational.store(op_regs::asynclistaddr, entity->headIova());
 		_operational.store(op_regs::usbcmd, usbcmd::asyncEnable(true)
 				| usbcmd::run(true) | usbcmd::irqThreshold(0x08));
 	}else{
 		entity->head->horizontalPtr.store(
-				qh_horizontal::horizontalPtr(schedulePointer(_asyncSchedule.front()->head.data()))
+				qh_horizontal::horizontalPtr(_asyncSchedule.front()->headIova())
 				| qh_horizontal::typeSelect(1));
 		_asyncSchedule.back()->head->horizontalPtr.store(
-				qh_horizontal::horizontalPtr(schedulePointer(entity->head.data()))
+				qh_horizontal::horizontalPtr(entity->headIova())
 				| qh_horizontal::typeSelect(1));
 		assert(_asyncSchedule.back()->getReclaim());
 		_asyncSchedule.back()->setReclaim(false);
@@ -955,9 +964,8 @@ void Controller::_linkTransaction(QueueEntity *queue, Transaction *transaction) 
 		assert(queue->head->nextTd.load() & td_ptr::terminate);
 		assert(!(status & qh_status::active));
 		assert(!(status & qh_status::halted));
-		assert(!(status & qh_status::totalBytes));
 		auto current = (queue->head->curTd.load() & qh_curTd::curTd);
-		auto pointer = schedulePointer(&transaction->transfers[0]);
+		auto pointer = transaction->cachedTransfersIova;
 		queue->head->nextTd.store(qh_nextTd::nextTd(pointer));
 
 		if(debugLinking) {
@@ -999,10 +1007,18 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			break;
 
 		auto lost = (transfer->status.load() & td_status::totalBytes);
-		assert(!lost); // TODO: Support short packets.
 
 		active->numComplete++;
 		active->lostSize += lost;
+
+		if (lost > 0) {
+			while (active->numComplete < active->transfers.size()) {
+				auto nextTransfer = &active->transfers[active->numComplete];
+				active->lostSize += (nextTransfer->status.load() & td_status::totalBytes);
+				active->numComplete++;
+			}
+			break;
+		}
 	}
 
 	auto current = active->numComplete;
@@ -1023,7 +1039,7 @@ void Controller::_progressQueue(QueueEntity *entity) {
 			if(logSubmits)
 				std::cout << "ehci: Linking in _progressQueue" << std::endl;
 			auto front = entity->transactions.front();
-			entity->head->nextTd.store(qh_nextTd::nextTd(schedulePointer(&front->transfers[0])));
+			entity->head->nextTd.store(qh_nextTd::nextTd(front->cachedTransfersIova));
 		}
 	}else if((active->transfers[current].status.load() & td_status::halted)
 			|| (active->transfers[current].status.load() & td_status::transactionError)
@@ -1201,7 +1217,9 @@ async::detached bindController(mbus_ng::Entity entity) {
 	assert(info.barInfo[0].ioType == protocols::hw::IoType::kIoTypeMemory);
 	auto bar = co_await device.accessBar(0);
 	co_await device.enableBusmaster();
-	co_await device.enableDma();
+	co_await device.enableDma(false);
+
+	auto [iommuActive, dmaSpaceHandle] = co_await device.getDmaSpace();
 
 	auto irq = co_await device.accessIrq();
 
@@ -1219,7 +1237,7 @@ async::detached bindController(mbus_ng::Entity entity) {
 		"ehci-controller", descriptor)).unwrap();
 
 	auto controller = std::make_shared<Controller>(std::move(device), std::move(ehciEntity), std::move(mapping),
-			std::move(bar), std::move(irq));
+			std::move(bar), std::move(irq), iommuActive, std::move(dmaSpaceHandle));
 	controller->initialize();
 	globalControllers.push_back(std::move(controller));
 }
