@@ -125,6 +125,9 @@ private:
 			resp.set_model(cpuFeatures->model);
 			resp.set_stepping(cpuFeatures->stepping);
 			resp.set_microcode_revision(cpuFeatures->microcodeRevision);
+			resp.set_cpuid_level(cpuFeatures->cpuidLevel);
+			resp.set_physical_address_bits(cpuFeatures->physicalAddressBits);
+			resp.set_virtual_address_bits(cpuFeatures->virtualAddressBits);
 			resp.set_frequency_hz(cpuFeatures->frequencyHz);
 			resp.set_vendor_id(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->vendorId});
 			resp.set_model_name(frg::string<KernelAlloc>{*kernelAlloc, cpuFeatures->modelName});

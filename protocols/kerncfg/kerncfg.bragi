@@ -69,6 +69,9 @@ head(128):
 	uint32 model;
 	uint32 stepping;
 	uint32 microcode_revision;
+	uint32 cpuid_level;
+	uint32 physical_address_bits;
+	uint32 virtual_address_bits;
 	uint64 frequency_hz;
 tail:
 	string vendor_id;
