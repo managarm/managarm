@@ -23,6 +23,8 @@ DEFINE_TEST(procfs_cpuinfo, ([] {
 	long num_steppings = 0;
 	long num_microcodes = 0;
 	long num_frequencies = 0;
+	long num_cpuid_levels = 0;
+	long num_address_sizes = 0;
 	for(std::string line; std::getline(stream, line); ) {
 		if(line.starts_with("processor\t:"))
 			++num_records;
@@ -36,6 +38,10 @@ DEFINE_TEST(procfs_cpuinfo, ([] {
 			++num_microcodes;
 		if(line.starts_with("cpu MHz\t\t:"))
 			++num_frequencies;
+		if(line.starts_with("cpuid level\t:"))
+			++num_cpuid_levels;
+		if(line.starts_with("address sizes\t:"))
+			++num_address_sizes;
 	}
 
 	assert(num_records == num_cpus);
@@ -44,6 +50,8 @@ DEFINE_TEST(procfs_cpuinfo, ([] {
 	assert(num_steppings == num_cpus);
 	assert(num_microcodes == num_cpus);
 	assert(num_frequencies == num_cpus);
+	assert(num_cpuid_levels == num_cpus);
+	assert(num_address_sizes == num_cpus);
 #endif
 }))
 
