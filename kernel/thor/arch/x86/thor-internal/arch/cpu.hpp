@@ -451,6 +451,9 @@ struct CpuFeatures {
 	uint32_t model;
 	uint32_t stepping;
 	uint32_t microcodeRevision;
+	uint32_t cpuidLevel;
+	uint32_t physicalAddressBits;
+	uint32_t virtualAddressBits;
 	uint64_t frequencyHz;
 	bool haveFred;
 	bool haveXsave;
