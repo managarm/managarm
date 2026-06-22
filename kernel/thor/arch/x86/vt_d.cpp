@@ -419,12 +419,7 @@ public:
 		return __atomic_fetch_and(ptePtr, ~iommuDirty, __ATOMIC_RELAXED);
 	}
 
-	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode cachingMode) {
-		if(cachingMode != CachingMode::null) {
-			warningLogger() << frg::fmt("thor: request for unsupported VT-d caching mode {}; mapping as non-present", std::to_underlying(cachingMode)) << frg::endlog;
-			return 0;
-		}
-
+	static constexpr uint64_t pteBuild(PhysicalAddr physical, PageFlags flags, CachingMode) {
 		auto pte = physical | iommuIgnorePat | iommuRead; // TODO: Do not always set iommuRead.
 
 		if(flags & page_access::write)
