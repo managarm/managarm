@@ -38,6 +38,7 @@ namespace device_cmd {
 	struct DisableScan {};
 	struct EnableScan {};
 	struct Identify {};
+	struct SlicedCommand {};
 
 	// mouse specific
 	struct SetReportRate {};
@@ -115,6 +116,9 @@ struct Controller {
 
 		async::result<frg::expected<Ps2Error, DeviceType>>
 		submitCommand(device_cmd::Identify tag);
+
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::SlicedCommand, uint8_t cmd);
 
 		void sendByte(uint8_t byte);
 		async::result<std::optional<uint8_t>> transferByte(uint8_t byte);
