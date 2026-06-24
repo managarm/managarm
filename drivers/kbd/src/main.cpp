@@ -1067,6 +1067,39 @@ Controller::Port::submitCommand(device_cmd::EnableScan) {
 }
 
 async::result<frg::expected<Ps2Error>>
+Controller::Port::submitCommand(device_cmd::SlicedCommand, uint8_t cmd) {
+	auto cmdResp = co_await transferByte(0xE6);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+				getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	for (int i = 6; i >= 0; i -= 2) {
+		auto setup = co_await transferByte(0xE8);
+		if (!setup)
+			co_return Ps2Error::timeout;
+		if (*setup != 0xFA) {
+			printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+					getIndex(), *cmdResp);
+			co_return Ps2Error::nack;
+		}
+		auto transfer = co_await transferByte((cmd >> i) & 0b11);
+		if (!transfer)
+			co_return Ps2Error::timeout;
+		if (*transfer != 0xFA) {
+			printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+					getIndex(), *cmdResp);
+			co_return Ps2Error::nack;
+		}
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<Ps2Error>>
 Controller::MouseDevice::submitCommand(device_cmd::SetReportRate, int rate) {
 	auto cmdResp = co_await _port->transferByte(0xF3);
 	if (!cmdResp)
