@@ -105,6 +105,7 @@ struct EventDevice {
 		int maximum;
 
 		int value;
+		std::optional<int> resolution = std::nullopt;
 	};
 
 public:
@@ -115,6 +116,7 @@ public:
 	EventDevice(std::string name, uint16_t bustype, uint16_t vendor, uint16_t product);
 
 	void setAbsoluteDetails(int code, int minimum, int maximum);
+	void setResolution(int code, int res);
 
 	void enableEvent(int type, int code);
 
