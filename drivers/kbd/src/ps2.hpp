@@ -1,3 +1,5 @@
+#pragma once
+
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
@@ -22,7 +24,8 @@ struct NoDevice {};
 enum class Ps2Error {
 	none,
 	timeout,
-	nack
+	nack,
+	invalid,
 };
 
 namespace controller_cmd {
@@ -164,12 +167,12 @@ struct Controller {
 		async::result<frg::expected<Ps2Error, std::array<uint8_t, 3>>>
 		submitCommand(device_cmd::GetStatus);
 
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::Reset);
+
 	private:
 		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetReportRate tag, int rate);
-
-		async::result<frg::expected<Ps2Error>>
-		submitCommand(device_cmd::Reset);
 
 		async::detached processReports();
 
