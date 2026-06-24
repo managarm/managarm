@@ -20,6 +20,7 @@
 
 #include "spec.hpp"
 #include "ps2.hpp"
+#include "mouse/elantech.hpp"
 
 namespace {
 
@@ -366,10 +367,15 @@ async::result<void> Controller::Port::init() {
 	}
 	_deviceType = res2.value();
 
-	if (_deviceType.keyboard)
+	if (_deviceType.keyboard) {
 		_device = std::make_unique<KbdDevice>(this);
-	if (_deviceType.mouse)
-		_device = std::make_unique<MouseDevice>(this);
+	} else if (_deviceType.mouse) {
+		if (auto probe = co_await ElantechTouchpadDevice::probe(this); probe) {
+			_device = std::make_unique<ElantechTouchpadDevice>(this, probe.value());
+		} else {
+			_device = std::make_unique<MouseDevice>(this);
+		}
+	}
 
 	if (!_device) {
 		_dead = true;
