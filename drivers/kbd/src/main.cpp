@@ -1145,6 +1145,32 @@ Controller::MouseDevice::submitCommand(device_cmd::Reset) {
 	co_return {};
 }
 
+async::result<frg::expected<Ps2Error, std::array<uint8_t, 3>>>
+Controller::MouseDevice::submitCommand(device_cmd::GetStatus) {
+	auto cmdResp = co_await _port->transferByte(0xE9);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after GetStatus command on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto b1 = co_await _port->recvResponseByte(default_timeout);
+	if (!b1)
+		co_return Ps2Error::timeout;
+
+	auto b2 = co_await _port->recvResponseByte(default_timeout);
+	if (!b2)
+		co_return Ps2Error::timeout;
+
+	auto b3 = co_await _port->recvResponseByte(default_timeout);
+	if (!b3)
+		co_return Ps2Error::timeout;
+
+	co_return std::array<uint8_t, 3>{*b1, *b2, *b3};
+}
+
 async::result<frg::expected<Ps2Error>>
 Controller::KbdDevice::submitCommand(device_cmd::SetScancodeSet, int set) {
 	// If set == 0, this would be a GetScancodeSet command.
