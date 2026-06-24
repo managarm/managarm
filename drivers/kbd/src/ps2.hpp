@@ -38,6 +38,7 @@ namespace device_cmd {
 	struct DisableScan {};
 	struct EnableScan {};
 	struct Identify {};
+	struct GetStatus {};
 	struct SlicedCommand {};
 
 	// mouse specific
@@ -138,7 +139,7 @@ struct Controller {
 		KbdDevice(Port *port)
 		: _port{port} { }
 
-		virtual async::result<void> run() override;
+		async::result<void> run() override;
 
 	private:
 		async::result<frg::expected<Ps2Error>>
@@ -158,7 +159,10 @@ struct Controller {
 		MouseDevice(Port *port)
 		: _port{port} { }
 
-		virtual async::result<void> run() override;
+		async::result<void> run() override;
+
+		async::result<frg::expected<Ps2Error, std::array<uint8_t, 3>>>
+		submitCommand(device_cmd::GetStatus);
 
 	private:
 		async::result<frg::expected<Ps2Error>>
