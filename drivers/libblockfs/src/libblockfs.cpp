@@ -206,6 +206,30 @@ struct HandlePartition {
 				HEL_CHECK(send_resp.error());
 				co_return {};
 			}
+			if(new_entry.value()) {
+				// POSIX only allows replacing a directory with a directory and a
+				// non-directory with a non-directory.
+				auto sourceIsDir = old_file.value().fileType == kTypeDirectory;
+				auto targetIsDir = new_entry.value()->fileType == kTypeDirectory;
+				if(sourceIsDir && !targetIsDir) {
+					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+				if(!sourceIsDir && targetIsDir) {
+					resp.set_error(managarm::fs::Errors::IS_DIRECTORY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
 			if(new_entry.value() && new_entry.value()->fileType == kTypeDirectory) {
 				auto target_inode = std::static_pointer_cast<ext2fs::Inode>(
 						fs->accessInode(new_entry.value()->inode));
