@@ -804,6 +804,10 @@ void bootSecondary(unsigned int apic_id, size_t cpuIndex) {
 	if(disableSmp)
 		return;
 
+	// Run this function with interrupts disabled to prevent other IPIs (e.g., broadcast IPIs for shootdown)
+	// from interfering with CPUs that are not fully online yet.
+	auto irqLock = frg::guard(&irqMutex());
+
 	// TODO: Allocate a page in low physical memory instead of hard-coding it.
 	uintptr_t pma = 0x10000;
 
