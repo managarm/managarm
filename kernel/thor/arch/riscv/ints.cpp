@@ -22,6 +22,9 @@ void doSendIpi(CpuData *dstData) {
 } // namespace
 
 void sendPingIpi(CpuData *dstData) {
+	if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+		return;
+
 	if (raiseIpiBit(dstData, PlatformCpuData::ipiPing))
 		doSendIpi(dstData);
 }
@@ -33,6 +36,10 @@ void sendShootdownIpi() {
 	//       by tracking global counters for broadcast IPIs.
 	for (size_t i = 0; i < getCpuCount(); ++i) {
 		auto *dstData = getCpuData(i);
+
+		if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+			continue;
+
 		if (raiseIpiBit(dstData, PlatformCpuData::ipiShootdown))
 			doSendIpi(dstData);
 	}
