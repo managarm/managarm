@@ -1083,6 +1083,9 @@ auto FileSystem::accessRoot() -> std::shared_ptr<BaseInode> {
 
 auto FileSystem::accessInode(uint32_t number) -> std::shared_ptr<BaseInode> {
 	assert(number > 0);
+
+	std::lock_guard activeInodesLock{activeInodesMutex};
+
 	std::weak_ptr<Inode> &inode_slot = activeInodes[number];
 	std::shared_ptr<Inode> active_inode = inode_slot.lock();
 	if(active_inode)

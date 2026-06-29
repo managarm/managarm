@@ -6,6 +6,7 @@
 #include <time.h>
 #include <optional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -530,6 +531,9 @@ struct FileSystem final : BaseFileSystem {
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
 
+	std::mutex activeInodesMutex;
+
+	// Protected by activeInodesMutex.
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
 
 	arch::contiguous_pool *pool;
