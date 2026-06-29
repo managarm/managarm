@@ -207,6 +207,18 @@ struct HandlePartition {
 				co_return {};
 			}
 			if(new_entry.value()) {
+				// If old_name and new_name resolve to the same inode, rename is a
+				// no-op; the removeEntry/link below would otherwise drop the file's
+				// last link.
+				if(old_file.value().inode == new_entry.value()->inode) {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
 				// POSIX only allows replacing a directory with a directory and a
 				// non-directory with a non-directory.
 				auto sourceIsDir = old_file.value().fileType == kTypeDirectory;
