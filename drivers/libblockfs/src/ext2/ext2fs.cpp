@@ -921,6 +921,9 @@ async::detached FileSystem::handleBgdtWriteback() {
 	while(true) {
 		co_await bdgtWriteback.async_wait();
 
+		co_await allocationMutex.async_lock();
+		frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+
 		auto bgdt_offset = (2048 + blockSize - 1) & ~size_t(blockSize - 1);
 		co_await device->writeSectors((bgdt_offset >> blockShift) * sectorsPerBlock,
 				blockGroupDescriptorBuffer);
@@ -1109,6 +1112,8 @@ protocols::fs::FsStats FileSystem::getFsStats() {
 	stats.flags = 0;
 
 	// Sum over all block groups.
+	// TODO: Reading the BGDT technically has to take allocationMutex.
+	//       Avoid this by using atomic loads/stores when manipulating the BGDT.
 	for(uint32_t i = 0; i < numBlockGroups; i++) {
 		stats.blocksFree += bgdt[i].freeBlocksCount;
 		stats.inodesFree += bgdt[i].freeInodesCount;
@@ -1428,6 +1433,9 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 	protocols::ostrace::Timer timer;
 	std::vector<uint32_t> result;
 
+	co_await allocationMutex.async_lock();
+	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
+
 	if (ino) {
 		uint32_t preferred_bg = (*ino - 1) / inodesPerGroup;
 
@@ -1554,6 +1562,9 @@ async::result<std::vector<uint32_t>> FileSystem::allocateBlocks(size_t num, std:
 
 async::result<uint32_t> FileSystem::allocateInode(uint32_t parentIno, bool directory) {
 	protocols::ostrace::Timer timer;
+
+	co_await allocationMutex.async_lock();
+	frg::unique_lock allocationLock{frg::adopt_lock, allocationMutex};
 
 	auto searchBlockGroup = [&](uint32_t bg) -> async::result<std::optional<uint32_t>> {
 		helix::LockMemoryView lock_bitmap;

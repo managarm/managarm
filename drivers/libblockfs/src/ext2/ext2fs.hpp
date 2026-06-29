@@ -515,7 +515,19 @@ struct FileSystem final : BaseFileSystem {
 	uint32_t blocksCount;
 	uint32_t inodesCount;
 	uint8_t uuid[16];
+
+	// Mutable fields are protected by allocationMutex. These are:
+	// - freeBlocksCount
+	// - freeInodesCount
+	// - usedDirsCount
+	// - checksum
+	// - blockBitmapCsumLow
+	// - inodeBitmapCsumLow
+	// - blockBitmapCsumHigh
+	// - inodeBitmapCsumHigh
+	// All other fields are immutable.
 	arch::dma_buffer blockGroupDescriptorBuffer;
+	// View of blockGroupDescriptorBuffer; same locking as above.
 	BlockGroupDescriptorTable bgdt;
 
 	uint32_t metadataChecksumSeed;
@@ -525,13 +537,20 @@ struct FileSystem final : BaseFileSystem {
 	bool bgdtChecksum;
 
 	helix::UniqueDescriptor blockBitmap;
+	// Immutable handle. Access protected by allocationMutex.
+	// Only locked and present pages must be accessed.
 	helix::Mapping blockBitmapMapping;
 	helix::UniqueDescriptor inodeBitmap;
+	// Immutable handle. Access protected by allocationMutex.
+	// Only locked and present pages must be accessed.
 	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
 
 	std::mutex activeInodesMutex;
+
+	// Serializes block/inode allocation and BGDT modifications.
+	async::mutex allocationMutex;
 
 	// Protected by activeInodesMutex.
 	std::unordered_map<uint32_t, std::weak_ptr<Inode>> activeInodes;
