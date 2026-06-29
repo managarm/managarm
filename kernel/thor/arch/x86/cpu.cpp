@@ -804,6 +804,10 @@ void bootSecondary(unsigned int apic_id, size_t cpuIndex) {
 	if(disableSmp)
 		return;
 
+	// Run this function with interrupts disabled to prevent other IPIs (e.g., broadcast IPIs for shootdown)
+	// from interfering with CPUs that are not fully online yet.
+	auto irqLock = frg::guard(&irqMutex());
+
 	// TODO: Allocate a page in low physical memory instead of hard-coding it.
 	uintptr_t pma = 0x10000;
 
@@ -842,14 +846,18 @@ void bootSecondary(unsigned int apic_id, size_t cpuIndex) {
 	// The BIOS is not involved in this process at all.
 	infoLogger() << "thor: Booting AP " << apic_id << "." << frg::endlog;
 	raiseInitAssertIpi(apic_id);
-	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(10'000'000)); // Wait for 10ms.
+	pollSleepNano(10'000'000); // Wait for 10ms.
+
+	// De-assert the INIT IPI.
+	raiseInitDeassertIpi(apic_id);
+	pollSleepNano(200'000); // Wait for 200us.
 
 	// SIPI causes the processor to resume execution and resets CS:IP.
 	// Intel suggets to send two SIPIs (probably for redundancy reasons).
 	raiseStartupIpi(apic_id, pma);
-	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(200'000)); // Wait for 200us.
+	pollSleepNano(200'000); // Wait for 200us.
 	raiseStartupIpi(apic_id, pma);
-	KernelFiber::asyncBlockCurrent(generalTimerEngine()->sleepFor(200'000)); // Wait for 200us.
+	pollSleepNano(200'000); // Wait for 200us.
 
 	// Wait until the AP wakes up.
 	while(__atomic_load_n(&statusBlock->targetStage, __ATOMIC_ACQUIRE) < 1) {
