@@ -193,6 +193,30 @@ struct HandlePartition {
 		auto old_file = old_result.value();
 		managarm::fs::SvrResponse resp;
 		if(old_file) {
+			// Reject moving a directory into itself or one of its own
+			// descendants, which would detach the subtree from the tree.
+			if(old_file.value().fileType == kTypeDirectory) {
+				auto loop = co_await newInode->isSubdirectoryOf(old_file.value().inode);
+				if(!loop) {
+					resp.set_error(loop.error() | protocols::fs::toFsError);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+				if(loop.value()) {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
+
 			// If new_name names an existing directory, refuse to overwrite
 			// a non-empty one rather than corrupting it via removeEntry.
 			auto new_entry = co_await newInode->findEntry(req.new_name());

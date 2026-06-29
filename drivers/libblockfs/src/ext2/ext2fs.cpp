@@ -500,6 +500,30 @@ async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t 
 	co_return protocols::fs::Error::fileNotFound;
 }
 
+async::result<frg::expected<protocols::fs::Error, bool>> Inode::isSubdirectoryOf(uint32_t ino) {
+	co_await readyEvent.wait();
+
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+
+	auto current = number;
+	while(true) {
+		if(current == ino)
+			co_return true;
+		if(current == EXT2_ROOT_INO)
+			co_return false;
+
+		auto dir = std::static_pointer_cast<Inode>(fs.accessInode(current));
+		auto parent = co_await dir->findEntry("..");
+		if(!parent)
+			co_return parent.error();
+		// A directory whose ".." is missing or points at itself ends the walk.
+		if(!parent.value() || parent.value()->inode == current)
+			co_return false;
+		current = parent.value()->inode;
+	}
+}
+
 async::result<std::expected<DirEntry, protocols::fs::Error>>
 Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	// Check if an entry with this name already exists.
