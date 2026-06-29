@@ -443,6 +443,47 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 	co_return true;
 }
 
+async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t parent) {
+	co_await readyEvent.wait();
+
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	uintptr_t offset = 0;
+	while(offset < fileSize()) {
+		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		assert(disk_entry->recordLength);
+
+		if(disk_entry->inode
+				&& disk_entry->nameLength == 2
+				&& disk_entry->name[0] == '.'
+				&& disk_entry->name[1] == '.') {
+			disk_entry->inode = parent;
+
+			auto syncDir = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+			HEL_CHECK(syncDir.error());
+
+			co_return {};
+		}
+
+		offset += disk_entry->recordLength;
+	}
+
+	co_return protocols::fs::Error::fileNotFound;
+}
+
 async::result<std::expected<DirEntry, protocols::fs::Error>>
 Inode::link(std::string name, int64_t ino, blockfs::FileType type) {
 	// Check if an entry with this name already exists.

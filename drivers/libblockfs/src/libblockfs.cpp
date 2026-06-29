@@ -278,6 +278,25 @@ struct HandlePartition {
 				HEL_CHECK(send_resp.error());
 				co_return {};
 			}
+
+			// Moving a directory to a different parent must repoint its ".."
+			// entry. The link() and removeEntry() above already shifted the
+			// subdirectory link between the two parents.
+			if(old_file.value().fileType == kTypeDirectory
+					&& oldInode->number != newInode->number) {
+				auto movedInode = std::static_pointer_cast<ext2fs::Inode>(
+						fs->accessInode(old_file.value().inode));
+				auto reparent = co_await movedInode->updateDotDot(newInode->number);
+				if(!reparent) {
+					resp.set_error(reparent.error() | protocols::fs::toFsError);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
 		} else {
 			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
