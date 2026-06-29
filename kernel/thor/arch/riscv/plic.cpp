@@ -54,7 +54,11 @@ struct Plic : dt::IrqController {
 
 		IrqStrategy program(TriggerMode mode, Polarity polarity) override {
 			unmask();
-			return irq_strategy::maskable | irq_strategy::endOfService;
+			// A claimed source is not re-raised until completed, and masking it while in service
+			// would only drop the completion (ignored for a disabled source); rely on
+			// claim/complete instead.
+			return irq_strategy::maskable | irq_strategy::endOfService
+			       | irq_strategy::suppressMaskInService;
 		}
 
 		void mask() override { plic_->mask(plic_->bspCtx_, idx_); }

@@ -173,6 +173,9 @@ void IrqPin::configure(IrqConfiguration desired) {
 				<< " to trigger mode: " << static_cast<int>(desired.trigger)
 				<< ", polarity: " << static_cast<int>(desired.polarity) << frg::endlog;
 		_strategy = program(desired.trigger, desired.polarity);
+		// suppressMaskInService and maskInService are contradictory.
+		assert(!((_strategy & irq_strategy::maskInService)
+				&& (_strategy & irq_strategy::suppressMaskInService)));
 
 		_activeCfg = desired;
 		_inService = false;
@@ -193,7 +196,7 @@ void IrqPin::raise() {
 	}
 
 	// If the IRQ is already masked, we're encountering a hardware race.
-	if(_maskState) {
+	if(_hwMaskRequested()) {
 		++_maskedRaiseCtr;
 		// At least on x86, the IRQ controller may buffer up to one edge-triggered IRQ.
 		// If an IRQ is already buffered while we mask it, it will inevitably be raised again.
@@ -374,6 +377,13 @@ void IrqPin::_doService() {
 	assert(!_inService);
 	assert(!_raiseBuffered);
 
+	// suppressMaskInService lines run unmasked while in service. A masked line cannot have been
+	// claimed, so _maskState is clear here; unmask defensively in case it was masked externally.
+	if(_strategy & irq_strategy::suppressMaskInService) {
+		assert(!_maskState);
+		unmask();
+	}
+
 	if(logService)
 		infoLogger() << "thor: IRQ pin "
 				<< _name << " enters service" << frg::endlog;
@@ -449,9 +459,18 @@ void IrqPin::_doService() {
 	_dueSinks = numAsynchronous;
 }
 
+bool IrqPin::_hwMaskRequested() {
+	// suppressMaskInService controllers must not be masked while in service (completing a masked
+	// source is dropped); they suppress the in-service IRQ themselves. Out of service _maskState
+	// drives the hardware mask normally.
+	if((_strategy & irq_strategy::suppressMaskInService) && _inService)
+		return false;
+	return _maskState;
+}
+
 void IrqPin::_updateMask() {
 	// TODO: Avoid the virtual calls if the state does not change?
-	if(!_maskState) {
+	if(!_hwMaskRequested()) {
 		_maskedRaiseCtr = 0;
 		unmask();
 	}else{

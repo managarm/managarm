@@ -160,9 +160,16 @@ using IrqStrategy = uint32_t;
 
 namespace irq_strategy {
 
+// The line can be masked in hardware: mask()/unmask() are implemented. Guards every mask() call
+// and gates the buffer/nack-stall machinery (a line that cannot be held off must not be stalled).
 constexpr IrqStrategy maskable = IrqStrategy{1} << 0;
 // Mask the interrupt while its being serviced.
 constexpr IrqStrategy maskInService = IrqStrategy{1} << 1;
+// Do not drive the hardware mask while the line is in service: the controller suppresses the
+// in-service IRQ itself (e.g. the PLIC does not re-raise a claimed source until it is completed),
+// and masking a claimed source would drop its completion. Out of service _maskState drives the
+// mask normally, so unlike !maskable the line can still be masked (e.g. manually).
+constexpr IrqStrategy suppressMaskInService = IrqStrategy{1} << 2;
 // Whether endOfInterrupt() should be called.
 constexpr IrqStrategy endOfInterrupt = IrqStrategy{1} << 8;
 // Whether endOfService() should be called.
@@ -230,6 +237,8 @@ protected:
 private:
 	void _doService();
 	void _updateMask();
+	// Whether the line should be masked in hardware (may differ from _maskState while in service).
+	bool _hwMaskRequested();
 
 	frg::string<KernelAlloc> _name;
 	// Hash of the IRQ name. Mostly useful when extracting entropy from IRQs.
