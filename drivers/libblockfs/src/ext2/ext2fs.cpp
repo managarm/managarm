@@ -259,6 +259,10 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
 
+	// A new subdirectory adds a ".." backlink to this directory.
+	if(type == kTypeDirectory)
+		diskInode()->linksCount++;
+
 	updateInodeChecksum(fs, diskInode(), number);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
@@ -382,6 +386,18 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 					helix::BorrowedDescriptor{kHelNullHandle},
 					target->diskInode(), fs.inodeSize);
 			HEL_CHECK(syncInode.error());
+
+			// A removed subdirectory drops its ".." backlink to this directory.
+			if(target->fileType == kTypeDirectory) {
+				diskInode()->linksCount--;
+
+				updateInodeChecksum(fs, diskInode(), number);
+
+				auto syncParent = co_await helix_ng::synchronizeSpace(
+						helix::BorrowedDescriptor{kHelNullHandle},
+						diskInode(), fs.inodeSize);
+				HEL_CHECK(syncParent.error());
+			}
 
 			co_return {};
 		}
@@ -551,20 +567,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	auto dotDotEntry = reinterpret_cast<DiskDirEntry *>(
 			reinterpret_cast<char *>(dirNode->fileMapping.get()) + offset);
 
-	diskInode()->linksCount++;
 	dotDotEntry->inode = number;
 	dotDotEntry->recordLength = dirNode->fileSize() - offset;
 	dotDotEntry->nameLength = 2;
 	dotDotEntry->fileType = EXT2_FT_DIR;
 	memcpy(dotDotEntry->name, "..", 3);
-
-	updateInodeChecksum(fs, diskInode(), number);
-
-	// Synchronize this inode to update the linksCount
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
 
 	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
