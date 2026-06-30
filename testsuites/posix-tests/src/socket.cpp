@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <sys/poll.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -62,6 +63,46 @@ DEFINE_TEST(socket_invalid_types, ([] {
 	s = socket(AF_UNIX, INT_MAX, 0);
 	assert(s == -1);
 	assert(errno == EINVAL);
+}));
+
+DEFINE_TEST(socket_peercred, ([] {
+	pid_t child = fork();
+	assert(child >= 0);
+
+	if(!child) {
+		// The test suite normally runs as root. Drop privileges in the child so
+		// that an implementation which hard-codes root credentials cannot pass.
+		if(!getuid()) {
+			int ret = setgid(2000);
+			assert(!ret);
+			ret = setuid(1000);
+			assert(!ret);
+		}
+		assert(getuid() || getgid());
+
+		int fds[2];
+		int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+		assert(!ret);
+
+		struct ucred creds;
+		socklen_t creds_size = sizeof(creds);
+		ret = getsockopt(fds[0], SOL_SOCKET, SO_PEERCRED, &creds, &creds_size);
+		assert(!ret);
+		assert(creds_size == sizeof(creds));
+		assert(creds.pid == getpid());
+		assert(creds.uid == getuid());
+		assert(creds.gid == getgid());
+
+		close(fds[0]);
+		close(fds[1]);
+		_exit(0);
+	}
+
+	int status;
+	pid_t ret = waitpid(child, &status, 0);
+	assert(ret == child);
+	assert(WIFEXITED(status));
+	assert(WEXITSTATUS(status) == 0);
 }));
 
 DEFINE_TEST(socket_shutdown_wr, ([] {
