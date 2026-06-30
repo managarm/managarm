@@ -233,10 +233,11 @@ struct dma_space {
 			iova_base = reg->dmaSpaces_[index_].value();
 		}
 
-		// Ensure that the backing pages of the view are already present, or fauled in.
-		co_await helix_ng::populateSpace(
+		// Ensure that the backing pages of the view are already present, or faulted in.
+		auto populateResult = co_await helix_ng::populateSpace(
 		    space_, iova_base + dp.offset(), view.size()
 		);
+		HEL_CHECK(populateResult.error());
 
 		// If no IOMMU is active, the ioVa address is fake and only useful for lifetime tracking.
 		// We need to return a physical address instead.
