@@ -412,82 +412,81 @@ VirtualSpace::map(smarter::borrowed_ptr<MemorySlice> slice,
 	// The shared_ptr to the new Mapping needs to survive until the locks are released.
 	VirtualAddr actualAddress;
 	smarter::shared_ptr<Mapping> mapping;
-	{
-		auto irqLock = frg::guard(&irqMutex());
-		auto spaceLock = frg::guard(&_snapshotMutex);
-
-		assert((address % kPageSize) == 0);
-		if(flags & kMapFixed) {
-			actualAddress = FRG_CO_TRY(_allocateAt(address, length));
-		}else if(flags & kMapFixedNoReplace) {
-			if(_areMappingsInRange(address, length)) {
-				co_return Error::alreadyExists;
-			}
-			actualAddress = FRG_CO_TRY(_allocateAt(address, length));
-		}else{
-			if(address && !_areMappingsInRange(address, length)) {
-				if(auto res = _allocateAt(address, length)) {
-					actualAddress = res.unwrap();
-				}else {
-					actualAddress = FRG_CO_TRY(_allocate(length, flags));
-				}
+	assert((address % kPageSize) == 0);
+	if(flags & kMapFixed) {
+		actualAddress = FRG_CO_TRY(_allocateAt(address, length));
+	}else if(flags & kMapFixedNoReplace) {
+		if(_areMappingsInRange(address, length)) {
+			co_return Error::alreadyExists;
+		}
+		actualAddress = FRG_CO_TRY(_allocateAt(address, length));
+	}else{
+		if(address && !_areMappingsInRange(address, length)) {
+			if(auto res = _allocateAt(address, length)) {
+				actualAddress = res.unwrap();
 			}else {
 				actualAddress = FRG_CO_TRY(_allocate(length, flags));
 			}
+		}else {
+			actualAddress = FRG_CO_TRY(_allocate(length, flags));
 		}
+	}
 
-	//	infoLogger() << "Creating new mapping at " << (void *)actualAddress
-	//			<< ", length: " << (void *)length << frg::endlog;
+//	infoLogger() << "Creating new mapping at " << (void *)actualAddress
+//			<< ", length: " << (void *)length << frg::endlog;
 
-		// Setup a new Mapping object.
-		std::underlying_type_t<MappingFlags> mappingFlags = 0;
+	// Setup a new Mapping object.
+	std::underlying_type_t<MappingFlags> mappingFlags = 0;
 
-		// TODO: The upgrading mechanism needs to be arch-specific:
-		// Some archs might only support RX, while other support X.
-		auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
-		if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
-				|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
-			// WX is upgraded to RWX.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
-				| MappingFlags::protExecute;
-		}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
-				|| (flags & mask) == kMapProtExecute) {
-			// X is upgraded to RX.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
-		}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
-				|| (flags & mask) == kMapProtWrite) {
-			// W is upgraded to RW.
-			mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
-		}else if((flags & mask) == kMapProtRead) {
-			mappingFlags |= MappingFlags::protRead;
-		}else{
-			assert(!(flags & mask));
-		}
+	// TODO: The upgrading mechanism needs to be arch-specific:
+	// Some archs might only support RX, while other support X.
+	auto mask = kMapProtRead | kMapProtWrite | kMapProtExecute;
+	if((flags & mask) == (kMapProtRead | kMapProtWrite | kMapProtExecute)
+			|| (flags & mask) == (kMapProtWrite | kMapProtExecute)) {
+		// WX is upgraded to RWX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite
+			| MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtExecute)
+			|| (flags & mask) == kMapProtExecute) {
+		// X is upgraded to RX.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protExecute;
+	}else if((flags & mask) == (kMapProtRead | kMapProtWrite)
+			|| (flags & mask) == kMapProtWrite) {
+		// W is upgraded to RW.
+		mappingFlags |= MappingFlags::protRead | MappingFlags::protWrite;
+	}else if((flags & mask) == kMapProtRead) {
+		mappingFlags |= MappingFlags::protRead;
+	}else{
+		assert(!(flags & mask));
+	}
 
-		if(flags & kMapDontRequireBacking)
-			mappingFlags |= MappingFlags::dontRequireBacking;
+	if(flags & kMapDontRequireBacking)
+		mappingFlags |= MappingFlags::dontRequireBacking;
 
-		mapping = smarter::allocate_shared<Mapping>(Allocator{},
-			selfPtr.lock(),
-			actualAddress,
-			length,
-			slice.lock(),
-			slice->offset() + offset,
-			static_cast<MappingFlags>(mappingFlags)
-		);
-		mapping->selfPtr = mapping;
+	mapping = smarter::allocate_shared<Mapping>(Allocator{},
+		selfPtr.lock(),
+		actualAddress,
+		length,
+		slice.lock(),
+		slice->offset() + offset,
+		static_cast<MappingFlags>(mappingFlags)
+	);
+	mapping->selfPtr = mapping;
+
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto snapshotLock = frg::guard(&_snapshotMutex);
 
 		// Install the new mapping object.
 		_mappings.insert(mapping.get());
 
 		assert(mapping->state.load(std::memory_order_relaxed) == MappingState::null);
 		mapping->state.store(MappingState::active, std::memory_order_relaxed);
-
-		// We keep one reference until the detach the observer.
-		mapping.policy().increment();
-		mapping->view->addObserver(&mapping->observer);
-
 	}
+
+	// We keep one reference until the detach the observer.
+	mapping.policy().increment();
+	mapping->view->addObserver(&mapping->observer);
 
 	// Not populating the range is the default.
 	// Populating is quite expensive on CoW memory, mostly due to additional shootdowns
