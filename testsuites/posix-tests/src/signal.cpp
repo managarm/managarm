@@ -258,3 +258,29 @@ DEFINE_TEST(alarm_cancellation, ([] {
 	int remaining = alarm(0);
 	assert(remaining > 0 && remaining <= 10);
 }))
+
+DEFINE_TEST(sigstop_sigcont, ([] {
+	pid_t pid = fork();
+	assert(pid != -1);
+
+	if (pid == 0) {
+		while (true) {
+			pause();
+		}
+	}
+
+	int status = 0;
+	assert(kill(pid, SIGSTOP) == 0);
+	assert(waitpid(pid, &status, WUNTRACED) == pid);
+	assert(WIFSTOPPED(status));
+	assert(WSTOPSIG(status) == SIGSTOP);
+
+	assert(kill(pid, SIGCONT) == 0);
+	assert(waitpid(pid, &status, WCONTINUED) == pid);
+	assert(WIFCONTINUED(status));
+
+	assert(kill(pid, SIGKILL) == 0);
+	assert(waitpid(pid, &status, 0) == pid);
+	assert(WIFSIGNALED(status));
+	assert(WTERMSIG(status) == SIGKILL);
+}))
