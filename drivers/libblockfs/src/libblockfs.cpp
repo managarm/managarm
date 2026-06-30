@@ -4,6 +4,7 @@
 #include <string.h>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <sys/epoll.h>
 #include <linux/cdrom.h>
 #include <linux/fs.h>
@@ -155,13 +156,27 @@ struct HandlePartition {
 		}
 
 		auto &fs = *fsPtr;
+
+		auto isInvalidName = [](std::string_view name) {
+			return name.empty() || name == "." || name == "..";
+		};
+		if(isInvalidName(req.old_name()) || isInvalidName(req.new_name())) {
+			managarm::fs::SvrResponse resp;
+			resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+			auto ser = resp.SerializeAsString();
+			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+				helix_ng::sendBuffer(ser.data(), ser.size()));
+			HEL_CHECK(send_resp.error());
+			co_return {};
+		}
+
 		auto oldInodeRaw = fs->accessInode(req.inode_source());
 		auto newInodeRaw = fs->accessInode(req.inode_target());
 
 		auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
 		auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
 
-		assert(!req.old_name().empty() && req.old_name() != "." && req.old_name() != "..");
 		auto old_result = co_await oldInode->findEntry(req.old_name());
 		if(!old_result) {
 			managarm::fs::SvrResponse resp;
@@ -178,19 +193,61 @@ struct HandlePartition {
 		auto old_file = old_result.value();
 		managarm::fs::SvrResponse resp;
 		if(old_file) {
-			auto result = co_await newInode->removeEntry(req.new_name());
-			if(!result) {
-				if(result.error() == protocols::fs::Error::fileNotFound) {
-					// Ignored
-				} else if(result.error() == protocols::fs::Error::directoryNotEmpty) {
-					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+			// Reject moving a directory into itself or one of its own
+			// descendants, which would detach the subtree from the tree.
+			if(old_file.value().fileType == kTypeDirectory) {
+				auto loop = co_await newInode->isSubdirectoryOf(old_file.value().inode);
+				if(!loop) {
+					resp.set_error(loop.error() | protocols::fs::toFsError);
 
 					auto ser = resp.SerializeAsString();
 					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 						helix_ng::sendBuffer(ser.data(), ser.size()));
 					HEL_CHECK(send_resp.error());
 					co_return {};
-				} else if(result.error() == protocols::fs::Error::notDirectory) {
+				}
+				if(loop.value()) {
+					resp.set_error(managarm::fs::Errors::ILLEGAL_ARGUMENT);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
+
+			// If new_name names an existing directory, refuse to overwrite
+			// a non-empty one rather than corrupting it via removeEntry.
+			auto new_entry = co_await newInode->findEntry(req.new_name());
+			if(!new_entry) {
+				assert(new_entry.error() == protocols::fs::Error::notDirectory);
+				resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
+			if(new_entry.value()) {
+				// If old_name and new_name resolve to the same inode, rename is a
+				// no-op; the removeEntry/link below would otherwise drop the file's
+				// last link.
+				if(old_file.value().inode == new_entry.value()->inode) {
+					resp.set_error(managarm::fs::Errors::SUCCESS);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+				// POSIX only allows replacing a directory with a directory and a
+				// non-directory with a non-directory.
+				auto sourceIsDir = old_file.value().fileType == kTypeDirectory;
+				auto targetIsDir = new_entry.value()->fileType == kTypeDirectory;
+				if(sourceIsDir && !targetIsDir) {
 					resp.set_error(managarm::fs::Errors::NOT_DIRECTORY);
 
 					auto ser = resp.SerializeAsString();
@@ -198,13 +255,84 @@ struct HandlePartition {
 						helix_ng::sendBuffer(ser.data(), ser.size()));
 					HEL_CHECK(send_resp.error());
 					co_return {};
-				} else {
-					// Handle error
-					std::cout << "libblockfs: rename: unhandled error: " << (int)result.error() << std::endl;
-					assert(result.error() == protocols::fs::Error::fileNotFound || result.error() == protocols::fs::Error::directoryNotEmpty || result.error() == protocols::fs::Error::notDirectory);
+				}
+				if(!sourceIsDir && targetIsDir) {
+					resp.set_error(managarm::fs::Errors::IS_DIRECTORY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
 				}
 			}
-			co_await newInode->link(req.new_name(), old_file.value().inode, old_file.value().fileType);
+			if(new_entry.value() && new_entry.value()->fileType == kTypeDirectory) {
+				auto target_inode = std::static_pointer_cast<ext2fs::Inode>(
+						fs->accessInode(new_entry.value()->inode));
+				auto isEmpty = co_await target_inode->isDirectoryEmpty();
+				if(!isEmpty) {
+					std::cout << "libblockfs: rename: isDirectoryEmpty failed: "
+						<< (int)isEmpty.error() << std::endl;
+					resp.set_error(managarm::fs::Errors::INTERNAL_ERROR);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+				if(!isEmpty.value()) {
+					resp.set_error(managarm::fs::Errors::DIRECTORY_NOT_EMPTY);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
+
+			// A missing destination is the common case and not an error.
+			auto result = co_await newInode->removeEntry(req.new_name());
+			if(!result && result.error() != protocols::fs::Error::fileNotFound) {
+				resp.set_error(result.error() | protocols::fs::toFsError);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
+			auto link_result = co_await newInode->link(req.new_name(),
+					old_file.value().inode, old_file.value().fileType);
+			if(!link_result) {
+				resp.set_error(link_result.error() | protocols::fs::toFsError);
+
+				auto ser = resp.SerializeAsString();
+				auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+					helix_ng::sendBuffer(ser.data(), ser.size()));
+				HEL_CHECK(send_resp.error());
+				co_return {};
+			}
+
+			// Moving a directory to a different parent must repoint its ".."
+			// entry. The link() and removeEntry() above already shifted the
+			// subdirectory link between the two parents.
+			if(old_file.value().fileType == kTypeDirectory
+					&& oldInode->number != newInode->number) {
+				auto movedInode = std::static_pointer_cast<ext2fs::Inode>(
+						fs->accessInode(old_file.value().inode));
+				auto reparent = co_await movedInode->updateDotDot(newInode->number);
+				if(!reparent) {
+					resp.set_error(reparent.error() | protocols::fs::toFsError);
+
+					auto ser = resp.SerializeAsString();
+					auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+						helix_ng::sendBuffer(ser.data(), ser.size()));
+					HEL_CHECK(send_resp.error());
+					co_return {};
+				}
+			}
 		} else {
 			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
 
@@ -217,8 +345,7 @@ struct HandlePartition {
 
 		auto result = co_await oldInode->removeEntry(req.old_name());
 		if(!result) {
-			assert(result.error() == protocols::fs::Error::fileNotFound);
-			resp.set_error(managarm::fs::Errors::FILE_NOT_FOUND);
+			resp.set_error(result.error() | protocols::fs::toFsError);
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

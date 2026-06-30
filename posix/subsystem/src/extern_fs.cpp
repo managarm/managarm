@@ -973,11 +973,9 @@ async::result<frg::expected<Error, std::shared_ptr<FsLink>>>
 	managarm::fs::SvrResponse resp;
 	resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 	recv_resp.reset();
-	if(resp.error() == managarm::fs::Errors::SUCCESS) {
+	if(resp.error() == managarm::fs::Errors::SUCCESS)
 		co_return internalizePeripheralLink(target_node, name, shared_node);
-	}else{
-		co_return nullptr;
-	}
+	co_return resp.error() | toPosixError;
 }
 
 std::shared_ptr<Node> Superblock::internalizeStructural(uint64_t id, helix::UniqueLane lane) {

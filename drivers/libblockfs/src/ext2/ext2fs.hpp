@@ -362,6 +362,13 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	async::result<std::expected<bool, protocols::fs::Error>> isDirectoryEmpty();
 
+	// Repoints the ".." entry of this directory at a new parent inode.
+	async::result<frg::expected<protocols::fs::Error>> updateDotDot(uint32_t parent);
+
+	// Returns whether this directory is `ino` itself or one of its descendants,
+	// found by walking the ".." chain up to the filesystem root.
+	async::result<frg::expected<protocols::fs::Error, bool>> isSubdirectoryOf(uint32_t ino);
+
 	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
 	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name, uid_t uid, gid_t gid, mode_t mode);
 	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);

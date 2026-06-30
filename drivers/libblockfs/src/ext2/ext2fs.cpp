@@ -259,6 +259,10 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	auto time = clk::getRealtime();
 	diskInode()->mtime = time.tv_sec;
 
+	// A new subdirectory adds a ".." backlink to this directory.
+	if(type == kTypeDirectory)
+		diskInode()->linksCount++;
+
 	updateInodeChecksum(fs, diskInode(), number);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
@@ -383,6 +387,18 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 					target->diskInode(), fs.inodeSize);
 			HEL_CHECK(syncInode.error());
 
+			// A removed subdirectory drops its ".." backlink to this directory.
+			if(target->fileType == kTypeDirectory) {
+				diskInode()->linksCount--;
+
+				updateInodeChecksum(fs, diskInode(), number);
+
+				auto syncParent = co_await helix_ng::synchronizeSpace(
+						helix::BorrowedDescriptor{kHelNullHandle},
+						diskInode(), fs.inodeSize);
+				HEL_CHECK(syncParent.error());
+			}
+
 			co_return {};
 		}
 
@@ -441,6 +457,71 @@ async::result<std::expected<bool, protocols::fs::Error>> Inode::isDirectoryEmpty
 	}
 
 	co_return true;
+}
+
+async::result<frg::expected<protocols::fs::Error>> Inode::updateDotDot(uint32_t parent) {
+	co_await readyEvent.wait();
+
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+
+	helix::LockMemoryView lock_memory;
+	auto map_size = (fileSize() + 0xFFF) & ~size_t(0xFFF);
+	auto &&submit = helix::submitLockMemoryView(helix::BorrowedDescriptor(frontalMemory),
+			&lock_memory,
+			0, map_size, helix::Dispatcher::global());
+	co_await submit.async_wait();
+	HEL_CHECK(lock_memory.error());
+
+	uintptr_t offset = 0;
+	while(offset < fileSize()) {
+		assert(!(offset & 3));
+		assert(offset + sizeof(DiskDirEntry) <= fileSize());
+		auto disk_entry = reinterpret_cast<DiskDirEntry *>(
+				reinterpret_cast<char *>(fileMapping.get()) + offset);
+		assert(disk_entry->recordLength);
+
+		if(disk_entry->inode
+				&& disk_entry->nameLength == 2
+				&& disk_entry->name[0] == '.'
+				&& disk_entry->name[1] == '.') {
+			disk_entry->inode = parent;
+
+			auto syncDir = co_await helix_ng::synchronizeSpace(
+					helix::BorrowedDescriptor{kHelNullHandle}, fileMapping.get(), fileSize());
+			HEL_CHECK(syncDir.error());
+
+			co_return {};
+		}
+
+		offset += disk_entry->recordLength;
+	}
+
+	co_return protocols::fs::Error::fileNotFound;
+}
+
+async::result<frg::expected<protocols::fs::Error, bool>> Inode::isSubdirectoryOf(uint32_t ino) {
+	co_await readyEvent.wait();
+
+	if(fileType != kTypeDirectory)
+		co_return protocols::fs::Error::notDirectory;
+
+	auto current = number;
+	while(true) {
+		if(current == ino)
+			co_return true;
+		if(current == EXT2_ROOT_INO)
+			co_return false;
+
+		auto dir = std::static_pointer_cast<Inode>(fs.accessInode(current));
+		auto parent = co_await dir->findEntry("..");
+		if(!parent)
+			co_return parent.error();
+		// A directory whose ".." is missing or points at itself ends the walk.
+		if(!parent.value() || parent.value()->inode == current)
+			co_return false;
+		current = parent.value()->inode;
+	}
 }
 
 async::result<std::expected<DirEntry, protocols::fs::Error>>
@@ -510,20 +591,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	auto dotDotEntry = reinterpret_cast<DiskDirEntry *>(
 			reinterpret_cast<char *>(dirNode->fileMapping.get()) + offset);
 
-	diskInode()->linksCount++;
 	dotDotEntry->inode = number;
 	dotDotEntry->recordLength = dirNode->fileSize() - offset;
 	dotDotEntry->nameLength = 2;
 	dotDotEntry->fileType = EXT2_FT_DIR;
 	memcpy(dotDotEntry->name, "..", 3);
-
-	updateInodeChecksum(fs, diskInode(), number);
-
-	// Synchronize this inode to update the linksCount
-	auto syncInode = co_await helix_ng::synchronizeSpace(
-			helix::BorrowedDescriptor{kHelNullHandle},
-			diskInode(), fs.inodeSize);
-	HEL_CHECK(syncInode.error());
 
 	updateInodeChecksum(fs, dirNode->diskInode(), dirNode->number);
 
