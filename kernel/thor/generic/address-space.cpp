@@ -793,6 +793,7 @@ VirtualSpace::retrievePhysical(VirtualAddr address) {
 	}
 }
 
+// Callers must hold _snapshotMutex, or _consistencyMutex (shared or exclusive).
 smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	auto current = _mappings.get_root();
 	while(current) {
@@ -810,6 +811,7 @@ smarter::shared_ptr<Mapping> VirtualSpace::_findMapping(VirtualAddr address) {
 	return nullptr;
 }
 
+// Callers must hold _snapshotMutex, or _consistencyMutex (shared or exclusive).
 bool VirtualSpace::_areMappingsInRange(VirtualAddr address, size_t length) {
 	auto end = address + length;
 
@@ -831,6 +833,7 @@ bool VirtualSpace::_areMappingsInRange(VirtualAddr address, size_t length) {
 	return false;
 }
 
+// Callers must hold _consistencyMutex exclusively.
 frg::expected<Error, VirtualAddr> VirtualSpace::_allocate(size_t length, MapFlags flags) {
 	assert(length > 0);
 	assert((length % kPageSize) == 0);
@@ -885,6 +888,7 @@ frg::expected<Error, VirtualAddr> VirtualSpace::_allocate(size_t length, MapFlag
 	}
 }
 
+// Callers must hold _consistencyMutex exclusively.
 frg::expected<Error, VirtualAddr> VirtualSpace::_allocateAt(VirtualAddr address, size_t length) {
 	assert(!(address % kPageSize));
 	assert(!(length % kPageSize));
@@ -913,6 +917,7 @@ frg::expected<Error, VirtualAddr> VirtualSpace::_allocateAt(VirtualAddr address,
 	return address;
 }
 
+// Callers must hold _consistencyMutex exclusively.
 void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	assert(length);
 	assert(offset + length <= hole->length());
@@ -933,9 +938,8 @@ void VirtualSpace::_splitHole(Hole *hole, VirtualAddr offset, size_t length) {
 	frg::destruct(*kernelAlloc, hole);
 }
 
+// Callers must hold _consistencyMutex exclusively.
 coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr_t address, size_t size) {
-	// _consistencyMutex is held here by the caller
-
 	auto left = _mappings.get_root();
 	while (left) {
 		if (auto next = MappingTree::get_left(left))
@@ -1068,6 +1072,7 @@ coroutine<frg::tuple<Mapping *, Mapping *>> VirtualSpace::_splitMappings(uintptr
 	co_return frg::make_tuple(start, end);
 }
 
+// Callers must hold _consistencyMutex exclusively.
 coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end) {
 	for (auto it = start; it != end;) {
 		auto mapping = it->selfPtr.lock();
