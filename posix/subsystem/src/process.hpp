@@ -45,7 +45,7 @@ struct VmContext {
 	// TODO: Pass abstract instead of hel flags to this function?
 	async::result<frg::expected<Error, void *>> mapFile(uintptr_t hint, helix::UniqueDescriptor memory,
 			smarter::shared_ptr<File, FileHandle> file,
-			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags);
+			intptr_t offset, size_t size, bool copyOnWrite, uint32_t nativeFlags, bool stack = false);
 
 	async::result<void *> remapFile(void *old_pointer, size_t old_size, size_t new_size);
 
@@ -56,6 +56,7 @@ struct VmContext {
 private:
 	struct Area {
 		bool copyOnWrite;
+		bool stack;
 		size_t areaSize;
 		uint32_t nativeFlags;
 		helix::UniqueDescriptor fileView;
@@ -89,6 +90,10 @@ public:
 
 		bool isPrivate() {
 			return _it->second.copyOnWrite;
+		}
+
+		bool isStack() {
+			return _it->second.stack;
 		}
 
 		bool isReadable() {
