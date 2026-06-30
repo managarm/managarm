@@ -287,7 +287,13 @@ void VirtualSpace::retire() {
 
 		while(self->_mappings.get_root()) {
 			auto mapping = self->_mappings.get_root();
-			self->_mappings.remove(mapping);
+
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto snapshotLock = frg::guard(&self->_snapshotMutex);
+
+				self->_mappings.remove(mapping);
+			}
 
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
@@ -1100,7 +1106,12 @@ coroutine<void> VirtualSpace::_unmapMappings(VirtualAddr address, size_t length,
 			if(!anyRevoked)
 				co_await mapping->revokeRcu.barrier();
 
-			_mappings.remove(mapping.get());
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto snapshotLock = frg::guard(&_snapshotMutex);
+
+				_mappings.remove(mapping.get());
+			}
 
 			assert(mapping->state.load(std::memory_order_relaxed) == MappingState::zombie);
 			mapping->state.store(MappingState::retired, std::memory_order_relaxed);
