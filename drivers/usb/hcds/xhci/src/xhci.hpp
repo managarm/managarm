@@ -412,7 +412,8 @@ private:
 
 	std::string _name;
 
-	void _processExtendedCapabilities();
+	async::result<void> _processExtendedCapabilities();
+	async::result<void> _biosHandoff(uint32_t cap);
 
 	arch::contiguous_pool _memoryPool;
 	helix::UniqueDescriptor _dmaSpaceHandle;

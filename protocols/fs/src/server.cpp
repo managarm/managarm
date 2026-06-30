@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <iostream>
 #include <print>
@@ -337,10 +338,11 @@ struct HandleFileRequest {
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::PT_BIND) {
+			struct sockaddr_storage addr_buf;
 			auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::extractCredentials(),
-				helix_ng::recvInline()
+				helix_ng::recvBuffer(&addr_buf, sizeof(addr_buf))
 			);
 			HEL_CHECK(extract_creds.error());
 			HEL_CHECK(recv_addr.error());
@@ -361,8 +363,7 @@ struct HandleFileRequest {
 
 			auto error = co_await file_ops->bind(file.get(),
 				extract_creds.credentials(),
-				recv_addr.data(), recv_addr.length());
-			recv_addr.reset();
+				&addr_buf, recv_addr.actualLength());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(error | toFsError);
@@ -375,10 +376,11 @@ struct HandleFileRequest {
 			HEL_CHECK(send_resp.error());
 			logBragiSerializedReply(ser);
 		}else if(req.req_type() == managarm::fs::CntReqType::PT_CONNECT) {
+			struct sockaddr_storage addr_buf;
 			auto [extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 				conversation,
 				helix_ng::extractCredentials(),
-				helix_ng::recvInline()
+				helix_ng::recvBuffer(&addr_buf, sizeof(addr_buf))
 			);
 			HEL_CHECK(extract_creds.error());
 			HEL_CHECK(recv_addr.error());
@@ -399,8 +401,7 @@ struct HandleFileRequest {
 
 			auto error = co_await file_ops->connect(file.get(),
 				extract_creds.credentials(),
-				recv_addr.data(), recv_addr.length());
-			recv_addr.reset();
+				&addr_buf, recv_addr.actualLength());
 
 			managarm::fs::SvrResponse resp;
 			resp.set_error(error | toFsError);
@@ -740,11 +741,12 @@ struct HandleFileRequest {
 		std::vector<uint8_t> buffer;
 		buffer.resize(req.size());
 
+		struct sockaddr_storage addr_buf;
 		auto [recv_data, extract_creds, recv_addr] = co_await helix_ng::exchangeMsgs(
 			conversation,
 			helix_ng::recvBuffer(buffer.data(), buffer.size()),
 			helix_ng::extractCredentials(),
-			helix_ng::recvInline()
+			helix_ng::recvBuffer(&addr_buf, sizeof(addr_buf))
 		);
 		HEL_CHECK(recv_data.error());
 		HEL_CHECK(extract_creds.error());
@@ -778,9 +780,8 @@ struct HandleFileRequest {
 		auto res = co_await file_ops->sendMsg(file.get(),
 			extract_creds.credentials(), req.flags(),
 			buffer.data(), recv_data.actualLength(),
-			recv_addr.data(), recv_addr.length(),
+			&addr_buf, recv_addr.actualLength(),
 			std::move(files), ucreds);
-		recv_addr.reset();
 
 		managarm::fs::SendMsgReply resp;
 

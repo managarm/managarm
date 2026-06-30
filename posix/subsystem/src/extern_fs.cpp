@@ -581,11 +581,15 @@ private:
 
 		auto preamble = bragi::read_preamble(recv_resp);
 		if (preamble.error()) {
+			recv_resp.reset();
 			std::cout << "posix: error decoding preamble" << std::endl;
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
 		}
+
+		auto resp = *bragi::parse_head_only<managarm::fs::NodeTraverseLinksResponse>(recv_resp);
+		recv_resp.reset();
 
 		std::vector<uint8_t> tail(preamble.tail_size());
 		auto [recv_tail, pull_desc] = co_await helix_ng::exchangeMsgs(
@@ -595,8 +599,9 @@ private:
 		);
 		HEL_CHECK(recv_tail.error());
 
-		auto resp = *bragi::parse_head_tail<managarm::fs::NodeTraverseLinksResponse>(recv_resp, tail);
-		recv_resp.reset();
+		bragi::limited_reader reader{tail.data(), tail.size()};
+		auto ok = resp.decode_tail(reader);
+		assert(ok);
 
 		if(resp.error() != managarm::fs::Errors::SUCCESS)
 			co_return resp.error() | toPosixError;
