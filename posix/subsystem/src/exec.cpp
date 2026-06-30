@@ -370,9 +370,12 @@ execute(ViewPath root, ViewPath workdir,
 			(void *)ldsoInfo.entryIp, (char *)stackBase + d,
 			kHelThreadStopped, &thread));
 
+	ViewPath execViewPath{execFile->associatedMount(), execFile->associatedLink()};
+
 	co_return ExecuteResult{
 		.thread = helix::UniqueDescriptor{thread},
 		.auxBegin = auxBegin,
-		.auxEnd = auxEnd
+		.auxEnd = auxEnd,
+		.path = execViewPath.getPath(root)
 	};
 }
