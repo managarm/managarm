@@ -28,16 +28,17 @@ struct Gic : dt::IrqController {
 
 		virtual bool setMode(TriggerMode trigger, Polarity polarity) = 0;
 
-		virtual IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
+		IrqStrategy program(TriggerMode mode, Polarity polarity) override = 0;
 
-		virtual void mask() override = 0;
-		virtual void unmask() override = 0;
+		void mask() override = 0;
+		void unmask() override = 0;
 
-		virtual void endOfInterrupt() override = 0;
+		void endOfInterrupt() override = 0;
 	};
 
 	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
 	virtual Pin *getPin(uint32_t irq) = 0;
+	virtual uint32_t irqCount() = 0;
 
 	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 3 && irqSpecifier.numCells() != 4)
@@ -100,5 +101,7 @@ struct Gic : dt::IrqController {
 };
 
 void initGicOnThisCpu();
+
+uint32_t affinityFromMpidr(uint64_t mpidr);
 
 }
