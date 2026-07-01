@@ -21,6 +21,12 @@ readEntries(void *object) {
 		ostEvtReadDir
 	);
 
+	co_await self->mutex.async_lock();
+	frg::unique_lock fileLock{frg::adopt_lock, self->mutex};
+
+	co_await self->inode->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, self->inode->inodeMutex};
+
 	co_return co_await self->readEntries();
 }
 
@@ -59,6 +65,10 @@ getLink(std::shared_ptr<void> object,
 
 
 	assert(!name.empty() && name != "." && name != "..");
+
+	co_await self->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto entry = FRG_CO_TRY(co_await self->findEntry(name));
 	if(!entry)
 		co_return protocols::fs::GetLinkResult{nullptr, -1,
@@ -90,6 +100,14 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
+	// link() requires the target to be locked.
+	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(ino));
+	co_await target->inodeMutex.async_lock();
+	frg::unique_lock targetLock{frg::adopt_lock, target->inodeMutex};
+
 	auto entry = co_await self->link(std::move(name), ino, kTypeRegular);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -119,6 +137,9 @@ async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -126,6 +147,11 @@ async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<
 		co_return std::unexpected{protocols::fs::Error::fileNotFound};
 	if(entry.value()->fileType == kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::isDirectory};
+
+	// removeEntry() requires the target to be locked.
+	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(entry.value()->inode));
+	co_await target->inodeMutex.async_lock();
+	frg::unique_lock targetLock{frg::adopt_lock, target->inodeMutex};
 
 	auto result = co_await self->removeEntry(std::move(name));
 	if (!result)
@@ -139,6 +165,9 @@ async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<v
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -147,8 +176,11 @@ async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<v
 	if(entry.value()->fileType != kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::notDirectory};
 
-	// Check that the directory is empty.
+	// isDirectoryEmpty() and removeEntry() require the target to be locked.
 	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(entry.value()->inode));
+	co_await target->inodeMutex.async_lock();
+	frg::unique_lock targetLock{frg::adopt_lock, target->inodeMutex};
+
 	auto isEmpty = FRG_CO_TRY(co_await target->isDirectoryEmpty());
 	if(!isEmpty)
 		co_return std::unexpected{protocols::fs::Error::directoryNotEmpty};
@@ -163,6 +195,9 @@ async::result<protocols::fs::FileStats>
 getStats(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	co_await self->readyEvent.wait();
+
+	co_await self->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 
 	protocols::fs::FileStats stats;
 	stats.linkCount = self->diskInode()->linksCount;
@@ -180,6 +215,9 @@ getStats(std::shared_ptr<void> object) {
 async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	co_await self->readyEvent.wait();
+
+	co_await self->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 
 	if(self->fileSize() <= 60) {
 		co_return std::string{self->diskInode()->data.embedded,
@@ -201,6 +239,9 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto entry = co_await self->mkdir(std::move(name), uid, gid, mode);
 
 	if(!entry)
@@ -217,6 +258,9 @@ symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
 
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto entry = co_await self->symlink(std::move(name), std::move(target));
 
 	if(!entry)
@@ -228,6 +272,10 @@ symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 
 async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto result = co_await self->chmod(mode);
 
 	co_return result;
@@ -235,6 +283,10 @@ async::result<protocols::fs::Error> chmod(std::shared_ptr<void> object, int mode
 
 async::result<protocols::fs::Error> chown(std::shared_ptr<void> object, std::optional<uid_t> uid, std::optional<gid_t> gid) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+
 	auto result = co_await self->chown(uid, gid);
 
 	co_return result;
@@ -247,6 +299,9 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 
 	co_await self->fs.topologyMutex.async_lock_shared();
 	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 
 	auto findResult = co_await self->findEntry(name);
 
@@ -279,6 +334,11 @@ getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, boo
 
 	auto baseInode = co_await self->fs.createRegular(uid, gid, self->number);
 	auto inode = std::static_pointer_cast<ext2fs::Inode>(baseInode);
+
+	// Lock the new inode immediately as it is published by link() below.
+	co_await inode->inodeMutex.async_lock();
+	frg::unique_lock newInodeLock{frg::adopt_lock, inode->inodeMutex};
+
 	auto chmodResult = co_await inode->chmod(mode);
 	if (chmodResult != protocols::fs::Error::none)
 		co_return std::unexpected{chmodResult};

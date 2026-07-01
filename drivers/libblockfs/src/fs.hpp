@@ -34,6 +34,16 @@ struct BaseInode {
 
 	std::mutex obstructedLinksMutex;
 
+	// Serializes operations on this inode's metadata and directory entries.
+	// inodeMutex MUST be taken for all operations that access these data.
+	// inodeMutex may be taken in shared mode for read-only accesses.
+	// It must be taken in exclusive mode for modifications.
+	// Ordered after BaseFile::mutex -> BaseFileSystem::topologyMutex.
+	// When locking multiple inodeMutex at the same time:
+	// - Descendents (in the directory hierarchy) are ordered after ancestors.
+	// - If there is no ancestry relation, the order is lower inode number first.
+	async::shared_mutex inodeMutex;
+
 	FileType fileType;
 
 	FlockManager flockManager;
@@ -78,7 +88,7 @@ struct BaseFileSystem {
 	// Serializes operations that change the directory hierarchy.
 	// topologyMutex MUST be taken for all operations that modify directory entries.
 	// For operations that operate on a single directory entry only (i.e., link/unlink/mkdir/rmdir/symlink)
-	// taking it in shared mode is enough (assuming that the directory entry is protected by different means).
+	// taking it in shared mode is enough (assuming that the directory entry is protected by inodeMutex).
 	// Taking it in exclusive mode allows an operation that operates on multiple directory entries
 	// (i.e., rename()) to exclude all other directory-entry-modifying operations.
 	// Ordered after BaseFile::mutex.
