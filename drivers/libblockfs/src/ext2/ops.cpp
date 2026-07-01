@@ -86,6 +86,10 @@ getLink(std::shared_ptr<void> object,
 async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>> link(std::shared_ptr<void> object,
 		std::string name, int64_t ino) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto entry = co_await self->link(std::move(name), ino, kTypeRegular);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -111,6 +115,10 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 
 async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -127,6 +135,10 @@ async::result<std::expected<void, protocols::fs::Error>> unlink(std::shared_ptr<
 
 async::result<std::expected<void, protocols::fs::Error>> rmdir(std::shared_ptr<void> object, std::string name) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto entry = co_await self->findEntry(name);
 	if(!entry)
 		co_return std::unexpected{entry.error()};
@@ -185,6 +197,10 @@ async::result<std::string> readSymlink(std::shared_ptr<void> object) {
 async::result<std::expected<protocols::fs::MkdirResult, protocols::fs::Error>>
 mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode_t mode) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto entry = co_await self->mkdir(std::move(name), uid, gid, mode);
 
 	if(!entry)
@@ -197,6 +213,10 @@ mkdir(std::shared_ptr<void> object, std::string name, uid_t uid, gid_t gid, mode
 async::result<std::expected<protocols::fs::SymlinkResult, protocols::fs::Error>>
 symlink(std::shared_ptr<void> object, std::string name, std::string target) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto entry = co_await self->symlink(std::move(name), std::move(target));
 
 	if(!entry)
@@ -224,6 +244,10 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 getLinkOrCreate(std::shared_ptr<void> object, std::string name, mode_t mode, bool exclusive,
 		uid_t uid, gid_t gid) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
+
+	co_await self->fs.topologyMutex.async_lock_shared();
+	frg::shared_lock topologyLock{frg::adopt_lock, self->fs.topologyMutex};
+
 	auto findResult = co_await self->findEntry(name);
 
 	if (!findResult)

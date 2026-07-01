@@ -73,7 +73,16 @@ struct BaseFileSystem {
 	virtual async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
 	virtual protocols::fs::FsStats getFsStats() = 0;
 
-	constexpr BaseFileSystem() = default;
+	BaseFileSystem() = default;
+
+	// Serializes operations that change the directory hierarchy.
+	// topologyMutex MUST be taken for all operations that modify directory entries.
+	// For operations that operate on a single directory entry only (i.e., link/unlink/mkdir/rmdir/symlink)
+	// taking it in shared mode is enough (assuming that the directory entry is protected by different means).
+	// Taking it in exclusive mode allows an operation that operates on multiple directory entries
+	// (i.e., rename()) to exclude all other directory-entry-modifying operations.
+	// Ordered after BaseFile::mutex.
+	async::shared_mutex topologyMutex;
 
 	BaseFileSystem(const BaseFileSystem &) = delete;
 	BaseFileSystem(BaseFileSystem &&) = delete;

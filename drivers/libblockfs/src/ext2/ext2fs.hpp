@@ -357,22 +357,33 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 	findEntry(std::string name);
 
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<frg::expected<protocols::fs::Error, DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
 
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<frg::expected<protocols::fs::Error>> removeEntry(std::string name);
 
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<std::expected<bool, protocols::fs::Error>> isDirectoryEmpty();
 
 	// Repoints the ".." entry of this directory at a new parent inode.
+	// Callers must hold topologyMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>> updateDotDot(uint32_t parent);
 
 	// Returns whether this directory is `ino` itself or one of its descendants,
 	// found by walking the ".." chain up to the filesystem root.
+	// Callers must hold topologyMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error, bool>> isSubdirectoryOf(uint32_t ino);
 
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
+
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name, uid_t uid, gid_t gid, mode_t mode);
+
+	// Callers must hold topologyMutex (shared or exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
+
 	async::result<protocols::fs::Error> chmod(int mode);
 	async::result<protocols::fs::Error> chown(std::optional<uid_t> uid, std::optional<gid_t> gid);
 	async::result<protocols::fs::Error> updateTimes(

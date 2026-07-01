@@ -177,6 +177,11 @@ struct HandlePartition {
 		auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
 		auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
 
+		// Take topologyMutex exclusively for the whole rename.
+		// This ensures that the ancestry checks below see a consistent state.
+		co_await fs->topologyMutex.async_lock();
+		frg::unique_lock topologyLock{frg::adopt_lock, fs->topologyMutex};
+
 		auto old_result = co_await oldInode->findEntry(req.old_name());
 		if(!old_result) {
 			managarm::fs::SvrResponse resp;
