@@ -2,6 +2,7 @@
 
 #include "common.hpp"
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 
 #include <async/mutex.hpp>
@@ -31,9 +32,23 @@ struct BaseInode {
 
 	async::oneshot_event readyEvent;
 
+	std::mutex obstructedLinksMutex;
+
+	// Serializes operations on this inode's metadata and directory entries.
+	// inodeMutex MUST be taken for all operations that access these data.
+	// inodeMutex may be taken in shared mode for read-only accesses.
+	// It must be taken in exclusive mode for modifications.
+	// Ordered after BaseFile::mutex -> BaseFileSystem::topologyMutex.
+	// When locking multiple inodeMutex at the same time:
+	// - Descendents (in the directory hierarchy) are ordered after ancestors.
+	// - If there is no ancestry relation, the order is lower inode number first.
+	async::shared_mutex inodeMutex;
+
 	FileType fileType;
 
 	FlockManager flockManager;
+
+	// Protected by obstructedLinksMutex.
 	std::unordered_set<std::string> obstructedLinks;
 };
 
@@ -68,7 +83,16 @@ struct BaseFileSystem {
 	virtual async::result<std::shared_ptr<BaseInode>> createRegular(int uid, int gid, uint32_t parentIno) = 0;
 	virtual protocols::fs::FsStats getFsStats() = 0;
 
-	constexpr BaseFileSystem() = default;
+	BaseFileSystem() = default;
+
+	// Serializes operations that change the directory hierarchy.
+	// topologyMutex MUST be taken for all operations that modify directory entries.
+	// For operations that operate on a single directory entry only (i.e., link/unlink/mkdir/rmdir/symlink)
+	// taking it in shared mode is enough (assuming that the directory entry is protected by inodeMutex).
+	// Taking it in exclusive mode allows an operation that operates on multiple directory entries
+	// (i.e., rename()) to exclude all other directory-entry-modifying operations.
+	// Ordered after BaseFile::mutex.
+	async::shared_mutex topologyMutex;
 
 	BaseFileSystem(const BaseFileSystem &) = delete;
 	BaseFileSystem(BaseFileSystem &&) = delete;

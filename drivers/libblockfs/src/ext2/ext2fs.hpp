@@ -348,33 +348,59 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	DiskInode *diskInode();
 
 	// Returns the size of the file in bytes.
+	// Callers must hold inodeMutex (shared).
 	uint64_t fileSize() {
 		return diskInode()->size;
 	}
 
+	// Callers must hold inodeMutex (exclusive).
 	void setFileSize(uint64_t size);
 
+	// Callers must hold inodeMutex (shared).
 	async::result<frg::expected<protocols::fs::Error, std::optional<DirEntry>>>
 	findEntry(std::string name);
 
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (exclusive), plus the target inode's inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error, DirEntry>> insertEntry(std::string name, int64_t ino, blockfs::FileType type);
 
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (exclusive), plus the target inode's inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>> removeEntry(std::string name);
 
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (shared).
 	async::result<std::expected<bool, protocols::fs::Error>> isDirectoryEmpty();
 
 	// Repoints the ".." entry of this directory at a new parent inode.
+	// Callers must hold topologyMutex (exclusive).
+	// Callers must hold inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>> updateDotDot(uint32_t parent);
 
 	// Returns whether this directory is `ino` itself or one of its descendants,
 	// found by walking the ".." chain up to the filesystem root.
+	// Callers must hold topologyMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error, bool>> isSubdirectoryOf(uint32_t ino);
 
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (exclusive), plus the target inode's inodeMutex (exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> link(std::string name, int64_t ino, blockfs::FileType type);
+
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> mkdir(std::string name, uid_t uid, gid_t gid, mode_t mode);
+
+	// Callers must hold topologyMutex (shared or exclusive).
+	// Callers must hold inodeMutex (exclusive).
 	async::result<std::expected<DirEntry, protocols::fs::Error>> symlink(std::string name, std::string target);
+
+	// Callers must hold inodeMutex (exclusive).
 	async::result<protocols::fs::Error> chmod(int mode);
+
+	// Callers must hold inodeMutex (exclusive).
 	async::result<protocols::fs::Error> chown(std::optional<uid_t> uid, std::optional<gid_t> gid);
+
+	// Callers must hold inodeMutex (exclusive).
 	async::result<protocols::fs::Error> updateTimes(
 		std::optional<timespec> atime,
 		std::optional<timespec> mtime,
@@ -393,9 +419,11 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 		return helix::BorrowedDescriptor{frontalMemory};
 	}
 
+	// Callers must hold inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>>
 	ensureBackingBlocks(size_t offset, size_t length);
 
+	// Callers must hold inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>>
 	resizeFile(size_t newSize);
 
@@ -566,6 +594,8 @@ struct OpenFile final : BaseFile {
 	OpenFile(std::shared_ptr<Inode> inode, bool write, bool read, bool append)
 	: BaseFile{inode, write, read, append} { }
 
+	// Callers must hold BaseFile::mutex.
+	// Callers must hold the inode's inodeMutex (shared).
 	async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> readEntries();
 };
 

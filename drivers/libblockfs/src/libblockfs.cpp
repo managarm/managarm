@@ -177,6 +177,45 @@ struct HandlePartition {
 		auto oldInode = std::static_pointer_cast<ext2fs::Inode>(oldInodeRaw);
 		auto newInode = std::static_pointer_cast<ext2fs::Inode>(newInodeRaw);
 
+		// Take topologyMutex exclusively for the whole rename.
+		// This ensures that the ancestry checks below see a consistent state.
+		co_await fs->topologyMutex.async_lock();
+		frg::unique_lock topologyLock{frg::adopt_lock, fs->topologyMutex};
+
+		// Lock the two parent directories in inodeMutex order.
+		std::optional<frg::unique_lock<async::shared_mutex>> firstLock;
+		std::optional<frg::unique_lock<async::shared_mutex>> secondLock;
+		if (oldInode.get() == newInode.get()) {
+			co_await oldInode->inodeMutex.async_lock();
+			firstLock.emplace(frg::adopt_lock, oldInode->inodeMutex);
+		} else {
+			auto oldIsSubdir = co_await oldInode->isSubdirectoryOf(newInode->number);
+			auto newIsSubdir = co_await newInode->isSubdirectoryOf(oldInode->number);
+			// TODO: Handle errors gracefully here.
+			assert(oldIsSubdir); // isSubdirectoryOf() should not fail.
+			assert(newIsSubdir); // isSubdirectoryOf() should not fail.
+
+			bool oldBeforeNew;
+			if (oldIsSubdir.value()) {
+				oldBeforeNew = false;
+			} else if (newIsSubdir.value()) {
+				oldBeforeNew = true;
+			} else {
+				oldBeforeNew = oldInode->number < newInode->number;
+			}
+
+			ext2fs::Inode *firstInode = oldInode.get();
+			ext2fs::Inode *secondInode = newInode.get();
+			if (!oldBeforeNew)
+				std::swap(firstInode, secondInode);
+
+			co_await firstInode->inodeMutex.async_lock();
+			firstLock.emplace(frg::adopt_lock, firstInode->inodeMutex);
+
+			co_await secondInode->inodeMutex.async_lock();
+			secondLock.emplace(frg::adopt_lock, secondInode->inodeMutex);
+		}
+
 		auto old_result = co_await oldInode->findEntry(req.old_name());
 		if(!old_result) {
 			managarm::fs::SvrResponse resp;
@@ -192,6 +231,12 @@ struct HandlePartition {
 
 		auto old_file = old_result.value();
 		managarm::fs::SvrResponse resp;
+
+		// Keep the moved and victim inodes alive.
+		std::shared_ptr<ext2fs::Inode> movedInode, victimInode;
+		// These locks are taken below for the moved and victim inodes.
+		std::optional<frg::unique_lock<async::shared_mutex>> thirdLock, fourthLock;
+
 		if(old_file) {
 			// Reject moving a directory into itself or one of its own
 			// descendants, which would detach the subtree from the tree.
@@ -266,10 +311,45 @@ struct HandlePartition {
 					co_return {};
 				}
 			}
+
+			// Lock the moved inode and victim inode in inodeMutex order.
+			movedInode = std::static_pointer_cast<ext2fs::Inode>(
+				fs->accessInode(old_file.value().inode)
+			);
+			if(new_entry.value()) {
+				victimInode = std::static_pointer_cast<ext2fs::Inode>(
+					fs->accessInode(new_entry.value()->inode)
+				);
+			}
+
+			auto stillUnlocked = [&] (ext2fs::Inode *inode) {
+				return inode != oldInode.get() && inode != newInode.get();
+			};
+			if(!victimInode) {
+				if (stillUnlocked(movedInode.get())) {
+					co_await movedInode->inodeMutex.async_lock();
+					thirdLock.emplace(frg::adopt_lock, movedInode->inodeMutex);
+				}
+			} else {
+				bool movedBeforeVictim = movedInode->number < victimInode->number;
+
+				ext2fs::Inode *thirdInode = movedInode.get();
+				ext2fs::Inode *fourthInode = victimInode.get();
+				if (!movedBeforeVictim)
+					std::swap(thirdInode, fourthInode);
+
+				if (stillUnlocked(thirdInode)) {
+					co_await thirdInode->inodeMutex.async_lock();
+					thirdLock.emplace(frg::adopt_lock, thirdInode->inodeMutex);
+				}
+				if (stillUnlocked(fourthInode)) {
+					co_await fourthInode->inodeMutex.async_lock();
+					fourthLock.emplace(frg::adopt_lock, fourthInode->inodeMutex);
+				}
+			}
+
 			if(new_entry.value() && new_entry.value()->fileType == kTypeDirectory) {
-				auto target_inode = std::static_pointer_cast<ext2fs::Inode>(
-						fs->accessInode(new_entry.value()->inode));
-				auto isEmpty = co_await target_inode->isDirectoryEmpty();
+				auto isEmpty = co_await victimInode->isDirectoryEmpty();
 				if(!isEmpty) {
 					std::cout << "libblockfs: rename: isDirectoryEmpty failed: "
 						<< (int)isEmpty.error() << std::endl;
@@ -320,8 +400,6 @@ struct HandlePartition {
 			// subdirectory link between the two parents.
 			if(old_file.value().fileType == kTypeDirectory
 					&& oldInode->number != newInode->number) {
-				auto movedInode = std::static_pointer_cast<ext2fs::Inode>(
-						fs->accessInode(old_file.value().inode));
 				auto reparent = co_await movedInode->updateDotDot(newInode->number);
 				if(!reparent) {
 					resp.set_error(reparent.error() | protocols::fs::toFsError);

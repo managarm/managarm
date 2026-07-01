@@ -230,6 +230,7 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 		HEL_CHECK(syncDir.error());
 
 		// Increment the target's link count.
+		// This is sound since the caller holds the target's inodeMutex exclusively.
 		auto target = std::static_pointer_cast<Inode>(fs.accessInode(ino));
 		co_await target->readyEvent.wait();
 		target->diskInode()->linksCount++;
@@ -375,6 +376,7 @@ async::result<frg::expected<protocols::fs::Error>> Inode::removeEntry(std::strin
 			HEL_CHECK(syncDir.error());
 
 			// Decrement the inode's link count
+			// This is sound since the caller holds the target's inodeMutex exclusively.
 			if(--target->diskInode()->linksCount == 0) {
 				// TODO: free the data blocks and set size to 0
 				target->diskInode()->dtime = clk::getRealtime().tv_sec;
@@ -506,6 +508,8 @@ async::result<frg::expected<protocols::fs::Error, bool>> Inode::isSubdirectoryOf
 	if(fileType != kTypeDirectory)
 		co_return protocols::fs::Error::notDirectory;
 
+	// Note that the caller holds BaseFileSystem::topologyMutex exclusively;
+	// hence the .. entries that we walk below cannot change.
 	auto current = number;
 	while(true) {
 		if(current == ino)
@@ -553,6 +557,10 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 
 	auto dirNode = co_await fs.createDirectory();
 	co_await dirNode->readyEvent.wait();
+
+	// Lock the new inode immediately as it is published by insertEntry() below.
+	co_await dirNode->inodeMutex.async_lock();
+	frg::unique_lock dirNodeLock{frg::adopt_lock, dirNode->inodeMutex};
 
 	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
 
@@ -631,6 +639,10 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 
 	auto newNode = co_await fs.createSymlink();
 	co_await newNode->readyEvent.wait();
+
+	// Lock the new inode immediately as it is published by insertEntry() below.
+	co_await newNode->inodeMutex.async_lock();
+	frg::unique_lock newNodeLock{frg::adopt_lock, newNode->inodeMutex};
 
 	newNode->setFileSize(target.size());
 
@@ -726,6 +738,8 @@ async::result<protocols::fs::Error> Inode::updateTimes(
 		std::optional<timespec> atime,
 		std::optional<timespec> mtime,
 		std::optional<timespec> ctime) {
+	co_await readyEvent.wait();
+
 	if(atime)
 		diskInode()->atime = atime->tv_sec;
 	if(mtime)

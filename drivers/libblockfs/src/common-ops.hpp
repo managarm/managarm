@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <async/algorithm.hpp>
 #include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
@@ -47,6 +49,9 @@ async::result<protocols::fs::SeekResult> doSeekEof(void *object, int64_t offset)
 
 	co_await inode->readyEvent.wait();
 
+	co_await inode->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+
 	self->offset += offset + inode->fileSize();
 	co_return static_cast<ssize_t>(self->offset);
 }
@@ -83,6 +88,9 @@ async::result<protocols::fs::ReadResult> doReadImpl(T *inode, void *buffer, size
 
 	// TODO(geert): Pass cancellation token
 	co_await inode->readyEvent.wait();
+
+	co_await inode->inodeMutex.async_lock_shared();
+	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return std::unexpected{protocols::fs::Error::isDirectory};
@@ -123,6 +131,9 @@ doWriteImpl(T *inode, const void *buffer, size_t length, bool append, auto &offs
 		co_return size_t{0};
 
 	co_await inode->readyEvent.wait();
+
+	co_await inode->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
 
 	if (inode->fileType == FileType::kTypeDirectory)
 		co_return protocols::fs::Error::isDirectory;
@@ -235,6 +246,9 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 
 	co_await inode->readyEvent.wait();
 
+	co_await inode->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
+
 	FRG_CO_TRY(co_await inode->resizeFile(size));
 
 	co_return frg::success;
@@ -259,7 +273,10 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 
 	auto self = std::static_pointer_cast<Inode>(object);
 
-	self->obstructedLinks.insert(name);
+	{
+		std::lock_guard obstructedLinksLock{self->obstructedLinksMutex};
+		self->obstructedLinks.insert(name);
+	}
 	co_return;
 }
 
@@ -293,12 +310,21 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 				    nodes, protocols::fs::FileType::directory, processedComponents
 				);
 
-			auto entry = FRG_CO_TRY(co_await parent->findEntry(".."));
+			std::optional<DirEntry> entry;
+			{
+				co_await parent->inodeMutex.async_lock_shared();
+				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
+				entry = FRG_CO_TRY(co_await parent->findEntry(".."));
+			}
 			assert(entry);
 			parent = std::static_pointer_cast<Inode>(self->fs.accessInode(entry->inode));
 			nodes.pop_back();
 		} else {
-			entry = FRG_CO_TRY(co_await parent->findEntry(component));
+			{
+				co_await parent->inodeMutex.async_lock_shared();
+				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
+				entry = FRG_CO_TRY(co_await parent->findEntry(component));
+			}
 
 			if (!entry) {
 				co_return protocols::fs::Error::fileNotFound;
@@ -308,7 +334,13 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 			nodes.push_back({self->fs.accessInode(entry->inode), entry->inode});
 
 			if (!components.empty()) {
-				if (parent->obstructedLinks.find(component) != parent->obstructedLinks.end()) {
+				bool obstructed;
+				{
+					std::lock_guard obstructedLinksLock{parent->obstructedLinksMutex};
+					obstructed = parent->obstructedLinks.find(component)
+							!= parent->obstructedLinks.end();
+				}
+				if (obstructed) {
 					break;
 				}
 
@@ -358,7 +390,11 @@ doOpen(std::shared_ptr<void> object, bool write, bool read, bool append) {
 	auto [localCtrl, remoteCtrl] = helix::createStream();
 	auto [localPt, remotePt] = helix::createStream();
 
-	co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
+	{
+		co_await self->inodeMutex.async_lock();
+		frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
+		co_await self->updateTimes(clk::getRealtime(), std::nullopt, std::nullopt);
+	}
 
 	[] (smarter::shared_ptr<File> file, BaseFileSystem &fs, helix::UniqueLane localCtrl,
 			helix::UniqueLane localPt) -> async::detached {
@@ -386,6 +422,9 @@ async::result<protocols::fs::Error> doUtimensat(std::shared_ptr<void> object,
 
 	auto self = std::static_pointer_cast<Inode>(object);
 	co_await self->readyEvent.wait();
+
+	co_await self->inodeMutex.async_lock();
+	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 
 	co_return co_await self->updateTimes(atime, mtime, ctime);
 }
