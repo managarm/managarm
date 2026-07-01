@@ -156,8 +156,8 @@ getStats(std::shared_ptr<void> object) {
 	stats.linkCount = self->diskInode()->linksCount;
 	stats.fileSize = self->fileSize();
 	stats.mode = self->diskInode()->mode & 0xFFF;
-	stats.uid = self->uid;
-	stats.gid = self->gid;
+	stats.uid = self->diskInode()->uid;
+	stats.gid = self->diskInode()->gid;
 	stats.accessTime.tv_sec = self->diskInode()->atime;
 	stats.dataModifyTime.tv_sec = self->diskInode()->mtime;;
 	stats.anyChangeTime.tv_sec = self->diskInode()->ctime;

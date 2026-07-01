@@ -46,6 +46,8 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
 
+	int uid, gid;
+
 	FileSystem &fs_;
 
 private:

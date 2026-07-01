@@ -31,7 +31,6 @@ struct BaseInode {
 
 	async::oneshot_event readyEvent;
 
-	int uid, gid;
 	FileType fileType;
 
 	FlockManager flockManager;
