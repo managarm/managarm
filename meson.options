@@ -23,6 +23,11 @@ option('build_testsuite',
     value : false
 )
 
+option('build_headers',
+    type : 'boolean',
+    value : false
+)
+
 option('provide_deps',
     type : 'boolean',
     value : false
