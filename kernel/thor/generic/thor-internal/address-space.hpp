@@ -726,15 +726,20 @@ public:
 
 private:
 	// Allocates a new mapping of the given length somewhere in the address space.
+	// Callers must hold _consistencyMutex exclusively.
 	frg::expected<Error, VirtualAddr> _allocate(size_t length, MapFlags flags);
 
+	// Callers must hold _consistencyMutex exclusively.
 	frg::expected<Error, VirtualAddr> _allocateAt(VirtualAddr address, size_t length);
 
+	// Callers must hold _snapshotMutex, or _consistencyMutex (shared or exclusive).
 	smarter::shared_ptr<Mapping> _findMapping(VirtualAddr address);
 
+	// Callers must hold _snapshotMutex, or _consistencyMutex (shared or exclusive).
 	bool _areMappingsInRange(VirtualAddr address, VirtualAddr length);
 
 	// Splits some memory range from a hole mapping.
+	// Callers must hold _consistencyMutex exclusively.
 	void _splitHole(Hole *hole, VirtualAddr offset, VirtualAddr length);
 
 	// Desired working set size of the process.
@@ -749,11 +754,13 @@ private:
 
 	// Potentially splits mappings into two parts at (address) and (address + size).
 	// Returns the start and end mappings that are within the specified range.
+	// Callers must hold _consistencyMutex exclusively.
 	coroutine<frg::tuple<Mapping *, Mapping *>> _splitMappings(uintptr_t address, size_t size);
 
 	// Used in conjunction with _splitMappings.
 	// Unmaps and removes all mappings between start and end that fall within the specified range.
 	// Returns whether shootdown needs to be performed (any of the mappings got unmapped).
+	// Callers must hold _consistencyMutex exclusively.
 	coroutine<void> _unmapMappings(VirtualAddr address, size_t length, Mapping *start, Mapping *end);
 
 	VirtualOperations *_ops;
@@ -766,10 +773,19 @@ private:
 	// page tables are changed, shootdown is complete (and the eviction loop is exited, if applicable).
 	async::shared_mutex _consistencyMutex;
 
-	// Protects _holes and _mappings.
+	// Protects _mappings against writes on code paths that do not take _consistencyMutex
+	// (see the contract on _mappings below).
 	frg::ticket_spinlock _snapshotMutex;
 
+	// Protected by _consistencyMutex.
 	HoleTree _holes;
+
+	// Protected by _consistencyMutex.
+	// Protected against writes by _snapshotMutex.
+	// More specifically:
+	// - Readers can either take _consistencyMutex (either shared or exclusively),
+	//   or they can only take _snapshotMutex (either mutex is sufficient).
+	// - Writers must take _consistencyMutex exclusively first, then take _snapshotMutex.
 	MappingTree _mappings;
 
 	std::atomic<ptrdiff_t> rss_;
