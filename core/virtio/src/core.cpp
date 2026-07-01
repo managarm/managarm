@@ -915,13 +915,10 @@ void Queue::postDescriptor(Handle handle, Request *request,
 	auto enqueue_head = _availableRing->headIndex.load();
 	auto ring_index = enqueue_head & (_queueSize - 1);
 	_availableRing->elements[ring_index].tableIndex.store(handle.tableIndex());
-
-	asm volatile ( "" : : : "memory" );
 	_availableRing->headIndex.store(enqueue_head + 1);
 }
 
 void Queue::notify() {
-	asm volatile ( "" : : : "memory" );
 	if(!(_usedRing->flags.load() & VIRTQ_USED_F_NO_NOTIFY))
 		notifyTransport();
 }
@@ -932,8 +929,6 @@ void Queue::processInterrupt() {
 
 		if((_progressHead & 0xFFFF) == used_head)
 			break;
-
-		asm volatile ( "" : : : "memory" );
 
 		auto ring_index = _progressHead & (_queueSize - 1);
 		auto table_index = _usedRing->elements[ring_index].tableIndex.load();
