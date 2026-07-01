@@ -406,7 +406,7 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 	assert(target->superblock() == directory->superblock()); // Hard links across mount points are not allowed, return EXDEV
 	auto result = co_await directory->link(new_resolver.nextComponent(), target);
 	if(!result) {
-		std::cout << "posix: Unexpected failure from link()" << std::endl;
+		co_await sendErrorResponse(conversation, result.error() | toPosixProtoError);
 		co_return {};
 	}
 

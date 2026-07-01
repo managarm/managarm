@@ -790,7 +790,7 @@ private:
 				co_return _sb->internalizePeripheralLink(this, name, std::move(child));
 			}
 		}else{
-			co_return nullptr;
+			co_return resp.error() | toPosixError;
 		}
 	}
 
