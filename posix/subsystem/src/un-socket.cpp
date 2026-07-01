@@ -122,11 +122,14 @@ public:
 	: File{FileKind::unknown,  StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
-			_currentSeq{1}, _inSeq{0}, _ownerPid{0},
+			_currentSeq{1}, _inSeq{0}, _ownerPid{0}, _ownerUid{0}, _ownerGid{0},
 			_remote{nullptr}, _passCreds{false}, nonBlock_{nonBlock},
 			_sockpath{}, _nameType{NameType::unnamed}, _isInherited{false}, socktype_{socktype}, socketpair_{socketpair}, listen_{false} {
-		if(process)
+		if(process) {
 			_ownerPid = process->pid();
+			_ownerUid = process->threadGroup()->uid();
+			_ownerGid = process->threadGroup()->gid();
+		}
 	}
 
 	void handleClose() override {
@@ -635,6 +638,8 @@ public:
 		if (sa.sun_path[0] == '\0') {
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
+			_ownerUid = process->threadGroup()->uid();
+			_ownerGid = process->threadGroup()->gid();
 
 			if(!abstractSocketsBindMap.contains(path))
 				co_return protocols::fs::Error::connectionRefused;
@@ -669,6 +674,8 @@ public:
 
 			assert(!_ownerPid);
 			_ownerPid = process->pid();
+			_ownerUid = process->threadGroup()->uid();
+			_ownerGid = process->threadGroup()->gid();
 
 			// Lookup the socket associated with the node.
 			auto node = resolver.currentLink()->getTarget();
@@ -765,8 +772,8 @@ public:
 			// and for AF_UNIX stream and datagram socket pairs created using socketpair(2)."
 			if((_currentState == State::connected && socktype_ == SOCK_STREAM) || socketpair_) {
 				creds.pid = _remote->_ownerPid;
-				creds.uid = 0;
-				creds.gid = 0;
+				creds.uid = _remote->_ownerUid;
+				creds.gid = _remote->_ownerGid;
 			} else {
 				creds.pid = 0;
 				creds.uid = -1;
@@ -960,6 +967,8 @@ private:
 	std::deque<Packet> _recvQueue;
 
 	int _ownerPid;
+	int _ownerUid;
+	int _ownerGid;
 
 	// For connected sockets, this is the socket we are connected to.
 	OpenFile *_remote;
