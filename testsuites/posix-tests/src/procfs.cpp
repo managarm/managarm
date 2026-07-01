@@ -11,6 +11,50 @@
 
 #include "testsuite.hpp"
 
+DEFINE_TEST(procfs_cpuinfo, ([] {
+	std::ifstream stream{"/proc/cpuinfo"};
+	assert(stream.good());
+
+	long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+	assert(num_cpus > 0);
+
+	long num_records = 0;
+	long num_model_names = 0;
+	long num_steppings = 0;
+	long num_microcodes = 0;
+	long num_frequencies = 0;
+	long num_cpuid_levels = 0;
+	long num_address_sizes = 0;
+	for(std::string line; std::getline(stream, line); ) {
+		if(line.starts_with("processor\t:"))
+			++num_records;
+		if(line.starts_with("model name\t:")) {
+			assert(line.size() > sizeof("model name\t: ") - 1);
+			++num_model_names;
+		}
+		if(line.starts_with("stepping\t:"))
+			++num_steppings;
+		if(line.starts_with("microcode\t:"))
+			++num_microcodes;
+		if(line.starts_with("cpu MHz\t\t:"))
+			++num_frequencies;
+		if(line.starts_with("cpuid level\t:"))
+			++num_cpuid_levels;
+		if(line.starts_with("address sizes\t:"))
+			++num_address_sizes;
+	}
+
+	assert(num_records == num_cpus);
+#if defined(__x86_64__)
+	assert(num_model_names == num_cpus);
+	assert(num_steppings == num_cpus);
+	assert(num_microcodes == num_cpus);
+	assert(num_frequencies == num_cpus);
+	assert(num_cpuid_levels == num_cpus);
+	assert(num_address_sizes == num_cpus);
+#endif
+}))
+
 DEFINE_TEST(procfs_status_after_wait, ([] {
 	pid_t pid = fork();
 	assert(pid >= 0);

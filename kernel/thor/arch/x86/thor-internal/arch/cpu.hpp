@@ -445,6 +445,16 @@ struct CpuFeatures {
 	static constexpr uint32_t profileIntelSupported = 1;
 	static constexpr uint32_t profileAmdSupported = 2;
 
+	char vendorId[13];
+	char modelName[49];
+	uint32_t family;
+	uint32_t model;
+	uint32_t stepping;
+	uint32_t microcodeRevision;
+	uint32_t cpuidLevel;
+	uint32_t physicalAddressBits;
+	uint32_t virtualAddressBits;
+	uint64_t frequencyHz;
 	bool haveFred;
 	bool haveXsave;
 	bool haveAvx;

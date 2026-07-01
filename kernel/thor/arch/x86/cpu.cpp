@@ -376,6 +376,84 @@ initgraph::Stage *getCpuFeaturesKnownStage() {
 static initgraph::Task enumerateCpuFeaturesTask{&globalInitEngine, "x86.enumerate-cpu-features",
 	initgraph::Entails{getCpuFeaturesKnownStage()},
 	[] {
+		auto vendor = common::x86::cpuid(0);
+		memcpy(&globalCpuFeatures.vendorId[0], &vendor[1], 4);
+		memcpy(&globalCpuFeatures.vendorId[4], &vendor[3], 4);
+		memcpy(&globalCpuFeatures.vendorId[8], &vendor[2], 4);
+		globalCpuFeatures.vendorId[12] = 0;
+		globalCpuFeatures.cpuidLevel = vendor[0];
+
+		if(vendor[0] >= 0x16) {
+			auto frequency = common::x86::cpuid(0x16)[0];
+			globalCpuFeatures.frequencyHz = static_cast<uint64_t>(frequency) * 1'000'000;
+		}
+
+		auto highestExtendedLeaf = common::x86::cpuid(0x8000'0000)[0];
+		globalCpuFeatures.physicalAddressBits = 36;
+		globalCpuFeatures.virtualAddressBits = 48;
+		if(highestExtendedLeaf >= 0x8000'0008) {
+			auto addressSizes = common::x86::cpuid(0x8000'0008)[0];
+			if(addressSizes & 0xFF)
+				globalCpuFeatures.physicalAddressBits = addressSizes & 0xFF;
+			if((addressSizes >> 8) & 0xFF)
+				globalCpuFeatures.virtualAddressBits = (addressSizes >> 8) & 0xFF;
+		}
+
+		if(highestExtendedLeaf >= 0x8000'0004) {
+			for(uint32_t leaf = 0; leaf < 3; ++leaf) {
+				auto brand = common::x86::cpuid(0x8000'0002 + leaf);
+				for(size_t reg = 0; reg < 4; ++reg)
+					memcpy(&globalCpuFeatures.modelName[leaf * 16 + reg * 4], &brand[reg], 4);
+			}
+
+			size_t begin = 0;
+			while(begin < 48 && globalCpuFeatures.modelName[begin] == ' ')
+				++begin;
+
+			size_t end = 48;
+			while(end > begin && (globalCpuFeatures.modelName[end - 1] == ' '
+					|| globalCpuFeatures.modelName[end - 1] == '\0'))
+				--end;
+
+			for(size_t i = begin; i < end; ++i)
+				globalCpuFeatures.modelName[i - begin] = globalCpuFeatures.modelName[i];
+			globalCpuFeatures.modelName[end - begin] = '\0';
+		}
+
+		if(!globalCpuFeatures.modelName[0]) {
+			constexpr char fallback[] = "Unknown x86 processor";
+			memcpy(globalCpuFeatures.modelName, fallback, sizeof(fallback));
+		}
+
+		auto signature = common::x86::cpuid(common::x86::kCpuIndexFeatures)[0];
+		auto baseFamily = (signature >> 8) & 0xF;
+		auto baseModel = (signature >> 4) & 0xF;
+		auto extendedFamily = (signature >> 20) & 0xFF;
+		auto extendedModel = (signature >> 16) & 0xF;
+		globalCpuFeatures.stepping = signature & 0xF;
+
+		globalCpuFeatures.family = baseFamily;
+		if(baseFamily == 0xF)
+			globalCpuFeatures.family += extendedFamily;
+
+		globalCpuFeatures.model = baseModel;
+		if(baseFamily == 0x6 || baseFamily == 0xF)
+			globalCpuFeatures.model |= extendedModel << 4;
+
+		bool isIntel = vendor[1] == 0x756E6547 && vendor[3] == 0x49656E69
+				&& vendor[2] == 0x6C65746E;
+		bool isAmd = vendor[1] == 0x68747541 && vendor[3] == 0x69746E65
+				&& vendor[2] == 0x444D4163;
+		if(isIntel) {
+			common::x86::wrmsr(common::x86::kMsrPatchLevel, 0);
+			common::x86::cpuid(common::x86::kCpuIndexFeatures);
+			globalCpuFeatures.microcodeRevision =
+					common::x86::rdmsr(common::x86::kMsrPatchLevel) >> 32;
+		}else if(isAmd) {
+			globalCpuFeatures.microcodeRevision =
+					common::x86::rdmsr(common::x86::kMsrPatchLevel);
+		}
+
 		if(common::x86::cpuid(common::x86::kCpuIndexStructuredExtendedFeaturesEnum,1)[0] & common::x86::kCpuFred) {
 			debugLogger() << "thor: CPUs support FRED" << frg::endlog;
 			globalCpuFeatures.haveFred = true;

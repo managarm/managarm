@@ -284,6 +284,8 @@ void calibrateApicTimer() {
 		auto tscStart = getRawTimestampCounter();
 		pollSleepNano(nanos);
 		auto tscElapsed = getRawTimestampCounter() - tscStart;
+		if(getCpuData() == getCpuData(0))
+			getGlobalCpuFeatures()->frequencyHz = tscElapsed * (1'000'000'000 / nanos);
 
 		localApicContext()->tscInverseFreq
 			= computeFreqFraction(nanos, tscElapsed);
