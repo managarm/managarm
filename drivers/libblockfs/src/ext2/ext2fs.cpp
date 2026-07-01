@@ -1194,11 +1194,6 @@ async::result<std::shared_ptr<Inode>> FileSystem::createDirectory() {
 		disk_inode->flags |= EXT4_EXTENTS_FL;
 	}
 
-	// update usedDirsCount in the respective bgdt for this inode
-	auto bg_idx = (ino - 1) / inodesPerGroup;
-	bgdt[bg_idx].usedDirsCount++;
-	bdgtWriteback.raise();
-
 	updateInodeChecksum(*this, disk_inode, ino);
 
 	auto syncInode = co_await helix_ng::synchronizeSpace(
