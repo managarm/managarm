@@ -1,3 +1,5 @@
+#pragma once
+
 #include <arch/io_space.hpp>
 #include <async/result.hpp>
 #include <async/queue.hpp>
@@ -22,7 +24,8 @@ struct NoDevice {};
 enum class Ps2Error {
 	none,
 	timeout,
-	nack
+	nack,
+	invalid,
 };
 
 namespace controller_cmd {
@@ -38,6 +41,8 @@ namespace device_cmd {
 	struct DisableScan {};
 	struct EnableScan {};
 	struct Identify {};
+	struct GetStatus {};
+	struct SlicedCommand {};
 
 	// mouse specific
 	struct SetReportRate {};
@@ -116,6 +121,9 @@ struct Controller {
 		async::result<frg::expected<Ps2Error, DeviceType>>
 		submitCommand(device_cmd::Identify tag);
 
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::SlicedCommand, uint8_t cmd);
+
 		void sendByte(uint8_t byte);
 		async::result<std::optional<uint8_t>> transferByte(uint8_t byte);
 		async::result<std::optional<uint8_t>> recvResponseByte(uint64_t timeout = 0);
@@ -134,7 +142,7 @@ struct Controller {
 		KbdDevice(Port *port)
 		: _port{port} { }
 
-		virtual async::result<void> run() override;
+		async::result<void> run() override;
 
 	private:
 		async::result<frg::expected<Ps2Error>>
@@ -154,14 +162,17 @@ struct Controller {
 		MouseDevice(Port *port)
 		: _port{port} { }
 
-		virtual async::result<void> run() override;
+		async::result<void> run() override;
+
+		async::result<frg::expected<Ps2Error, std::array<uint8_t, 3>>>
+		submitCommand(device_cmd::GetStatus);
+
+		async::result<frg::expected<Ps2Error>>
+		submitCommand(device_cmd::Reset);
 
 	private:
 		async::result<frg::expected<Ps2Error>>
 		submitCommand(device_cmd::SetReportRate tag, int rate);
-
-		async::result<frg::expected<Ps2Error>>
-		submitCommand(device_cmd::Reset);
 
 		async::detached processReports();
 
