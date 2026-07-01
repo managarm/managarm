@@ -2,6 +2,7 @@
 
 #include "common.hpp"
 #include <memory>
+#include <mutex>
 #include <unordered_set>
 
 #include <async/mutex.hpp>
@@ -31,9 +32,13 @@ struct BaseInode {
 
 	async::oneshot_event readyEvent;
 
+	std::mutex obstructedLinksMutex;
+
 	FileType fileType;
 
 	FlockManager flockManager;
+
+	// Protected by obstructedLinksMutex.
 	std::unordered_set<std::string> obstructedLinks;
 };
 

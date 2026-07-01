@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <async/algorithm.hpp>
 #include <core/clock.hpp>
 #include <frg/scope_exit.hpp>
@@ -259,7 +261,10 @@ async::result<void> doObstructLink(std::shared_ptr<void> object, std::string nam
 
 	auto self = std::static_pointer_cast<Inode>(object);
 
-	self->obstructedLinks.insert(name);
+	{
+		std::lock_guard obstructedLinksLock{self->obstructedLinksMutex};
+		self->obstructedLinks.insert(name);
+	}
 	co_return;
 }
 
@@ -308,7 +313,13 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 			nodes.push_back({self->fs.accessInode(entry->inode), entry->inode});
 
 			if (!components.empty()) {
-				if (parent->obstructedLinks.find(component) != parent->obstructedLinks.end()) {
+				bool obstructed;
+				{
+					std::lock_guard obstructedLinksLock{parent->obstructedLinksMutex};
+					obstructed = parent->obstructedLinks.find(component)
+							!= parent->obstructedLinks.end();
+				}
+				if (obstructed) {
 					break;
 				}
 
