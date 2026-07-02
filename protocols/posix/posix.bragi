@@ -164,11 +164,6 @@ head(128):
 		tag(31) @format(hex) uint64 sig_handler;
 		tag(32) @format(hex) uint64 sig_restorer;
 
-		// used by EPOLL_WAIT
-		tag(25) int64 timeout;
-		tag(42) int64 sigmask;
-		tag(43) int32 sigmask_needed;
-
 		tag(33) uint64 sigset;
 		tag(35) char[16] passthrough_credentials;
 
@@ -932,6 +927,20 @@ head(128):
 }
 
 message EpollCtlResponse 147 {
+head(128):
+	Errors error;
+}
+
+message EpollWaitRequest 148 {
+head(128):
+	int32 fd;
+	uint32 size;
+	int64 timeout;
+	int64 sigmask;
+	int32 sigmask_needed;
+}
+
+message EpollWaitResponse 149 {
 head(128):
 	Errors error;
 }

@@ -23,6 +23,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::CloseRequest,
 			managarm::posix::EpollCallRequest,
 			managarm::posix::EpollCtlRequest,
+			managarm::posix::EpollWaitRequest,
 			// From filesystem.cpp
 			managarm::posix::ChrootRequest,
 			managarm::posix::ChdirRequest,
