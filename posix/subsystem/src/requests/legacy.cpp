@@ -486,52 +486,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_WAIT) {
-		logRequest(logRequests, self, "EPOLL_WAIT", "epollfd={}", req.fd());
-
-		uint64_t former = self->signalMask();
-
-		auto epfile = self->fileContext()->getFile(req.fd());
-		if(!epfile) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
-			co_return {};
-		}
-
-		if(req.sigmask_needed()) {
-			self->setSignalMask(req.sigmask());
-		}
-
-		struct epoll_event events[16];
-		size_t k;
-		if(req.timeout() < 0) {
-			k = co_await epoll::wait(epfile.get(), events,
-					std::min(req.size(), uint32_t(16)));
-		}else if(!req.timeout()) {
-			// Do not bother to set up a timer for zero timeouts.
-			async::cancellation_event cancel_wait;
-			cancel_wait.cancel();
-			k = co_await epoll::wait(epfile.get(), events,
-					std::min(req.size(), uint32_t(16)), cancel_wait);
-		}else{
-			assert(req.timeout() > 0);
-			async::cancellation_event cancel_wait;
-			helix::TimeoutCancellation timer{static_cast<uint64_t>(req.timeout()), cancel_wait};
-			k = co_await epoll::wait(epfile.get(), events, 16, cancel_wait);
-			co_await timer.retire();
-		}
-		if(req.sigmask_needed()) {
-			self->setSignalMask(former);
-		}
-
-		managarm::posix::SvrResponse resp;
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-
-		auto [send_resp, send_data] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
-			helix_ng::sendBuffer(events, k * sizeof(struct epoll_event))
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 		logRequest(logRequests, self, "SIGNALFD_CREATE");
 
