@@ -72,7 +72,6 @@ consts CntReqType uint32 {
 	PIPE_CREATE = 52,
 
 	// epoll-specific calls.
-	EPOLL_CALL = 54,
 	EPOLL_CREATE = 28,
 	EPOLL_ADD = 37,
 	EPOLL_MODIFY = 38,
@@ -162,9 +161,6 @@ head(128):
 		tag(31) @format(hex) uint64 sig_handler;
 		tag(32) @format(hex) uint64 sig_restorer;
 
-		tag(22) int32[] fds;
-		tag(28) int32[] events;
-
 		// used by EPOLL_CTL
 		tag(17) uint64 cookie;
 
@@ -177,9 +173,6 @@ head(128):
 		tag(35) char[16] passthrough_credentials;
 
 		tag(36) uint64 cancellation_id;
-
-		tag(37) uint64 signal_seq;
-		tag(38) int32 has_signal_seq;
 	}
 }
 
@@ -909,4 +902,22 @@ message VmUnmapRequest 143 {
 head(128):
 	@format(hex) uint64 address;
 	uint64 size;
+}
+
+message EpollCallRequest 144 {
+head(128):
+	int64 timeout;
+	uint64 cancellation_id;
+	uint64 signal_seq;
+	int32 has_signal_seq;
+tail:
+	int32[] fds;
+	int32[] events;
+}
+
+message EpollCallResponse 145 {
+head(128):
+	Errors error;
+tail:
+	int32[] events;
 }
