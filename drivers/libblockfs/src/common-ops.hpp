@@ -52,7 +52,7 @@ async::result<protocols::fs::SeekResult> doSeekEof(void *object, int64_t offset)
 	co_await inode->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
 
-	self->offset += offset + inode->fileSize();
+	self->offset = offset + inode->fileSize();
 	co_return static_cast<ssize_t>(self->offset);
 }
 
