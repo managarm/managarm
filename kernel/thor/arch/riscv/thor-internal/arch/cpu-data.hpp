@@ -20,6 +20,7 @@ struct AssemblyCpuData {
 	void *irqStackPtr;
 	uint64_t scratchSp;
 	IseqContext *iseqPtr;
+	uint64_t hscratchSp;
 };
 
 static_assert(offsetof(AssemblyCpuData, selfPointer) == THOR_TP_SELF);
@@ -28,6 +29,7 @@ static_assert(offsetof(AssemblyCpuData, activeExecutor) == THOR_TP_EXECUTOR);
 static_assert(offsetof(AssemblyCpuData, exceptionStackPtr) == THOR_TP_EXCEPTION_STACK);
 static_assert(offsetof(AssemblyCpuData, irqStackPtr) == THOR_TP_IRQ_STACK);
 static_assert(offsetof(AssemblyCpuData, scratchSp) == THOR_TP_SCRATCH_SP);
+static_assert(offsetof(AssemblyCpuData, hscratchSp) == THOR_TP_HSCRATCH_SP);
 static_assert(offsetof(AssemblyCpuData, iseqPtr) == THOR_TP_ISEQ_PTR);
 
 inline void writeToTp(AssemblyCpuData *context) { asm volatile("mv tp, %0" : : "r"(context)); }
@@ -40,6 +42,7 @@ struct PlatformCpuData : public AssemblyCpuData {
 	static constexpr uint64_t ipiPing = UINT64_C(1) << 0;
 	static constexpr uint64_t ipiShootdown = UINT64_C(1) << 1;
 	static constexpr uint64_t ipiSelfCall = UINT64_C(1) << 2;
+	static constexpr uint64_t ipiHypervisor = UINT64_C(1) << 3;
 
 	uint64_t hartId{~UINT64_C(0)};
 

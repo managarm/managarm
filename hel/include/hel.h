@@ -183,6 +183,68 @@ struct HelX86VirtualizationRegs {
 	uint64_t apic_base;
 };
 
+struct HelRiscv64VirtualizationRegs {
+	union {
+		uint64_t x[32];
+
+		struct {
+			uint64_t zero;
+			uint64_t ra;
+			uint64_t sp;
+			uint64_t gp;
+			uint64_t tp;
+			uint64_t t0;
+			uint64_t t1;
+			uint64_t t2;
+			uint64_t s0;
+			uint64_t s1;
+			uint64_t a0;
+			uint64_t a1;
+			uint64_t a2;
+			uint64_t a3;
+			uint64_t a4;
+			uint64_t a5;
+			uint64_t a6;
+			uint64_t a7;
+			uint64_t s2;
+			uint64_t s3;
+			uint64_t s4;
+			uint64_t s5;
+			uint64_t s6;
+			uint64_t s7;
+			uint64_t s8;
+			uint64_t s9;
+			uint64_t s10;
+			uint64_t s11;
+			uint64_t t3;
+			uint64_t t4;
+			uint64_t t5;
+			uint64_t t6;
+		};
+	};
+
+	uint64_t pc;
+	uint8_t kernelMode;
+
+	// CSRs
+	uint64_t sstatus;
+	uint64_t sie;
+	uint64_t stvec;
+	uint64_t sscratch;
+	uint64_t sepc;
+	uint64_t scause;
+	uint64_t stval;
+	uint64_t sip;
+	uint64_t satp;
+	uint64_t stimecmp;
+};
+
+#if defined(__riscv) && __riscv_xlen == 64
+typedef struct HelRiscv64VirtualizationRegs HelVirtualizationRegs;
+#else
+typedef struct HelX86VirtualizationRegs HelVirtualizationRegs;
+#endif
+
 enum {
 	kHelNullHandle = 0,
 	kHelThisUniverse = -1,
@@ -801,9 +863,30 @@ struct HelThreadStats {
 enum {
   kHelVmexitHlt = 0,
   kHelVmexitTranslationFault = 1,
+  kHelVmexitHyperCall = 2,
+  kHelVmexitInstructionTrap = 3,
   kHelVmexitError = -1,
   kHelVmexitUnknownPlatformSpecificExitCode = -2,
 };
+
+enum {
+  kHelVmFaultRead = 1 << 0,
+  kHelVmFaultWrite = 1 << 1,
+  kHelVmFaultExecute = 1 << 2,
+};
+
+#if defined(__riscv) && __riscv_xlen == 64
+
+struct HelVmexitReason {
+	uint32_t exitReason;
+	// If bit 63 is set then stores a compressed unexpanded instruction,
+	// otherwise stores a normal 32-bit instruction (possibly originally compressed in which case bits 1:0 aren't 0b11).
+	uint64_t instruction;
+	size_t address;
+	size_t flags;
+};
+
+#else
 
 struct HelVmexitReason {
 	uint32_t exitReason;
@@ -811,6 +894,8 @@ struct HelVmexitReason {
 	size_t address;
 	size_t flags;
 };
+
+#endif
 
 // see RFC 5424
 enum HelLogSeverity {

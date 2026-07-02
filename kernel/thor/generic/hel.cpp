@@ -33,6 +33,9 @@
 #include <thor-internal/arch/svm.hpp>
 #include <thor-internal/arch/pic.hpp>
 #endif
+#if defined(__riscv) && __riscv_xlen == 64
+#include <thor-internal/arch/hypervisor.hpp>
+#endif
 #include <hel.h>
 
 using namespace thor;
@@ -913,6 +916,25 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	*handle = this_universe->attachDescriptor(
 			VirtualizedSpaceDescriptor(std::move(vspace)));
 	return kHelErrNone;
+#elif defined(__riscv) && __riscv_xlen == 64
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	PhysicalAddr level0 = physicalAllocator->allocate(0x4000);
+	if(level0 == static_cast<PhysicalAddr>(-1)) {
+		return kHelErrNoMemory;
+	}
+	PageAccessor paccessor{level0};
+	memset(paccessor.get(), 0, 0x4000);
+
+	smarter::shared_ptr<VirtualizedPageSpace> vspace = riscv_hypervisor::HypervisorSpace::create(level0);
+
+	*handle = this_universe->attachDescriptor(
+			VirtualizedSpaceDescriptor(std::move(vspace)));
+	return kHelErrNone;
 #else
 	(void)handle;
 	return kHelErrNoHardwareSupport;
@@ -944,6 +966,29 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(vspace)));
 	else
 		return kHelErrNoHardwareSupport;
+
+	*out = this_universe->attachDescriptor(
+			VirtualizedCpuDescriptor(std::move(vcpu)));
+	return kHelErrNone;
+#elif defined(__riscv) && __riscv_xlen == 64
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto vspaceOutcome = this_universe->inspectDescriptor(handle,
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedPageSpace>, Error> {
+		if(!desc.is<VirtualizedSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<VirtualizedSpaceDescriptor>().space;
+	});
+	if(!vspaceOutcome)
+		return translateError(vspaceOutcome.error());
+	auto vspace = std::move(*vspaceOutcome);
+
+	smarter::shared_ptr<VirtualizedCpu> vcpu = smarter::allocate_shared<riscv_hypervisor::Vcpu>(Allocator{},
+			smarter::static_pointer_cast<riscv_hypervisor::HypervisorSpace>(vspace));
 
 	*out = this_universe->attachDescriptor(
 			VirtualizedCpuDescriptor(std::move(vcpu)));
@@ -2140,6 +2185,12 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		vcpu.vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
+#elif defined(__riscv) && __riscv_xlen == 64
+		HelRiscv64VirtualizationRegs regs;
+		memset(&regs, 0, sizeof(HelRiscv64VirtualizationRegs));
+		vcpu.vcpu->loadRegs(&regs);
+		if(!writeUserObject(reinterpret_cast<HelRiscv64VirtualizationRegs *>(image), regs))
+			return kHelErrFault;
 #else
 		return kHelErrNoHardwareSupport;
 #endif
@@ -2407,12 +2458,17 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsVirtualization) {
-#ifdef __x86_64__
 		if(!vcpu.vcpu) {
 			return kHelErrIllegalArgs;
 		}
+#ifdef __x86_64__
 		HelX86VirtualizationRegs regs;
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
+			return kHelErrFault;
+		vcpu.vcpu->storeRegs(&regs);
+#elif defined(__riscv) && __riscv_xlen == 64
+		HelRiscv64VirtualizationRegs regs;
+		if(!readUserObject(reinterpret_cast<const HelRiscv64VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 		vcpu.vcpu->storeRegs(&regs);
 #else
@@ -3743,6 +3799,10 @@ HelError helQueryRegisterInfo(int set, HelRegisterInfo *info) {
 #if defined (__x86_64__)
 		case kHelRegsVirtualization:
 			outInfo.setSize = sizeof(HelX86VirtualizationRegs);
+			break;
+#elif defined (__riscv) && __riscv_xlen == 64
+		case kHelRegsVirtualization:
+			outInfo.setSize = sizeof(HelRiscv64VirtualizationRegs);
 			break;
 #endif
 

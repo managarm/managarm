@@ -3,6 +3,7 @@
 #include <riscv/sbi.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
 #include <thor-internal/arch/fp-state.hpp>
+#include <thor-internal/arch/hypervisor.hpp>
 #include <thor-internal/arch/system.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch/unimplemented.hpp>
@@ -183,6 +184,13 @@ void initializeThisProcessor() {
 		panicLogger() << "thor: kernel does not support big endian userspace" << frg::endlog;
 	if (((sstatus >> riscv::sstatus::uxlShift) & riscv::sstatus::uxlMask) != riscv::sstatus::uxl64)
 		panicLogger() << "thor: kernel only supports 64-bit userspace" << frg::endlog;
+
+	cpuData->haveVirtualization = riscvHartCapsNote->hasExtension(RiscvExtension::h);
+
+	if (cpuData->haveVirtualization) {
+		debugLogger() << "thor: Hypervisor extension is supported" << frg::endlog;
+		riscv_hypervisor::init();
+	}
 
 	// Kernel mode runs with zero in sscratch.
 	// User mode runs with the kernel tp in sscratch.

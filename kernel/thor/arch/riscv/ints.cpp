@@ -51,6 +51,14 @@ void sendSelfCallIpi() {
 		doSendIpi(selfData);
 }
 
+void sendHypervisorIpi(CpuData *dstData) {
+	if (!dstData->cpuInitialized.load(std::memory_order_acquire))
+		return;
+
+	if (raiseIpiBit(dstData, PlatformCpuData::ipiHypervisor))
+		doSendIpi(dstData);
+}
+
 void suspendSelf() {
 	enableInts();
 	while (true)

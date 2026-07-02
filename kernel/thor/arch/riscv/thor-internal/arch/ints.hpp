@@ -4,6 +4,8 @@
 
 namespace thor {
 
+struct CpuData;
+
 void initializeIrqVectors();
 
 inline bool intsAreEnabled() {
@@ -19,5 +21,6 @@ inline void disableInts() {
 inline void halt() { asm volatile("wfi"); }
 
 void suspendSelf();
+void sendHypervisorIpi(CpuData *dstData);
 
 } // namespace thor
