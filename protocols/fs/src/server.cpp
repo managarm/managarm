@@ -1448,7 +1448,7 @@ struct HandleFileRequest {
 		if(result) {
 			resp.set_error(managarm::fs::Errors::SUCCESS);
 		}else{
-			resp.set_error(managarm::fs::Errors::ILLEGAL_OPERATION_TARGET);
+			resp.set_error(result.error() | toFsError);
 		}
 
 		auto ser = resp.SerializeAsString();
