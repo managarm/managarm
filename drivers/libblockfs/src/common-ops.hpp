@@ -52,7 +52,7 @@ async::result<protocols::fs::SeekResult> doSeekEof(void *object, int64_t offset)
 	co_await inode->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
 
-	self->offset += offset + inode->fileSize();
+	self->offset = offset + inode->fileSize();
 	co_return static_cast<ssize_t>(self->offset);
 }
 
@@ -245,6 +245,10 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 	frg::shared_lock lock{frg::adopt_lock, self->mutex};
 
 	co_await inode->readyEvent.wait();
+
+	// Directories cannot be truncated.
+	if (inode->fileType == FileType::kTypeDirectory)
+		co_return protocols::fs::Error::isDirectory;
 
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};

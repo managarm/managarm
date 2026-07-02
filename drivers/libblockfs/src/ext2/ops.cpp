@@ -103,8 +103,13 @@ async::result<std::expected<protocols::fs::GetLinkResult, protocols::fs::Error>>
 	co_await self->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, self->inodeMutex};
 
-	// link() requires the target to be locked.
+	// Reject hard links to directories to guarantee an acyclic directory tree.
 	auto target = std::static_pointer_cast<ext2fs::Inode>(self->fs.accessInode(ino));
+	co_await target->readyEvent.wait();
+	if(target->fileType == kTypeDirectory)
+		co_return std::unexpected{protocols::fs::Error::insufficientPermissions};
+
+	// link() requires the target to be locked.
 	co_await target->inodeMutex.async_lock();
 	frg::unique_lock targetLock{frg::adopt_lock, target->inodeMutex};
 
@@ -212,9 +217,13 @@ getStats(std::shared_ptr<void> object) {
 	co_return stats;
 }
 
-async::result<std::string> readSymlink(std::shared_ptr<void> object) {
+async::result<std::expected<std::string, protocols::fs::Error>> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	co_await self->readyEvent.wait();
+
+	// readlink() is only valid on symbolic links.
+	if(self->fileType != kTypeSymlink)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	co_await self->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
