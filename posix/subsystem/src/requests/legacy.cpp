@@ -464,28 +464,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 				helix_ng::sendBuffer(ser.data(), ser.size()));
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
-	}else if(req.request_type() == managarm::posix::CntReqType::EPOLL_CREATE) {
-		logRequest(logRequests, self, "EPOLL_CREATE");
-
-		assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
-
-		auto file = epoll::createFile();
-		auto fd = self->fileContext()->attachFile(file,
-				req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
-		managarm::posix::SvrResponse resp;
-		if (fd) {
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(fd.value());
-		} else {
-			resp.set_error(fd.error() | toPosixProtoError);
-		}
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
 		logRequest(logRequests, self, "SIGNALFD_CREATE");
 

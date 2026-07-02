@@ -55,6 +55,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::PidfdOpenRequest,
 			managarm::posix::PidfdSendSignalRequest,
 			managarm::posix::PidfdGetPidRequest,
+			managarm::posix::EpollCreateRequest,
 			// From memory.cpp
 			managarm::posix::VmMapRequest,
 			managarm::posix::VmRemapRequest,
