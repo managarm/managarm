@@ -1,5 +1,6 @@
 src = [
 	'src/libblockfs.cpp',
+	'src/metadata-cache.cpp',
 	'src/gpt.cpp',
 	'src/raw.cpp',
 	'src/scsi.cpp',
