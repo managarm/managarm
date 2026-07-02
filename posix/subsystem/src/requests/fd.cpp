@@ -349,4 +349,54 @@ HandleRequest::operator()(managarm::posix::EpollCallRequest &&req,
 	co_return {};
 }
 
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::EpollCtlRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "EPOLL_CTL");
+
+	auto epfile = self->fileContext()->getFile(req.fd());
+	auto file = self->fileContext()->getFile(req.newfd());
+	if(!file || !epfile) {
+		co_await sendErrorResponse<managarm::posix::EpollCtlResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	managarm::posix::EpollCtlResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	if (req.op() == managarm::posix::EpollCtlOp::EPOLL_ADD) {
+		auto locked = file->weakFile().lock();
+		assert(locked);
+		resp.set_error(
+		    epoll::addItem(
+		        epfile.get(), self.get(), std::move(locked), req.newfd(), req.flags(), req.cookie()
+		    )
+		    | toPosixProtoError
+		);
+	} else if (req.op() == managarm::posix::EpollCtlOp::EPOLL_MODIFY) {
+		resp.set_error(
+		    epoll::modifyItem(epfile.get(), file.get(), req.newfd(), req.flags(), req.cookie())
+		    | toPosixProtoError
+		);
+	} else if (req.op() == managarm::posix::EpollCtlOp::EPOLL_DELETE) {
+		resp.set_error(
+		    epoll::deleteItem(epfile.get(), file.get(), req.newfd(), req.flags())
+		    | toPosixProtoError
+		);
+	} else {
+		resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+
+	co_return {};
+}
+
 } // namespace requests
