@@ -21,6 +21,7 @@
 #include "../common.hpp"
 #include "fs.bragi.hpp"
 #include "../fs.hpp"
+#include "../metadata-cache.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -427,19 +428,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	async::result<frg::expected<protocols::fs::Error>>
 	resizeFile(size_t newSize);
 
-	// Caches indirection blocks reachable from the inode.
-	// - Indirection level 1/1 for single indirect blocks.
-	// - Indirection level 1/2 for double indirect blocks.
-	// - Indirection level 1/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder1;
-	// Caches indirection blocks reachable from order 1 blocks.
-	// - Indirection level 2/2 for double indirect blocks.
-	// - Indirection level 2/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder2;
-	// Caches indirection blocks reachable from order 2 blocks.
-	// - Indirection level 3/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder3;
-
 	bool usesExtents;
 };
 
@@ -501,8 +489,6 @@ struct FileSystem final : BaseFileSystem {
 
 	async::detached initiateInode(std::shared_ptr<Inode> inode);
 	async::detached manageFileData(std::shared_ptr<Inode> inode);
-	async::detached manageIndirect(std::shared_ptr<Inode> inode, int order,
-			helix::UniqueDescriptor memory);
 
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
@@ -574,6 +560,9 @@ struct FileSystem final : BaseFileSystem {
 	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
+
+	// Mount-wide cache of metadata blocks (i.e., indirect blocks), indexed by disk block number.
+	std::optional<MetadataCache> metadataCache;
 
 	std::mutex activeInodesMutex;
 
