@@ -134,11 +134,14 @@ async::result<protocols::fs::FileStats> getStats(std::shared_ptr<void> object) {
 	co_return stats;
 }
 
-async::result<std::string> readSymlink(std::shared_ptr<void> object) {
+async::result<std::expected<std::string, protocols::fs::Error>> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<btrfs::Inode>(object);
 	co_await self->readyEvent.wait();
 
-	assert(self->fileType == kTypeSymlink);
+	// readlink() is only valid on symbolic links.
+	if(self->fileType != kTypeSymlink)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
+
 	auto fs = static_cast<btrfs::FileSystem *>(&self->fs);
 
 	BtreePtr ptr{};

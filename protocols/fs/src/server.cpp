@@ -1650,10 +1650,16 @@ struct HandleNodeRequest {
 				logBragiSerializedReply(ser);
 			}
 		} else if(req.req_type() == managarm::fs::CntReqType::NODE_READ_SYMLINK) {
-			auto link = co_await node_ops->readSymlink(node);
+			auto result = co_await node_ops->readSymlink(node);
 
 			managarm::fs::SvrResponse resp;
-			resp.set_error(managarm::fs::Errors::SUCCESS);
+			std::string link;
+			if(result) {
+				resp.set_error(managarm::fs::Errors::SUCCESS);
+				link = std::move(*result);
+			}else{
+				resp.set_error(result.error() | toFsError);
+			}
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp, send_link] = co_await helix_ng::exchangeMsgs(

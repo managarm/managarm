@@ -212,9 +212,13 @@ getStats(std::shared_ptr<void> object) {
 	co_return stats;
 }
 
-async::result<std::string> readSymlink(std::shared_ptr<void> object) {
+async::result<std::expected<std::string, protocols::fs::Error>> readSymlink(std::shared_ptr<void> object) {
 	auto self = std::static_pointer_cast<ext2fs::Inode>(object);
 	co_await self->readyEvent.wait();
+
+	// readlink() is only valid on symbolic links.
+	if(self->fileType != kTypeSymlink)
+		co_return std::unexpected{protocols::fs::Error::illegalArguments};
 
 	co_await self->inodeMutex.async_lock_shared();
 	frg::shared_lock inodeLock{frg::adopt_lock, self->inodeMutex};
