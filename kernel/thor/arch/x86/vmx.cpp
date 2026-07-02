@@ -481,6 +481,13 @@ namespace thor::vmx {
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
 	}
 
+	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized APIC.
+		(void)number;
+		(void)level;
+		return false;
+	}
+
 	Vmcs::~Vmcs() {
 		physicalAllocator->free((size_t)region, kPageSize);
 	}

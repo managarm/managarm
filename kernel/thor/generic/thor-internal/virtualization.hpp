@@ -25,9 +25,12 @@ namespace thor {
 	} __attribute__((packed));
 
 	struct VirtualizedCpu {
-			virtual HelVmexitReason run() = 0;
-			virtual void storeRegs(const HelX86VirtualizationRegs *regs) = 0;
-			virtual void loadRegs(HelX86VirtualizationRegs *res) = 0;
+		virtual HelVmexitReason run() = 0;
+
+		virtual void storeRegs(const HelX86VirtualizationRegs *regs) = 0;
+		virtual void loadRegs(HelX86VirtualizationRegs *res) = 0;
+
+		virtual bool assertInterrupt(uint64_t number, bool level) = 0;
 
 	protected:
 		~VirtualizedCpu() = default;

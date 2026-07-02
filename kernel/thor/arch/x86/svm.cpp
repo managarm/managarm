@@ -299,5 +299,10 @@ namespace thor::svm {
 		SET_SEGMENT(tr);
 	}
 
-	
+	bool Vcpu::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized LAPIC/interrupts.
+		(void)number;
+		(void)level;
+		return false;
+	}
 }

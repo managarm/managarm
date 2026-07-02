@@ -979,6 +979,29 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	return kHelErrNone;
 }
 
+HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level) {
+	if(!getCpuData()->haveVirtualization) {
+		return kHelErrNoHardwareSupport;
+	}
+	auto this_thread = getCurrentThread();
+	auto this_universe = this_thread->getUniverse();
+
+	auto vcpuOutcome = this_universe->inspectDescriptor(handle,
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedCpu>, Error> {
+		if(!desc.is<VirtualizedCpuDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<VirtualizedCpuDescriptor>().vcpu;
+	});
+	if(!vcpuOutcome)
+		return translateError(vcpuOutcome.error());
+	auto vcpu = std::move(*vcpuOutcome);
+
+	if(!vcpu->assertInterrupt(irq, level))
+		return kHelErrIllegalArgs;
+
+	return kHelErrNone;
+}
+
 HelError helGetRandomBytes(void *buffer, size_t wantedSize, size_t *actualSize) {
 	char bounceBuffer[128];
 	size_t generatedSize = generateRandomBytes(bounceBuffer,

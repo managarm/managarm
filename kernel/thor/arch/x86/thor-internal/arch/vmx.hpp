@@ -146,10 +146,12 @@ namespace thor::vmx {
 		Vmcs(const Vmcs& vmcs) = delete;
 		Vmcs& operator=(const Vmcs& vmcs) = delete;
 
-		HelVmexitReason run();
-		void storeRegs(const HelX86VirtualizationRegs *regs);
-		void loadRegs(HelX86VirtualizationRegs *res);
-		
+		HelVmexitReason run() override;
+		void storeRegs(const HelX86VirtualizationRegs *regs) override;
+		void loadRegs(HelX86VirtualizationRegs *res) override;
+
+		bool assertInterrupt(uint64_t number, bool level) override;
+
 		void *region;
 		uint8_t* hostFstate;
 		uint8_t* guestFstate;
