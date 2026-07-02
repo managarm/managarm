@@ -73,9 +73,6 @@ consts CntReqType uint32 {
 
 	// epoll-specific calls.
 	EPOLL_CREATE = 28,
-	EPOLL_ADD = 37,
-	EPOLL_MODIFY = 38,
-	EPOLL_DELETE = 39,
 	EPOLL_WAIT = 30,
 
 	// signalfd()-specific calls
@@ -85,6 +82,12 @@ consts CntReqType uint32 {
 	HELFD_CLONE = 11,
 
 	FD_SERVE = 77
+}
+
+enum EpollCtlOp {
+	EPOLL_ADD = 1,
+	EPOLL_MODIFY = 2,
+	EPOLL_DELETE = 3
 }
 
 @format(bitfield) consts OpenMode uint32 {
@@ -160,9 +163,6 @@ head(128):
 		tag(30) uint64 sig_mask;
 		tag(31) @format(hex) uint64 sig_handler;
 		tag(32) @format(hex) uint64 sig_restorer;
-
-		// used by EPOLL_CTL
-		tag(17) uint64 cookie;
 
 		// used by EPOLL_WAIT
 		tag(25) int64 timeout;
@@ -920,4 +920,18 @@ head(128):
 	Errors error;
 tail:
 	int32[] events;
+}
+
+message EpollCtlRequest 146 {
+head(128):
+	EpollCtlOp op;
+	uint32 flags;
+	uint64 cookie;
+	int32 fd;
+	int32 newfd;
+}
+
+message EpollCtlResponse 147 {
+head(128):
+	Errors error;
 }
