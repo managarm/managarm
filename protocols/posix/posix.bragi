@@ -944,3 +944,14 @@ message EpollWaitResponse 149 {
 head(128):
 	Errors error;
 }
+
+message EpollCreateRequest 150 {
+head(128):
+	int32 flags;
+}
+
+message EpollCreateResponse 151 {
+head(128):
+	Errors error;
+	int32 fd;
+}
