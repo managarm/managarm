@@ -2124,7 +2124,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				auto idx = block_offset + prg - i_range;
 
 				size_t range = 0;
-				for(size_t i = idx; i < per_single; i++) {
+				for(size_t i = idx; i < per_indirect; i++) {
 					if(prg + range >= num_blocks)
 						break;
 
@@ -2202,7 +2202,7 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 					memset(window, 0, size_t{1} << blockPagesShift);
 
 				size_t range = 0;
-				for(size_t i = indirect_index; i < per_double; i++) {
+				for(size_t i = indirect_index; i < per_indirect; i++) {
 					if(prg + range >= num_blocks)
 						break;
 
