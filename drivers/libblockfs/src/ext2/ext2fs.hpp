@@ -411,6 +411,13 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	helix::UniqueDescriptor diskLock;
 
+	// Serializes access to this inode's mapping from file offsets to filesystem blocks.
+	// blockMapMutex MUST be taken for all operations that access:
+	// - the direct pointers in the inode
+	// - the single/double/triple indirect blocks
+	// Ordered after inodeMutex.
+	async::mutex blockMapMutex;
+
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
@@ -495,25 +502,32 @@ struct FileSystem final : BaseFileSystem {
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
 	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void>
 	readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view buf);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> writeDataBlocks(
 	    std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view view
 	);
 
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
 			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			arch::dma_buffer_view buf);
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			arch::dma_buffer_view buf);
 

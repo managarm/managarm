@@ -306,7 +306,13 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	auto newSize = offset + fs.blockSize;
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 	setFileSize(newSize);
-	co_await fs.assignDataBlocks(this, blockOffset, 1);
+
+	{
+		co_await blockMapMutex.async_lock();
+		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+		co_await fs.assignDataBlocks(this, blockOffset, 1);
+	}
+
 	auto resizeResult = co_await helix_ng::resizeMemory(
 			helix::BorrowedDescriptor{backingMemory}, newMappingSize);
 	HEL_CHECK(resizeResult.error());
@@ -562,7 +568,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_await dirNode->inodeMutex.async_lock();
 	frg::unique_lock dirNodeLock{frg::adopt_lock, dirNode->inodeMutex};
 
-	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
+	{
+		co_await dirNode->blockMapMutex.async_lock();
+		frg::unique_lock dirNodeBlockMapLock{frg::adopt_lock, dirNode->blockMapMutex};
+		co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
+	}
 
 	dirNode->setFileSize(fs.blockSize);
 	auto resizeResult = co_await helix_ng::resizeMemory(
@@ -652,7 +662,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 	} else {
 		// slow symlink: store target in data blocks.
 		auto numBlocks = (target.size() + fs.blockSize - 1) / fs.blockSize;
-		co_await fs.assignDataBlocks(newNode.get(), 0, numBlocks);
+		{
+			co_await newNode->blockMapMutex.async_lock();
+			frg::unique_lock newNodeBlockMapLock{frg::adopt_lock, newNode->blockMapMutex};
+			co_await fs.assignDataBlocks(newNode.get(), 0, numBlocks);
+		}
 
 		auto newSize = (target.size() + 0xFFF) & ~size_t(0xFFF);
 		auto resizeResult = co_await helix_ng::resizeMemory(
@@ -763,7 +777,12 @@ Inode::ensureBackingBlocks(size_t offset, size_t length) {
 	auto [alignedOffset, alignedSize] = core::alignExtend({offset, length}, fs.blockSize);
 	size_t blockOffset = alignedOffset / fs.blockSize;
 	size_t blockCount = alignedSize / fs.blockSize;
-	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+
+	{
+		co_await blockMapMutex.async_lock();
+		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+		co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+	}
 
 	co_return frg::success;
 }
@@ -1329,9 +1348,13 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			assert(!(manage.offset() % inode->fs.blockSize));
 			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
-
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
-			co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+
+			{
+				co_await inode->blockMapMutex.async_lock();
+				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
 					manage.offset(), manage.length()));
@@ -1345,8 +1368,12 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 			assert(numBlocks * inode->fs.blockSize <= manage.length());
 
-			co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
-			co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+			{
+				co_await inode->blockMapMutex.async_lock();
+				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+				co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));

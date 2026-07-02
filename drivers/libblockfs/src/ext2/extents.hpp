@@ -33,6 +33,8 @@ struct ExtentWalker {
 	 * Leave: A callback accepting `const ExtentWalkInfo &` that is called at the end going up the walked levels.
 	 *
 	 * If looking up a block returns a boolean indicating whether the block was found.
+	 *
+	 * Callers must hold inode->blockMapMutex.
 	 */
 	template<typename Enter, typename Leave>
 	async::result<bool> walk(uint64_t blockIndex, Enter enter, Leave leave) {
