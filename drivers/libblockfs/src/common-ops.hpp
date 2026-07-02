@@ -246,6 +246,10 @@ async::result<frg::expected<protocols::fs::Error>> doTruncate(void *object, size
 
 	co_await inode->readyEvent.wait();
 
+	// Directories cannot be truncated.
+	if (inode->fileType == FileType::kTypeDirectory)
+		co_return protocols::fs::Error::isDirectory;
+
 	co_await inode->inodeMutex.async_lock();
 	frg::unique_lock inodeLock{frg::adopt_lock, inode->inodeMutex};
 
