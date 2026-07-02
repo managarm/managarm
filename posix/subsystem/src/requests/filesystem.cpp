@@ -1513,7 +1513,12 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 
 	if(req.flags() & managarm::posix::OpenFlags::OF_TRUNC) {
 		auto result = co_await file->truncate(0);
-		assert(result || result.error() == protocols::fs::Error::illegalOperationTarget);
+		// Objects that do not support truncation ignore O_TRUNC.
+		// TODO: This is better handled by forwarding O_TRUNC in semantic_flags.
+		if(!result && result.error() != protocols::fs::Error::illegalOperationTarget) {
+			co_await sendErrorResponse(conversation, result.error() | toPosixError | toPosixProtoError);
+			co_return {};
+		}
 	}
 	auto fd = self->fileContext()->attachFile(file,
 			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
