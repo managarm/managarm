@@ -1,4 +1,5 @@
 #include "common.hpp"
+#include "../epoll.hpp"
 #include "../eventfd.hpp"
 #include "../inotify.hpp"
 #include "../pidfd.hpp"
@@ -408,6 +409,36 @@ HandleRequest::operator()(managarm::posix::PidfdGetPidRequest &&req,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 	);
 
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::EpollCreateRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "EPOLL_CREATE");
+
+	assert(!(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)));
+
+	auto file = epoll::createFile();
+	auto fd = self->fileContext()->attachFile(file,
+			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+	managarm::posix::EpollCreateResponse resp;
+	if (fd) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fd(fd.value());
+	} else {
+		resp.set_error(fd.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
 	HEL_CHECK(send_resp.error());
 	logBragiReply(resp);
 	co_return {};

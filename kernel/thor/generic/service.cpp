@@ -550,36 +550,22 @@ namespace posix {
 					co_return;
 				}
 
-				if(req->request_type() == managarm::posix::CntReqType::EPOLL_CALL) {
-					// Rust calls poll() during program startup.
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
-				} else {
-					// mlibc tries to install a signal handler to support cancellation.
-					if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
-						infoLogger() << "thor: Unexpected legacy POSIX request "
-							<< req->request_type() << frg::endlog;
-					}
-
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
-					resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
-
-					frg::string<KernelAlloc> ser(*kernelAlloc);
-					resp.SerializeToString(&ser);
-					frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
-					memcpy(respBuffer.data(), ser.data(), ser.size());
-					auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
-					// TODO: improve error handling here.
-					assert(respError == Error::success);
+				// mlibc tries to install a signal handler to support cancellation.
+				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
+					infoLogger() << "thor: Unexpected legacy POSIX request "
+						<< req->request_type() << frg::endlog;
 				}
+
+				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else if(preamble.id() == bragi::message_id<managarm::posix::VmProtectRequest>) {
 				auto req = bragi::parse_head_only<managarm::posix::VmProtectRequest>(
 						reqBuffer, *kernelAlloc);
@@ -933,6 +919,35 @@ namespace posix {
 				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
 				if(respError != Error::success) {
 					infoLogger() << "thor: Could not send POSIX response" << frg::endlog;
+					co_return;
+				}
+			}else if(preamble.id() == bragi::message_id<managarm::posix::EpollCallRequest>) {
+				auto [tailError, tailBuffer] = co_await recvBuffer(conversation);
+				if(tailError != Error::success) {
+					infoLogger() << "thor: Could not receive POSIX tail" << frg::endlog;
+					co_return;
+				}
+
+				// Rust calls poll() during program startup.
+				managarm::posix::EpollCallResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+
+				frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
+					resp.head_size};
+				frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc,
+					resp.size_of_tail()};
+
+				bragi::write_head_tail(resp, respHeadBuffer, respTailBuffer);
+
+				auto respHeadError = co_await sendBuffer(conversation, std::move(respHeadBuffer));
+				if (respHeadError != Error::success) {
+					infoLogger() << "thor: Could not send EpollCallResponse head" << frg::endlog;
+					co_return;
+				}
+
+				auto respTailError = co_await sendBuffer(conversation, std::move(respTailBuffer));
+				if (respTailError != Error::success) {
+					infoLogger() << "thor: Could not send EpollCallResponse tail" << frg::endlog;
 					co_return;
 				}
 			}else{
