@@ -21,6 +21,7 @@
 #include "../common.hpp"
 #include "fs.bragi.hpp"
 #include "../fs.hpp"
+#include "../metadata-cache.hpp"
 
 namespace blockfs {
 namespace ext2fs {
@@ -410,6 +411,13 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 
 	helix::UniqueDescriptor diskLock;
 
+	// Serializes access to this inode's mapping from file offsets to filesystem blocks.
+	// blockMapMutex MUST be taken for all operations that access:
+	// - the direct pointers in the inode
+	// - the single/double/triple indirect blocks
+	// Ordered after inodeMutex.
+	async::mutex blockMapMutex;
+
 	// page cache that stores the contents of this file
 	HelHandle backingMemory;
 	HelHandle frontalMemory;
@@ -426,19 +434,6 @@ struct Inode final : BaseInode, std::enable_shared_from_this<Inode> {
 	// Callers must hold inodeMutex (exclusive).
 	async::result<frg::expected<protocols::fs::Error>>
 	resizeFile(size_t newSize);
-
-	// Caches indirection blocks reachable from the inode.
-	// - Indirection level 1/1 for single indirect blocks.
-	// - Indirection level 1/2 for double indirect blocks.
-	// - Indirection level 1/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder1;
-	// Caches indirection blocks reachable from order 1 blocks.
-	// - Indirection level 2/2 for double indirect blocks.
-	// - Indirection level 2/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder2;
-	// Caches indirection blocks reachable from order 2 blocks.
-	// - Indirection level 3/3 for triple indirect blocks.
-	helix::UniqueDescriptor indirectOrder3;
 
 	bool usesExtents;
 };
@@ -501,33 +496,38 @@ struct FileSystem final : BaseFileSystem {
 
 	async::detached initiateInode(std::shared_ptr<Inode> inode);
 	async::detached manageFileData(std::shared_ptr<Inode> inode);
-	async::detached manageIndirect(std::shared_ptr<Inode> inode, int order,
-			helix::UniqueDescriptor memory);
 
 	// Allocate up to num blocks for the given inode.
 	// This function does not write back the BGDT, this is the caller's responsibility.
 	async::result<std::vector<uint32_t>> allocateBlocks(size_t num, std::optional<uint32_t> ino = std::nullopt);
 	async::result<uint32_t> allocateInode(uint32_t parentIno = 0, bool directory = false);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocks(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void>
 	readDataBlocks(std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view buf);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> writeDataBlocks(
 	    std::shared_ptr<Inode> inode, uint64_t block_offset, arch::dma_buffer_view view
 	);
 
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<std::vector<ExtentBlockRange>> lookupBlocksUsingExtent(Inode *inode,
 			uint64_t block_offset, size_t num_blocks, bool errorIfNotFound);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> assignDataBlocksUsingExtents(Inode *inode,
 			uint64_t block_offset, size_t num_blocks);
 
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> readDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			arch::dma_buffer_view buf);
+	// Callers must hold inode->blockMapMutex.
 	async::result<void> writeDataBlocksUsingExtents(std::shared_ptr<Inode> inode, uint64_t block_offset,
 			arch::dma_buffer_view buf);
 
@@ -574,6 +574,9 @@ struct FileSystem final : BaseFileSystem {
 	helix::Mapping inodeBitmapMapping;
 	helix::UniqueDescriptor inodeTable;
 	helix::Mapping inodeTableMapping;
+
+	// Mount-wide cache of metadata blocks (i.e., indirect blocks), indexed by disk block number.
+	std::optional<MetadataCache> metadataCache;
 
 	std::mutex activeInodesMutex;
 

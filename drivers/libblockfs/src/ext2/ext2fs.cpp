@@ -306,7 +306,13 @@ Inode::insertEntry(std::string name, int64_t ino, blockfs::FileType type) {
 	auto newSize = offset + fs.blockSize;
 	auto newMappingSize = (newSize + 0xFFF) & ~size_t(0xFFF);
 	setFileSize(newSize);
-	co_await fs.assignDataBlocks(this, blockOffset, 1);
+
+	{
+		co_await blockMapMutex.async_lock();
+		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+		co_await fs.assignDataBlocks(this, blockOffset, 1);
+	}
+
 	auto resizeResult = co_await helix_ng::resizeMemory(
 			helix::BorrowedDescriptor{backingMemory}, newMappingSize);
 	HEL_CHECK(resizeResult.error());
@@ -562,7 +568,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::mkdir(std::s
 	co_await dirNode->inodeMutex.async_lock();
 	frg::unique_lock dirNodeLock{frg::adopt_lock, dirNode->inodeMutex};
 
-	co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
+	{
+		co_await dirNode->blockMapMutex.async_lock();
+		frg::unique_lock dirNodeBlockMapLock{frg::adopt_lock, dirNode->blockMapMutex};
+		co_await fs.assignDataBlocks(dirNode.get(), 0, 1);
+	}
 
 	dirNode->setFileSize(fs.blockSize);
 	auto resizeResult = co_await helix_ng::resizeMemory(
@@ -652,7 +662,11 @@ async::result<std::expected<DirEntry, protocols::fs::Error>> Inode::symlink(std:
 	} else {
 		// slow symlink: store target in data blocks.
 		auto numBlocks = (target.size() + fs.blockSize - 1) / fs.blockSize;
-		co_await fs.assignDataBlocks(newNode.get(), 0, numBlocks);
+		{
+			co_await newNode->blockMapMutex.async_lock();
+			frg::unique_lock newNodeBlockMapLock{frg::adopt_lock, newNode->blockMapMutex};
+			co_await fs.assignDataBlocks(newNode.get(), 0, numBlocks);
+		}
 
 		auto newSize = (target.size() + 0xFFF) & ~size_t(0xFFF);
 		auto resizeResult = co_await helix_ng::resizeMemory(
@@ -763,7 +777,12 @@ Inode::ensureBackingBlocks(size_t offset, size_t length) {
 	auto [alignedOffset, alignedSize] = core::alignExtend({offset, length}, fs.blockSize);
 	size_t blockOffset = alignedOffset / fs.blockSize;
 	size_t blockCount = alignedSize / fs.blockSize;
-	co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+
+	{
+		co_await blockMapMutex.async_lock();
+		frg::unique_lock blockMapLock{frg::adopt_lock, blockMapMutex};
+		co_await fs.assignDataBlocks(this, blockOffset, blockCount);
+	}
 
 	co_return frg::success;
 }
@@ -882,6 +901,8 @@ async::result<void> FileSystem::init() {
 
 	assert(blockSize >= device->sectorSize);
 	assert(blockSize % device->sectorSize == 0);
+
+	metadataCache.emplace(device, blocksCount, blockSize);
 
 	blockGroupDescriptorBuffer = arch::dma_buffer{
 	    pool,
@@ -1301,21 +1322,8 @@ async::detached FileSystem::initiateInode(std::shared_ptr<Inode> inode) {
 				kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
 	}
 
-	if(disk_inode->flags & EXT4_EXTENTS_FL) {
+	if(disk_inode->flags & EXT4_EXTENTS_FL)
 		inode->usesExtents = true;
-	}else {
-		HelHandle frontalOrder1, frontalOrder2;
-		HelHandle backingOrder1, backingOrder2;
-		HEL_CHECK(helCreateManagedMemory(3 << blockPagesShift,
-				0, &backingOrder1, &frontalOrder1));
-		HEL_CHECK(helCreateManagedMemory((blockSize / 4) << blockPagesShift,
-				0, &backingOrder2, &frontalOrder2));
-		inode->indirectOrder1 = helix::UniqueDescriptor{frontalOrder1};
-		inode->indirectOrder2 = helix::UniqueDescriptor{frontalOrder2};
-
-		manageIndirect(inode, 1, helix::UniqueDescriptor{backingOrder1});
-		manageIndirect(inode, 2, helix::UniqueDescriptor{backingOrder2});
-	}
 
 	manageFileData(inode);
 
@@ -1340,9 +1348,13 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			assert(!(manage.offset() % inode->fs.blockSize));
 			size_t backed_size = std::min(manage.length(), inode->fileSize() - manage.offset());
 			size_t num_blocks = (backed_size + (inode->fs.blockSize - 1)) / inode->fs.blockSize;
-
 			assert(num_blocks * inode->fs.blockSize <= manage.length());
-			co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+
+			{
+				co_await inode->blockMapMutex.async_lock();
+				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->fs.readDataBlocks(inode, manage.offset() / inode->fs.blockSize, fileView);
+			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageInitialize,
 					manage.offset(), manage.length()));
@@ -1356,8 +1368,12 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 
 			assert(numBlocks * inode->fs.blockSize <= manage.length());
 
-			co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
-			co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+			{
+				co_await inode->blockMapMutex.async_lock();
+				frg::unique_lock blockMapLock{frg::adopt_lock, inode->blockMapMutex};
+				co_await inode->fs.assignDataBlocks(inode.get(), blockOffset, numBlocks);
+				co_await inode->fs.writeDataBlocks(inode, blockOffset, fileView);
+			}
 
 			HEL_CHECK(helUpdateMemory(inode->backingMemory, kHelManageWriteback,
 					manage.offset(), manage.length()));
@@ -1367,75 +1383,6 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 			ostEvtExt2ManageFile,
 			ostAttrTime(timer.elapsed())
 		);
-	}
-}
-
-async::detached FileSystem::manageIndirect(std::shared_ptr<Inode> inode,
-		int order, helix::UniqueDescriptor memory) {
-	while(true) {
-		helix::ManageMemory manage;
-		auto &&submit_manage = helix::submitManageMemory(memory,
-				&manage, helix::Dispatcher::global());
-		co_await submit_manage.async_wait();
-		HEL_CHECK(manage.error());
-
-		auto view = pool->importMemory(memory, manage.offset(), manage.length());
-
-		// TODO(qookie): This can probably implemented in a more optimal manner.
-		for (size_t progress = 0; progress < manage.length(); progress += blockSize) {
-			auto offset = manage.offset() + progress;
-			uint32_t element = offset >> blockPagesShift;
-
-			uint32_t block;
-			if(order == 1) {
-				auto disk_inode = inode->diskInode();
-
-				switch(element) {
-					case 0: block = disk_inode->data.blocks.singleIndirect; break;
-					case 1: block = disk_inode->data.blocks.doubleIndirect; break;
-					case 2: block = disk_inode->data.blocks.tripleIndirect; break;
-					default:
-						assert(!"unexpected offset");
-						abort();
-				}
-			}else{
-				assert(order == 2);
-
-				auto indirect_frame = element >> (blockShift - 2);
-				auto indirect_index = element & ((1 << (blockShift - 2)) - 1);
-
-				helix::LockMemoryView lock_indirect;
-				auto &&submit_indirect = helix::submitLockMemoryView(inode->indirectOrder1,
-						&lock_indirect,
-						(1 + indirect_frame) << blockPagesShift, 1 << blockPagesShift,
-						helix::Dispatcher::global());
-				co_await submit_indirect.async_wait();
-				HEL_CHECK(lock_indirect.error());
-
-				helix::Mapping indirect_map{inode->indirectOrder1,
-					(1 + indirect_frame) << blockPagesShift, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapDontRequireBacking};
-				block = reinterpret_cast<uint32_t *>(indirect_map.get())[indirect_index];
-			}
-
-			auto subview = view.view().subview(progress, 1 << blockPagesShift);
-
-			if (manage.type() == kHelManageInitialize) {
-				co_await device->readSectors(block * sectorsPerBlock, subview);
-			} else {
-				assert(manage.type() == kHelManageWriteback);
-				co_await device->writeSectors(block * sectorsPerBlock, subview);
-			}
-		}
-
-		if (manage.type() == kHelManageInitialize) {
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageInitialize,
-							manage.offset(), manage.length()));
-		} else {
-			assert(manage.type() == kHelManageWriteback);
-			HEL_CHECK(helUpdateMemory(memory.getHandle(), kHelManageWriteback,
-							manage.offset(), manage.length()));
-		}
 	}
 }
 
@@ -2104,27 +2051,19 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				needsReset = true;
 			}
 
-			helix::LockMemoryView lock_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_indirect, 0, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_indirect.error());
-
-			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-			auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
+			auto indirectWindow = co_await metadataCache->access(
+					disk_inode->data.blocks.singleIndirect, true);
+			auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 
 			if(needsReset)
-				memset(window, 0, size_t{1} << blockPagesShift);
+				memset(window, 0, blockSize);
 
 			while(prg < num_blocks
 					&& block_offset + prg < s_range) {
 				auto idx = block_offset + prg - i_range;
 
 				size_t range = 0;
-				for(size_t i = idx; i < per_single; i++) {
+				for(size_t i = idx; i < per_indirect; i++) {
 					if(prg + range >= num_blocks)
 						break;
 
@@ -2156,20 +2095,12 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 				doubleNeedsReset = true;
 			}
 
-			helix::LockMemoryView lock_double_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_double_indirect, 1 << blockPagesShift, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_double_indirect.error());
-
-			helix::Mapping double_indirect_map{inode->indirectOrder1,
-					1 << blockPagesShift, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-			auto double_window = reinterpret_cast<uint32_t *>(double_indirect_map.get());
+			auto doubleIndirectWindow = co_await metadataCache->access(
+					disk_inode->data.blocks.doubleIndirect, true);
+			auto double_window = reinterpret_cast<uint32_t *>(doubleIndirectWindow.get());
 
 			if(doubleNeedsReset)
-				memset(double_window, 0, size_t{1} << blockPagesShift);
+				memset(double_window, 0, blockSize);
 
 			while(prg < num_blocks
 					&& block_offset + prg < d_range) {
@@ -2186,23 +2117,15 @@ async::result<void> FileSystem::assignDataBlocks(Inode *inode,
 					needsReset = true;
 				}
 
-				helix::LockMemoryView lock_indirect;
-				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2,
-						&lock_indirect, indirect_frame << blockPagesShift, 1 << blockPagesShift,
-						helix::Dispatcher::global());
-				co_await submit.async_wait();
-				HEL_CHECK(lock_indirect.error());
-
-				helix::Mapping indirect_map{inode->indirectOrder2,
-						indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
-						kHelMapProtRead | kHelMapProtWrite | kHelMapDontRequireBacking};
-				auto window = reinterpret_cast<uint32_t *>(indirect_map.get());
+				auto indirectWindow = co_await metadataCache->access(
+						double_window[indirect_frame], true);
+				auto window = reinterpret_cast<uint32_t *>(indirectWindow.get());
 
 				if(needsReset)
-					memset(window, 0, size_t{1} << blockPagesShift);
+					memset(window, 0, blockSize);
 
 				size_t range = 0;
-				for(size_t i = indirect_index; i < per_double; i++) {
+				for(size_t i = indirect_index; i < per_indirect; i++) {
 					if(prg + range >= num_blocks)
 						break;
 
@@ -2298,56 +2221,48 @@ async::result<void> FileSystem::readDataBlocks(std::shared_ptr<Inode> inode,
 			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
 			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
-			if (remaining > indirectBufferSize) {
-				helix::LockMemoryView lock_indirect;
-				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
-						indirect_frame << blockPagesShift, 1 << blockPagesShift,
-						helix::Dispatcher::global());
-				co_await submit.async_wait();
-				HEL_CHECK(lock_indirect.error());
+			auto disk_inode = inode->diskInode();
+			uint32_t indirect_block = 0;
+			if(disk_inode->data.blocks.doubleIndirect)
+				co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
+						indirect_frame * 4, 4, &indirect_block);
 
-				helix::Mapping indirect_map{inode->indirectOrder2,
-						indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
-						kHelMapProtRead | kHelMapDontRequireBacking};
+			if(!indirect_block) {
+				issue = {0, std::min<size_t>(remaining, per_indirect - indirect_index)};
+			} else if (remaining > indirectBufferSize) {
+				auto indirectWindow = co_await metadataCache->access(indirect_block, false);
 
 				issue = fuse(remaining,
-						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
+						reinterpret_cast<uint32_t *>(indirectWindow.get()) + indirect_index,
 						per_indirect - indirect_index);
 			} else {
-				auto readMemory = co_await helix_ng::readMemory(
-						helix::BorrowedDescriptor{inode->indirectOrder2},
-						(indirect_frame << blockPagesShift) + indirect_index * 4,
-						remaining * 4, indirectBuffer.data());
-				HEL_CHECK(readMemory.error());
+				auto chunk = std::min<size_t>(remaining, per_indirect - indirect_index);
+				co_await metadataCache->read(indirect_block,
+						indirect_index * 4, chunk * 4, indirectBuffer.data());
 
-				issue = fuse(remaining, indirectBuffer.data(), remaining);
+				issue = fuse(chunk, indirectBuffer.data(), chunk);
 			}
 		}else if(index >= i_range) { // Use the single indirect block.
 			auto remaining = num_blocks - progress;
 			auto indirect_index = index - i_range;
 
-			if (remaining > indirectBufferSize) {
-				helix::LockMemoryView lock_indirect;
-				auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
-						&lock_indirect, 0, 1 << blockPagesShift,
-						helix::Dispatcher::global());
-				co_await submit.async_wait();
-				HEL_CHECK(lock_indirect.error());
+			auto disk_inode = inode->diskInode();
+			auto indirect_block = disk_inode->data.blocks.singleIndirect;
 
-				helix::Mapping indirect_map{inode->indirectOrder1,
-						0, size_t{1} << blockPagesShift,
-						kHelMapProtRead | kHelMapDontRequireBacking};
+			if(!indirect_block) {
+				issue = {0, std::min<size_t>(remaining, per_single - indirect_index)};
+			} else if (remaining > indirectBufferSize) {
+				auto indirectWindow = co_await metadataCache->access(indirect_block, false);
 
 				issue = fuse(remaining,
-						reinterpret_cast<uint32_t *>(indirect_map.get()) + indirect_index,
+						reinterpret_cast<uint32_t *>(indirectWindow.get()) + indirect_index,
 						per_indirect - indirect_index);
 			} else {
-				auto readMemory = co_await helix_ng::readMemory(
-						helix::BorrowedDescriptor{inode->indirectOrder1},
-						indirect_index * 4, remaining * 4, indirectBuffer.data());
-				HEL_CHECK(readMemory.error());
+				auto chunk = std::min<size_t>(remaining, per_single - indirect_index);
+				co_await metadataCache->read(indirect_block,
+						indirect_index * 4, chunk * 4, indirectBuffer.data());
 
-				issue = fuse(remaining, indirectBuffer.data(), remaining);
+				issue = fuse(chunk, indirectBuffer.data(), chunk);
 			}
 		}else{
 			auto disk_inode = inode->diskInode();
@@ -2421,32 +2336,26 @@ async::result<void> FileSystem::writeDataBlocks(std::shared_ptr<Inode> inode,
 			int64_t indirect_frame = (index - s_range) >> (blockShift - 2);
 			int64_t indirect_index = (index - s_range) & ((1 << (blockShift - 2)) - 1);
 
-			helix::LockMemoryView lock_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder2, &lock_indirect,
-					indirect_frame << blockPagesShift, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_indirect.error());
+			auto disk_inode = inode->diskInode();
+			assert(disk_inode->data.blocks.doubleIndirect);
+			uint32_t indirect_block;
+			co_await metadataCache->read(disk_inode->data.blocks.doubleIndirect,
+					indirect_frame * 4, 4, &indirect_block);
+			assert(indirect_block);
 
-			helix::Mapping indirect_map{inode->indirectOrder2,
-					indirect_frame << blockPagesShift, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapDontRequireBacking};
+			auto indirectWindow = co_await metadataCache->access(indirect_block, false);
 
 			issue = fuse(indirect_index, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
-		}else if(index >= i_range) { // Use the triple indirect block.
-			helix::LockMemoryView lock_indirect;
-			auto &&submit = helix::submitLockMemoryView(inode->indirectOrder1,
-					&lock_indirect, 0, 1 << blockPagesShift,
-					helix::Dispatcher::global());
-			co_await submit.async_wait();
-			HEL_CHECK(lock_indirect.error());
+					reinterpret_cast<uint32_t *>(indirectWindow.get()), per_indirect);
+		}else if(index >= i_range) { // Use the single indirect block.
+			auto disk_inode = inode->diskInode();
+			assert(disk_inode->data.blocks.singleIndirect);
 
-			helix::Mapping indirect_map{inode->indirectOrder1,
-					0, size_t{1} << blockPagesShift,
-					kHelMapProtRead | kHelMapDontRequireBacking};
+			auto indirectWindow = co_await metadataCache->access(
+					disk_inode->data.blocks.singleIndirect, false);
+
 			issue = fuse(index - i_range, num_blocks - progress,
-					reinterpret_cast<uint32_t *>(indirect_map.get()), per_indirect);
+					reinterpret_cast<uint32_t *>(indirectWindow.get()), per_indirect);
 		}else{
 			auto disk_inode = inode->diskInode();
 
