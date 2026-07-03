@@ -30,6 +30,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			// From filesystem.cpp
 			managarm::posix::ChrootRequest,
 			managarm::posix::ChdirRequest,
+			managarm::posix::FchdirRequest,
 			managarm::posix::AccessAtRequest,
 			managarm::posix::MkdirAtRequest,
 			managarm::posix::MkfifoAtRequest,

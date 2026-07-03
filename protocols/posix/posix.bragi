@@ -46,7 +46,6 @@ consts CntReqType uint32 {
 	MOUNT = 21,
 	CHROOT = 24,
 	CHDIR = 58,
-	FCHDIR = 61,
 	SYMLINKAT = 47,
 	READLINK = 31,
 	READ = 3,
@@ -1024,4 +1023,14 @@ message DupResponse 169 {
 head(128):
 	Errors error;
 	int32 fd;
+}
+
+message FchdirRequest 170 {
+head(128):
+	int32 fd;
+}
+
+message FchdirResponse 171 {
+head(128):
+	Errors error;
 }

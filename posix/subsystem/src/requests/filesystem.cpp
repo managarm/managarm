@@ -98,6 +98,40 @@ HandleRequest::operator()(managarm::posix::ChdirRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FchdirRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "FCHDIR");
+
+	managarm::posix::FchdirResponse resp;
+
+	auto file = self->fileContext()->getFile(req.fd());
+
+	if(!file) {
+		co_await sendErrorResponse<managarm::posix::FchdirResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	auto cwdResult = self->fsContext()->changeWorkingDirectory({file->associatedMount(),
+			file->associatedLink()});
+	if(!cwdResult) {
+		co_await sendErrorResponse<managarm::posix::FchdirResponse>(conversation, cwdResult.error() | toPosixProtoError);
+		co_return {};
+	}
+
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::AccessAtRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

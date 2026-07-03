@@ -125,42 +125,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::FCHDIR) {
-		logRequest(logRequests, self, "FCHDIR");
-
-		managarm::posix::SvrResponse resp;
-
-		auto file = self->fileContext()->getFile(req.fd());
-
-		if(!file) {
-			resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-			co_return {};
-		}
-
-		auto cwdResult = self->fsContext()->changeWorkingDirectory({file->associatedMount(),
-				file->associatedLink()});
-		if(!cwdResult) {
-			resp.set_error(cwdResult.error() | toPosixProtoError);
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-			co_return {};
-		}
-
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 
