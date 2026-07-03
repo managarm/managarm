@@ -99,6 +99,79 @@ HandleRequest::operator()(managarm::posix::WaitIdRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::WaitRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+
+	if(req.flags() & ~(WNOHANG | WUNTRACED | WCONTINUED)) {
+		std::println("posix: WAIT invalid flags: {:#x}", req.flags());
+		co_await sendErrorResponse<managarm::posix::WaitResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	WaitFlags flags = waitExited;
+
+	if(req.flags() & WNOHANG)
+		flags |= waitNonBlocking;
+
+	if(req.flags() & WUNTRACED)
+		std::println("\e[31mposix: WAIT flag WUNTRACED is silently ignored\e[39m");
+
+	if(req.flags() & WCONTINUED)
+		std::println("\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m");
+
+	logRequest(logRequests, self, "WAIT", "pid={}", req.pid());
+
+	frg::expected<Error, Process::WaitResult> waitResult = Error::ioError;
+
+	{
+		auto cancelEvent = self->cancelEventRegistry().event(self->credentials(), req.cancellation_id());
+		if (!cancelEvent) {
+			std::println("posix: possibly duplicate cancellation ID registered");
+			co_await sendErrorResponse<managarm::posix::WaitResponse>(conversation, managarm::posix::Errors::INTERNAL_ERROR);
+			co_return {};
+		}
+
+		waitResult = co_await self->wait(req.pid(), flags, cancelEvent);
+	}
+
+	managarm::posix::WaitResponse resp;
+	if(waitResult) {
+		auto proc_state = waitResult.value();
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_pid(proc_state.pid);
+		resp.set_ru_user_time(proc_state.stats.userTime);
+
+		uint32_t status = 0;
+		if(auto byExit = std::get_if<TerminationByExit>(&proc_state.state); byExit) {
+			status |= W_EXITCODE(byExit->code, 0);
+		}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
+			status |= W_EXITCODE(0, bySignal->signo);
+		}else{
+			assert(std::holds_alternative<std::monostate>(proc_state.state));
+		}
+		resp.set_status(status);
+	} else if (waitResult.error() == Error::interrupted) {
+		resp.set_error(managarm::posix::Errors::INTERRUPTED);
+	} else if (waitResult.error() == Error::wouldBlock) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_pid(0);
+	} else {
+		resp.set_error(waitResult.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::SetAffinityRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

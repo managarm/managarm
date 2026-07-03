@@ -41,7 +41,6 @@ consts CntReqType uint32 {
 	INIT = 7,
 	FORK = 8,
 	EXEC = 1,
-	WAIT = 56,
 
 	MOUNT = 21,
 	CHROOT = 24,
@@ -1042,5 +1041,20 @@ head(128):
 message GetResourceUsageResponse 173 {
 head(128):
 	Errors error;
+	uint64 ru_user_time;
+}
+
+message WaitRequest 174 {
+head(128):
+	int64 pid;
+	int32 flags;
+	uint64 cancellation_id;
+}
+
+message WaitResponse 175 {
+head(128):
+	Errors error;
+	int64 pid;
+	uint32 status;
 	uint64 ru_user_time;
 }
