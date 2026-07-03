@@ -18,6 +18,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		auto res = co_await dispatchRequest<
 			// From fd.cpp
 			managarm::posix::Dup2Request,
+			managarm::posix::DupRequest,
 			managarm::posix::IsTtyRequest,
 			managarm::posix::IoctlFioclexRequest,
 			managarm::posix::CloseRequest,

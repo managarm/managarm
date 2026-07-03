@@ -54,8 +54,6 @@ consts CntReqType uint32 {
 	SEEK_ABS = 13,
 	SEEK_REL = 14,
 	SEEK_EOF = 15,
-	DUP = 34,
-	DUP2 = 6,
 	GET_RESOURCE_USAGE = 57,
 
 	HELFD_ATTACH = 10,
@@ -1014,4 +1012,16 @@ head(128):
 	Errors error;
 tail:
 	string path;
+}
+
+message DupRequest 168 {
+head(128):
+	int32 fd;
+	OpenFlags flags;
+}
+
+message DupResponse 169 {
+head(128):
+	Errors error;
+	int32 fd;
 }

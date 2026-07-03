@@ -73,6 +73,44 @@ HandleRequest::operator()(managarm::posix::Dup2Request &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::DupRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "DUP", "fd={}", req.fd());
+
+	auto file = self->fileContext()->getFile(req.fd());
+
+	if (!file) {
+		co_await sendErrorResponse<managarm::posix::DupResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)) {
+		co_await sendErrorResponse<managarm::posix::DupResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	auto newfd = self->fileContext()->attachFile(file,
+			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+	managarm::posix::DupResponse resp;
+	if (newfd) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fd(newfd.value());
+	} else {
+		resp.set_error(newfd.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::IsTtyRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

@@ -161,50 +161,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::DUP) {
-		logRequest(logRequests, self, "DUP", "fd={}", req.fd());
-
-		auto file = self->fileContext()->getFile(req.fd());
-
-		if (!file) {
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiReply(resp);
-			co_return {};
-		}
-
-		if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)) {
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiReply(resp);
-			co_return {};
-		}
-
-		auto newfd = self->fileContext()->attachFile(file,
-				req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
-		managarm::posix::SvrResponse resp;
-		if (newfd) {
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.set_fd(newfd.value());
-		} else {
-			resp.set_error(newfd.error() | toPosixProtoError);
-		}
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 
