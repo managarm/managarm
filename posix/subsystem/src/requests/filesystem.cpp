@@ -1702,4 +1702,32 @@ HandleRequest::operator()(managarm::posix::UmaskRequest &&req,
 	co_return {};
 }
 
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::GetCwdRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	std::string path =
+	    self->fsContext()->getWorkingDirectory().getPath(self->fsContext()->getRoot());
+
+	logRequest(logRequests, self, "GETCWD", "path={}", path);
+
+	managarm::posix::GetCwdResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_size(path.size());
+
+	auto [send_resp, send_path] = co_await helix_ng::exchangeMsgs(
+	    conversation,
+	    helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{}),
+	    helix_ng::sendBuffer(
+	        path.data(), std::min(static_cast<size_t>(req.size()), path.size() + 1)
+	    )
+	);
+	HEL_CHECK(send_resp.error());
+	HEL_CHECK(send_path.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
 } // namespace requests

@@ -235,6 +235,10 @@ struct HandleRequest {
 	operator()(managarm::posix::UmaskRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetCwdRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From special-files.cpp
 	async::result<std::expected<void, DispatchError>>
