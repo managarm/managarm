@@ -68,9 +68,6 @@ consts CntReqType uint32 {
 	// Signal-specific calls.
 	SIG_ACTION = 55,
 
-	// FIFO- and pipe-specific calls.
-	PIPE_CREATE = 52,
-
 	// signalfd()-specific calls
 	SIGNALFD_CREATE = 32,
 
@@ -950,4 +947,15 @@ message EpollCreateResponse 151 {
 head(128):
 	Errors error;
 	int32 fd;
+}
+
+message PipeCreateRequest 152 {
+head(128):
+	int32 flags;
+}
+
+message PipeCreateResponse 153 {
+head(128):
+	Errors error;
+	int32[2] fds;
 }

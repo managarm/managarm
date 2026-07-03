@@ -273,6 +273,10 @@ struct HandleRequest {
 	operator()(managarm::posix::EpollCreateRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::PipeCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From memory.cpp
 	async::result<std::expected<void, DispatchError>>

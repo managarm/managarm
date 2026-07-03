@@ -12,7 +12,6 @@
 
 #include "common.hpp"
 #include "../epoll.hpp"
-#include "../fifo.hpp"
 #include "../signalfd.hpp"
 
 namespace requests {
@@ -399,40 +398,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		}else{
 			assert(saved_handler.disposition == SignalDisposition::ignore);
 			resp.set_sig_handler((uint64_t)SIG_IGN);
-		}
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::PIPE_CREATE) {
-		logRequest(logRequests, self, "PIPE_CREATE");
-
-		assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
-
-		bool nonBlock = false;
-
-		if(req.flags() & O_NONBLOCK)
-			nonBlock = true;
-
-		auto pair = fifo::createPair(nonBlock);
-		auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
-				req.flags() & O_CLOEXEC);
-		auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),
-				req.flags() & O_CLOEXEC);
-
-		managarm::posix::SvrResponse resp;
-		if (r_fd && w_fd) {
-			resp.set_error(managarm::posix::Errors::SUCCESS);
-			resp.add_fds(r_fd.value());
-			resp.add_fds(w_fd.value());
-		} else {
-			resp.set_error((!r_fd ? r_fd.error() : w_fd.error()) | toPosixProtoError);
-			if (r_fd)
-				self->fileContext()->closeFile(r_fd.value());
-			if (w_fd)
-				self->fileContext()->closeFile(w_fd.value());
 		}
 
 		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

@@ -1,6 +1,7 @@
 #include "common.hpp"
 #include "../epoll.hpp"
 #include "../eventfd.hpp"
+#include "../fifo.hpp"
 #include "../inotify.hpp"
 #include "../pidfd.hpp"
 #include "../timerfd.hpp"
@@ -434,6 +435,47 @@ HandleRequest::operator()(managarm::posix::EpollCreateRequest &&req,
 		resp.set_fd(fd.value());
 	} else {
 		resp.set_error(fd.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::PipeCreateRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "PIPE_CREATE");
+
+	assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
+
+	bool nonBlock = false;
+
+	if(req.flags() & O_NONBLOCK)
+		nonBlock = true;
+
+	auto pair = fifo::createPair(nonBlock);
+	auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
+			req.flags() & O_CLOEXEC);
+	auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),
+			req.flags() & O_CLOEXEC);
+
+	managarm::posix::PipeCreateResponse resp;
+	if (r_fd && w_fd) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fds({r_fd.value(), w_fd.value()});
+	} else {
+		resp.set_error((!r_fd ? r_fd.error() : w_fd.error()) | toPosixProtoError);
+		if (r_fd)
+			self->fileContext()->closeFile(r_fd.value());
+		if (w_fd)
+			self->fileContext()->closeFile(w_fd.value());
 	}
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
