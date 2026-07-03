@@ -54,9 +54,7 @@ consts CntReqType uint32 {
 	SEEK_EOF = 15,
 
 	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11,
-
-	FD_SERVE = 77
+	HELFD_CLONE = 11
 }
 
 enum EpollCtlOp {
@@ -1057,4 +1055,15 @@ head(128):
 	int64 pid;
 	uint32 status;
 	uint64 ru_user_time;
+}
+
+message ServeFdRequest 176 {
+head(128):
+	char[16] passthrough_credentials;
+}
+
+message ServeFdResponse 177 {
+head(128):
+	Errors error;
+	int32 fd;
 }

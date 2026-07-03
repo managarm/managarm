@@ -1255,8 +1255,7 @@ struct drm_core::File::HandleIoctl {
 					std::move(local_lane), file, &drm_core::primeFileOperations));
 
 			// Request POSIX to register our file as a passthrough file, while giving out a fd we can pass back to our client
-			managarm::posix::CntRequest fd_req;
-			fd_req.set_request_type(managarm::posix::CntReqType::FD_SERVE);
+			managarm::posix::ServeFdRequest fd_req;
 			auto proc_cred_str = proc_creds.credentials();
 			fd_req.set_passthrough_credentials(proc_cred_str);
 
@@ -1273,7 +1272,7 @@ struct drm_core::File::HandleIoctl {
 			HEL_CHECK(send_handle.error());
 			HEL_CHECK(recv_resp.error());
 
-			managarm::posix::SvrResponse posix_resp;
+			managarm::posix::ServeFdResponse posix_resp;
 			posix_resp.ParseFromArray(recv_resp.data(), recv_resp.length());
 			recv_resp.reset();
 
