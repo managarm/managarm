@@ -99,11 +99,11 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 
 	logRequest(logRequests, self, "SOCKET");
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::SocketResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	if(req.flags() & ~(SOCK_NONBLOCK | SOCK_CLOEXEC)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -112,20 +112,20 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 		if(req.socktype() != SOCK_DGRAM && req.socktype() != SOCK_STREAM
 		&& req.socktype() != SOCK_SEQPACKET) {
 			std::println("posix: unexpected socket type {:#x}", req.socktype());
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE);
+			co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, managarm::posix::Errors::UNSUPPORTED_SOCKET_TYPE);
 			co_return {};
 		}
 
 		if(req.protocol()) {
 			std::println("posix: unexpected protocol {:#x} for socket", req.protocol());
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 
 		auto un = un_socket::createSocketFile(req.flags() & SOCK_NONBLOCK, req.socktype());
 
 		if(!un) {
-			co_await sendErrorResponse(conversation, un.error() | toPosixProtoError);
+			co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, un.error() | toPosixProtoError);
 			co_return {};
 		}
 
@@ -145,7 +145,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 		else {
 			std::cout << std::format("posix: unhandled netlink protocol 0x{:X}",
 				req.protocol()) << std::endl;
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 	} else if (req.domain() == AF_INET || req.domain() == AF_PACKET) {
@@ -156,7 +156,7 @@ HandleRequest::operator()(managarm::posix::SocketRequest &&req,
 			req.flags() & SOCK_NONBLOCK);
 	}else{
 		std::cout << "posix: SOCKET: Handle unknown protocols families, this is: " << req.domain() << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SocketResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -193,20 +193,20 @@ HandleRequest::operator()(managarm::posix::SockpairRequest &&req,
 	if(req.domain() != AF_UNIX) {
 		std::cout << "\e[31mposix: socketpair() with domain " << req.domain() <<
 				" is not implemented correctly\e[39m" << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ADDRESS_FAMILY_NOT_SUPPORTED);
+		co_await sendErrorResponse<managarm::posix::SockpairResponse>(conversation, managarm::posix::Errors::ADDRESS_FAMILY_NOT_SUPPORTED);
 		co_return {};
 	}
 	if(req.socktype() != SOCK_DGRAM && req.socktype() != SOCK_STREAM
 			&& req.socktype() != SOCK_SEQPACKET) {
 		std::cout << "\e[31mposix: socketpair() with socktype " << req.socktype() <<
 				" is not implemented correctly\e[39m" << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SockpairResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 	if(req.protocol() && req.protocol() != PF_UNSPEC) {
 		std::cout << "\e[31mposix: socketpair() with protocol " << req.protocol() <<
 				" is not implemented correctly\e[39m" << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::PROTOCOL_NOT_SUPPORTED);
+		co_await sendErrorResponse<managarm::posix::SockpairResponse>(conversation, managarm::posix::Errors::PROTOCOL_NOT_SUPPORTED);
 		co_return {};
 	}
 
@@ -216,11 +216,10 @@ HandleRequest::operator()(managarm::posix::SockpairRequest &&req,
 	auto fd1 = self->fileContext()->attachFile(std::get<1>(pair),
 			req.flags() & SOCK_CLOEXEC);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::SockpairResponse resp;
 	if (fd0 && fd1) {
 		resp.set_error(managarm::posix::Errors::SUCCESS);
-		resp.add_fds(fd0.value());
-		resp.add_fds(fd1.value());
+		resp.set_fds({fd0.value(), fd1.value()});
 	} else {
 		resp.set_error((!fd0 ? fd0.error() : fd1.error()) | toPosixProtoError);
 		if (fd0)
@@ -250,19 +249,19 @@ HandleRequest::operator()(managarm::posix::AcceptRequest &&req,
 
 	auto sockfile = self->fileContext()->getFile(req.fd());
 	if(!sockfile) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::AcceptResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	}
 
 	auto newfileResult = co_await sockfile->accept(self.get());
 	if(!newfileResult) {
-		co_await sendErrorResponse(conversation, newfileResult.error() | toPosixProtoError);
+		co_await sendErrorResponse<managarm::posix::AcceptResponse>(conversation, newfileResult.error() | toPosixProtoError);
 		co_return {};
 	}
 	auto newfile = newfileResult.value();
 	auto fd = self->fileContext()->attachFile(std::move(newfile));
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::AcceptResponse resp;
 	if (fd) {
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_fd(fd.value());

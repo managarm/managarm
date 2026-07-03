@@ -570,7 +570,7 @@ namespace posix {
 				}
 
 				if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmProtectResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -597,7 +597,7 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(result);
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::VmProtectResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -627,7 +627,7 @@ namespace posix {
 
 				auto module = resolveModule(req->path());
 				if(!module) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -650,7 +650,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -675,7 +675,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -699,7 +699,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -770,7 +770,7 @@ namespace posix {
 				assert((size_t)req->fd() < openFiles.size());
 				auto file = openFiles[req->fd()];
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::IsTtyResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_mode(file->isTerminal ? 1 : 0);
 
@@ -790,7 +790,7 @@ namespace posix {
 				}
 
 				// TODO: for now we just ignore close requests.
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::CloseResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -809,7 +809,7 @@ namespace posix {
 				}
 
 				if(!req->size()) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -835,7 +835,7 @@ namespace posix {
 					protFlags |= AddressSpace::kMapPreferTop;
 
 				if (req->flags() & ~(MAP_ANONYMOUS | MAP_FIXED | MAP_PRIVATE)) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -884,7 +884,7 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_offset(mapResult.value());
 
@@ -903,7 +903,7 @@ namespace posix {
 					co_return;
 				}
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::GetPidResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_pid(info.tid);
 

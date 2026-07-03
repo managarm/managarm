@@ -22,7 +22,7 @@ HandleRequest::operator()(managarm::posix::RebootRequest &&req,
 	logRequest(logRequests, self, "REBOOT", "command={}", req.cmd());
 
 	if(self->threadGroup()->uid() != 0) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+		co_await sendErrorResponse<managarm::posix::RebootResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 		co_return {};
 	}
 
@@ -40,7 +40,7 @@ HandleRequest::operator()(managarm::posix::RebootRequest &&req,
 	HEL_CHECK(hwResp.error());
 	hwResp.reset();
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::RebootResponse resp;
 
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
@@ -69,10 +69,10 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 			self->fsContext()->getWorkingDirectory(), req.target_path(), self.get());
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
 			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -90,7 +90,7 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 	}else if(req.fs_type() == "tmpfs") {
 		auto res = tmp_fs::createRoot(self.get(), req.mount_data());
 		if (!res) {
-			co_await sendErrorResponse(conversation, res.error() | toPosixProtoError);
+			co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, res.error() | toPosixProtoError);
 			co_return {};
 		}
 		co_await target.first->mount(target.second, *res);
@@ -101,7 +101,7 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 	}else{
 		if(req.fs_type() != "ext2" && req.fs_type() != "btrfs") {
 			std::cout << "posix: Trying to mount unsupported FS of type: " << req.fs_type() << std::endl;
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_BACKING_DEVICE);
+			co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, managarm::posix::Errors::NO_BACKING_DEVICE);
 			co_return {};
 		}
 
@@ -109,10 +109,10 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 				self->fsContext()->getWorkingDirectory(), req.path(), self.get());
 		if(!sourceResult) {
 			if(sourceResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 				co_return {};
 			} else if(sourceResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_await sendErrorResponse<managarm::posix::MountResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
 				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -129,7 +129,7 @@ HandleRequest::operator()(managarm::posix::MountRequest &&req,
 
 	logRequest(logRequests, self, "MOUNT", "succeeded");
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::MountResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(

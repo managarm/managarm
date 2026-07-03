@@ -190,7 +190,7 @@ HandleRequest::operator()(managarm::posix::SetAffinityRequest &&req,
 		// TODO: permission checking
 		auto target = Process::findProcess(req.pid());
 		if(!target) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::SetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 		handle = target->threadDescriptor().getHandle();
@@ -199,15 +199,15 @@ HandleRequest::operator()(managarm::posix::SetAffinityRequest &&req,
 	HelError e = helSetAffinity(handle, req.mask().data(), req.mask().size());
 
 	if(e == kHelErrIllegalArgs) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	} else if(e != kHelErrNone) {
 		std::cout << "posix: SET_AFFINITY hel call returned unexpected error: " << e << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::INTERNAL_ERROR);
+		co_await sendErrorResponse<managarm::posix::SetAffinityResponse>(conversation, managarm::posix::Errors::INTERNAL_ERROR);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::SetAffinityResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [sendResp] = co_await helix_ng::exchangeMsgs(
@@ -229,7 +229,7 @@ HandleRequest::operator()(managarm::posix::GetAffinityRequest &&req,
 	logRequest(logRequests, self, "GET_AFFINITY");
 
 	if(!req.size()) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::GetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -241,7 +241,7 @@ HandleRequest::operator()(managarm::posix::GetAffinityRequest &&req,
 		// TODO: permission checking
 		auto target = Process::findProcess(req.pid());
 		if(!target) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::GetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 		handle = target->threadDescriptor().getHandle();
@@ -251,15 +251,15 @@ HandleRequest::operator()(managarm::posix::GetAffinityRequest &&req,
 	HelError e = helGetAffinity(handle, affinity.data(), req.size(), &actual_size);
 
 	if(e == kHelErrBufferTooSmall) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::GetAffinityResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	} else if(e != kHelErrNone) {
 		std::cout << "posix: GET_AFFINITY hel call returned unexpected error: " << e << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::INTERNAL_ERROR);
+		co_await sendErrorResponse<managarm::posix::GetAffinityResponse>(conversation, managarm::posix::Errors::INTERNAL_ERROR);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetAffinityResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_pid(self->pid());
 
@@ -287,14 +287,14 @@ HandleRequest::operator()(managarm::posix::GetPgidRequest &&req,
 	if(req.pid()) {
 		target = ThreadGroup::findThreadGroup(req.pid());
 		if(!target) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
+			co_await sendErrorResponse<managarm::posix::GetPgidResponse>(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
 			co_return {};
 		}
 	} else {
 		target = self->threadGroup()->shared_from_this();
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetPgidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_pid(target->pgPointer()->getHull()->getPid());
 
@@ -321,12 +321,12 @@ HandleRequest::operator()(managarm::posix::SetPgidRequest &&req,
 
 	if (req.pgid() < 0) {
 		// POSIX: reject negative `pgid` (or implementation-unsupported) values with EINVAL
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	} else if (req.pid() > 0) {
 		target = ThreadGroup::findThreadGroup(req.pid());
 		if (!target) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
+			co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
 			co_return {};
 		}
 
@@ -335,20 +335,20 @@ HandleRequest::operator()(managarm::posix::SetPgidRequest &&req,
 
 		// POSIX: if `pid` is not the PID of the calling process or its children, ESRCH.
 		if (!isSelf && !isChild) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
+			co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
 			co_return {};
 		}
 
 		// POSIX: if target process is not in the same session, EPERM.
 		if (target->pgPointer()->getSession() != self->pgPointer()->getSession()) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+			co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 			co_return {};
 		}
 
 		// POSIX: if `pid` matches the process ID of a child and the child has successfully
 		// executed one of the `exec*` functions, return EACCES.
 		if (isChild && target->didExecute()) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ACCESS_DENIED);
+			co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::ACCESS_DENIED);
 			co_return {};
 		}
 	} else {
@@ -357,7 +357,7 @@ HandleRequest::operator()(managarm::posix::SetPgidRequest &&req,
 
 	// POSIX: We can't change the process group ID of the session leader, EPERM
 	if (target->pid() == target->pgPointer()->getSession()->getSessionId()) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+		co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
 		co_return {};
 	}
 
@@ -374,7 +374,7 @@ HandleRequest::operator()(managarm::posix::SetPgidRequest &&req,
 			target->pgPointer()->getSession()->spawnProcessGroup(target.get());
 		} else {
 			// POSIX: invalid `pgid` supplied, return EINVAL.
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::SetPgidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 	}
@@ -383,7 +383,7 @@ HandleRequest::operator()(managarm::posix::SetPgidRequest &&req,
 	// moved out the last child.
 	target->getParent()->raiseNotifyBell();
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::SetPgidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -409,13 +409,13 @@ HandleRequest::operator()(managarm::posix::GetSidRequest &&req,
 	if(req.pid()) {
 		target = ThreadGroup::findThreadGroup(req.pid());
 		if(!target) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
+			co_await sendErrorResponse<managarm::posix::GetSidResponse>(conversation, managarm::posix::Errors::NO_SUCH_RESOURCE);
 			co_return {};
 		}
 	} else {
 		target = self->threadGroup()->shared_from_this();
 	}
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetSidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_pid(target->pgPointer()->getSession()->getSessionId());
 

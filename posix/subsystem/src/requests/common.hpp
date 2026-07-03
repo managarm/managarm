@@ -105,7 +105,7 @@ struct HandleRequest {
 		);
 	}
 
-	template <typename Response = managarm::posix::SvrResponse>
+	template <typename Response>
 	async::result<void> sendErrorResponse(helix::BorrowedDescriptor conversation,
 			managarm::posix::Errors err) {
 		Response resp;

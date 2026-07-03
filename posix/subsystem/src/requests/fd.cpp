@@ -121,11 +121,11 @@ HandleRequest::operator()(managarm::posix::IsTtyRequest &&req,
 
 	auto file = self->fileContext()->getFile(req.fd());
 	if(!file) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::IsTtyResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::IsTtyResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_mode(file->isTerminal());
 
@@ -148,11 +148,11 @@ HandleRequest::operator()(managarm::posix::IoctlFioclexRequest &&req,
 	logRequest(logRequests, self, "FIOCLEX");
 
 	if(self->fileContext()->setDescriptor(req.fd(), true) != Error::success) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::IoctlFioclexResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::IoctlFioclexResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto ser = resp.SerializeAsString();
@@ -176,7 +176,7 @@ HandleRequest::operator()(managarm::posix::CloseRequest &&req,
 
 	if(closeErr != Error::success) {
 		if(closeErr == Error::noSuchFile) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_await sendErrorResponse<managarm::posix::CloseResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 			co_return {};
 		} else {
 			std::cout << "posix: Unhandled error returned from closeFile" << std::endl;
@@ -184,7 +184,7 @@ HandleRequest::operator()(managarm::posix::CloseRequest &&req,
 		}
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::CloseResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [sendResp] = co_await helix_ng::exchangeMsgs(

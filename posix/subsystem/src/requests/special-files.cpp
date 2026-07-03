@@ -22,7 +22,7 @@ HandleRequest::operator()(managarm::posix::InotifyCreateRequest &&req,
 	logRequest(logRequests, self, "INOTIFY_CREATE");
 
 	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyCreateResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -30,7 +30,7 @@ HandleRequest::operator()(managarm::posix::InotifyCreateRequest &&req,
 	auto fd = self->fileContext()->attachFile(file,
 			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::InotifyCreateResponse resp;
 	if (fd) {
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_fd(fd.value());
@@ -59,16 +59,16 @@ HandleRequest::operator()(managarm::posix::InotifyAddRequest &&req,
 		co_return std::unexpected(tailRes.error());
 	logBragiRequest(req);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::InotifyAddResponse resp;
 
 	logRequest(logRequests || logPaths, self, "INOTIFY_ADD");
 
 	auto ifile = self->fileContext()->getFile(req.fd());
 	if(!ifile) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	} else if(ifile->kind() != FileKind::inotify) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -83,10 +83,10 @@ HandleRequest::operator()(managarm::posix::InotifyAddRequest &&req,
 	auto resolveResult = co_await resolver.resolve(flags);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
 			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -125,7 +125,7 @@ HandleRequest::operator()(managarm::posix::InotifyRmRequest &&req,
 		resp.set_error(managarm::posix::Errors::BAD_FD);
 		co_return {};
 	} else if(ifile->kind() != FileKind::inotify) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyRmReply>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -153,7 +153,7 @@ HandleRequest::operator()(managarm::posix::EventfdCreateRequest &&req,
 
 	logRequest(logRequests, self, "EVENTFD_CREATE");
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::EventfdCreateResponse resp;
 
 	if (req.flags() & ~(managarm::posix::EventFdFlags::CLOEXEC
 			| managarm::posix::EventFdFlags::NONBLOCK
