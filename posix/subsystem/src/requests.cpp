@@ -94,6 +94,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::ParentDeathSignalRequest,
 			managarm::posix::ProcessDumpableRequest,
 			managarm::posix::SetResourceLimitRequest,
+			managarm::posix::GetResourceUsageRequest,
 			managarm::posix::SigactionRequest,
 			// From socket.cpp
 			managarm::posix::NetserverRequest,

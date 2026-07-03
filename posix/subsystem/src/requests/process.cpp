@@ -466,6 +466,43 @@ HandleRequest::operator()(managarm::posix::SetResourceLimitRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::GetResourceUsageRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "GET_RESOURCE_USAGE");
+
+	HelThreadStats stats;
+	HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
+
+	int32_t mode = static_cast<int32_t>(req.mode());
+	uint64_t user_time;
+	if(mode == RUSAGE_SELF) {
+		user_time = stats.userTime;
+	}else if(mode == RUSAGE_CHILDREN) {
+		user_time = self->threadGroup()->accumulatedUsage().userTime;
+	}else if(mode == RLIMIT_FSIZE) {
+		user_time = RLIM_INFINITY;
+	}else{
+		std::println("\e[31mposix: GET_RESOURCE_USAGE mode is not supported, requested mode: {}\e[39m", mode);
+		user_time = 0;
+		// TODO: Return an error response.
+	}
+
+	managarm::posix::GetResourceUsageResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_ru_user_time(user_time);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::SigactionRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

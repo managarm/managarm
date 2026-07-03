@@ -53,7 +53,6 @@ consts CntReqType uint32 {
 	SEEK_ABS = 13,
 	SEEK_REL = 14,
 	SEEK_EOF = 15,
-	GET_RESOURCE_USAGE = 57,
 
 	HELFD_ATTACH = 10,
 	HELFD_CLONE = 11,
@@ -1033,4 +1032,15 @@ head(128):
 message FchdirResponse 171 {
 head(128):
 	Errors error;
+}
+
+message GetResourceUsageRequest 172 {
+head(128):
+	int32 mode;
+}
+
+message GetResourceUsageResponse 173 {
+head(128):
+	Errors error;
+	uint64 ru_user_time;
 }

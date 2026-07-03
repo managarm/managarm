@@ -95,36 +95,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		);
 		HEL_CHECK(send_resp.error());
 		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::GET_RESOURCE_USAGE) {
-		logRequest(logRequests, self, "GET_RESOURCE_USAGE");
-
-		HelThreadStats stats;
-		HEL_CHECK(helQueryThreadStats(self->threadDescriptor().getHandle(), &stats));
-
-		int32_t mode = static_cast<int32_t>(req.mode());
-		uint64_t user_time;
-		if(mode == RUSAGE_SELF) {
-			user_time = stats.userTime;
-		}else if(mode == RUSAGE_CHILDREN) {
-			user_time = self->threadGroup()->accumulatedUsage().userTime;
-		}else if(mode == RLIMIT_FSIZE) {
-			user_time = RLIM_INFINITY;
-		}else{
-			std::cout << "\e[31mposix: GET_RESOURCE_USAGE mode is not supported, requested mode: " << mode << "\e[39m"
-					<< std::endl;
-			user_time = 0;
-			// TODO: Return an error response.
-		}
-
-		managarm::posix::SvrResponse resp;
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-		resp.set_ru_user_time(user_time);
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 
