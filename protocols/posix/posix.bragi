@@ -99,24 +99,8 @@ head(128):
 		tag(13) int32 mode;
 
 		// returned by FSTAT
-		tag(14) uint64 fs_inode;
-
-		tag(23) uint64 ref_devnum;
-
-		// returned by FSTAT
-		tag(17) uint64 num_links;
-
-		// returned by FSTAT
 		tag(15) int64 uid;
 		tag(16) int64 gid;
-
-		// returned by FSTAT
-		tag(7) int64 atime_secs;
-		tag(8) int64 atime_nanos;
-		tag(9) int64 mtime_secs;
-		tag(10) int64 mtime_nanos;
-		tag(11) int64 ctime_secs;
-		tag(12) int64 ctime_nanos;
 
 		// return of OPEN
 		tag(1) int32 fd;
@@ -128,13 +112,6 @@ head(128):
 
 		// Returned by INOTIFY_ADD.
 		tag(30) int32 wd;
-
-		tag(32) uint32 mount_id;
-		tag(33) uint64 stat_dev;
-
-		// returned by FSTATAT for statx
-		tag(34) int32 statx_attr;
-		tag(35) int32 statx_attr_mask;
 	}
 }
 
@@ -226,6 +203,29 @@ head(128):
 	int32 flags;
 tail:
 	string path;
+}
+
+message FstatAtResponse 178 {
+head(128):
+	Errors error;
+	FileType file_type;
+	uint64 file_size;
+	uint16 mode;
+	uint64 mount_id;
+	uint64 fs_inode;
+	uint64 ref_devnum;
+	uint32 num_links;
+	uint32 uid;
+	uint32 gid;
+	int64 atime_secs;
+	uint32 atime_nanos;
+	int64 mtime_secs;
+	uint32 mtime_nanos;
+	int64 ctime_secs;
+	uint32 ctime_nanos;
+	uint64 stat_dev;
+	uint64 statx_attr;
+	uint64 statx_attr_mask;
 }
 
 message MkfifoAtRequest 18 {

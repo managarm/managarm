@@ -870,7 +870,7 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 
 	if (req.flags() & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT | AT_STATX_DONT_SYNC)) {
 		std::cout << std::format("posix: unsupported flags {:#x} given to FSTATAT request", req.flags()) << std::endl;
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -885,7 +885,7 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 		file = self->fileContext()->getFile(req.fd());
 
 		if (!file) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 			co_return {};
 		}
 
@@ -907,10 +907,10 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 		auto resolveResult = co_await resolver.resolve(resolveFlags);
 		if(!resolveResult) {
 			if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+				co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 				co_return {};
 			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+				co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
 				co_return {};
 			} else {
 				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -925,12 +925,12 @@ HandleRequest::operator()(managarm::posix::FstatAtRequest &&req,
 	// This catches cases where associatedLink is called on a file, but the file doesn't implement that.
 	// Instead of blowing up, return ENOENT.
 	if(target_link == nullptr) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+		co_await sendErrorResponse<managarm::posix::FstatAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 		co_return {};
 	}
 
 	auto statsResult = co_await target_link->getTarget()->getStats();
-	managarm::posix::SvrResponse resp;
+	managarm::posix::FstatAtResponse resp;
 
 	if (statsResult) {
 		constexpr int statxAttrMask = STATX_ATTR_MOUNT_ROOT;

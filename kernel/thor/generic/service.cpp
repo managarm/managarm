@@ -728,7 +728,7 @@ namespace posix {
 				auto module = resolveModule(req->path());
 				if(!module || module->type != MfsType::regular) {
 					infoLogger() << "thor: cannot stat file " << req->path() << frg::endlog;
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::FstatAtResponse resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -745,7 +745,7 @@ namespace posix {
 
 				auto file = static_cast<MfsRegular *>(module);
 
-				managarm::posix::SvrResponse resp(*kernelAlloc);
+				managarm::posix::FstatAtResponse resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_file_size(file->size());
 				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
