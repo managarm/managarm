@@ -489,12 +489,6 @@ struct HandleRequest {
 	operator()(managarm::posix::TimerDeleteRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
-
-	// From legacy.cpp
-	async::result<std::expected<void, DispatchError>>
-	operator()(managarm::posix::CntRequest &&req, helix::BorrowedDescriptor conversation,
-			bragi::preamble preamble, std::shared_ptr<Process> self,
-			std::shared_ptr<Generation> generation);
 };
 
 } // namespace requests

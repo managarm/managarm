@@ -37,26 +37,6 @@ enum Errors {
 	INTERNAL_ERROR = 99
 }
 
-consts CntReqType uint32 {
-	INIT = 7,
-	FORK = 8,
-	EXEC = 1,
-
-	MOUNT = 21,
-	CHROOT = 24,
-	CHDIR = 58,
-	SYMLINKAT = 47,
-	READLINK = 31,
-	READ = 3,
-	WRITE = 4,
-	SEEK_ABS = 13,
-	SEEK_REL = 14,
-	SEEK_EOF = 15,
-
-	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11
-}
-
 enum EpollCtlOp {
 	EPOLL_ADD = 1,
 	EPOLL_MODIFY = 2,
@@ -101,50 +81,10 @@ consts FileType uint32 {
 	SEMAPHORE = 4
 }
 
-message CntRequest 1 {
-head(128):
-	CntReqType request_type;
-
-	tags {
-		tag(34) int64 pid;
-
-		// used by OPEN
-		tag(3) OpenFlags flags;
-		tag(10) OpenMode mode;
-
-		// used by READ, WRITE, SEEK_REL, SEEK_ABS, SEEK_END, MMAP, CLOSE, DUP2,
-		// HELFD_ATTACH, HELFD_CLONE
-		tag(4) int32 fd;
-
-		// used by DUP2
-		tag(7) int32 newfd;
-
-		// used by READ
-		tag(5) uint32 size;
-
-		// used by SEEK_ABS, SEEK_REL
-		tag(11) int64 rel_offset;
-
-		// used by FORK
-		tag(8) uint64 child_sp;
-		tag(9) uint64 child_ip;
-
-		tag(24) @format(hex) uint64 address;
-
-		tag(35) char[16] passthrough_credentials;
-
-		tag(36) uint64 cancellation_id;
-	}
-}
-
 message SvrResponse 2 {
 head(128):
 	tags {
 		tag(3) Errors error;
-
-		tag(21) int64 size;
-
-		tag(24) @format(hex) uint64 flags;
 
 		// returned by GET_PID
 		tag(18) int64 pid;
@@ -159,7 +99,6 @@ head(128):
 		tag(13) int32 mode;
 
 		// returned by FSTAT
-		tag(22) uint64 fs_devnum;
 		tag(14) uint64 fs_inode;
 
 		tag(23) uint64 ref_devnum;
@@ -186,13 +125,9 @@ head(128):
 		tag(6) @format(hex) uint64 offset;
 
 		tag(20) int32[] fds;
-		tag(25) int32[] events;
 
 		// Returned by INOTIFY_ADD.
 		tag(30) int32 wd;
-
-		// returned by GET_RESOURCE_USAGE
-		tag(29) uint64 ru_user_time;
 
 		tag(32) uint32 mount_id;
 		tag(33) uint64 stat_dev;

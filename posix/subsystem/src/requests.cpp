@@ -112,9 +112,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::TimerCreateRequest,
 			managarm::posix::TimerSetRequest,
 			managarm::posix::TimerGetRequest,
-			managarm::posix::TimerDeleteRequest,
-			// From legacy.cpp
-			managarm::posix::CntRequest
+			managarm::posix::TimerDeleteRequest
 		>(self->posixLane(), requests::HandleRequest{}, self, generation);
 
 		if(!res) {
