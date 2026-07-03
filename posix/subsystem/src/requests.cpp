@@ -47,6 +47,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::MknodAtRequest,
 			managarm::posix::UmaskRequest,
 			managarm::posix::GetCwdRequest,
+			managarm::posix::TtyNameRequest,
 			// From special-files.cpp
 			managarm::posix::InotifyCreateRequest,
 			managarm::posix::InotifyAddRequest,

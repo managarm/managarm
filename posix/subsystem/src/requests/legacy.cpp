@@ -205,31 +205,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 		);
 		HEL_CHECK(send_resp.error());
-	}else if(req.request_type() == managarm::posix::CntReqType::TTY_NAME) {
-		logRequest(logRequests, self, "TTY_NAME", "fd={}", req.fd());
-
-		managarm::posix::SvrResponse resp;
-
-		auto file = self->fileContext()->getFile(req.fd());
-		if(!file) {
-		    co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
-		    co_return {};
-		}
-
-		auto ttynameResult = co_await file->ttyname();
-		if(!ttynameResult) {
-		    co_await sendErrorResponse(conversation, ttynameResult.error() | toPosixProtoError);
-		    co_return {};
-		}
-
-		resp.set_path(ttynameResult.value());
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 

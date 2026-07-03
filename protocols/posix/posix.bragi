@@ -56,7 +56,6 @@ consts CntReqType uint32 {
 	SEEK_EOF = 15,
 	DUP = 34,
 	DUP2 = 6,
-	TTY_NAME = 18,
 	GET_RESOURCE_USAGE = 57,
 
 	HELFD_ATTACH = 10,
@@ -192,9 +191,6 @@ head(128):
 
 		// returned by SEEK_ABS, SEEK_REL
 		tag(6) @format(hex) uint64 offset;
-
-		// returned by TTY_NAME
-		tag(19) string path;
 
 		tag(20) int32[] fds;
 		tag(25) int32[] events;
@@ -1006,4 +1002,16 @@ message GetCwdResponse 165 {
 head(128):
 	Errors error;
 	uint32 size;
+}
+
+message TtyNameRequest 166 {
+head(128):
+	int32 fd;
+}
+
+message TtyNameResponse 167 {
+head(128):
+	Errors error;
+tail:
+	string path;
 }

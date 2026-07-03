@@ -1730,4 +1730,33 @@ HandleRequest::operator()(managarm::posix::GetCwdRequest &&req,
 	co_return {};
 }
 
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::TtyNameRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "TTY_NAME", "fd={}", req.fd());
+
+	managarm::posix::TtyNameResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto file = self->fileContext()->getFile(req.fd());
+	if(!file) {
+		resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
+	} else if(auto ttynameResult = co_await file->ttyname(); !ttynameResult) {
+		resp.set_error(ttynameResult.error() | toPosixProtoError);
+	} else {
+		resp.set_path(ttynameResult.value());
+	}
+
+	auto [send_resp, send_tail] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadTail(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	HEL_CHECK(send_tail.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
 } // namespace requests
