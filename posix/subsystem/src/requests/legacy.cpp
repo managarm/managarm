@@ -247,58 +247,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 		HEL_CHECK(send_resp.error());
 		HEL_CHECK(send_path.error());
 		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::FD_GET_FLAGS) {
-		logRequest(logRequests, self, "FD_GET_FLAGS");
-
-		auto descriptor = self->fileContext()->getDescriptor(req.fd());
-		if(!descriptor) {
-			managarm::posix::SvrResponse resp;
-			resp.set_error(managarm::posix::Errors::NO_SUCH_FD);
-
-			auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-			);
-			HEL_CHECK(send_resp.error());
-			logBragiReply(resp);
-			co_return {};
-		}
-
-		int flags = 0;
-		if(descriptor->closeOnExec)
-			flags |= FD_CLOEXEC;
-
-		managarm::posix::SvrResponse resp;
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-		resp.set_flags(flags);
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
-	}else if(req.request_type() == managarm::posix::CntReqType::FD_SET_FLAGS) {
-		logRequest(logRequests, self, "FD_SET_FLAGS");
-
-		if(req.flags() & ~FD_CLOEXEC) {
-			std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return {};
-		}
-
-		int closeOnExec = req.flags() & FD_CLOEXEC;
-		if(self->fileContext()->setDescriptor(req.fd(), closeOnExec) != Error::success) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
-			co_return {};
-		}
-
-		managarm::posix::SvrResponse resp;
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-
-		auto ser = resp.SerializeAsString();
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-				helix_ng::sendBuffer(ser.data(), ser.size()));
-		HEL_CHECK(send_resp.error());
-		logBragiSerializedReply(ser);
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 

@@ -945,6 +945,25 @@ namespace posix {
 					infoLogger() << "thor: Could not send EpollCallResponse tail" << frg::endlog;
 					co_return;
 				}
+			}else if(preamble.id() == bragi::message_id<managarm::posix::FdGetFlagsRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::FdGetFlagsRequest>(
+					reqBuffer, *kernelAlloc
+				);
+				if (!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				managarm::posix::FdGetFlagsResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else{
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;

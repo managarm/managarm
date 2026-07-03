@@ -454,4 +454,67 @@ HandleRequest::operator()(managarm::posix::EpollWaitRequest &&req,
 	co_return {};
 }
 
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FdGetFlagsRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "FD_GET_FLAGS");
+
+	auto descriptor = self->fileContext()->getDescriptor(req.fd());
+	if(!descriptor) {
+		co_await sendErrorResponse<managarm::posix::FdGetFlagsResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	int flags = 0;
+	if(descriptor->closeOnExec)
+		flags |= FD_CLOEXEC;
+
+	managarm::posix::FdGetFlagsResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_flags(flags);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FdSetFlagsRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "FD_SET_FLAGS");
+
+	if(req.flags() & ~FD_CLOEXEC) {
+		std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
+		co_await sendErrorResponse<managarm::posix::FdSetFlagsResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	int closeOnExec = req.flags() & FD_CLOEXEC;
+	if(self->fileContext()->setDescriptor(req.fd(), closeOnExec) != Error::success) {
+		co_await sendErrorResponse<managarm::posix::FdSetFlagsResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	managarm::posix::FdSetFlagsResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto ser = resp.SerializeAsString();
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()));
+	HEL_CHECK(send_resp.error());
+	logBragiSerializedReply(ser);
+
+	co_return {};
+}
+
 } // namespace requests
