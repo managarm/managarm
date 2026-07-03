@@ -395,6 +395,10 @@ struct HandleRequest {
 	operator()(managarm::posix::SetResourceLimitRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SigactionRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From socket.cpp
 	async::result<std::expected<void, DispatchError>>

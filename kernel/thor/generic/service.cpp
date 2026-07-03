@@ -542,21 +542,16 @@ namespace posix {
 			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
-			if(preamble.id() == bragi::message_id<managarm::posix::CntRequest>) {
-				auto req = bragi::parse_head_only<managarm::posix::CntRequest>(
-						reqBuffer, *kernelAlloc);
-				if(!req) {
+			if(preamble.id() == bragi::message_id<managarm::posix::SigactionRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::SigactionRequest>(
+					reqBuffer, *kernelAlloc
+				);
+				if (!req) {
 					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
-				// mlibc tries to install a signal handler to support cancellation.
-				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
-					infoLogger() << "thor: Unexpected legacy POSIX request "
-						<< req->request_type() << frg::endlog;
-				}
-
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SigactionResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);

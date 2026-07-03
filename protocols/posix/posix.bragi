@@ -62,9 +62,6 @@ consts CntReqType uint32 {
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
 
-	// Signal-specific calls.
-	SIG_ACTION = 55,
-
 	HELFD_ATTACH = 10,
 	HELFD_CLONE = 11,
 
@@ -145,12 +142,6 @@ head(128):
 
 		tag(24) @format(hex) uint64 address;
 
-		// Signal-specific stuff.
-		tag(29) uint64 sig_number;
-		tag(30) uint64 sig_mask;
-		tag(31) @format(hex) uint64 sig_handler;
-		tag(32) @format(hex) uint64 sig_restorer;
-
 		tag(35) char[16] passthrough_credentials;
 
 		tag(36) uint64 cancellation_id;
@@ -213,11 +204,6 @@ head(128):
 
 		// Returned by INOTIFY_ADD.
 		tag(30) int32 wd;
-
-		// Signal-specific stuff.
-		tag(26) uint64 sig_mask;
-		tag(27) uint64 sig_handler;
-		tag(28) uint64 sig_restorer;
 
 		// returned by GET_RESOURCE_USAGE
 		tag(29) uint64 ru_user_time;
@@ -971,4 +957,23 @@ message SetSidResponse 157 {
 head(128):
 	Errors error;
 	int64 sid;
+}
+
+message SigactionRequest 158 {
+head(128):
+	uint64 sig_number;
+	uint64 sig_mask;
+	@format(hex) uint64 sig_handler;
+	@format(hex) uint64 sig_restorer;
+	int32 flags;
+	uint32 mode;
+}
+
+message SigactionResponse 159 {
+head(128):
+	Errors error;
+	int32 flags;
+	uint64 sig_mask;
+	@format(hex) uint64 sig_handler;
+	@format(hex) uint64 sig_restorer;
 }
