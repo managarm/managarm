@@ -12,7 +12,6 @@
 
 #include "common.hpp"
 #include "../epoll.hpp"
-#include "../signalfd.hpp"
 
 namespace requests {
 
@@ -429,44 +428,6 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 				helix_ng::sendBuffer(ser.data(), ser.size()));
 		HEL_CHECK(send_resp.error());
 		logBragiSerializedReply(ser);
-	}else if(req.request_type() == managarm::posix::CntReqType::SIGNALFD_CREATE) {
-		logRequest(logRequests, self, "SIGNALFD_CREATE");
-
-		if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC
-				| managarm::posix::OpenFlags::OF_NONBLOCK)) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
-			co_return {};
-		}
-
-		managarm::posix::SvrResponse resp;
-		resp.set_error(managarm::posix::Errors::SUCCESS);
-
-		if(req.fd() == -1) {
-			auto file = createSignalFile(req.sigset(),
-					req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
-			auto fd = self->fileContext()->attachFile(file,
-					req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
-
-			if (fd)
-				resp.set_fd(fd.value());
-			else
-				resp.set_error(fd.error() | toPosixProtoError);
-		} else {
-			auto file = self->fileContext()->getFile(req.fd());
-			if(file) {
-				auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
-				signal_file->mask() = req.sigset();
-				resp.set_fd(req.fd());
-			} else {
-				resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
-			}
-		}
-
-		auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
-			helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
-		);
-		HEL_CHECK(send_resp.error());
-		logBragiReply(resp);
 	}else{
 		std::cout << "posix: Illegal request" << std::endl;
 

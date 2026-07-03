@@ -68,9 +68,6 @@ consts CntReqType uint32 {
 	// Signal-specific calls.
 	SIG_ACTION = 55,
 
-	// signalfd()-specific calls
-	SIGNALFD_CREATE = 32,
-
 	HELFD_ATTACH = 10,
 	HELFD_CLONE = 11,
 
@@ -157,7 +154,6 @@ head(128):
 		tag(31) @format(hex) uint64 sig_handler;
 		tag(32) @format(hex) uint64 sig_restorer;
 
-		tag(33) uint64 sigset;
 		tag(35) char[16] passthrough_credentials;
 
 		tag(36) uint64 cancellation_id;
@@ -958,4 +954,17 @@ message PipeCreateResponse 153 {
 head(128):
 	Errors error;
 	int32[2] fds;
+}
+
+message SignalfdCreateRequest 154 {
+head(128):
+	int32 flags;
+	int32 fd;
+	uint64 sigset;
+}
+
+message SignalfdCreateResponse 155 {
+head(128):
+	Errors error;
+	int32 fd;
 }

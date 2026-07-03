@@ -4,6 +4,7 @@
 #include "../fifo.hpp"
 #include "../inotify.hpp"
 #include "../pidfd.hpp"
+#include "../signalfd.hpp"
 #include "../timerfd.hpp"
 #include <sys/inotify.h>
 #include <sys/pidfd.h>
@@ -476,6 +477,52 @@ HandleRequest::operator()(managarm::posix::PipeCreateRequest &&req,
 			self->fileContext()->closeFile(r_fd.value());
 		if (w_fd)
 			self->fileContext()->closeFile(w_fd.value());
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SignalfdCreateRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "SIGNALFD_CREATE");
+
+	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC
+			| managarm::posix::OpenFlags::OF_NONBLOCK)) {
+		co_await sendErrorResponse<managarm::posix::SignalfdCreateResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	managarm::posix::SignalfdCreateResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	if(req.fd() == -1) {
+		auto file = createSignalFile(req.sigset(),
+				req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+		auto fd = self->fileContext()->attachFile(file,
+				req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+		if (fd)
+			resp.set_fd(fd.value());
+		else
+			resp.set_error(fd.error() | toPosixProtoError);
+	} else {
+		auto file = self->fileContext()->getFile(req.fd());
+		if(file) {
+			auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
+			signal_file->mask() = req.sigset();
+			resp.set_fd(req.fd());
+		} else {
+			resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+		}
 	}
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
