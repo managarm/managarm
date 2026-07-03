@@ -357,6 +357,38 @@ HandleRequest::operator()(managarm::posix::GetSidRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SetSidRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "SETSID");
+
+	// POSIX: if the calling process is already a group leader, EPERM.
+	if(self->pgPointer()->getSession()->getSessionId() == self->pid()) {
+		co_await sendErrorResponse<managarm::posix::SetSidResponse>(conversation, managarm::posix::Errors::INSUFFICIENT_PERMISSION);
+		co_return {};
+	}
+
+	auto session = TerminalSession::initializeNewSession(self->threadGroup());
+
+	// Wake any waiters (e.g. waitpid); this is necessary as that may need to return ECHLD if we
+	// moved out the last child.
+	self->getParent()->raiseNotifyBell();
+
+	managarm::posix::SetSidResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_sid(session->getSessionId());
+
+	auto ser = resp.SerializeAsString();
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()));
+	HEL_CHECK(send_resp.error());
+	logBragiSerializedReply(ser);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::ParentDeathSignalRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {

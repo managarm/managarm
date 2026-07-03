@@ -62,9 +62,6 @@ consts CntReqType uint32 {
 	FD_SET_FLAGS = 45,
 	GET_RESOURCE_USAGE = 57,
 
-	// Session and process group calls.
-	SETSID = 76,
-
 	// Signal-specific calls.
 	SIG_ACTION = 55,
 
@@ -207,9 +204,6 @@ head(128):
 
 		// returned by SEEK_ABS, SEEK_REL
 		tag(6) @format(hex) uint64 offset;
-
-		// Returned by SETSID.
-		tag(31) int64 sid;
 
 		// returned by TTY_NAME
 		tag(19) string path;
@@ -967,4 +961,14 @@ message SignalfdCreateResponse 155 {
 head(128):
 	Errors error;
 	int32 fd;
+}
+
+message SetSidRequest 156 {
+head(128):
+}
+
+message SetSidResponse 157 {
+head(128):
+	Errors error;
+	int64 sid;
 }
