@@ -3,9 +3,14 @@ headers = [
 	'include/hel-stubs.h',
 	'include/hel-syscalls.h',
 	'include/hel-types.h',
+]
+
+helix_headers = [
+	'include/helix/ipc-structs.hpp',
 	'include/helix/ipc.hpp',
 	'include/helix/memory.hpp',
-	'include/helix/passthrough-fd.hpp'
+	'include/helix/passthrough-fd.hpp',
+	'include/helix/timer.hpp',
 ]
 
 src = files(
@@ -39,6 +44,7 @@ if not provide_deps and not build_kernel
 	)
 
 	install_headers(headers)
+	install_headers(helix_headers, subdir : 'helix')
 endif
 
 hel_dep = declare_dependency(
