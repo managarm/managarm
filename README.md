@@ -66,3 +66,8 @@ Programs supported on managarm include [Weston](https://gitlab.freedesktop.org/w
 While this repository contains managarm's kernel, its drivers and other core functionality,
 it is not enough to build a full managarm distribution. Instead, we refer to the
 [Managarm Handbook](https://docs.managarm.org/handbook/building/index.html) for build instructions.
+
+## Acknowledgements
+Managarm is supported by the [NGI Zero Commons fund](https://nlnet.nl/commonsfund).
+
+<img src="https://nlnet.nl/image/logos/NGI0CommonsFund_tag.svg" width="300" />
