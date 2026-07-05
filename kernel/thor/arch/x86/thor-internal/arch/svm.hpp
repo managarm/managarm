@@ -206,7 +206,7 @@ namespace thor::svm {
 		Vcpu(const Vcpu &) = delete;
 		Vcpu &operator=(const Vcpu &) = delete;
 
-		HelVmexitReason run() override;
+		frg::expected<Error, HelVmexitReason> run() override;
 		void storeRegs(const HelX86VirtualizationRegs *regs) override;
 		void loadRegs(HelX86VirtualizationRegs *res) override;
 

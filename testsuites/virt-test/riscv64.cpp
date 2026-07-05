@@ -1,7 +1,10 @@
 #include <hel.h>
 #include <hel-syscalls.h>
-#include <iostream>
+#include <pthread.h>
+#include <csignal>
 #include <assert.h>
+#include <unistd.h>
+#include <iostream>
 
 asm(R"(
 .pushsection .data
@@ -15,6 +18,8 @@ testCode:
 	sd t0, (t1)
 	// Interrupt injected here.
 	ecall
+	1:
+	j 1b
 testCodeEnd:
 .popsection
 )");
@@ -80,6 +85,28 @@ int main() {
 	runStep();
 	assert(reason.exitReason == kHelVmexitHyperCall);
 	assert(regs.sip & (1 << 9));
+
+	// Test interrupting an infinite loop.
+
+	signal(SIGINT, [](int) {});
+
+	pthread_t mainThread = pthread_self();
+
+	auto threadFunc = [](void *arg) -> void * {
+		usleep(1000 * 500);
+
+		pthread_t mainThreadHandle = reinterpret_cast<pthread_t>(arg);
+		pthread_kill(mainThreadHandle, SIGINT);
+		return nullptr;
+	};
+
+	pthread_t thread;
+	pthread_create(&thread, nullptr, threadFunc, reinterpret_cast<void *>(mainThread));
+
+	auto runResult = helRunVirtualizedCpu(vcpu, &reason);
+	assert(runResult == kHelErrCancelled);
+
+	pthread_join(thread, nullptr);
 
 	helCloseDescriptor(kHelThisUniverse, vcpu);
 	helCloseDescriptor(kHelThisUniverse, vspace);

@@ -21,7 +21,7 @@ struct Vcpu final : VirtualizedCpu {
 	Vcpu(const Vcpu &) = delete;
 	Vcpu &operator=(const Vcpu &) = delete;
 
-	HelVmexitReason run() override;
+	frg::expected<Error, HelVmexitReason> run() override;
 
 	void storeRegs(const HelVirtualizationRegs *regs) override;
 	void loadRegs(HelVirtualizationRegs *res) override;

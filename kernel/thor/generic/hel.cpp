@@ -1017,8 +1017,11 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
 
-	auto info = vcpu->run();
-	if(!writeUserObject(exitInfo, info))
+	auto runOutcome = vcpu->run();
+	if(!runOutcome)
+		return translateError(runOutcome.error());
+
+	if(!writeUserObject(exitInfo, runOutcome.value()))
 		return kHelErrFault;
 
 	return kHelErrNone;

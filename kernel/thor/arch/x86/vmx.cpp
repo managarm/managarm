@@ -280,7 +280,7 @@ namespace thor::vmx {
 		}
 	}
 
-	HelVmexitReason Vmcs::run() {
+	frg::expected<Error, HelVmexitReason> Vmcs::run() {
 		vmptrld((PhysicalAddr)region);
 
 		uint16_t es;
@@ -317,6 +317,9 @@ namespace thor::vmx {
 
 		bool launched = false;
 		while(1) {
+			if(getCurrentThread()->checkCancelConditions())
+				return Error::cancelled;
+
 			/*
 			 * NOTE: this will only work as long as long
 			 * as threads always stay on the same cpu,

@@ -111,8 +111,11 @@ Vcpu::Vcpu(smarter::shared_ptr<HypervisorSpace> space) : space_{std::move(space)
 
 Vcpu::~Vcpu() {}
 
-HelVmexitReason Vcpu::run() {
+frg::expected<Error, HelVmexitReason> Vcpu::run() {
 	while (true) {
+		if (getCurrentThread()->checkCancelConditions())
+			return Error::cancelled;
+
 		Thread::asyncBlockCurrent(mutex_.async_lock(), getCurrentThread()->mainWorkQueue().get());
 		frg::unique_lock lock{frg::adopt_lock, mutex_};
 

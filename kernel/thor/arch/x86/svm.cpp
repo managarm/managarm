@@ -112,9 +112,12 @@ namespace thor::svm {
 		kernelAlloc->free(host_fpu_state);
 	}
 
-	HelVmexitReason Vcpu::run() {
+	frg::expected<Error, HelVmexitReason> Vcpu::run() {
 		HelVmexitReason reason{};
 		while(true) {
+			if(getCurrentThread()->checkCancelConditions())
+				return Error::cancelled;
+
 			asm("clgi");
 
 			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
