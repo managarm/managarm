@@ -1273,6 +1273,8 @@ async::result<std::shared_ptr<ThreadGroup>> Process::init(std::string path) {
 	threadGroup->_euid = 0;
 	threadGroup->_gid = 0;
 	threadGroup->_egid = 0;
+	threadGroup->_suid = 0;
+	threadGroup->_sgid = 0;
 
 	auto process = std::make_shared<Process>(threadGroup.get(), std::move(hull));
 	process->threadGroup()->associateProcess(process);
@@ -1402,6 +1404,8 @@ async::result<std::shared_ptr<Process>> Process::fork(std::shared_ptr<Process> o
 	process->threadGroup()->_euid = original->threadGroup()->_euid;
 	process->threadGroup()->_gid = original->threadGroup()->_gid;
 	process->threadGroup()->_egid = original->threadGroup()->_egid;
+	process->threadGroup()->_suid = original->threadGroup()->_suid;
+	process->threadGroup()->_sgid = original->threadGroup()->_sgid;
 	process->getTidHull()->initializeThreadGroup(threadGroup);
 	process->threadGroup()->didExecute_ = false;
 
@@ -1529,6 +1533,8 @@ Process::clone(std::shared_ptr<Process> original, void *ip, void *sp, posix::sup
 		process->threadGroup()->_euid = original->threadGroup()->_euid;
 		process->threadGroup()->_gid = original->threadGroup()->_gid;
 		process->threadGroup()->_egid = original->threadGroup()->_egid;
+		process->threadGroup()->_suid = original->threadGroup()->_suid;
+		process->threadGroup()->_sgid = original->threadGroup()->_sgid;
 	}
 
 	process->getTidHull()->initializeProcess(process.get());
@@ -1617,6 +1623,12 @@ async::result<Error> Process::exec(std::shared_ptr<Process> process,
 	process->threadGroup()->_signalContext->resetHandlers();
 	process->setAltStackEnabled(false);
 	process->setAltStackSp(0, 0);
+
+	// Handle setuid and friends
+	process->threadGroup()->_euid = execResult.effectiveUid;
+	process->threadGroup()->_egid = execResult.effectiveGid;
+	process->threadGroup()->_suid = execResult.savedUid;
+	process->threadGroup()->_sgid = execResult.savedGid;
 
 	process->_clientThreadPage = exec_thread_page;
 	process->_clientPosixLane = exec_posix_lane;
