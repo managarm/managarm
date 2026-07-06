@@ -1207,3 +1207,16 @@ head(128):
 	Errors error;
 	int32 fd;
 }
+
+message DupFdQueryRequest 223 {
+head(128):
+	int32 fd;
+	int32 query_fd;
+}
+
+message DupFdQueryResponse 224 {
+head(128):
+	Errors error;
+	int32 result;
+}
+

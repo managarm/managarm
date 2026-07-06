@@ -19,6 +19,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			// From fd.cpp
 			managarm::posix::Dup2Request,
 			managarm::posix::DupRequest,
+			managarm::posix::DupFdQueryRequest,
 			managarm::posix::IsTtyRequest,
 			managarm::posix::IoctlFioclexRequest,
 			managarm::posix::CloseRequest,
