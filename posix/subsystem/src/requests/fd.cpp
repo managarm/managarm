@@ -73,6 +73,44 @@ HandleRequest::operator()(managarm::posix::Dup2Request &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::DupRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "DUP", "fd={}", req.fd());
+
+	auto file = self->fileContext()->getFile(req.fd());
+
+	if (!file) {
+		co_await sendErrorResponse<managarm::posix::DupResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC)) {
+		co_await sendErrorResponse<managarm::posix::DupResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	auto newfd = self->fileContext()->attachFile(file,
+			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+	managarm::posix::DupResponse resp;
+	if (newfd) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fd(newfd.value());
+	} else {
+		resp.set_error(newfd.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::IsTtyRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
@@ -83,11 +121,11 @@ HandleRequest::operator()(managarm::posix::IsTtyRequest &&req,
 
 	auto file = self->fileContext()->getFile(req.fd());
 	if(!file) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::IsTtyResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::IsTtyResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_mode(file->isTerminal());
 
@@ -110,11 +148,11 @@ HandleRequest::operator()(managarm::posix::IoctlFioclexRequest &&req,
 	logRequest(logRequests, self, "FIOCLEX");
 
 	if(self->fileContext()->setDescriptor(req.fd(), true) != Error::success) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::IoctlFioclexResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::IoctlFioclexResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto ser = resp.SerializeAsString();
@@ -138,7 +176,7 @@ HandleRequest::operator()(managarm::posix::CloseRequest &&req,
 
 	if(closeErr != Error::success) {
 		if(closeErr == Error::noSuchFile) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+			co_await sendErrorResponse<managarm::posix::CloseResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 			co_return {};
 		} else {
 			std::cout << "posix: Unhandled error returned from closeFile" << std::endl;
@@ -146,7 +184,7 @@ HandleRequest::operator()(managarm::posix::CloseRequest &&req,
 		}
 	}
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::CloseResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [sendResp] = co_await helix_ng::exchangeMsgs(
@@ -450,6 +488,69 @@ HandleRequest::operator()(managarm::posix::EpollWaitRequest &&req,
 	);
 	HEL_CHECK(send_resp.error());
 	logBragiReply(resp);
+
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FdGetFlagsRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "FD_GET_FLAGS");
+
+	auto descriptor = self->fileContext()->getDescriptor(req.fd());
+	if(!descriptor) {
+		co_await sendErrorResponse<managarm::posix::FdGetFlagsResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	int flags = 0;
+	if(descriptor->closeOnExec)
+		flags |= FD_CLOEXEC;
+
+	managarm::posix::FdGetFlagsResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_flags(flags);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::FdSetFlagsRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "FD_SET_FLAGS");
+
+	if(req.flags() & ~FD_CLOEXEC) {
+		std::cout << "posix: FD_SET_FLAGS unknown flags: " << req.flags() << std::endl;
+		co_await sendErrorResponse<managarm::posix::FdSetFlagsResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	int closeOnExec = req.flags() & FD_CLOEXEC;
+	if(self->fileContext()->setDescriptor(req.fd(), closeOnExec) != Error::success) {
+		co_await sendErrorResponse<managarm::posix::FdSetFlagsResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	managarm::posix::FdSetFlagsResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	auto ser = resp.SerializeAsString();
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+			helix_ng::sendBuffer(ser.data(), ser.size()));
+	HEL_CHECK(send_resp.error());
+	logBragiSerializedReply(ser);
 
 	co_return {};
 }

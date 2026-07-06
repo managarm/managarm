@@ -12,7 +12,7 @@ HandleRequest::operator()(managarm::posix::GetPidRequest &&req,
 
 	logRequest(logRequests, self, "GET_PID", "pid={}", self->pid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetPidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_pid(self->pid());
 
@@ -34,7 +34,7 @@ HandleRequest::operator()(managarm::posix::GetPpidRequest &&req,
 
 	logRequest(logRequests, self, "GET_PPID", "ppid={}", self->getParent()->pid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetPpidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_pid(self->getParent()->pid());
 
@@ -56,7 +56,7 @@ HandleRequest::operator()(managarm::posix::GetUidRequest &&req,
 
 	logRequest(logRequests, self, "GET_UID", "uid={}", self->threadGroup()->uid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetUidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_uid(self->threadGroup()->uid());
 
@@ -80,11 +80,11 @@ HandleRequest::operator()(managarm::posix::SetUidRequest &&req,
 
 	Error err = self->threadGroup()->setUid(req.uid());
 	if(err == Error::accessDenied) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ACCESS_DENIED);
+		co_await sendErrorResponse<managarm::posix::SetUidResponse>(conversation, managarm::posix::Errors::ACCESS_DENIED);
 	} else if(err == Error::illegalArguments) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetUidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	} else {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+		co_await sendErrorResponse<managarm::posix::SetUidResponse>(conversation, managarm::posix::Errors::SUCCESS);
 	}
 	co_return {};
 }
@@ -98,7 +98,7 @@ HandleRequest::operator()(managarm::posix::GetEuidRequest &&req,
 
 	logRequest(logRequests, self, "GET_EUID", "euid={}", self->threadGroup()->euid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetEuidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_uid(self->threadGroup()->euid());
 
@@ -122,11 +122,11 @@ HandleRequest::operator()(managarm::posix::SetEuidRequest &&req,
 
 	Error err = self->threadGroup()->setEuid(req.uid());
 	if(err == Error::accessDenied) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ACCESS_DENIED);
+		co_await sendErrorResponse<managarm::posix::SetEuidResponse>(conversation, managarm::posix::Errors::ACCESS_DENIED);
 	} else if(err == Error::illegalArguments) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetEuidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	} else {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+		co_await sendErrorResponse<managarm::posix::SetEuidResponse>(conversation, managarm::posix::Errors::SUCCESS);
 	}
 	co_return {};
 }
@@ -140,9 +140,9 @@ HandleRequest::operator()(managarm::posix::GetGidRequest &&req,
 
 	logRequest(logRequests, self, "GET_GID", "gid={}", self->threadGroup()->gid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetGidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
-	resp.set_uid(self->threadGroup()->gid());
+	resp.set_gid(self->threadGroup()->gid());
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
 		conversation,
@@ -162,9 +162,9 @@ HandleRequest::operator()(managarm::posix::GetEgidRequest &&req,
 
 	logRequest(logRequests, self, "GET_EGID", "egid={}", self->threadGroup()->egid());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::GetEgidResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
-	resp.set_uid(self->threadGroup()->egid());
+	resp.set_gid(self->threadGroup()->egid());
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(
 		conversation,
@@ -186,11 +186,11 @@ HandleRequest::operator()(managarm::posix::SetGidRequest &&req,
 
 	Error err = self->threadGroup()->setGid(req.uid());
 	if(err == Error::accessDenied) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ACCESS_DENIED);
+		co_await sendErrorResponse<managarm::posix::SetGidResponse>(conversation, managarm::posix::Errors::ACCESS_DENIED);
 	} else if(err == Error::illegalArguments) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetGidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	} else {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+		co_await sendErrorResponse<managarm::posix::SetGidResponse>(conversation, managarm::posix::Errors::SUCCESS);
 	}
 	co_return {};
 }
@@ -206,11 +206,11 @@ HandleRequest::operator()(managarm::posix::SetEgidRequest &&req,
 
 	Error err = self->threadGroup()->setEgid(req.uid());
 	if(err == Error::accessDenied) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ACCESS_DENIED);
+		co_await sendErrorResponse<managarm::posix::SetEgidResponse>(conversation, managarm::posix::Errors::ACCESS_DENIED);
 	} else if(err == Error::illegalArguments) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::SetEgidResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 	} else {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::SUCCESS);
+		co_await sendErrorResponse<managarm::posix::SetEgidResponse>(conversation, managarm::posix::Errors::SUCCESS);
 	}
 	co_return {};
 }

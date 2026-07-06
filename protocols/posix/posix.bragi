@@ -37,49 +37,6 @@ enum Errors {
 	INTERNAL_ERROR = 99
 }
 
-consts CntReqType uint32 {
-	INIT = 7,
-	FORK = 8,
-	EXEC = 1,
-	WAIT = 56,
-
-	MOUNT = 21,
-	CHROOT = 24,
-	CHDIR = 58,
-	FCHDIR = 61,
-	SYMLINKAT = 47,
-	READLINK = 31,
-	READ = 3,
-	WRITE = 4,
-	SEEK_ABS = 13,
-	SEEK_REL = 14,
-	SEEK_EOF = 15,
-	DUP = 34,
-	DUP2 = 6,
-	TTY_NAME = 18,
-	GETCWD = 59,
-	FD_GET_FLAGS = 44,
-	FD_SET_FLAGS = 45,
-	GET_RESOURCE_USAGE = 57,
-
-	// Session and process group calls.
-	SETSID = 76,
-
-	// Signal-specific calls.
-	SIG_ACTION = 55,
-
-	// FIFO- and pipe-specific calls.
-	PIPE_CREATE = 52,
-
-	// signalfd()-specific calls
-	SIGNALFD_CREATE = 32,
-
-	HELFD_ATTACH = 10,
-	HELFD_CLONE = 11,
-
-	FD_SERVE = 77
-}
-
 enum EpollCtlOp {
 	EPOLL_ADD = 1,
 	EPOLL_MODIFY = 2,
@@ -124,126 +81,6 @@ consts FileType uint32 {
 	SEMAPHORE = 4
 }
 
-message CntRequest 1 {
-head(128):
-	CntReqType request_type;
-
-	tags {
-		tag(34) int64 pid;
-
-		// used by OPEN
-		tag(3) OpenFlags flags;
-		tag(10) OpenMode mode;
-
-		// used by READ, WRITE, SEEK_REL, SEEK_ABS, SEEK_END, MMAP, CLOSE, DUP2,
-		// HELFD_ATTACH, HELFD_CLONE
-		tag(4) int32 fd;
-
-		// used by DUP2
-		tag(7) int32 newfd;
-
-		// used by READ
-		tag(5) uint32 size;
-
-		// used by SEEK_ABS, SEEK_REL
-		tag(11) int64 rel_offset;
-
-		// used by FORK
-		tag(8) uint64 child_sp;
-		tag(9) uint64 child_ip;
-
-		tag(24) @format(hex) uint64 address;
-
-		// Signal-specific stuff.
-		tag(29) uint64 sig_number;
-		tag(30) uint64 sig_mask;
-		tag(31) @format(hex) uint64 sig_handler;
-		tag(32) @format(hex) uint64 sig_restorer;
-
-		tag(33) uint64 sigset;
-		tag(35) char[16] passthrough_credentials;
-
-		tag(36) uint64 cancellation_id;
-	}
-}
-
-message SvrResponse 2 {
-head(128):
-	tags {
-		tag(3) Errors error;
-
-		tag(21) int64 size;
-
-		tag(24) @format(hex) uint64 flags;
-
-		// returned by GET_PID
-		tag(18) int64 pid;
-
-		// returned by FSTAT
-		tag(5) FileType file_type;
-
-		// returned by FSTAT
-		tag(4) uint64 file_size;
-
-		// returned by FSTAT
-		tag(13) int32 mode;
-
-		// returned by FSTAT
-		tag(22) uint64 fs_devnum;
-		tag(14) uint64 fs_inode;
-
-		tag(23) uint64 ref_devnum;
-
-		// returned by FSTAT
-		tag(17) uint64 num_links;
-
-		// returned by FSTAT
-		tag(15) int64 uid;
-		tag(16) int64 gid;
-
-		// returned by FSTAT
-		tag(7) int64 atime_secs;
-		tag(8) int64 atime_nanos;
-		tag(9) int64 mtime_secs;
-		tag(10) int64 mtime_nanos;
-		tag(11) int64 ctime_secs;
-		tag(12) int64 ctime_nanos;
-
-		// return of OPEN
-		tag(1) int32 fd;
-
-		// returned by SEEK_ABS, SEEK_REL
-		tag(6) @format(hex) uint64 offset;
-
-		// Returned by SETSID.
-		tag(31) int64 sid;
-
-		// returned by TTY_NAME
-		tag(19) string path;
-
-		tag(20) int32[] fds;
-		tag(25) int32[] events;
-
-		// Returned by INOTIFY_ADD.
-		tag(30) int32 wd;
-
-		// Signal-specific stuff.
-		tag(26) uint64 sig_mask;
-		tag(27) uint64 sig_handler;
-		tag(28) uint64 sig_restorer;
-
-		// returned by GET_RESOURCE_USAGE
-		tag(29) uint64 ru_user_time;
-
-		tag(32) uint32 mount_id;
-		tag(33) uint64 stat_dev;
-
-		// returned by FSTATAT for statx
-		tag(34) int32 statx_attr;
-		tag(35) int32 statx_attr_mask;
-	}
-}
-
 message VmMapRequest 3 {
 head(128):
 	int32 fd;
@@ -252,6 +89,12 @@ head(128):
 	@format(hex) uint64 address_hint;
 	int64 rel_offset;
 	uint64 size;
+}
+
+message VmMapResponse 186 {
+head(128):
+	Errors error;
+	uint64 offset;
 }
 
 message OpenAtRequest 4 {
@@ -263,14 +106,31 @@ tail:
 	string path;
 }
 
+message OpenAtResponse 183 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
 message CloseRequest 5 {
 head(128):
 	int32 fd;
 }
 
+message CloseResponse 185 {
+head(128):
+	Errors error;
+}
+
 message IsTtyRequest 6 {
 head(128):
 	int32 fd;
+}
+
+message IsTtyResponse 184 {
+head(128):
+	Errors error;
+	int32 mode;
 }
 
 message RenameAtRequest 7 {
@@ -282,8 +142,19 @@ tail:
 	string target_path;
 }
 
+message RenameAtResponse 190 {
+head(128):
+	Errors error;
+}
+
 message GetUidRequest 8 {
 head(128):
+}
+
+message GetUidResponse 210 {
+head(128):
+	Errors error;
+	int64 uid;
 }
 
 message SetUidRequest 9 {
@@ -291,8 +162,19 @@ head(128):
 	uint64 uid;
 }
 
+message SetUidResponse 211 {
+head(128):
+	Errors error;
+}
+
 message GetEuidRequest 10 {
 head(128):
+}
+
+message GetEuidResponse 212 {
+head(128):
+	Errors error;
+	int64 uid;
 }
 
 message SetEuidRequest 11 {
@@ -300,12 +182,29 @@ head(128):
 	uint64 uid;
 }
 
+message SetEuidResponse 213 {
+head(128):
+	Errors error;
+}
+
 message GetGidRequest 12 {
 head(128):
 }
 
+message GetGidResponse 206 {
+head(128):
+	Errors error;
+	int64 gid;
+}
+
 message GetEgidRequest 13 {
 head(128):
+}
+
+message GetEgidResponse 208 {
+head(128):
+	Errors error;
+	int64 gid;
 }
 
 message SetGidRequest 14 {
@@ -313,9 +212,19 @@ head(128):
 	uint64 uid;
 }
 
+message SetGidResponse 207 {
+head(128):
+	Errors error;
+}
+
 message SetEgidRequest 15 {
 head(128):
 	uint64 uid;
+}
+
+message SetEgidResponse 209 {
+head(128):
+	Errors error;
 }
 
 message UnlinkAtRequest 16 {
@@ -326,6 +235,11 @@ tail:
 	string path;
 }
 
+message UnlinkAtResponse 202 {
+head(128):
+	Errors error;
+}
+
 message FstatAtRequest 17 {
 head(128):
 	int32 fd;
@@ -334,12 +248,40 @@ tail:
 	string path;
 }
 
+message FstatAtResponse 178 {
+head(128):
+	Errors error;
+	FileType file_type;
+	uint64 file_size;
+	uint16 mode;
+	uint64 mount_id;
+	uint64 fs_inode;
+	uint64 ref_devnum;
+	uint32 num_links;
+	uint32 uid;
+	uint32 gid;
+	int64 atime_secs;
+	uint32 atime_nanos;
+	int64 mtime_secs;
+	uint32 mtime_nanos;
+	int64 ctime_secs;
+	uint32 ctime_nanos;
+	uint64 stat_dev;
+	uint64 statx_attr;
+	uint64 statx_attr_mask;
+}
+
 message MkfifoAtRequest 18 {
 head(128):
 	int32 fd;
 	int32 mode;
 tail:
 	string path;
+}
+
+message MkfifoAtResponse 198 {
+head(128):
+	Errors error;
 }
 
 message LinkAtRequest 19 {
@@ -352,6 +294,11 @@ tail:
 	string target_path;
 }
 
+message LinkAtResponse 189 {
+head(128):
+	Errors error;
+}
+
 message FchmodAtRequest 20 {
 head(128):
 	int32 fd;
@@ -359,6 +306,11 @@ head(128):
 	int32 mode;
 tail:
 	string path;
+}
+
+message FchmodAtResponse 204 {
+head(128):
+	Errors error;
 }
 
 message UtimensAtRequest 21 {
@@ -374,10 +326,20 @@ tail:
 	string path;
 }
 
+message UtimensAtResponse 205 {
+head(128):
+	Errors error;
+}
+
 message RmdirRequest 22 {
 head(128):
 tail:
 	string path;
+}
+
+message RmdirResponse 201 {
+head(128):
+	Errors error;
 }
 
 message InotifyAddRequest 23 {
@@ -388,15 +350,33 @@ tail:
 	string path;
 }
 
+message InotifyAddResponse 196 {
+head(128):
+	Errors error;
+	int32 wd;
+}
+
 message InotifyCreateRequest 24 {
 head(128):
 	int32 flags;
+}
+
+message InotifyCreateResponse 195 {
+head(128):
+	Errors error;
+	int32 fd;
 }
 
 message EventfdCreateRequest 25 {
 head(128):
 	uint32 initval;
 	EventFdFlags flags;
+}
+
+message EventfdCreateResponse 197 {
+head(128):
+	Errors error;
+	int32 fd;
 }
 
 message SocketRequest 26 {
@@ -407,6 +387,12 @@ head(128):
 	int32 protocol;
 }
 
+message SocketResponse 192 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
 message SockpairRequest 27 {
 head(128):
 	int32 flags;
@@ -415,8 +401,20 @@ head(128):
 	int32 protocol;
 }
 
+message SockpairResponse 193 {
+head(128):
+	Errors error;
+	int32[2] fds;
+}
+
 message AcceptRequest 28 {
 head(128):
+	int32 fd;
+}
+
+message AcceptResponse 219 {
+head(128):
+	Errors error;
 	int32 fd;
 }
 
@@ -429,6 +427,11 @@ tail:
 	string mount_data;
 }
 
+message MountResponse 221 {
+head(128):
+	Errors error;
+}
+
 message SymlinkAtRequest 30 {
 head(128):
 	int32 fd;
@@ -437,8 +440,19 @@ tail:
 	string target_path;
 }
 
+message SymlinkAtResponse 188 {
+head(128):
+	Errors error;
+}
+
 message GetPpidRequest 31 {
 head(128):
+}
+
+message GetPpidResponse 181 {
+head(128):
+	Errors error;
+	int64 pid;
 }
 
 message MknodAtRequest 32 {
@@ -450,8 +464,19 @@ tail:
 	string path;
 }
 
+message MknodAtResponse 199 {
+head(128):
+	Errors error;
+}
+
 message GetPgidRequest 33 {
 head(128):
+	int64 pid;
+}
+
+message GetPgidResponse 215 {
+head(128):
+	Errors error;
 	int64 pid;
 }
 
@@ -461,14 +486,30 @@ head(128):
 	int64 pgid;
 }
 
+message SetPgidResponse 216 {
+head(128):
+	Errors error;
+}
+
 message GetSidRequest 35 {
 head(128):
+	int64 pid;
+}
+
+message GetSidResponse 214 {
+head(128):
+	Errors error;
 	int64 pid;
 }
 
 message IoctlFioclexRequest 36 {
 head(128):
 	int32 fd;
+}
+
+message IoctlFioclexResponse 222 {
+head(128):
+	Errors error;
 }
 
 message MemFdCreateRequest 37 {
@@ -478,8 +519,20 @@ tail:
 	string name;
 }
 
+message MemFdCreateResponse 179 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
 message GetPidRequest 38 {
 head(128):
+}
+
+message GetPidResponse 180 {
+head(128):
+	Errors error;
+	int64 pid;
 }
 
 message AccessAtRequest 39 {
@@ -490,6 +543,11 @@ tail:
 	string path;
 }
 
+message AccessAtResponse 203 {
+head(128):
+	Errors error;
+}
+
 message MkdirAtRequest 40 {
 head(128):
 	int32 fd;
@@ -498,10 +556,21 @@ tail:
 	string path;
 }
 
+message MkdirAtResponse 187 {
+head(128):
+	Errors error;
+}
+
 message GetAffinityRequest 41 {
 head(128):
 	int64 pid;
 	uint64 size;
+}
+
+message GetAffinityResponse 218 {
+head(128):
+	Errors error;
+	int64 pid;
 }
 
 message SetAffinityRequest 42 {
@@ -509,6 +578,11 @@ head(128):
 	int64 pid;
 tail:
 	uint8[] mask;
+}
+
+message SetAffinityResponse 217 {
+head(128):
+	Errors error;
 }
 
 message WaitIdRequest 43 {
@@ -532,6 +606,11 @@ head(128):
 	int32 fd;
 tail:
 	string path;
+}
+
+message ReadlinkAtResponse 200 {
+head(128):
+	Errors error;
 }
 
 message NetserverRequest 46 {
@@ -563,6 +642,11 @@ head(128):
 message RebootRequest 47 {
 head(128):
 	int64 cmd;
+}
+
+message RebootResponse 194 {
+head(128):
+	Errors error;
 }
 
 message FstatfsRequest 95 {
@@ -704,7 +788,6 @@ message PidfdGetPidRequest 113 {
 head(128):
 	int32 pidfd;
 }
-
 
 message PidfdGetPidResponse 114 {
 head(128):
@@ -882,6 +965,12 @@ head(128):
 	uint64 new_size;
 }
 
+message VmRemapResponse 220 {
+head(128):
+	Errors error;
+	uint64 offset;
+}
+
 message VmProtectRequest 142 {
 head(128):
 	@format(hex) uint64 address;
@@ -889,10 +978,20 @@ head(128):
 	uint32 mode;
 }
 
+message VmProtectResponse 182 {
+head(128):
+	Errors error;
+}
+
 message VmUnmapRequest 143 {
 head(128):
 	@format(hex) uint64 address;
 	uint64 size;
+}
+
+message VmUnmapResponse 191 {
+head(128):
+	Errors error;
 }
 
 message EpollCallRequest 144 {
@@ -947,6 +1046,163 @@ head(128):
 }
 
 message EpollCreateResponse 151 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
+message PipeCreateRequest 152 {
+head(128):
+	int32 flags;
+}
+
+message PipeCreateResponse 153 {
+head(128):
+	Errors error;
+	int32[2] fds;
+}
+
+message SignalfdCreateRequest 154 {
+head(128):
+	int32 flags;
+	int32 fd;
+	uint64 sigset;
+}
+
+message SignalfdCreateResponse 155 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
+message SetSidRequest 156 {
+head(128):
+}
+
+message SetSidResponse 157 {
+head(128):
+	Errors error;
+	int64 sid;
+}
+
+message SigactionRequest 158 {
+head(128):
+	uint64 sig_number;
+	uint64 sig_mask;
+	@format(hex) uint64 sig_handler;
+	@format(hex) uint64 sig_restorer;
+	int32 flags;
+	uint32 mode;
+}
+
+message SigactionResponse 159 {
+head(128):
+	Errors error;
+	int32 flags;
+	uint64 sig_mask;
+	@format(hex) uint64 sig_handler;
+	@format(hex) uint64 sig_restorer;
+}
+
+message FdGetFlagsRequest 160 {
+head(128):
+	int32 fd;
+}
+
+message FdGetFlagsResponse 161 {
+head(128):
+	Errors error;
+	int32 flags;
+}
+
+message FdSetFlagsRequest 162 {
+head(128):
+	int32 fd;
+	int32 flags;
+}
+
+message FdSetFlagsResponse 163 {
+head(128):
+	Errors error;
+}
+
+message GetCwdRequest 164 {
+head(128):
+	uint32 size;
+}
+
+message GetCwdResponse 165 {
+head(128):
+	Errors error;
+	uint32 size;
+}
+
+message TtyNameRequest 166 {
+head(128):
+	int32 fd;
+}
+
+message TtyNameResponse 167 {
+head(128):
+	Errors error;
+tail:
+	string path;
+}
+
+message DupRequest 168 {
+head(128):
+	int32 fd;
+	OpenFlags flags;
+}
+
+message DupResponse 169 {
+head(128):
+	Errors error;
+	int32 fd;
+}
+
+message FchdirRequest 170 {
+head(128):
+	int32 fd;
+}
+
+message FchdirResponse 171 {
+head(128):
+	Errors error;
+}
+
+message GetResourceUsageRequest 172 {
+head(128):
+	int32 mode;
+}
+
+message GetResourceUsageResponse 173 {
+head(128):
+	Errors error;
+	uint64 ru_user_time;
+}
+
+message WaitRequest 174 {
+head(128):
+	int64 pid;
+	int32 flags;
+	uint64 cancellation_id;
+}
+
+message WaitResponse 175 {
+head(128):
+	Errors error;
+	int64 pid;
+	uint32 status;
+	uint64 ru_user_time;
+}
+
+message ServeFdRequest 176 {
+head(128):
+	char[16] passthrough_credentials;
+}
+
+message ServeFdResponse 177 {
 head(128):
 	Errors error;
 	int32 fd;

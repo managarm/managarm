@@ -17,12 +17,12 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	// TODO: Validate req.flags().
 
 	if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
 	if(req.rel_offset() & 0xFFF) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -57,7 +57,7 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 
 		if(req.size() == 0) {
 			std::cout << "posix: VM_MAP with size 0 is not allowed" << std::endl;
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 
@@ -84,7 +84,7 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 		assert(file && "Illegal FD for VM_MAP");
 		auto memory = co_await file->accessMemory();
 		if(!memory) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 			co_return {};
 		}
 		result = co_await self->vmContext()->mapFile(hint,
@@ -95,15 +95,15 @@ HandleRequest::operator()(managarm::posix::VmMapRequest &&req,
 	if(!result) {
 		assert(result.error() == Error::alreadyExists || result.error() == Error::noMemory);
 		if(result.error() == Error::alreadyExists)
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::ALREADY_EXISTS);
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::ALREADY_EXISTS);
 		else if(result.error() == Error::noMemory)
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_MEMORY);
+			co_await sendErrorResponse<managarm::posix::VmMapResponse>(conversation, managarm::posix::Errors::NO_MEMORY);
 		co_return {};
 	}
 
 	void *address = result.unwrap();
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::VmMapResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_offset(reinterpret_cast<uintptr_t>(address));
 
@@ -127,12 +127,10 @@ HandleRequest::operator()(managarm::posix::MemFdCreateRequest &&req,
 		co_return std::unexpected(tailRes.error());
 	logBragiRequest(req);
 
-	managarm::posix::SvrResponse resp;
-
 	logRequest(logRequests, self, "MEMFD_CREATE", "'{}'", req.name());
 
 	if(req.flags() & ~(MFD_CLOEXEC | MFD_ALLOW_SEALING)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::MemFdCreateResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -149,6 +147,7 @@ HandleRequest::operator()(managarm::posix::MemFdCreateRequest &&req,
 		flags |= managarm::posix::OpenFlags::OF_CLOEXEC;
 	}
 
+	managarm::posix::MemFdCreateResponse resp;
 	auto fd = self->fileContext()->attachFile(file, flags);
 
 	if (fd) {
@@ -179,7 +178,7 @@ HandleRequest::operator()(managarm::posix::VmRemapRequest &&req,
 	auto address = co_await self->vmContext()->remapFile(
 			reinterpret_cast<void *>(req.address()), req.size(), req.new_size());
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::VmRemapResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	resp.set_offset(reinterpret_cast<uintptr_t>(address));
 
@@ -201,7 +200,7 @@ HandleRequest::operator()(managarm::posix::VmProtectRequest &&req,
 	logRequest(logRequests, self, "VM_PROTECT");
 
 	if(req.mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::VmProtectResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -216,7 +215,7 @@ HandleRequest::operator()(managarm::posix::VmProtectRequest &&req,
 	co_await self->vmContext()->protectFile(
 			reinterpret_cast<void *>(req.address()), req.size(), native_flags);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::VmProtectResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
 		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
@@ -238,7 +237,7 @@ HandleRequest::operator()(managarm::posix::VmUnmapRequest &&req,
 	size_t size = req.size();
 
 	if(req.address() & 0xFFF || size == 0) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::VmUnmapResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -248,7 +247,7 @@ HandleRequest::operator()(managarm::posix::VmUnmapRequest &&req,
 
 	self->vmContext()->unmapFile(reinterpret_cast<void *>(req.address()), size);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::VmUnmapResponse resp;
 	resp.set_error(managarm::posix::Errors::SUCCESS);
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

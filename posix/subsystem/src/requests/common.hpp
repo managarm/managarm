@@ -105,7 +105,7 @@ struct HandleRequest {
 		);
 	}
 
-	template <typename Response = managarm::posix::SvrResponse>
+	template <typename Response>
 	async::result<void> sendErrorResponse(helix::BorrowedDescriptor conversation,
 			managarm::posix::Errors err) {
 		Response resp;
@@ -123,6 +123,10 @@ struct HandleRequest {
 	// From fd.cpp
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::Dup2Request &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::DupRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
@@ -149,6 +153,14 @@ struct HandleRequest {
 	operator()(managarm::posix::EpollWaitRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FdGetFlagsRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FdSetFlagsRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From filesystem.cpp
 	async::result<std::expected<void, DispatchError>>
@@ -157,6 +169,10 @@ struct HandleRequest {
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::ChdirRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::FchdirRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
@@ -227,6 +243,14 @@ struct HandleRequest {
 	operator()(managarm::posix::UmaskRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetCwdRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::TtyNameRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
 
 	// From special-files.cpp
 	async::result<std::expected<void, DispatchError>>
@@ -271,6 +295,14 @@ struct HandleRequest {
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::EpollCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::PipeCreateRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SignalfdCreateRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 
@@ -352,6 +384,10 @@ struct HandleRequest {
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::WaitRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::SetAffinityRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
@@ -372,6 +408,10 @@ struct HandleRequest {
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SetSidRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::ParentDeathSignalRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
@@ -381,6 +421,14 @@ struct HandleRequest {
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::SetResourceLimitRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::GetResourceUsageRequest &&req, helix::BorrowedDescriptor conversation,
+			bragi::preamble preamble, std::shared_ptr<Process> self,
+			std::shared_ptr<Generation> generation);
+	async::result<std::expected<void, DispatchError>>
+	operator()(managarm::posix::SigactionRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 
@@ -439,12 +487,6 @@ struct HandleRequest {
 			std::shared_ptr<Generation> generation);
 	async::result<std::expected<void, DispatchError>>
 	operator()(managarm::posix::TimerDeleteRequest &&req, helix::BorrowedDescriptor conversation,
-			bragi::preamble preamble, std::shared_ptr<Process> self,
-			std::shared_ptr<Generation> generation);
-
-	// From legacy.cpp
-	async::result<std::expected<void, DispatchError>>
-	operator()(managarm::posix::CntRequest &&req, helix::BorrowedDescriptor conversation,
 			bragi::preamble preamble, std::shared_ptr<Process> self,
 			std::shared_ptr<Generation> generation);
 };

@@ -1,6 +1,7 @@
 
 #include <string.h>
 
+#include <bragi/helpers-std.hpp>
 #include <helix/memory.hpp>
 #include <protocols/fs/client.hpp>
 #include <protocols/fs/defs.hpp>
@@ -316,12 +317,20 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 		HEL_CHECK(recv_req.error());
 		auto conversation = accept.descriptor();
 
-		managarm::posix::CntRequest req;
-		req.ParseFromArray(recv_req.data(), recv_req.length());
-		recv_req.reset();
+		auto preamble = bragi::read_preamble(recv_req);
+		if (preamble.error()) {
+			std::println("posix: error decoding preamble");
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
+		}
+		auto id = preamble.id();
 
-		if(req.request_type() == managarm::posix::CntReqType::FD_SERVE) {
-			managarm::posix::SvrResponse resp;
+		if(id == bragi::message_id<managarm::posix::ServeFdRequest>) {
+			auto req = *bragi::parse_head_only<managarm::posix::ServeFdRequest>(recv_req);
+			recv_req.reset();
+
+			managarm::posix::ServeFdResponse resp;
 
 			auto [recv_handle] = co_await helix_ng::exchangeMsgs(
 				conversation,
@@ -354,6 +363,10 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 				helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
 			);
 			HEL_CHECK(send_resp.error());
+		} else {
+			auto [dismiss] = co_await helix_ng::exchangeMsgs(
+				conversation, helix_ng::dismiss());
+			HEL_CHECK(dismiss.error());
 		}
 	}
 }

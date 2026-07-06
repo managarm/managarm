@@ -18,15 +18,19 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 		auto res = co_await dispatchRequest<
 			// From fd.cpp
 			managarm::posix::Dup2Request,
+			managarm::posix::DupRequest,
 			managarm::posix::IsTtyRequest,
 			managarm::posix::IoctlFioclexRequest,
 			managarm::posix::CloseRequest,
 			managarm::posix::EpollCallRequest,
 			managarm::posix::EpollCtlRequest,
 			managarm::posix::EpollWaitRequest,
+			managarm::posix::FdGetFlagsRequest,
+			managarm::posix::FdSetFlagsRequest,
 			// From filesystem.cpp
 			managarm::posix::ChrootRequest,
 			managarm::posix::ChdirRequest,
+			managarm::posix::FchdirRequest,
 			managarm::posix::AccessAtRequest,
 			managarm::posix::MkdirAtRequest,
 			managarm::posix::MkfifoAtRequest,
@@ -44,6 +48,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::OpenAtRequest,
 			managarm::posix::MknodAtRequest,
 			managarm::posix::UmaskRequest,
+			managarm::posix::GetCwdRequest,
+			managarm::posix::TtyNameRequest,
 			// From special-files.cpp
 			managarm::posix::InotifyCreateRequest,
 			managarm::posix::InotifyAddRequest,
@@ -56,6 +62,8 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::PidfdSendSignalRequest,
 			managarm::posix::PidfdGetPidRequest,
 			managarm::posix::EpollCreateRequest,
+			managarm::posix::PipeCreateRequest,
+			managarm::posix::SignalfdCreateRequest,
 			// From memory.cpp
 			managarm::posix::VmMapRequest,
 			managarm::posix::VmRemapRequest,
@@ -77,14 +85,18 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::SetGroupsRequest,
 			// From process.cpp
 			managarm::posix::WaitIdRequest,
+			managarm::posix::WaitRequest,
 			managarm::posix::SetAffinityRequest,
 			managarm::posix::GetAffinityRequest,
 			managarm::posix::GetPgidRequest,
 			managarm::posix::SetPgidRequest,
 			managarm::posix::GetSidRequest,
+			managarm::posix::SetSidRequest,
 			managarm::posix::ParentDeathSignalRequest,
 			managarm::posix::ProcessDumpableRequest,
 			managarm::posix::SetResourceLimitRequest,
+			managarm::posix::GetResourceUsageRequest,
+			managarm::posix::SigactionRequest,
 			// From socket.cpp
 			managarm::posix::NetserverRequest,
 			managarm::posix::SocketRequest,
@@ -100,9 +112,7 @@ async::result<void> serveRequests(std::shared_ptr<Process> self,
 			managarm::posix::TimerCreateRequest,
 			managarm::posix::TimerSetRequest,
 			managarm::posix::TimerGetRequest,
-			managarm::posix::TimerDeleteRequest,
-			// From legacy.cpp
-			managarm::posix::CntRequest
+			managarm::posix::TimerDeleteRequest
 		>(self->posixLane(), requests::HandleRequest{}, self, generation);
 
 		if(!res) {

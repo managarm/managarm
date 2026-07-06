@@ -1,8 +1,10 @@
 #include "common.hpp"
 #include "../epoll.hpp"
 #include "../eventfd.hpp"
+#include "../fifo.hpp"
 #include "../inotify.hpp"
 #include "../pidfd.hpp"
+#include "../signalfd.hpp"
 #include "../timerfd.hpp"
 #include <sys/inotify.h>
 #include <sys/pidfd.h>
@@ -20,7 +22,7 @@ HandleRequest::operator()(managarm::posix::InotifyCreateRequest &&req,
 	logRequest(logRequests, self, "INOTIFY_CREATE");
 
 	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC | managarm::posix::OpenFlags::OF_NONBLOCK)) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyCreateResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -28,7 +30,7 @@ HandleRequest::operator()(managarm::posix::InotifyCreateRequest &&req,
 	auto fd = self->fileContext()->attachFile(file,
 			req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::InotifyCreateResponse resp;
 	if (fd) {
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_fd(fd.value());
@@ -57,16 +59,16 @@ HandleRequest::operator()(managarm::posix::InotifyAddRequest &&req,
 		co_return std::unexpected(tailRes.error());
 	logBragiRequest(req);
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::InotifyAddResponse resp;
 
 	logRequest(logRequests || logPaths, self, "INOTIFY_ADD");
 
 	auto ifile = self->fileContext()->getFile(req.fd());
 	if(!ifile) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
 		co_return {};
 	} else if(ifile->kind() != FileKind::inotify) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -81,10 +83,10 @@ HandleRequest::operator()(managarm::posix::InotifyAddRequest &&req,
 	auto resolveResult = co_await resolver.resolve(flags);
 	if(!resolveResult) {
 		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
+			co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
 			co_return {};
 		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
+			co_await sendErrorResponse<managarm::posix::InotifyAddResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
 			co_return {};
 		} else {
 			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
@@ -123,7 +125,7 @@ HandleRequest::operator()(managarm::posix::InotifyRmRequest &&req,
 		resp.set_error(managarm::posix::Errors::BAD_FD);
 		co_return {};
 	} else if(ifile->kind() != FileKind::inotify) {
-		co_await sendErrorResponse(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_await sendErrorResponse<managarm::posix::InotifyRmReply>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 		co_return {};
 	}
 
@@ -151,7 +153,7 @@ HandleRequest::operator()(managarm::posix::EventfdCreateRequest &&req,
 
 	logRequest(logRequests, self, "EVENTFD_CREATE");
 
-	managarm::posix::SvrResponse resp;
+	managarm::posix::EventfdCreateResponse resp;
 
 	if (req.flags() & ~(managarm::posix::EventFdFlags::CLOEXEC
 			| managarm::posix::EventFdFlags::NONBLOCK
@@ -434,6 +436,93 @@ HandleRequest::operator()(managarm::posix::EpollCreateRequest &&req,
 		resp.set_fd(fd.value());
 	} else {
 		resp.set_error(fd.error() | toPosixProtoError);
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::PipeCreateRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "PIPE_CREATE");
+
+	assert(!(req.flags() & ~(O_CLOEXEC | O_NONBLOCK)));
+
+	bool nonBlock = false;
+
+	if(req.flags() & O_NONBLOCK)
+		nonBlock = true;
+
+	auto pair = fifo::createPair(nonBlock);
+	auto r_fd = self->fileContext()->attachFile(std::get<0>(pair),
+			req.flags() & O_CLOEXEC);
+	auto w_fd = self->fileContext()->attachFile(std::get<1>(pair),
+			req.flags() & O_CLOEXEC);
+
+	managarm::posix::PipeCreateResponse resp;
+	if (r_fd && w_fd) {
+		resp.set_error(managarm::posix::Errors::SUCCESS);
+		resp.set_fds({r_fd.value(), w_fd.value()});
+	} else {
+		resp.set_error((!r_fd ? r_fd.error() : w_fd.error()) | toPosixProtoError);
+		if (r_fd)
+			self->fileContext()->closeFile(r_fd.value());
+		if (w_fd)
+			self->fileContext()->closeFile(w_fd.value());
+	}
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::SignalfdCreateRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "SIGNALFD_CREATE");
+
+	if(req.flags() & ~(managarm::posix::OpenFlags::OF_CLOEXEC
+			| managarm::posix::OpenFlags::OF_NONBLOCK)) {
+		co_await sendErrorResponse<managarm::posix::SignalfdCreateResponse>(conversation, managarm::posix::Errors::ILLEGAL_ARGUMENTS);
+		co_return {};
+	}
+
+	managarm::posix::SignalfdCreateResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+
+	if(req.fd() == -1) {
+		auto file = createSignalFile(req.sigset(),
+				req.flags() & managarm::posix::OpenFlags::OF_NONBLOCK);
+		auto fd = self->fileContext()->attachFile(file,
+				req.flags() & managarm::posix::OpenFlags::OF_CLOEXEC);
+
+		if (fd)
+			resp.set_fd(fd.value());
+		else
+			resp.set_error(fd.error() | toPosixProtoError);
+	} else {
+		auto file = self->fileContext()->getFile(req.fd());
+		if(file) {
+			auto signal_file = static_cast<signal_fd::OpenFile *>(file.get());
+			signal_file->mask() = req.sigset();
+			resp.set_fd(req.fd());
+		} else {
+			resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
+		}
 	}
 
 	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,

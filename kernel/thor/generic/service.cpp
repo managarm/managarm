@@ -542,21 +542,16 @@ namespace posix {
 			auto preamble = bragi::read_preamble(reqBuffer);
 			assert(!preamble.error());
 
-			if(preamble.id() == bragi::message_id<managarm::posix::CntRequest>) {
-				auto req = bragi::parse_head_only<managarm::posix::CntRequest>(
-						reqBuffer, *kernelAlloc);
-				if(!req) {
+			if(preamble.id() == bragi::message_id<managarm::posix::SigactionRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::SigactionRequest>(
+					reqBuffer, *kernelAlloc
+				);
+				if (!req) {
 					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
 					co_return;
 				}
 
-				// mlibc tries to install a signal handler to support cancellation.
-				if(req->request_type() != managarm::posix::CntReqType::SIG_ACTION) {
-					infoLogger() << "thor: Unexpected legacy POSIX request "
-						<< req->request_type() << frg::endlog;
-				}
-
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::SigactionResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -575,7 +570,7 @@ namespace posix {
 				}
 
 				if(req->mode() & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmProtectResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -602,7 +597,7 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(result);
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::VmProtectResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -632,7 +627,7 @@ namespace posix {
 
 				auto module = resolveModule(req->path());
 				if(!module) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -655,7 +650,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -680,7 +675,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -704,7 +699,7 @@ namespace posix {
 
 					auto fd = co_await attachFile(info.thread, file);
 
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::OpenAtResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::SUCCESS);
 					resp.set_fd(fd);
 
@@ -733,7 +728,7 @@ namespace posix {
 				auto module = resolveModule(req->path());
 				if(!module || module->type != MfsType::regular) {
 					infoLogger() << "thor: cannot stat file " << req->path() << frg::endlog;
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::FstatAtResponse resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::FILE_NOT_FOUND);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -750,7 +745,7 @@ namespace posix {
 
 				auto file = static_cast<MfsRegular *>(module);
 
-				managarm::posix::SvrResponse resp(*kernelAlloc);
+				managarm::posix::FstatAtResponse resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_file_size(file->size());
 				resp.set_file_type(managarm::posix::FileType::FT_REGULAR);
@@ -775,7 +770,7 @@ namespace posix {
 				assert((size_t)req->fd() < openFiles.size());
 				auto file = openFiles[req->fd()];
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::IsTtyResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_mode(file->isTerminal ? 1 : 0);
 
@@ -795,7 +790,7 @@ namespace posix {
 				}
 
 				// TODO: for now we just ignore close requests.
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::CloseResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 
 				frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -814,7 +809,7 @@ namespace posix {
 				}
 
 				if(!req->size()) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -840,7 +835,7 @@ namespace posix {
 					protFlags |= AddressSpace::kMapPreferTop;
 
 				if (req->flags() & ~(MAP_ANONYMOUS | MAP_FIXED | MAP_PRIVATE)) {
-					managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+					managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 					resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
 
 					frg::string<KernelAlloc> ser(*kernelAlloc);
@@ -889,7 +884,7 @@ namespace posix {
 				// TODO: improve error handling here.
 				assert(mapResult);
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::VmMapResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_offset(mapResult.value());
 
@@ -908,7 +903,7 @@ namespace posix {
 					co_return;
 				}
 
-				managarm::posix::SvrResponse<KernelAlloc> resp(*kernelAlloc);
+				managarm::posix::GetPidResponse<KernelAlloc> resp(*kernelAlloc);
 				resp.set_error(managarm::posix::Errors::SUCCESS);
 				resp.set_pid(info.tid);
 
@@ -950,6 +945,25 @@ namespace posix {
 					infoLogger() << "thor: Could not send EpollCallResponse tail" << frg::endlog;
 					co_return;
 				}
+			}else if(preamble.id() == bragi::message_id<managarm::posix::FdGetFlagsRequest>) {
+				auto req = bragi::parse_head_only<managarm::posix::FdGetFlagsRequest>(
+					reqBuffer, *kernelAlloc
+				);
+				if (!req) {
+					infoLogger() << "thor: Could not parse POSIX request" << frg::endlog;
+					co_return;
+				}
+
+				managarm::posix::FdGetFlagsResponse<KernelAlloc> resp(*kernelAlloc);
+				resp.set_error(managarm::posix::Errors::ILLEGAL_REQUEST);
+
+				frg::string<KernelAlloc> ser(*kernelAlloc);
+				resp.SerializeToString(&ser);
+				frg::unique_memory<KernelAlloc> respBuffer{*kernelAlloc, ser.size()};
+				memcpy(respBuffer.data(), ser.data(), ser.size());
+				auto respError = co_await sendBuffer(conversation, std::move(respBuffer));
+				// TODO: improve error handling here.
+				assert(respError == Error::success);
 			}else{
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;
