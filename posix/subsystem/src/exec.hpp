@@ -6,6 +6,10 @@ struct ExecuteResult {
 	helix::UniqueDescriptor thread;
 	void *auxBegin = nullptr;
 	void *auxEnd = nullptr;
+	uid_t effectiveUid = 0;
+	gid_t effectiveGid = 0;
+	uid_t savedUid = 0;
+	gid_t savedGid = 0;
 };
 
 async::result<frg::expected<Error, ExecuteResult>>
