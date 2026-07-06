@@ -47,10 +47,10 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			flags |= waitNonBlocking;
 
 		if(req.flags() & WUNTRACED)
-			std::cout << "\e[31mposix: WAIT flag WUNTRACED is silently ignored\e[39m" << std::endl;
+			flags |= waitStopped;
 
 		if(req.flags() & WCONTINUED)
-			std::cout << "\e[31mposix: WAIT flag WCONTINUED is silently ignored\e[39m" << std::endl;
+			flags |= waitContinued;
 
 		logRequest(logRequests, self, "WAIT", "pid={}", req.pid());
 
@@ -79,6 +79,10 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 				mode |= W_EXITCODE(byExit->code, 0);
 			}else if(auto bySignal = std::get_if<TerminationBySignal>(&proc_state.state); bySignal) {
 				mode |= W_EXITCODE(0, bySignal->signo);
+			}else if(auto stopped = std::get_if<StoppedBySignal>(&proc_state.state); stopped) {
+				mode |= W_EXITCODE(stopped->signo, 0x7f);
+			}else if(auto continued = std::get_if<ContinuedBySignal>(&proc_state.state); continued) {
+				mode |= 0xFFFF;
 			}else{
 				assert(std::holds_alternative<std::monostate>(proc_state.state));
 			}
@@ -323,32 +327,35 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			co_return {};
 		}
 
-		auto removePendingSignal = [&](int signo) -> async::result<void> {
-			if (self->delayedSignal && self->delayedSignal->signalNumber == static_cast<int>(signo)) {
+		auto removePendingSignal = [&](int signo) {
+			if (self->delayedSignal && self->delayedSignal->signalNumber == signo) {
 				// If there is a pending signal that is now being ignored, remove it.
 				delete self->delayedSignal;
 				self->delayedSignal = nullptr;
 				self->delayedSignalHandling = std::nullopt;
 			}
 
-			while (co_await self->fetchSignal(1 << (signo - 1), true) != nullptr);
+			while (auto item = self->tryFetchSignal(1 << (signo - 1)))
+				delete item;
 		};
 
-		std::set<int> defaultIgnoredSignals = {SIGCHLD, SIGURG, SIGWINCH};
+		auto defaultIgnoredSignals = {SIGCHLD, SIGURG, SIGWINCH};
+		auto disallowIgnoring = {SIGKILL, SIGSTOP};
 
-		SignalHandler saved_handler;
-		if(req.mode()) {
+		auto determineNewHandler = [&]() -> SignalHandler {
 			SignalHandler handler;
 			if(req.sig_handler() == uintptr_t(SIG_DFL)) {
 				handler.disposition = SignalDisposition::none;
 				// POSIX requires discarding pending signals when setting SIG_DFL for signals,
 				// if their default action is to ignore (POSIX 2024, B.2.4.3 Signal Actions)
-				if (defaultIgnoredSignals.contains(req.sig_number()))
-					co_await removePendingSignal(req.sig_number());
+				if (std::ranges::contains(defaultIgnoredSignals, req.sig_number()))
+					removePendingSignal(req.sig_number());
 			}else if(req.sig_handler() == uintptr_t(SIG_IGN)) {
+				if (std::ranges::contains(disallowIgnoring, req.sig_number()))
+					return self->threadGroup()->signalContext()->getHandler(req.sig_number());
 				// POSIX requires discarding pending signals when setting SIG_IGN
 				handler.disposition = SignalDisposition::ignore;
-				co_await removePendingSignal(req.sig_number());
+				removePendingSignal(req.sig_number());
 			}else{
 				handler.disposition = SignalDisposition::handle;
 				handler.handlerIp = req.sig_handler();
@@ -367,11 +374,16 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			if(req.flags() & SA_ONSTACK)
 				handler.flags |= signalOnStack;
 			if(req.flags() & SA_NOCLDSTOP)
-				std::cout << "\e[31mposix: Ignoring SA_NOCLDSTOP\e[39m" << std::endl;
+				handler.flags |= signalNoChildStopped;
 			if(req.flags() & SA_NOCLDWAIT)
 				handler.flags |= signalNoChildWait;
 
-			saved_handler = self->threadGroup()->signalContext()->changeHandler(req.sig_number(), handler);
+			return self->threadGroup()->signalContext()->changeHandler(req.sig_number(), handler);
+		};
+
+		SignalHandler saved_handler;
+		if(req.mode()) {
+			saved_handler = determineNewHandler();
 		}else{
 			saved_handler = self->threadGroup()->signalContext()->getHandler(req.sig_number());
 		}
@@ -387,6 +399,8 @@ HandleRequest::operator()(managarm::posix::CntRequest &&req,
 			saved_flags |= SA_ONSTACK;
 		if(saved_handler.flags & signalNoChildWait)
 			saved_flags |= SA_NOCLDWAIT;
+		if(saved_handler.flags & signalNoChildStopped)
+			saved_flags |= SA_NOCLDSTOP;
 
 		resp.set_error(managarm::posix::Errors::SUCCESS);
 		resp.set_flags(saved_flags);
