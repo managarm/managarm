@@ -1337,7 +1337,13 @@ async::detached FileSystem::manageFileData(std::shared_ptr<Inode> inode) {
 				&manage, helix::Dispatcher::global());
 		co_await submit.async_wait();
 		HEL_CHECK(manage.error());
-		assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
+		if(manage.type() == kHelManageInitialize) {
+			assert(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)));
+		}else{
+			if(!(manage.offset() + manage.length() <= ((inode->fileSize() + 0xFFF) & ~size_t(0xFFF)))) {
+				continue;
+			}
+		}
 
 		protocols::ostrace::Timer timer;
 		auto fileView = pool->importMemory(
