@@ -5,7 +5,7 @@
 #include "file.hpp"
 #include "fs.hpp"
 
-struct MemoryFile final : File {
+struct MemoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<MemoryFile> file) {
 		helix::UniqueLane lane;
@@ -15,7 +15,7 @@ public:
 	}
 
 	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, bool allowSealing)
-	: File{FileKind::unknown,  StructName::get("memfd-file"), mount, link}, _offset{0} {
+	: FileWithDefaults{FileKind::unknown,  StructName::get("memfd-file"), mount, link}, _offset{0} {
 		if(!allowSealing) {
 			_seals = F_SEAL_SEAL;
 		}

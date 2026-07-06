@@ -9,7 +9,7 @@
 
 namespace {
 
-struct ZeroFile final : File {
+struct ZeroFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
@@ -41,7 +41,7 @@ public:
 	}
 
 	ZeroFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("zero-file"), std::move(mount), std::move(link)} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("zero-file"), std::move(mount), std::move(link)} { }
 };
 
 struct ZeroDevice final : UnixDevice {

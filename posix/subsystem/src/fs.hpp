@@ -216,6 +216,8 @@ public:
 
 	void notifyObservers(uint32_t inotifyEvents, const std::string &name, uint32_t cookie, bool isDir = false);
 
+	protocols::fs::FlockManager flockManager;
+
 private:
 	FsSuperblock *_superblock;
 	DefaultOps _defaultOps;

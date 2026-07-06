@@ -10,7 +10,7 @@
 
 namespace {
 
-struct HeloutFile final : File {
+struct HeloutFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token) override {
@@ -44,7 +44,7 @@ private:
 
 public:
 	HeloutFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("helout"), std::move(mount), std::move(link),
+	: FileWithDefaults{FileKind::unknown,  StructName::get("helout"), std::move(mount), std::move(link),
 			File::defaultIsTerminal} { }
 };
 

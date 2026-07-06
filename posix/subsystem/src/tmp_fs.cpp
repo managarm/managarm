@@ -273,7 +273,7 @@ struct LinkCompare {
 
 struct DirectoryNode;
 
-struct DirectoryFile final : File {
+struct DirectoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
@@ -434,7 +434,7 @@ private:
 	std::string _path;
 };
 
-struct MemoryFile final : File {
+struct MemoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<MemoryFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -446,7 +446,7 @@ public:
 	}
 
 	MemoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, SemanticFlags flags)
-	: File{FileKind::unknown,  StructName::get("tmpfs.regular"), std::move(mount), std::move(link)},
+	: FileWithDefaults{FileKind::unknown,  StructName::get("tmpfs.regular"), std::move(mount), std::move(link)},
 	flags_{flags}, _offset{0} { }
 
 	void handleClose() override;
@@ -774,7 +774,7 @@ void DirectoryFile::handleClose() {
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{FileKind::unknown,  StructName::get("tmpfs.dir"), std::move(mount), std::move(link)},
+: FileWithDefaults{FileKind::unknown,  StructName::get("tmpfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 

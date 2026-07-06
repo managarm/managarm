@@ -22,7 +22,7 @@ namespace {
 constexpr int supportedFlags = IN_DELETE | IN_CREATE | IN_ISDIR | IN_DELETE_SELF | IN_MODIFY | IN_ACCESS | IN_CLOSE;
 constexpr int alwaysReturnedFlags = IN_IGNORED | IN_ISDIR | IN_Q_OVERFLOW | IN_UNMOUNT;
 
-struct OpenFile : File {
+struct OpenFile : FileWithDefaults {
 public:
 	struct Packet {
 		int descriptor;
@@ -102,7 +102,7 @@ public:
 	}
 
 	OpenFile(bool nonBlock = false)
-	: File{FileKind::inotify,  StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
+	: FileWithDefaults{FileKind::inotify,  StructName::get("inotify"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777)}, nonBlock_{nonBlock} { }
 
 	~OpenFile() override { }
 

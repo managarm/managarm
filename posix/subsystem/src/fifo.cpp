@@ -47,7 +47,7 @@ struct Channel {
 	frg::byte_ring_buffer<frg::stl_allocator> ring;
 };
 
-struct OpenFile : File {
+struct OpenFile : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);
@@ -60,7 +60,7 @@ public:
 
 	OpenFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		bool isReader, bool isWriter, bool nonBlock = false)
-	: File{FileKind::unknown,  StructName::get("fifo"), mount, link, File::defaultPipeLikeSeek},
+	: FileWithDefaults{FileKind::unknown,  StructName::get("fifo"), mount, link, File::defaultPipeLikeSeek},
 		isReader_{isReader}, isWriter_{isWriter}, nonBlock_{nonBlock} { }
 
 	void connectChannel(std::shared_ptr<Channel> channel) {
