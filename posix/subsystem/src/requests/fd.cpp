@@ -111,6 +111,38 @@ HandleRequest::operator()(managarm::posix::DupRequest &&req,
 }
 
 async::result<std::expected<void, DispatchError>>
+HandleRequest::operator()(managarm::posix::DupFdQueryRequest &&req,
+		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
+		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
+	id = preamble.id();
+	logBragiRequest(req);
+	logRequest(logRequests, self, "DUPFD_QUERY", "fd={}, query_fd={}", req.fd(), req.query_fd());
+
+	auto file = self->fileContext()->getFile(req.fd());
+	if (!file) {
+		co_await sendErrorResponse<managarm::posix::DupFdQueryResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	auto query_file = self->fileContext()->getFile(req.query_fd());
+	if (!query_file) {
+		co_await sendErrorResponse<managarm::posix::DupFdQueryResponse>(conversation, managarm::posix::Errors::NO_SUCH_FD);
+		co_return {};
+	}
+
+	managarm::posix::DupFdQueryResponse resp;
+	resp.set_error(managarm::posix::Errors::SUCCESS);
+	resp.set_result(file.get() == query_file.get() ? 1 : 0);
+
+	auto [send_resp] = co_await helix_ng::exchangeMsgs(conversation,
+		helix_ng::sendBragiHeadOnly(resp, frg::stl_allocator{})
+	);
+	HEL_CHECK(send_resp.error());
+	logBragiReply(resp);
+	co_return {};
+}
+
+async::result<std::expected<void, DispatchError>>
 HandleRequest::operator()(managarm::posix::IsTtyRequest &&req,
 		helix::BorrowedDescriptor conversation, bragi::preamble preamble,
 		std::shared_ptr<Process> self, std::shared_ptr<Generation>) {
