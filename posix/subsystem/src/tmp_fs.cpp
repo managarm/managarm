@@ -896,6 +896,7 @@ DirectoryNode::getLinkOrCreate(Process *, std::string name, mode_t mode, bool ex
 	co_await node->chmod(mode);
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	_entries.insert(link);
+	notifyObservers(FsObserver::createEvent, name, 0, false);
 	co_return link;
 }
 
