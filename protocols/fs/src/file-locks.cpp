@@ -5,79 +5,89 @@
 namespace protocols::fs {
 	Flock::~Flock() {
 		if(manager != nullptr) {
-			if(this->hook_.in_list) {
+			if(this->active) {
 				manager->flocks.erase(manager->flocks.iterator_to(this));
-				if(manager->flocks.empty()) {
+				if(manager->flocks.empty())
 					manager->flockNotify.raise();
-				}
 			}
 		}
 	}
 
-	async::result<protocols::fs::Error> FlockManager::lock(Flock* newFlock, int flags) {
-		bool nonblock  = flags & managarm::fs::FlockFlags::LOCK_NB;
-		bool shared    = flags & managarm::fs::FlockFlags::LOCK_SH;
-		if(shared) {
-			newFlock->type = protocols::fs::FLockState::LOCKED_SHARED;
-		}
+	// TODO: take an async::cancellation_token to support interruption
+	async::result<protocols::fs::Error> FlockManager::lock(Flock *newFlock, int flags) {
+		if(!validateFlockFlags(flags))
+			co_return protocols::fs::Error::illegalArguments;
 
-		if(flags & managarm::fs::FlockFlags::LOCK_UN) {
-			if(newFlock->hook_.in_list) {
-				flocks.clear();
-				flockNotify.raise();
+		bool nonblock = flags & managarm::fs::FlockFlags::LOCK_NB;
+		bool shared = flags & managarm::fs::FlockFlags::LOCK_SH;
+		bool exclusive = flags & managarm::fs::FlockFlags::LOCK_EX;
+		bool unlock = flags & managarm::fs::FlockFlags::LOCK_UN;
+
+		if(unlock) {
+			if(newFlock->active) {
+				flocks.erase(flocks.iterator_to(newFlock));
+				newFlock->manager = nullptr;
+				newFlock->active = false;
+				if(flocks.empty())
+					flockNotify.raise();
 			}
+
 			co_return protocols::fs::Error::none;
 		}
 
-		for(auto it = flocks.begin(); it != flocks.end();){
-			if((*it)->type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
-				if(nonblock) {
-					co_return protocols::fs::Error::wouldBlock;
-				}
-				co_await flockNotify.async_wait();
+		// Keep checking until there are no conflicts
+		while (true) {
+			bool conflict = false;
+			for (auto f : flocks) {
+				// Ignore our own existing lock (allows upgrade/downgrade)
+				if (f == newFlock)
+					continue;
 
-				flocks.push_back(newFlock);
-				newFlock->manager = this;
-				co_return protocols::fs::Error::none;
-			} else {
-				if(!shared) {
-					if(nonblock) {
-						co_return protocols::fs::Error::wouldBlock;
-					}
-					co_await flockNotify.async_wait();
-
-					flocks.push_back(newFlock);
-					newFlock->manager = this;
-					co_return protocols::fs::Error::none;
-				} else {
-					flocks.push_back(newFlock);
-					newFlock->manager = this;
-					co_return protocols::fs::Error::none;
+				if (exclusive || f->type == protocols::fs::FLockState::LOCKED_EXCLUSIVE) {
+					conflict = true;
+					break;
 				}
 			}
+
+			if (conflict) {
+				if (nonblock)
+					co_return protocols::fs::Error::wouldBlock;
+
+				co_await flockNotify.async_wait();
+				continue;
+			}
+
+			if (newFlock->active) {
+				auto oldType = newFlock->type;
+				newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
+				// If downgraded from exclusive, notify other waiting locks
+				if (oldType == protocols::fs::FLockState::LOCKED_EXCLUSIVE && shared)
+					flockNotify.raise();
+			} else {
+				newFlock->type = shared ? protocols::fs::FLockState::LOCKED_SHARED : protocols::fs::FLockState::LOCKED_EXCLUSIVE;
+				newFlock->manager = this;
+				flocks.push_back(newFlock);
+				newFlock->active = true;
+			}
+
+			co_return protocols::fs::Error::none;
 		}
-		flocks.push_back(newFlock);
-		newFlock->manager = this;
-		co_return protocols::fs::Error::none;
 	}
 
- 	bool FlockManager::validateFlockFlags(int flags) {
-		if(flags & managarm::fs::FlockFlags::LOCK_SH) {
-			if(flags & managarm::fs::FlockFlags::LOCK_EX) {
-				return false;
-			} else if(flags & managarm::fs::FlockFlags::LOCK_UN) {
-				return false;
-			}
-		} else if(flags & managarm::fs::FlockFlags::LOCK_EX) {
-			if(flags & managarm::fs::FlockFlags::LOCK_SH) {
-				return false;
-			} else if(flags & managarm::fs::FlockFlags::LOCK_UN) {
-				return false;
-			}
-		} else if(flags > 0b1111) {
-			return false;
-		}
+	bool FlockManager::validateFlockFlags(int flags) {
+		constexpr int flockOps = managarm::fs::FlockFlags::LOCK_SH
+			| managarm::fs::FlockFlags::LOCK_EX
+			| managarm::fs::FlockFlags::LOCK_UN;
 
-		return true;
+		constexpr int validFlockFlags = flockOps | managarm::fs::FlockFlags::LOCK_NB;
+
+		if (flags & ~validFlockFlags)
+			return false;
+
+		// Exactly one of LOCK_SH, LOCK_EX, LOCK_UN must be specified
+		int op = flags & flockOps;
+		return op == managarm::fs::FlockFlags::LOCK_SH
+			|| op == managarm::fs::FlockFlags::LOCK_EX
+			|| op == managarm::fs::FlockFlags::LOCK_UN;
 	}
 }
