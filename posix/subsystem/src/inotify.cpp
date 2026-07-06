@@ -232,13 +232,10 @@ public:
 				case FIONREAD: {
 					resp.set_error(managarm::fs::Errors::SUCCESS);
 
-					if(self->_queue.empty()) {
-						resp.set_fionread_count(0);
-					} else {
-						auto packet = &self->_queue.front();
-						auto size = sizeof(Packet) + packet->name.size() + 1;
-						resp.set_fionread_count(size);
-					}
+					size_t size = std::ranges::fold_left(self->_queue, 0ULL, [](size_t total, const auto& packet) {
+						return total + sizeof(inotify_event) + (packet.name.empty() ? 0 : packet.name.size() + 1);
+					});
+					resp.set_fionread_count(size);
 					break;
 				}
 				default: {

@@ -3,10 +3,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/inotify.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <string>
+#include <vector>
 
 #include "testsuite.hpp"
 
@@ -116,4 +119,75 @@ DEFINE_TEST(inotify_unlink_child, ([] {
 	memcpy(&evtHeader, buffer, sizeof(inotify_event));
 	assert(evtHeader.wd == wd);
 	assert((evtHeader.mask & IN_DELETE_SELF) == IN_DELETE_SELF);
+}))
+
+DEFINE_TEST(inotify_fionread, ([] {
+	int ret = 0;
+	char dirPath[] = "/tmp/posix-tests-inotify.XXXXXX";
+	auto mkdtempResult = mkdtemp(dirPath);
+	assert(mkdtempResult);
+
+	int ifd = inotify_init();
+	assert(ifd >= 0);
+	int wd = inotify_add_watch(ifd, dirPath, IN_CREATE);
+	assert(wd >= 0);
+
+	const char *names[] = {"a", "a-longer-name"};
+	for(const char *name : names) {
+		std::string path = std::string{dirPath} + "/" + name;
+		int fd = creat(path.c_str(), 0644);
+		assert(fd >= 0);
+		ret = close(fd);
+		assert(!ret);
+	}
+
+	pollfd pfd{ifd, POLLIN, 0};
+	ret = poll(&pfd, 1, 1000);
+	assert(ret == 1);
+	assert(pfd.revents & POLLIN);
+
+	int pending = -1;
+	ret = ioctl(ifd, FIONREAD, &pending);
+	assert(!ret);
+	assert(pending >= 2 * static_cast<int>(sizeof(inotify_event)));
+
+	std::vector<char> buffer(pending);
+	ssize_t chunk = read(ifd, buffer.data(), buffer.size());
+	assert(chunk == pending);
+
+	int remaining = -1;
+	ret = ioctl(ifd, FIONREAD, &remaining);
+	assert(!ret);
+	assert(!remaining);
+
+	bool sawShortName = false;
+	bool sawLongName = false;
+	size_t offset = 0;
+	while(offset < buffer.size()) {
+		assert(buffer.size() - offset >= sizeof(inotify_event));
+		inotify_event event;
+		memcpy(&event, buffer.data() + offset, sizeof(event));
+		assert(event.wd == wd);
+		assert(event.mask & IN_CREATE);
+
+		size_t eventSize = sizeof(inotify_event) + event.len;
+		assert(eventSize <= buffer.size() - offset);
+		const char *eventName = buffer.data() + offset + sizeof(inotify_event);
+		std::string name{eventName, strnlen(eventName, event.len)};
+		sawShortName |= name == names[0];
+		sawLongName |= name == names[1];
+		offset += eventSize;
+	}
+	assert(offset == buffer.size());
+	assert(sawShortName && sawLongName);
+
+	ret = close(ifd);
+	assert(!ret);
+	for(const char *name : names) {
+		std::string path = std::string{dirPath} + "/" + name;
+		ret = unlink(path.c_str());
+		assert(!ret);
+	}
+	ret = rmdir(dirPath);
+	assert(!ret);
 }))
