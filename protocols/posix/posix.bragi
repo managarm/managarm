@@ -1220,3 +1220,32 @@ head(128):
 	int32 result;
 }
 
+message GetSgidRequest 225 {
+head(128):
+}
+
+message GetSgidResponse 226 {
+head(128):
+	Errors error;
+	int64 gid;
+}
+
+message GetSuidRequest 227 {
+head(128):
+}
+
+message GetSuidResponse 228 {
+head(128):
+	Errors error;
+	int64 uid;
+}
+
+message SetSuidRequest 229 {
+head(128):
+	uint64 suid;
+}
+
+message SetSuidResponse 230 {
+head(128):
+	Errors error;
+}
