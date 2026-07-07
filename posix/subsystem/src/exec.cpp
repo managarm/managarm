@@ -277,6 +277,17 @@ execute(ViewPath root, ViewPath workdir,
 	assert(ldsoFile); // If open() succeeds, it must return a non-null file.
 	auto ldsoInfo = FRG_CO_TRY(co_await loadElfImage(ldsoFile, vmContext.get(), ldsoBaseAddress));
 
+	auto link = execFile->associatedLink();
+	if(!link) {
+		co_return Error::badExecutable;
+	}
+
+	auto stats = FRG_CO_TRY(co_await link->getTarget()->getStats());
+	bool hasSetuid = stats.mode & S_ISUID;
+	bool hasSetgid = stats.mode & S_ISGID;
+	uid_t newUid = hasSetuid ? stats.uid : self->threadGroup()->euid();
+	gid_t newGid = hasSetgid ? stats.gid : self->threadGroup()->egid();
+
 	constexpr size_t stackSize = 0x200000;
 
 	// Allocate memory for the stack.
@@ -339,7 +350,7 @@ execute(ViewPath root, ViewPath workdir,
 		AT_EXECFN,
 		execfn,
 		AT_SECURE,
-		0,
+		hasSetuid || hasSetgid,
 		AT_BASE,
 		ldsoBaseAddress,
 		AT_PAGESZ,
@@ -373,6 +384,10 @@ execute(ViewPath root, ViewPath workdir,
 	co_return ExecuteResult{
 		.thread = helix::UniqueDescriptor{thread},
 		.auxBegin = auxBegin,
-		.auxEnd = auxEnd
+		.auxEnd = auxEnd,
+		.effectiveUid = newUid,
+		.effectiveGid = newGid,
+		.savedUid = self->threadGroup()->uid(),
+		.savedGid = self->threadGroup()->gid()
 	};
 }

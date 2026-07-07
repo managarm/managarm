@@ -633,7 +633,7 @@ public:
 
 	struct WaitResult {
 		int pid = 0;
-		int uid = 0;
+		uid_t uid = 0;
 		TerminationState state = std::monostate{};
 		ResourceUsage stats = {};
 	};
@@ -775,11 +775,11 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 	static std::shared_ptr<ThreadGroup> findThreadGroup(ProcessId pid);
 	std::shared_ptr<Process> findThread(pid_t tid);
 
-	Error setUid(int uid) {
+	Error setUid(uid_t uid) {
 		if(uid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_uid == 0 || _euid == 0) {
+		if(isRoot()) {
 			_uid = uid;
 			_euid = uid;
 			return Error::success;
@@ -790,30 +790,45 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::accessDenied;
 	}
 
-	int uid() {
+	uid_t uid() {
 		return _uid;
 	}
 
-	Error setEuid(int euid) {
+	Error setEuid(uid_t euid) {
 		if(euid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_uid == 0 || _euid == 0 || euid == _uid) {
+		if(isRoot() || euid == _uid) {
 			_euid = euid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int euid() {
+	uid_t euid() {
 		return _euid;
 	}
 
-	Error setGid(int gid) {
+	Error setSuid(uid_t suid) {
+		if(suid < 0) {
+			return Error::illegalArguments;
+		}
+		if(isRoot() || suid == _uid || suid == _euid) {
+			_suid = suid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	uid_t suid() {
+		return _suid;
+	}
+
+	Error setGid(gid_t gid) {
 		if(gid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_gid == 0 || _egid == 0) {
+		if(isRoot()) {
 			_gid = gid;
 			_egid = gid;
 			return Error::success;
@@ -824,23 +839,44 @@ struct ThreadGroup : std::enable_shared_from_this<ThreadGroup> {
 		return Error::accessDenied;
 	}
 
-	int gid() {
+	gid_t gid() {
 		return _gid;
 	}
 
-	Error setEgid(int egid) {
+	Error setEgid(gid_t egid) {
 		if(egid < 0) {
 			return Error::illegalArguments;
 		}
-		if(_gid == 0 || _egid == 0 || _gid == egid || _egid == egid) {
+		if(isRoot() || _gid == egid || _egid == egid) {
 			_egid = egid;
 			return Error::success;
 		}
 		return Error::accessDenied;
 	}
 
-	int egid() {
+	gid_t egid() {
 		return _egid;
+	}
+
+	Error setSgid(gid_t sgid) {
+		if(sgid < 0) {
+			return Error::illegalArguments;
+		}
+		if(isRoot() || _gid == sgid || _egid == sgid) {
+			_sgid = sgid;
+			return Error::success;
+		}
+		return Error::accessDenied;
+	}
+
+	gid_t sgid() {
+		return _sgid;
+	}
+
+	bool isRoot() {
+		if(_uid == 0 || _euid == 0)
+			return true;
+		return false;
 	}
 
 	const std::vector<gid_t> &supplementaryGroups() const {
@@ -977,10 +1013,12 @@ private:
 	std::shared_ptr<ProcessGroup> pgPointer_;
 	frg::default_list_hook<ThreadGroup> pgHook_;
 
-	int _uid;
-	int _euid;
-	int _gid;
-	int _egid;
+	uid_t _uid;
+	uid_t _euid;
+	uid_t _suid;
+	gid_t _gid;
+	gid_t _egid;
+	gid_t _sgid;
 
 	std::vector<gid_t> supplementaryGids_;
 
