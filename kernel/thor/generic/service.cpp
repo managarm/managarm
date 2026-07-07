@@ -967,7 +967,10 @@ namespace posix {
 			}else{
 				infoLogger() << "thor: Illegal POSIX request type "
 						<< preamble.id() << frg::endlog;
-				co_return;
+
+				auto dismissError = co_await dismiss(conversation);
+				// TODO: improve error handling here.
+				assert(dismissError == Error::success);
 			}
 		}
 	}
