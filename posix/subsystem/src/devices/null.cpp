@@ -7,7 +7,7 @@
 
 namespace {
 
-struct NullFile final : File {
+struct NullFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *, size_t, async::cancellation_token) override {
@@ -43,7 +43,7 @@ public:
 	}
 
 	NullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("null-file"), std::move(mount), std::move(link)} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("null-file"), std::move(mount), std::move(link)} { }
 };
 
 struct NullDevice final : UnixDevice {

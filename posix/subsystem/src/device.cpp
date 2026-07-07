@@ -112,7 +112,7 @@ namespace {
 
 constexpr bool logStatusSeqlock = false;
 
-struct DeviceFile : File {
+struct DeviceFile : FileWithDefaults {
 private:
 	async::result<frg::expected<Error, off_t>> seek(off_t offset, VfsSeek whence) override {
 		assert(whence == VfsSeek::absolute);
@@ -202,7 +202,7 @@ public:
 	DeviceFile(helix::UniqueLane control, helix::UniqueLane lane,
 			std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			helix::Mapping status_mapping)
-	: File{FileKind::unknown,  StructName::get("devicefile"), std::move(mount), std::move(link)},
+	: FileWithDefaults{FileKind::unknown,  StructName::get("devicefile"), std::move(mount), std::move(link)},
 			_control{std::move(control)}, _file{std::move(lane)},
 			_statusMapping{std::move(status_mapping)} { }
 

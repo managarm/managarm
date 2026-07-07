@@ -24,7 +24,7 @@ extern std::map<int, const ops *> globalProtocolOpsMap;
 extern std::map<std::pair<int, uint8_t>, std::unique_ptr<core::netlink::Group>> globalGroupMap;
 extern std::map<uint32_t, OpenFile *> globalPortMap;
 
-struct OpenFile : File, core::netlink::NetlinkFile {
+struct OpenFile : FileWithDefaults, core::netlink::NetlinkFile {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file) {
 //TODO:		assert(!file->_passthrough);

@@ -8,7 +8,7 @@
 
 namespace {
 
-struct FullFile final : File {
+struct FullFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
@@ -40,7 +40,7 @@ public:
 	}
 
 	FullFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("full-file"), std::move(mount), std::move(link)} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("full-file"), std::move(mount), std::move(link)} { }
 };
 
 struct FullDevice final : UnixDevice {

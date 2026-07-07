@@ -24,7 +24,7 @@ namespace {
 
 namespace {
 
-struct TTYNFile final : File {
+struct TTYNFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>	
 	readSome(Process *, void *data, size_t length, async::cancellation_token) override {
@@ -298,7 +298,7 @@ public:
 	}
 
 	TTYNFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("tty1-file"), std::move(mount), std::move(link), File::defaultIsTerminal | File::defaultPipeLikeSeek} {
+	: FileWithDefaults{FileKind::unknown,  StructName::get("tty1-file"), std::move(mount), std::move(link), File::defaultIsTerminal | File::defaultPipeLikeSeek} {
 		memset(&_activeSettings, 0, sizeof(struct termios));
 		// cflag: Linux also stores a baud rate here.
 		// lflag: Linux additionally sets ECHOCTL, ECHOKE (which we do not have).

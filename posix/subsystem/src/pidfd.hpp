@@ -7,7 +7,7 @@
 
 namespace pidfd {
 
-struct OpenFile : File {
+struct OpenFile : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<OpenFile> file);
 

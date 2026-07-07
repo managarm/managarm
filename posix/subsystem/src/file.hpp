@@ -11,6 +11,7 @@
 #include <protocols/fs/common.hpp>
 #include <protocols/fs/server.hpp>
 #include <protocols/fs/client.hpp>
+#include <protocols/fs/file-locks.hpp>
 #include <posix.bragi.hpp>
 #include <sys/socket.h>
 
@@ -389,6 +390,8 @@ public:
 
 	static async::result<helix::BorrowedDescriptor> ptAccessMemory(void *object);
 
+	static async::result<protocols::fs::Error> ptFlock(void *object, int flags);
+
 	static constexpr auto fileOperations = protocols::fs::FileOperations{
 		.seekAbs = &ptSeekAbs,
 		.seekRel = &ptSeekRel,
@@ -402,6 +405,7 @@ public:
 		.truncate = &ptTruncate,
 		.fallocate = &ptAllocate,
 		.ioctl = &ptIoctl,
+		.flock = &ptFlock,
 		.bind = &ptBind,
 		.listen = &ptListen,
 		.connect = &ptConnect,
@@ -436,7 +440,7 @@ public:
 
 	File(FileKind kind, StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 			DefaultOps default_ops = 0)
-	: kind_{kind}, _structName{struct_name}, _mount{std::move(mount)}, _link{std::move(link)},
+	: _link{std::move(link)}, kind_{kind}, _structName{struct_name}, _mount{std::move(mount)},
 			_defaultOps{default_ops}, _isOpen{true} { }
 
 	virtual ~File();
@@ -579,20 +583,41 @@ public:
 	virtual async::result<protocols::fs::Error> shutdown(int how);
 
 	virtual async::result<std::string> getFdInfo();
+
+	virtual async::result<protocols::fs::Error> flock(int flags);
+
+protected:
+	const std::shared_ptr<FsLink> _link;
+
 private:
 	smarter::counter _fileCtr;
 	smarter::weak_ptr<File> _weakPtr;
 	FileKind kind_;
 	StructName _structName;
 	const std::shared_ptr<MountView> _mount;
-	const std::shared_ptr<FsLink> _link;
 
 	DefaultOps _defaultOps;
 
 	bool _isOpen;
 };
 
-struct DummyFile final : File {
+struct FileWithDefaults : File {
+	FileWithDefaults(FileKind kind, StructName struct_name, DefaultOps default_ops = 0)
+	: File{kind, struct_name, default_ops} { }
+
+	FileWithDefaults(FileKind kind, StructName struct_name, std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
+			DefaultOps default_ops = 0)
+	: File{kind, struct_name, std::move(mount), std::move(link), default_ops} { }
+
+	~FileWithDefaults() override;
+
+	async::result<protocols::fs::Error> flock(int flags) override;
+
+private:
+	protocols::fs::Flock flock_;
+};
+
+struct DummyFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<DummyFile> file) {
 		helix::UniqueLane lane;
@@ -602,7 +627,7 @@ public:
 	}
 
 	DummyFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link, DefaultOps default_ops = 0)
-	: File{FileKind::unknown, StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops | defaultPipeLikeSeek} { }
+	: FileWithDefaults{FileKind::unknown, StructName::get("dummy-file"), std::move(mount), std::move(link), default_ops | defaultPipeLikeSeek} { }
 
 	helix::BorrowedDescriptor getPassthroughLane() override {
 		return _passthrough;

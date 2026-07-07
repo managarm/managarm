@@ -265,11 +265,21 @@ async::result<protocols::fs::Error> File::ptShutdown(void *object, int how) {
 	co_return co_await self->shutdown(how);
 }
 
+async::result<protocols::fs::Error> File::ptFlock(void *object, int flags) {
+	auto self = static_cast<File *>(object);
+	return self->flock(flags);
+}
+
 File::~File() {
 	// Nothing to do here.
-	if(logDestruction)
-		std::cout << "\e[37mposix \e[1;34m" << structName()
-				<< "\e[0m\e[37m: File was destructed\e[39m" << std::endl;
+	if constexpr (logDestruction)
+		std::println("\e[37mposix \e[1;34m{}\e[0m\e[37m: File was destructed\e[39m", structName());
+}
+
+FileWithDefaults::~FileWithDefaults() {
+	// Nothing to do here.
+	if constexpr (logDestruction)
+		std::println("\e[37mposix \e[1;34m{}\e[0m\e[37m: FileWithDefaults was destructed\e[39m", structName());
 }
 
 bool File::isTerminal() {
@@ -524,4 +534,15 @@ async::result<protocols::fs::Error> File::shutdown(int how) {
 		<< "\e[0m: Object does not implement shutdown()" << std::endl;
 
 	co_return protocols::fs::Error::notSocket;
+}
+
+async::result<protocols::fs::Error> File::flock(int) {
+	co_return protocols::fs::Error::illegalOperationTarget;
+}
+
+async::result<protocols::fs::Error> FileWithDefaults::flock(int flags) {
+	assert(_link);
+	auto node = _link->getTarget();
+	assert(node);
+	return node->flockManager.lock(&flock_, flags);
 }

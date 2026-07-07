@@ -18,7 +18,7 @@ constexpr int epollFlags = EPOLLET | EPOLLONESHOT | EPOLLWAKEUP | EPOLLEXCLUSIVE
 
 bool logEpoll = false;
 
-struct OpenFile : File {
+struct OpenFile : FileWithDefaults {
 	// ------------------------------------------------------------------------
 	// Internal API.
 	// ------------------------------------------------------------------------
@@ -427,7 +427,7 @@ public:
 	}
 
 	OpenFile()
-	: File{FileKind::unknown,  StructName::get("epoll"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777), File::defaultPipeLikeSeek}, _currentSeq{0} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("epoll"), nullptr, SpecialLink::makeSpecialLink(VfsType::regular, 0777), File::defaultPipeLikeSeek}, _currentSeq{0} { }
 
 private:
 	helix::UniqueLane _passthrough;

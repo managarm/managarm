@@ -65,7 +65,7 @@ struct Packet {
 	size_t offset = 0;
 };
 
-struct OpenFile : File {
+struct OpenFile : FileWithDefaults {
 	enum class State {
 		null,
 		listening,
@@ -119,7 +119,7 @@ public:
 	}
 
 	OpenFile(Process *process = nullptr, bool nonBlock = false, int32_t socktype = SOCK_STREAM, bool socketpair = false)
-	: File{FileKind::unknown,  StructName::get("un-socket"), nullptr,
+	: FileWithDefaults{FileKind::unknown,  StructName::get("un-socket"), nullptr,
 		SpecialLink::makeSpecialLink(VfsType::socket, 0777),
 			File::defaultPipeLikeSeek}, _currentState{State::null},
 			_currentSeq{1}, _inSeq{0}, _ownerPid{0}, _ownerUid{0}, _ownerGid{0},

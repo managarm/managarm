@@ -28,7 +28,7 @@ struct LinkCompare {
 	bool operator() (const std::string &name, const std::shared_ptr<Link> &link) const;
 };
 
-struct RegularFile final : File {
+struct RegularFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<RegularFile> file);
 
@@ -61,7 +61,7 @@ private:
 	size_t _offset;
 };
 
-struct DirectoryFile final : File {
+struct DirectoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<DirectoryFile> file);
 
@@ -363,7 +363,7 @@ private:
 	std::weak_ptr<Process> _process;
 };
 
-struct FdDirectoryFile final : File {
+struct FdDirectoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<FdDirectoryFile> file);
 
@@ -467,7 +467,7 @@ private:
 	Link *_treeLink;
 };
 
-struct FdInfoDirectoryFile final : File {
+struct FdInfoDirectoryFile final : FileWithDefaults {
 public:
 	static void serve(smarter::shared_ptr<FdInfoDirectoryFile> file);
 

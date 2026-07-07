@@ -10,7 +10,7 @@
 
 namespace {
 
-struct UrandomFile final : File {
+struct UrandomFile final : FileWithDefaults {
 private:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t length, async::cancellation_token ct) override {
@@ -61,7 +61,7 @@ public:
 	}
 
 	UrandomFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-	: File{FileKind::unknown,  StructName::get("urandom-file"), std::move(mount), std::move(link)} { }
+	: FileWithDefaults{FileKind::unknown,  StructName::get("urandom-file"), std::move(mount), std::move(link)} { }
 };
 
 struct UrandomDevice final : UnixDevice {

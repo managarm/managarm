@@ -23,6 +23,7 @@ private:
 		FlockManager* manager = nullptr;
 		FLockState type;
 		frg::default_list_hook<Flock> hook_;
+		bool active = false;
 	};
 
 	struct FlockManager {

@@ -358,7 +358,7 @@ private:
 	std::shared_ptr<Channel> _channel;
 };
 
-struct MasterFile final : File {
+struct MasterFile final : FileWithDefaults {
 	struct HandleIoctl;
 
 public:
@@ -429,7 +429,7 @@ private:
 	bool _nonBlocking;
 };
 
-struct SlaveFile final : File {
+struct SlaveFile final : FileWithDefaults {
 	struct HandleIoctl;
 
 public:
@@ -913,7 +913,7 @@ MasterDevice::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<
 
 MasterFile::MasterFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		bool nonBlocking)
-: File{FileKind::unknown,  StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
+: FileWithDefaults{FileKind::unknown,  StructName::get("pts.master"), std::move(mount), std::move(link), File::defaultPipeLikeSeek},
 		_channel{std::make_shared<Channel>(nextPtsIndex++)}, _nonBlocking{nonBlocking} {
 	auto slave_device = std::make_shared<SlaveDevice>(_channel);
 	charRegistry.install(std::move(slave_device));
@@ -1190,7 +1190,7 @@ SlaveDevice::open(Process *, std::shared_ptr<MountView> mount, std::shared_ptr<F
 
 SlaveFile::SlaveFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link,
 		std::shared_ptr<Channel> channel, bool nonBlock, bool read, bool write)
-: File{FileKind::unknown,  StructName::get("pts.slave"), std::move(mount), std::move(link),
+: FileWithDefaults{FileKind::unknown,  StructName::get("pts.slave"), std::move(mount), std::move(link),
 		File::defaultIsTerminal | File::defaultPipeLikeSeek},
 		_channel{std::move(channel)}, nonBlock_{nonBlock}, read_{read}, write_{write} { }
 

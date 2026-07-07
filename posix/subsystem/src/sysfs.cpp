@@ -75,7 +75,7 @@ void AttributeFile::serve(smarter::shared_ptr<AttributeFile> file) {
 }
 
 AttributeFile::AttributeFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{FileKind::unknown,  StructName::get("sysfs.attr"), std::move(mount), std::move(link)},
+: FileWithDefaults{FileKind::unknown,  StructName::get("sysfs.attr"), std::move(mount), std::move(link)},
 		_cached{false}, _offset{0} { }
 
 void AttributeFile::handleClose() {
@@ -167,7 +167,7 @@ void DirectoryFile::serve(smarter::shared_ptr<DirectoryFile> file) {
 }
 
 DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<FsLink> link)
-: File{FileKind::unknown,  StructName::get("sysfs.dir"), std::move(mount), std::move(link)},
+: FileWithDefaults{FileKind::unknown,  StructName::get("sysfs.dir"), std::move(mount), std::move(link)},
 		_node{static_cast<DirectoryNode *>(associatedLink()->getTarget().get())},
 		_iter{_node->_entries.begin()} { }
 
