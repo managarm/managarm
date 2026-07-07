@@ -323,6 +323,7 @@ async::result<void> serveServerLane(helix::UniqueDescriptor lane) {
 			auto [dismiss] = co_await helix_ng::exchangeMsgs(
 				conversation, helix_ng::dismiss());
 			HEL_CHECK(dismiss.error());
+			continue;
 		}
 		auto id = preamble.id();
 
