@@ -20,6 +20,7 @@
 
 #include "spec.hpp"
 #include "ps2.hpp"
+#include "mouse/elantech.hpp"
 
 namespace {
 
@@ -366,10 +367,15 @@ async::result<void> Controller::Port::init() {
 	}
 	_deviceType = res2.value();
 
-	if (_deviceType.keyboard)
+	if (_deviceType.keyboard) {
 		_device = std::make_unique<KbdDevice>(this);
-	if (_deviceType.mouse)
-		_device = std::make_unique<MouseDevice>(this);
+	} else if (_deviceType.mouse) {
+		if (auto probe = co_await ElantechTouchpadDevice::probe(this); probe) {
+			_device = std::make_unique<ElantechTouchpadDevice>(this, probe.value());
+		} else {
+			_device = std::make_unique<MouseDevice>(this);
+		}
+	}
 
 	if (!_device) {
 		_dead = true;
@@ -1067,6 +1073,39 @@ Controller::Port::submitCommand(device_cmd::EnableScan) {
 }
 
 async::result<frg::expected<Ps2Error>>
+Controller::Port::submitCommand(device_cmd::SlicedCommand, uint8_t cmd) {
+	auto cmdResp = co_await transferByte(0xE6);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+				getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	for (int i = 6; i >= 0; i -= 2) {
+		auto setup = co_await transferByte(0xE8);
+		if (!setup)
+			co_return Ps2Error::timeout;
+		if (*setup != 0xFA) {
+			printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+					getIndex(), *setup);
+			co_return Ps2Error::nack;
+		}
+		auto transfer = co_await transferByte((cmd >> i) & 0b11);
+		if (!transfer)
+			co_return Ps2Error::timeout;
+		if (*transfer != 0xFA) {
+			printf("ps2-hid: Expected ACK after sliced command on port %d, got 0x%02x\n",
+					getIndex(), *transfer);
+			co_return Ps2Error::nack;
+		}
+	}
+
+	co_return {};
+}
+
+async::result<frg::expected<Ps2Error>>
 Controller::MouseDevice::submitCommand(device_cmd::SetReportRate, int rate) {
 	auto cmdResp = co_await _port->transferByte(0xF3);
 	if (!cmdResp)
@@ -1110,6 +1149,32 @@ Controller::MouseDevice::submitCommand(device_cmd::Reset) {
 	std::println("ps2-hid: mouse device ID 0x{:02x}", *bat1);
 
 	co_return {};
+}
+
+async::result<frg::expected<Ps2Error, std::array<uint8_t, 3>>>
+Controller::MouseDevice::submitCommand(device_cmd::GetStatus) {
+	auto cmdResp = co_await _port->transferByte(0xE9);
+	if (!cmdResp)
+		co_return Ps2Error::timeout;
+	if (*cmdResp != 0xFA) {
+		printf("ps2-hid: Expected ACK after GetStatus command on port %d, got 0x%02x\n",
+				_port->getIndex(), *cmdResp);
+		co_return Ps2Error::nack;
+	}
+
+	auto b1 = co_await _port->recvResponseByte(default_timeout);
+	if (!b1)
+		co_return Ps2Error::timeout;
+
+	auto b2 = co_await _port->recvResponseByte(default_timeout);
+	if (!b2)
+		co_return Ps2Error::timeout;
+
+	auto b3 = co_await _port->recvResponseByte(default_timeout);
+	if (!b3)
+		co_return Ps2Error::timeout;
+
+	co_return std::array<uint8_t, 3>{*b1, *b2, *b3};
 }
 
 async::result<frg::expected<Ps2Error>>

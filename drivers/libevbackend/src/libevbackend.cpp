@@ -265,7 +265,7 @@ struct File::HandleIoctl {
 			resp.set_input_max(slot->maximum);
 			resp.set_input_fuzz(0);
 			resp.set_input_flat(0);
-			resp.set_input_resolution(1);
+			resp.set_input_resolution(slot->resolution.value_or(0));
 
 			auto ser = resp.SerializeAsString();
 			auto [send_resp] = co_await helix_ng::exchangeMsgs(
@@ -480,6 +480,11 @@ void EventDevice::setAbsoluteDetails(int code, int minimum, int maximum) {
 	assert(static_cast<size_t>(code) < _absoluteSlots.size());
 	_absoluteSlots[code].minimum = minimum;
 	_absoluteSlots[code].maximum = maximum;
+}
+
+void EventDevice::setResolution(int code, int res) {
+	assert(static_cast<size_t>(code) < _absoluteSlots.size());
+	_absoluteSlots[code].resolution = res;
 }
 
 void EventDevice::enableEvent(int type, int code) {
