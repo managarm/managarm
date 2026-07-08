@@ -311,16 +311,9 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
 	if(!resolveResult) {
-		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return {};
-		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return {};
-		} else {
-			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return {};
-		}
+		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation,
+				resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
 	}
 
 	auto parent = resolver.currentLink()->getTarget();
@@ -420,19 +413,9 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 	auto new_resolveResult = co_await new_resolver.resolve(
 			resolvePrefix | resolveNoTrailingSlash);
 	if(!new_resolveResult) {
-		if(new_resolveResult.error() == protocols::fs::Error::illegalOperationTarget) {
-			co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::ILLEGAL_OPERATION_TARGET);
-			co_return {};
-		} else if(new_resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return {};
-		} else if(new_resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return {};
-		} else {
-			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return {};
-		}
+		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation,
+				new_resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
 	}
 
 	auto target = resolver.currentLink()->getTarget();
@@ -485,16 +468,9 @@ HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
 	auto resolveResult = co_await resolver.resolve(
 			resolvePrefix | resolveNoTrailingSlash);
 	if(!resolveResult) {
-		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return {};
-		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return {};
-		} else {
-			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return {};
-		}
+		co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation,
+				resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
 	}
 
 	logRequest(logRequests || logPaths, self, "SYMLINK", "'{}{}' -> '{}'",
@@ -1403,23 +1379,9 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 		auto resolveResult = co_await resolver.resolve(
 				resolvePrefix | resolveNoTrailingSlash);
 		if(!resolveResult) {
-			if(resolveResult.error() == protocols::fs::Error::isDirectory) {
-				// TODO: Verify additional constraints for sending EISDIR.
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::IS_DIRECTORY);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-				co_return {};
-			} else if(resolveResult.error() == protocols::fs::Error::nameTooLong) {
-				co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation, managarm::posix::Errors::NAME_TOO_LONG);
-				co_return {};
-			} else {
-				std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-				co_return {};
-			}
+			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation,
+					resolveResult.error() | toPosixError | toPosixProtoError);
+			co_return {};
 		}
 
 		logRequest(logRequests || logPaths, self, "OPENAT", "create '{}'",
@@ -1616,16 +1578,9 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 			relative_to, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(resolvePrefix);
 	if(!resolveResult) {
-		if(resolveResult.error() == protocols::fs::Error::fileNotFound) {
-			co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::FILE_NOT_FOUND);
-			co_return {};
-		} else if(resolveResult.error() == protocols::fs::Error::notDirectory) {
-			co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation, managarm::posix::Errors::NOT_A_DIRECTORY);
-			co_return {};
-		} else {
-			std::cout << "posix: Unexpected failure from resolve()" << std::endl;
-			co_return {};
-		}
+		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
+				resolveResult.error() | toPosixError | toPosixProtoError);
+		co_return {};
 	}
 
 	auto parent = resolver.currentLink()->getTarget();
