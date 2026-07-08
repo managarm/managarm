@@ -220,6 +220,10 @@ public:
 		return _pendingConditions.load(std::memory_order_relaxed);
 	}
 
+	bool checkCancelConditions() {
+		return _pendingConditions.load(std::memory_order_relaxed) & cancelConditions;
+	}
+
 	// Run the current thread's WQs. Returns true if there was any work to do.
 	static bool runWqs() {
 		auto ipl = currentIpl();

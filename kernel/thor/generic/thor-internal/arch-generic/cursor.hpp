@@ -305,7 +305,7 @@ private:
 };
 
 // Free page tables recursively. Only frees the page table pages, not the leaf pages.
-template<CursorPolicy Policy, size_t N, bool LowerHalfOnly = false>
+template<CursorPolicy Policy, size_t N, bool LowerHalfOnly = false, size_t RootTableSize = kPageSize>
 void freePt(PhysicalAddr tblPa) {
 	PageAccessor accessor{tblPa};
 	auto tblPtr = reinterpret_cast<uint64_t *>(accessor.get());
@@ -323,7 +323,7 @@ void freePt(PhysicalAddr tblPa) {
 	}
 
 	// Free higher level page table.
-	physicalAllocator->free(tblPa, kPageSize);
+	physicalAllocator->free(tblPa, RootTableSize);
 }
 
 } // namespace thor

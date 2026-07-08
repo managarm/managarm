@@ -206,9 +206,11 @@ namespace thor::svm {
 		Vcpu(const Vcpu &) = delete;
 		Vcpu &operator=(const Vcpu &) = delete;
 
-		HelVmexitReason run();
-		void storeRegs(const HelX86VirtualizationRegs *regs);
-		void loadRegs(HelX86VirtualizationRegs *res);
+		frg::expected<Error, HelVmexitReason> run() override;
+		void storeRegs(const HelX86VirtualizationRegs *regs) override;
+		void loadRegs(HelX86VirtualizationRegs *res) override;
+
+		bool assertInterrupt(uint64_t number, bool level) override;
 
 		PhysicalAddr vmcb_region, host_additional_save_region, iopm_bitmap, msrpm_bitmap;
 		volatile Vmcb *vmcb;

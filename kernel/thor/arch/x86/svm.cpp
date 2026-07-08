@@ -112,9 +112,12 @@ namespace thor::svm {
 		kernelAlloc->free(host_fpu_state);
 	}
 
-	HelVmexitReason Vcpu::run() {
+	frg::expected<Error, HelVmexitReason> Vcpu::run() {
 		HelVmexitReason reason{};
 		while(true) {
+			if(getCurrentThread()->checkCancelConditions())
+				return Error::cancelled;
+
 			asm("clgi");
 
 			auto pat = common::x86::rdmsr(common::x86::kMsrPAT);
@@ -299,5 +302,10 @@ namespace thor::svm {
 		SET_SEGMENT(tr);
 	}
 
-	
+	bool Vcpu::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized LAPIC/interrupts.
+		(void)number;
+		(void)level;
+		return false;
+	}
 }

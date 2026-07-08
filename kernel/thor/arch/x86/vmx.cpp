@@ -280,7 +280,7 @@ namespace thor::vmx {
 		}
 	}
 
-	HelVmexitReason Vmcs::run() {
+	frg::expected<Error, HelVmexitReason> Vmcs::run() {
 		vmptrld((PhysicalAddr)region);
 
 		uint16_t es;
@@ -317,6 +317,9 @@ namespace thor::vmx {
 
 		bool launched = false;
 		while(1) {
+			if(getCurrentThread()->checkCancelConditions())
+				return Error::cancelled;
+
 			/*
 			 * NOTE: this will only work as long as long
 			 * as threads always stay on the same cpu,
@@ -479,6 +482,13 @@ namespace thor::vmx {
 		regs->cr4 = vmread(GUEST_CR4);
 
 		regs->efer = vmread(VMCS_FIELD_GUEST_EFER_FULL);
+	}
+
+	bool Vmcs::assertInterrupt(uint64_t number, bool level) {
+		// TODO: Implement using virtualized APIC.
+		(void)number;
+		(void)level;
+		return false;
 	}
 
 	Vmcs::~Vmcs() {
