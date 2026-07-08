@@ -241,6 +241,10 @@ void PathResolver::setup(ViewPath root, ViewPath workdir, std::string string, Pr
 }
 
 async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(ResolveFlags flags) {
+	// The trailing-slash policies only apply to prefix resolution (see vfs.hpp).
+	assert(!(flags & (resolveNoTrailingSlash | resolveOpenCreate | resolveCreatesNonDirectory))
+			|| (flags & resolvePrefix));
+
 	auto sn = StructName::get("path-resolve");
 	if(debugResolve) {
 		std::cout << "posix " << sn << ": Path resolution for '";
@@ -251,9 +255,6 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 		}
 		std::cout << "'" << std::endl;
 	}
-
-	if((flags & resolveNoTrailingSlash) && _trailingSlash)
-		co_return protocols::fs::Error::isDirectory;
 
 	while(true) {
 		if(_components.empty()
@@ -457,6 +458,20 @@ async::result<frg::expected<protocols::fs::Error, void>> PathResolver::resolve(R
 
 		if (_components.front() == ".")
 			_components.pop_front();
+
+		// Enforce the caller's trailing-slash policy (see the flag definitions).
+		if(_trailingSlash) {
+			if(flags & resolveNoTrailingSlash)
+				co_return protocols::fs::Error::notDirectory;
+			if(flags & resolveOpenCreate)
+				co_return protocols::fs::Error::isDirectory;
+			if((flags & resolveCreatesNonDirectory) && !_components.empty()) {
+				auto childResult = co_await _currentPath.second->getTarget()->getLink(_components.front());
+				if(childResult && childResult.value())
+					co_return protocols::fs::Error::alreadyExists;
+				co_return protocols::fs::Error::fileNotFound;
+			}
+		}
 	}else{
 		assert(!_components.size());
 

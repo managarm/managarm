@@ -309,7 +309,7 @@ HandleRequest::operator()(managarm::posix::MkfifoAtRequest &&req,
 	PathResolver resolver;
 	resolver.setup(self->fsContext()->getRoot(),
 			relative_to, req.path(), self.get());
-	auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveNoTrailingSlash);
+	auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveCreatesNonDirectory);
 	if(!resolveResult) {
 		co_await sendErrorResponse<managarm::posix::MkfifoAtResponse>(conversation,
 				resolveResult.error() | toPosixError | toPosixProtoError);
@@ -411,7 +411,7 @@ HandleRequest::operator()(managarm::posix::LinkAtRequest &&req,
 	new_resolver.setup(self->fsContext()->getRoot(),
 			relative_to, req.target_path(), self.get());
 	auto new_resolveResult = co_await new_resolver.resolve(
-			resolvePrefix | resolveNoTrailingSlash);
+			resolvePrefix | resolveCreatesNonDirectory);
 	if(!new_resolveResult) {
 		co_await sendErrorResponse<managarm::posix::LinkAtResponse>(conversation,
 				new_resolveResult.error() | toPosixError | toPosixProtoError);
@@ -466,7 +466,7 @@ HandleRequest::operator()(managarm::posix::SymlinkAtRequest &&req,
 	resolver.setup(self->fsContext()->getRoot(),
 			relativeTo, req.path(), self.get());
 	auto resolveResult = co_await resolver.resolve(
-			resolvePrefix | resolveNoTrailingSlash);
+			resolvePrefix | resolveCreatesNonDirectory);
 	if(!resolveResult) {
 		co_await sendErrorResponse<managarm::posix::SymlinkAtResponse>(conversation,
 				resolveResult.error() | toPosixError | toPosixProtoError);
@@ -1377,7 +1377,7 @@ HandleRequest::operator()(managarm::posix::OpenAtRequest &&req,
 			relative_to, req.path(), self.get());
 	if(req.flags() & managarm::posix::OpenFlags::OF_CREATE) {
 		auto resolveResult = co_await resolver.resolve(
-				resolvePrefix | resolveNoTrailingSlash);
+				resolvePrefix | resolveOpenCreate);
 		if(!resolveResult) {
 			co_await sendErrorResponse<managarm::posix::OpenAtResponse>(conversation,
 					resolveResult.error() | toPosixError | toPosixProtoError);
@@ -1572,11 +1572,11 @@ HandleRequest::operator()(managarm::posix::MknodAtRequest &&req,
 		relative_to = {file->associatedMount(), file->associatedLink()};
 	}
 
-	// TODO: Add resolveNoTrailingSlash if not making a directory?
+	// mknod never creates a directory, so a trailing slash suppresses creation.
 	PathResolver resolver;
 	resolver.setup(self->fsContext()->getRoot(),
 			relative_to, req.path(), self.get());
-	auto resolveResult = co_await resolver.resolve(resolvePrefix);
+	auto resolveResult = co_await resolver.resolve(resolvePrefix | resolveCreatesNonDirectory);
 	if(!resolveResult) {
 		co_await sendErrorResponse<managarm::posix::MknodAtResponse>(conversation,
 				resolveResult.error() | toPosixError | toPosixProtoError);

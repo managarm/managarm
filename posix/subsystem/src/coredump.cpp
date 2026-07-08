@@ -13,7 +13,7 @@ async::result<frg::expected<Error, smarter::shared_ptr<File, FileHandle>>> creat
 	PathResolver resolver;
 	resolver.setup(proc->fsContext()->getRoot(), proc->fsContext()->getWorkingDirectory(), name, proc);
 	auto resolveResult = co_await resolver.resolve(
-		resolvePrefix | resolveNoTrailingSlash);
+		resolvePrefix | resolveOpenCreate);
 	if (!resolveResult)
 		co_return resolveResult.error() | toPosixError;
 
