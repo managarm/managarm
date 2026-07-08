@@ -115,6 +115,9 @@ enum class Error {
 
 	directoryNotEmpty,
 
+	// Corresponds with ENAMETOOLONG
+	nameTooLong,
+
 	// Failure of the underlying device, corresponds to EIO
 	ioError,
 
@@ -198,6 +201,7 @@ inline managarm::posix::Errors operator|(Error e, ToPosixProtoError) {
 		case Error::brokenPipe: return managarm::posix::Errors::BROKEN_PIPE;
 		case Error::accessDenied: return managarm::posix::Errors::ACCESS_DENIED;
 		case Error::notDirectory: return managarm::posix::Errors::NOT_A_DIRECTORY;
+		case Error::nameTooLong: return managarm::posix::Errors::NAME_TOO_LONG;
 		case Error::insufficientPermissions: return managarm::posix::Errors::INSUFFICIENT_PERMISSION;
 		case Error::alreadyExists: return managarm::posix::Errors::ALREADY_EXISTS;
 		case Error::illegalOperationTarget: return managarm::posix::Errors::ILLEGAL_OPERATION_TARGET;
@@ -252,6 +256,7 @@ inline Error operator|(protocols::fs::Error e, ToPosixError) {
 		case protocols::fs::Error::notTerminal: return Error::notTerminal;
 		case protocols::fs::Error::noBackingDevice: return Error::noBackingDevice;
 		case protocols::fs::Error::isDirectory: return Error::isDirectory;
+		case protocols::fs::Error::nameTooLong: return Error::nameTooLong;
 		case protocols::fs::Error::directoryNotEmpty: return Error::directoryNotEmpty;
 		case protocols::fs::Error::internalError: return Error::fileClosed;
 		case protocols::fs::Error::noSuchProcess: return Error::noSuchProcess;
