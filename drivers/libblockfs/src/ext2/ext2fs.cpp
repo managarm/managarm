@@ -1742,6 +1742,9 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 			co_await walker.walk(index,
 				[](const ExtentWalkInfo &) -> async::result<void> { co_return; },
 				async::lambda([&](ExtentWalkInfo &info) -> async::result<ExtentIterDecision> {
+					MetadataCache::BlockWindow newBlockWindow;
+					MetadataCache::BlockWindow newRootWindow;
+
 					if(std::holds_alternative<UpdateMinBlock>(writeExtent)) {
 						assert(info.indices);
 						auto &idx = info.indices[info.index];
@@ -1749,10 +1752,8 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 						if(index < idx.block) {
 							idx.block = index;
 
-							if(info.block) {
+							if(info.block)
 								updateExtentChecksum(*this, inode, info.hdr);
-								co_await device->writeSectors(*info.block * sectorsPerBlock, info.blockView);
-							}
 
 							co_return ExtentIterDecision::keepGoing;
 						}else {
@@ -1772,8 +1773,8 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 						diskInode->blocks += blockSize / 512;
 
-						arch::dma_buffer newBlockBuffer{pool, sectorsPerBlock * device->sectorSize};
-						auto newHdr = reinterpret_cast<ExtentHeader *>(newBlockBuffer.data());
+						newBlockWindow = co_await metadataCache->access(newBlock[0], true);
+						auto newHdr = reinterpret_cast<ExtentHeader *>(newBlockWindow.get());
 
 						newHdr->magic = EXT4_EXTENT_MAGIC;
 						newHdr->max = (blockSize - sizeof(ExtentHeader)) / sizeof(Extent);
@@ -1814,9 +1815,10 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 						assert(newBlock[0] != 0);
 						updateExtentChecksum(*this, inode, newHdr);
-					    co_await device->writeSectors(
-					        newBlock[0] * sectorsPerBlock, newBlockBuffer
-					    );
+
+						// The block lost entriesToMove-many entries, so update its checksum.
+						if(info.block)
+							updateExtentChecksum(*this, inode, info.hdr);
 
 						if(!info.block) {
 							// The root is full, allocate a new level for the entries that would have been left at root.
@@ -1825,8 +1827,8 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 							diskInode->blocks += blockSize / 512;
 
-							arch::dma_buffer newRootBuffer{pool, sectorsPerBlock * device->sectorSize};
-							auto newRootHdr = reinterpret_cast<ExtentHeader *>(newRootBuffer.data());
+							newRootWindow = co_await metadataCache->access(newRoot[0], true);
+							auto newRootHdr = reinterpret_cast<ExtentHeader *>(newRootWindow.get());
 
 							memcpy(newRootHdr, info.hdr, sizeof(ExtentHeader) + info.hdr->entries * sizeof(Extent));
 							// Update the max count as the inode can store less entries than a block.
@@ -1834,9 +1836,6 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 
 							assert(newRoot[0] != 0);
 							updateExtentChecksum(*this, inode, newRootHdr);
-						    co_await device->writeSectors(
-						        newRoot[0] * sectorsPerBlock, newRootBuffer
-						    );
 
 							info.hdr->entries = 2;
 							info.hdr->depth++;
@@ -1912,7 +1911,6 @@ async::result<void> FileSystem::assignDataBlocksUsingExtents(Inode *inode,
 					if(info.block) {
 						assert(*info.block != 0);
 						updateExtentChecksum(*this, inode, info.hdr);
-						co_await device->writeSectors(*info.block * sectorsPerBlock, info.blockView);
 					}
 
 					writeExtent = nextWriteExtent;
