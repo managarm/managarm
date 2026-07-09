@@ -49,7 +49,8 @@ DEFINE_TEST(mkdir_trailing_dot, ([] {
 
 	struct rlimit oldlimit{};
 	getrlimit(RLIMIT_NOFILE, &oldlimit);
-	struct rlimit limit{32, 32};
+	// Lower only the soft limit: an unprivileged process cannot raise the hard limit back.
+	struct rlimit limit{32, oldlimit.rlim_max};
 	setrlimit(RLIMIT_NOFILE, &limit);
 
 	frg::scope_exit resetRlimit{[&] {
