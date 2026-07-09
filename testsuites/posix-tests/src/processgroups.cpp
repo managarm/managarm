@@ -9,6 +9,19 @@
 
 #include "testsuite.hpp"
 
+namespace {
+
+// These tests need /dev/ptmx, absent in the build container. Probe in the parent
+// (skip_test must not run in the forked child) and skip if it is unavailable.
+void require_ptmx() {
+	int fd = open("/dev/ptmx", O_RDWR);
+	if(fd == -1)
+		skip_test("/dev/ptmx unavailable");
+	close(fd);
+}
+
+} // namespace
+
 /*
  * The general gist of these tests is as follows:
  * We fork to get a clean slate,
@@ -20,6 +33,7 @@
  * Yes, this is tedious, but the only way to guarantee a proper environment.
  */
 DEFINE_TEST(tcgetsid, ([] {
+	require_ptmx();
 	pid_t pid = fork();
 	if(!pid) {
 		// Open the terminal
@@ -42,6 +56,7 @@ DEFINE_TEST(tcgetsid, ([] {
 }))
 
 DEFINE_TEST(tcgetpgrp, ([] {
+	require_ptmx();
 	pid_t pid = fork();
 	if(!pid) {
 		// Open the terminal
@@ -81,6 +96,7 @@ DEFINE_TEST(setsid, ([] {
 }))
 
 DEFINE_TEST(tcsetpgrp, ([] {
+	require_ptmx();
 	pid_t pid = fork();
 	if(!pid) {
 		// Open the terminal
