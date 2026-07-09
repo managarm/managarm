@@ -521,7 +521,7 @@ HandleRequest::operator()(managarm::posix::SetResourceLimitRequest &&req,
 
 	switch(req.resource()) {
 		case RLIMIT_NOFILE:
-			self->fileContext()->setFdLimit(req.max());
+			self->fileContext()->setFdLimit(req.cur());
 			break;
 		default:
 			resp.set_error(managarm::posix::Errors::ILLEGAL_ARGUMENTS);
