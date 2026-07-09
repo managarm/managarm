@@ -291,6 +291,9 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	// The '.' and '..' entries are synthesized before iterating _entries.
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
+
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
@@ -781,9 +784,19 @@ DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<F
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 DirectoryFile::readEntries() {
+	// '.' and '..' are not stored in _entries; synthesize them before iterating.
+	if(_dots != DotEntriesPhase::done) {
+		// The parent of the root directory is the root itself.
+		auto owner = _node->treeLink()->getOwner();
+		auto parent = owner ? static_cast<Node *>(owner.get()) : static_cast<Node *>(_node);
+		if(auto entry = nextDotEntry(_dots, _node->inodeNumber(), parent->inodeNumber()); entry)
+			co_return *entry;
+	}
+
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
-		auto type = (*_iter)->getTarget()->getType();
+		auto target = static_cast<Node *>((*_iter)->getTarget().get());
+		auto type = target->getType();
 		_iter++;
 
 		int64_t fileType = managarm::fs::FileType::REGULAR;
@@ -814,8 +827,8 @@ DirectoryFile::readEntries() {
 
 		co_return protocols::fs::ReadEntriesResult{
 			.name = name,
-			.inode = 0,
-			.offset = std::distance(_node->_entries.begin(), _iter),
+			.inode = static_cast<ino_t>(target->inodeNumber()),
+			.offset = 2 + std::distance(_node->_entries.begin(), _iter),
 			.fileType = fileType
 		};
 	}else{
