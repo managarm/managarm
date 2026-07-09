@@ -298,32 +298,33 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 	}};
 
 	std::optional<DirEntry> entry;
-	std::shared_ptr<Inode> parent = self;
-	size_t processedComponents = 0;
+	size_t allComponents = components.size();
 
+	// (inode, inode number) pair for all resolved path components.
 	std::vector<std::pair<std::shared_ptr<void>, int64_t>> nodes;
+
+	// Stack of directories that we have entered.
+	// Differs from the nodes vector: directories are popped here when resolving "..".
+	std::vector<std::pair<std::shared_ptr<Inode>, int64_t>> dirStack;
+	dirStack.push_back({self, static_cast<int64_t>(self->number)});
 
 	while (!components.empty()) {
 		auto component = components.front();
-		components.pop_front();
-		processedComponents++;
 
-		if (component == "..") {
-			if (parent == self)
-				co_return std::make_tuple(
-				    nodes, protocols::fs::FileType::directory, processedComponents
-				);
+		if (component == ".") {
+			components.pop_front();
+			nodes.push_back({dirStack.back().first, dirStack.back().second});
+		} else if (component == "..") {
+			// Break before popping the component: we must not ascend past the initial directory.
+			if (dirStack.size() == 1)
+				break;
+			// Pop the directory: its parent will be pushed to the nodes vector below.
+			dirStack.pop_back();
 
-			std::optional<DirEntry> entry;
-			{
-				co_await parent->inodeMutex.async_lock_shared();
-				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
-				entry = FRG_CO_TRY(co_await parent->findEntry(".."));
-			}
-			assert(entry);
-			parent = std::static_pointer_cast<Inode>(self->fs.accessInode(entry->inode));
-			nodes.pop_back();
+			components.pop_front();
+			nodes.push_back({dirStack.back().first, dirStack.back().second});
 		} else {
+			auto parent = dirStack.back().first;
 			{
 				co_await parent->inodeMutex.async_lock_shared();
 				frg::shared_lock inodeLock{frg::adopt_lock, parent->inodeMutex};
@@ -333,8 +334,9 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 			if (!entry) {
 				co_return protocols::fs::Error::fileNotFound;
 			}
-
 			assert(entry->inode);
+
+			components.pop_front();
 			nodes.push_back({self->fs.accessInode(entry->inode), entry->inode});
 
 			if (!components.empty()) {
@@ -355,7 +357,8 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 				if (entry->fileType != kTypeDirectory)
 					co_return protocols::fs::Error::notDirectory;
 
-				parent = std::static_pointer_cast<Inode>(ino);
+				// Push the directory that we just entered.
+				dirStack.push_back({std::static_pointer_cast<Inode>(ino), entry->inode});
 			}
 		}
 	}
@@ -378,7 +381,7 @@ doTraverseLinks(std::shared_ptr<void> object, std::deque<std::string> components
 			throw std::runtime_error("Unexpected file type");
 	}
 
-	co_return std::make_tuple(nodes, type, processedComponents);
+	co_return std::make_tuple(nodes, type, allComponents - components.size());
 }
 
 template <FileSystem T>
