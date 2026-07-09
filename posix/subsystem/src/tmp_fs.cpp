@@ -599,10 +599,18 @@ struct Superblock final : FsSuperblock {
 			if(overwritten.get() == target.get())
 				co_return *dest_it;
 
-			if(overwritten->getType() == VfsType::directory)
+			if(overwritten->getType() == VfsType::directory) {
+				// A directory may only be replaced by another empty directory.
+				if(target->getType() != VfsType::directory)
+					co_return Error::isDirectory;
+				if(!static_cast<DirectoryNode *>(overwritten.get())->_entries.empty())
+					co_return Error::directoryNotEmpty;
 				dest_dir->adjustLinkCount(-1); // Drop its '..' backlink.
-			else
+			}else{
+				if(target->getType() == VfsType::directory)
+					co_return Error::notDirectory;
 				static_cast<Node *>(overwritten.get())->adjustLinkCount(-1);
+			}
 			dest_dir->_entries.erase(dest_it);
 		}
 
