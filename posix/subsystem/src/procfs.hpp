@@ -79,6 +79,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
@@ -380,6 +381,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
 	std::unordered_map<int, FileDescriptor> _fileTable;
 	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
 };
@@ -484,6 +486,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
 	std::unordered_map<int, FileDescriptor> _fileTable;
 	std::unordered_map<int, FileDescriptor>::const_iterator _iter;
 };
