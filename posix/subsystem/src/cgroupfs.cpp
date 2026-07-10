@@ -116,6 +116,9 @@ void DirectoryFile::handleClose() {
 
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>> DirectoryFile::readEntries() {
+	if(auto entry = nextDotEntry(_dots, 0, 0); entry)
+		co_return *entry;
+
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
 		_iter++;
@@ -123,7 +126,7 @@ async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Erro
 		co_return protocols::fs::ReadEntriesResult{
 			.name = name,
 			.inode = 0,
-			.offset = std::distance(_node->_entries.begin(), _iter)
+			.offset = 2 + std::distance(_node->_entries.begin(), _iter)
 		};
 	}else{
 		co_return std::unexpected(managarm::fs::Errors::END_OF_FILE);

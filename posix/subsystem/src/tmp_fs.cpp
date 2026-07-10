@@ -71,6 +71,10 @@ public:
 		return _numLinks;
 	}
 
+	void adjustLinkCount(int delta) {
+		_numLinks += delta;
+	}
+
 	mode_t mode() {
 		return _mode;
 	}
@@ -291,6 +295,9 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	// The '.' and '..' entries are synthesized before iterating _entries.
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
+
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 
@@ -339,6 +346,7 @@ private:
 			std::shared_ptr<FsNode> target) override {
 		if(!(_entries.find(name) == _entries.end()))
 			co_return Error::alreadyExists;
+		static_cast<Node *>(target.get())->adjustLinkCount(1);
 		auto link = std::make_shared<Link>(shared_from_this(), std::move(name), std::move(target));
 		_entries.insert(link);
 		co_return link;
@@ -364,6 +372,7 @@ private:
 		if(target->getType() == VfsType::directory)
 			co_return Error::directoryNotEmpty;
 
+		static_cast<Node *>(target.get())->adjustLinkCount(-1);
 		_entries.erase(it);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0);
@@ -389,6 +398,8 @@ private:
 		}
 
 		_entries.erase(it);
+		// Drop the removed subdirectory's '..' backlink.
+		adjustLinkCount(-1);
 
 		notifyObservers(FsObserver::deleteEvent, name, 0, true);
 		co_return {};
@@ -578,15 +589,44 @@ struct Superblock final : FsSuperblock {
 		if(it == src_dir->_entries.end() || it->get() != src_link)
 			co_return Error::alreadyExists;
 
+		auto target = src_link->getTarget();
+
 		// Unlink an existing link if such a link exists.
 		if(auto dest_it = dest_dir->_entries.find(dest_name);
-				dest_it != dest_dir->_entries.end())
+				dest_it != dest_dir->_entries.end()) {
+			auto overwritten = (*dest_it)->getTarget();
+			// Renaming a file onto itself is a no-op.
+			if(overwritten.get() == target.get())
+				co_return *dest_it;
+
+			if(overwritten->getType() == VfsType::directory) {
+				// A directory may only be replaced by another empty directory.
+				if(target->getType() != VfsType::directory)
+					co_return Error::isDirectory;
+				if(!static_cast<DirectoryNode *>(overwritten.get())->_entries.empty())
+					co_return Error::directoryNotEmpty;
+				dest_dir->adjustLinkCount(-1); // Drop its '..' backlink.
+			}else{
+				if(target->getType() == VfsType::directory)
+					co_return Error::notDirectory;
+				static_cast<Node *>(overwritten.get())->adjustLinkCount(-1);
+			}
 			dest_dir->_entries.erase(dest_it);
+		}
 
 		auto new_link = std::make_shared<Link>(dest_dir->shared_from_this(),
-				std::move(dest_name), src_link->getTarget());
+				std::move(dest_name), target);
 		src_dir->_entries.erase(it);
 		dest_dir->_entries.insert(new_link);
+
+		if(target->getType() == VfsType::directory) {
+			// The moved directory's tree link and '..' backlink follow it to dest_dir.
+			static_cast<DirectoryNode *>(target.get())->_treeLink = new_link;
+			if(src_dir != dest_dir) {
+				src_dir->adjustLinkCount(-1);
+				dest_dir->adjustLinkCount(1);
+			}
+		}
 		co_return new_link;
 	}
 
@@ -781,9 +821,19 @@ DirectoryFile::DirectoryFile(std::shared_ptr<MountView> mount, std::shared_ptr<F
 // TODO: This iteration mechanism only works as long as _iter is not concurrently deleted.
 async::result<std::expected<protocols::fs::ReadEntriesResult, managarm::fs::Errors>>
 DirectoryFile::readEntries() {
+	// '.' and '..' are not stored in _entries; synthesize them before iterating.
+	if(_dots != DotEntriesPhase::done) {
+		// The parent of the root directory is the root itself.
+		auto owner = _node->treeLink()->getOwner();
+		auto parent = owner ? static_cast<Node *>(owner.get()) : static_cast<Node *>(_node);
+		if(auto entry = nextDotEntry(_dots, _node->inodeNumber(), parent->inodeNumber()); entry)
+			co_return *entry;
+	}
+
 	if(_iter != _node->_entries.end()) {
 		auto name = (*_iter)->getName();
-		auto type = (*_iter)->getTarget()->getType();
+		auto target = static_cast<Node *>((*_iter)->getTarget().get());
+		auto type = target->getType();
 		_iter++;
 
 		int64_t fileType = managarm::fs::FileType::REGULAR;
@@ -814,8 +864,8 @@ DirectoryFile::readEntries() {
 
 		co_return protocols::fs::ReadEntriesResult{
 			.name = name,
-			.inode = 0,
-			.offset = std::distance(_node->_entries.begin(), _iter),
+			.inode = static_cast<ino_t>(target->inodeNumber()),
+			.offset = 2 + std::distance(_node->_entries.begin(), _iter),
 			.fileType = fileType
 		};
 	}else{
@@ -882,6 +932,8 @@ DirectoryNode::DirectoryNode(Superblock *superblock, int mode, uid_t uid, gid_t 
 : Node{superblock, FsNode::defaultSupportsObservers} {
 	initializeMode(mode);
 	initializeOwner(uid, gid);
+	// '.' and the entry in the parent give a fresh directory two links.
+	adjustLinkCount(1);
 }
 
 async::result<std::expected<std::shared_ptr<FsLink>, Error>>
@@ -914,6 +966,8 @@ DirectoryNode::mkdir(Process *proc, std::string name, mode_t mode) {
 	auto link = std::make_shared<Link>(shared_from_this(), name, std::move(node));
 	the_node->_treeLink = link;
 	_entries.insert(link);
+	// Account for the new subdirectory's '..' backlink.
+	adjustLinkCount(1);
 	notifyObservers(FsObserver::createEvent, name, 0, true);
 	co_return link;
 }

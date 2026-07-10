@@ -112,6 +112,7 @@ private:
 	helix::UniqueLane _passthrough;
 	async::cancellation_event _cancelServe;
 
+	DotEntriesPhase _dots = DotEntriesPhase::dot;
 	std::set<std::shared_ptr<Link>, LinkCompare>::iterator _iter;
 };
 

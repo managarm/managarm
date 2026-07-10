@@ -23,6 +23,33 @@ struct FsLink;
 struct Process;
 struct ControllingTerminalState;
 
+// Synthesizes "." and ".." for filesystems that do not store them: yields each
+// in turn and then std::nullopt, with `phase` tracking progress across calls.
+enum class DotEntriesPhase { dot, dotDot, done };
+
+inline std::optional<protocols::fs::ReadEntriesResult>
+nextDotEntry(DotEntriesPhase &phase, ino_t self, ino_t parent) {
+	if(phase == DotEntriesPhase::dot) {
+		phase = DotEntriesPhase::dotDot;
+		return protocols::fs::ReadEntriesResult{
+			.name = ".",
+			.inode = self,
+			.offset = 1,
+			.fileType = managarm::fs::FileType::DIRECTORY,
+		};
+	}
+	if(phase == DotEntriesPhase::dotDot) {
+		phase = DotEntriesPhase::done;
+		return protocols::fs::ReadEntriesResult{
+			.name = "..",
+			.inode = parent,
+			.offset = 2,
+			.fileType = managarm::fs::FileType::DIRECTORY,
+		};
+	}
+	return std::nullopt;
+}
+
 struct FileHandle {
 	FileHandle() = default;
 
