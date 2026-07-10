@@ -576,9 +576,10 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size,
-			flags & kHelManagedReadahead);
-	managed->selfPtr = managed;
+	auto managedOutcome = ManagedSpace::create(size, flags & kHelManagedReadahead);
+	if(!managedOutcome)
+		return translateError(managedOutcome.error());
+	auto managed = std::move(*managedOutcome);
 	auto backingOutcome = BackingMemory::create(managed);
 	if(!backingOutcome)
 		return translateError(backingOutcome.error());

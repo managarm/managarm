@@ -710,10 +710,16 @@ struct ManagedSpace : CacheBundle {
 		// to request that the eviction coroutine raise monitor after completing
 		// the transition to LoadState::missing.
 		bool forceInvalidation{false};
+		// Whether the backing store's copy of the page matches its last in-memory contents.
+		// Maintained by markDirty()/updateRange().
+		bool swapCopyValid{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
 	};
+
+	static std::expected<smarter::shared_ptr<ManagedSpace>, Error> create(
+			size_t length, bool readahead);
 
 	ManagedSpace(size_t length, bool readahead);
 	~ManagedSpace();
@@ -721,6 +727,13 @@ struct ManagedSpace : CacheBundle {
 	void incrementUses(CachePage *page) override;
 	void decrementUses(CachePage *page) override;
 	void markDirty(CachePage *page) override;
+
+	// Called under mutex before a dirty page transitions to writeback.
+	// Returning false leaves the page on _dirtyList until swap budget becomes available.
+	virtual bool claimSwapBudget(ManagedPage *page);
+
+	coroutine<void> _runReclaimLoop();
+	coroutine<void> _runDrainLoop();
 
 	Error lockPages(uintptr_t offset, size_t size);
 	void unlockPages(uintptr_t offset, size_t size);
@@ -769,6 +782,11 @@ struct ManagedSpace : CacheBundle {
 	ManageList _managementQueue;
 
 	async::recurring_event _dirtyEvent;
+
+	// Set by the drain coroutine when dirty pages exist but none of them could claim swap budget.
+	// While this is set, _dirtyEvent does not wake the drain coroutine.
+	// Protected by mutex.
+	bool _drainBlocked = false;
 };
 
 struct BackingMemory final : MemoryView {
