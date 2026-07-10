@@ -13,6 +13,7 @@
 #include <frg/shared_ptr.hpp>
 #include <frg/vector.hpp>
 #include <frg/expected.hpp>
+#include <physical-buddy.hpp>
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/futex.hpp>
@@ -723,6 +724,9 @@ struct ManagedSpace : CacheBundle {
 		bool swapCopyValid{false};
 		// The page is being torn down - see discardPage(). Set once, never cleared.
 		bool discarded{false};
+		// Whether swap budget was claimed for this page.
+		// Owned by SwapSpace, not used by ManagedSpace.
+		bool swapBudgetClaimed{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
@@ -787,6 +791,9 @@ struct ManagedSpace : CacheBundle {
 	size_t numPages;
 	bool readahead;
 
+	// Whether this space is a SwapSpace.
+	bool isSwapSpace = false;
+
 	EvictionQueue _evictQueue;
 
 	frg::intrusive_list<
@@ -830,6 +837,37 @@ struct ManagedSpace : CacheBundle {
 	// While this is set, _dirtyEvent does not wake the drain coroutine.
 	// Protected by mutex.
 	bool _drainBlocked = false;
+};
+
+// Backing store for swappable anonymous memory].
+// Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
+struct SwapSpace final : ManagedSpace {
+	static smarter::shared_ptr<SwapSpace> create();
+
+	SwapSpace();
+
+	bool claimSwapBudget(ManagedPage *page) override;
+	void _pageDiscarded(ManagedPage *page) override;
+
+	void setBudget(size_t numSlots);
+
+private:
+	// Allocates the lowest free swap offset (in pages, not bytes).
+	// Must be called under mutex.
+	frg::optional<uint64_t> _allocateOffset();
+
+	// Frees the given swap offset (in pages not bytes).
+	// Must be called under mutex.
+	void _freeOffset(uint64_t offset);
+
+	frg::vector<int8_t, KernelAlloc> _buddyMetadata;
+	BuddyAccessor _buddyAccessor;
+
+	// Protected by mutex.
+	size_t _budget = 0;
+
+	// Protected by mutex.
+	size_t _budgetClaimed = 0;
 };
 
 struct BackingMemory final : MemoryView {

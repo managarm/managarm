@@ -1008,6 +1008,8 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 						page->stillDirty = false;
 						page->transactionState = TxState::dirty;
 						_dirtyList.push_back(&page->cachePage);
+						if(page->swapBudgetClaimed)
+							_drainBlocked = false;
 						anyDirty = true;
 					} else if(page->lockCount
 							|| page->cachePage.useCount.load(std::memory_order_relaxed)) {
@@ -1249,6 +1251,73 @@ void ManagedSpace::_wakeDrain() {
 	_dirtyEvent.raise();
 }
 
+// --------------------------------------------------------
+// SwapSpace
+// --------------------------------------------------------
+
+smarter::shared_ptr<SwapSpace> SwapSpace::create() {
+	auto self = smarter::allocate_shared<SwapSpace>(*kernelAlloc);
+	self->selfPtr = self;
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
+	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runDrainLoop());
+	// TODO: Don't leak the swap spaces.
+	self.policy().increment();
+	return self;
+}
+
+SwapSpace::SwapSpace()
+: ManagedSpace{UINT64_C(1) << 32, false}, _buddyMetadata{*kernelAlloc} {
+	isSwapSpace = true;
+
+	assert(numPages);
+	auto tableOrder = BuddyAccessor::suitableOrder(numPages);
+	auto numRoots = numPages >> tableOrder;
+	_buddyMetadata.resize(BuddyAccessor::determineSize(numRoots, tableOrder));
+	BuddyAccessor::initialize(_buddyMetadata.data(), numRoots, tableOrder);
+	_buddyAccessor = BuddyAccessor{0, 0, _buddyMetadata.data(), numRoots, tableOrder};
+}
+
+bool SwapSpace::claimSwapBudget(ManagedPage *page) {
+	if(page->swapBudgetClaimed)
+		return true;
+	if(_budgetClaimed >= _budget)
+		return false;
+	_budgetClaimed++;
+	page->swapBudgetClaimed = true;
+	return true;
+}
+
+void SwapSpace::_pageDiscarded(ManagedPage *page) {
+	if(page->swapBudgetClaimed) {
+		assert(_budgetClaimed);
+		_budgetClaimed--;
+		page->swapBudgetClaimed = false;
+		_drainBlocked = false;
+	}
+	_freeOffset(page->cachePage.identity);
+}
+
+void SwapSpace::setBudget(size_t numSlots) {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		_budget = numSlots;
+	}
+	_wakeDrain();
+}
+
+frg::optional<uint64_t> SwapSpace::_allocateOffset() {
+	auto offset = _buddyAccessor.allocate(0, 64);
+	if(offset == BuddyAccessor::illegalAddress)
+		return frg::null_opt;
+	return offset;
+}
+
+void SwapSpace::_freeOffset(uint64_t offset) {
+	assert(offset < numPages);
+	_buddyAccessor.free(offset, 0);
+}
+
 ManagedSpace::~ManagedSpace() {
 	// TODO: Free all physical memory.
 	// TODO: We also have to remove all Loaded/Evicting pages from the reclaimer.
@@ -1468,7 +1537,12 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 				globalReclaimer->removePage(cachePage);
 			page->transactionState = TxState::dirty;
 			_dirtyList.push_back(cachePage);
-			needsEvent = true;
+			// When the drain coroutine is blocked on swap budget, only pages that
+			// already claimed swap budget can enter writeback.
+			if(!_drainBlocked || page->swapBudgetClaimed) {
+				_drainBlocked = false;
+				needsEvent = true;
+			}
 		} else if(page->transactionState == TxState::performReclaim
 				|| page->transactionState == TxState::avertReclaim) {
 			page->transactionState = TxState::avertReclaim;
@@ -1498,6 +1572,8 @@ std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
 
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(currentIpl() == ipl::exceptionalWork);
+	if(_managed->isSwapSpace)
+		co_return Error::illegalObject;
 	assert(!(newSize & (kPageSize - 1)));
 	auto newPages = newSize >> kPageShift;
 
@@ -1774,6 +1850,8 @@ coroutine<frg::expected<Error>> BackingMemory::writebackFence(uintptr_t offset, 
 }
 
 coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset, size_t size) {
+	if(_managed->isSwapSpace)
+		co_return Error::illegalObject;
 	if (offset & (kPageSize - 1))
 		co_return Error::illegalArgs;
 	if (size & (kPageSize - 1))
