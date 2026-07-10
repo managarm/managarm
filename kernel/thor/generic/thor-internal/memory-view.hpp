@@ -852,6 +852,8 @@ struct SwapSpace final : ManagedSpace {
 	void setBudget(size_t numSlots);
 
 private:
+	friend struct SwappableMemory;
+
 	// Allocates the lowest free swap offset (in pages, not bytes).
 	// Must be called under mutex.
 	frg::optional<uint64_t> _allocateOffset();
@@ -928,6 +930,45 @@ public:
 	smarter::borrowed_ptr<FrontalMemory> selfPtr;
 private:
 	smarter::shared_ptr<ManagedSpace> _managed;
+};
+
+// Anonymous memory backed by a SwapSpace.
+// The view translates its own page indices to lazily allocated swap offsets.
+// Frames and per-page state are owned by the SwapSpace.
+struct SwappableMemory final : MemoryView {
+public:
+	SwappableMemory(smarter::shared_ptr<SwapSpace> space, size_t length);
+	~SwappableMemory();
+
+	SwappableMemory(const SwappableMemory &) = delete;
+	SwappableMemory &operator= (const SwappableMemory &) = delete;
+
+	size_t getLength() override;
+	coroutine<frg::expected<Error>> resize(size_t newLength) override;
+	Error lockRange(uintptr_t offset, size_t size) override;
+	void unlockRange(uintptr_t offset, size_t size) override;
+	PhysicalRange peekRange(uintptr_t offset, FetchFlags flags) override;
+	coroutine<frg::expected<Error, size_t>>
+			touchRange(uintptr_t offset, size_t sizeHint, FetchFlags flags) override;
+
+public:
+	// Contract: set by the code that constructs this object.
+	smarter::borrowed_ptr<SwappableMemory> selfPtr;
+
+private:
+	// Returns the swap offset backing the given view page index, allocating one on demand.
+	// Must be called under the SwapSpace mutex.
+	frg::optional<uint64_t> _translate(uint64_t index);
+
+	// Unlock counterpart of lockRange().
+	// Must be called under the SwapSpace mutex.
+	void _unlockPagesLocked(uintptr_t offset, size_t size,
+			bool &raiseDiscard, bool &raiseDirty);
+
+	smarter::shared_ptr<SwapSpace> _space;
+	size_t _length;
+
+	frg::rcu_radixtree<uint64_t, KernelAlloc, RcuPolicy> _table;
 };
 
 struct IndirectMemory final : MemoryView {

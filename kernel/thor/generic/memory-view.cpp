@@ -2062,6 +2062,279 @@ size_t FrontalMemory::getLength() {
 }
 
 // --------------------------------------------------------
+// SwappableMemory
+// --------------------------------------------------------
+
+SwappableMemory::SwappableMemory(smarter::shared_ptr<SwapSpace> space, size_t length)
+: MemoryView{&space->_evictQueue}, _space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
+	assert(!(length & (kPageSize - 1)));
+}
+
+SwappableMemory::~SwappableMemory() {
+	for(auto it = _table.begin(); it != _table.end(); ++it)
+		_space->discardPage(*it);
+	// Discarding may have released swap budget.
+	_space->_wakeDrain();
+}
+
+frg::optional<uint64_t> SwappableMemory::_translate(uint64_t index) {
+	auto tit = _table.find(index);
+	if(tit)
+		return *tit;
+
+	auto allocated = _space->_allocateOffset();
+	if(!allocated)
+		return frg::null_opt;
+	_table.insert(index, *allocated);
+
+	auto [pit, wasInserted] = _space->pages.find_or_insert(*allocated, _space.get(), *allocated);
+	assert(pit);
+	assert(wasInserted);
+	return *allocated;
+}
+
+size_t SwappableMemory::getLength() {
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_space->mutex);
+
+	return _length;
+}
+
+coroutine<frg::expected<Error>> SwappableMemory::resize(size_t newSize) {
+	assert(currentIpl() == ipl::exceptionalWork);
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_space->mutex);
+
+		if(newSize & (kPageSize - 1))
+			co_return Error::illegalArgs;
+		// TODO: Support shrinking of SwappableMemory.
+		if(newSize < _length)
+			co_return Error::illegalArgs;
+		_length = newSize;
+	}
+	co_return {};
+}
+
+Error SwappableMemory::lockRange(uintptr_t offset, size_t size) {
+	bool raiseDiscard = false;
+	bool raiseDirty = false;
+	Error result = Error::success;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_space->mutex);
+
+		if(offset + size > _length)
+			return Error::bufferTooSmall;
+
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			auto index = (offset + pg) >> kPageShift;
+			auto swapOffset = _translate(index);
+			if(!swapOffset) {
+				// The swap space is exhausted, unwind the locks we already took.
+				_unlockPagesLocked(offset, pg, raiseDiscard, raiseDirty);
+				result = Error::noMemory;
+				break;
+			}
+			auto pit = _space->pages.find(*swapOffset);
+			assert(pit);
+			if(++pit->lockCount == 1) {
+				if(pit->loadState == ManagedSpace::LoadState::present
+						&& pit->transactionState == ManagedSpace::TxState::inReclaimer) {
+					globalReclaimer->removePage(&pit->cachePage);
+					pit->transactionState = ManagedSpace::TxState::none;
+				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+					pit->transactionState = ManagedSpace::TxState::avertReclaim;
+				}
+			}
+		}
+	}
+	if(raiseDiscard)
+		_space->_discardEvent.raise();
+	if(raiseDirty)
+		_space->_dirtyEvent.raise();
+	return result;
+}
+
+void SwappableMemory::_unlockPagesLocked(uintptr_t offset, size_t size,
+		bool &raiseDiscard, bool &raiseDirty) {
+	for(size_t pg = 0; pg < size; pg += kPageSize) {
+		auto index = (offset + pg) >> kPageShift;
+		auto tit = _table.find(index);
+		assert(tit);
+		auto pit = _space->pages.find(*tit);
+		assert(pit);
+		assert(pit->lockCount);
+		pit->lockCount--;
+		if(!pit->lockCount) {
+			if(pit->discarded) {
+				if(pit->transactionState == ManagedSpace::TxState::none) {
+					auto disposition = _space->_disposeDiscarded(pit);
+					raiseDiscard |= disposition.queued;
+					raiseDirty |= disposition.erased;
+				}
+			} else if(pit->loadState == ManagedSpace::LoadState::present
+					&& pit->transactionState == ManagedSpace::TxState::none
+					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+				globalReclaimer->addPage(&pit->cachePage);
+				pit->transactionState = ManagedSpace::TxState::inReclaimer;
+			}
+		}
+	}
+}
+
+void SwappableMemory::unlockRange(uintptr_t offset, size_t size) {
+	bool raiseDiscard = false;
+	bool raiseDirty = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&_space->mutex);
+
+		assert(offset + size <= _length);
+		_unlockPagesLocked(offset, size, raiseDiscard, raiseDirty);
+	}
+	if(raiseDiscard)
+		_space->_discardEvent.raise();
+	if(raiseDirty)
+		_space->_dirtyEvent.raise();
+}
+
+PhysicalRange SwappableMemory::peekRange(uintptr_t offset, FetchFlags) {
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	auto irqLock = frg::guard(&irqMutex());
+	auto lock = frg::guard(&_space->mutex);
+
+	if(offset >= _length)
+		return PhysicalRange{};
+
+	auto tit = _table.find(index);
+	if(!tit)
+		return PhysicalRange{};
+	auto pit = _space->pages.find(*tit);
+	assert(pit);
+
+	if(pit->loadState == ManagedSpace::LoadState::present) {
+		auto physical = pit->physical;
+		assert(physical != PhysicalAddr(-1));
+
+		if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+			pit->transactionState = ManagedSpace::TxState::avertReclaim;
+		}
+
+		return PhysicalRange{
+			.physical = physical + misalign,
+			.size = kPageSize - misalign,
+			.cachingMode = CachingMode::null,
+			.isMutable = true
+		};
+	}
+
+	assert(pit->loadState == ManagedSpace::LoadState::missing);
+	return PhysicalRange{};
+}
+
+coroutine<frg::expected<Error, size_t>>
+SwappableMemory::touchRange(uintptr_t offset, size_t, FetchFlags flags) {
+	assert(currentIpl() == ipl::exceptionalWork);
+
+	auto index = offset >> kPageShift;
+	auto misalign = offset & (kPageSize - 1);
+
+	// Frame for the zero-fill path. Allocated and zeroed outside of the
+	// SwapSpace mutex, then installed under the mutex after re-checking that no
+	// other thread allocated the frame meanwhile.
+	PhysicalAddr freshPhysical(-1);
+	frg::scope_exit freeFreshFrame{[&] {
+		if(freshPhysical != PhysicalAddr(-1))
+			physicalAllocator->free(freshPhysical, kPageSize);
+	}};
+
+	while(true) {
+		ManageList pendingManagement;
+		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> fetchMonitor;
+		{
+			auto irqLock = frg::guard(&irqMutex());
+			auto lock = frg::guard(&_space->mutex);
+
+			if(index >= (_length >> kPageShift))
+				co_return Error::fault;
+
+			auto swapOffset = _translate(index);
+			if(!swapOffset)
+				co_return Error::noMemory;
+			auto pit = _space->pages.find(*swapOffset);
+			assert(pit);
+
+			if(pit->loadState == ManagedSpace::LoadState::present) {
+				assert(pit->physical != PhysicalAddr(-1));
+
+				if(pit->transactionState == ManagedSpace::TxState::inReclaimer) {
+					globalReclaimer->bumpPage(&pit->cachePage);
+				}else if(pit->transactionState == ManagedSpace::TxState::performReclaim) {
+					pit->transactionState = ManagedSpace::TxState::avertReclaim;
+				}
+
+				co_return kPageSize - misalign;
+			}
+			assert(pit->loadState == ManagedSpace::LoadState::missing);
+
+			if(!pit->swapCopyValid) {
+				// The page is logically all-zero - zero-fill it synchronously.
+				assert(pit->transactionState == ManagedSpace::TxState::none);
+				if(freshPhysical != PhysicalAddr(-1)) {
+					globalPfnDb().insert(freshPhysical,
+							PfnDescriptor::cachePage(&pit->cachePage));
+					pit->physical = freshPhysical;
+					pit->loadState = ManagedSpace::LoadState::present;
+					freshPhysical = PhysicalAddr(-1);
+					if(!pit->lockCount
+							&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+						globalReclaimer->addPage(&pit->cachePage);
+						pit->transactionState = ManagedSpace::TxState::inReclaimer;
+					}
+					co_return kPageSize - misalign;
+				}
+				// ... no frame at hand, allocate one below without the mutex held and retry.
+			}else{
+				// The page is swapped out, read it back via the manage protocol.
+				if(flags & fetchDisallowBacking) {
+					urgentLogger() << "thor: Backing of swapped-out page is disallowed"
+							<< frg::endlog;
+					co_return Error::fault;
+				}
+
+				if(pit->transactionState == ManagedSpace::TxState::none) {
+					pit->transactionState = ManagedSpace::TxState::wantInitialization;
+					_space->_initializationList.push_back(&pit->cachePage);
+					pit->monitor = frg::allocate_intrusive_shared<ManagedSpace::TransactionMonitor>(Allocator{});
+				}
+
+				_space->_progressManagement(pendingManagement);
+				fetchMonitor = pit->monitor;
+			}
+		}
+
+		if(fetchMonitor) {
+			while(!pendingManagement.empty()) {
+				auto node = pendingManagement.pop_front();
+				node->completionEvent.raise();
+			}
+
+			co_await fetchMonitor->event.wait();
+			co_return kPageSize - misalign;
+		}
+
+		assert(freshPhysical == PhysicalAddr(-1));
+		freshPhysical = physicalAllocator->allocate(kPageSize);
+		assert(freshPhysical != PhysicalAddr(-1) && "OOM");
+		PageAccessor accessor{freshPhysical};
+		memset(accessor.get(), 0, kPageSize);
+	}
+}
+
+// --------------------------------------------------------
 // IndirectMemory
 // --------------------------------------------------------
 
