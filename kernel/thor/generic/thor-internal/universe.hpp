@@ -18,6 +18,7 @@ namespace thor {
 typedef int64_t Handle;
 
 struct MemoryView;
+struct SwapSpace;
 struct AddressSpace;
 struct IoSpace;
 struct Thread;
@@ -97,6 +98,7 @@ enum class DescriptorType : uint8_t {
 	queue,
 	memoryView,
 	memorySlice,
+	swapSpace,
 	addressSpace,
 	virtualizedSpace,
 	dmaSpace,
@@ -140,6 +142,15 @@ struct DescriptorTraits<DescriptorType::memoryView> {
 template<>
 struct DescriptorTraits<DescriptorType::memorySlice> {
 	using Object = MemorySlice;
+	using Policy = smarter::default_rc_policy;
+};
+
+// Note that this is distinct from the memoryView descriptor of the swap space's
+// BackingMemory: allocation calls need the concrete SwapSpace (a generic
+// MemoryView cannot be downcast).
+template<>
+struct DescriptorTraits<DescriptorType::swapSpace> {
+	using Object = SwapSpace;
 	using Policy = smarter::default_rc_policy;
 };
 

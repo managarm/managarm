@@ -842,7 +842,7 @@ struct ManagedSpace : CacheBundle {
 // Backing store for swappable anonymous memory].
 // Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
 struct SwapSpace final : ManagedSpace {
-	static smarter::shared_ptr<SwapSpace> create();
+	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create();
 
 	SwapSpace();
 
@@ -936,8 +936,14 @@ private:
 // The view translates its own page indices to lazily allocated swap offsets.
 // Frames and per-page state are owned by the SwapSpace.
 struct SwappableMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
 public:
-	SwappableMemory(smarter::shared_ptr<SwapSpace> space, size_t length);
+	static std::expected<smarter::shared_ptr<SwappableMemory>, Error> create(
+			smarter::shared_ptr<SwapSpace> space, size_t length);
+
+	SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length);
 	~SwappableMemory();
 
 	SwappableMemory(const SwappableMemory &) = delete;

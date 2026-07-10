@@ -18,7 +18,7 @@
 
 enum {
 	// largest system call number plus 1
-	kHelNumCalls = 110,
+	kHelNumCalls = 113,
 
 	kHelCallLog = 1,
 	kHelCallPanic = 10,
@@ -61,6 +61,9 @@ enum {
 	kHelCallSubmitLockMemoryView = 48,
 	kHelCallLoadahead = 49,
 	kHelCallCreateVirtualizedSpace = 50,
+	kHelCallCreateSwapSpace = 110,
+	kHelCallAllocateSwappableMemory = 111,
+	kHelCallSetSwapBudget = 112,
 
 	kHelCallCreateThread = 67,
 	kHelCallQueryThreadStats = 95,
@@ -218,6 +221,7 @@ static const HelRights kHelRightInvoke = UINT32_C(1) << 5;
 // - IRQ pin: required to install an IRQ handler.
 // - Memory slice: required to map.
 // - Memory slice: required to map into indirect memory.
+// - Swap space: required to allocate memory backed by it.
 // - Virtualized space: required to create virtualized CPU.
 // - I/O objects: required to enable userspace I/O.
 // - Kernlets: required to create a bound kernlet from it.
@@ -260,6 +264,7 @@ static const HelRights kHelRightSignal = UINT32_C(1) << 12;
 // - Memory view: required to resize.
 // - Memory view: required to manage.
 // - Memory view: required to invalidate.
+// - Swap space: required to set the swap budget.
 // - Thread: required to set priority.
 // - Thread: required to resume.
 // - Thread: required to kill.
@@ -1214,6 +1219,43 @@ HEL_C_LINKAGE HelError helResizeMemory(HelHandle handle, size_t newSize);
 //!    	Handle to the new memory object (for consumers).
 HEL_C_LINKAGE HelError helCreateManagedMemory(size_t size, uint32_t flags,
 		HelHandle *backingHandle, HelHandle *frontalHandle);
+
+//! Creates a swap space, the backing store for swappable anonymous
+//! memory (see helAllocateSwappableMemory()).
+//!
+//!    The @p backingHandle works like the backing handle of
+//! helCreateManagedMemory(), addressed by kernel-allocated swap offsets: the
+//! swap daemon maps it to perform disk I/O and services initialize ("read
+//! these offsets from disk") and writeback ("write them out") requests
+//! through helSubmitManageMemory()/helUpdateMemory(). The kernel only issues
+//! writeback once a swap budget is set through helSetSwapBudget().
+//! @param[out] backingHandle
+//!    	Handle to the swap space's memory object (for the swap daemon).
+//! @param[out] swapHandle
+//!    	Handle identifying the swap space (for helAllocateSwappableMemory()
+//!    	and helSetSwapLimit()).
+HEL_C_LINKAGE HelError helCreateSwapSpace(uint32_t flags, HelHandle *backingHandle,
+		HelHandle *swapHandle);
+
+//! Allocates memory that behaves like helAllocateMemory() but is backed by a
+//! swap space: under memory pressure, dirty pages are written out through the
+//! swap space's manage protocol and their frames are reclaimed.
+//! @param[in] swapSpace
+//!    	Handle to the swap space (from helCreateSwapSpace()).
+//! @param[in] size
+//!    	Size of the memory object in bytes.
+//!    	Must be aligned to the system's page size.
+//! @param[out] handle
+//!    	Handle to the new memory object.
+HEL_C_LINKAGE HelError helAllocateSwappableMemory(HelHandle swapSpace,
+		size_t size, uint32_t flags, HelHandle *handle);
+
+//! Sets a swap space's budget, which is the number of pages that may be swapped out.
+//! @param[in] swapSpace
+//!    	Handle to the swap space (from helCreateSwapSpace()).
+//! @param[in] numPages
+//!    	Number of pages available for swap out.
+HEL_C_LINKAGE HelError helSetSwapBudget(HelHandle swapSpace, size_t numPages);
 
 //! Creates memory object that obtains its memory by copy-on-write from another memory object.
 //! @param[in] memory

@@ -1255,7 +1255,7 @@ void ManagedSpace::_wakeDrain() {
 // SwapSpace
 // --------------------------------------------------------
 
-smarter::shared_ptr<SwapSpace> SwapSpace::create() {
+std::expected<smarter::shared_ptr<SwapSpace>, Error> SwapSpace::create() {
 	auto self = smarter::allocate_shared<SwapSpace>(*kernelAlloc);
 	self->selfPtr = self;
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), self->_runReclaimLoop());
@@ -2065,7 +2065,15 @@ size_t FrontalMemory::getLength() {
 // SwappableMemory
 // --------------------------------------------------------
 
-SwappableMemory::SwappableMemory(smarter::shared_ptr<SwapSpace> space, size_t length)
+std::expected<smarter::shared_ptr<SwappableMemory>, Error> SwappableMemory::create(
+		smarter::shared_ptr<SwapSpace> space, size_t length) {
+	auto ptr = smarter::allocate_shared<SwappableMemory>(*kernelAlloc, CtorToken{},
+			std::move(space), length);
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
+SwappableMemory::SwappableMemory(CtorToken, smarter::shared_ptr<SwapSpace> space, size_t length)
 : MemoryView{&space->_evictQueue}, _space{std::move(space)}, _length{length}, _table{*kernelAlloc} {
 	assert(!(length & (kPageSize - 1)));
 }
