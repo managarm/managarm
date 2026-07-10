@@ -279,6 +279,57 @@ jobs:
                 path: "build/xbps-repo/${{ matrix.pkg }}*.xbps"
                 if-no-files-found: error
 
+    host-posix-tests:
+        name: Run posix-tests on the Linux host
+        needs:
+          - cache-generic
+        runs-on: ubuntu-24.04
+        steps:
+          - name: Permit unprivileged user namespaces
+            run: |
+                set -x
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0
+                sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          - name: Install prerequisites
+            run: |
+                set -x
+                pip3 install xbstrap y4
+                xbstrap prereqs cbuildrt xbps
+          - name: Restore rootfs cache
+            uses: actions/cache/restore@v5
+            with:
+                key: "rootfs-${{ needs.cache-generic.outputs.caching-key }}"
+                # Note: must be kept in sync with the cache action (effectively part of the key).
+                path: rootfs/
+                fail-on-cache-miss: true
+          - name: Checkout bootstrap-managarm
+            uses: actions/checkout@v6
+            with:
+                repository: managarm/bootstrap-managarm
+                ref: ${{ needs.cache-generic.outputs.corresponding-bootstrap }}
+                path: src/
+          - name: Checkout Managarm
+            uses: actions/checkout@v6
+            with:
+                path: src/managarm/
+                fetch-depth: 0
+          - name: Prepare src/ and build/
+            run: |
+                set -x
+                touch src/managarm/checkedout.xbstrap
+                mkdir build/
+                cp src/managarm/ci/bootstrap-site-x86_64.yml build/bootstrap-site.yml
+          - name: Build host-managarm-tools
+            run: |
+                set -x
+                xbstrap init ../src
+                xbstrap install-tool --recompile host-managarm-tools
+            working-directory: build/
+          - name: Run posix-tests
+            run: |
+                xbstrap runtool -- ./tools/host-managarm-tools/bin/posix-tests
+            working-directory: build/
+
     test-image:
         strategy:
             matrix:

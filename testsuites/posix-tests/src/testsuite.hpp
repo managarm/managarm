@@ -9,6 +9,15 @@
 #define DEFINE_TEST(s, f) \
 	static test_case test_ ## s{#s, f};
 
+// Thrown by skip_test() to abort a test without failing it (e.g. a missing environment feature).
+struct test_skipped {
+	const char *reason;
+};
+
+[[noreturn]] inline void skip_test(const char *reason) {
+	throw test_skipped{reason};
+}
+
 struct abstract_test_case {
 private:
 	static void register_case(abstract_test_case *tcp);

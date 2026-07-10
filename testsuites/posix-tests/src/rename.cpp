@@ -14,11 +14,14 @@
 
 namespace {
 
-// Create a fresh per-test scratch directory on the ext2 root filesystem
-// (so the libblockfs rename handler is actually on the path; /tmp is tmpfs
-// and would bypass the code under test).
+// Per-test scratch directory: the ext2 root on Managarm (to exercise libblockfs,
+// which /tmp as tmpfs would bypass), /tmp on hosts where the root is not writable.
 std::string make_scratch() {
+#if defined(__managarm__)
 	std::string tmpl = "/posix-tests-rename-XXXXXX";
+#else
+	std::string tmpl = "/tmp/posix-tests-rename-XXXXXX";
+#endif
 	std::string path(tmpl);
 	if(!mkdtemp(path.data()))
 		assert(!"mkdtemp() failed");
