@@ -674,6 +674,11 @@ struct ManagedSpace : CacheBundle {
 		// Page is owned by the ManagedSpace reclamation logic.
 		// Valid in LoadState::present.
 		avertReclaim,
+		// Page is in _discardList or the reclamation coroutine's local discard batch,
+		// awaiting fenceEphemeral() before its entry is erased.
+		// Page is owned by the ManagedSpace reclamation logic.
+		// Valid whenever the page holds a frame (even in LoadState::missing).
+		discardQueued,
 	};
 
 	// Struct that is attached to ManagedPage for the duration of
@@ -716,6 +721,8 @@ struct ManagedSpace : CacheBundle {
 		// Whether the backing store's copy of the page matches its last in-memory contents.
 		// Maintained by markDirty()/updateRange().
 		bool swapCopyValid{false};
+		// The page is being torn down - see discardPage(). Set once, never cleared.
+		bool discarded{false};
 		unsigned int lockCount = 0;
 		CachePage cachePage;
 		frg::intrusive_shared_ptr<TransactionMonitor, Allocator> monitor;
@@ -734,6 +741,33 @@ struct ManagedSpace : CacheBundle {
 	// Called under mutex before a dirty page transitions to writeback.
 	// Returning false leaves the page on _dirtyList until swap budget becomes available.
 	virtual bool claimSwapBudget(ManagedPage *page);
+
+	// Discards the page at the given index. The entry is either immediately erased
+	// or once the in-flight transaction is completed. The frames are freed by
+	// the reclamation behind a fenceEphemeral().
+	// Should only be called when the owning view is being destructed.
+	// After a batch of discards the caller must call _wakeDrain() as discards may release swap budget.
+	void discardPage(uint64_t index);
+
+	// Events that _disposeDiscarded()'s caller must raise after dropping the mutex.
+	struct [[nodiscard]] DiscardDisposition {
+		// Queued onto _discardList, raise _discardEvent.
+		bool queued{false};
+		// Entry erased, raise _dirtyEvent as swap budget may have been released.
+		bool erased{false};
+	};
+
+	// Erases a discarded page's entry directly if it holds no frame, otherwise
+	// queues it for the reclamation coroutine.
+	// Must be called under mutex with transactionState == TxState::none.
+	DiscardDisposition _disposeDiscarded(ManagedPage *page);
+
+	// Notifies the subclass that a discarded page's entry is about to be erased.
+	// Called under mutex.
+	virtual void _pageDiscarded(ManagedPage *page);
+
+	// Unblocks the drain coroutine after the swap budget has grown.
+	void _wakeDrain();
 
 	coroutine<void> _runReclaimLoop();
 	coroutine<void> _runDrainLoop();
@@ -782,9 +816,15 @@ struct ManagedSpace : CacheBundle {
 		>
 	> _writebackList;
 
+	// Discarded pages whose frames await a fenceEphemeral().
+	// Protected by mutex.
+	CachePagesList _discardList;
+
 	ManageList _managementQueue;
 
 	async::recurring_event _dirtyEvent;
+
+	async::recurring_event _discardEvent;
 
 	// Set by the drain coroutine when dirty pages exist but none of them could claim swap budget.
 	// While this is set, _dirtyEvent does not wake the drain coroutine.

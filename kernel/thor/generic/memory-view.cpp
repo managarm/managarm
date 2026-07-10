@@ -933,10 +933,25 @@ ManagedSpace::ManagedSpace(size_t length, bool readahead)
 
 coroutine<void> ManagedSpace::_runReclaimLoop() {
 	while(true) {
-		// TODO: Cancel awaitReclaim() when the ManagedSpace is destructed.
-		co_await globalReclaimer->awaitReclaim(this);
+		// TODO: Cancel these waits when the ManagedSpace is destructed.
+		co_await async::race_and_cancel(
+			[&] (async::cancellation_token ct) {
+				return globalReclaimer->awaitReclaim(this, ct);
+			},
+			[&] (async::cancellation_token ct) {
+				return async::transform(
+					_discardEvent.async_wait_if([this] () -> bool {
+						auto irqLock = frg::guard(&irqMutex());
+						auto lock = frg::guard(&mutex);
+						return _discardList.empty();
+					}, ct),
+					[] (auto) { }
+				);
+			}
+		);
 
 		CachePagesList batch;
+		CachePagesList discardBatch;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -952,14 +967,18 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 				page->transactionState = TxState::performReclaim;
 				globalReclaimer->removePage(cachePage);
 			}
+
+			discardBatch.splice(discardBatch.end(), _discardList);
 		}
 
-		if(batch.empty())
+		if(batch.empty() && discardBatch.empty())
 			continue;
 
 		co_await _evictQueue.fenceEphemeral();
 
 		bool anyDirty = false;
+		bool anyDiscardQueued = false;
+		bool anyDiscardErased = false;
 		size_t sizeFreed = 0;
 		while(!batch.empty()) {
 			PhysicalAddr physical;
@@ -970,6 +989,19 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 
 				auto cachePage = batch.pop_front();
 				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
+
+				if(page->discarded) {
+					// Discards only happen at view teardown, when no invalidateRange()
+					// on the page can be in flight anymore.
+					assert(!page->forceInvalidation);
+					// The frame is being discarded so it doesn't need to be written back.
+					page->stillDirty = false;
+					page->transactionState = TxState::none;
+					auto disposition = _disposeDiscarded(page);
+					anyDiscardQueued |= disposition.queued;
+					anyDiscardErased |= disposition.erased;
+					continue;
+				}
 
 				if(page->transactionState == TxState::avertReclaim) {
 					if(page->stillDirty) {
@@ -1009,8 +1041,41 @@ coroutine<void> ManagedSpace::_runReclaimLoop() {
 			sizeFreed += kPageSize;
 		}
 
-		if(anyDirty)
+		while(!discardBatch.empty()) {
+			PhysicalAddr physical;
+			{
+				auto irqLock = frg::guard(&irqMutex());
+				auto lock = frg::guard(&mutex);
+
+				auto cachePage = discardBatch.pop_front();
+				auto *page = frg::container_of(cachePage, &ManagedPage::cachePage);
+				assert(page->discarded);
+				assert(page->transactionState == TxState::discardQueued);
+
+				// Re-check the counts in case the page has been locked/re-used.
+				if(page->lockCount
+						|| page->cachePage.useCount.load(std::memory_order_relaxed)) {
+					page->transactionState = TxState::none;
+					continue;
+				}
+
+				physical = page->physical;
+				assert(physical != PhysicalAddr(-1));
+
+				globalPfnDb().erase(physical);
+				_pageDiscarded(page);
+				pages.erase(cachePage->identity);
+			}
+
+			physicalAllocator->free(physical, kPageSize);
+			anyDiscardErased = true;
+			sizeFreed += kPageSize;
+		}
+
+		if(anyDirty || anyDiscardErased)
 			_dirtyEvent.raise();
+		if(anyDiscardQueued)
+			_discardEvent.raise();
 
 		if(logUncaching)
 			infoLogger() << frg::fmt(
@@ -1041,6 +1106,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				auto *cp = *it++;
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
 				assert(page->transactionState == TxState::dirty);
+				assert(!page->discarded);
 				if(!claimSwapBudget(page))
 					continue;
 				_dirtyList.erase(_dirtyList.iterator_to(cp));
@@ -1057,6 +1123,7 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 		co_await _evictQueue.fenceDirty();
 
 		ManageList mgmtPending;
+		bool anyDiscardQueued = false;
 		{
 			auto irqLock = frg::guard(&irqMutex());
 			auto lock = frg::guard(&mutex);
@@ -1065,6 +1132,15 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 				auto *cp = pending.pop_front();
 				auto *page = frg::container_of(cp, &ManagedPage::cachePage);
 				assert(page->transactionState == TxState::pendingWriteback);
+				if(page->discarded) {
+					// The page was discarded while we were waiting for the fence.
+					// Note that claimSwapBudget() already ran for this page - _pageDiscarded() undoes the claim.
+					page->transactionState = TxState::none;
+					// .erased is ignored - the drain re-checks its predicate on loop-around.
+					if(_disposeDiscarded(page).queued)
+						anyDiscardQueued = true;
+					continue;
+				}
 				page->transactionState = TxState::wantWriteback;
 				page->monitor = frg::allocate_intrusive_shared<TransactionMonitor>(Allocator{});
 				_writebackList.push_back(cp);
@@ -1072,6 +1148,8 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 
 			_progressManagement(mgmtPending);
 		}
+		if(anyDiscardQueued)
+			_discardEvent.raise();
 
 		while(!mgmtPending.empty()) {
 			auto node = mgmtPending.pop_front();
@@ -1083,6 +1161,92 @@ coroutine<void> ManagedSpace::_runDrainLoop() {
 bool ManagedSpace::claimSwapBudget(ManagedPage *) {
 	// File caches write back to their backing store, so no budget applies.
 	return true;
+}
+
+void ManagedSpace::discardPage(uint64_t index) {
+	bool raiseDiscard = false;
+	frg::intrusive_shared_ptr<TransactionMonitor, Allocator> writebackMonitor;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+
+		auto pit = pages.find(index);
+		assert(pit);
+		assert(!pit->discarded);
+		pit->discarded = true;
+
+		// .erased is ignored - the caller wakes the drain once per discard batch.
+		switch(pit->transactionState) {
+		case TxState::none:
+			raiseDiscard = _disposeDiscarded(pit).queued;
+			break;
+		case TxState::inReclaimer:
+			globalReclaimer->removePage(&pit->cachePage);
+			pit->transactionState = TxState::none;
+			raiseDiscard = _disposeDiscarded(pit).queued;
+			break;
+		case TxState::dirty:
+			_dirtyList.erase(_dirtyList.iterator_to(&pit->cachePage));
+			pit->transactionState = TxState::none;
+			raiseDiscard = _disposeDiscarded(pit).queued;
+			break;
+		case TxState::wantWriteback:
+			_writebackList.erase(_writebackList.iterator_to(&pit->cachePage));
+			writebackMonitor = std::move(pit->monitor);
+			pit->transactionState = TxState::none;
+			raiseDiscard = _disposeDiscarded(pit).queued;
+			break;
+		case TxState::pendingWriteback:
+			// The drain coroutine completes the discard, the page is on
+			// its local pending list.
+			break;
+		case TxState::writeback:
+			// updateRange() completes the discard.
+			break;
+		case TxState::performReclaim:
+		case TxState::avertReclaim:
+			// The reclamation coroutine completes the discard, the page
+			// is on its local batch list.
+			break;
+		default:
+			// Initialization is only entered by fetches, which hold view references.
+			assert(!"discardPage() on page under initialization");
+		}
+	}
+	if(writebackMonitor)
+		writebackMonitor->event.raise();
+	if(raiseDiscard)
+		_discardEvent.raise();
+}
+
+ManagedSpace::DiscardDisposition ManagedSpace::_disposeDiscarded(ManagedPage *page) {
+	assert(page->discarded);
+	assert(page->transactionState == TxState::none);
+	assert(!page->monitor);
+	if(page->lockCount || page->cachePage.useCount.load(std::memory_order_relaxed)) {
+		return {};
+	}
+	if(page->physical == PhysicalAddr(-1)) {
+		// No frame was allocated, the entry can be erased directly.
+		auto index = page->cachePage.identity;
+		_pageDiscarded(page);
+		pages.erase(index);
+		return {.erased = true};
+	}
+	page->transactionState = TxState::discardQueued;
+	_discardList.push_back(&page->cachePage);
+	return {.queued = true};
+}
+
+void ManagedSpace::_pageDiscarded(ManagedPage *) {}
+
+void ManagedSpace::_wakeDrain() {
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		_drainBlocked = false;
+	}
+	_dirtyEvent.raise();
 }
 
 ManagedSpace::~ManagedSpace() {
@@ -1117,24 +1281,41 @@ Error ManagedSpace::lockPages(uintptr_t offset, size_t size) {
 
 // Note: Neither offset nor size are necessarily multiples of the page size.
 void ManagedSpace::unlockPages(uintptr_t offset, size_t size) {
-	auto irq_lock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex);
-	assert((offset + size) / kPageSize <= numPages);
+	bool raiseDiscard = false;
+	bool raiseDirty = false;
+	{
+		auto irq_lock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
+		assert((offset + size) / kPageSize <= numPages);
 
-	for(size_t pg = 0; pg < size; pg += kPageSize) {
-		size_t index = (offset + pg) / kPageSize;
-		auto pit = pages.find(index);
-		assert(pit);
-		assert(pit->lockCount > 0);
-		pit->lockCount--;
-		if(!pit->lockCount) {
-			if(pit->loadState == LoadState::present && pit->transactionState == TxState::none
-					&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
-				globalReclaimer->addPage(&pit->cachePage);
-				pit->transactionState = TxState::inReclaimer;
+		for(size_t pg = 0; pg < size; pg += kPageSize) {
+			size_t index = (offset + pg) / kPageSize;
+			auto pit = pages.find(index);
+			assert(pit);
+			assert(pit->lockCount > 0);
+			pit->lockCount--;
+			if(!pit->lockCount) {
+				if(pit->discarded) {
+					// If a transaction is still in flight, the page stays owned by it;
+					// the transaction's completion path disposes of the page instead.
+					if(pit->transactionState == TxState::none) {
+						auto disposition = _disposeDiscarded(pit);
+						raiseDiscard |= disposition.queued;
+						raiseDirty |= disposition.erased;
+					}
+				} else if(pit->loadState == LoadState::present
+						&& pit->transactionState == TxState::none
+						&& !pit->cachePage.useCount.load(std::memory_order_relaxed)) {
+					globalReclaimer->addPage(&pit->cachePage);
+					pit->transactionState = TxState::inReclaimer;
+				}
 			}
 		}
 	}
+	if(raiseDiscard)
+		_discardEvent.raise();
+	if(raiseDirty)
+		_dirtyEvent.raise();
 }
 
 void ManagedSpace::submitManagement(ManageNode *node) {
@@ -1229,21 +1410,37 @@ void ManagedSpace::incrementUses(CachePage *cachePage) {
 }
 
 void ManagedSpace::decrementUses(CachePage *cachePage) {
-	auto irqLock = frg::guard(&irqMutex());
-	auto lock = frg::guard(&mutex);
+	bool raiseDiscard = false;
+	bool raiseDirty = false;
+	{
+		auto irqLock = frg::guard(&irqMutex());
+		auto lock = frg::guard(&mutex);
 
-	auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
+		auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
 
-	auto cnt = cachePage->useCount.fetch_sub(1, std::memory_order_release);
-	assert(cnt > 0);
-	if(cnt == 1) {
-		if(page->loadState == LoadState::present
-				&& page->transactionState == TxState::none
-				&& !page->lockCount) {
-			globalReclaimer->addPage(cachePage);
-			page->transactionState = TxState::inReclaimer;
+		auto cnt = cachePage->useCount.fetch_sub(1, std::memory_order_release);
+		assert(cnt > 0);
+		if(cnt == 1) {
+			if(page->discarded) {
+				// If a transaction is still in flight, the page stays owned by it;
+				// the transaction's completion path disposes of the page instead.
+				if(page->transactionState == TxState::none) {
+					auto disposition = _disposeDiscarded(page);
+					raiseDiscard = disposition.queued;
+					raiseDirty = disposition.erased;
+				}
+			} else if(page->loadState == LoadState::present
+					&& page->transactionState == TxState::none
+					&& !page->lockCount) {
+				globalReclaimer->addPage(cachePage);
+				page->transactionState = TxState::inReclaimer;
+			}
 		}
 	}
+	if(raiseDiscard)
+		_discardEvent.raise();
+	if(raiseDirty)
+		_dirtyEvent.raise();
 }
 
 void ManagedSpace::markDirty(CachePage *cachePage) {
@@ -1255,6 +1452,10 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 		auto page = frg::container_of(cachePage, &ManagedPage::cachePage);
 
 		if(page->loadState == LoadState::missing)
+			return;
+
+		// Discarded data must not re-enter the writeback machinery.
+		if(page->discarded)
 			return;
 
 		// The in-memory contents now diverge from the backing store's copy.
@@ -1404,6 +1605,8 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			&ManagedSpace::TransactionMonitor::pendingHook
 		>
 	> pendingMonitors;
+	bool raiseDiscard = false;
+	bool raiseDirty = false;
 	{
 		auto irqLock = frg::guard(&irqMutex());
 		auto lock = frg::guard(&_managed->mutex);
@@ -1435,6 +1638,9 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				auto pit = _managed->pages.find(index);
 				assert(pit);
 				assert(pit->transactionState == ManagedSpace::TxState::initialization);
+				// Initialization implies an in-flight fetch, which holds a view
+				// reference; discardPage() thus never sees this state.
+				assert(!pit->discarded);
 				pit->loadState = ManagedSpace::LoadState::present;
 				if (pit->lockCount || pit->cachePage.useCount.load(std::memory_order_relaxed)) {
 					pit->transactionState = ManagedSpace::TxState::none;
@@ -1453,6 +1659,19 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 				assert(pit);
 
 				assert(pit->transactionState == ManagedSpace::TxState::writeback);
+				if(pit->discarded) {
+					// Raise the monitor as usual - writebackFence() waiters hold references to it.
+					ref_rc(pit->monitor.get());
+					pendingMonitors.push_back(pit->monitor.get());
+					pit->monitor = {};
+					// The frame is being discarded so it doesn't need to be written back.
+					pit->stillDirty = false;
+					pit->transactionState = ManagedSpace::TxState::none;
+					auto disposition = _managed->_disposeDiscarded(pit);
+					raiseDiscard |= disposition.queued;
+					raiseDirty |= disposition.erased;
+					continue;
+				}
 				if(!pit->stillDirty) {
 					// The backing store now holds the page's current contents.
 					pit->swapCopyValid = true;
@@ -1477,6 +1696,11 @@ Error BackingMemory::updateRange(ManageRequest type, size_t offset, size_t lengt
 			}
 		}
 	}
+
+	if(raiseDiscard)
+		_managed->_discardEvent.raise();
+	if(raiseDirty)
+		_managed->_dirtyEvent.raise();
 
 	while(!pendingMonitors.empty()) {
 		frg::intrusive_shared_ptr<ManagedSpace::TransactionMonitor, Allocator> monitor{
