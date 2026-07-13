@@ -35,6 +35,11 @@ constexpr bool isMultitouchCode(int code) {
 	return code >= ABS_MT_FIRST && code <= ABS_MT_LAST;
 }
 
+constexpr void setBit(std::span<uint8_t> data, unsigned int bit) {
+	assert(bit / 8 < data.size_bytes());
+	data[bit / 8] |= (1 << (bit % 8));
+}
+
 async::detached issueReset() {
 	auto filter = mbus_ng::Conjunction{{
 		mbus_ng::EqualsFilter{"class", "pm-interface"}
@@ -472,6 +477,9 @@ EventDevice::EventDevice(std::string name, uint16_t bustype, uint16_t vendor, ui
 	memset(_relBits.data(), 0, _relBits.size());
 	memset(_absBits.data(), 0, _absBits.size());
 
+	// Linux advertises EV_SYN for every input device.
+	setBit(_typeBits, EV_SYN);
+
 	memset(_currentKeys.data(), 0, _currentKeys.size());
 	memset(_absoluteSlots.data(), 0, _absoluteSlots.size() * sizeof(AbsoluteSlot));
 }
@@ -488,24 +496,20 @@ void EventDevice::setResolution(int code, int res) {
 }
 
 void EventDevice::enableEvent(int type, int code) {
-	auto setBit = [] (uint8_t *array, size_t length, unsigned int bit) {
-		assert(bit / 8 < length);
-		array[bit / 8] |= (1 << (bit % 8));
-	};
 	if(logConfiguration)
 		std::cout << "drivers/libevbackend: Enabling event " << type << "." << code
 				<< std::endl;
 
 	if(type == EV_KEY) {
-		setBit(_keyBits.data(), _keyBits.size(), code);
+		setBit(_keyBits, code);
 	}else if(type == EV_REL) {
-		setBit(_relBits.data(), _relBits.size(), code);
+		setBit(_relBits, code);
 	}else if(type == EV_ABS) {
-		setBit(_absBits.data(), _absBits.size(), code);
+		setBit(_absBits, code);
 	}else{
 		throw std::runtime_error("Unexpected event type");
 	}
-	setBit(_typeBits.data(), _typeBits.size(), type);
+	setBit(_typeBits, type);
 }
 
 void EventDevice::emitEvent(int type, int code, int value) {
