@@ -171,20 +171,25 @@ async::result<frg::expected<Error, std::string>> ResourceAttribute::show(sysfs::
 	auto device = static_cast<Device *>(object);
 
 	std::string res{};
-	char buf[58];
 	auto info = co_await device->hwDevice().getPciInfo();
 
-	for(auto e : info.barInfo) {
-		if(e.hostType == protocols::hw::IoType::kIoTypeNone) {
-			res.append("0x0000000000000000 0x0000000000000000 0x0000000000000000\n\0", 58);
-		} else if(e.hostType == protocols::hw::IoType::kIoTypeMemory) {
-			memset(buf, 0, 58);
-			snprintf(buf, 58, "0x%016lx 0x%016lx 0x%016lx\n", e.address, e.address + e.length - 1, IORESOURCE_MEM);
-			res.append(buf, 58);
-		} else if(e.hostType == protocols::hw::IoType::kIoTypePort) {
-			memset(buf, 0, 58);
-			snprintf(buf, 58, "0x%016lx 0x%016lx 0x%016lx\n", e.address, e.address + e.length - 1, IORESOURCE_IO);
-			res.append(buf, 58);
+	for (auto e : info.barInfo) {
+		if (e.hostType == protocols::hw::IoType::kIoTypeNone) {
+			res += "0x0000000000000000 0x0000000000000000 0x0000000000000000\n";
+		} else if (e.hostType == protocols::hw::IoType::kIoTypeMemory) {
+			res += std::format(
+			    "0x{:016x} 0x{:016x} 0x{:016x}\n",
+			    e.address,
+			    e.address + e.length - 1,
+			    IORESOURCE_MEM
+			);
+		} else if (e.hostType == protocols::hw::IoType::kIoTypePort) {
+			res += std::format(
+			    "0x{:016x} 0x{:016x} 0x{:016x}\n",
+			    e.address,
+			    e.address + e.length - 1,
+			    IORESOURCE_IO
+			);
 		}
 	}
 
