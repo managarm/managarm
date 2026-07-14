@@ -1,4 +1,7 @@
 //! Translation of Fafnir IR bytecode into machine code via Cranelift.
+//!
+//! The bytecode is untrusted input from userspace drivers.
+//! The compiler must never panic on invalid IR.
 
 use anyhow::{Result, bail, ensure};
 use cranelift_codegen::binemit::Reloc;
@@ -18,7 +21,6 @@ const FNR_OP_NULL: u8 = 0;
 const FNR_OP_DROP: u8 = 1;
 const FNR_OP_DUP: u8 = 2;
 const FNR_OP_BINDING: u8 = 3;
-const FNR_OP_S_DEFINE: u8 = 4;
 const FNR_OP_S_VALUE: u8 = 5;
 const FNR_OP_CHECK_IF: u8 = 6;
 const FNR_OP_THEN: u8 = 7;
@@ -28,6 +30,8 @@ const FNR_OP_LITERAL: u8 = 10;
 const FNR_OP_BITWISE_AND: u8 = 11;
 const FNR_OP_ADD: u8 = 12;
 const FNR_OP_INTRIN: u8 = 13;
+const FNR_OP_SCOPE: u8 = 14;
+const FNR_OP_SCOPE_END: u8 = 15;
 
 /// The kind of value a kernlet binding parameter holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,22 +109,37 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// A lexical scope holding its scope-stack (sstack) values.
-#[derive(Clone)]
-struct Scope {
-    sstack: Vec<cranelift_codegen::ir::Value>,
+/// A block and its operand stack (opstack).
+struct Block {
+    kind: BlockKind,
+    opstack: Vec<cranelift_codegen::ir::Value>,
 }
 
-/// Bookkeeping for an if/then/else construct, pushed at CHECK_IF.
-struct Ite {
-    /// Branch target for the else-part. Set at THEN.
-    else_block: Option<cranelift_codegen::ir::Block>,
-    /// Block where both branches merge. Set at ELSE_THEN.
-    merge_block: Option<cranelift_codegen::ir::Block>,
-    /// Length of the sstack of the scope enclosing the conditional.
-    outer_len: usize,
-    /// One merge variable per value produced in the branches beyond `outer_len`.
-    merge_vars: Vec<Variable>,
+impl Block {
+    fn new(kind: BlockKind) -> Self {
+        Self {
+            kind,
+            opstack: Vec::new(),
+        }
+    }
+}
+
+enum BlockKind {
+    /// The outermost block.
+    Root,
+    /// A block opened by SCOPE, paired with an sstack on the scope stack.
+    Scope,
+    /// The condition block opened by CHECK_IF, before THEN.
+    IfCond,
+    /// The 'then' block; carries the branch target for the else-part.
+    IfThen {
+        else_block: cranelift_codegen::ir::Block,
+    },
+    /// The 'else' block; carries the merge target and one merge variable per branch result.
+    IfElse {
+        merge_block: cranelift_codegen::ir::Block,
+        merge_vars: Vec<Variable>,
+    },
 }
 
 /// Signatures of the kernel intrinsics from `resolveExternal` (kernel/thor/generic/kernlet.cpp):
@@ -136,6 +155,80 @@ fn intrinsic_signature(name: &str) -> Option<(&'static [Type], usize)> {
         "__mmio_write32" => Some((&[I64, I32, I32], 0)),
         "__trigger_bitset" => Some((&[I64, I32], 0)),
         _ => None,
+    }
+}
+
+/// The block and scope stacks maintained during compilation.
+struct Compiler {
+    blocks: Vec<Block>,
+    scopes: Vec<Vec<Value>>,
+}
+
+impl Compiler {
+    fn new() -> Self {
+        // The outermost block and scope are implicit.
+        Self {
+            blocks: vec![Block::new(BlockKind::Root)],
+            scopes: vec![Vec::new()],
+        }
+    }
+
+    /// The innermost open block.
+    fn current_block_mut(&mut self) -> Result<&mut Block> {
+        self.blocks
+            .last_mut()
+            .ok_or_else(|| anyhow::anyhow!("operation with no open block"))
+    }
+
+    /// The innermost open block's opstack.
+    fn opstack_mut(&mut self) -> Result<&mut Vec<Value>> {
+        Ok(&mut self.current_block_mut()?.opstack)
+    }
+
+    /// The innermost open scope's sstack.
+    fn current_sstack(&self) -> Result<&Vec<Value>> {
+        self.scopes
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("operation with no open scope"))
+    }
+
+    fn open_block(&mut self, kind: BlockKind) {
+        self.blocks.push(Block::new(kind));
+    }
+
+    fn close_block(&mut self) -> Result<Block> {
+        self.blocks
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("operation with no open block"))
+    }
+
+    /// Closes the current block and opens a fresh one in its place (THEN, ELSE_THEN).
+    fn replace_block(&mut self, kind: BlockKind) -> Result<()> {
+        self.close_block()?;
+        self.blocks.push(Block::new(kind));
+        Ok(())
+    }
+
+    fn open_scope(&mut self, sstack: Vec<Value>) {
+        self.scopes.push(sstack);
+    }
+
+    fn close_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    /// Checks that only the outermost block remains and returns the kernlet's single result.
+    fn return_value(&mut self) -> Result<Value> {
+        ensure!(
+            self.blocks.len() == 1 && matches!(self.blocks[0].kind, BlockKind::Root),
+            "unterminated block (missing END or SCOPE_END)"
+        );
+        let opstack = &mut self.blocks[0].opstack;
+        ensure!(
+            opstack.len() == 1,
+            "kernlet must leave exactly one return value"
+        );
+        Ok(opstack.pop().unwrap())
     }
 }
 
@@ -174,9 +267,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
     // De-duplicated external symbols referenced by INTRIN calls.
     let mut externs: IndexSet<String> = IndexSet::new();
 
-    let mut opstack: Vec<cranelift_codegen::ir::Value> = Vec::new();
-    let mut scopes: Vec<Scope> = vec![Scope { sstack: Vec::new() }];
-    let mut blocks: Vec<Ite> = Vec::new();
+    let mut compiler = Compiler::new();
 
     let mut r = Reader::new(code);
     while !r.eof() {
@@ -184,12 +275,14 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
         match opcode {
             FNR_OP_NULL => {}
             FNR_OP_DROP => {
+                let opstack = compiler.opstack_mut()?;
                 opstack
                     .pop()
                     .ok_or_else(|| anyhow::anyhow!("DROP on empty opstack"))?;
             }
             FNR_OP_DUP => {
                 let index = r.read_uint()? as usize;
+                let opstack = compiler.opstack_mut()?;
                 ensure!(opstack.len() > index, "DUP index out of range");
                 let v = opstack[opstack.len() - index - 1];
                 opstack.push(v);
@@ -197,7 +290,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
             FNR_OP_LITERAL => {
                 let value = r.read_uint()? as i64;
                 let v = builder.ins().iconst(types::I32, value);
-                opstack.push(v);
+                compiler.opstack_mut()?.push(v);
             }
             FNR_OP_BINDING => {
                 let index = r.read_uint()? as usize;
@@ -209,24 +302,18 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                     BindType::MemoryView | BindType::BitsetEvent => types::I64,
                 };
                 let v = builder.ins().load(ty, MemFlags::trusted(), instance, disp);
-                opstack.push(v);
-            }
-            FNR_OP_S_DEFINE => {
-                let v = opstack
-                    .pop()
-                    .ok_or_else(|| anyhow::anyhow!("S_DEFINE on empty opstack"))?;
-                scopes.last_mut().unwrap().sstack.push(v);
+                compiler.opstack_mut()?.push(v);
             }
             FNR_OP_S_VALUE => {
                 let index = r.read_uint()? as usize;
-                let scope = scopes.last().unwrap();
-                let v = *scope
-                    .sstack
+                let v = *compiler
+                    .current_sstack()?
                     .get(index)
                     .ok_or_else(|| anyhow::anyhow!("S_VALUE index out of range"))?;
-                opstack.push(v);
+                compiler.opstack_mut()?.push(v);
             }
             FNR_OP_BITWISE_AND => {
+                let opstack = compiler.opstack_mut()?;
                 ensure!(opstack.len() >= 2, "BITWISE_AND needs two operands");
                 let right = opstack.pop().unwrap();
                 let left = opstack.pop().unwrap();
@@ -237,6 +324,7 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 opstack.push(builder.ins().band(left, right));
             }
             FNR_OP_ADD => {
+                let opstack = compiler.opstack_mut()?;
                 ensure!(opstack.len() >= 2, "ADD needs two operands");
                 let right = opstack.pop().unwrap();
                 let left = opstack.pop().unwrap();
@@ -247,106 +335,90 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 opstack.push(builder.ins().iadd(left, right));
             }
             FNR_OP_CHECK_IF => {
-                ensure!(opstack.is_empty(), "CHECK_IF expects empty opstack");
-                // The actual blocks are created at THEN once the condition is known.
-                blocks.push(Ite {
-                    else_block: None,
-                    merge_block: None,
-                    outer_len: 0,
-                    merge_vars: Vec::new(),
-                });
+                // Open a fresh block; the condition is computed on it and consumed by THEN.
+                compiler.open_block(BlockKind::IfCond);
             }
             FNR_OP_THEN => {
+                let frame = compiler.current_block_mut()?;
                 ensure!(
-                    opstack.len() == 1,
+                    matches!(frame.kind, BlockKind::IfCond),
+                    "THEN without CHECK_IF"
+                );
+                ensure!(
+                    frame.opstack.len() == 1,
                     "THEN expects exactly the condition on the opstack"
                 );
-                let ite = blocks
-                    .last_mut()
-                    .ok_or_else(|| anyhow::anyhow!("THEN without CHECK_IF"))?;
-                ensure!(ite.else_block.is_none(), "duplicate THEN");
-                let cond = opstack.pop().unwrap();
+                let cond = frame.opstack.pop().unwrap();
 
                 let then_block = builder.create_block();
                 let else_block = builder.create_block();
                 builder.ins().brif(cond, then_block, &[], else_block, &[]);
-
-                let outer_sstack = scopes.last().unwrap().sstack.clone();
-                ite.else_block = Some(else_block);
-                ite.outer_len = outer_sstack.len();
-
                 builder.switch_to_block(then_block);
-                scopes.push(Scope {
-                    sstack: outer_sstack,
-                });
+
+                // Replace the condition block with the 'then' block.
+                compiler.replace_block(BlockKind::IfThen { else_block })?;
             }
             FNR_OP_ELSE_THEN => {
-                ensure!(opstack.is_empty(), "ELSE_THEN expects empty opstack");
-                let ite = blocks
-                    .last_mut()
-                    .ok_or_else(|| anyhow::anyhow!("ELSE_THEN without CHECK_IF"))?;
-                let else_block = ite
-                    .else_block
-                    .ok_or_else(|| anyhow::anyhow!("ELSE_THEN without THEN"))?;
-                ensure!(ite.merge_block.is_none(), "duplicate ELSE_THEN");
+                // The current block's opstack holds the then-branch results.
+                let (results, else_block) = {
+                    let frame = compiler.current_block_mut()?;
+                    let else_block = match &frame.kind {
+                        BlockKind::IfThen { else_block } => *else_block,
+                        _ => bail!("ELSE_THEN without THEN"),
+                    };
+                    (std::mem::take(&mut frame.opstack), else_block)
+                };
 
-                let then_scope = scopes.pop().unwrap();
-
-                // Values produced in the then-branch beyond the enclosing scope.
-                let tail = &then_scope.sstack[ite.outer_len..];
                 let merge_block = builder.create_block();
-                let mut merge_vars = Vec::with_capacity(tail.len());
-                for &v in tail {
+                let mut merge_vars = Vec::with_capacity(results.len());
+                for v in results {
                     ensure!(
                         builder.func.dfg.value_type(v) == types::I32,
-                        "only 32-bit values can be pushed onto the scope stack inside a branch"
+                        "only 32-bit values can escape a branch"
                     );
                     let var = builder.declare_var(types::I32);
                     builder.def_var(var, v);
                     merge_vars.push(var);
                 }
                 builder.ins().jump(merge_block, &[]);
-
-                ite.merge_block = Some(merge_block);
-                ite.merge_vars = merge_vars;
-
-                let outer_sstack = scopes.last().unwrap().sstack.clone();
                 builder.switch_to_block(else_block);
-                scopes.push(Scope {
-                    sstack: outer_sstack,
-                });
+
+                // Replace the 'then' block with the 'else' block.
+                compiler.replace_block(BlockKind::IfElse {
+                    merge_block,
+                    merge_vars,
+                })?;
             }
             FNR_OP_END => {
-                ensure!(opstack.is_empty(), "END expects empty opstack");
-                let ite = blocks
-                    .pop()
-                    .ok_or_else(|| anyhow::anyhow!("END without CHECK_IF"))?;
-                ensure!(ite.else_block.is_some(), "END without THEN");
-                let merge_block = ite
-                    .merge_block
-                    .ok_or_else(|| anyhow::anyhow!("END without ELSE_THEN"))?;
-
-                let else_scope = scopes.pop().unwrap();
-
-                let tail = &else_scope.sstack[ite.outer_len..];
+                // The current block's opstack holds the else-branch results.
+                let frame = compiler.close_block()?;
+                let (merge_block, merge_vars) = match frame.kind {
+                    BlockKind::IfElse {
+                        merge_block,
+                        merge_vars,
+                    } => (merge_block, merge_vars),
+                    _ => bail!("END without ELSE_THEN"),
+                };
+                let results = frame.opstack;
                 ensure!(
-                    tail.len() == ite.merge_vars.len(),
+                    results.len() == merge_vars.len(),
                     "if/else branches produce differing stacks"
                 );
-                for (&var, &v) in ite.merge_vars.iter().zip(tail.iter()) {
+                for (&var, &v) in merge_vars.iter().zip(results.iter()) {
                     ensure!(
                         builder.func.dfg.value_type(v) == types::I32,
-                        "only 32-bit values can be pushed onto the scope stack inside a branch"
+                        "only 32-bit values can escape a branch"
                     );
                     builder.def_var(var, v);
                 }
                 builder.ins().jump(merge_block, &[]);
-
                 builder.switch_to_block(merge_block);
-                // Push the merged branch results onto the opstack.
-                for &var in &ite.merge_vars {
+
+                // Push the merged branch results onto the enclosing block's opstack.
+                let outer = compiler.current_block_mut()?;
+                for &var in &merge_vars {
                     let v = builder.use_var(var);
-                    opstack.push(v);
+                    outer.opstack.push(v);
                 }
             }
             FNR_OP_INTRIN => {
@@ -363,11 +435,14 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                     nrvs == rvs,
                     "wrong number of return values for intrinsic {name}"
                 );
-                ensure!(opstack.len() >= nargs, "INTRIN with too few arguments");
 
                 let mut args: Vec<Value> = Vec::with_capacity(nargs);
-                for _ in 0..nargs {
-                    args.push(opstack.pop().unwrap());
+                {
+                    let opstack = compiler.opstack_mut()?;
+                    ensure!(opstack.len() >= nargs, "INTRIN with too few arguments");
+                    for _ in 0..nargs {
+                        args.push(opstack.pop().unwrap());
+                    }
                 }
                 args.reverse();
 
@@ -398,20 +473,45 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
 
                 let call = builder.ins().call(fref, &args);
                 let results: Vec<_> = builder.inst_results(call).to_vec();
+                let opstack = compiler.opstack_mut()?;
                 for v in results {
                     opstack.push(v);
                 }
+            }
+            FNR_OP_SCOPE => {
+                let count = r.read_uint()? as usize;
+                // Move the top `count` operands off the current block's opstack.
+                let opstack = compiler.opstack_mut()?;
+                ensure!(
+                    opstack.len() >= count,
+                    "SCOPE moves more operands than available"
+                );
+                let start = opstack.len() - count;
+                let moved: Vec<_> = opstack.drain(start..).collect();
+
+                // The new scope inherits the enclosing scope's sstack and appends the moved operands.
+                let mut sstack = compiler.current_sstack()?.clone();
+                sstack.extend(moved);
+                compiler.open_scope(sstack);
+                compiler.open_block(BlockKind::Scope);
+            }
+            FNR_OP_SCOPE_END => {
+                let frame = compiler.close_block()?;
+                ensure!(
+                    matches!(frame.kind, BlockKind::Scope),
+                    "SCOPE_END without SCOPE"
+                );
+                compiler.close_scope();
+
+                // Push the scope's results onto the enclosing block's opstack.
+                let outer = compiler.current_block_mut()?;
+                outer.opstack.extend(frame.opstack);
             }
             other => bail!("unexpected fafnir opcode: {other}"),
         }
     }
 
-    ensure!(blocks.is_empty(), "unterminated if/else construct");
-    ensure!(
-        opstack.len() == 1,
-        "kernlet must leave exactly one return value"
-    );
-    let ret = opstack.pop().unwrap();
+    let ret = compiler.return_value()?;
     ensure!(
         builder.func.dfg.value_type(ret) == types::I32,
         "kernlet must return a 32-bit value"
