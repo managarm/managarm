@@ -1,16 +1,18 @@
 pub mod entity;
 pub mod error;
+pub mod manager;
 pub mod result;
 
 use std::collections::{HashMap, HashSet};
 
 pub use entity::Entity;
 pub use error::Error;
+pub use manager::{EntityManager, create_entity};
 pub use result::Result;
 
 bragi::include_binding!(mod bindings = "mbus.rs");
 
-type Properties = HashMap<String, Item>;
+pub type Properties = HashMap<String, Item>;
 
 #[derive(Debug, Clone)]
 pub enum Item {

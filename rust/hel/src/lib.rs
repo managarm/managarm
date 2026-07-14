@@ -19,9 +19,22 @@ pub use mapping::{Mapping, MappingFlags};
 pub use queue::Queue;
 pub use result::{Error, Result};
 pub use submission::{
-    action::{Offer, PullDescriptor, ReceiveBuffer, ReceiveInline, SendBuffer},
+    action::{
+        Accept, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer, ReceiveInline, SendBuffer,
+    },
     sleep_for, sleep_until, submit_async,
 };
+
+/// Creates a pair of connected lanes that can be used to communicate.
+pub fn create_stream() -> Result<(Handle, Handle)> {
+    let mut lane1 = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+    let mut lane2 = hel_sys::kHelNullHandle as hel_sys::HelHandle;
+
+    result::hel_check(unsafe { hel_sys::helCreateStream(&mut lane1, &mut lane2, 0) })?;
+
+    // SAFETY: helCreateStream returns two freshly created handles in the current universe.
+    Ok(unsafe { (Handle::from_raw(lane1), Handle::from_raw(lane2)) })
+}
 
 /// A time value in nanoseconds since boot.
 #[repr(transparent)]

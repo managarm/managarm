@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 
+use crate::handle::Handle;
 use crate::submission::result::{
     FromQueueElement, HandleResult, InlineResult, LengthResult, SimpleResult,
 };
@@ -124,6 +125,40 @@ impl<T: Action> Action for Offer<T> {
     }
 }
 
+pub struct Accept<T: Action> {
+    action: T,
+}
+
+impl<T: Action> Accept<T> {
+    pub fn new(action: T) -> Self {
+        Self { action }
+    }
+}
+
+impl<T: Action> Action for Accept<T> {
+    const ACTION_COUNT: usize = T::ACTION_COUNT + 1;
+
+    type Output = (HandleResult, T::Output);
+
+    fn to_hel_actions(&self, has_next: bool, buffer: &mut [MaybeUninit<hel_sys::HelAction>]) {
+        let mut action = default_hel_action();
+
+        action.type_ = hel_sys::kHelActionAccept as _;
+
+        if has_next {
+            action.flags |= hel_sys::kHelItemChain;
+        }
+
+        if T::ACTION_COUNT > 0 {
+            action.flags |= hel_sys::kHelItemAncillary;
+        }
+
+        buffer[0].write(action);
+
+        self.action.to_hel_actions(false, &mut buffer[1..]);
+    }
+}
+
 pub struct SendBuffer<'a> {
     data: &'a [u8],
 }
@@ -215,6 +250,35 @@ impl Action for PullDescriptor {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionPullDescriptor as _;
+
+        if has_next {
+            action.flags = hel_sys::kHelItemChain;
+        }
+
+        buffer[0].write(action);
+    }
+}
+
+pub struct PushDescriptor<'a> {
+    handle: &'a Handle,
+}
+
+impl<'a> PushDescriptor<'a> {
+    pub fn new(handle: &'a Handle) -> Self {
+        Self { handle }
+    }
+}
+
+impl Action for PushDescriptor<'_> {
+    const ACTION_COUNT: usize = 1;
+
+    type Output = SimpleResult;
+
+    fn to_hel_actions(&self, has_next: bool, buffer: &mut [MaybeUninit<hel_sys::HelAction>]) {
+        let mut action = default_hel_action();
+
+        action.type_ = hel_sys::kHelActionPushDescriptor as _;
+        action.handle = self.handle.handle();
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;

@@ -1,0 +1,19 @@
+[package]
+name = "kernletcc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+bragi = "0.2"
+indexmap = "2"
+object = { version = "0.37", default-features = false, features = ["write"] }
+hel.workspace = true
+managarm.workspace = true
+cranelift-codegen = { version = "0.124", features = ["x86"] }
+cranelift-frontend = "0.124"
+cranelift-control = "0.124"
+target-lexicon = "0.13"
+
+[build-dependencies]
+bragi-build = "0.1"

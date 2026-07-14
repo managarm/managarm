@@ -224,8 +224,6 @@ if build_drivers or provide_deps
 		'usb/devices/hid', 'usb/devices/storage', 'usb/devices/serial',
 		# sound
 		'sound/hda',
-		# misc
-		'kernletcc'
 	]
 	utils = [ 'ci-boot', 'runsvr', 'lsmbus', 'wait-for-devices' ]
 

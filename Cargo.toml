@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "sif",
+    "servers/kernletcc",
     "utils/hello-rs"
 ]
 
