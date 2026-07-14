@@ -188,35 +188,39 @@ async::detached Controller::_handleIrqs() {
 
 	std::vector<uint8_t> kernlet_program;
 	fnr::emit_to(std::back_inserter(kernlet_program),
-		// Load the USBSTS register.
-		fnr::scope_push{} (
+		fnr::let(
+			// Load the USBSTS register.
 			fnr::intrin{"__pio_read16", 1, 1} (
 				fnr::binding{0} // UHCI PIO offset (bound to slot 0).
 					 + fnr::literal{op_regs::status.offset()}
 			) & fnr::literal{static_cast<uint16_t>(status::transactionIrq(true)
 					| status::errorIrq(true)
 					| status::hostProcessError(true)
-					| status::hostSystemError(true))}
-		),
-		// Ack the IRQ iff one of the bits was set.
-		fnr::check_if{},
-			fnr::scope_get{0},
-		fnr::then{},
-			// Write back the interrupt bits to USBSTS to deassert the IRQ.
-			fnr::intrin{"__pio_write16", 2, 0} (
-				fnr::binding{0} // UHCI PIO offset (bound to slot 0).
-					+ fnr::literal{op_regs::status.offset()},
-				fnr::scope_get{0}
-			),
-			// Trigger the bitset event (bound to slot 1).
-			fnr::intrin{"__trigger_bitset", 2, 0} (
-				fnr::binding{1},
-				fnr::scope_get{0}
-			),
-			fnr::scope_push{} ( fnr::literal{1} ),
-		fnr::else_then{},
-			fnr::scope_push{} ( fnr::literal{2} ),
-		fnr::end{}
+					| status::hostSystemError(true))},
+			[&] (auto usbsts) {
+				// Ack the IRQ iff one of the bits was set.
+				return fnr::seq(
+					fnr::check_if{},
+						usbsts,
+					fnr::then{},
+						// Write back the interrupt bits to USBSTS to deassert the IRQ.
+						fnr::intrin{"__pio_write16", 2, 0} (
+							fnr::binding{0} // UHCI PIO offset (bound to slot 0).
+								+ fnr::literal{op_regs::status.offset()},
+							usbsts
+						),
+						// Trigger the bitset event (bound to slot 1).
+						fnr::intrin{"__trigger_bitset", 2, 0} (
+							fnr::binding{1},
+							usbsts
+						),
+						fnr::literal{1},
+					fnr::else_then{},
+						fnr::literal{2},
+					fnr::end{}
+				);
+			}
+		)
 	);
 
 	auto kernlet_object = co_await compile(kernlet_program.data(),

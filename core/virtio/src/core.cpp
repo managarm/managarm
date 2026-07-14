@@ -511,27 +511,31 @@ async::detached StandardPciTransport::_processIrqs() {
 
 	std::vector<uint8_t> kernlet_program;
 	fnr::emit_to(std::back_inserter(kernlet_program),
-		// Load the PCI_ISR register.
-		fnr::scope_push{} (
+		fnr::let(
+			// Load the PCI_ISR register.
 			fnr::intrin{"__mmio_read8", 2, 1} (
 				fnr::binding{0}, // IRQ space MMIO region (bound to slot 0).
 				fnr::binding{1} // IRQ space MMIO offset (bound to slot 1).
 					 + fnr::literal{PCI_ISR.offset()} // Offset of USBSTS.
-			) & fnr::literal{3} // Progress and configuration change bits.
-		),
-		// Ack the IRQ iff one of the bits was set.
-		fnr::check_if{},
-			fnr::scope_get{0},
-		fnr::then{},
-			// Trigger the bitset event (bound to slot 2).
-			fnr::intrin{"__trigger_bitset", 2, 0} (
-				fnr::binding{2},
-				fnr::scope_get{0}
-			),
-			fnr::scope_push{} ( fnr::literal{1} ),
-		fnr::else_then{},
-			fnr::scope_push{} ( fnr::literal{2} ),
-		fnr::end{}
+			) & fnr::literal{3}, // Progress and configuration change bits.
+			[&] (auto isr) {
+				// Ack the IRQ iff one of the bits was set.
+				return fnr::seq(
+					fnr::check_if{},
+						isr,
+					fnr::then{},
+						// Trigger the bitset event (bound to slot 2).
+						fnr::intrin{"__trigger_bitset", 2, 0} (
+							fnr::binding{2},
+							isr
+						),
+						fnr::literal{1},
+					fnr::else_then{},
+						fnr::literal{2},
+					fnr::end{}
+				);
+			}
+		)
 	);
 
 	auto kernlet_object = co_await compile(kernlet_program.data(),
