@@ -513,9 +513,9 @@ async::detached StandardPciTransport::_processIrqs() {
 	fnr::emit_to(std::back_inserter(kernlet_program),
 		fnr::let(
 			// Load the PCI_ISR register.
-			fnr::intrin<2, 1>{"__mmio_read8"} (
-				fnr::binding{0}, // IRQ space MMIO region (bound to slot 0).
-				fnr::binding{1} // IRQ space MMIO offset (bound to slot 1).
+			kernlet_intrin::mmio_read8 (
+				fnr::binding<kernlet_types::memory_view>{0}, // IRQ space MMIO region (bound to slot 0).
+				fnr::binding<kernlet_types::offset>{1} // IRQ space MMIO offset (bound to slot 1).
 					 + fnr::literal{PCI_ISR.offset()} // Offset of USBSTS.
 			) & fnr::literal{3}, // Progress and configuration change bits.
 			[&] (auto isr) {
@@ -524,8 +524,8 @@ async::detached StandardPciTransport::_processIrqs() {
 					isr,
 					fnr::seq(
 						// Trigger the bitset event (bound to slot 2).
-						fnr::intrin<2, 0>{"__trigger_bitset"} (
-							fnr::binding{2},
+						kernlet_intrin::trigger_bitset (
+							fnr::binding<kernlet_types::bitset_event>{2},
 							isr
 						),
 						fnr::literal{1}

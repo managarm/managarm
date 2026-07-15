@@ -433,9 +433,9 @@ async::detached Controller::handleIrqs() {
 	fnr::emit_to(std::back_inserter(kernlet_program),
 		fnr::let(
 			// Load the USBSTS register.
-			fnr::intrin<2, 1>{"__mmio_read32"} (
-				fnr::binding{0}, // EHCI MMIO region (bound to slot 0).
-				fnr::binding{1} // EHCI MMIO offset (bound to slot 1).
+			kernlet_intrin::mmio_read32 (
+				fnr::binding<kernlet_types::memory_view>{0}, // EHCI MMIO region (bound to slot 0).
+				fnr::binding<kernlet_types::offset>{1} // EHCI MMIO offset (bound to slot 1).
 					 + fnr::literal{4} // Offset of USBSTS.
 			) & fnr::literal{23}, // USB transaction, error, port change and host error bits.
 			[&] (auto usbsts) {
@@ -444,15 +444,15 @@ async::detached Controller::handleIrqs() {
 					usbsts,
 					fnr::seq(
 						// Write back the interrupt bits to USBSTS to deassert the IRQ.
-						fnr::intrin<3, 0>{"__mmio_write32"} (
-							fnr::binding{0}, // EHCI MMIO region (bound to slot 0).
-							fnr::binding{1} // EHCI MMIO offset (bound to slot 1).
+						kernlet_intrin::mmio_write32 (
+							fnr::binding<kernlet_types::memory_view>{0}, // EHCI MMIO region (bound to slot 0).
+							fnr::binding<kernlet_types::offset>{1} // EHCI MMIO offset (bound to slot 1).
 								+ fnr::literal{4}, // Offset of USBSTS.
 							usbsts
 						),
 						// Trigger the bitset event (bound to slot 2).
-						fnr::intrin<2, 0>{"__trigger_bitset"} (
-							fnr::binding{2},
+						kernlet_intrin::trigger_bitset (
+							fnr::binding<kernlet_types::bitset_event>{2},
 							usbsts
 						),
 						fnr::literal{1}
