@@ -440,10 +440,9 @@ async::detached Controller::handleIrqs() {
 			) & fnr::literal{23}, // USB transaction, error, port change and host error bits.
 			[&] (auto usbsts) {
 				// Ack the IRQ iff one of the bits was set.
-				return fnr::seq(
-					fnr::check_if{},
-						usbsts,
-					fnr::then{},
+				return fnr::ite(
+					usbsts,
+					fnr::seq(
 						// Write back the interrupt bits to USBSTS to deassert the IRQ.
 						fnr::intrin{"__mmio_write32", 3, 0} (
 							fnr::binding{0}, // EHCI MMIO region (bound to slot 0).
@@ -456,10 +455,9 @@ async::detached Controller::handleIrqs() {
 							fnr::binding{2},
 							usbsts
 						),
-						fnr::literal{1},
-					fnr::else_then{},
-						fnr::literal{2},
-					fnr::end{}
+						fnr::literal{1}
+					),
+					fnr::literal{2}
 				);
 			}
 		)

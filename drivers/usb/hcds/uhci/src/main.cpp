@@ -199,10 +199,9 @@ async::detached Controller::_handleIrqs() {
 					| status::hostSystemError(true))},
 			[&] (auto usbsts) {
 				// Ack the IRQ iff one of the bits was set.
-				return fnr::seq(
-					fnr::check_if{},
-						usbsts,
-					fnr::then{},
+				return fnr::ite(
+					usbsts,
+					fnr::seq(
 						// Write back the interrupt bits to USBSTS to deassert the IRQ.
 						fnr::intrin{"__pio_write16", 2, 0} (
 							fnr::binding{0} // UHCI PIO offset (bound to slot 0).
@@ -214,10 +213,9 @@ async::detached Controller::_handleIrqs() {
 							fnr::binding{1},
 							usbsts
 						),
-						fnr::literal{1},
-					fnr::else_then{},
-						fnr::literal{2},
-					fnr::end{}
+						fnr::literal{1}
+					),
+					fnr::literal{2}
 				);
 			}
 		)

@@ -520,19 +520,17 @@ async::detached StandardPciTransport::_processIrqs() {
 			) & fnr::literal{3}, // Progress and configuration change bits.
 			[&] (auto isr) {
 				// Ack the IRQ iff one of the bits was set.
-				return fnr::seq(
-					fnr::check_if{},
-						isr,
-					fnr::then{},
+				return fnr::ite(
+					isr,
+					fnr::seq(
 						// Trigger the bitset event (bound to slot 2).
 						fnr::intrin{"__trigger_bitset", 2, 0} (
 							fnr::binding{2},
 							isr
 						),
-						fnr::literal{1},
-					fnr::else_then{},
-						fnr::literal{2},
-					fnr::end{}
+						fnr::literal{1}
+					),
+					fnr::literal{2}
 				);
 			}
 		)
