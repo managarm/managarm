@@ -190,7 +190,7 @@ async::detached Controller::_handleIrqs() {
 	fnr::emit_to(std::back_inserter(kernlet_program),
 		fnr::let(
 			// Load the USBSTS register.
-			fnr::intrin{"__pio_read16", 1, 1} (
+			fnr::intrin<1, 1>{"__pio_read16"} (
 				fnr::binding{0} // UHCI PIO offset (bound to slot 0).
 					 + fnr::literal{op_regs::status.offset()}
 			) & fnr::literal{static_cast<uint16_t>(status::transactionIrq(true)
@@ -203,13 +203,13 @@ async::detached Controller::_handleIrqs() {
 					usbsts,
 					fnr::seq(
 						// Write back the interrupt bits to USBSTS to deassert the IRQ.
-						fnr::intrin{"__pio_write16", 2, 0} (
+						fnr::intrin<2, 0>{"__pio_write16"} (
 							fnr::binding{0} // UHCI PIO offset (bound to slot 0).
 								+ fnr::literal{op_regs::status.offset()},
 							usbsts
 						),
 						// Trigger the bitset event (bound to slot 1).
-						fnr::intrin{"__trigger_bitset", 2, 0} (
+						fnr::intrin<2, 0>{"__trigger_bitset"} (
 							fnr::binding{1},
 							usbsts
 						),
