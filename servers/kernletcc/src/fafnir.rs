@@ -26,7 +26,7 @@ const FNR_OP_CHECK_IF: u8 = 6;
 const FNR_OP_THEN: u8 = 7;
 const FNR_OP_ELSE_THEN: u8 = 8;
 const FNR_OP_END: u8 = 9;
-const FNR_OP_LITERAL: u8 = 10;
+const FNR_OP_LITERAL_U32: u8 = 10;
 const FNR_OP_BITWISE_AND: u8 = 11;
 const FNR_OP_ADD: u8 = 12;
 const FNR_OP_INTRIN: u8 = 13;
@@ -39,6 +39,51 @@ pub enum BindType {
     Offset,
     MemoryView,
     BitsetEvent,
+}
+
+// Tags identifying the opaque Fafnir types. Opaque types match iff their tags match.
+const TAG_MEMORY_VIEW: u32 = 0;
+const TAG_BITSET_EVENT: u32 = 1;
+
+/// A Fafnir value type. Integer types may be used in arithmetic; opaque types (identified by a
+/// tag) may only be passed to intrinsics that expect them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FnrType {
+    I32,
+    I64,
+    Opaque(u32),
+}
+
+impl FnrType {
+    /// The Cranelift type backing this Fafnir type. Opaque values are 64-bit handles.
+    fn clif(self) -> Type {
+        match self {
+            FnrType::I32 => types::I32,
+            FnrType::I64 => types::I64,
+            FnrType::Opaque(_) => types::I64,
+        }
+    }
+
+    fn is_integer(self) -> bool {
+        matches!(self, FnrType::I32 | FnrType::I64)
+    }
+}
+
+impl BindType {
+    fn fnr_type(self) -> FnrType {
+        match self {
+            BindType::Offset => FnrType::I32,
+            BindType::MemoryView => FnrType::Opaque(TAG_MEMORY_VIEW),
+            BindType::BitsetEvent => FnrType::Opaque(TAG_BITSET_EVENT),
+        }
+    }
+}
+
+/// An opstack/sstack entry: a Cranelift value together with its Fafnir type.
+#[derive(Clone, Copy)]
+struct TypedValue {
+    val: Value,
+    ty: FnrType,
 }
 
 /// A relocation referencing an external (kernel-provided) symbol.
@@ -95,6 +140,15 @@ impl<'a> Reader<'a> {
         Ok(b)
     }
 
+    /// Reads a little-endian 4-byte unsigned operand.
+    fn read_u32(&mut self) -> Result<u32> {
+        let mut v: u32 = 0;
+        for i in 0..4 {
+            v |= (self.read_uint()? as u32) << (8 * i);
+        }
+        Ok(v)
+    }
+
     /// Reads a null-terminated string operand.
     fn read_string(&mut self) -> Result<String> {
         let mut s = String::new();
@@ -112,7 +166,7 @@ impl<'a> Reader<'a> {
 /// A block and its operand stack (opstack).
 struct Block {
     kind: BlockKind,
-    opstack: Vec<cranelift_codegen::ir::Value>,
+    opstack: Vec<TypedValue>,
 }
 
 impl Block {
@@ -135,25 +189,28 @@ enum BlockKind {
     IfThen {
         else_block: cranelift_codegen::ir::Block,
     },
-    /// The 'else' block; carries the merge target and one merge variable per branch result.
+    /// The 'else' block; carries the merge target and one merge variable (with its Fafnir type)
+    /// per branch result.
     IfElse {
         merge_block: cranelift_codegen::ir::Block,
-        merge_vars: Vec<Variable>,
+        merge_vars: Vec<(Variable, FnrType)>,
     },
 }
 
 /// Signatures of the kernel intrinsics from `resolveExternal` (kernel/thor/generic/kernlet.cpp):
-/// parameter types plus i32 return count.
+/// parameter types and result types.
 /// Keep in sync with thor. Reject unknown names.
-fn intrinsic_signature(name: &str) -> Option<(&'static [Type], usize)> {
-    use types::{I32, I64};
+fn intrinsic_signature(name: &str) -> Option<(&'static [FnrType], &'static [FnrType])> {
+    use FnrType::{I32, Opaque};
+    const MEMORY_VIEW: FnrType = Opaque(TAG_MEMORY_VIEW);
+    const BITSET_EVENT: FnrType = Opaque(TAG_BITSET_EVENT);
     match name {
-        "__pio_read16" => Some((&[I32], 1)),
-        "__pio_write16" => Some((&[I32, I32], 0)),
-        "__mmio_read8" => Some((&[I64, I32], 1)),
-        "__mmio_read32" => Some((&[I64, I32], 1)),
-        "__mmio_write32" => Some((&[I64, I32, I32], 0)),
-        "__trigger_bitset" => Some((&[I64, I32], 0)),
+        "__pio_read16" => Some((&[I32], &[I32])),
+        "__pio_write16" => Some((&[I32, I32], &[])),
+        "__mmio_read8" => Some((&[MEMORY_VIEW, I32], &[I32])),
+        "__mmio_read32" => Some((&[MEMORY_VIEW, I32], &[I32])),
+        "__mmio_write32" => Some((&[MEMORY_VIEW, I32, I32], &[])),
+        "__trigger_bitset" => Some((&[BITSET_EVENT, I32], &[])),
         _ => None,
     }
 }
@@ -161,7 +218,7 @@ fn intrinsic_signature(name: &str) -> Option<(&'static [Type], usize)> {
 /// The block and scope stacks maintained during compilation.
 struct Compiler {
     blocks: Vec<Block>,
-    scopes: Vec<Vec<Value>>,
+    scopes: Vec<Vec<TypedValue>>,
 }
 
 impl Compiler {
@@ -181,12 +238,12 @@ impl Compiler {
     }
 
     /// The innermost open block's opstack.
-    fn opstack_mut(&mut self) -> Result<&mut Vec<Value>> {
+    fn opstack_mut(&mut self) -> Result<&mut Vec<TypedValue>> {
         Ok(&mut self.current_block_mut()?.opstack)
     }
 
     /// The innermost open scope's sstack.
-    fn current_sstack(&self) -> Result<&Vec<Value>> {
+    fn current_sstack(&self) -> Result<&Vec<TypedValue>> {
         self.scopes
             .last()
             .ok_or_else(|| anyhow::anyhow!("operation with no open scope"))
@@ -209,7 +266,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn open_scope(&mut self, sstack: Vec<Value>) {
+    fn open_scope(&mut self, sstack: Vec<TypedValue>) {
         self.scopes.push(sstack);
     }
 
@@ -218,7 +275,7 @@ impl Compiler {
     }
 
     /// Checks that only the outermost block remains and returns the kernlet's single result.
-    fn return_value(&mut self) -> Result<Value> {
+    fn return_value(&mut self) -> Result<TypedValue> {
         ensure!(
             self.blocks.len() == 1 && matches!(self.blocks[0].kind, BlockKind::Root),
             "unterminated block (missing END or SCOPE_END)"
@@ -287,22 +344,24 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 let v = opstack[opstack.len() - index - 1];
                 opstack.push(v);
             }
-            FNR_OP_LITERAL => {
-                let value = r.read_uint()? as i64;
+            FNR_OP_LITERAL_U32 => {
+                let value = r.read_u32()? as i64;
                 let v = builder.ins().iconst(types::I32, value);
-                compiler.opstack_mut()?.push(v);
+                compiler.opstack_mut()?.push(TypedValue {
+                    val: v,
+                    ty: FnrType::I32,
+                });
             }
             FNR_OP_BINDING => {
                 let index = r.read_uint()? as usize;
                 let (bt, disp) = *bindings
                     .get(index)
                     .ok_or_else(|| anyhow::anyhow!("binding index out of range"))?;
-                let ty = match bt {
-                    BindType::Offset => types::I32,
-                    BindType::MemoryView | BindType::BitsetEvent => types::I64,
-                };
-                let v = builder.ins().load(ty, MemFlags::trusted(), instance, disp);
-                compiler.opstack_mut()?.push(v);
+                let ty = bt.fnr_type();
+                let v = builder
+                    .ins()
+                    .load(ty.clif(), MemFlags::trusted(), instance, disp);
+                compiler.opstack_mut()?.push(TypedValue { val: v, ty });
             }
             FNR_OP_S_VALUE => {
                 let index = r.read_uint()? as usize;
@@ -318,10 +377,11 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 let right = opstack.pop().unwrap();
                 let left = opstack.pop().unwrap();
                 ensure!(
-                    builder.func.dfg.value_type(left) == builder.func.dfg.value_type(right),
-                    "BITWISE_AND operands must have the same width"
+                    left.ty.is_integer() && left.ty == right.ty,
+                    "BITWISE_AND operands must have the same integer type"
                 );
-                opstack.push(builder.ins().band(left, right));
+                let val = builder.ins().band(left.val, right.val);
+                opstack.push(TypedValue { val, ty: left.ty });
             }
             FNR_OP_ADD => {
                 let opstack = compiler.opstack_mut()?;
@@ -329,10 +389,11 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 let right = opstack.pop().unwrap();
                 let left = opstack.pop().unwrap();
                 ensure!(
-                    builder.func.dfg.value_type(left) == builder.func.dfg.value_type(right),
-                    "ADD operands must have the same width"
+                    left.ty.is_integer() && left.ty == right.ty,
+                    "ADD operands must have the same integer type"
                 );
-                opstack.push(builder.ins().iadd(left, right));
+                let val = builder.ins().iadd(left.val, right.val);
+                opstack.push(TypedValue { val, ty: left.ty });
             }
             FNR_OP_CHECK_IF => {
                 // Open a fresh block; the condition is computed on it and consumed by THEN.
@@ -349,10 +410,16 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                     "THEN expects exactly the condition on the opstack"
                 );
                 let cond = frame.opstack.pop().unwrap();
+                ensure!(
+                    cond.ty.is_integer(),
+                    "THEN condition must have an integer type"
+                );
 
                 let then_block = builder.create_block();
                 let else_block = builder.create_block();
-                builder.ins().brif(cond, then_block, &[], else_block, &[]);
+                builder
+                    .ins()
+                    .brif(cond.val, then_block, &[], else_block, &[]);
                 builder.switch_to_block(then_block);
 
                 // Replace the condition block with the 'then' block.
@@ -372,13 +439,9 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 let merge_block = builder.create_block();
                 let mut merge_vars = Vec::with_capacity(results.len());
                 for v in results {
-                    ensure!(
-                        builder.func.dfg.value_type(v) == types::I32,
-                        "only 32-bit values can escape a branch"
-                    );
-                    let var = builder.declare_var(types::I32);
-                    builder.def_var(var, v);
-                    merge_vars.push(var);
+                    let var = builder.declare_var(v.ty.clif());
+                    builder.def_var(var, v.val);
+                    merge_vars.push((var, v.ty));
                 }
                 builder.ins().jump(merge_block, &[]);
                 builder.switch_to_block(else_block);
@@ -404,39 +467,39 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                     results.len() == merge_vars.len(),
                     "if/else branches produce differing stacks"
                 );
-                for (&var, &v) in merge_vars.iter().zip(results.iter()) {
+                for (&(var, ty), &v) in merge_vars.iter().zip(results.iter()) {
                     ensure!(
-                        builder.func.dfg.value_type(v) == types::I32,
-                        "only 32-bit values can escape a branch"
+                        v.ty == ty,
+                        "if/else branch results must have matching types"
                     );
-                    builder.def_var(var, v);
+                    builder.def_var(var, v.val);
                 }
                 builder.ins().jump(merge_block, &[]);
                 builder.switch_to_block(merge_block);
 
                 // Push the merged branch results onto the enclosing block's opstack.
                 let outer = compiler.current_block_mut()?;
-                for &var in &merge_vars {
-                    let v = builder.use_var(var);
-                    outer.opstack.push(v);
+                for &(var, ty) in &merge_vars {
+                    let val = builder.use_var(var);
+                    outer.opstack.push(TypedValue { val, ty });
                 }
             }
             FNR_OP_INTRIN => {
                 let nargs = r.read_uint()? as usize;
                 let nrvs = r.read_uint()? as usize;
                 let name = r.read_string()?;
-                let (param_types, rvs) = intrinsic_signature(&name)
+                let (param_types, result_types) = intrinsic_signature(&name)
                     .ok_or_else(|| anyhow::anyhow!("unknown intrinsic: {name}"))?;
                 ensure!(
                     nargs == param_types.len(),
                     "wrong number of arguments for intrinsic {name}"
                 );
                 ensure!(
-                    nrvs == rvs,
+                    nrvs == result_types.len(),
                     "wrong number of return values for intrinsic {name}"
                 );
 
-                let mut args: Vec<Value> = Vec::with_capacity(nargs);
+                let mut args: Vec<TypedValue> = Vec::with_capacity(nargs);
                 {
                     let opstack = compiler.opstack_mut()?;
                     ensure!(opstack.len() >= nargs, "INTRIN with too few arguments");
@@ -446,17 +509,17 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                 }
                 args.reverse();
 
-                // Check operand widths against the kernel-side signature.
+                // Check operand types against the kernel-side signature.
                 let mut csig = Signature::new(CallConv::SystemV);
                 for (&a, &ty) in args.iter().zip(param_types) {
                     ensure!(
-                        builder.func.dfg.value_type(a) == ty,
-                        "operand of wrong width for intrinsic {name}"
+                        a.ty == ty,
+                        "operand of wrong type for intrinsic {name}"
                     );
-                    csig.params.push(AbiParam::new(ty));
+                    csig.params.push(AbiParam::new(ty.clif()));
                 }
-                for _ in 0..nrvs {
-                    csig.returns.push(AbiParam::new(types::I32));
+                for &ty in result_types {
+                    csig.returns.push(AbiParam::new(ty.clif()));
                 }
                 let sigref = builder.import_signature(csig);
 
@@ -471,11 +534,12 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
                     colocated: false,
                 });
 
-                let call = builder.ins().call(fref, &args);
+                let arg_vals: Vec<Value> = args.iter().map(|a| a.val).collect();
+                let call = builder.ins().call(fref, &arg_vals);
                 let results: Vec<_> = builder.inst_results(call).to_vec();
                 let opstack = compiler.opstack_mut()?;
-                for v in results {
-                    opstack.push(v);
+                for (val, &ty) in results.into_iter().zip(result_types) {
+                    opstack.push(TypedValue { val, ty });
                 }
             }
             FNR_OP_SCOPE => {
@@ -513,10 +577,10 @@ pub fn compile(code: &[u8], bind_types: &[BindType]) -> Result<Compiled> {
 
     let ret = compiler.return_value()?;
     ensure!(
-        builder.func.dfg.value_type(ret) == types::I32,
+        ret.ty == FnrType::I32,
         "kernlet must return a 32-bit value"
     );
-    builder.ins().return_(&[ret]);
+    builder.ins().return_(&[ret.val]);
 
     builder.seal_all_blocks();
     builder.finalize();
