@@ -42,10 +42,10 @@ struct KernelBusObject {
 	coroutine<frg::expected<Error, size_t>> createObject(frg::string_view name, Properties &&properties);
 	coroutine<Error> updateProperties(Properties &properties);
 
-	virtual LaneHandle initiateClient() {
+	virtual smarter::shared_ptr<Stream, LanePolicy> initiateClient() {
 		auto stream = createStream();
 
-		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (LaneHandle lane,
+		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<Stream, LanePolicy> lane,
 				KernelBusObject *self) -> coroutine<void> {
 			while(true) {
 				auto result = co_await self->handleRequest(lane);
@@ -62,7 +62,7 @@ struct KernelBusObject {
 		return stream.get<1>();
 	}
 
-	virtual coroutine<frg::expected<Error>> handleRequest(LaneHandle lane)  {
+	virtual coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane)  {
 		co_return Error::illegalObject;
 	}
 
@@ -71,7 +71,7 @@ private:
 	coroutine<frg::expected<Error>> handleServeRemoteLane_();
 
 	int64_t mbusId_;
-	LaneHandle mgmtLane_;
+	smarter::shared_ptr<Stream, LanePolicy> mgmtLane_;
 };
 
 } // namespace thor

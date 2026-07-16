@@ -355,7 +355,7 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 			if(desc.is<ThreadDescriptor>())
 				creds = desc.get<ThreadDescriptor>().thread->credentials();
 			else if(desc.is<LaneDescriptor>())
-				creds = desc.get<LaneDescriptor>().handle.getStream()->credentials().credentials();
+				creds = desc.get<LaneDescriptor>().handle->credentials().credentials();
 			else
 				return std::unexpected{Error::badDescriptor};
 			return {};
@@ -2681,7 +2681,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 	auto thisUniverse = thisThread->getUniverse();
 
 	auto laneOutcome = thisUniverse->inspectDescriptor(laneHandle,
-			[](AnyDescriptor &desc) -> std::expected<LaneHandle, Error> {
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Stream, LanePolicy>, Error> {
 		if(!desc.is<LaneDescriptor>())
 			return std::unexpected{Error::badDescriptor};
 		return desc.get<LaneDescriptor>().handle;
@@ -2750,7 +2750,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 						else if(desc.is<TokenDescriptor>())
 							creds = desc.get<TokenDescriptor>().credentials->credentials();
 						else if(desc.is<LaneDescriptor>())
-							creds = desc.get<LaneDescriptor>().handle.getStream()->credentials().credentials();
+							creds = desc.get<LaneDescriptor>().handle->credentials().credentials();
 						else
 							return std::unexpected{Error::badDescriptor};
 						return {};
@@ -2870,7 +2870,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 	[](frg::dyn_array<Item, KernelAlloc> items, size_t count,
 			smarter::weak_ptr<Universe> weakUniverse,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			LaneHandle lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
+			smarter::shared_ptr<Stream, LanePolicy> lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
 			enable_detached_coroutine) -> void {
 		StreamPacket packet;
 		packet.setup(count);
@@ -3235,7 +3235,7 @@ HelError helShutdownLane(HelHandle handle) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto laneOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<LaneHandle, Error> {
+			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Stream, LanePolicy>, Error> {
 		if(!desc.is<LaneDescriptor>())
 			return std::unexpected{Error::badDescriptor};
 		return desc.get<LaneDescriptor>().handle;
@@ -3244,7 +3244,7 @@ HelError helShutdownLane(HelHandle handle) {
 		return translateError(laneOutcome.error());
 	auto lane = std::move(*laneOutcome);
 
-	lane.getStream()->shutdownLane(lane.getLane());
+	lane->shutdownLane(laneOf(lane));
 
 	return kHelErrNone;
 }

@@ -73,7 +73,8 @@ struct AcpiObject final : public KernelBusObject {
 	}
 
 	coroutine<void> run(Properties props = {});
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+	coroutine<frg::expected<Error>>
+	handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;
 
 	size_t mbus_id;
 	uacpi_namespace_node *node;

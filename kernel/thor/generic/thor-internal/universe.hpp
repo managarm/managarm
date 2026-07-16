@@ -114,62 +114,55 @@ struct ThreadDescriptor {
 struct StreamControl;
 struct Stream;
 
-struct AdoptLane { };
-static constexpr AdoptLane adoptLane;
+// Refcount policy for smarter::shared_ptr.
+// A lane handle is a Stream pointer plus a lane index.
+// The refcount that it manipulates is the lane's peer counter.
+struct LanePolicy {
+	LanePolicy() = default;
 
-// TODO: implement SharedLaneHandle + UnsafeLaneHandle?
-struct LaneHandle {
-	friend void swap(LaneHandle &a, LaneHandle &b) {
-		using std::swap;
-		swap(a._stream, b._stream);
-		swap(a._lane, b._lane);
+	LanePolicy(Stream *stream, int lane)
+	: stream_{stream}, lane_{lane} { }
+
+	explicit operator bool () const {
+		return stream_;
 	}
 
-	// Initialize _lane so that the compiler does not complain about uninitialized values.
-	LaneHandle()
-	: _lane{-1} { };
+	void increment() const;
+	void decrement() const;
 
-	explicit LaneHandle(AdoptLane, smarter::borrowed_ptr<Stream> stream, int lane)
-	: _stream(stream), _lane(lane) { }
-
-	LaneHandle(const LaneHandle &other);
-
-	LaneHandle(LaneHandle &&other)
-	: LaneHandle() {
-		swap(*this, other);
+	Stream *stream() const {
+		return stream_;
 	}
 
-	~LaneHandle();
-
-	explicit operator bool () {
-		return static_cast<bool>(_stream);
-	}
-
-	LaneHandle &operator= (LaneHandle other) {
-		swap(*this, other);
-		return *this;
-	}
-
-	smarter::borrowed_ptr<Stream> getStream() {
-		return _stream;
-	}
-
-	int getLane() {
-		return _lane;
+	int lane() const {
+		return lane_;
 	}
 
 private:
-	smarter::borrowed_ptr<Stream> _stream;
-	int _lane;
+	Stream *stream_ = nullptr;
+	int lane_ = -1;
 };
+static_assert(smarter::rc_policy<LanePolicy>);
+
+// Constructs a lane handle that adopts an existing peer reference on the stream.
+inline smarter::shared_ptr<Stream, LanePolicy> adoptLane(
+		smarter::borrowed_ptr<Stream> stream, int lane) {
+	return smarter::shared_ptr<Stream, LanePolicy>{
+			smarter::adopt_rc, stream.get(), LanePolicy{stream.get(), lane}};
+}
+
+// Extracts the numeric lane index of a lane handle.
+inline int laneOf(const smarter::shared_ptr<Stream, LanePolicy> &lane) {
+	return lane.policy().lane();
+}
 
 struct LaneDescriptor {
 	LaneDescriptor() = default;
 
-	explicit LaneDescriptor(LaneHandle handle)
+	explicit LaneDescriptor(smarter::shared_ptr<Stream, LanePolicy> handle)
 	: handle(std::move(handle)) { }
 
-	LaneHandle handle;
+	smarter::shared_ptr<Stream, LanePolicy> handle;
 };
 
 // --------------------------------------------------------

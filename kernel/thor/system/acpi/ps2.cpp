@@ -27,7 +27,8 @@ struct AcpiStatus final : public thor::KernelBusObject {
 		(co_await createObject("acpi-status", std::move(props))).unwrap();
 	}
 
-	coroutine<frg::expected<thor::Error>> handleRequest(thor::LaneHandle lane) override {
+	coroutine<frg::expected<thor::Error>>
+	handleRequest(smarter::shared_ptr<thor::Stream, thor::LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await thor::accept(lane);
 		if (acceptError != thor::Error::success)
 			co_return acceptError;

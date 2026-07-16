@@ -19,8 +19,8 @@ namespace thor {
 
 static bool debugLaunch = true;
 
-frg::manual_box<LaneHandle> mbusClient;
-static frg::manual_box<LaneHandle> futureMbusServer;
+frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
+static frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> futureMbusServer;
 
 frg::ticket_spinlock globalMfsMutex;
 
@@ -32,14 +32,14 @@ constinit IrqSpinlock allServersMutex;
 static frg::manual_box<
 	frg::hash_map<
 		frg::string<KernelAlloc>,
-		LaneHandle,
+		smarter::shared_ptr<Stream, LanePolicy>,
 		frg::hash<frg::string<KernelAlloc>>,
 		KernelAlloc
 	>
 > allServers;
 
 // TODO: move this declaration to a header file
-void runService(frg::string<KernelAlloc> desc, LaneHandle control_lane,
+void runService(frg::string<KernelAlloc> desc, smarter::shared_ptr<Stream, LanePolicy> control_lane,
 		smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 // ------------------------------------------------------------------------
@@ -264,8 +264,8 @@ uintptr_t copyToStack(frg::string<KernelAlloc> &stack_image, const T &data) {
 }
 
 coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
-		LaneHandle control_lane,
-		LaneHandle xpipe_lane,
+		smarter::shared_ptr<Stream, LanePolicy> control_lane,
+		smarter::shared_ptr<Stream, LanePolicy> xpipe_lane,
 		Scheduler *scheduler) {
 	auto space = AddressSpace::create();
 
@@ -386,7 +386,7 @@ coroutine<void> runMbus() {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching mbus" << frg::endlog;
 
-	frg::tuple<LaneHandle, LaneHandle> controlStream;
+	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> controlStream;
 	{
 		auto lock = frg::guard(&allServersMutex);
 
@@ -404,11 +404,11 @@ coroutine<void> runMbus() {
 			std::move(*futureMbusServer), &localScheduler.get());
 }
 
-coroutine<LaneHandle> runServer(frg::string_view name) {
+coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(frg::string_view name) {
 	if(debugLaunch)
 		infoLogger() << "thor: Launching server " << name << frg::endlog;
 
-	frg::tuple<LaneHandle, LaneHandle> controlStream;
+	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> controlStream;
 	{
 		auto lock = frg::guard(&allServersMutex);
 
@@ -431,7 +431,7 @@ coroutine<LaneHandle> runServer(frg::string_view name) {
 
 	co_await executeModule(name, static_cast<MfsRegular *>(module),
 			controlStream.get<0>(),
-			LaneHandle{}, &localScheduler.get());
+			smarter::shared_ptr<Stream, LanePolicy>{}, &localScheduler.get());
 
 	co_return controlStream.get<1>();
 }
@@ -452,7 +452,7 @@ struct SvrctlBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
 		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;

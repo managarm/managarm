@@ -17,7 +17,7 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
 
 namespace pci {
 
@@ -84,7 +84,7 @@ void PciBus::runRootBus() {
 	});
 }
 
-coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>> PciBus::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	// TODO(qookie): Implement this properly :^)
 	auto dismissError = co_await dismiss(lane);
 	if (dismissError != Error::success)
@@ -181,7 +181,7 @@ void PciDevice::runDevice() {
 // PciEntity implementation.
 // --------------------------------------------------------
 
-coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	auto [acceptError, conversation] = co_await accept(lane);
 	if(acceptError != Error::success)
 		co_return acceptError;
@@ -194,7 +194,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 	if (preamble.error())
 		co_return Error::protocolViolation;
 
-	auto sendResponse = [] (LaneHandle &conversation,
+	auto sendResponse = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 			managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 			resp.head_size};
@@ -217,7 +217,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		co_return frg::success;
 	};
 
-	auto sendResponseHead = [] (LaneHandle &conversation,
+	auto sendResponseHead = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 			auto &&resp) -> coroutine<frg::expected<Error>> {
 		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 			resp.head_size};

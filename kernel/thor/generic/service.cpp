@@ -22,21 +22,21 @@
 
 namespace thor {
 
-extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
 
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out);
 
 static MfsRegular *urandomNode = nullptr;
 
-void runService(frg::string<KernelAlloc> name, LaneHandle controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
+void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LanePolicy> controlLane, smarter::shared_ptr<Thread, ActiveHandle> thread);
 
 struct OpenFile {
 	OpenFile()
 	: isTerminal{false} { };
 
 	bool isTerminal;
-	LaneHandle clientLane;
+	smarter::shared_ptr<Stream, LanePolicy> clientLane;
 };
 
 struct StdioFile : OpenFile {
@@ -46,7 +46,7 @@ struct StdioFile : OpenFile {
 };
 
 namespace stdio {
-	coroutine<void> runStdioRequests(LaneHandle lane) {
+	coroutine<void> runStdioRequests(smarter::shared_ptr<Stream, LanePolicy> lane) {
 		frg::string<KernelAlloc> lineBuffer{*kernelAlloc};
 
 		while(true) {
@@ -160,7 +160,7 @@ namespace initrd {
 	// initrd file handling.
 	// ----------------------------------------------------
 
-	coroutine<void> runRegularRequests(OpenRegular *file, LaneHandle lane) {
+	coroutine<void> runRegularRequests(OpenRegular *file, smarter::shared_ptr<Stream, LanePolicy> lane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
@@ -270,7 +270,7 @@ namespace initrd {
 		}
 	}
 
-	coroutine<void> runDirectoryRequests(OpenDirectory *file, LaneHandle lane) {
+	coroutine<void> runDirectoryRequests(OpenDirectory *file, smarter::shared_ptr<Stream, LanePolicy> lane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
@@ -363,7 +363,7 @@ namespace initrd {
 namespace urandom {
 	struct OpenUrandom : OpenFile { };
 
-	coroutine<void> runUrandomRequests(OpenUrandom *, LaneHandle lane) {
+	coroutine<void> runUrandomRequests(OpenUrandom *, smarter::shared_ptr<Stream, LanePolicy> lane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await accept(lane);
 			if(acceptError == Error::endOfLane)
@@ -456,7 +456,7 @@ namespace posix {
 			clientFileTable = result.value();
 		}
 
-		coroutine<void> runPosixRequests(ThreadInfo info, LaneHandle posixLane);
+		coroutine<void> runPosixRequests(ThreadInfo info, smarter::shared_ptr<Stream, LanePolicy> posixLane);
 		coroutine<void> runObserveLoop(ThreadInfo info);
 
 		frg::string_view name() {
@@ -482,7 +482,7 @@ namespace posix {
 			return _thread.push_back(std::move(info));
 		}
 
-		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, LaneHandle lane) {
+		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, smarter::shared_ptr<Stream, LanePolicy> lane) {
 			controlHandle = thread->getUniverse()->attachDescriptor(
 					LaneDescriptor{lane});
 		}
@@ -526,7 +526,7 @@ namespace posix {
 		VirtualAddr clientFileTable;
 	};
 
-	coroutine<void> Process::runPosixRequests(ThreadInfo info, LaneHandle posixLane) {
+	coroutine<void> Process::runPosixRequests(ThreadInfo info, smarter::shared_ptr<Stream, LanePolicy> posixLane) {
 		while(true) {
 			auto [acceptError, conversation] = co_await accept(posixLane);
 			if(acceptError != Error::success) {
@@ -1180,7 +1180,7 @@ coroutine<void> initPosixEmulation() {
 	co_await createMfsFile("/dev/urandom", nullptr, 0, &urandomNode);
 }
 
-void runService(frg::string<KernelAlloc> name, LaneHandle controlLane,
+void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LanePolicy> controlLane,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
 	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
 		auto stdioStream = createStream();

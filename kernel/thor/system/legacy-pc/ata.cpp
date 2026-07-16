@@ -23,8 +23,8 @@ struct AtaBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
-		auto sendResponse = [] (LaneHandle &conversation,
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
+		auto sendResponse = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};

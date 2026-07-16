@@ -9,7 +9,7 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
 
 coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::string_view name, Properties &&properties) {
 	auto [offerError, conversation] = co_await offer(*mbusClient);
