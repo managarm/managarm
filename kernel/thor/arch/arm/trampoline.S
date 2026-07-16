@@ -19,14 +19,14 @@ apEntryPoint:
 	// TODO: handle EL3
 	b.eq .L_inEL2
 	cmp x2, #4
-	b.eq .L_inEL1
+	b.eq .L_atEL1
 
 	// If we're in EL0 we're in trouble anyway
 .L_halt:
 	b .L_halt
 
 .L_inEL2:
-	// Drop to EL1
+	// Stay at EL2 and enable VHE. The kernel runs at EL2 on the BSP whenever VHE is supported.
 
 	// Enable access to counters
 	mrs x0, cnthctl_el2
@@ -34,25 +34,38 @@ apEntryPoint:
 	msr cnthctl_el2, x0
 	msr cntvoff_el2, xzr
 
-	// Enable AArch64
+	// HCR_EL2 = E2H | TGE | RW | SWIO
 	mov x0, xzr
-	orr x0, x0, #(1 << 31)
-	orr x0, x0, #(1 << 1)
+	orr x0, x0, #(1 << 1)    // SWIO
+	orr x0, x0, #(1 << 27)   // TGE
+	orr x0, x0, #(1 << 31)   // RW
+	orr x0, x0, #(1 << 34)   // E2H
 	msr hcr_el2, x0
+	isb
+
+	// E2H toggle requires invalidating EL2 TLBs.
+	tlbi alle2
+	dsb ish
+	isb
+
+	mrs x0, mpidr_el1
+	msr vmpidr_el2, x0
 
 	// Don't trap FP/SIMD to EL2
 	mov x0, #0x33FF
 	msr cptr_el2, x0
 	msr hstr_el2, xzr
 
-	// Enter EL1
-	mov x0, #0x3C5
-	msr spsr_el2, x0
-	adr x0, .L_inEL1
-	msr elr_el2, x0
-	eret
+	// SPSR = EL2h
+	mov x3, #0x3C9
+	b .L_setupTtbr
 
-.L_inEL1:
+.L_atEL1:
+	// SPSR = EL1h
+	mov x3, #0x3C5
+	// Fall through.
+
+.L_setupTtbr:
 	mov x0, xzr
 	orr x0, x0, #(1 << 29)
 	orr x0, x0, #(1 << 28)
@@ -84,8 +97,7 @@ apEntryPoint:
 	ldr x0, [x0]
 	msr elr_el1, x0
 
-	mov x0, #0x3C5
-	msr spsr_el1, x0
+	msr spsr_el1, x3
 
 	add x0, x1, statusStack
 	ldr x0, [x0]

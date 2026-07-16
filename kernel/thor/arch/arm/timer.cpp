@@ -1,3 +1,5 @@
+#include <frg/scope_exit.hpp>
+#include <thor-internal/acpi/acpi.hpp>
 #include <thor-internal/arch/timer.hpp>
 #include <thor-internal/arch/trap.hpp>
 #include <thor-internal/arch-generic/cpu.hpp>
@@ -8,8 +10,12 @@
 #include <initgraph.hpp>
 #include <thor-internal/main.hpp>
 #include <thor-internal/arch/gic.hpp>
+#include <thor-internal/arch/gic_v2.hpp>
+#include <thor-internal/arch/gic_v3.hpp>
 #include <thor-internal/dtb/dtb.hpp>
 #include <thor-internal/util.hpp>
+#include <uacpi/acpi.h>
+#include <uacpi/tables.h>
 
 namespace thor {
 
@@ -72,11 +78,85 @@ static DeviceTreeNode *timerNode = nullptr;
 static dt::IrqController *timerIrqParent = nullptr;
 static frg::manual_box<dtb::Cells> timerIrq;
 
+enum class TimerIrqSource {
+	none,
+	dt,
+	acpi
+};
+
+static TimerIrqSource timerIrqSource = TimerIrqSource::none;
+static GlobalIrqInfo acpiTimerIrq;
+
+IrqPin *setupAcpiTimerIrq() {
+	return std::visit(
+	    frg::overloaded{
+	        [](GicV2 *gic) -> IrqPin * {
+		        auto pin = gic->getPin(acpiTimerIrq.gsi);
+		        if (!pin)
+			        panicLogger() << "thor: GTDT timer GSI " << acpiTimerIrq.gsi
+			                      << " has no GIC pin" << frg::endlog;
+		        pin->configure(acpiTimerIrq.configuration);
+		        return pin;
+	        },
+	        [](GicV3 *gic) -> IrqPin * {
+		        auto pin = gic->getPin(acpiTimerIrq.gsi);
+		        if (!pin)
+			        panicLogger() << "thor: GTDT timer GSI " << acpiTimerIrq.gsi
+			                      << " has no GIC pin" << frg::endlog;
+		        pin->configure(acpiTimerIrq.configuration);
+		        return pin;
+	        },
+	        [](auto &&) -> IrqPin * {
+		        panicLogger() << "thor: GTDT timer requires a GIC" << frg::endlog;
+		        __builtin_unreachable();
+	        }
+	    },
+	    externalIrq
+	);
+}
+
+bool initTimerIrqFromAcpi() {
+	if (!acpiRsdpNote->rsdp)
+		return false;
+
+	uacpi_table gtdtTbl;
+	if (uacpi_table_find_by_signature("GTDT", &gtdtTbl) != UACPI_STATUS_OK)
+		return false;
+	frg::scope_exit finish{[&] { uacpi_table_unref(&gtdtTbl); }};
+
+	if (gtdtTbl.hdr->length < sizeof(acpi_gtdt))
+		panicLogger() << "thor: GTDT is too small" << frg::endlog;
+
+	auto *gtdt = reinterpret_cast<acpi_gtdt *>(gtdtTbl.ptr);
+	auto flags = gtdt->el1_virtual_flags;
+
+	acpiTimerIrq.gsi = gtdt->el1_virtual_gsiv;
+	acpiTimerIrq.configuration.trigger =
+	    (flags & ACPI_GTDT_TRIGGERING) ? TriggerMode::edge : TriggerMode::level;
+	acpiTimerIrq.configuration.polarity =
+	    (flags & ACPI_GTDT_POLARITY) ? Polarity::low : Polarity::high;
+	timerIrqSource = TimerIrqSource::acpi;
+
+	infoLogger() << "thor: Found GTDT EL1 virtual timer at GSI " << acpiTimerIrq.gsi
+	             << frg::endlog;
+	return true;
+}
+
 static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 	initgraph::Requires{getIrqControllerReadyStage()},
 	initgraph::Entails{getTaskingAvailableStage()},
 	[] {
-		getDeviceTreeRoot()->forEach([&](DeviceTreeNode *node) -> bool {
+		if (initTimerIrqFromAcpi()) {
+			initTimerOnThisCpu();
+			timersFound = true;
+			return;
+		}
+
+		auto root = getDeviceTreeRoot();
+		if (!root)
+			panicLogger() << "thor: Failed to find timer" << frg::endlog;
+
+		root->forEach([&](DeviceTreeNode *node) -> bool {
 			if (node->isCompatible<1>({"arm,armv8-timer"})) {
 				timerNode = node;
 				return true;
@@ -100,6 +180,7 @@ static initgraph::Task initTimerIrq{&globalInitEngine, "arm.init-timer-irq",
 				if (idx == 2) {
 					timerIrqParent = parentNode->getAssociatedIrqController();
 					timerIrq.initialize(irqCells);
+					timerIrqSource = TimerIrqSource::dt;
 				}
 
 				idx++;
@@ -120,7 +201,17 @@ bool haveTimer() {
 // Sets up the proper interrupt trigger and polarity for the PPI
 void initTimerOnThisCpu() {
 	auto sink = frg::construct<GenericTimerSink>(*kernelAlloc);
-	auto pin = timerIrqParent->resolveDtIrq(*timerIrq);
+	IrqPin *pin = nullptr;
+	switch (timerIrqSource) {
+		case TimerIrqSource::dt:
+			pin = timerIrqParent->resolveDtIrq(*timerIrq);
+			break;
+		case TimerIrqSource::acpi:
+			pin = setupAcpiTimerIrq();
+			break;
+		case TimerIrqSource::none:
+			panicLogger() << "thor: Timer IRQ was not initialized" << frg::endlog;
+	}
 	IrqPin::attachSink(pin, sink);
 }
 

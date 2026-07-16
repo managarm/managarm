@@ -49,6 +49,7 @@ struct GicDistributorV2 {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode mode);
 	Pin *getPin(uint32_t irq);
+	uint32_t irqCount() const;
 
 private:
 	uint8_t getCurrentCpuIfaceNo_();
@@ -94,9 +95,11 @@ struct GicV2 : public Gic {
 
 	Pin *setupIrq(uint32_t irq, TriggerMode trigger) override;
 	Pin *getPin(uint32_t irq) override;
+	uint32_t irqCount() override;
 };
 
 bool initGicV2();
+bool initGicV2FromAcpi(uintptr_t distributor, uintptr_t cpuInterface, size_t cpuInterfaceSize);
 void initGicOnThisCpuV2();
 
 }

@@ -252,6 +252,9 @@ static initgraph::Task setupFramebuffer{
     initgraph::Requires{getCmdlineAvailableStage()},
     initgraph::Entails{getFramebufferAvailableStage()},
     [] {
+	    if (!eirDtbPtr)
+		    return;
+
 	    DeviceTree dt{physToVirt<void>(eirDtbPtr)};
 	    auto rootNode = dt.rootNode();
 

@@ -38,6 +38,7 @@ struct Gic : dt::IrqController {
 
 	virtual Pin *setupIrq(uint32_t irq, TriggerMode trigger) = 0;
 	virtual Pin *getPin(uint32_t irq) = 0;
+	virtual uint32_t irqCount() = 0;
 
 	IrqPin *resolveDtIrq(dtb::Cells irqSpecifier) override {
 		if (irqSpecifier.numCells() != 3 && irqSpecifier.numCells() != 4)
@@ -100,5 +101,7 @@ struct Gic : dt::IrqController {
 };
 
 void initGicOnThisCpu();
+
+uint32_t affinityFromMpidr(uint64_t mpidr);
 
 }
