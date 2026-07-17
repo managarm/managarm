@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use crate::handle::Handle;
 use crate::submission::result::{
-    FromQueueElement, HandleResult, InlineResult, LengthResult, SimpleResult,
+    CredentialsResult, FromQueueElement, HandleResult, InlineResult, LengthResult, SimpleResult,
 };
 
 const fn default_hel_action() -> hel_sys::HelAction {
@@ -230,6 +230,46 @@ impl Action for ReceiveInline {
         let mut action = default_hel_action();
 
         action.type_ = hel_sys::kHelActionRecvInline as _;
+
+        if has_next {
+            action.flags = hel_sys::kHelItemChain;
+        }
+
+        buffer[0].write(action);
+    }
+}
+
+pub struct ExtractCredentials;
+
+impl Action for ExtractCredentials {
+    const ACTION_COUNT: usize = 1;
+
+    type Output = CredentialsResult;
+
+    fn to_hel_actions(&self, has_next: bool, buffer: &mut [MaybeUninit<hel_sys::HelAction>]) {
+        let mut action = default_hel_action();
+
+        action.type_ = hel_sys::kHelActionExtractCredentials as _;
+
+        if has_next {
+            action.flags = hel_sys::kHelItemChain;
+        }
+
+        buffer[0].write(action);
+    }
+}
+
+pub struct Dismiss;
+
+impl Action for Dismiss {
+    const ACTION_COUNT: usize = 1;
+
+    type Output = SimpleResult;
+
+    fn to_hel_actions(&self, has_next: bool, buffer: &mut [MaybeUninit<hel_sys::HelAction>]) {
+        let mut action = default_hel_action();
+
+        action.type_ = hel_sys::kHelActionDismiss as _;
 
         if has_next {
             action.flags = hel_sys::kHelItemChain;
