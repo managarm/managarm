@@ -20,7 +20,8 @@ pub use queue::Queue;
 pub use result::{Error, Result};
 pub use submission::{
     action::{
-        Accept, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer, ReceiveInline, SendBuffer,
+        Accept, Dismiss, ExtractCredentials, Offer, PullDescriptor, PushDescriptor, ReceiveBuffer,
+        ReceiveInline, SendBuffer,
     },
     sleep_for, sleep_until, submit_async,
 };

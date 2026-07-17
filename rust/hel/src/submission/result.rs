@@ -110,6 +110,31 @@ impl FromQueueElement for HandleResult {
     }
 }
 
+pub struct CredentialsResult;
+
+impl FromQueueElement for CredentialsResult {
+    type Output = Result<[u8; 16]>;
+
+    fn from_queue_element(element: &mut QueueElement) -> Self::Output {
+        let data = element.data();
+
+        assert!(data.len() >= size_of::<hel_sys::HelCredentialsResult>());
+
+        // SAFETY: The data is guaranteed to contain enough bytes
+        // to read a [`hel_sys::HelCredentialsResult`]` and that it is
+        // correctly aligned.
+        let result = unsafe {
+            data.as_ptr()
+                .cast::<hel_sys::HelCredentialsResult>()
+                .read()
+        };
+
+        element.advance(size_of::<hel_sys::HelCredentialsResult>());
+
+        hel_check(result.error).map(|_| result.credentials.map(|c| c as u8))
+    }
+}
+
 pub struct InlineResult;
 
 impl FromQueueElement for InlineResult {
