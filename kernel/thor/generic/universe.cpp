@@ -100,6 +100,8 @@ Universe::~Universe() {
 }
 
 Handle Universe::attachDescriptor(AnyDescriptor descriptor) {
+	assert(descriptor.type() != DescriptorType::none);
+
 	auto irqLock = frg::guard(&irqMutex());
 	Guard guard(lock);
 

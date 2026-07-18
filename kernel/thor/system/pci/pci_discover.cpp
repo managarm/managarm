@@ -701,22 +701,21 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto fb = static_cast<PciDevice *>(this)->associatedFrameBuffer;
-		AnyDescriptor descriptor;
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if (!fb) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		} else {
-			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(fb->memory);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+			auto descError = co_await pushDescriptor(conversation,
+					AnyDescriptor::make<DescriptorType::memoryView>(fb->memory));
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}
-
-		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-
-		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
 	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableDmaRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::EnableDmaRequest>(reqBuffer, *kernelAlloc);
 
@@ -757,23 +756,22 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto vbt = static_cast<PciDevice *>(this)->igdVbt;
-		AnyDescriptor descriptor;
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if(!vbt) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		} else {
-			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(vbt);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_vbt_size(vbt->getLength());
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+			auto descError = co_await pushDescriptor(conversation,
+					AnyDescriptor::make<DescriptorType::memoryView>(vbt));
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}
-
-		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-
-		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
 	}else if(preamble.id() == bragi::message_id<managarm::hw::GetDmaSpaceRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::GetDmaSpaceRequest>(reqBuffer, *kernelAlloc);
 
