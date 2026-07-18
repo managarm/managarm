@@ -2,6 +2,8 @@
 
 #include <expected>
 #include <optional>
+#include <stdint.h>
+#include <type_traits>
 #include <utility>
 #include <frg/variant.hpp>
 #include <assert.h>
@@ -238,6 +240,28 @@ struct TokenDescriptor {
 // AnyDescriptor
 // --------------------------------------------------------
 
+enum class DescriptorType : uint8_t {
+	none,
+	universe,
+	queue,
+	memoryView,
+	memorySlice,
+	addressSpace,
+	virtualizedSpace,
+	dmaSpace,
+	virtualizedCpu,
+	memoryViewLock,
+	thread,
+	lane,
+	irq,
+	oneshotEvent,
+	bitsetEvent,
+	io,
+	kernletObject,
+	boundKernlet,
+	token,
+};
+
 typedef frg::variant<
 	UniverseDescriptor,
 	QueueDescriptor,
@@ -258,6 +282,207 @@ typedef frg::variant<
 	BoundKernletDescriptor,
 	TokenDescriptor
 > AnyDescriptor;
+
+template<DescriptorType K>
+struct DescriptorTraits;
+
+template<>
+struct DescriptorTraits<DescriptorType::universe> {
+	using Pointer = smarter::shared_ptr<Universe>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<UniverseDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<UniverseDescriptor>().universe;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::queue> {
+	using Pointer = smarter::shared_ptr<IpcQueue>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<QueueDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<QueueDescriptor>().queue;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::memoryView> {
+	using Pointer = smarter::shared_ptr<MemoryView>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<MemoryViewDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<MemoryViewDescriptor>().memory;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::memorySlice> {
+	using Pointer = smarter::shared_ptr<MemorySlice>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<MemorySliceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<MemorySliceDescriptor>().slice;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::addressSpace> {
+	using Pointer = smarter::shared_ptr<AddressSpace, BindableHandle>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<AddressSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<AddressSpaceDescriptor>().space;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::virtualizedSpace> {
+	using Pointer = smarter::shared_ptr<VirtualizedPageSpace>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<VirtualizedSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<VirtualizedSpaceDescriptor>().space;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::dmaSpace> {
+	using Pointer = smarter::shared_ptr<DmaSpace>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<DmaSpaceDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<DmaSpaceDescriptor>().space;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::virtualizedCpu> {
+	using Pointer = smarter::shared_ptr<VirtualizedCpu>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<VirtualizedCpuDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<VirtualizedCpuDescriptor>().vcpu;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::memoryViewLock> {
+	using Pointer = smarter::shared_ptr<NamedMemoryViewLock>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<MemoryViewLockDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<MemoryViewLockDescriptor>().lock;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::thread> {
+	using Pointer = smarter::shared_ptr<Thread, ActiveHandle>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<ThreadDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<ThreadDescriptor>().thread;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::lane> {
+	using Pointer = smarter::shared_ptr<Stream, LanePolicy>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<LaneDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<LaneDescriptor>().handle;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::irq> {
+	using Pointer = smarter::shared_ptr<IrqObject>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<IrqDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<IrqDescriptor>().irq;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::oneshotEvent> {
+	using Pointer = smarter::shared_ptr<OneshotEvent>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<OneshotEventDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<OneshotEventDescriptor>().event;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::bitsetEvent> {
+	using Pointer = smarter::shared_ptr<BitsetEvent>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<BitsetEventDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<BitsetEventDescriptor>().event;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::io> {
+	using Pointer = smarter::shared_ptr<IoSpace>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<IoDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<IoDescriptor>().ioSpace;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::kernletObject> {
+	using Pointer = smarter::shared_ptr<KernletObject>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<KernletObjectDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<KernletObjectDescriptor>().kernletObject;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::boundKernlet> {
+	using Pointer = smarter::shared_ptr<BoundKernlet>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<BoundKernletDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<BoundKernletDescriptor>().boundKernlet;
+	}
+};
+
+template<>
+struct DescriptorTraits<DescriptorType::token> {
+	using Pointer = smarter::shared_ptr<Credentials>;
+
+	static std::expected<Pointer, Error> extract(AnyDescriptor &desc) {
+		if(!desc.is<TokenDescriptor>())
+			return std::unexpected{Error::badDescriptor};
+		return desc.get<TokenDescriptor>().credentials;
+	}
+};
 
 // --------------------------------------------------------
 // Universe.
@@ -290,6 +515,15 @@ public:
 		if(!desc)
 			return ResultType{std::unexpect, Error::noDescriptor};
 		return std::forward<Fn>(fn)(*desc);
+	}
+
+	// Looks up a handle and resolves it to the object held by its descriptor.
+	// Fails with badDescriptor unless the descriptor is of type K.
+	template<DescriptorType K>
+	std::expected<typename DescriptorTraits<K>::Pointer, Error> resolveObject(Handle handle) {
+		return inspectDescriptor(handle, [](AnyDescriptor &desc) {
+			return DescriptorTraits<K>::extract(desc);
+		});
 	}
 
 	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
