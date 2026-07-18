@@ -424,7 +424,7 @@ private:
 			if(respError != Error::success)
 				co_return respError;
 			auto objectError = co_await pushDescriptor(lane,
-					KernletObjectDescriptor{std::move(kernlet)});
+					AnyDescriptor::make<DescriptorType::kernletObject>(std::move(kernlet)));
 			if(objectError != Error::success)
 				co_return objectError;
 		}else{

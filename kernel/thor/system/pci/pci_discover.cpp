@@ -309,10 +309,10 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 
 		AnyDescriptor descriptor;
 		if(bars[index].type == PciBar::kBarIo) {
-			descriptor = IoDescriptor{bars[index].io};
+			descriptor = AnyDescriptor::make<DescriptorType::io>(bars[index].io);
 		}else{
 			assert(bars[index].type == PciBar::kBarMemory);
-			descriptor = MemoryViewDescriptor{bars[index].memory};
+			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(bars[index].memory);
 		}
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -333,7 +333,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		assert(expansionRom.address);
-		AnyDescriptor descriptor = MemoryViewDescriptor{expansionRom.memory};
+		auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(expansionRom.memory);
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -376,7 +376,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -442,7 +442,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -701,14 +701,14 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto fb = static_cast<PciDevice *>(this)->associatedFrameBuffer;
-		MemoryViewDescriptor descriptor{nullptr};
+		AnyDescriptor descriptor;
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if (!fb) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 		} else {
-			descriptor = MemoryViewDescriptor{fb->memory};
+			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(fb->memory);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 		}
 
@@ -757,14 +757,14 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		auto vbt = static_cast<PciDevice *>(this)->igdVbt;
-		MemoryViewDescriptor descriptor{nullptr};
+		AnyDescriptor descriptor;
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if(!vbt) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
 		} else {
-			descriptor = MemoryViewDescriptor{vbt};
+			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(vbt);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_vbt_size(vbt->getLength());
 		}
@@ -782,9 +782,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 			co_return Error::protocolViolation;
 		}
 
-		DmaSpaceDescriptor descriptor{*noopDmaSpace};
+		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace);
 		if (iommuDomain)
-			descriptor = DmaSpaceDescriptor{iommuDomain->space_};
+			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_iommu_active(iommuDomain != nullptr);

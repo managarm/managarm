@@ -226,7 +226,8 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto ioError = co_await pushDescriptor(conversation, IoDescriptor{space});
+		auto ioError =
+		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::io>(space));
 		if (ioError != Error::success)
 			co_return ioError;
 	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
@@ -297,7 +298,8 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto irqError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto irqError =
+		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 		if (irqError != Error::success)
 			co_return irqError;
 	} else {

@@ -247,7 +247,7 @@ namespace initrd {
 					assert(respError == Error::success);
 
 					auto memoryError = co_await pushDescriptor(conversation,
-							MemoryViewDescriptor{file->module->getMemory()});
+							AnyDescriptor::make<DescriptorType::memoryView>(file->module->getMemory()));
 					// TODO: improve error handling here.
 					assert(memoryError == Error::success);
 				}else{
@@ -466,7 +466,7 @@ namespace posix {
 		ThreadInfo &attachThread(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			auto posixStream = createStream();
 			Handle posixHandle = thread->getUniverse()->attachDescriptor(
-					LaneDescriptor{std::move(posixStream.get<1>())});
+					AnyDescriptor::make<DescriptorType::lane>(std::move(posixStream.get<1>())));
 
 			ThreadInfo info {
 				.thread = thread,
@@ -484,17 +484,17 @@ namespace posix {
 
 		void attachControl(smarter::shared_ptr<Thread, ActiveHandle> thread, smarter::shared_ptr<Stream, LanePolicy> lane) {
 			controlHandle = thread->getUniverse()->attachDescriptor(
-					LaneDescriptor{lane});
+					AnyDescriptor::make<DescriptorType::lane>(lane));
 		}
 
 		void attachMbus(smarter::shared_ptr<Thread, ActiveHandle> thread) {
 			mbusHandle = thread->getUniverse()->attachDescriptor(
-					LaneDescriptor{*mbusClient});
+					AnyDescriptor::make<DescriptorType::lane>(*mbusClient));
 		}
 
 		coroutine<int> attachFile(smarter::shared_ptr<Thread, ActiveHandle> thread, OpenFile *file) {
 			Handle handle = thread->getUniverse()->attachDescriptor(
-					LaneDescriptor(file->clientLane));
+					AnyDescriptor::make<DescriptorType::lane>(file->clientLane));
 
 			for(int fd = 0; fd < (int)openFiles.size(); ++fd) {
 				if(openFiles[fd])

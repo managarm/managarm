@@ -116,7 +116,7 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto ioError = co_await pushDescriptor(lane, IoDescriptor{space});
+			auto ioError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::io>(space));
 			if(ioError != Error::success)
 				co_return ioError;
 		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
@@ -145,7 +145,7 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto irqError = co_await pushDescriptor(lane, IrqDescriptor{object});
+			auto irqError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::irq>(object));
 			if(irqError != Error::success)
 				co_return irqError;
 		}else{

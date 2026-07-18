@@ -306,7 +306,7 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	Handle xpipe_handle = 0;
 	if(xpipe_lane) {
 		xpipe_handle = universe->attachDescriptor(
-				LaneDescriptor(xpipe_lane));
+				AnyDescriptor::make<DescriptorType::lane>(xpipe_lane));
 	}
 
 	enum {
@@ -511,7 +511,7 @@ private:
 			auto respError = co_await sendBuffer(lane, std::move(respBuffer));
 			if(respError != Error::success)
 				co_return respError;
-			auto controlError = co_await pushDescriptor(lane, LaneDescriptor{controlLane});
+			auto controlError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::lane>(controlLane));
 			if(controlError != Error::success)
 				co_return controlError;
 		}else{
