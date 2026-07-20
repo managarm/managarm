@@ -1,6 +1,10 @@
 #pragma once
 
 #include <array>
+#include <expected>
+
+#include <smarter.hpp>
+#include <thor-internal/error.hpp>
 
 namespace thor {
 
@@ -12,6 +16,16 @@ struct Credentials {
 	}
 protected:
 	std::array<char, 16> _credentials;
+};
+
+struct TokenObject final : Credentials {
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<TokenObject>, Error> create();
+
+	TokenObject(CtorToken) { }
 };
 
 }

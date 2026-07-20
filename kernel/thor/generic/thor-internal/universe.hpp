@@ -27,7 +27,7 @@ struct MemorySlice;
 struct NamedMemoryViewLock;
 struct KernletObject;
 struct BoundKernlet;
-struct Credentials;
+struct TokenObject;
 struct DmaSpace;
 struct IrqObject;
 struct OneshotEvent;
@@ -217,7 +217,7 @@ struct DescriptorTraits<DescriptorType::boundKernlet> {
 
 template<>
 struct DescriptorTraits<DescriptorType::token> {
-	using Object = Credentials;
+	using Object = TokenObject;
 	using Policy = smarter::default_rc_policy;
 };
 

@@ -3739,10 +3739,12 @@ HelError helCreateToken(HelHandle *handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
+	auto credsOutcome = TokenObject::create();
+	if(!credsOutcome)
+		return translateError(credsOutcome.error());
 
 	*handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::token>(std::move(creds)));
+			AnyDescriptor::make<DescriptorType::token>(std::move(*credsOutcome)));
 
 	return kHelErrNone;
 }
