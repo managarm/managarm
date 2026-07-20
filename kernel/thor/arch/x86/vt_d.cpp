@@ -508,10 +508,15 @@ private:
 };
 
 struct IntelIommuDmaSpace final : DmaSpace {
-	IntelIommuDmaSpace(IntelIommuOperations *ops) : DmaSpace(ops), iommuOps_{ops} {}
+private:
+	struct CtorToken {};
 
-	static smarter::shared_ptr<IntelIommuDmaSpace> create(IntelIommuOperations *ops) {
-		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(*kernelAlloc, ops);
+public:
+	IntelIommuDmaSpace(CtorToken, IntelIommuOperations *ops) : DmaSpace(ops), iommuOps_{ops} {}
+
+	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> create(
+			IntelIommuOperations *ops) {
+		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(*kernelAlloc, CtorToken{}, ops);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);
 		return ptr;
@@ -1746,7 +1751,10 @@ IommuDomain *newDomain(IntelIommu *iommu) {
 	auto domainId = iommu->allocateHardwareDomainId();
 
 	auto ops = frg::construct<IntelIommuOperations>(*kernelAlloc, rootLevel, iommu, domainId);
-	return frg::construct<IntelIommuDomain>(*kernelAlloc, domainId, IntelIommuDmaSpace::create(ops));
+	auto spaceOutcome = IntelIommuDmaSpace::create(ops);
+	if(!spaceOutcome)
+		panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
+	return frg::construct<IntelIommuDomain>(*kernelAlloc, domainId, std::move(*spaceOutcome));
 };
 
 }
