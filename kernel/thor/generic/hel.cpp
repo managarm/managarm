@@ -912,9 +912,12 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto vspace = std::move(*vspaceOutcome);
 
 	smarter::shared_ptr<VirtualizedCpu> vcpu;
-	if(getGlobalCpuFeatures()->haveVmx)
-		vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(vspace)));
-	else if(getGlobalCpuFeatures()->haveSvm)
+	if(getGlobalCpuFeatures()->haveVmx) {
+		auto vcpuOutcome = vmx::Vmcs::create(smarter::static_pointer_cast<thor::vmx::EptSpace>(vspace));
+		if(!vcpuOutcome)
+			return translateError(vcpuOutcome.error());
+		vcpu = std::move(*vcpuOutcome);
+	} else if(getGlobalCpuFeatures()->haveSvm)
 		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(vspace)));
 	else
 		return kHelErrNoHardwareSupport;

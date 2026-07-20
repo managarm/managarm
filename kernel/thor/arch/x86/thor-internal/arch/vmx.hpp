@@ -158,7 +158,17 @@ namespace thor::vmx {
 	bool vmxon();
 
 	struct Vmcs final : VirtualizedCpu {
-		Vmcs(smarter::shared_ptr<EptSpace> ept);
+	private:
+		struct CtorToken {};
+
+	public:
+		static std::expected<smarter::shared_ptr<Vmcs>, Error> create(
+				smarter::shared_ptr<EptSpace> ept) {
+			auto ptr = smarter::allocate_shared<Vmcs>(Allocator{}, CtorToken{}, std::move(ept));
+			return ptr;
+		}
+
+		Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept);
 		~Vmcs();
 
 		Vmcs(const Vmcs& vmcs) = delete;

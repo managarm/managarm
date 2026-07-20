@@ -119,7 +119,7 @@ namespace thor::vmx {
 		return successful;
 	}
 
-	Vmcs::Vmcs(smarter::shared_ptr<EptSpace> ept) : space(ept) {
+	Vmcs::Vmcs(CtorToken, smarter::shared_ptr<EptSpace> ept) : space(ept) {
 		infoLogger() << "vmx: Creating VMCS" << frg::endlog;
 		region = (void*)physicalAllocator->allocate(kPageSize);
 		PageAccessor regionAccessor{(PhysicalAddr)region};
