@@ -836,10 +836,12 @@ HelError helCreateSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto space = AddressSpace::create();
+	auto spaceOutcome = AddressSpace::create();
+	if(!spaceOutcome)
+		return translateError(spaceOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::addressSpace>(std::move(space)));
+			AnyDescriptor::make<DescriptorType::addressSpace>(std::move(*spaceOutcome)));
 
 	return kHelErrNone;
 }

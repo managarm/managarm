@@ -273,7 +273,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		smarter::shared_ptr<Stream, LanePolicy> control_lane,
 		smarter::shared_ptr<Stream, LanePolicy> xpipe_lane,
 		Scheduler *scheduler) {
-	auto space = AddressSpace::create();
+	auto spaceOutcome = AddressSpace::create();
+	if(!spaceOutcome)
+		panicLogger() << "thor: Failed to create address space" << frg::endlog;
+	auto space = std::move(*spaceOutcome);
 
 	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
 

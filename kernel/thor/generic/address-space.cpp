@@ -1281,7 +1281,7 @@ void AddressSpace::activate(smarter::shared_ptr<AddressSpace, BindableHandle> sp
 	PageSpace::activate(smarter::shared_ptr<PageSpace>{space->selfPtr.lock(), pageSpace});
 }
 
-AddressSpace::AddressSpace()
+AddressSpace::AddressSpace(CtorToken)
 : VirtualSpace{&ops_}, ops_{this} { }
 
 AddressSpace::~AddressSpace() { }
