@@ -569,7 +569,7 @@ void Thread::raiseCondition_(Condition c) {
 	}
 }
 
-Thread::Thread(smarter::shared_ptr<Universe> universe,
+Thread::Thread(CtorToken, smarter::shared_ptr<Universe> universe,
 		smarter::shared_ptr<AddressSpace, BindableHandle> address_space, AbiParameters abi)
 : flags{0}, _mainWorkQueue{this, ipl::passiveWork}, _pagingWorkQueue{this, ipl::exceptionalWork},
 		_runState{kRunDeferred},

@@ -1796,7 +1796,10 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	params.ip = (uintptr_t)ip;
 	params.sp = (uintptr_t)sp;
 
-	auto new_thread = Thread::create(std::move(universe), std::move(space), params);
+	auto threadOutcome = Thread::create(std::move(universe), std::move(space), params);
+	if(!threadOutcome)
+		return translateError(threadOutcome.error());
+	auto new_thread = std::move(*threadOutcome);
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpuIndex = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();

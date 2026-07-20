@@ -71,6 +71,8 @@ smarter::borrowed_ptr<Thread> getCurrentThread();
 
 struct Thread final : ScheduleEntity, Credentials {
 private:
+	struct CtorToken {};
+
 	struct AssociatedWorkQueue final : WorkQueue {
 		AssociatedWorkQueue(Thread *thread, Ipl wqIpl)
 		: WorkQueue{&thread->_executorContext, wqIpl}, _thread{thread} { }
@@ -128,10 +130,11 @@ private:
 	};
 
 public:
-	static smarter::shared_ptr<Thread, ActiveHandle> create(smarter::shared_ptr<Universe> universe,
+	static std::expected<smarter::shared_ptr<Thread, ActiveHandle>, Error> create(
+			smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi) {
-		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc,
+		auto thread = smarter::allocate_shared<Thread>(*kernelAlloc, CtorToken{},
 				std::move(universe), std::move(address_space), abi);
 		thread->self = thread;
 		thread->_executorContext.exceptionalWq = &thread->_pagingWorkQueue;
@@ -286,7 +289,7 @@ public:
 		kFlagServer = 1
 	};
 
-	Thread(smarter::shared_ptr<Universe> universe,
+	Thread(CtorToken, smarter::shared_ptr<Universe> universe,
 			smarter::shared_ptr<AddressSpace, BindableHandle> address_space,
 			AbiParameters abi);
 	~Thread();
