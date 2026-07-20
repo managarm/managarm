@@ -552,9 +552,7 @@ smarter::shared_ptr<MemoryView> getZeroMemory() {
 
 std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
 ImmediateMemory::create(size_t length) {
-	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc);
-	if(!ptr)
-		return std::unexpected{Error::noMemory};
+	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, CtorToken{});
 	ptr->selfPtr = ptr;
 
 	auto numPages = (length + kPageSize - 1) >> kPageShift;
@@ -573,7 +571,7 @@ ImmediateMemory::create(size_t length) {
 	return ptr;
 }
 
-ImmediateMemory::ImmediateMemory()
+ImmediateMemory::ImmediateMemory(CtorToken)
 : _physicalPages{*kernelAlloc} { }
 
 ImmediateMemory::~ImmediateMemory() {

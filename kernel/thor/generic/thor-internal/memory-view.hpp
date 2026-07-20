@@ -447,10 +447,14 @@ smarter::shared_ptr<MemoryView> getZeroMemory();
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
 struct ImmediateMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
+public:
 	static std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
 	create(size_t length);
 
-	ImmediateMemory();
+	ImmediateMemory(CtorToken);
 	ImmediateMemory(const ImmediateMemory &) = delete;
 	~ImmediateMemory();
 
