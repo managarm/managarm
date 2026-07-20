@@ -150,7 +150,7 @@ void Stream::Submitter::run() {
 			// Initially there will be 3 references to the new stream:
 			// * One reference for the original shared pointer.
 			// * One reference for each of the two lanes.
-			auto branch = smarter::allocate_shared<Stream>(*kernelAlloc);
+			auto branch = smarter::allocate_shared<Stream>(*kernelAlloc, CtorToken{});
 			assert(branch.policy().base()->ctr().check_count() == 1);
 			branch->selfPtr = branch;
 			branch.policy().increment();
@@ -264,7 +264,7 @@ void Stream::onPeersZero(Stream *stream, int lane) {
 	}
 }
 
-Stream::Stream(bool withCredentials)
+Stream::Stream(CtorToken, bool withCredentials)
 : _laneBroken{false, false}, _laneShutDown{false, false}, _withCredentials{withCredentials} {
 	_peerCount[0].setup(smarter::adopt_rc, 1);
 	_peerCount[1].setup(smarter::adopt_rc, 1);
@@ -330,9 +330,11 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	}
 }
 
-frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>>
-createStream(bool withCredentials) {
-	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc, withCredentials);
+std::expected<
+	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>>,
+	Error
+> createStream(bool withCredentials) {
+	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc, Stream::CtorToken{}, withCredentials);
 	assert(stream.policy().base()->ctr().check_count() == 1);
 	stream->selfPtr = stream;
 	stream.policy().increment();

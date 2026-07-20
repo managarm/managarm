@@ -383,9 +383,11 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 }
 
 void initializeMbusStream() {
-	auto mbusStream = createStream();
-	mbusClient.initialize(std::move(mbusStream.get<1>()));
-	futureMbusServer.initialize(std::move(mbusStream.get<0>()));
+	auto mbusStreamOutcome = createStream();
+	if(!mbusStreamOutcome)
+		panicLogger() << "thor: Failed to create stream" << frg::endlog;
+	mbusClient.initialize(std::move(mbusStreamOutcome->get<1>()));
+	futureMbusServer.initialize(std::move(mbusStreamOutcome->get<0>()));
 }
 
 coroutine<void> runMbus() {
@@ -399,7 +401,10 @@ coroutine<void> runMbus() {
 		frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
 		assert(!allServers->get(nameStr));
 
-		controlStream = createStream();
+		auto controlStreamOutcome = createStream();
+		if(!controlStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		controlStream = std::move(*controlStreamOutcome);
 		allServers->insert(nameStr, controlStream.get<1>());
 	}
 
@@ -426,7 +431,10 @@ coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(frg::string_view na
 			co_return *server;
 		}
 
-		controlStream = createStream();
+		auto controlStreamOutcome = createStream();
+		if(!controlStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		controlStream = std::move(*controlStreamOutcome);
 		allServers->insert(nameStr, controlStream.get<1>());
 	}
 

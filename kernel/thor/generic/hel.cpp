@@ -2571,11 +2571,13 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto lanes = createStream(attach_credentials);
+	auto lanesOutcome = createStream(attach_credentials);
+	if(!lanesOutcome)
+		return translateError(lanesOutcome.error());
 	*lane1_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<0>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<0>())));
 	*lane2_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<1>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<1>())));
 
 	return kHelErrNone;
 }
