@@ -1595,6 +1595,13 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 // FrontalMemory
 // --------------------------------------------------------
 
+std::expected<smarter::shared_ptr<FrontalMemory>, Error> FrontalMemory::create(
+		smarter::shared_ptr<ManagedSpace> managed) {
+	auto ptr = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
 }

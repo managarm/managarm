@@ -795,8 +795,14 @@ private:
 };
 
 struct FrontalMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
 public:
-	FrontalMemory(smarter::shared_ptr<ManagedSpace> managed)
+	static std::expected<smarter::shared_ptr<FrontalMemory>, Error> create(
+			smarter::shared_ptr<ManagedSpace> managed);
+
+	FrontalMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
