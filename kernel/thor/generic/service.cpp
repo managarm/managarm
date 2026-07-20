@@ -442,13 +442,17 @@ namespace posix {
 	struct Process {
 		Process(frg::string<KernelAlloc> name)
 		: _name{std::move(name)}, openFiles(*kernelAlloc) {
-			fileTableMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, 0x1000);
-			fileTableMemory->selfPtr = fileTableMemory;
+			auto memoryOutcome = AllocatedMemory::create(0x1000);
+			if(!memoryOutcome)
+				panicLogger() << "thor: Failed to create memory" << frg::endlog;
+			fileTableMemory = std::move(*memoryOutcome);
 		}
 
 		coroutine<void> setupAddressSpace(smarter::shared_ptr<Thread, ActiveHandle> thread) {
-			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					fileTableMemory, 0, 0x1000);
+			auto viewOutcome = MemorySlice::create(fileTableMemory, 0, 0x1000);
+			if(!viewOutcome)
+				panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+			auto view = std::move(*viewOutcome);
 			auto result = co_await thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
@@ -854,10 +858,10 @@ namespace posix {
 					if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
 						fileMemory = getZeroMemory();
 					}else{
-						auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
-								req->size());
-						memory->selfPtr = memory;
-						fileMemory = std::move(memory);
+						auto memoryOutcome = AllocatedMemory::create(req->size());
+						if(!memoryOutcome)
+							panicLogger() << "thor: Failed to create memory" << frg::endlog;
+						fileMemory = std::move(*memoryOutcome);
 					}
 				}else{
 					// TODO: improve error handling here.
@@ -869,11 +873,15 @@ namespace posix {
 
 				smarter::shared_ptr<MemorySlice> slice;
 				if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
-					auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
+					auto cowOutcome = CopyOnWriteMemory::create(
 							std::move(fileMemory), req->rel_offset(), req->size());
-					cowMemory->selfPtr = cowMemory;
-					slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-							std::move(cowMemory), 0, req->size());
+					if(!cowOutcome)
+						panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
+					auto sliceOutcome = MemorySlice::create(
+							std::move(*cowOutcome), 0, req->size());
+					if(!sliceOutcome)
+						panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+					slice = std::move(*sliceOutcome);
 				}else{
 					assert(!"TODO: implement shared mappings");
 				}
@@ -1002,13 +1010,17 @@ namespace posix {
 				});
 				if(!readOutcome)
 					panicLogger() << "thor: Failed to access server registers" << frg::endlog;
-				auto fileMemory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size);
-				fileMemory->selfPtr = fileMemory;
-				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
-						std::move(fileMemory), 0, size);
-				cowMemory->selfPtr = cowMemory;
-				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-						std::move(cowMemory), 0, size);
+				auto fileMemoryOutcome = AllocatedMemory::create(size);
+				if(!fileMemoryOutcome)
+					panicLogger() << "thor: Failed to create memory" << frg::endlog;
+				auto cowOutcome = CopyOnWriteMemory::create(
+						std::move(*fileMemoryOutcome), 0, size);
+				if(!cowOutcome)
+					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
+				auto sliceOutcome = MemorySlice::create(std::move(*cowOutcome), 0, size);
+				if(!sliceOutcome)
+					panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+				auto slice = std::move(*sliceOutcome);
 
 				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),

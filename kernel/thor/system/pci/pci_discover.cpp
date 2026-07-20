@@ -1046,10 +1046,13 @@ void readEntityBars(PciEntity *entity, int nBars) {
 					bars[i].hostType = PciBar::kBarMemory;
 					bars[i].allocated = true;
 					bars[i].offset = offset;
-					bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+					auto memoryOutcome = HardwareMemory::create(
 							hostAddress & ~(kPageSize - 1),
 							(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 							CachingMode::mmioNonPosted);
+					if(!memoryOutcome)
+						panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+					bars[i].memory = std::move(*memoryOutcome);
 				} else {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
@@ -1111,10 +1114,13 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
-				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+				auto memoryOutcome = HardwareMemory::create(
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::mmio);
+				if(!memoryOutcome)
+					panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+				bars[i].memory = std::move(*memoryOutcome);
 				bars[i].offset = offset;
 
 				infoLogger() << "            32-bit memory BAR #" << i
@@ -1175,10 +1181,13 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				bars[i].hostType = PciBar::kBarMemory;
 				bars[i].allocated = true;
 				auto offset = address & (kPageSize - 1);
-				bars[i].memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+				auto memoryOutcome = HardwareMemory::create(
 						address & ~(kPageSize - 1),
 						(length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::mmio);
+				if(!memoryOutcome)
+					panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+				bars[i].memory = std::move(*memoryOutcome);
 				bars[i].offset = offset;
 
 				infoLogger() << "            64-bit memory BAR #" << i
@@ -1296,10 +1305,13 @@ void checkPciFunction(PciBus *bus, uint32_t slot, uint32_t function,
 			io->writeConfigWord(bus, slot, function, offset, expansion_rom_addr | 1);
 			// Map it
 			auto offset = expansion_rom_addr & (kPageSize - 1);
-			device->expansionRom.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+			auto memoryOutcome = HardwareMemory::create(
 						expansion_rom_addr & ~(kPageSize - 1),
 						(expansion_rom_length + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 						CachingMode::uncached); // Some cards have problems with caching the PCI Expansion Rom
+			if(!memoryOutcome)
+				panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+			device->expansionRom.memory = std::move(*memoryOutcome);
 			device->expansionRom.offset = offset;
 			device->expansionRom.address = expansion_rom_addr;
 			device->expansionRom.length = expansion_rom_length;
@@ -1967,12 +1979,15 @@ void allocateBars(PciBus *bus) {
 			bar.address = childBase;
 			bar.hostType = PciBar::kBarMemory;
 			auto offset = hostBase & (kPageSize - 1);
-			bar.memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+			auto memoryOutcome = HardwareMemory::create(
 					hostBase & ~(kPageSize - 1),
 					(req.size + offset + (kPageSize - 1)) & ~(kPageSize - 1),
 					flags == PciBusResource::io
 						? CachingMode::mmioNonPosted
 						: CachingMode::mmio);
+			if(!memoryOutcome)
+				panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+			bar.memory = std::move(*memoryOutcome);
 			bar.offset = offset;
 		}
 

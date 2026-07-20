@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <expected>
 
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
@@ -802,6 +803,10 @@ private:
 struct AddressSpace final : VirtualSpace {
 	friend struct Mapping;
 
+private:
+	struct CtorToken {};
+
+public:
 	struct Operations final : VirtualOperations {
 		Operations(AddressSpace *space)
 		: space_{space} { }
@@ -860,11 +865,11 @@ public:
 		return smarter::shared_ptr<AddressSpace, BindableHandle>{smarter::adopt_rc, space, BindableHandle{space}};
 	}
 
-	static smarter::shared_ptr<AddressSpace, BindableHandle> create() {
+	static std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> create() {
 		// Note: technically, we do not rely on RCU here.
 		//       However, the refcount may be decrement in IRQ context
 		//       and RCU ensures that freeing happens on a work queue.
-		auto ptr = allocate_rcu_shared<AddressSpace>(Allocator{});
+		auto ptr = allocate_rcu_shared<AddressSpace>(Allocator{}, CtorToken{});
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (UINT64_C(1) << getLowerHalfBits()) - 0x1000);
 		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), ptr->runAgingLoop());
@@ -873,7 +878,7 @@ public:
 
 	static void activate(smarter::shared_ptr<AddressSpace, BindableHandle> space);
 
-	AddressSpace();
+	AddressSpace(CtorToken);
 
 	~AddressSpace();
 
@@ -942,7 +947,18 @@ private:
 };
 
 struct NamedMemoryViewLock {
-	NamedMemoryViewLock(MemoryViewLockHandle handle)
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<NamedMemoryViewLock>, Error> create(
+			MemoryViewLockHandle handle) {
+		auto ptr = smarter::allocate_shared<NamedMemoryViewLock>(*kernelAlloc, CtorToken{},
+				std::move(handle));
+		return ptr;
+	}
+
+	NamedMemoryViewLock(CtorToken, MemoryViewLockHandle handle)
 	: _handle{std::move(handle)} { }
 
 	NamedMemoryViewLock(const NamedMemoryViewLock &) = delete;

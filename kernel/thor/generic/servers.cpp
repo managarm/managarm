@@ -49,9 +49,11 @@ void runService(frg::string<KernelAlloc> desc, smarter::shared_ptr<Stream, LaneP
 coroutine<bool> createMfsFile(frg::string_view path, const void *buffer, size_t size,
 		MfsRegular **out) {
 	// Copy to the memory object before taking locks below.
-	auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
+	auto memoryOutcome = AllocatedMemory::create(
 			(size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-	memory->selfPtr = memory;
+	if(!memoryOutcome)
+		panicLogger() << "thor: Failed to create memory" << frg::endlog;
+	auto memory = std::move(*memoryOutcome);
 	auto copyOutcome = co_await memory->copyTo(0, buffer, size);
 	assert(copyOutcome);
 
@@ -200,14 +202,18 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 			if((virt_length % kPageSize) != 0)
 				virt_length += kPageSize - virt_length % kPageSize;
 			
-			auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, virt_length);
-			memory->selfPtr = memory;
+			auto memoryOutcome = AllocatedMemory::create(virt_length);
+			if(!memoryOutcome)
+				panicLogger() << "thor: Failed to create memory" << frg::endlog;
+			auto memory = std::move(*memoryOutcome);
 			auto copyResult = co_await copyBetweenViews(memory.get(), phdr.p_vaddr - virt_address,
 					image.get(), phdr.p_offset, phdr.p_filesz);
 			assert(copyResult);
 
-			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					std::move(memory), 0, virt_length);
+			auto viewOutcome = MemorySlice::create(std::move(memory), 0, virt_length);
+			if(!viewOutcome)
+				panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+			auto view = std::move(*viewOutcome);
 
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				auto mapResult = co_await space->map(std::move(view),
@@ -267,7 +273,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 		smarter::shared_ptr<Stream, LanePolicy> control_lane,
 		smarter::shared_ptr<Stream, LanePolicy> xpipe_lane,
 		Scheduler *scheduler) {
-	auto space = AddressSpace::create();
+	auto spaceOutcome = AddressSpace::create();
+	if(!spaceOutcome)
+		panicLogger() << "thor: Failed to create address space" << frg::endlog;
+	auto space = std::move(*spaceOutcome);
 
 	ImageInfo exec_info = co_await loadModuleImage(space, 0, module->getMemory());
 
@@ -280,10 +289,14 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 
 	// allocate and map memory for the user mode stack
 	size_t stack_size = 0x10000;
-	auto stack_memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, stack_size);
-	stack_memory->selfPtr = stack_memory;
-	auto stack_view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-			stack_memory, 0, stack_size);
+	auto stackMemoryOutcome = AllocatedMemory::create(stack_size);
+	if(!stackMemoryOutcome)
+		panicLogger() << "thor: Failed to create memory" << frg::endlog;
+	auto stack_memory = std::move(*stackMemoryOutcome);
+	auto stackViewOutcome = MemorySlice::create(stack_memory, 0, stack_size);
+	if(!stackViewOutcome)
+		panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+	auto stack_view = std::move(*stackViewOutcome);
 
 	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead

@@ -135,10 +135,13 @@ void transitionBootFb() {
 	bootDisplay->setWindow(window);
 
 	assert(!(bootInfo->address & (kPageSize - 1)));
-	bootInfo->memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+	auto memoryOutcome = HardwareMemory::create(
 			bootInfo->address & ~(kPageSize - 1),
 			(bootInfo->height * bootInfo->pitch + (kPageSize - 1)) & ~(kPageSize - 1),
 			CachingMode::writeCombine);
+	if(!memoryOutcome)
+		panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+	bootInfo->memory = std::move(*memoryOutcome);
 
 	// Try to attached the framebuffer to a PCI device.
 	pci::PciDevice *owner = nullptr;

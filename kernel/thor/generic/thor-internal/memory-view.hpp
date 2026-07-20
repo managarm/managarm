@@ -413,8 +413,16 @@ struct SliceRange {
 };
 
 struct MemorySlice {
-	MemorySlice(smarter::shared_ptr<MemoryView> view,
-			ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags = 0);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<MemorySlice>, Error> create(
+			smarter::shared_ptr<MemoryView> view, ptrdiff_t view_offset, size_t view_size,
+			CachingFlags cachingFlags = 0);
+
+	MemorySlice(CtorToken, smarter::shared_ptr<MemoryView> view,
+			ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags);
 
 	smarter::shared_ptr<MemoryView> getView() {
 		return _view;
@@ -447,10 +455,14 @@ smarter::shared_ptr<MemoryView> getZeroMemory();
 // Memory that is allocated by the kernel and never swapped out.
 // In contrast to most other memory objects, it can be accessed synchronously.
 struct ImmediateMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
+public:
 	static std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
 	create(size_t length);
 
-	ImmediateMemory();
+	ImmediateMemory(CtorToken);
 	ImmediateMemory(const ImmediateMemory &) = delete;
 	~ImmediateMemory();
 
@@ -558,7 +570,14 @@ private:
 };
 
 struct HardwareMemory final : MemoryView {
-	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<HardwareMemory>, Error> create(
+			PhysicalAddr base, size_t length, CachingMode cache_mode);
+
+	HardwareMemory(CtorToken, PhysicalAddr base, size_t length, CachingMode cache_mode);
 	HardwareMemory(const HardwareMemory &) = delete;
 	~HardwareMemory();
 
@@ -578,8 +597,16 @@ private:
 };
 
 struct AllocatedMemory final : MemoryView {
-	AllocatedMemory(size_t length, int addressBits = 64,
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<AllocatedMemory>, Error> create(
+			size_t length, int addressBits = 64,
 			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
+
+	AllocatedMemory(CtorToken, size_t length, int addressBits,
+			size_t chunkSize, size_t chunkAlign);
 	AllocatedMemory(const AllocatedMemory &) = delete;
 	~AllocatedMemory();
 
@@ -745,8 +772,14 @@ struct ManagedSpace : CacheBundle {
 };
 
 struct BackingMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
 public:
-	BackingMemory(smarter::shared_ptr<ManagedSpace> managed)
+	static std::expected<smarter::shared_ptr<BackingMemory>, Error> create(
+			smarter::shared_ptr<ManagedSpace> managed);
+
+	BackingMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;
@@ -770,8 +803,14 @@ private:
 };
 
 struct FrontalMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
 public:
-	FrontalMemory(smarter::shared_ptr<ManagedSpace> managed)
+	static std::expected<smarter::shared_ptr<FrontalMemory>, Error> create(
+			smarter::shared_ptr<ManagedSpace> managed);
+
+	FrontalMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	FrontalMemory(const FrontalMemory &) = delete;
@@ -793,7 +832,13 @@ private:
 };
 
 struct IndirectMemory final : MemoryView {
-	IndirectMemory(size_t numSlots);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<IndirectMemory>, Error> create(size_t numSlots);
+
+	IndirectMemory(CtorToken, size_t numSlots);
 	IndirectMemory(const IndirectMemory &) = delete;
 	~IndirectMemory();
 
@@ -856,10 +901,16 @@ struct CowChain {
 };
 
 struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
+private:
+	struct CtorToken {};
+
 public:
-	CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
+	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
+			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
+
+	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
-			smarter::shared_ptr<CowChain> chain = nullptr);
+			smarter::shared_ptr<CowChain> chain);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
 	~CopyOnWriteMemory();

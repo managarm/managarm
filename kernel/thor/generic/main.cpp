@@ -325,9 +325,11 @@ extern "C" void thorMain() {
 	//				if(logInitialization)
 						debugLogger() << "thor: initrd file " << path << frg::endlog;
 
-					auto memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc,
+					auto memoryOutcome = AllocatedMemory::create(
 							(file_size + (kPageSize - 1)) & ~size_t{kPageSize - 1});
-					memory->selfPtr = memory;
+					if(!memoryOutcome)
+						panicLogger() << "thor: Failed to create memory" << frg::endlog;
+					auto memory = std::move(*memoryOutcome);
 					auto copyOutcome = KernelFiber::asyncBlockCurrent(memory->copyTo(0,
 							data, file_size));
 					assert(copyOutcome);

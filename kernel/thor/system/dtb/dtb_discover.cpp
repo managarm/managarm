@@ -166,10 +166,13 @@ struct MbusNode final : private KernelBusObject {
 				co_return Error::illegalArgs;
 			}
 
-			auto memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc,
+			auto memoryOutcome = HardwareMemory::create(
 					regs[index].address & ~(kPageSize - 1),
 					(regs[index].length + (kPageSize - 1)) & ~(kPageSize - 1),
 					CachingMode::mmioNonPosted);
+			if(!memoryOutcome)
+				panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+			auto memory = std::move(*memoryOutcome);
 
 			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(memory);
 

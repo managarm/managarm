@@ -460,7 +460,17 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 namespace {
 
 struct ZeroMemory final : MemoryView {
-	ZeroMemory() {
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<ZeroMemory>, Error> create() {
+		auto ptr = smarter::allocate_shared<ZeroMemory>(*kernelAlloc, CtorToken{});
+		ptr->selfPtr = ptr;
+		return ptr;
+	}
+
+	ZeroMemory(CtorToken) {
 		_zeroPage = physicalAllocator->allocate(kPageSize);
 		if (_zeroPage == PhysicalAddr(-1))
 			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
@@ -528,9 +538,10 @@ private:
 
 smarter::shared_ptr<MemoryView> getZeroMemory() {
 	static frg::eternal<smarter::shared_ptr<ZeroMemory>> singleton = [] {
-		auto memory = smarter::allocate_shared<ZeroMemory>(*kernelAlloc);
-		memory->selfPtr = memory;
-		return memory;
+		auto memoryOutcome = ZeroMemory::create();
+		if(!memoryOutcome)
+			panicLogger() << "thor: Failed to create zero memory" << frg::endlog;
+		return std::move(*memoryOutcome);
 	}();
 	return singleton.get();
 }
@@ -541,9 +552,7 @@ smarter::shared_ptr<MemoryView> getZeroMemory() {
 
 std::expected<smarter::shared_ptr<ImmediateMemory>, Error>
 ImmediateMemory::create(size_t length) {
-	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc);
-	if(!ptr)
-		return std::unexpected{Error::noMemory};
+	auto ptr = smarter::allocate_shared<ImmediateMemory>(*kernelAlloc, CtorToken{});
 	ptr->selfPtr = ptr;
 
 	auto numPages = (length + kPageSize - 1) >> kPageShift;
@@ -562,7 +571,7 @@ ImmediateMemory::create(size_t length) {
 	return ptr;
 }
 
-ImmediateMemory::ImmediateMemory()
+ImmediateMemory::ImmediateMemory(CtorToken)
 : _physicalPages{*kernelAlloc} { }
 
 ImmediateMemory::~ImmediateMemory() {
@@ -697,7 +706,14 @@ ImmediateWindow::~ImmediateWindow() {
 // HardwareMemory
 // --------------------------------------------------------
 
-HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode)
+std::expected<smarter::shared_ptr<HardwareMemory>, Error> HardwareMemory::create(
+		PhysicalAddr base, size_t length, CachingMode cache_mode) {
+	auto ptr = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, CtorToken{},
+			base, length, cache_mode);
+	return ptr;
+}
+
+HardwareMemory::HardwareMemory(CtorToken, PhysicalAddr base, size_t length, CachingMode cache_mode)
 : _base{base}, _length{length}, _cacheMode{cache_mode} {
 	assert(!(base % kPageSize));
 	assert(!(length % kPageSize));
@@ -762,7 +778,15 @@ size_t HardwareMemory::getLength() {
 // AllocatedMemory
 // --------------------------------------------------------
 
-AllocatedMemory::AllocatedMemory(size_t desiredLngth,
+std::expected<smarter::shared_ptr<AllocatedMemory>, Error> AllocatedMemory::create(
+		size_t length, int addressBits, size_t chunkSize, size_t chunkAlign) {
+	auto ptr = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
+			length, addressBits, chunkSize, chunkAlign);
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
+AllocatedMemory::AllocatedMemory(CtorToken, size_t desiredLngth,
 		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
 : _physicalChunks{*kernelAlloc},
 		_addressBits{addressBits}, _chunkAlign{chunkAlign} {
@@ -1233,6 +1257,12 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 // BackingMemory
 // --------------------------------------------------------
 
+std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
+		smarter::shared_ptr<ManagedSpace> managed) {
+	auto ptr = smarter::allocate_shared<BackingMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	return ptr;
+}
+
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	assert(!(newSize & (kPageSize - 1)));
@@ -1565,6 +1595,13 @@ coroutine<frg::expected<Error>> BackingMemory::invalidateRange(uintptr_t offset,
 // FrontalMemory
 // --------------------------------------------------------
 
+std::expected<smarter::shared_ptr<FrontalMemory>, Error> FrontalMemory::create(
+		smarter::shared_ptr<ManagedSpace> managed) {
+	auto ptr = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
 Error FrontalMemory::lockRange(uintptr_t offset, size_t size) {
 	return _managed->lockPages(offset, size);
 }
@@ -1692,7 +1729,12 @@ size_t FrontalMemory::getLength() {
 // IndirectMemory
 // --------------------------------------------------------
 
-IndirectMemory::IndirectMemory(size_t numSlots)
+std::expected<smarter::shared_ptr<IndirectMemory>, Error> IndirectMemory::create(size_t numSlots) {
+	auto ptr = smarter::allocate_shared<IndirectMemory>(*kernelAlloc, CtorToken{}, numSlots);
+	return ptr;
+}
+
+IndirectMemory::IndirectMemory(CtorToken, size_t numSlots)
 : indirections_{*kernelAlloc} {
 	indirections_.resize(numSlots);
 }
@@ -1836,7 +1878,15 @@ CowPage::~CowPage() {
 	physicalAllocator->free(physical, kPageSize);
 }
 
-CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
+std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
+		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
+	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+			std::move(view), offset, length, nullptr);
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
+CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		smarter::shared_ptr<CowChain> chain)
 : MemoryView{&_evictQueue}, _view{std::move(view)},
@@ -1879,8 +1929,8 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		_copyChain = newChain;
 
 		// Create a new mapping in the forked space.
-		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
-						_view, _viewOffset, _length, newChain);
+		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+				_view, _viewOffset, _length, newChain);
 		forked->selfPtr = forked;
 
 		// Inspect all copied pages owned by the original mapping.
