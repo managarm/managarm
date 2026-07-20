@@ -3518,8 +3518,10 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	if (num_data != object->numberOfBindParameters())
 		return kHelErrIllegalArgs;
 
-	auto bound = smarter::allocate_shared<BoundKernlet>(*kernelAlloc,
-			std::move(kernlet));
+	auto boundOutcome = BoundKernlet::create(std::move(kernlet));
+	if(!boundOutcome)
+		return translateError(boundOutcome.error());
+	auto bound = std::move(*boundOutcome);
 	for(size_t i = 0; i < object->numberOfBindParameters(); i++) {
 		const auto &defn = object->defnOfBindParameter(i);
 

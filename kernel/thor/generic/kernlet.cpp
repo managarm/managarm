@@ -74,7 +74,13 @@ const KernletParameterDefn &KernletObject::defnOfBindParameter(size_t index) {
 // BoundKernlet class.
 // ------------------------------------------------------------------------
 
-BoundKernlet::BoundKernlet(smarter::shared_ptr<KernletObject> object)
+std::expected<smarter::shared_ptr<BoundKernlet>, Error> BoundKernlet::create(
+		smarter::shared_ptr<KernletObject> object) {
+	auto ptr = smarter::allocate_shared<BoundKernlet>(*kernelAlloc, CtorToken{}, std::move(object));
+	return ptr;
+}
+
+BoundKernlet::BoundKernlet(CtorToken, smarter::shared_ptr<KernletObject> object)
 : _object{std::move(object)} {
 	_instance = reinterpret_cast<char *>(kernelAlloc->allocate(_object->instanceSize()));
 }

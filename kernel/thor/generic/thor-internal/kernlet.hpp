@@ -46,7 +46,14 @@ private:
 };
 
 struct BoundKernlet {
-	BoundKernlet(smarter::shared_ptr<KernletObject> object);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<BoundKernlet>, Error> create(
+			smarter::shared_ptr<KernletObject> object);
+
+	BoundKernlet(CtorToken, smarter::shared_ptr<KernletObject> object);
 
 	KernletObject *object() {
 		return _object.get();
