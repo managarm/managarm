@@ -78,7 +78,12 @@ void OneshotEvent::cancelAwait(AwaitEventNode<OneshotEvent> *node) {
 // BitsetEvent implementation.
 //---------------------------------------------------------------------------------------
 
-BitsetEvent::BitsetEvent()
+std::expected<smarter::shared_ptr<BitsetEvent>, Error> BitsetEvent::create() {
+	auto ptr = smarter::allocate_shared<BitsetEvent>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
+
+BitsetEvent::BitsetEvent(CtorToken)
 : _currentSequence{1} {
 	for(int i = 0; i < 32; i++)
 		_lastTrigger[i] = 0;

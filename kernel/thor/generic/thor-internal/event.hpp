@@ -157,7 +157,13 @@ private:
 };
 
 struct BitsetEvent {
-	BitsetEvent();
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<BitsetEvent>, Error> create();
+
+	BitsetEvent(CtorToken);
 
 	std::expected<void, Error> trigger(uint32_t bits);
 

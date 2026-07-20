@@ -3248,10 +3248,12 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto event = smarter::allocate_shared<BitsetEvent>(*kernelAlloc);
+	auto eventOutcome = BitsetEvent::create();
+	if(!eventOutcome)
+		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(event)));
+			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(*eventOutcome)));
 
 	return kHelErrNone;
 }
