@@ -304,8 +304,10 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto irqError =
-		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
+		auto irqError = co_await pushDescriptor(
+		    conversation,
+		    AnyDescriptor::make<DescriptorType::irq>(object, kHelRightWait | kHelRightSignal)
+		);
 		if (irqError != Error::success)
 			co_return irqError;
 	} else {

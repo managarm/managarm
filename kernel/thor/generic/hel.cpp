@@ -3260,7 +3260,8 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(*eventOutcome)));
+			AnyDescriptor::make<DescriptorType::oneshotEvent>(
+					std::move(*eventOutcome), kHelRightWait | kHelRightSignal));
 
 	return kHelErrNone;
 }
@@ -3274,7 +3275,8 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(*eventOutcome)));
+			AnyDescriptor::make<DescriptorType::bitsetEvent>(
+					std::move(*eventOutcome), kHelRightWait | kHelRightSignal));
 
 	return kHelErrNone;
 }
@@ -3283,7 +3285,7 @@ HelError helRaiseEvent(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto eventOutcome = this_universe->resolveObject<DescriptorType::oneshotEvent>(handle);
+	auto eventOutcome = this_universe->resolveObject<DescriptorType::oneshotEvent>(handle, kHelRightSignal);
 	if(!eventOutcome)
 		return translateError(eventOutcome.error());
 
@@ -3311,7 +3313,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	IrqPin::attachSink(pin, irq.get());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::irq>(std::move(irq)));
+			AnyDescriptor::make<DescriptorType::irq>(std::move(irq), kHelRightWait | kHelRightSignal));
 
 	return kHelErrNone;
 #else
@@ -3332,7 +3334,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	if(mode != kHelAckAcknowledge && mode != kHelAckNack && mode != kHelAckKick)
 		return kHelErrIllegalArgs;
 
-	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle);
+	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle, kHelRightSignal);
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
@@ -3371,7 +3373,7 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		return kHelErrQueueTooSmall;
 
 	if(descriptor.is<DescriptorType::irq>()) {
-		auto irqOutcome = descriptor.resolveObject<DescriptorType::irq>();
+		auto irqOutcome = descriptor.resolveObject<DescriptorType::irq>(kHelRightWait);
 		if(!irqOutcome)
 			return translateError(irqOutcome.error());
 
@@ -3398,7 +3400,7 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		}(std::move(*irqOutcome), sequence, std::move(queue), context, std::move(cg),
 			enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::oneshotEvent>()) {
-		auto eventOutcome = descriptor.resolveObject<DescriptorType::oneshotEvent>();
+		auto eventOutcome = descriptor.resolveObject<DescriptorType::oneshotEvent>(kHelRightWait);
 		if(!eventOutcome)
 			return translateError(eventOutcome.error());
 
@@ -3420,7 +3422,7 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		}(std::move(*eventOutcome), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else if(descriptor.is<DescriptorType::bitsetEvent>()) {
-		auto eventOutcome = descriptor.resolveObject<DescriptorType::bitsetEvent>();
+		auto eventOutcome = descriptor.resolveObject<DescriptorType::bitsetEvent>(kHelRightWait);
 		if(!eventOutcome)
 			return translateError(eventOutcome.error());
 
@@ -3455,7 +3457,7 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle);
+	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle, kHelRightWait | kHelRightSignal);
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
@@ -3589,7 +3591,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		}else{
 			assert(defn.type == KernletParameterType::bitsetEvent);
 
-			auto eventOutcome = this_universe->resolveObject<DescriptorType::bitsetEvent>(d.handle);
+			auto eventOutcome = this_universe->resolveObject<DescriptorType::bitsetEvent>(d.handle, kHelRightSignal);
 			if(!eventOutcome)
 				return translateError(eventOutcome.error());
 			auto event = std::move(*eventOutcome);

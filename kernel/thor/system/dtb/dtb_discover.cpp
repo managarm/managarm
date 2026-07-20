@@ -221,7 +221,7 @@ struct MbusNode final : private KernelBusObject {
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-			auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
+			auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object, kHelRightWait | kHelRightSignal));
 
 			if(descError != Error::success)
 				co_return descError;

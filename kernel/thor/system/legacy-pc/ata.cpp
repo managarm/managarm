@@ -151,7 +151,7 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto irqError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::irq>(object));
+			auto irqError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::irq>(object, kHelRightWait | kHelRightSignal));
 			if(irqError != Error::success)
 				co_return irqError;
 		}else{
