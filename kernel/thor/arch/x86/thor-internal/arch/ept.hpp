@@ -59,7 +59,11 @@ struct EptSpace final : VirtualizedPageSpace {
 	friend struct Vmcs;
 	friend struct ShootNode;
 
-	EptSpace(PhysicalAddr root);
+private:
+	struct CtorToken {};
+
+public:
+	EptSpace(CtorToken, PhysicalAddr root);
 
 	EptSpace(const EptSpace &) = delete;
 
@@ -67,8 +71,8 @@ struct EptSpace final : VirtualizedPageSpace {
 
 	EptSpace& operator=(const EptSpace &) = delete;
 
-	static smarter::shared_ptr<EptSpace> create(PhysicalAddr root) {
-		auto ptr = smarter::allocate_shared<EptSpace>(Allocator{}, root);
+	static std::expected<smarter::shared_ptr<EptSpace>, Error> create(PhysicalAddr root) {
+		auto ptr = smarter::allocate_shared<EptSpace>(Allocator{}, CtorToken{}, root);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0, 0x7ffffff00000);
 		return ptr;

@@ -156,7 +156,7 @@ frg::expected<Error, PagesAffected> EptOperations::agePages(VirtualAddr, size_t,
 	return PagesAffected{};
 }
 
-EptSpace::EptSpace(PhysicalAddr root)
+EptSpace::EptSpace(CtorToken, PhysicalAddr root)
 : VirtualizedPageSpace{&eptOps_}, eptOps_{&pageSpace_}, pageSpace_{root} { }
 
 EptSpace::~EptSpace() { }

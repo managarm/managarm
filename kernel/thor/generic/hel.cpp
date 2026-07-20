@@ -853,7 +853,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 
 	smarter::shared_ptr<VirtualizedPageSpace> vspace;
 	if(getGlobalCpuFeatures()->haveVmx) {
-		vspace = thor::vmx::EptSpace::create(pml4e);
+		auto vspaceOutcome = thor::vmx::EptSpace::create(pml4e);
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
+		vspace = std::move(*vspaceOutcome);
 	} else if(getGlobalCpuFeatures()->haveSvm) {
 		vspace = thor::svm::NptSpace::create(pml4e);
 	} else {
