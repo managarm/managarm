@@ -489,6 +489,12 @@ void IrqPin::_updateMask() {
 IrqObject::IrqObject(frg::string<KernelAlloc> name)
 : IrqSink{std::move(name)} { }
 
+std::expected<smarter::shared_ptr<GenericIrqObject>, Error> GenericIrqObject::create(
+		frg::string<KernelAlloc> name) {
+	auto ptr = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc, CtorToken{}, std::move(name));
+	return ptr;
+}
+
 // TODO: Add a sequence parameter to this function and run the kernlet if the sequence advanced.
 //       This would prevent races between automate() and IRQs.
 void IrqObject::automate(smarter::shared_ptr<BoundKernlet> kernlet) {

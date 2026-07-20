@@ -424,7 +424,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		// Obtain an IRQ object for the interrupt.
-		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+		auto objectOutcome = GenericIrqObject::create(
 				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
 				+ frg::to_allocated_string(*kernelAlloc, bus)
 				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
@@ -433,6 +433,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 				+ frg::to_allocated_string(*kernelAlloc, function)
 				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
 				+ frg::to_allocated_string(*kernelAlloc, req->index()));
+		if(!objectOutcome)
+			panicLogger() << "thor: Failed to create IRQ object" << frg::endlog;
+		auto object = std::move(*objectOutcome);
 		IrqPin::attachSink(interrupt, object.get());
 
 		static_cast<PciDevice *>(this)->setupMsi(interrupt, req->index());

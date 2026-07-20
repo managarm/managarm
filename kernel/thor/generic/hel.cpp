@@ -3278,8 +3278,11 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	if (!pin)
 		return kHelErrOutOfBounds;
 
-	auto irq = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+	auto irqOutcome = GenericIrqObject::create(
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
+	if(!irqOutcome)
+		return translateError(irqOutcome.error());
+	auto irq = std::move(*irqOutcome);
 	IrqPin::attachSink(pin, irq.get());
 
 	*handle = this_universe->attachDescriptor(

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include <async/recurring-event.hpp>
 #include <frg/expected.hpp>
 #include <frg/functional.hpp>
@@ -300,8 +302,6 @@ protected:
 struct IrqObject : IrqSink {
 	friend AwaitIrqNode;
 
-	IrqObject(frg::string<KernelAlloc> name);
-
 	void automate(smarter::shared_ptr<BoundKernlet> kernlet);
 
 	IrqStatus raise() override;
@@ -374,11 +374,20 @@ private:
 	> _waitQueue;
 
 protected:
+	IrqObject(frg::string<KernelAlloc> name);
+
 	~IrqObject() = default;
 };
 
 struct GenericIrqObject final : IrqObject {
-	GenericIrqObject(frg::string<KernelAlloc> name)
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<GenericIrqObject>, Error> create(
+			frg::string<KernelAlloc> name);
+
+	GenericIrqObject(CtorToken, frg::string<KernelAlloc> name)
 	: IrqObject{name} { }
 };
 

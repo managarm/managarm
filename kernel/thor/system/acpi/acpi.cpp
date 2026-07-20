@@ -283,9 +283,11 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 			);
 		});
 
-		auto object = smarter::allocate_shared<GenericIrqObject>(
-		    *kernelAlloc, frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"}
-		);
+		auto objectOutcome =
+		    GenericIrqObject::create(frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
+		if (!objectOutcome)
+			panicLogger() << "thor: Failed to create IRQ object" << frg::endlog;
+		auto object = std::move(*objectOutcome);
 
 		if (ret != UACPI_STATUS_OK || !interrupt_info.irq) {
 			resp.set_error(managarm::hw::Errors::DEVICE_ERROR);
