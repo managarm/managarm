@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <expected>
 
 #include <async/basic.hpp>
 #include <async/mutex.hpp>
@@ -942,7 +943,18 @@ private:
 };
 
 struct NamedMemoryViewLock {
-	NamedMemoryViewLock(MemoryViewLockHandle handle)
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<NamedMemoryViewLock>, Error> create(
+			MemoryViewLockHandle handle) {
+		auto ptr = smarter::allocate_shared<NamedMemoryViewLock>(*kernelAlloc, CtorToken{},
+				std::move(handle));
+		return ptr;
+	}
+
+	NamedMemoryViewLock(CtorToken, MemoryViewLockHandle handle)
 	: _handle{std::move(handle)} { }
 
 	NamedMemoryViewLock(const NamedMemoryViewLock &) = delete;

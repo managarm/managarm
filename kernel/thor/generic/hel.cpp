@@ -1732,11 +1732,13 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 			co_return;
 		}
 
+		auto lockOutcome = NamedMemoryViewLock::create(std::move(lockHandle));
+		if(!lockOutcome)
+			panicLogger() << "thor: Failed to create memory view lock" << frg::endlog;
 		HelHandle handle;
 		handle = universe->attachDescriptor(
 				AnyDescriptor::make<DescriptorType::memoryViewLock>(
-					smarter::allocate_shared<NamedMemoryViewLock>(
-						*kernelAlloc, std::move(lockHandle))));
+					std::move(*lockOutcome)));
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
