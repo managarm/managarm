@@ -252,12 +252,7 @@ HelError helSubmitAsyncNop(HelHandle queueHandle, uintptr_t context) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->inspectDescriptor(queueHandle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IpcQueue>, Error> {
-		if(!desc.is<QueueDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<QueueDescriptor>().queue;
-	});
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(queueHandle);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 
@@ -273,7 +268,7 @@ HelError helCreateUniverse(HelHandle *handle) {
 	auto new_universe = smarter::allocate_shared<Universe>(*kernelAlloc);
 
 	*handle = this_universe->attachDescriptor(
-			UniverseDescriptor(std::move(new_universe)));
+			AnyDescriptor::make<DescriptorType::universe>(std::move(new_universe)));
 
 	return kHelErrNone;
 }
@@ -290,12 +285,7 @@ helTransferDescriptor(HelHandle handle, HelHandle universeHandle, HelTransferDes
 	if(universeHandle == kHelThisUniverse) {
 		universe = thisUniverse.lock();
 	}else{
-		auto universeOutcome = thisUniverse->inspectDescriptor(universeHandle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Universe>, Error> {
-			if(!desc.is<UniverseDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<UniverseDescriptor>().universe;
-		});
+		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
@@ -328,7 +318,7 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *) {
 
 	auto infoOutcome = this_universe->inspectDescriptor(handle,
 			[](AnyDescriptor &desc) -> std::expected<void, Error> {
-		switch(desc.tag()) {
+		switch(desc.type()) {
 		default:
 			return std::unexpected{Error::other};
 		}
@@ -352,12 +342,19 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 	}else{
 		auto outcome = thisUniverse->inspectDescriptor(handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-			if(desc.is<ThreadDescriptor>())
-				creds = desc.get<ThreadDescriptor>().thread->credentials();
-			else if(desc.is<LaneDescriptor>())
-				creds = desc.get<LaneDescriptor>().handle.getStream()->credentials().credentials();
-			else
+			if(desc.is<DescriptorType::thread>()) {
+				auto threadOutcome = desc.resolveObject<DescriptorType::thread>();
+				if(!threadOutcome)
+					return std::unexpected{threadOutcome.error()};
+				creds = (*threadOutcome)->credentials();
+			}else if(desc.is<DescriptorType::lane>()) {
+				auto laneOutcome = desc.resolveObject<DescriptorType::lane>();
+				if(!laneOutcome)
+					return std::unexpected{laneOutcome.error()};
+				creds = (*laneOutcome)->credentials().credentials();
+			}else{
 				return std::unexpected{Error::badDescriptor};
+			}
 			return {};
 		});
 		if(!outcome)
@@ -378,12 +375,7 @@ HelError helCloseDescriptor(HelHandle universeHandle, HelHandle handle) {
 	if(universeHandle == kHelThisUniverse) {
 		universe = thisUniverse.lock();
 	}else{
-		auto universeOutcome = thisUniverse->inspectDescriptor(universeHandle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Universe>, Error> {
-			if(!desc.is<UniverseDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<UniverseDescriptor>().universe;
-		});
+		auto universeOutcome = thisUniverse->resolveObject<DescriptorType::universe>(universeHandle);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
@@ -414,7 +406,7 @@ HelError helCreateQueue(const HelQueueParameters *paramsPtr, HelHandle *handle) 
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	*handle = thisUniverse->attachDescriptor(
-			QueueDescriptor(std::move(*queueOutcome)));
+			AnyDescriptor::make<DescriptorType::queue>(std::move(*queueOutcome)));
 
 	return kHelErrNone;
 }
@@ -426,12 +418,7 @@ HelError helDriveQueue(HelHandle handle, uint32_t flags, uint32_t notifyMask) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IpcQueue>, Error> {
-		if(!desc.is<QueueDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<QueueDescriptor>().queue;
-	});
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	auto queue = std::move(*queueOutcome);
@@ -464,12 +451,7 @@ HelError helAlertQueue(HelHandle handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto queueOutcome = thisUniverse->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IpcQueue>, Error> {
-		if(!desc.is<QueueDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<QueueDescriptor>().queue;
-	});
+	auto queueOutcome = thisUniverse->resolveObject<DescriptorType::queue>(handle);
 	if(!queueOutcome)
 		return translateError(queueOutcome.error());
 	auto queue = std::move(*queueOutcome);
@@ -513,7 +495,7 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 	memory->selfPtr = memory;
 
 	*handle = thisUniverse->attachDescriptor(
-			MemoryViewDescriptor(std::move(memory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -523,12 +505,7 @@ HelError doSubmitResizeMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -570,9 +547,9 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	frontalMemory->selfPtr = frontalMemory;
 
 	*backing_handle = thisUniverse->attachDescriptor(
-			MemoryViewDescriptor(std::move(backingMemory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(backingMemory)));
 	*frontal_handle = thisUniverse->attachDescriptor(
-			MemoryViewDescriptor(std::move(frontalMemory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(frontalMemory)));
 
 	return kHelErrNone;
 }
@@ -589,12 +566,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 			return kHelErrBadDescriptor;
 		view = getSpecialMemoryView(memoryHandle);
 	} else {
-		auto viewOutcome = this_universe->inspectDescriptor(memoryHandle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-			if(!desc.is<MemoryViewDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<MemoryViewDescriptor>().memory;
-		});
+		auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle);
 		if(!viewOutcome)
 			return translateError(viewOutcome.error());
 		view = std::move(*viewOutcome);
@@ -604,7 +576,7 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 			offset, size);
 	slice->selfPtr = slice;
 	*outHandle = this_universe->attachDescriptor(
-			MemoryViewDescriptor(std::move(slice)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(slice)));
 
 	return kHelErrNone;
 }
@@ -621,7 +593,7 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	auto memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, physical, size,
 			CachingMode::null);
 	*handle = this_universe->attachDescriptor(
-			MemoryViewDescriptor(std::move(memory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -632,7 +604,7 @@ HelError helCreateIndirectMemory(size_t numSlots, HelHandle *handle) {
 
 	auto memory = smarter::allocate_shared<IndirectMemory>(*kernelAlloc, numSlots);
 	*handle = this_universe->attachDescriptor(
-			MemoryViewDescriptor(std::move(memory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(memory)));
 
 	return kHelErrNone;
 }
@@ -642,12 +614,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto indirectOutcome = thisUniverse->inspectDescriptor(indirectHandle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto indirectOutcome = thisUniverse->resolveObject<DescriptorType::memoryView>(indirectHandle);
 	if(!indirectOutcome)
 		return translateError(indirectOutcome.error());
 	auto indirectView = std::move(*indirectOutcome);
@@ -656,12 +623,18 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	CachingFlags cacheFlags = 0;
 	auto memoryOutcome = thisUniverse->inspectDescriptor(memoryHandle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-		if(desc.is<MemoryViewDescriptor>()) {
-			memoryView = desc.get<MemoryViewDescriptor>().memory;
-		} else if(desc.is<MemorySliceDescriptor>()) {
-			memoryView = desc.get<MemorySliceDescriptor>().slice->getView();
-			offset += desc.get<MemorySliceDescriptor>().slice->offset();
-			cacheFlags = desc.get<MemorySliceDescriptor>().slice->getCachingFlags();
+		if(desc.is<DescriptorType::memoryView>()) {
+			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>();
+			if(!viewOutcome)
+				return std::unexpected{viewOutcome.error()};
+			memoryView = std::move(*viewOutcome);
+		} else if(desc.is<DescriptorType::memorySlice>()) {
+			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>();
+			if(!sliceOutcome)
+				return std::unexpected{sliceOutcome.error()};
+			memoryView = (*sliceOutcome)->getView();
+			offset += (*sliceOutcome)->offset();
+			cacheFlags = (*sliceOutcome)->getCachingFlags();
 		} else {
 			return std::unexpected{Error::badDescriptor};
 		}
@@ -694,12 +667,7 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->inspectDescriptor(memoryHandle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(memoryHandle);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto view = std::move(*viewOutcome);
@@ -711,7 +679,7 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 			std::move(view), offset, size, cachingFlags);
 	*handle = this_universe->attachDescriptor(
-			MemorySliceDescriptor(std::move(slice)));
+			AnyDescriptor::make<DescriptorType::memorySlice>(std::move(slice)));
 
 	return kHelErrNone;
 }
@@ -721,12 +689,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto viewOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto viewOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!viewOutcome)
 		return translateError(viewOutcome.error());
 	auto view = std::move(*viewOutcome);
@@ -756,7 +719,7 @@ HelError doSubmitForkMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		}
 
 		HelHandle forkedHandle = universe->attachDescriptor(
-				MemoryViewDescriptor(outcome.value()));
+				AnyDescriptor::make<DescriptorType::memoryView>(outcome.value()));
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = forkedHandle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -772,12 +735,7 @@ HelError doSubmitWritebackFence(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -806,12 +764,7 @@ HelError doSubmitInvalidateMemory(HelHandle handle, smarter::shared_ptr<IpcQueue
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -840,12 +793,7 @@ HelError doSubmitPopulateSpace(HelHandle handle, smarter::shared_ptr<IpcQueue> q
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto dmaSpaceOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<DmaSpace>, Error> {
-		if(!desc.is<DmaSpaceDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<DmaSpaceDescriptor>().space;
-	});
+	auto dmaSpaceOutcome = this_universe->resolveObject<DescriptorType::dmaSpace>(handle);
 	if(!dmaSpaceOutcome)
 		return translateError(dmaSpaceOutcome.error());
 	auto space = std::move(*dmaSpaceOutcome);
@@ -883,7 +831,7 @@ HelError helCreateSpace(HelHandle *handle) {
 	auto space = AddressSpace::create();
 
 	*handle = this_universe->attachDescriptor(
-			AddressSpaceDescriptor(std::move(space)));
+			AnyDescriptor::make<DescriptorType::addressSpace>(std::move(space)));
 
 	return kHelErrNone;
 }
@@ -914,7 +862,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	}
 
 	*handle = this_universe->attachDescriptor(
-			VirtualizedSpaceDescriptor(std::move(vspace)));
+			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));
 	return kHelErrNone;
 #elif defined(__riscv) && __riscv_xlen == 64
 	if(!getCpuData()->haveVirtualization) {
@@ -933,7 +881,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	smarter::shared_ptr<VirtualizedPageSpace> vspace = riscv_hypervisor::HypervisorSpace::create(level0);
 
 	*handle = this_universe->attachDescriptor(
-			VirtualizedSpaceDescriptor(std::move(vspace)));
+			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));
 	return kHelErrNone;
 #else
 	(void)handle;
@@ -949,12 +897,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vspaceOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedPageSpace>, Error> {
-		if(!desc.is<VirtualizedSpaceDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<VirtualizedSpaceDescriptor>().space;
-	});
+	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle);
 	if(!vspaceOutcome)
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
@@ -968,7 +911,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		return kHelErrNoHardwareSupport;
 
 	*out = this_universe->attachDescriptor(
-			VirtualizedCpuDescriptor(std::move(vcpu)));
+			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
 	return kHelErrNone;
 #elif defined(__riscv) && __riscv_xlen == 64
 	if(!getCpuData()->haveVirtualization) {
@@ -977,12 +920,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vspaceOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedPageSpace>, Error> {
-		if(!desc.is<VirtualizedSpaceDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<VirtualizedSpaceDescriptor>().space;
-	});
+	auto vspaceOutcome = this_universe->resolveObject<DescriptorType::virtualizedSpace>(handle);
 	if(!vspaceOutcome)
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
@@ -991,7 +929,7 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 			smarter::static_pointer_cast<riscv_hypervisor::HypervisorSpace>(vspace));
 
 	*out = this_universe->attachDescriptor(
-			VirtualizedCpuDescriptor(std::move(vcpu)));
+			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
 	return kHelErrNone;
 #else
 	(void)handle;
@@ -1007,12 +945,7 @@ HelError helRunVirtualizedCpu(HelHandle handle, HelVmexitReason *exitInfo) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vcpuOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedCpu>, Error> {
-		if(!desc.is<VirtualizedCpuDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<VirtualizedCpuDescriptor>().vcpu;
-	});
+	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle);
 	if(!vcpuOutcome)
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
@@ -1034,12 +967,7 @@ HelError helAssertVirtualizedIrq(HelHandle handle, uint64_t irq, uint8_t level) 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto vcpuOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<VirtualizedCpu>, Error> {
-		if(!desc.is<VirtualizedCpuDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<VirtualizedCpuDescriptor>().vcpu;
-	});
+	auto vcpuOutcome = this_universe->resolveObject<DescriptorType::virtualizedCpu>(handle);
 	if(!vcpuOutcome)
 		return translateError(vcpuOutcome.error());
 	auto vcpu = std::move(*vcpuOutcome);
@@ -1104,15 +1032,24 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 
 	auto memoryOutcome = this_universe->inspectDescriptor(memory_handle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-		if(desc.is<MemorySliceDescriptor>()) {
-			slice = desc.get<MemorySliceDescriptor>().slice;
-		}else if(desc.is<MemoryViewDescriptor>()) {
-			auto memory = desc.get<MemoryViewDescriptor>().memory;
+		if(desc.is<DescriptorType::memorySlice>()) {
+			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>();
+			if(!sliceOutcome)
+				return std::unexpected{sliceOutcome.error()};
+			slice = std::move(*sliceOutcome);
+		}else if(desc.is<DescriptorType::memoryView>()) {
+			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>();
+			if(!viewOutcome)
+				return std::unexpected{viewOutcome.error()};
+			auto memory = std::move(*viewOutcome);
 			auto sliceLength = memory->getLength();
 			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					std::move(memory), 0, sliceLength);
-		}else if(desc.is<QueueDescriptor>()) {
-			auto memory = desc.get<QueueDescriptor>().queue->getMemory();
+		}else if(desc.is<DescriptorType::queue>()) {
+			auto queueOutcome = desc.resolveObject<DescriptorType::queue>();
+			if(!queueOutcome)
+				return std::unexpected{queueOutcome.error()};
+			auto memory = (*queueOutcome)->getMemory();
 			auto sliceLength = memory->getLength();
 			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
 					std::move(memory), 0, sliceLength);
@@ -1129,14 +1066,23 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-			if(desc.is<AddressSpaceDescriptor>()) {
-				space = desc.get<AddressSpaceDescriptor>().space;
-			} else if(desc.is<VirtualizedSpaceDescriptor>()) {
+			if(desc.is<DescriptorType::addressSpace>()) {
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				if(!addressSpaceOutcome)
+					return std::unexpected{addressSpaceOutcome.error()};
+				space = std::move(*addressSpaceOutcome);
+			} else if(desc.is<DescriptorType::virtualizedSpace>()) {
+				auto vspaceOutcome = desc.resolveObject<DescriptorType::virtualizedSpace>();
+				if(!vspaceOutcome)
+					return std::unexpected{vspaceOutcome.error()};
 				isVspace = true;
-				vspace = desc.get<VirtualizedSpaceDescriptor>().space;
-			} else if(desc.is<DmaSpaceDescriptor>()) {
+				vspace = std::move(*vspaceOutcome);
+			} else if(desc.is<DescriptorType::dmaSpace>()) {
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				if(!dmaOutcome)
+					return std::unexpected{dmaOutcome.error()};
 				isVspace = true;
-				vspace = desc.get<DmaSpaceDescriptor>().space;
+				vspace = std::move(*dmaOutcome);
 			} else {
 				return std::unexpected{Error::badDescriptor};
 			}
@@ -1196,12 +1142,7 @@ HelError doSubmitProtectMemory(HelHandle space_handle, smarter::shared_ptr<IpcQu
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> {
-			if(!desc.is<AddressSpaceDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<AddressSpaceDescriptor>().space;
-		});
+		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(space_handle);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
@@ -1242,11 +1183,17 @@ HelError helUnmapMemory(HelHandle space_handle, void *pointer, size_t length) {
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-			if(desc.is<AddressSpaceDescriptor>()) {
-				space = desc.get<AddressSpaceDescriptor>().space;
+			if(desc.is<DescriptorType::addressSpace>()) {
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				if(!addressSpaceOutcome)
+					return std::unexpected{addressSpaceOutcome.error()};
+				space = std::move(*addressSpaceOutcome);
 				return {};
-			}else if(desc.is<DmaSpaceDescriptor>()) {
-				vspace = desc.get<DmaSpaceDescriptor>().space;
+			}else if(desc.is<DescriptorType::dmaSpace>()) {
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				if(!dmaOutcome)
+					return std::unexpected{dmaOutcome.error()};
+				vspace = std::move(*dmaOutcome);
 				return {};
 			}
 
@@ -1286,12 +1233,7 @@ HelError doSubmitSynchronizeSpace(HelHandle spaceHandle, smarter::shared_ptr<Ipc
 	if(spaceHandle == kHelNullHandle) {
 		space = thisThread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> {
-			if(!desc.is<AddressSpaceDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<AddressSpaceDescriptor>().space;
-		});
+		auto spaceOutcome = thisUniverse->resolveObject<DescriptorType::addressSpace>(spaceHandle);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
@@ -1328,11 +1270,17 @@ HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_
 	}else{
 		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-			if(desc.is<AddressSpaceDescriptor>()) {
-				space = desc.get<AddressSpaceDescriptor>().space;
+			if(desc.is<DescriptorType::addressSpace>()) {
+				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>();
+				if(!addressSpaceOutcome)
+					return std::unexpected{addressSpaceOutcome.error()};
+				space = std::move(*addressSpaceOutcome);
 				return {};
-			} else if(desc.is<DmaSpaceDescriptor>()) {
-				dmaSpace = desc.get<DmaSpaceDescriptor>().space;
+			} else if(desc.is<DescriptorType::dmaSpace>()) {
+				auto dmaOutcome = desc.resolveObject<DescriptorType::dmaSpace>();
+				if(!dmaOutcome)
+					return std::unexpected{dmaOutcome.error()};
+				dmaSpace = std::move(*dmaOutcome);
 				return {};
 			}
 			return std::unexpected{Error::badDescriptor};
@@ -1458,26 +1406,34 @@ HelError doSubmitReadMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	if(descriptor.is<MemoryViewDescriptor>()) {
-		auto view = descriptor.get<MemoryViewDescriptor>().memory;
+	if(descriptor.is<DescriptorType::memoryView>()) {
+		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>();
+		if(!viewOutcome)
+			return translateError(viewOutcome.error());
 		readMemoryView(thisThread.lock(),
-				std::move(view), address, length, buffer, std::move(queue), context,
+				std::move(*viewOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<AddressSpaceDescriptor>()) {
-		auto space = descriptor.get<AddressSpaceDescriptor>().space;
+	}else if(descriptor.is<DescriptorType::addressSpace>()) {
+		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>();
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		readVirtualSpace(
+				std::move(*spaceOutcome), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+	}else if(descriptor.is<DescriptorType::thread>()) {
+		auto threadOutcome = descriptor.resolveObject<DescriptorType::thread>();
+		if(!threadOutcome)
+			return translateError(threadOutcome.error());
+		auto space = (*threadOutcome)->getAddressSpace().lock();
 		readVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<ThreadDescriptor>()) {
-		auto thread = descriptor.get<ThreadDescriptor>().thread;
-		auto space = thread->getAddressSpace().lock();
+	}else if(descriptor.is<DescriptorType::virtualizedSpace>()) {
+		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>();
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
 		readVirtualSpace(
-				std::move(space), address, length, buffer, std::move(queue), context,
-				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
-		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		readVirtualSpace(
-				std::move(space), address, length, buffer, std::move(queue), context,
+				std::move(*vspaceOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
@@ -1581,26 +1537,34 @@ HelError doSubmitWriteMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> que
 		co_await queue->submit(&ipcSource, context);
 	};
 
-	if(descriptor.is<MemoryViewDescriptor>()) {
-		auto view = descriptor.get<MemoryViewDescriptor>().memory;
+	if(descriptor.is<DescriptorType::memoryView>()) {
+		auto viewOutcome = descriptor.resolveObject<DescriptorType::memoryView>();
+		if(!viewOutcome)
+			return translateError(viewOutcome.error());
 		writeMemoryView(thisThread.lock(),
-				std::move(view), address, length, buffer, std::move(queue), context,
+				std::move(*viewOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<AddressSpaceDescriptor>()) {
-		auto space = descriptor.get<AddressSpaceDescriptor>().space;
+	}else if(descriptor.is<DescriptorType::addressSpace>()) {
+		auto spaceOutcome = descriptor.resolveObject<DescriptorType::addressSpace>();
+		if(!spaceOutcome)
+			return translateError(spaceOutcome.error());
+		writeVirtualSpace(
+				std::move(*spaceOutcome), address, length, buffer, std::move(queue), context,
+				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
+	}else if(descriptor.is<DescriptorType::thread>()) {
+		auto threadOutcome = descriptor.resolveObject<DescriptorType::thread>();
+		if(!threadOutcome)
+			return translateError(threadOutcome.error());
+		auto space = (*threadOutcome)->getAddressSpace().lock();
 		writeVirtualSpace(
 				std::move(space), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<ThreadDescriptor>()) {
-		auto thread = descriptor.get<ThreadDescriptor>().thread;
-		auto space = thread->getAddressSpace().lock();
+	}else if(descriptor.is<DescriptorType::virtualizedSpace>()) {
+		auto vspaceOutcome = descriptor.resolveObject<DescriptorType::virtualizedSpace>();
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
 		writeVirtualSpace(
-				std::move(space), address, length, buffer, std::move(queue), context,
-				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
-	}else if(descriptor.is<VirtualizedSpaceDescriptor>()) {
-		auto space = descriptor.get<VirtualizedSpaceDescriptor>().space;
-		writeVirtualSpace(
-				std::move(space), address, length, buffer, std::move(queue), context,
+				std::move(*vspaceOutcome), address, length, buffer, std::move(queue), context,
 				enable_detached_coroutine{getCurrentThread()->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
@@ -1613,12 +1577,7 @@ HelError helMemoryInfo(HelHandle handle, size_t *size) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1631,12 +1590,7 @@ HelError doSubmitManageMemory(HelHandle handle, smarter::shared_ptr<IpcQueue> qu
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1692,12 +1646,7 @@ HelError helUpdateMemory(HelHandle handle, int type,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1728,12 +1677,7 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 	auto memory = std::move(*memoryOutcome);
@@ -1778,9 +1722,9 @@ HelError doSubmitLockMemoryView(HelHandle handle, smarter::shared_ptr<IpcQueue> 
 
 		HelHandle handle;
 		handle = universe->attachDescriptor(
-				MemoryViewLockDescriptor{
+				AnyDescriptor::make<DescriptorType::memoryViewLock>(
 					smarter::allocate_shared<NamedMemoryViewLock>(
-						*kernelAlloc, std::move(lockHandle))});
+						*kernelAlloc, std::move(lockHandle))));
 
 		HelHandleResult helResult{.error = kHelErrNone, .handle = handle};
 		QueueSource ipcSource{&helResult, sizeof(HelHandleResult), nullptr};
@@ -1801,12 +1745,7 @@ HelError helLoadahead(HelHandle handle, uintptr_t offset, size_t length) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memoryOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-		if(!desc.is<MemoryViewDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<MemoryViewDescriptor>().memory;
-	});
+	auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(handle);
 	if(!memoryOutcome)
 		return translateError(memoryOutcome.error());
 
@@ -1835,12 +1774,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(universe_handle == kHelNullHandle) {
 		universe = this_thread->getUniverse().lock();
 	}else{
-		auto universeOutcome = this_universe->inspectDescriptor(universe_handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Universe>, Error> {
-			if(!desc.is<UniverseDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<UniverseDescriptor>().universe;
-		});
+		auto universeOutcome = this_universe->resolveObject<DescriptorType::universe>(universe_handle);
 		if(!universeOutcome)
 			return translateError(universeOutcome.error());
 		universe = std::move(*universeOutcome);
@@ -1850,12 +1784,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	if(space_handle == kHelNullHandle) {
 		space = this_thread->getAddressSpace().lock();
 	}else{
-		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> {
-			if(!desc.is<AddressSpaceDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return desc.get<AddressSpaceDescriptor>().space;
-		});
+		auto spaceOutcome = this_universe->resolveObject<DescriptorType::addressSpace>(space_handle);
 		if(!spaceOutcome)
 			return translateError(spaceOutcome.error());
 		space = std::move(*spaceOutcome);
@@ -1878,7 +1807,7 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 		Thread::resumeOther(smarter::rc_policy_downcast<smarter::default_rc_policy>(new_thread));
 
 	*handle = this_universe->attachDescriptor(
-			ThreadDescriptor(std::move(new_thread)));
+			AnyDescriptor::make<DescriptorType::thread>(std::move(new_thread)));
 
 	return kHelErrNone;
 }
@@ -1891,15 +1820,10 @@ HelError helQueryThreadStats(HelHandle handle, HelThreadStats *user_stats) {
 	if(handle == kHelThisThread) {
 		thread = this_thread.lock();
 	}else{
-		auto threadOutcome = this_universe->inspectDescriptor(handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-			if(!desc.is<ThreadDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-		});
+		auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 		if(!threadOutcome)
 			return translateError(threadOutcome.error());
-		thread = std::move(*threadOutcome);
+		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 	}
 
 	HelThreadStats stats;
@@ -1920,15 +1844,10 @@ HelError helSetPriority(HelHandle handle, int priority) {
 	if(handle == kHelThisThread) {
 		thread = this_thread.lock();
 	}else{
-		auto threadOutcome = this_universe->inspectDescriptor(handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-			if(!desc.is<ThreadDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-		});
+		auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 		if(!threadOutcome)
 			return translateError(threadOutcome.error());
-		thread = std::move(*threadOutcome);
+		thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 	}
 
 	Scheduler::setPriority(thread.get(), priority);
@@ -1947,15 +1866,10 @@ HelError doSubmitObserve(HelHandle handle, smarter::shared_ptr<IpcQueue> queue,
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto threadOutcome = thisUniverse->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-		if(!desc.is<ThreadDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-	});
+	auto threadOutcome = thisUniverse->resolveObject<DescriptorType::thread>(handle);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
-	auto thread = std::move(*threadOutcome);
+	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 	if(!queue->validSize(ipcSourceSize(sizeof(HelObserveResult))))
 		return kHelErrQueueTooSmall;
@@ -2000,15 +1914,10 @@ HelError helKillThread(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto threadOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-		if(!desc.is<ThreadDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-	});
+	auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
-	auto thread = std::move(*threadOutcome);
+	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 	Thread::killOther(thread);
 
@@ -2019,15 +1928,10 @@ HelError helInterruptThread(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto threadOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-		if(!desc.is<ThreadDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-	});
+	auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
-	auto thread = std::move(*threadOutcome);
+	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 	Thread::interruptOther(thread);
 
@@ -2038,15 +1942,10 @@ HelError helResume(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto threadOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-		if(!desc.is<ThreadDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-	});
+	auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
-	auto thread = std::move(*threadOutcome);
+	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 	if(auto e = Thread::resumeOther(thread); e != Error::success) {
 		if(e == Error::threadExited)
@@ -2063,13 +1962,19 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<Thread> thread;
-	VirtualizedCpuDescriptor vcpu;
+	smarter::shared_ptr<VirtualizedCpu> vcpu;
 	auto outcome = this_universe->inspectDescriptor(handle,
 			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-		if(desc.is<ThreadDescriptor>()) {
-			thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-		} else if(desc.is<VirtualizedCpuDescriptor>()) {
-			vcpu = desc.get<VirtualizedCpuDescriptor>();
+		if(desc.is<DescriptorType::thread>()) {
+			auto threadOutcome = desc.resolveObject<DescriptorType::thread>();
+			if(!threadOutcome)
+				return std::unexpected{threadOutcome.error()};
+			thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
+		} else if(desc.is<DescriptorType::virtualizedCpu>()) {
+			auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>();
+			if(!vcpuOutcome)
+				return std::unexpected{vcpuOutcome.error()};
+			vcpu = std::move(*vcpuOutcome);
 		}else{
 			return std::unexpected{Error::badDescriptor};
 		}
@@ -2179,19 +2084,19 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsVirtualization) {
-		if(!vcpu.vcpu) {
+		if(!vcpu) {
 			return kHelErrIllegalArgs;
 		}
 #ifdef __x86_64__
 		HelX86VirtualizationRegs regs;
 		memset(&regs, 0, sizeof(HelX86VirtualizationRegs));
-		vcpu.vcpu->loadRegs(&regs);
+		vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 #elif defined(__riscv) && __riscv_xlen == 64
 		HelRiscv64VirtualizationRegs regs;
 		memset(&regs, 0, sizeof(HelRiscv64VirtualizationRegs));
-		vcpu.vcpu->loadRegs(&regs);
+		vcpu->loadRegs(&regs);
 		if(!writeUserObject(reinterpret_cast<HelRiscv64VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
 #else
@@ -2328,17 +2233,23 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 	auto this_universe = this_thread->getUniverse();
 
 	smarter::shared_ptr<Thread> thread;
-	VirtualizedCpuDescriptor vcpu{nullptr};
+	smarter::shared_ptr<VirtualizedCpu> vcpu;
 	if(handle == kHelThisThread) {
 		// FIXME: Properly handle this below.
 		thread = this_thread.lock();
 	}else{
 		auto outcome = this_universe->inspectDescriptor(handle,
 				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-			if(desc.is<ThreadDescriptor>()) {
-				thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-			}else if(desc.is<VirtualizedCpuDescriptor>()) {
-				vcpu = desc.get<VirtualizedCpuDescriptor>();
+			if(desc.is<DescriptorType::thread>()) {
+				auto threadOutcome = desc.resolveObject<DescriptorType::thread>();
+				if(!threadOutcome)
+					return std::unexpected{threadOutcome.error()};
+				thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
+			}else if(desc.is<DescriptorType::virtualizedCpu>()) {
+				auto vcpuOutcome = desc.resolveObject<DescriptorType::virtualizedCpu>();
+				if(!vcpuOutcome)
+					return std::unexpected{vcpuOutcome.error()};
+				vcpu = std::move(*vcpuOutcome);
 			}else{
 				return std::unexpected{Error::badDescriptor};
 			}
@@ -2461,19 +2372,19 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		return kHelErrUnsupportedOperation;
 #endif
 	}else if(set == kHelRegsVirtualization) {
-		if(!vcpu.vcpu) {
+		if(!vcpu) {
 			return kHelErrIllegalArgs;
 		}
 #ifdef __x86_64__
 		HelX86VirtualizationRegs regs;
 		if(!readUserObject(reinterpret_cast<const HelX86VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
-		vcpu.vcpu->storeRegs(&regs);
+		vcpu->storeRegs(&regs);
 #elif defined(__riscv) && __riscv_xlen == 64
 		HelRiscv64VirtualizationRegs regs;
 		if(!readUserObject(reinterpret_cast<const HelRiscv64VirtualizationRegs *>(image), regs))
 			return kHelErrFault;
-		vcpu.vcpu->storeRegs(&regs);
+		vcpu->storeRegs(&regs);
 #else
 		return kHelErrNoHardwareSupport;
 #endif
@@ -2657,9 +2568,9 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 
 	auto lanes = createStream(attach_credentials);
 	*lane1_handle = this_universe->attachDescriptor(
-			LaneDescriptor(std::move(lanes.get<0>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<0>())));
 	*lane2_handle = this_universe->attachDescriptor(
-			LaneDescriptor(std::move(lanes.get<1>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<1>())));
 
 	return kHelErrNone;
 }
@@ -2680,12 +2591,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto laneOutcome = thisUniverse->inspectDescriptor(laneHandle,
-			[](AnyDescriptor &desc) -> std::expected<LaneHandle, Error> {
-		if(!desc.is<LaneDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<LaneDescriptor>().handle;
-	});
+	auto laneOutcome = thisUniverse->resolveObject<DescriptorType::lane>(laneHandle);
 	if(!laneOutcome)
 		return translateError(laneOutcome.error());
 	auto lane = std::move(*laneOutcome);
@@ -2745,14 +2651,24 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 				} else {
 					auto credsOutcome = thisUniverse->inspectDescriptor(recipe->handle,
 							[&](AnyDescriptor &desc) -> std::expected<void, Error> {
-						if(desc.is<ThreadDescriptor>())
-							creds = desc.get<ThreadDescriptor>().thread->credentials();
-						else if(desc.is<TokenDescriptor>())
-							creds = desc.get<TokenDescriptor>().credentials->credentials();
-						else if(desc.is<LaneDescriptor>())
-							creds = desc.get<LaneDescriptor>().handle.getStream()->credentials().credentials();
-						else
+						if(desc.is<DescriptorType::thread>()) {
+							auto threadOutcome = desc.resolveObject<DescriptorType::thread>();
+							if(!threadOutcome)
+								return std::unexpected{threadOutcome.error()};
+							creds = (*threadOutcome)->credentials();
+						}else if(desc.is<DescriptorType::token>()) {
+							auto tokenOutcome = desc.resolveObject<DescriptorType::token>();
+							if(!tokenOutcome)
+								return std::unexpected{tokenOutcome.error()};
+							creds = (*tokenOutcome)->credentials();
+						}else if(desc.is<DescriptorType::lane>()) {
+							auto laneOutcome = desc.resolveObject<DescriptorType::lane>();
+							if(!laneOutcome)
+								return std::unexpected{laneOutcome.error()};
+							creds = (*laneOutcome)->credentials().credentials();
+						}else{
 							return std::unexpected{Error::badDescriptor};
+						}
 						return {};
 					});
 					if(!credsOutcome)
@@ -2870,7 +2786,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 	[](frg::dyn_array<Item, KernelAlloc> items, size_t count,
 			smarter::weak_ptr<Universe> weakUniverse,
 			smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
-			LaneHandle lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
+			smarter::shared_ptr<Stream, LanePolicy> lane, size_t numFlows, smarter::shared_ptr<Thread> thread,
 			enable_detached_coroutine) -> void {
 		StreamPacket packet;
 		packet.setup(count);
@@ -3150,7 +3066,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					assert(universe);
 
 					handle = universe->attachDescriptor(
-							LaneDescriptor{node->lane()});
+							AnyDescriptor::make<DescriptorType::lane>(node->lane()));
 				}
 
 				item->helHandleResult = {translateError(node->error()), 0, handle};
@@ -3164,7 +3080,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					assert(universe);
 
 					handle = universe->attachDescriptor(
-							LaneDescriptor{node->lane()});
+							AnyDescriptor::make<DescriptorType::lane>(node->lane()));
 				}
 
 				item->helHandleResult = {translateError(node->error()), 0, handle};
@@ -3234,17 +3150,12 @@ HelError helShutdownLane(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto laneOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<LaneHandle, Error> {
-		if(!desc.is<LaneDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<LaneDescriptor>().handle;
-	});
+	auto laneOutcome = this_universe->resolveObject<DescriptorType::lane>(handle);
 	if(!laneOutcome)
 		return translateError(laneOutcome.error());
 	auto lane = std::move(*laneOutcome);
 
-	lane.getStream()->shutdownLane(lane.getLane());
+	lane->shutdownLane(laneOf(lane));
 
 	return kHelErrNone;
 }
@@ -3319,7 +3230,7 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 	auto event = smarter::allocate_shared<OneshotEvent>(*kernelAlloc);
 
 	*handle = this_universe->attachDescriptor(
-			OneshotEventDescriptor(std::move(event)));
+			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(event)));
 
 	return kHelErrNone;
 }
@@ -3331,7 +3242,7 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 	auto event = smarter::allocate_shared<BitsetEvent>(*kernelAlloc);
 
 	*handle = this_universe->attachDescriptor(
-			BitsetEventDescriptor(std::move(event)));
+			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(event)));
 
 	return kHelErrNone;
 }
@@ -3340,12 +3251,7 @@ HelError helRaiseEvent(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto eventOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<OneshotEvent>, Error> {
-		if(!desc.is<OneshotEventDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<OneshotEventDescriptor>().event;
-	});
+	auto eventOutcome = this_universe->resolveObject<DescriptorType::oneshotEvent>(handle);
 	if(!eventOutcome)
 		return translateError(eventOutcome.error());
 
@@ -3370,7 +3276,7 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	IrqPin::attachSink(pin, irq.get());
 
 	*handle = this_universe->attachDescriptor(
-			IrqDescriptor(std::move(irq)));
+			AnyDescriptor::make<DescriptorType::irq>(std::move(irq)));
 
 	return kHelErrNone;
 #else
@@ -3391,12 +3297,7 @@ HelError helAcknowledgeIrq(HelHandle handle, uint32_t flags, uint64_t sequence) 
 	if(mode != kHelAckAcknowledge && mode != kHelAckNack && mode != kHelAckKick)
 		return kHelErrIllegalArgs;
 
-	auto irqOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IrqObject>, Error> {
-		if(!desc.is<IrqDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<IrqDescriptor>().irq;
-	});
+	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle);
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
@@ -3434,8 +3335,10 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 	if(!queue->validSize(ipcSourceSize(sizeof(HelEventResult))))
 		return kHelErrQueueTooSmall;
 
-	if(descriptor.is<IrqDescriptor>()) {
-		auto irq = descriptor.get<IrqDescriptor>().irq;
+	if(descriptor.is<DescriptorType::irq>()) {
+		auto irqOutcome = descriptor.resolveObject<DescriptorType::irq>();
+		if(!irqOutcome)
+			return translateError(irqOutcome.error());
 
 		[](smarter::shared_ptr<IrqObject> irq, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -3457,10 +3360,12 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			}
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(irq), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(*irqOutcome), sequence, std::move(queue), context, std::move(cg),
 			enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
-	}else if(descriptor.is<OneshotEventDescriptor>()) {
-		auto event = descriptor.get<OneshotEventDescriptor>().event;
+	}else if(descriptor.is<DescriptorType::oneshotEvent>()) {
+		auto eventOutcome = descriptor.resolveObject<DescriptorType::oneshotEvent>();
+		if(!eventOutcome)
+			return translateError(eventOutcome.error());
 
 		[](smarter::shared_ptr<OneshotEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -3477,10 +3382,12 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(*eventOutcome), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
-	}else if(descriptor.is<BitsetEventDescriptor>()) {
-		auto event = descriptor.get<BitsetEventDescriptor>().event;
+	}else if(descriptor.is<DescriptorType::bitsetEvent>()) {
+		auto eventOutcome = descriptor.resolveObject<DescriptorType::bitsetEvent>();
+		if(!eventOutcome)
+			return translateError(eventOutcome.error());
 
 		[](smarter::shared_ptr<BitsetEvent> event, uint64_t sequence,
 				smarter::shared_ptr<IpcQueue> queue, uintptr_t context,
@@ -3497,7 +3404,7 @@ HelError doSubmitAwaitEvent(HelHandle handle, smarter::shared_ptr<IpcQueue> queu
 			};
 			QueueSource ipcSource{&helResult, sizeof(HelEventResult), nullptr};
 			co_await queue->submit(&ipcSource, context);
-		}(std::move(event), sequence, std::move(queue), context, std::move(cg),
+		}(std::move(*eventOutcome), sequence, std::move(queue), context, std::move(cg),
 				enable_detached_coroutine{this_thread->mainWorkQueue().lock()});
 	}else{
 		return kHelErrBadDescriptor;
@@ -3513,22 +3420,12 @@ HelError helAutomateIrq(HelHandle handle, uint32_t flags, HelHandle kernlet_hand
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto irqOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IrqObject>, Error> {
-		if(!desc.is<IrqDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<IrqDescriptor>().irq;
-	});
+	auto irqOutcome = this_universe->resolveObject<DescriptorType::irq>(handle);
 	if(!irqOutcome)
 		return translateError(irqOutcome.error());
 	auto irq = std::move(*irqOutcome);
 
-	auto kernletOutcome = this_universe->inspectDescriptor(kernlet_handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<BoundKernlet>, Error> {
-		if(!desc.is<BoundKernletDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<BoundKernletDescriptor>().boundKernlet;
-	});
+	auto kernletOutcome = this_universe->resolveObject<DescriptorType::boundKernlet>(kernlet_handle);
 	if(!kernletOutcome)
 		return translateError(kernletOutcome.error());
 	auto kernlet = std::move(*kernletOutcome);
@@ -3553,7 +3450,7 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	}
 
 	*handle = this_universe->attachDescriptor(
-			IoDescriptor(std::move(io_space)));
+			AnyDescriptor::make<DescriptorType::io>(std::move(io_space)));
 
 	return kHelErrNone;
 }
@@ -3563,12 +3460,7 @@ HelError helEnableIo(HelHandle handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto ioOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<IoSpace>, Error> {
-		if(!desc.is<IoDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<IoDescriptor>().ioSpace;
-	});
+	auto ioOutcome = this_universe->resolveObject<DescriptorType::io>(handle);
 	if(!ioOutcome)
 		return translateError(ioOutcome.error());
 	auto io_space = std::move(*ioOutcome);
@@ -3600,12 +3492,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto kernletOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<KernletObject>, Error> {
-		if(!desc.is<KernletObjectDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return desc.get<KernletObjectDescriptor>().kernletObject;
-	});
+	auto kernletOutcome = this_universe->resolveObject<DescriptorType::kernletObject>(handle);
 	if(!kernletOutcome)
 		return translateError(kernletOutcome.error());
 	auto kernlet = std::move(*kernletOutcome);
@@ -3626,12 +3513,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		if(defn.type == KernletParameterType::offset) {
 			bound->setupOffsetBinding(i, d.handle);
 		}else if(defn.type == KernletParameterType::memoryView) {
-			auto memoryOutcome = this_universe->inspectDescriptor(d.handle,
-					[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<MemoryView>, Error> {
-				if(!desc.is<MemoryViewDescriptor>())
-					return std::unexpected{Error::badDescriptor};
-				return desc.get<MemoryViewDescriptor>().memory;
-			});
+			auto memoryOutcome = this_universe->resolveObject<DescriptorType::memoryView>(d.handle);
 			if(!memoryOutcome)
 				return translateError(memoryOutcome.error());
 			auto memory = std::move(*memoryOutcome);
@@ -3667,12 +3549,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 		}else{
 			assert(defn.type == KernletParameterType::bitsetEvent);
 
-			auto eventOutcome = this_universe->inspectDescriptor(d.handle,
-					[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<BitsetEvent>, Error> {
-				if(!desc.is<BitsetEventDescriptor>())
-					return std::unexpected{Error::badDescriptor};
-				return desc.get<BitsetEventDescriptor>().event;
-			});
+			auto eventOutcome = this_universe->resolveObject<DescriptorType::bitsetEvent>(d.handle);
 			if(!eventOutcome)
 				return translateError(eventOutcome.error());
 			auto event = std::move(*eventOutcome);
@@ -3682,7 +3559,7 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	}
 
 	*bound_handle = this_universe->attachDescriptor(
-			BoundKernletDescriptor(std::move(bound)));
+			AnyDescriptor::make<DescriptorType::boundKernlet>(std::move(bound)));
 
 	return kHelErrNone;
 }
@@ -3695,15 +3572,10 @@ HelError helGetAffinity(HelHandle handle, uint8_t *mask, size_t size, size_t *ac
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto threadOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-		if(!desc.is<ThreadDescriptor>())
-			return std::unexpected{Error::badDescriptor};
-		return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-	});
+	auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 	if(!threadOutcome)
 		return translateError(threadOutcome.error());
-	auto thread = std::move(*threadOutcome);
+	auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 	frg::vector<uint8_t, KernelAlloc> buf{*kernelAlloc};
 	buf.resize(maskSize);
@@ -3747,15 +3619,10 @@ HelError helSetAffinity(HelHandle handle, uint8_t *mask, size_t size) {
 		this_thread->_lbCb->setAffinityMask({buf.data(), maskSize});
 		Thread::migrateCurrent();
 	} else {
-		auto threadOutcome = this_universe->inspectDescriptor(handle,
-				[](AnyDescriptor &desc) -> std::expected<smarter::shared_ptr<Thread>, Error> {
-			if(!desc.is<ThreadDescriptor>())
-				return std::unexpected{Error::badDescriptor};
-			return smarter::rc_policy_downcast<smarter::default_rc_policy>(desc.get<ThreadDescriptor>().thread);
-		});
+		auto threadOutcome = this_universe->resolveObject<DescriptorType::thread>(handle);
 		if(!threadOutcome)
 			return translateError(threadOutcome.error());
-		auto thread = std::move(*threadOutcome);
+		auto thread = smarter::rc_policy_downcast<smarter::default_rc_policy>(std::move(*threadOutcome));
 
 		thread->_lbCb->setAffinityMask({buf.data(), maskSize});
 		infoLogger() << "thor: TODO: helSetAffinity does not migrate other threads!" << frg::endlog;
@@ -3856,7 +3723,7 @@ HelError helCreateToken(HelHandle *handle) {
 	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
 
 	*handle = thisUniverse->attachDescriptor(
-			TokenDescriptor(std::move(creds)));
+			AnyDescriptor::make<DescriptorType::token>(std::move(creds)));
 
 	return kHelErrNone;
 }

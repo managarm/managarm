@@ -9,7 +9,7 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
 
 coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::string_view name, Properties &&properties) {
 	auto [offerError, conversation] = co_await offer(*mbusClient);
@@ -50,7 +50,7 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 
 	if (descError != Error::success)
 		co_return descError;
-	if (!descriptor.is<LaneDescriptor>())
+	if (!descriptor.is<DescriptorType::lane>())
 		co_return Error::protocolViolation;
 
 	auto resp = bragi::parse_head_only<managarm::mbus::CreateObjectResponse>(respBuffer, *kernelAlloc);
@@ -59,8 +59,12 @@ coroutine<frg::expected<Error, size_t>> KernelBusObject::createObject(frg::strin
 	if (resp->error() != managarm::mbus::Error::SUCCESS)
 		co_return Error::illegalState;
 
+	auto laneOutcome = descriptor.resolveObject<DescriptorType::lane>();
+	if (!laneOutcome)
+		co_return laneOutcome.error();
+
 	mbusId_ = resp->id();
-	mgmtLane_ = descriptor.get<LaneDescriptor>().handle;
+	mgmtLane_ = std::move(*laneOutcome);
 
 	spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), handleMbusComms_());
 
@@ -143,7 +147,7 @@ coroutine<frg::expected<Error>> KernelBusObject::handleServeRemoteLane_() {
 	auto lane = initiateClient();
 
 	auto descError = co_await pushDescriptor(conversation,
-		LaneDescriptor{lane});
+		AnyDescriptor::make<DescriptorType::lane>(lane));
 
 	if (descError != Error::success)
 		co_return descError;

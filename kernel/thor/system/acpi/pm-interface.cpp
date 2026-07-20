@@ -42,7 +42,8 @@ struct PmInterfaceBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+	coroutine<frg::expected<Error>>
+	handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await accept(lane);
 		if (acceptError != Error::success)
 			co_return acceptError;

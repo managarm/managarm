@@ -192,7 +192,7 @@ struct FbMbusNode final : private KernelBusObject {
 		assert(ret);
 	}
 
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await accept(lane);
 		if(acceptError != Error::success)
 			co_return acceptError;
@@ -205,7 +205,7 @@ struct FbMbusNode final : private KernelBusObject {
 		if(preamble.error())
 			co_return Error::protocolViolation;
 
-		auto sendResponse = [] (LaneHandle &conversation,
+		auto sendResponse = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};
@@ -261,11 +261,10 @@ struct FbMbusNode final : private KernelBusObject {
 		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessFbMemoryRequest>) {
 			auto req = bragi::parse_head_only<managarm::hw::AccessFbMemoryRequest>(reqBuffer, *kernelAlloc);
 			auto fb = associatedFrameBuffer;
-			MemoryViewDescriptor descriptor{nullptr};
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			descriptor = MemoryViewDescriptor{fb->memory};
+			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(fb->memory);
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));

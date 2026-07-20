@@ -107,7 +107,7 @@ struct StreamNode {
 			_packet->completion.raise();
 	}
 
-	LaneHandle _transmitLane;
+	smarter::shared_ptr<Stream, LanePolicy> _transmitLane;
 
 	int _tag;
 	StreamPacket *_packet;
@@ -163,7 +163,7 @@ public:
 		return _transmitCredentials;
 	}
 
-	LaneHandle lane() {
+	smarter::shared_ptr<Stream, LanePolicy> lane() {
 		return std::move(_lane);
 	}
 
@@ -176,7 +176,7 @@ public:
 	frg::array<char, 16> _transmitCredentials;
 	size_t _actualLength = 0;
 	frg::unique_memory<KernelAlloc> _transmitBuffer;
-	LaneHandle _lane;
+	smarter::shared_ptr<Stream, LanePolicy> _lane;
 	AnyDescriptor _descriptor;
 };
 
@@ -191,7 +191,7 @@ using StreamList = frg::intrusive_list<
 
 struct Stream final {
 	struct Submitter {
-		void enqueue(const LaneHandle &lane, StreamList &chain);
+		void enqueue(const smarter::shared_ptr<Stream, LanePolicy> &lane, StreamList &chain);
 
 		void run();
 
@@ -199,23 +199,27 @@ struct Stream final {
 		StreamList _pending;
 	};
 
-	// manage the peer counter of each lane.
-	// incrementing a peer counter that is already at zero is undefined.
-	// decrementPeers() returns true if the counter reaches zero.
-	static void incrementPeers(Stream *stream, int lane);
-	static bool decrementPeers(Stream *stream, int lane);
+	// Breaks the lane after its peer counter reached zero.
+	// Does not drop the reference that the peer counter holds on the Stream.
+	static void onPeersZero(Stream *stream, int lane);
+
+	smarter::counter &peerCounter(int lane) {
+		return _peerCount[lane];
+	}
 
 	Stream(bool withCredentials = false);
 	~Stream();
 
 	// Submits a chain of operations to the stream.
-	static void transmit(const LaneHandle &lane, StreamList &chain) {
+	static void transmit(const smarter::shared_ptr<Stream, LanePolicy> &lane, StreamList &chain) {
 		Submitter submitter;
 		submitter.enqueue(lane, chain);
 		submitter.run();
 	}
 
 	void shutdownLane(int lane);
+
+	smarter::borrowed_ptr<Stream> selfPtr;
 
 	Credentials &credentials() {
 		assert(_withCredentials);
@@ -226,7 +230,7 @@ struct Stream final {
 private:
 	static void _cancelItem(StreamNode *item, Error error);
 
-	std::atomic<int> _peerCount[2];
+	smarter::counter _peerCount[2];
 
 	frg::optional<Credentials> _creds;
 
@@ -253,14 +257,14 @@ private:
 	bool _withCredentials;
 };
 
-frg::tuple<LaneHandle, LaneHandle> createStream(bool withCredentials = false);
+frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> createStream(bool withCredentials = false);
 
 //---------------------------------------------------------------------------------------
 // In-kernel stream utilities.
 // Those are only used internally; not by the hel API.
 //---------------------------------------------------------------------------------------
 
-inline coroutine<Error> dismiss(LaneHandle lane) {
+inline coroutine<Error> dismiss(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -274,7 +278,7 @@ inline coroutine<Error> dismiss(LaneHandle lane) {
 	co_return node.error();
 }
 
-inline coroutine<frg::tuple<Error, LaneHandle>> offer(LaneHandle lane) {
+inline coroutine<frg::tuple<Error, smarter::shared_ptr<Stream, LanePolicy>>> offer(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -288,7 +292,7 @@ inline coroutine<frg::tuple<Error, LaneHandle>> offer(LaneHandle lane) {
 	co_return frg::make_tuple(node.error(), node.lane());
 }
 
-inline coroutine<frg::tuple<Error, LaneHandle>> accept(LaneHandle lane) {
+inline coroutine<frg::tuple<Error, smarter::shared_ptr<Stream, LanePolicy>>> accept(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -302,7 +306,7 @@ inline coroutine<frg::tuple<Error, LaneHandle>> accept(LaneHandle lane) {
 	co_return frg::make_tuple(node.error(), node.lane());
 }
 
-inline coroutine<frg::tuple<Error, frg::array<char, 16>>> extractCredentials(LaneHandle lane) {
+inline coroutine<frg::tuple<Error, frg::array<char, 16>>> extractCredentials(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -316,7 +320,7 @@ inline coroutine<frg::tuple<Error, frg::array<char, 16>>> extractCredentials(Lan
 	co_return frg::make_tuple(node.error(), node.credentials());
 }
 
-inline coroutine<Error> sendBuffer(LaneHandle lane, frg::unique_memory<KernelAlloc> buffer) {
+inline coroutine<Error> sendBuffer(smarter::shared_ptr<Stream, LanePolicy> lane, frg::unique_memory<KernelAlloc> buffer) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -331,7 +335,7 @@ inline coroutine<Error> sendBuffer(LaneHandle lane, frg::unique_memory<KernelAll
 	co_return node.error();
 }
 
-inline coroutine<frg::tuple<Error, frg::unique_memory<KernelAlloc>>> recvBuffer(LaneHandle lane) {
+inline coroutine<frg::tuple<Error, frg::unique_memory<KernelAlloc>>> recvBuffer(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -346,7 +350,7 @@ inline coroutine<frg::tuple<Error, frg::unique_memory<KernelAlloc>>> recvBuffer(
 	co_return frg::make_tuple(node.error(), node.transmitBuffer());
 }
 
-inline coroutine<Error> pushDescriptor(LaneHandle lane, AnyDescriptor descriptor) {
+inline coroutine<Error> pushDescriptor(smarter::shared_ptr<Stream, LanePolicy> lane, AnyDescriptor descriptor) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);
@@ -361,7 +365,7 @@ inline coroutine<Error> pushDescriptor(LaneHandle lane, AnyDescriptor descriptor
 	co_return node.error();
 }
 
-inline coroutine<frg::tuple<Error, AnyDescriptor>> pullDescriptor(LaneHandle lane) {
+inline coroutine<frg::tuple<Error, AnyDescriptor>> pullDescriptor(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	StreamPacket packet;
 	StreamNode node;
 	packet.setup(1);

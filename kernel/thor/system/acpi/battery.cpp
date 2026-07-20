@@ -23,7 +23,8 @@ struct BatteryBusObject final : public KernelBusObject {
 	coroutine<void> run();
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+	coroutine<frg::expected<Error>>
+	handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;
 	static uacpi_status notification(uacpi_handle, uacpi_namespace_node *node, uacpi_u64 value);
 
 	void updateBIF();
@@ -141,7 +142,8 @@ coroutine<void> BatteryBusObject::run() {
 	});
 }
 
-coroutine<frg::expected<Error>> BatteryBusObject::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>>
+BatteryBusObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	auto [acceptError, conversation] = co_await accept(lane);
 	if (acceptError != Error::success)
 		co_return acceptError;

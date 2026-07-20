@@ -251,7 +251,7 @@ struct PciBus : private KernelBusObject {
 	async::oneshot_event mbusPublished;
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;
 };
 
 struct PciBar {
@@ -359,7 +359,7 @@ struct PciEntity : protected KernelBusObject {
 	IommuDomain *iommuDomain = nullptr;
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override;
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override;
 
 protected:
 	~PciEntity() = default;

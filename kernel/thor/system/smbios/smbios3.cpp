@@ -15,7 +15,7 @@ namespace {
 using namespace thor;
 
 struct NoSmbios final : KernelBusObject {
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await accept(lane);
 		if (acceptError != Error::success)
 			co_return acceptError;
@@ -76,7 +76,7 @@ struct Smbios3 final : KernelBusObject {
 		return true;
 	}
 
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await accept(lane);
 		if (acceptError != Error::success)
 			co_return acceptError;

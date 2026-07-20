@@ -93,7 +93,7 @@ struct MbusNode final : private KernelBusObject {
 		mbusPublished.raise();
 	}
 
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle lane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) override {
 		auto [acceptError, conversation] = co_await accept(lane);
 		if(acceptError != Error::success)
 			co_return acceptError;
@@ -106,7 +106,7 @@ struct MbusNode final : private KernelBusObject {
 		if(preamble.error())
 			co_return Error::protocolViolation;
 
-		auto sendResponse = [] (LaneHandle &conversation,
+		auto sendResponse = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 				managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 			frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 				resp.head_size};
@@ -171,7 +171,7 @@ struct MbusNode final : private KernelBusObject {
 					(regs[index].length + (kPageSize - 1)) & ~(kPageSize - 1),
 					CachingMode::mmioNonPosted);
 
-			MemoryViewDescriptor descriptor{memory};
+			auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(memory);
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -204,7 +204,7 @@ struct MbusNode final : private KernelBusObject {
 
 			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-			auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+			auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 
 			if(descError != Error::success)
 				co_return descError;

@@ -45,7 +45,8 @@ coroutine<void> AcpiObject::run(Properties acpi_properties) {
 	completion.raise();
 }
 
-coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>>
+AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	auto [acceptError, conversation] = co_await accept(lane);
 	if (acceptError != Error::success)
 		co_return acceptError;
@@ -59,9 +60,9 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 	if (preamble.error())
 		co_return Error::protocolViolation;
 
-	auto sendResponse = [](
-	                        LaneHandle &conversation, managarm::hw::SvrResponse<KernelAlloc> &&resp
-	                    ) -> coroutine<frg::expected<Error>> {
+	auto sendResponse =
+	    [](smarter::shared_ptr<Stream, LanePolicy> &conversation,
+	       managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc, resp.head_size};
 
 		frg::unique_memory<KernelAlloc> respTailBuffer{*kernelAlloc, resp.size_of_tail()};
@@ -225,7 +226,8 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto ioError = co_await pushDescriptor(conversation, IoDescriptor{space});
+		auto ioError =
+		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::io>(space));
 		if (ioError != Error::success)
 			co_return ioError;
 	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
@@ -296,7 +298,8 @@ coroutine<frg::expected<Error>> AcpiObject::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto irqError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto irqError =
+		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 		if (irqError != Error::success)
 			co_return irqError;
 	} else {

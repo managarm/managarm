@@ -39,7 +39,7 @@ struct KerncfgBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
 		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
@@ -139,7 +139,7 @@ private:
 	LogRingBuffer *buffer_;
 	frg::string_view purpose_;
 
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
 		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;

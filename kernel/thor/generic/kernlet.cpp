@@ -368,7 +368,7 @@ struct KernletCtlBusObject : private KernelBusObject {
 	}
 
 private:
-	coroutine<frg::expected<Error>> handleRequest(LaneHandle boundLane) override {
+	coroutine<frg::expected<Error>> handleRequest(smarter::shared_ptr<Stream, LanePolicy> boundLane) override {
 		auto [acceptError, lane] = co_await accept(boundLane);
 		if(acceptError != Error::success)
 			co_return acceptError;
@@ -424,7 +424,7 @@ private:
 			if(respError != Error::success)
 				co_return respError;
 			auto objectError = co_await pushDescriptor(lane,
-					KernletObjectDescriptor{std::move(kernlet)});
+					AnyDescriptor::make<DescriptorType::kernletObject>(std::move(kernlet)));
 			if(objectError != Error::success)
 				co_return objectError;
 		}else{

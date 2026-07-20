@@ -3,18 +3,15 @@
 
 namespace thor {
 
-LaneHandle::LaneHandle(const LaneHandle &other)
-: _stream(other._stream), _lane(other._lane) {
-	if(_stream)
-		Stream::incrementPeers(_stream.get(), _lane);
+void LanePolicy::increment() const {
+	stream_->peerCounter(lane_).increment();
 }
 
-LaneHandle::~LaneHandle() {
-	if(!_stream)
-		return;
-
-	if(Stream::decrementPeers(_stream.get(), _lane))
-		_stream.policy().decrement();
+void LanePolicy::decrement() const {
+	if(stream_->peerCounter(lane_).decrement_and_check_if_zero()) {
+		Stream::onPeersZero(stream_, lane_);
+		stream_->selfPtr.policy().decrement();
+	}
 }
 
 struct OfferAccept { };
@@ -73,7 +70,7 @@ static void transfer(PushPull, StreamNode *push, StreamNode *pull) {
 	pull->complete();
 }
 
-void Stream::Submitter::enqueue(const LaneHandle &lane, StreamList &chain) {
+void Stream::Submitter::enqueue(const smarter::shared_ptr<Stream, LanePolicy> &lane, StreamList &chain) {
 	while(!chain.empty()) {
 		auto node = chain.pop_front();
 		node->_transmitLane = lane;
@@ -87,13 +84,13 @@ void Stream::Submitter::run() {
 		StreamNode *v = nullptr;
 
 		// Note: Try to do as little work as possible while holding the lock.
-		auto s = u->_transmitLane.getStream();
+		auto s = u->_transmitLane.get();
 		bool laneShutdown = false;
 		bool laneBroken = false;
 		{
 			// p/q is the number of the local/remote lane.
 			// u/v is the local/remote item that we are processing.
-			int p = u->_transmitLane.getLane();
+			int p = laneOf(u->_transmitLane);
 			assert(!(p & ~int(1)));
 			int q = 1 - p;
 
@@ -155,10 +152,11 @@ void Stream::Submitter::run() {
 			// * One reference for each of the two lanes.
 			auto branch = smarter::allocate_shared<Stream>(*kernelAlloc);
 			assert(branch.policy().base()->ctr().check_count() == 1);
+			branch->selfPtr = branch;
 			branch.policy().increment();
 			branch.policy().increment();
-			u->_lane = LaneHandle{adoptLane, branch, 0};
-			v->_lane = LaneHandle{adoptLane, branch, 1};
+			u->_lane = adoptLane(branch, 0);
+			v->_lane = adoptLane(branch, 1);
 
 			enqueue(u->_lane, u->ancillaryChain);
 			enqueue(v->_lane, v->ancillaryChain);
@@ -241,18 +239,7 @@ void Stream::Submitter::run() {
 	}
 }
 
-void Stream::incrementPeers(Stream *stream, int lane) {
-	auto count = stream->_peerCount[lane].fetch_add(1, std::memory_order_relaxed);
-	assert(count);
-}
-
-bool Stream::decrementPeers(Stream *stream, int lane) {
-	auto count = stream->_peerCount[lane].fetch_sub(1, std::memory_order_release);
-	if(count > 1)
-		return false;
-
-	std::atomic_thread_fence(std::memory_order_acquire);
-
+void Stream::onPeersZero(Stream *stream, int lane) {
 	frg::intrusive_list<
 		StreamNode,
 		frg::locate_member<
@@ -275,14 +262,12 @@ bool Stream::decrementPeers(Stream *stream, int lane) {
 		auto item = pending.pop_front();
 		_cancelItem(item, Error::endOfLane);
 	}
-
-	return true;
 }
 
 Stream::Stream(bool withCredentials)
 : _laneBroken{false, false}, _laneShutDown{false, false}, _withCredentials{withCredentials} {
-	_peerCount[0].store(1, std::memory_order_relaxed);
-	_peerCount[1].store(1, std::memory_order_relaxed);
+	_peerCount[0].setup(smarter::adopt_rc, 1);
+	_peerCount[1].setup(smarter::adopt_rc, 1);
 	if(withCredentials)
 		_creds = Credentials{};
 }
@@ -345,14 +330,16 @@ void Stream::_cancelItem(StreamNode *item, Error error) {
 	}
 }
 
-frg::tuple<LaneHandle, LaneHandle> createStream(bool withCredentials) {
+frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>>
+createStream(bool withCredentials) {
 	auto stream = smarter::allocate_shared<Stream>(*kernelAlloc, withCredentials);
 	assert(stream.policy().base()->ctr().check_count() == 1);
+	stream->selfPtr = stream;
 	stream.policy().increment();
-	LaneHandle handle1(adoptLane, stream, 0);
-	LaneHandle handle2(adoptLane, stream, 1);
+	auto handle1 = adoptLane(stream, 0);
+	auto handle2 = adoptLane(stream, 1);
 	stream.release();
-	return frg::make_tuple(handle1, handle2);
+	return frg::make_tuple(std::move(handle1), std::move(handle2));
 }
 
 } // namespace thor

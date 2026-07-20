@@ -17,7 +17,7 @@
 namespace thor {
 
 // TODO: Move this to a header file.
-extern frg::manual_box<LaneHandle> mbusClient;
+extern frg::manual_box<smarter::shared_ptr<Stream, LanePolicy>> mbusClient;
 
 namespace pci {
 
@@ -84,7 +84,7 @@ void PciBus::runRootBus() {
 	});
 }
 
-coroutine<frg::expected<Error>> PciBus::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>> PciBus::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	// TODO(qookie): Implement this properly :^)
 	auto dismissError = co_await dismiss(lane);
 	if (dismissError != Error::success)
@@ -181,7 +181,7 @@ void PciDevice::runDevice() {
 // PciEntity implementation.
 // --------------------------------------------------------
 
-coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
+coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 	auto [acceptError, conversation] = co_await accept(lane);
 	if(acceptError != Error::success)
 		co_return acceptError;
@@ -194,7 +194,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 	if (preamble.error())
 		co_return Error::protocolViolation;
 
-	auto sendResponse = [] (LaneHandle &conversation,
+	auto sendResponse = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 			managarm::hw::SvrResponse<KernelAlloc> &&resp) -> coroutine<frg::expected<Error>> {
 		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 			resp.head_size};
@@ -217,7 +217,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		co_return frg::success;
 	};
 
-	auto sendResponseHead = [] (LaneHandle &conversation,
+	auto sendResponseHead = [] (smarter::shared_ptr<Stream, LanePolicy> &conversation,
 			auto &&resp) -> coroutine<frg::expected<Error>> {
 		frg::unique_memory<KernelAlloc> respHeadBuffer{*kernelAlloc,
 			resp.head_size};
@@ -309,10 +309,10 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		AnyDescriptor descriptor;
 		if(bars[index].type == PciBar::kBarIo) {
-			descriptor = IoDescriptor{bars[index].io};
+			descriptor = AnyDescriptor::make<DescriptorType::io>(bars[index].io);
 		}else{
 			assert(bars[index].type == PciBar::kBarMemory);
-			descriptor = MemoryViewDescriptor{bars[index].memory};
+			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(bars[index].memory);
 		}
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
@@ -333,7 +333,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		assert(expansionRom.address);
-		AnyDescriptor descriptor = MemoryViewDescriptor{expansionRom.memory};
+		auto descriptor = AnyDescriptor::make<DescriptorType::memoryView>(expansionRom.memory);
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_error(managarm::hw::Errors::SUCCESS);
@@ -376,7 +376,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -442,7 +442,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto descError = co_await pushDescriptor(conversation, IrqDescriptor{object});
+		auto descError = co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::irq>(object));
 
 		if (descError != Error::success)
 			co_return descError;
@@ -701,22 +701,21 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		auto fb = static_cast<PciDevice *>(this)->associatedFrameBuffer;
-		MemoryViewDescriptor descriptor{nullptr};
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if (!fb) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		} else {
-			descriptor = MemoryViewDescriptor{fb->memory};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+			auto descError = co_await pushDescriptor(conversation,
+					AnyDescriptor::make<DescriptorType::memoryView>(fb->memory));
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}
-
-		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-
-		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
 	}else if(preamble.id() == bragi::message_id<managarm::hw::EnableDmaRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::EnableDmaRequest>(reqBuffer, *kernelAlloc);
 
@@ -757,23 +756,22 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 		}
 
 		auto vbt = static_cast<PciDevice *>(this)->igdVbt;
-		MemoryViewDescriptor descriptor{nullptr};
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
 		if(!vbt) {
 			resp.set_error(managarm::hw::Errors::ILLEGAL_ARGUMENTS);
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 		} else {
-			descriptor = MemoryViewDescriptor{vbt};
 			resp.set_error(managarm::hw::Errors::SUCCESS);
 			resp.set_vbt_size(vbt->getLength());
+			FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
+
+			auto descError = co_await pushDescriptor(conversation,
+					AnyDescriptor::make<DescriptorType::memoryView>(vbt));
+			// TODO: improve error handling here.
+			assert(descError == Error::success);
 		}
-
-		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
-
-		auto descError = co_await pushDescriptor(conversation, std::move(descriptor));
-		// TODO: improve error handling here.
-		assert(descError == Error::success);
 	}else if(preamble.id() == bragi::message_id<managarm::hw::GetDmaSpaceRequest>) {
 		auto req = bragi::parse_head_only<managarm::hw::GetDmaSpaceRequest>(reqBuffer, *kernelAlloc);
 
@@ -782,9 +780,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(LaneHandle lane) {
 			co_return Error::protocolViolation;
 		}
 
-		DmaSpaceDescriptor descriptor{*noopDmaSpace};
+		auto descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(*noopDmaSpace);
 		if (iommuDomain)
-			descriptor = DmaSpaceDescriptor{iommuDomain->space_};
+			descriptor = AnyDescriptor::make<DescriptorType::dmaSpace>(iommuDomain->space_);
 
 		managarm::hw::GetDmaSpaceResponse<KernelAlloc> resp{*kernelAlloc};
 		resp.set_iommu_active(iommuDomain != nullptr);
