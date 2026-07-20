@@ -590,10 +590,11 @@ HelError helAccessPhysical(uintptr_t physical, size_t size, HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto memory = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, physical, size,
-			CachingMode::null);
+	auto memoryOutcome = HardwareMemory::create(physical, size, CachingMode::null);
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(memory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*memoryOutcome)));
 
 	return kHelErrNone;
 }

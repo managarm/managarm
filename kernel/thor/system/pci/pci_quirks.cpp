@@ -71,14 +71,15 @@ void readIntelIntegratedGraphicsVbt(pci::PciDevice *dev) {
 		}
 
 		// OpRegion 2.0: rvda is a physical address
-		auto vbt = smarter::allocate_shared<HardwareMemory>(
-		    *kernelAlloc,
+		auto vbtOutcome = HardwareMemory::create(
 		    rvda & ~(kPageSize - 1),
 		    (asle->rvds + (kPageSize - 1)) & ~(kPageSize - 1),
 		    CachingMode::uncached
 		);
+		if(!vbtOutcome)
+			panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 
-		dev->igdVbt = std::move(vbt);
+		dev->igdVbt = std::move(*vbtOutcome);
 		return;
 	}
 
@@ -91,14 +92,15 @@ void readIntelIntegratedGraphicsVbt(pci::PciDevice *dev) {
 	    ((opregion->mbox & IGD_MBOX_ASLE_EXT) ? IGD_OPREGION_ASLE_EXT_OFFSET : IGD_OPREGION_SIZE)
 	    - IGD_OPREGION_VBT_OFFSET;
 
-	auto vbt = smarter::allocate_shared<HardwareMemory>(
-	    *kernelAlloc,
+	auto vbtOutcome = HardwareMemory::create(
 	    (aslsPhys + IGD_OPREGION_VBT_OFFSET) & ~(kPageSize - 1),
 	    (vbtSize + (kPageSize - 1)) & ~(kPageSize - 1),
 	    CachingMode::uncached
 	);
+	if(!vbtOutcome)
+		panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 
-	dev->igdVbt = std::move(vbt);
+	dev->igdVbt = std::move(*vbtOutcome);
 }
 
 void enableNvidiaHda(pci::PciDevice *dev) {

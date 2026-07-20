@@ -1602,10 +1602,12 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							    func
 							) << frg::endlog;
 
-							auto reservedMemory = smarter::allocate_shared<HardwareMemory>(
-							    *kernelAlloc, rmrr.memory_base, size, CachingMode::null
+							auto reservedMemoryOutcome = HardwareMemory::create(
+							    rmrr.memory_base, size, CachingMode::null
 							);
-							space->reservedRegions_.push_back(std::move(reservedMemory));
+							if(!reservedMemoryOutcome)
+								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
 
 							auto slice = smarter::allocate_shared<MemorySlice>(
 							    *kernelAlloc, space->reservedRegions_.back(), 0, size
@@ -1660,10 +1662,12 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 							    func
 							) << frg::endlog;
 
-							auto reservedMemory = smarter::allocate_shared<HardwareMemory>(
-							    *kernelAlloc, rmrr.memory_base, size, CachingMode::null
+							auto reservedMemoryOutcome = HardwareMemory::create(
+							    rmrr.memory_base, size, CachingMode::null
 							);
-							space->reservedRegions_.push_back(std::move(reservedMemory));
+							if(!reservedMemoryOutcome)
+								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
+							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
 
 							auto slice = smarter::allocate_shared<MemorySlice>(
 							    *kernelAlloc, space->reservedRegions_.back(), 0, size

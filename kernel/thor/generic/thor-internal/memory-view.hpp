@@ -562,7 +562,14 @@ private:
 };
 
 struct HardwareMemory final : MemoryView {
-	HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<HardwareMemory>, Error> create(
+			PhysicalAddr base, size_t length, CachingMode cache_mode);
+
+	HardwareMemory(CtorToken, PhysicalAddr base, size_t length, CachingMode cache_mode);
 	HardwareMemory(const HardwareMemory &) = delete;
 	~HardwareMemory();
 

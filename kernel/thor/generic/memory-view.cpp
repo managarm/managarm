@@ -706,7 +706,14 @@ ImmediateWindow::~ImmediateWindow() {
 // HardwareMemory
 // --------------------------------------------------------
 
-HardwareMemory::HardwareMemory(PhysicalAddr base, size_t length, CachingMode cache_mode)
+std::expected<smarter::shared_ptr<HardwareMemory>, Error> HardwareMemory::create(
+		PhysicalAddr base, size_t length, CachingMode cache_mode) {
+	auto ptr = smarter::allocate_shared<HardwareMemory>(*kernelAlloc, CtorToken{},
+			base, length, cache_mode);
+	return ptr;
+}
+
+HardwareMemory::HardwareMemory(CtorToken, PhysicalAddr base, size_t length, CachingMode cache_mode)
 : _base{base}, _length{length}, _cacheMode{cache_mode} {
 	assert(!(base % kPageSize));
 	assert(!(length % kPageSize));
