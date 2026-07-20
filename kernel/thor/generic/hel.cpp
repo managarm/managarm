@@ -543,12 +543,14 @@ HelError helCreateManagedMemory(size_t size, uint32_t flags,
 	auto managed = smarter::allocate_shared<ManagedSpace>(*kernelAlloc, size,
 			flags & kHelManagedReadahead);
 	managed->selfPtr = managed;
-	auto backingMemory = smarter::allocate_shared<BackingMemory>(*kernelAlloc, managed);
+	auto backingOutcome = BackingMemory::create(managed);
+	if(!backingOutcome)
+		return translateError(backingOutcome.error());
 	auto frontalMemory = smarter::allocate_shared<FrontalMemory>(*kernelAlloc, std::move(managed));
 	frontalMemory->selfPtr = frontalMemory;
 
 	*backing_handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(backingMemory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*backingOutcome)));
 	*frontal_handle = thisUniverse->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::memoryView>(std::move(frontalMemory)));
 

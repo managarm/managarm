@@ -764,8 +764,14 @@ struct ManagedSpace : CacheBundle {
 };
 
 struct BackingMemory final : MemoryView {
+private:
+	struct CtorToken {};
+
 public:
-	BackingMemory(smarter::shared_ptr<ManagedSpace> managed)
+	static std::expected<smarter::shared_ptr<BackingMemory>, Error> create(
+			smarter::shared_ptr<ManagedSpace> managed);
+
+	BackingMemory(CtorToken, smarter::shared_ptr<ManagedSpace> managed)
 	: MemoryView{&managed->_evictQueue}, _managed{std::move(managed)} { }
 
 	BackingMemory(const BackingMemory &) = delete;

@@ -1257,6 +1257,12 @@ void ManagedSpace::markDirty(CachePage *cachePage) {
 // BackingMemory
 // --------------------------------------------------------
 
+std::expected<smarter::shared_ptr<BackingMemory>, Error> BackingMemory::create(
+		smarter::shared_ptr<ManagedSpace> managed) {
+	auto ptr = smarter::allocate_shared<BackingMemory>(*kernelAlloc, CtorToken{}, std::move(managed));
+	return ptr;
+}
+
 coroutine<frg::expected<Error>> BackingMemory::resize(size_t newSize) {
 	assert(currentIpl() == ipl::exceptionalWork);
 	assert(!(newSize & (kPageSize - 1)));
