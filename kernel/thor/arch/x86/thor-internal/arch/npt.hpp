@@ -49,7 +49,11 @@ namespace thor::svm {
 		friend struct ShootNode;
 		friend struct Vcpu;
 
-		NptSpace(PhysicalAddr root);
+	private:
+		struct CtorToken {};
+
+	public:
+		NptSpace(CtorToken, PhysicalAddr root);
 
 		NptSpace(const NptSpace &) = delete;
 
@@ -57,8 +61,8 @@ namespace thor::svm {
 
 		NptSpace& operator=(const NptSpace &) = delete;
 
-		static smarter::shared_ptr<NptSpace> create(PhysicalAddr root) {
-			auto ptr = smarter::allocate_shared<NptSpace>(Allocator{}, root);
+		static std::expected<smarter::shared_ptr<NptSpace>, Error> create(PhysicalAddr root) {
+			auto ptr = smarter::allocate_shared<NptSpace>(Allocator{}, CtorToken{}, root);
 			ptr->selfPtr = ptr;
 			ptr->setupInitialHole(0, 0x7ffffff00000);
 			return ptr;

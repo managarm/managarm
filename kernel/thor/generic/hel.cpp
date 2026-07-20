@@ -858,7 +858,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 			return translateError(vspaceOutcome.error());
 		vspace = std::move(*vspaceOutcome);
 	} else if(getGlobalCpuFeatures()->haveSvm) {
-		vspace = thor::svm::NptSpace::create(pml4e);
+		auto vspaceOutcome = thor::svm::NptSpace::create(pml4e);
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
+		vspace = std::move(*vspaceOutcome);
 	} else {
 		physicalAllocator->free(pml4e, kPageSize);
 		return kHelErrNoHardwareSupport;
