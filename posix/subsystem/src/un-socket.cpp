@@ -160,8 +160,8 @@ public:
 public:
 	async::result<std::expected<size_t, Error>>
 	readSome(Process *, void *data, size_t max_length, async::cancellation_token ct) override {
-		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && _currentState == State::remoteShutDown)
-			co_return std::unexpected{Error::brokenPipe};
+		if(socktype_ == SOCK_STREAM && _recvQueue.empty() && (_currentState == State::remoteShutDown || _remote->shutdownFlags_ & shutdownWrite))
+			co_return std::unexpected{Error::eof};
 		if(socktype_ == SOCK_STREAM && _currentState != State::connected && _currentState != State::remoteShutDown)
 			co_return std::unexpected{Error::notConnected};
 
@@ -422,7 +422,7 @@ public:
 					assert(resolveResult);
 					if(!resolver.currentLink())
 						co_return protocols::fs::Error::fileNotFound;
-	
+
 					// Lookup the socket associated with the node.
 					auto node = resolver.currentLink()->getTarget();
 					remote = globalBindMap.at(node);

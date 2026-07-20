@@ -417,3 +417,48 @@ DEFINE_TEST(socket_connect_dgram, ([] {
 	close(server_fd);
 	unlink(server_addr.sun_path);
 }));
+
+DEFINE_TEST(socket_stream_eof, ([] {
+	int fds[2];
+	int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+	assert(!ret);
+
+	ret = shutdown(fds[0], SHUT_WR);
+	assert(!ret);
+
+	char buf[10];
+	ssize_t n = read(fds[1], buf, sizeof(buf));
+	assert(n == 0);
+
+	close(fds[0]);
+	close(fds[1]);
+
+	ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+	assert(!ret);
+
+	close(fds[0]);
+
+	n = read(fds[1], buf, sizeof(buf));
+	assert(n == 0);
+
+	close(fds[1]);
+
+	ret = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
+	assert(!ret);
+
+	ret = write(fds[0], "a", 1);
+	assert(ret == 1);
+
+	ret = shutdown(fds[0], SHUT_WR);
+	assert(!ret);
+
+	n = read(fds[1], buf, sizeof(buf));
+	assert(n == 1);
+	assert(buf[0] == 'a');
+
+	n = read(fds[1], buf, sizeof(buf));
+	assert(n == 0);
+
+	close(fds[0]);
+	close(fds[1]);
+}));
