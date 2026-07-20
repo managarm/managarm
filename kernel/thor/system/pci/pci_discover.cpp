@@ -819,7 +819,18 @@ void PciEntity::enableBusmaster() {
 
 namespace {
 	struct PciIrqObject final : IrqObject {
-		PciIrqObject(PciDevice *pciDevice, frg::string<KernelAlloc> name)
+	private:
+		struct CtorToken {};
+
+	public:
+		static std::expected<smarter::shared_ptr<PciIrqObject>, Error> create(
+				PciDevice *pciDevice, frg::string<KernelAlloc> name) {
+			auto ptr = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, CtorToken{},
+					pciDevice, std::move(name));
+			return ptr;
+		}
+
+		PciIrqObject(CtorToken, PciDevice *pciDevice, frg::string<KernelAlloc> name)
 		: IrqObject{name}, pciDevice_{pciDevice} { }
 
 		void dumpHardwareState() override {
@@ -837,13 +848,16 @@ namespace {
 
 smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	assert(interrupt);
-	auto object = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, this,
+	auto objectOutcome = PciIrqObject::create(this,
 			frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
 			+ frg::to_allocated_string(*kernelAlloc, bus)
 			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
 			+ frg::to_allocated_string(*kernelAlloc, slot)
 			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
 			+ frg::to_allocated_string(*kernelAlloc, function));
+	if(!objectOutcome)
+		panicLogger() << "thor: Failed to create PCI IRQ object" << frg::endlog;
+	auto object = std::move(*objectOutcome);
 	IrqPin::attachSink(interrupt, object.get());
 	return object;
 }
