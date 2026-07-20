@@ -2117,8 +2117,12 @@ void enumerateAll() {
 	if (!allDevices)
 		allDevices.initialize(*kernelAlloc);
 
-	if (!noopDmaSpace)
-		noopDmaSpace.initialize(NoopDmaSpace::create());
+	if (!noopDmaSpace) {
+		auto spaceOutcome = NoopDmaSpace::create();
+		if(!spaceOutcome)
+			panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
+		noopDmaSpace.initialize(std::move(*spaceOutcome));
+	}
 
 	for(size_t i = 0; i < enumerationQueue->size(); i++) {
 		auto bus = (*enumerationQueue)[i];
