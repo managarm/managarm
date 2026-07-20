@@ -683,10 +683,11 @@ HelError helCreateSliceView(HelHandle memoryHandle,
 	if(flags & kHelSliceCacheWriteCombine)
 		cachingFlags = cacheWriteCombine;
 
-	auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-			std::move(view), offset, size, cachingFlags);
+	auto sliceOutcome = MemorySlice::create(std::move(view), offset, size, cachingFlags);
+	if(!sliceOutcome)
+		return translateError(sliceOutcome.error());
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memorySlice>(std::move(slice)));
+			AnyDescriptor::make<DescriptorType::memorySlice>(std::move(*sliceOutcome)));
 
 	return kHelErrNone;
 }
@@ -1050,16 +1051,20 @@ HelError helMapMemory(HelHandle memory_handle, HelHandle space_handle,
 				return std::unexpected{viewOutcome.error()};
 			auto memory = std::move(*viewOutcome);
 			auto sliceLength = memory->getLength();
-			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					std::move(memory), 0, sliceLength);
+			auto sliceOutcome = MemorySlice::create(std::move(memory), 0, sliceLength);
+			if(!sliceOutcome)
+				return std::unexpected{sliceOutcome.error()};
+			slice = std::move(*sliceOutcome);
 		}else if(desc.is<DescriptorType::queue>()) {
 			auto queueOutcome = desc.resolveObject<DescriptorType::queue>();
 			if(!queueOutcome)
 				return std::unexpected{queueOutcome.error()};
 			auto memory = (*queueOutcome)->getMemory();
 			auto sliceLength = memory->getLength();
-			slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					std::move(memory), 0, sliceLength);
+			auto sliceOutcome = MemorySlice::create(std::move(memory), 0, sliceLength);
+			if(!sliceOutcome)
+				return std::unexpected{sliceOutcome.error()};
+			slice = std::move(*sliceOutcome);
 		}else{
 			return std::unexpected{Error::badDescriptor};
 		}

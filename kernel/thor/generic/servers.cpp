@@ -210,8 +210,10 @@ coroutine<ImageInfo> loadModuleImage(smarter::shared_ptr<AddressSpace, BindableH
 					image.get(), phdr.p_offset, phdr.p_filesz);
 			assert(copyResult);
 
-			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					std::move(memory), 0, virt_length);
+			auto viewOutcome = MemorySlice::create(std::move(memory), 0, virt_length);
+			if(!viewOutcome)
+				panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+			auto view = std::move(*viewOutcome);
 
 			if((phdr.p_flags & (PF_R | PF_W | PF_X)) == (PF_R | PF_W)) {
 				auto mapResult = co_await space->map(std::move(view),
@@ -288,8 +290,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	if(!stackMemoryOutcome)
 		panicLogger() << "thor: Failed to create memory" << frg::endlog;
 	auto stack_memory = std::move(*stackMemoryOutcome);
-	auto stack_view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-			stack_memory, 0, stack_size);
+	auto stackViewOutcome = MemorySlice::create(stack_memory, 0, stack_size);
+	if(!stackViewOutcome)
+		panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+	auto stack_view = std::move(*stackViewOutcome);
 
 	auto mapResult = co_await space->map(std::move(stack_view), 0, 0, stack_size,
 			AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead

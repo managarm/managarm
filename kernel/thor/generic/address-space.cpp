@@ -34,7 +34,15 @@ namespace {
 
 // --------------------------------------------------------
 
-MemorySlice::MemorySlice(smarter::shared_ptr<MemoryView> view,
+std::expected<smarter::shared_ptr<MemorySlice>, Error> MemorySlice::create(
+		smarter::shared_ptr<MemoryView> view, ptrdiff_t view_offset, size_t view_size,
+		CachingFlags cachingFlags) {
+	auto ptr = smarter::allocate_shared<MemorySlice>(*kernelAlloc, CtorToken{},
+			std::move(view), view_offset, view_size, cachingFlags);
+	return ptr;
+}
+
+MemorySlice::MemorySlice(CtorToken, smarter::shared_ptr<MemoryView> view,
 		ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags)
 : _view{std::move(view)}, _viewOffset{view_offset}, _viewSize{view_size}, cachingFlags_{cachingFlags} {
 	assert(!(_viewOffset & (kPageSize - 1)));

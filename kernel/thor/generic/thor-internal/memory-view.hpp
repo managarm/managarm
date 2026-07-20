@@ -413,8 +413,16 @@ struct SliceRange {
 };
 
 struct MemorySlice {
-	MemorySlice(smarter::shared_ptr<MemoryView> view,
-			ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags = 0);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<MemorySlice>, Error> create(
+			smarter::shared_ptr<MemoryView> view, ptrdiff_t view_offset, size_t view_size,
+			CachingFlags cachingFlags = 0);
+
+	MemorySlice(CtorToken, smarter::shared_ptr<MemoryView> view,
+			ptrdiff_t view_offset, size_t view_size, CachingFlags cachingFlags);
 
 	smarter::shared_ptr<MemoryView> getView() {
 		return _view;

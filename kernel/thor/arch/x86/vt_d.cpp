@@ -1609,9 +1609,12 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
 
-							auto slice = smarter::allocate_shared<MemorySlice>(
-							    *kernelAlloc, space->reservedRegions_.back(), 0, size
+							auto sliceOutcome = MemorySlice::create(
+							    space->reservedRegions_.back(), 0, size
 							);
+							if(!sliceOutcome)
+								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+							auto slice = std::move(*sliceOutcome);
 
 							auto res = KernelFiber::asyncBlockCurrent(space->map(
 							    std::move(slice),
@@ -1669,9 +1672,12 @@ bool handleRmrr(frg::span<uint8_t> remappingStructureTypes) {
 								panicLogger() << "thor: Failed to create hardware memory" << frg::endlog;
 							space->reservedRegions_.push_back(std::move(*reservedMemoryOutcome));
 
-							auto slice = smarter::allocate_shared<MemorySlice>(
-							    *kernelAlloc, space->reservedRegions_.back(), 0, size
+							auto sliceOutcome = MemorySlice::create(
+							    space->reservedRegions_.back(), 0, size
 							);
+							if(!sliceOutcome)
+								panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+							auto slice = std::move(*sliceOutcome);
 
 							auto res = KernelFiber::asyncBlockCurrent(space->map(
 							    std::move(slice),

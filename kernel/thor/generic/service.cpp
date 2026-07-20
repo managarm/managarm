@@ -449,8 +449,10 @@ namespace posix {
 		}
 
 		coroutine<void> setupAddressSpace(smarter::shared_ptr<Thread, ActiveHandle> thread) {
-			auto view = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-					fileTableMemory, 0, 0x1000);
+			auto viewOutcome = MemorySlice::create(fileTableMemory, 0, 0x1000);
+			if(!viewOutcome)
+				panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+			auto view = std::move(*viewOutcome);
 			auto result = co_await thread->getAddressSpace()->map(std::move(view),
 					0, 0, 0x1000,
 					AddressSpace::kMapPreferTop | AddressSpace::kMapProtRead);
@@ -875,8 +877,11 @@ namespace posix {
 							std::move(fileMemory), req->rel_offset(), req->size());
 					if(!cowOutcome)
 						panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
-					slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
+					auto sliceOutcome = MemorySlice::create(
 							std::move(*cowOutcome), 0, req->size());
+					if(!sliceOutcome)
+						panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+					slice = std::move(*sliceOutcome);
 				}else{
 					assert(!"TODO: implement shared mappings");
 				}
@@ -1012,8 +1017,10 @@ namespace posix {
 						std::move(*fileMemoryOutcome), 0, size);
 				if(!cowOutcome)
 					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
-				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-						std::move(*cowOutcome), 0, size);
+				auto sliceOutcome = MemorySlice::create(std::move(*cowOutcome), 0, size);
+				if(!sliceOutcome)
+					panicLogger() << "thor: Failed to create memory slice" << frg::endlog;
+				auto slice = std::move(*sliceOutcome);
 
 				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
