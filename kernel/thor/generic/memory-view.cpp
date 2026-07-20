@@ -460,7 +460,17 @@ coroutine<frg::expected<Error>> copyBetweenViews(
 namespace {
 
 struct ZeroMemory final : MemoryView {
-	ZeroMemory() {
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<ZeroMemory>, Error> create() {
+		auto ptr = smarter::allocate_shared<ZeroMemory>(*kernelAlloc, CtorToken{});
+		ptr->selfPtr = ptr;
+		return ptr;
+	}
+
+	ZeroMemory(CtorToken) {
 		_zeroPage = physicalAllocator->allocate(kPageSize);
 		if (_zeroPage == PhysicalAddr(-1))
 			panicLogger() << "thor: OOM when trying to allocate zero page" << frg::endlog;
@@ -528,9 +538,10 @@ private:
 
 smarter::shared_ptr<MemoryView> getZeroMemory() {
 	static frg::eternal<smarter::shared_ptr<ZeroMemory>> singleton = [] {
-		auto memory = smarter::allocate_shared<ZeroMemory>(*kernelAlloc);
-		memory->selfPtr = memory;
-		return memory;
+		auto memoryOutcome = ZeroMemory::create();
+		if(!memoryOutcome)
+			panicLogger() << "thor: Failed to create zero memory" << frg::endlog;
+		return std::move(*memoryOutcome);
 	}();
 	return singleton.get();
 }
