@@ -1,11 +1,17 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/event.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 
 //---------------------------------------------------------------------------------------
 // OneshotEvent implementation.
 //---------------------------------------------------------------------------------------
+
+std::expected<smarter::shared_ptr<OneshotEvent>, Error> OneshotEvent::create() {
+	auto ptr = smarter::allocate_shared<OneshotEvent>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
 
 std::expected<void, Error> OneshotEvent::trigger() {
 	auto irq_lock = frg::guard(&irqMutex());

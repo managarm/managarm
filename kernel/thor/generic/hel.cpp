@@ -3234,10 +3234,12 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto event = smarter::allocate_shared<OneshotEvent>(*kernelAlloc);
+	auto eventOutcome = OneshotEvent::create();
+	if(!eventOutcome)
+		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(event)));
+			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(*eventOutcome)));
 
 	return kHelErrNone;
 }
