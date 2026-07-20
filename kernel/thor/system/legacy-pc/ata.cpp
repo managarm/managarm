@@ -99,7 +99,10 @@ private:
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+			auto spaceOutcome = IoSpace::create();
+			if(!spaceOutcome)
+				panicLogger() << "thor: Failed to create I/O space" << frg::endlog;
+			auto space = std::move(*spaceOutcome);
 			if(req->index() == 0) {
 				for(size_t p = 0; p < 8; ++p) {
 					if (auto outcome = space->addPort(0x1F0 + p); !outcome)

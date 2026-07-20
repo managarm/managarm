@@ -7,7 +7,12 @@ namespace thor {
 // IoSpace
 // --------------------------------------------------------
 
-IoSpace::IoSpace() : p_ports(*kernelAlloc) { }
+std::expected<smarter::shared_ptr<IoSpace>, Error> IoSpace::create() {
+	auto ptr = smarter::allocate_shared<IoSpace>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
+
+IoSpace::IoSpace(CtorToken) : p_ports(*kernelAlloc) { }
 
 std::expected<void, Error> IoSpace::addPort(uintptr_t port) {
 	if (port > 0xFFFF)

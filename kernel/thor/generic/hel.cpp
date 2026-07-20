@@ -3454,7 +3454,10 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto io_space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+	auto ioSpaceOutcome = IoSpace::create();
+	if(!ioSpaceOutcome)
+		return translateError(ioSpaceOutcome.error());
+	auto io_space = std::move(*ioSpaceOutcome);
 	for(size_t i = 0; i < num_ports; i++) {
 		uintptr_t port;
 		if(!readUserObject<uintptr_t>(port_array + i, port))

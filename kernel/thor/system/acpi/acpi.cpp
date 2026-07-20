@@ -159,7 +159,10 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 		}
 
 		managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
-		auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+		auto spaceOutcome = IoSpace::create();
+		if (!spaceOutcome)
+			panicLogger() << "thor: Failed to create I/O space" << frg::endlog;
+		auto space = std::move(*spaceOutcome);
 
 		struct PortInfo {
 			int32_t requested_index;

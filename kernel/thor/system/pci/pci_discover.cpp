@@ -1070,7 +1070,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				} else {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
-					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+					auto ioOutcome = IoSpace::create();
+					if(!ioOutcome)
+						panicLogger() << "thor: Failed to create I/O space" << frg::endlog;
+					bars[i].io = std::move(*ioOutcome);
 					for(size_t p = 0; p < length; ++p) {
 						if (auto outcome = bars[i].io->addPort(address + p); !outcome)
 							panicLogger() << "thor: Failed to access PCI ports" << frg::endlog;
