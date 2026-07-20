@@ -941,8 +941,11 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
 
-	smarter::shared_ptr<VirtualizedCpu> vcpu = smarter::allocate_shared<riscv_hypervisor::Vcpu>(Allocator{},
+	auto vcpuOutcome = riscv_hypervisor::Vcpu::create(
 			smarter::static_pointer_cast<riscv_hypervisor::HypervisorSpace>(vspace));
+	if(!vcpuOutcome)
+		return translateError(vcpuOutcome.error());
+	smarter::shared_ptr<VirtualizedCpu> vcpu = std::move(*vcpuOutcome);
 
 	*out = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
