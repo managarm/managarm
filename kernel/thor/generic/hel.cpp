@@ -844,26 +844,18 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	PhysicalAddr pml4e = physicalAllocator->allocate(kPageSize);
-	if(pml4e == static_cast<PhysicalAddr>(-1)) {
-		return kHelErrNoMemory;
-	}
-	PageAccessor paccessor{pml4e};
-	memset(paccessor.get(), 0, kPageSize);
-
 	smarter::shared_ptr<VirtualizedPageSpace> vspace;
 	if(getGlobalCpuFeatures()->haveVmx) {
-		auto vspaceOutcome = thor::vmx::EptSpace::create(pml4e);
+		auto vspaceOutcome = thor::vmx::EptSpace::create();
 		if(!vspaceOutcome)
 			return translateError(vspaceOutcome.error());
 		vspace = std::move(*vspaceOutcome);
 	} else if(getGlobalCpuFeatures()->haveSvm) {
-		auto vspaceOutcome = thor::svm::NptSpace::create(pml4e);
+		auto vspaceOutcome = thor::svm::NptSpace::create();
 		if(!vspaceOutcome)
 			return translateError(vspaceOutcome.error());
 		vspace = std::move(*vspaceOutcome);
 	} else {
-		physicalAllocator->free(pml4e, kPageSize);
 		return kHelErrNoHardwareSupport;
 	}
 
@@ -877,14 +869,7 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	PhysicalAddr level0 = physicalAllocator->allocate(0x4000);
-	if(level0 == static_cast<PhysicalAddr>(-1)) {
-		return kHelErrNoMemory;
-	}
-	PageAccessor paccessor{level0};
-	memset(paccessor.get(), 0, 0x4000);
-
-	auto vspaceOutcome = riscv_hypervisor::HypervisorSpace::create(level0);
+	auto vspaceOutcome = riscv_hypervisor::HypervisorSpace::create();
 	if(!vspaceOutcome)
 		return translateError(vspaceOutcome.error());
 	smarter::shared_ptr<VirtualizedPageSpace> vspace = std::move(*vspaceOutcome);

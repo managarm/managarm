@@ -2,6 +2,7 @@
 
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/virtualization.hpp>
 
 constexpr uint64_t EPT_READ = (0);
@@ -71,7 +72,13 @@ public:
 
 	EptSpace& operator=(const EptSpace &) = delete;
 
-	static std::expected<smarter::shared_ptr<EptSpace>, Error> create(PhysicalAddr root) {
+	static std::expected<smarter::shared_ptr<EptSpace>, Error> create() {
+		PhysicalAddr root = physicalAllocator->allocate(kPageSize);
+		if(root == static_cast<PhysicalAddr>(-1))
+			return std::unexpected{Error::noMemory};
+		PageAccessor accessor{root};
+		memset(accessor.get(), 0, kPageSize);
+
 		auto ptr = smarter::allocate_shared<EptSpace>(Allocator{}, CtorToken{}, root);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0, 0x7ffffff00000);

@@ -4,6 +4,7 @@
 
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/physical.hpp>
 #include <thor-internal/virtualization.hpp>
 
 namespace thor::riscv_hypervisor {
@@ -66,7 +67,13 @@ public:
 	HypervisorSpace(const HypervisorSpace &) = delete;
 	HypervisorSpace &operator=(const HypervisorSpace &) = delete;
 
-	static std::expected<smarter::shared_ptr<HypervisorSpace>, Error> create(PhysicalAddr root) {
+	static std::expected<smarter::shared_ptr<HypervisorSpace>, Error> create() {
+		PhysicalAddr root = physicalAllocator->allocate(0x4000);
+		if (root == static_cast<PhysicalAddr>(-1))
+			return std::unexpected{Error::noMemory};
+		PageAccessor accessor{root};
+		memset(accessor.get(), 0, 0x4000);
+
 		auto ptr = smarter::allocate_shared<HypervisorSpace>(Allocator{}, CtorToken{}, root);
 		ptr->selfPtr = ptr;
 		// TODO: This could be bigger on sv48/sv57 or when taking advantage of the bigger level 0
