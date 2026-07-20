@@ -12,11 +12,12 @@ namespace {
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::thread>(
-		smarter::shared_ptr<Thread, ActiveHandle> ptr) {
+		smarter::shared_ptr<Thread, ActiveHandle> ptr, uint32_t rights) {
 	assert(ptr);
 
 	AnyDescriptor descriptor;
 	descriptor.type_ = DescriptorType::thread;
+	descriptor.rights_ = rights;
 	descriptor.object_ = ptr.get();
 	descriptor.ctr_ = &ptr->_activeCtr;
 	ptr.release();
@@ -25,11 +26,12 @@ AnyDescriptor AnyDescriptor::make<DescriptorType::thread>(
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::addressSpace>(
-		smarter::shared_ptr<AddressSpace, BindableHandle> ptr) {
+		smarter::shared_ptr<AddressSpace, BindableHandle> ptr, uint32_t rights) {
 	assert(ptr);
 
 	AnyDescriptor descriptor;
 	descriptor.type_ = DescriptorType::addressSpace;
+	descriptor.rights_ = rights;
 	descriptor.object_ = ptr.get();
 	descriptor.ctr_ = &ptr->_bindableCtr;
 	ptr.release();
@@ -38,13 +40,14 @@ AnyDescriptor AnyDescriptor::make<DescriptorType::addressSpace>(
 
 template<>
 AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
-		smarter::shared_ptr<Stream, LanePolicy> ptr) {
+		smarter::shared_ptr<Stream, LanePolicy> ptr, uint32_t rights) {
 	assert(ptr);
 
 	AnyDescriptor descriptor;
 	descriptor.type_ = DescriptorType::lane;
 	auto stream = ptr.get();
 	descriptor.extra_ = static_cast<uint8_t>(laneOf(ptr));
+	descriptor.rights_ = rights;
 	descriptor.object_ = stream;
 	descriptor.ctr_ = &stream->peerCounter(static_cast<int>(descriptor.extra_));
 	ptr.release();
@@ -53,9 +56,8 @@ AnyDescriptor AnyDescriptor::make<DescriptorType::lane>(
 
 template<>
 std::expected<smarter::shared_ptr<Stream, LanePolicy>, Error>
-AnyDescriptor::resolveObject<DescriptorType::lane>() const {
-	if(type_ != DescriptorType::lane)
-		return std::unexpected{Error::badDescriptor};
+AnyDescriptor::resolve_<DescriptorType::lane>() const {
+	assert(type_ == DescriptorType::lane);
 
 	auto stream = static_cast<Stream *>(object_);
 	auto lane = static_cast<int>(extra_);

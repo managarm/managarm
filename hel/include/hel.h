@@ -138,8 +138,122 @@ enum {
 	kHelErrAlreadyExists = 22,
 	kHelErrBadPermissions = 23,
 	kHelErrOther = 24,
-	kHelErrFutexRace = 25
+	kHelErrFutexRace = 25,
+	kHelErrBadRights = 26,
 };
+
+typedef uint32_t HelRights;
+
+// No right but easier to recognize in code than a zero literal.
+// - General: descriptor properties can be queried without any rights.
+// - Memory view: memory size can be queried without any rights.
+// - Thread: statistics can be queried without any rights.
+static const HelRights kHelRightNull = 0;
+// Right to map into an object.
+// - Universe: required to transfer into the universe.
+// - Universe: required to close descriptors in the universe.
+// - Universe: required to create a thread in the universe.
+// - Address space: required to map into the space.
+// - Address space: required to change memory protection.
+// - Virtualized space: required to map into the space.
+// - DMA space: required to map into the space.
+static const HelRights kHelRightGrant = UINT32_C(1) << 0;
+// Right to map from an object.
+// - Universe: required to transfer out of the universe.
+// - Universe: required to create a thread in the universe.
+static const HelRights kHelRightTake = UINT32_C(1) << 1;
+// Right to read data.
+// - IPC queue: required to map readable.
+// - Memory view: required to read.
+// - Memory view: required to map readable.
+// - Memory slice: required to map readable.
+// - Address space: required to read from it.
+// - Address space: required to create thread.
+// - Virtualized space: required to read from it.
+// - Thread: required to read registers.
+// - Thread: required to read memory in its address space.
+// - Thread: required to get the affinity.
+// - Virtualized CPUs: required to read registers.
+static const HelRights kHelRightRead = UINT32_C(1) << 2;
+// Right to write data.
+// - IPC queue: required to map writeable.
+// - Memory view: required to write.
+// - Memory view: required to map writeable.
+// - Memory slice: required to map writeable.
+// - Address space: required to write to it.
+// - Address space: required to create thread.
+// - Virtualized space: required to write to it.
+// - Thread: required to write registers.
+// - Thread: required to write memory in its address space.
+// - Thread: required to set the affinity.
+// - Virtualized CPUs: required to write registers.
+static const HelRights kHelRightWrite = UINT32_C(1) << 3;
+// Right to execute code.
+// - Memory view: required to map executable.
+// - Memory slice: required to map executable.
+static const HelRights kHelRightExecute = UINT32_C(1) << 4;
+// Right to execute operations.
+// - IPC queue: required to submit.
+// - Lane: required to do exchange messages.
+// - Virtualized CPUs: required to run.
+static const HelRights kHelRightInvoke = UINT32_C(1) << 5;
+// Right to build new objects on top of existing ones.
+// - IPC queue: required to map.
+// - Universe: required to create thread.
+// - Address space: required to create thread.
+// - Memory view: required to map.
+// - Memory view: required to create copy-on-write view.
+// - Memory view: required to map into indirect memory.
+// - Memory view: required to create slice.
+// - Memory view: required to bind to kernlet.
+// - Memory slice: required to map.
+// - Memory slice: required to map into indirect memory.
+// - Virtualized space: required to create virtualized CPU.
+// - I/O objects: required to enable userspace I/O.
+// - Kernlets: required to create a bound kernlet from it.
+// - Bound kernlets: required to attach to an IRQ.
+static const HelRights kHelRightAssign = UINT32_C(1) << 6;
+// Right to derive new objects that affect the original one.
+// - Memory view: required to fork.
+static const HelRights kHelRightDerive = UINT32_C(1) << 7;
+// Right to add, remove or manipulate components.
+// - Memory views: required to perform loadahead.
+// - Address space: required to synchronize.
+// - Address space: required to resolve physical addresses.
+// - DMA space: required to populate.
+// - DMA space: required to resolve physical addresses.
+static const HelRights kHelRightProvision = UINT32_C(1) << 8;
+// Right to pin memory pages.
+// - Memory view: required to pin pages.
+static const HelRights kHelRightPin = UINT32_C(1) << 9;
+// Right to perform memory fences.
+// - Memory view: required for fences.
+static const HelRights kHelRightFence = UINT32_C(1) << 10;
+// Right to wait on an object.
+// - IPC queue: required to drive.
+// - Thread: required to observe.
+// - Event: required to wait.
+// - IRQ: required to wait.
+// - IRQ: required to attach a kernlet.
+static const HelRights kHelRightWait = UINT32_C(1) << 11;
+// Right to signal an object.
+// - IPC queue: required to alert.
+// - Thread: required to interrupt.
+// - Event: required to raise.
+// - Event: required to bind to kernlet.
+// - IRQ: required to acknowledge.
+// - IRQ: required to attach a kernlet.
+// - Virtualized CPUs: required to raise an interrupt.
+static const HelRights kHelRightSignal = UINT32_C(1) << 12;
+// Right to manage an object (includes potentially destructive operations).
+// - Lane: required to shut down.
+// - Memory view: required to resize.
+// - Memory view: required to manage.
+// - Memory view: required to invalidate.
+// - Thread: required to set priority.
+// - Thread: required to resume.
+// - Thread: required to kill.
+static const HelRights kHelRightManage = UINT32_C(1) << 13;
 
 struct HelX86SegmentRegister {
 	uint64_t base;
@@ -1437,6 +1551,8 @@ extern inline __attribute__ (( always_inline )) const char *_helErrorString(HelE
 		return "Out of bounds";
 	case kHelErrAlreadyExists:
 		return "Already exists";
+	case kHelErrBadRights:
+		return "Missing rights for this operation";
 	default:
 		return 0;
 	}

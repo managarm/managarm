@@ -24,6 +24,7 @@ enum class Error {
 	badPermissions,
 	noDescriptor,
 	badDescriptor,
+	badRights,
 	other,
 	// Internal error: the remote has violated the IPC protocol.
 	hardwareBroken,
