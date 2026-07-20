@@ -1,5 +1,7 @@
 #pragma once
 
+#include <expected>
+
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/virtualization.hpp>
@@ -16,6 +18,10 @@ struct HypervisorPageSpace : PageSpace {
 };
 
 struct HypervisorSpace final : VirtualizedPageSpace {
+private:
+	struct CtorToken {};
+
+public:
 	struct Operations final : VirtualOperations {
 		Operations(HypervisorPageSpace *pageSpace);
 
@@ -55,13 +61,13 @@ struct HypervisorSpace final : VirtualizedPageSpace {
 		HypervisorPageSpace *pageSpace_;
 	};
 
-	HypervisorSpace(PhysicalAddr root);
+	HypervisorSpace(CtorToken, PhysicalAddr root);
 
 	HypervisorSpace(const HypervisorSpace &) = delete;
 	HypervisorSpace &operator=(const HypervisorSpace &) = delete;
 
-	static smarter::shared_ptr<HypervisorSpace> create(PhysicalAddr root) {
-		auto ptr = smarter::allocate_shared<HypervisorSpace>(Allocator{}, root);
+	static std::expected<smarter::shared_ptr<HypervisorSpace>, Error> create(PhysicalAddr root) {
+		auto ptr = smarter::allocate_shared<HypervisorSpace>(Allocator{}, CtorToken{}, root);
 		ptr->selfPtr = ptr;
 		// TODO: This could be bigger on sv48/sv57 or when taking advantage of the bigger level 0
 		// table, it's unlikely to be an issue in practice though.

@@ -884,7 +884,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	PageAccessor paccessor{level0};
 	memset(paccessor.get(), 0, 0x4000);
 
-	smarter::shared_ptr<VirtualizedPageSpace> vspace = riscv_hypervisor::HypervisorSpace::create(level0);
+	auto vspaceOutcome = riscv_hypervisor::HypervisorSpace::create(level0);
+	if(!vspaceOutcome)
+		return translateError(vspaceOutcome.error());
+	smarter::shared_ptr<VirtualizedPageSpace> vspace = std::move(*vspaceOutcome);
 
 	*handle = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));

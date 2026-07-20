@@ -80,7 +80,7 @@ frg::expected<Error, PagesAffected> Operations::agePages(VirtualAddr va, size_t 
 	return agePagesByCursor<HypervisorCursor>(pageSpace_, va, size, vacate);
 }
 
-HypervisorSpace::HypervisorSpace(PhysicalAddr root)
+HypervisorSpace::HypervisorSpace(CtorToken, PhysicalAddr root)
 : VirtualizedPageSpace{&ops_},
   pageSpace_{root},
   ops_{&pageSpace_} {
