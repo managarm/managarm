@@ -1729,7 +1729,12 @@ size_t FrontalMemory::getLength() {
 // IndirectMemory
 // --------------------------------------------------------
 
-IndirectMemory::IndirectMemory(size_t numSlots)
+std::expected<smarter::shared_ptr<IndirectMemory>, Error> IndirectMemory::create(size_t numSlots) {
+	auto ptr = smarter::allocate_shared<IndirectMemory>(*kernelAlloc, CtorToken{}, numSlots);
+	return ptr;
+}
+
+IndirectMemory::IndirectMemory(CtorToken, size_t numSlots)
 : indirections_{*kernelAlloc} {
 	indirections_.resize(numSlots);
 }

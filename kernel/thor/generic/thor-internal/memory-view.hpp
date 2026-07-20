@@ -824,7 +824,13 @@ private:
 };
 
 struct IndirectMemory final : MemoryView {
-	IndirectMemory(size_t numSlots);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<IndirectMemory>, Error> create(size_t numSlots);
+
+	IndirectMemory(CtorToken, size_t numSlots);
 	IndirectMemory(const IndirectMemory &) = delete;
 	~IndirectMemory();
 
