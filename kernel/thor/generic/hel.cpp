@@ -482,20 +482,21 @@ HelError helAllocateMemory(size_t size, uint32_t flags,
 		if(!readUserMemory(&effective, restrictions, sizeof(HelAllocRestrictions)))
 			return kHelErrFault;
 
-	smarter::shared_ptr<AllocatedMemory> memory;
+	std::expected<smarter::shared_ptr<AllocatedMemory>, Error> memoryOutcome;
 	if(flags & kHelAllocContinuous) {
-		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits,
+		memoryOutcome = AllocatedMemory::create(size, effective.addressBits,
 				size, kPageSize);
 	}else if(flags & kHelAllocOnDemand) {
-		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
 	}else{
 		// TODO:
-		memory = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, size, effective.addressBits);
+		memoryOutcome = AllocatedMemory::create(size, effective.addressBits);
 	}
-	memory->selfPtr = memory;
+	if(!memoryOutcome)
+		return translateError(memoryOutcome.error());
 
 	*handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(memory)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*memoryOutcome)));
 
 	return kHelErrNone;
 }

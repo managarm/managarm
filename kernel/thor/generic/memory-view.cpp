@@ -778,7 +778,15 @@ size_t HardwareMemory::getLength() {
 // AllocatedMemory
 // --------------------------------------------------------
 
-AllocatedMemory::AllocatedMemory(size_t desiredLngth,
+std::expected<smarter::shared_ptr<AllocatedMemory>, Error> AllocatedMemory::create(
+		size_t length, int addressBits, size_t chunkSize, size_t chunkAlign) {
+	auto ptr = smarter::allocate_shared<AllocatedMemory>(*kernelAlloc, CtorToken{},
+			length, addressBits, chunkSize, chunkAlign);
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
+AllocatedMemory::AllocatedMemory(CtorToken, size_t desiredLngth,
 		int addressBits, size_t desiredChunkSize, size_t chunkAlign)
 : _physicalChunks{*kernelAlloc},
 		_addressBits{addressBits}, _chunkAlign{chunkAlign} {

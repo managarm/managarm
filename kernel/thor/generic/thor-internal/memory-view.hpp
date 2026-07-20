@@ -589,8 +589,16 @@ private:
 };
 
 struct AllocatedMemory final : MemoryView {
-	AllocatedMemory(size_t length, int addressBits = 64,
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<AllocatedMemory>, Error> create(
+			size_t length, int addressBits = 64,
 			size_t chunkSize = kPageSize, size_t chunkAlign = kPageSize);
+
+	AllocatedMemory(CtorToken, size_t length, int addressBits,
+			size_t chunkSize, size_t chunkAlign);
 	AllocatedMemory(const AllocatedMemory &) = delete;
 	~AllocatedMemory();
 
