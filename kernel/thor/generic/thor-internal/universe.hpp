@@ -364,11 +364,16 @@ AnyDescriptor::resolveObject<DescriptorType::lane>() const;
 // --------------------------------------------------------
 
 struct Universe {
+private:
+	struct CtorToken {};
+
 public:
 	typedef frg::ticket_spinlock Lock;
 	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
 
-	Universe();
+	static std::expected<smarter::shared_ptr<Universe>, Error> create();
+
+	Universe(CtorToken);
 	~Universe();
 
 	Handle attachDescriptor(AnyDescriptor descriptor);

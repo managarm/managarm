@@ -301,7 +301,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	assert(copyDataOutcome);
 
 	// build the stack tail area (containing the aux vector).
-	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
+	auto universeOutcome = Universe::create();
+	if(!universeOutcome)
+		panicLogger() << "thor: Failed to create universe" << frg::endlog;
+	auto universe = std::move(*universeOutcome);
 
 	Handle xpipe_handle = 0;
 	if(xpipe_lane) {

@@ -265,10 +265,12 @@ HelError helCreateUniverse(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto new_universe = smarter::allocate_shared<Universe>(*kernelAlloc);
+	auto universeOutcome = Universe::create();
+	if(!universeOutcome)
+		return translateError(universeOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::universe>(std::move(new_universe)));
+			AnyDescriptor::make<DescriptorType::universe>(std::move(*universeOutcome)));
 
 	return kHelErrNone;
 }
