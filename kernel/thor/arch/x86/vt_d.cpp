@@ -512,24 +512,32 @@ private:
 	struct CtorToken {};
 
 public:
-	IntelIommuDmaSpace(CtorToken, IntelIommuOperations *ops) : DmaSpace(ops), iommuOps_{ops} {}
+	IntelIommuDmaSpace(CtorToken, PhysicalAddr root, IntelIommu *iommu, uint16_t domainId)
+	: DmaSpace(&iommuOps_), iommuOps_{root, iommu, domainId} {}
 
 	static std::expected<smarter::shared_ptr<IntelIommuDmaSpace>, Error> create(
-			IntelIommuOperations *ops) {
-		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(*kernelAlloc, CtorToken{}, ops);
+			IntelIommu *iommu, uint16_t domainId) {
+		PhysicalAddr root = physicalAllocator->allocate(kPageSize);
+		if(root == static_cast<PhysicalAddr>(-1))
+			return std::unexpected{Error::noMemory};
+		PageAccessor accessor{root};
+		memset(accessor.get(), 0, kPageSize);
+
+		auto ptr = smarter::allocate_shared<IntelIommuDmaSpace>(
+				*kernelAlloc, CtorToken{}, root, iommu, domainId);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (1UL << 39) - 0x1000);
 		return ptr;
 	}
 
-	IntelIommuOperations *intelIommuOps() const {
-		return iommuOps_;
+	IntelIommuOperations *intelIommuOps() {
+		return &iommuOps_;
 	}
 
 	frg::vector<smarter::shared_ptr<HardwareMemory>, KernelAlloc> reservedRegions_{*kernelAlloc};
 
 private:
-	IntelIommuOperations *iommuOps_;
+	IntelIommuOperations iommuOps_;
 };
 
 struct IntelIommuDomain : IommuDomain {
@@ -1741,17 +1749,9 @@ IommuDomain *newDomain(IntelIommu *iommu) {
 	if (!iommu)
 		return nullptr;
 
-	PhysicalAddr rootLevel = physicalAllocator->allocate(kPageSize);
-	if (rootLevel == static_cast<PhysicalAddr>(-1))
-		panicLogger() << "thor: failed to allocate physical memory for IOMMU page tables" << frg::endlog;
-
-	PageAccessor accessor{rootLevel};
-	memset(accessor.get(), 0, kPageSize);
-
 	auto domainId = iommu->allocateHardwareDomainId();
 
-	auto ops = frg::construct<IntelIommuOperations>(*kernelAlloc, rootLevel, iommu, domainId);
-	auto spaceOutcome = IntelIommuDmaSpace::create(ops);
+	auto spaceOutcome = IntelIommuDmaSpace::create(iommu, domainId);
 	if(!spaceOutcome)
 		panicLogger() << "thor: Failed to create DMA space" << frg::endlog;
 	return frg::construct<IntelIommuDomain>(*kernelAlloc, domainId, std::move(*spaceOutcome));
