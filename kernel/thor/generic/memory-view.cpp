@@ -1878,7 +1878,15 @@ CowPage::~CowPage() {
 	physicalAllocator->free(physical, kPageSize);
 }
 
-CopyOnWriteMemory::CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
+std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> CopyOnWriteMemory::create(
+		smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length) {
+	auto ptr = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+			std::move(view), offset, length, nullptr);
+	ptr->selfPtr = ptr;
+	return ptr;
+}
+
+CopyOnWriteMemory::CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
 		uintptr_t offset, size_t length,
 		smarter::shared_ptr<CowChain> chain)
 : MemoryView{&_evictQueue}, _view{std::move(view)},
@@ -1921,8 +1929,8 @@ coroutine<frg::expected<Error, smarter::shared_ptr<MemoryView>>> CopyOnWriteMemo
 		_copyChain = newChain;
 
 		// Create a new mapping in the forked space.
-		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
-						_view, _viewOffset, _length, newChain);
+		forked = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, CtorToken{},
+				_view, _viewOffset, _length, newChain);
 		forked->selfPtr = forked;
 
 		// Inspect all copied pages owned by the original mapping.

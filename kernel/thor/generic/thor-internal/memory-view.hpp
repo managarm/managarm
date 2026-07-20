@@ -893,10 +893,16 @@ struct CowChain {
 };
 
 struct CopyOnWriteMemory final : MemoryView /*, MemoryObserver */ {
+private:
+	struct CtorToken {};
+
 public:
-	CopyOnWriteMemory(smarter::shared_ptr<MemoryView> view,
+	static std::expected<smarter::shared_ptr<CopyOnWriteMemory>, Error> create(
+			smarter::shared_ptr<MemoryView> view, uintptr_t offset, size_t length);
+
+	CopyOnWriteMemory(CtorToken, smarter::shared_ptr<MemoryView> view,
 			uintptr_t offset, size_t length,
-			smarter::shared_ptr<CowChain> chain = nullptr);
+			smarter::shared_ptr<CowChain> chain);
 	CopyOnWriteMemory(const CopyOnWriteMemory &) = delete;
 
 	~CopyOnWriteMemory();

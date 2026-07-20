@@ -576,11 +576,11 @@ HelError helCopyOnWrite(HelHandle memoryHandle,
 		view = std::move(*viewOutcome);
 	}
 
-	auto slice = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc, std::move(view),
-			offset, size);
-	slice->selfPtr = slice;
+	auto sliceOutcome = CopyOnWriteMemory::create(std::move(view), offset, size);
+	if(!sliceOutcome)
+		return translateError(sliceOutcome.error());
 	*outHandle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::memoryView>(std::move(slice)));
+			AnyDescriptor::make<DescriptorType::memoryView>(std::move(*sliceOutcome)));
 
 	return kHelErrNone;
 }

@@ -871,11 +871,12 @@ namespace posix {
 
 				smarter::shared_ptr<MemorySlice> slice;
 				if(req->flags() & MAP_PRIVATE) { // MAP_PRIVATE.
-					auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
+					auto cowOutcome = CopyOnWriteMemory::create(
 							std::move(fileMemory), req->rel_offset(), req->size());
-					cowMemory->selfPtr = cowMemory;
+					if(!cowOutcome)
+						panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
 					slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-							std::move(cowMemory), 0, req->size());
+							std::move(*cowOutcome), 0, req->size());
 				}else{
 					assert(!"TODO: implement shared mappings");
 				}
@@ -1007,11 +1008,12 @@ namespace posix {
 				auto fileMemoryOutcome = AllocatedMemory::create(size);
 				if(!fileMemoryOutcome)
 					panicLogger() << "thor: Failed to create memory" << frg::endlog;
-				auto cowMemory = smarter::allocate_shared<CopyOnWriteMemory>(*kernelAlloc,
+				auto cowOutcome = CopyOnWriteMemory::create(
 						std::move(*fileMemoryOutcome), 0, size);
-				cowMemory->selfPtr = cowMemory;
+				if(!cowOutcome)
+					panicLogger() << "thor: Failed to create copy-on-write memory" << frg::endlog;
 				auto slice = smarter::allocate_shared<MemorySlice>(*kernelAlloc,
-						std::move(cowMemory), 0, size);
+						std::move(*cowOutcome), 0, size);
 
 				auto space = info.thread->getAddressSpace();
 				auto mapResult = co_await space->map(std::move(slice),
