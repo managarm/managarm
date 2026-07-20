@@ -291,6 +291,26 @@ inline constexpr bool inHigherHalf(uintptr_t address) {
 	return address & (static_cast<uintptr_t>(1) << 63);
 }
 
+struct CpuFeatures {
+	uint64_t midr;
+	uint64_t idAa64pfr0;
+	uint64_t idAa64pfr1;
+	uint64_t idAa64isar0;
+	uint64_t idAa64isar1;
+	uint64_t frequencyHz;
+	// BogoMIPS, in hundredths.
+	uint64_t bogoMips;
+	char features[1024];
+};
+
+extern CpuFeatures globalCpuFeatures;
+
+[[gnu::const]] inline CpuFeatures *getGlobalCpuFeatures() {
+	return &globalCpuFeatures;
+}
+
+void initializeCpuFeatures();
+
 void initializeThisProcessor();
 
 extern "C" void saveFpSimdRegisters(FpRegisters *frame);

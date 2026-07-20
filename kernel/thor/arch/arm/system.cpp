@@ -18,6 +18,7 @@ void initializeArchitecture() {
 
 	setupBootCpuContext();
 	initializeTimers();
+	initializeCpuFeatures();
 	initializeIrqVectors();
 }
 
