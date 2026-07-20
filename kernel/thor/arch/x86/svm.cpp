@@ -24,7 +24,7 @@ namespace thor::svm {
 		return true;
 	}
 
-	Vcpu::Vcpu(smarter::shared_ptr<NptSpace> npt) : space{npt} {
+	Vcpu::Vcpu(CtorToken, smarter::shared_ptr<NptSpace> npt) : space{npt} {
 		vmcb_region = physicalAllocator->allocate(kPageSize);
 		host_additional_save_region = physicalAllocator->allocate(kPageSize);
 		PageAccessor regionAccessor{vmcb_region};

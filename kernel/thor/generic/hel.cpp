@@ -917,10 +917,14 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		if(!vcpuOutcome)
 			return translateError(vcpuOutcome.error());
 		vcpu = std::move(*vcpuOutcome);
-	} else if(getGlobalCpuFeatures()->haveSvm)
-		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(vspace)));
-	else
+	} else if(getGlobalCpuFeatures()->haveSvm) {
+		auto vcpuOutcome = svm::Vcpu::create(smarter::static_pointer_cast<thor::svm::NptSpace>(vspace));
+		if(!vcpuOutcome)
+			return translateError(vcpuOutcome.error());
+		vcpu = std::move(*vcpuOutcome);
+	} else {
 		return kHelErrNoHardwareSupport;
+	}
 
 	*out = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
