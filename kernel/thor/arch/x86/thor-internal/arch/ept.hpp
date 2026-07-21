@@ -3,6 +3,7 @@
 #include <thor-internal/arch-generic/paging.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/physical.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/virtualization.hpp>
 
 constexpr uint64_t EPT_READ = (0);
@@ -79,7 +80,7 @@ public:
 		PageAccessor accessor{root};
 		memset(accessor.get(), 0, kPageSize);
 
-		auto ptr = smarter::allocate_shared<EptSpace>(Allocator{}, CtorToken{}, root);
+		auto ptr = allocate_rcu_shared<EptSpace>(Allocator{}, CtorToken{}, root);
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0, 0x7ffffff00000);
 		return ptr;

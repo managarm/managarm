@@ -69,7 +69,7 @@ struct QueueSource {
 	const QueueSource *link;
 };
 
-struct IpcQueue : CancelRegistry {
+struct IpcQueue : CancelRegistry, RcuProtected {
 private:
 	struct CtorToken {};
 

@@ -3,6 +3,7 @@
 #include <thor-internal/debug.hpp>
 #include <thor-internal/hierarchy.hpp>
 #include <thor-internal/main.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
@@ -10,7 +11,7 @@ Hierarchy::Hierarchy(CtorToken, smarter::shared_ptr<Hierarchy> parent, frg::stri
 : parent_{std::move(parent)}, tag_{std::move(tag)} { }
 
 std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::createRoot() {
-	auto ptr = smarter::allocate_shared<Hierarchy>(
+	auto ptr = allocate_rcu_shared<Hierarchy>(
 		*kernelAlloc,
 		CtorToken{},
 		smarter::shared_ptr<Hierarchy>{},
@@ -26,7 +27,7 @@ std::expected<smarter::shared_ptr<Hierarchy>, Error> Hierarchy::extend(
 ) {
 	if(!parent)
 		return std::unexpected{Error::illegalArgs};
-	auto ptr = smarter::allocate_shared<Hierarchy>(
+	auto ptr = allocate_rcu_shared<Hierarchy>(
 		*kernelAlloc, CtorToken{}, std::move(parent), std::move(tag)
 	);
 	if(!ptr)

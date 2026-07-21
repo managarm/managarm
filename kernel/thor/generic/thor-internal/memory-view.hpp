@@ -21,6 +21,7 @@
 #include <thor-internal/types.hpp>
 #include <thor-internal/pfn-db.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -327,7 +328,7 @@ enum class DiscardMode : uint8_t {
 };
 
 // View on some pages of memory. This is the "frontend" part of a memory object.
-struct MemoryView {
+struct MemoryView : RcuProtected {
 protected:
 	MemoryView(frg::intrusive_shared_ptr<EvictionQueue, Allocator> evictionQueue = {})
 	: evictionQueue_{std::move(evictionQueue)} { }
@@ -434,7 +435,7 @@ struct SliceRange {
 	size_t size;
 };
 
-struct MemorySlice {
+struct MemorySlice : RcuProtected {
 private:
 	struct CtorToken {};
 
@@ -1018,7 +1019,7 @@ struct ManagedSpace : CacheBundle {
 
 // Backing store for swappable anonymous memory].
 // Pages are keyed by swap offset, the kernel allocates offsets lazily on behalf of the attached views.
-struct SwapSpace final : ManagedSpace {
+struct SwapSpace final : ManagedSpace, RcuProtected {
 	static std::expected<smarter::shared_ptr<SwapSpace>, Error> create();
 
 	SwapSpace();

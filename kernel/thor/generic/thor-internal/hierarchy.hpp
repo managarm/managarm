@@ -6,10 +6,11 @@
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
-struct Hierarchy {
+struct Hierarchy : RcuProtected {
 private:
 	struct CtorToken {};
 

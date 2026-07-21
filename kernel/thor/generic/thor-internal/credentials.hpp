@@ -5,6 +5,7 @@
 
 #include <smarter.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -18,7 +19,7 @@ protected:
 	std::array<char, 16> _credentials;
 };
 
-struct TokenObject final : Credentials {
+struct TokenObject final : Credentials, RcuProtected {
 private:
 	struct CtorToken {};
 

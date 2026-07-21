@@ -11,6 +11,7 @@
 #include <thor-internal/error.hpp>
 #include <thor-internal/ipl.hpp>
 #include <thor-internal/mm-rc.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/virtualization.hpp>
 
 namespace thor {
@@ -429,7 +430,7 @@ AnyDescriptor::resolve_<DescriptorType::lane>() const;
 // Universe.
 // --------------------------------------------------------
 
-struct Universe {
+struct Universe : RcuProtected {
 private:
 	struct CtorToken {};
 
