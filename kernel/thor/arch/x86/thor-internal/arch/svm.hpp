@@ -200,7 +200,17 @@ namespace thor::svm {
 	};
 
 	struct Vcpu final : VirtualizedCpu {
-		Vcpu(smarter::shared_ptr<NptSpace> npt);
+	private:
+		struct CtorToken {};
+
+	public:
+		static std::expected<smarter::shared_ptr<Vcpu>, Error> create(
+				smarter::shared_ptr<NptSpace> npt) {
+			auto ptr = smarter::allocate_shared<Vcpu>(Allocator{}, CtorToken{}, std::move(npt));
+			return ptr;
+		}
+
+		Vcpu(CtorToken, smarter::shared_ptr<NptSpace> npt);
 		~Vcpu();
 		
 		Vcpu(const Vcpu &) = delete;

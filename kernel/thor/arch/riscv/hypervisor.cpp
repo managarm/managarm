@@ -105,7 +105,7 @@ void init() {
 	}
 }
 
-Vcpu::Vcpu(smarter::shared_ptr<HypervisorSpace> space) : space_{std::move(space)} {
+Vcpu::Vcpu(CtorToken, smarter::shared_ptr<HypervisorSpace> space) : space_{std::move(space)} {
 	state_.kernelMode = true;
 }
 

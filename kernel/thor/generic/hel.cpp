@@ -854,20 +854,18 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	PhysicalAddr pml4e = physicalAllocator->allocate(kPageSize);
-	if(pml4e == static_cast<PhysicalAddr>(-1)) {
-		return kHelErrNoMemory;
-	}
-	PageAccessor paccessor{pml4e};
-	memset(paccessor.get(), 0, kPageSize);
-
 	smarter::shared_ptr<VirtualizedPageSpace> vspace;
 	if(getGlobalCpuFeatures()->haveVmx) {
-		vspace = thor::vmx::EptSpace::create(pml4e);
+		auto vspaceOutcome = thor::vmx::EptSpace::create();
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
+		vspace = std::move(*vspaceOutcome);
 	} else if(getGlobalCpuFeatures()->haveSvm) {
-		vspace = thor::svm::NptSpace::create(pml4e);
+		auto vspaceOutcome = thor::svm::NptSpace::create();
+		if(!vspaceOutcome)
+			return translateError(vspaceOutcome.error());
+		vspace = std::move(*vspaceOutcome);
 	} else {
-		physicalAllocator->free(pml4e, kPageSize);
 		return kHelErrNoHardwareSupport;
 	}
 
@@ -881,14 +879,10 @@ HelError helCreateVirtualizedSpace(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	PhysicalAddr level0 = physicalAllocator->allocate(0x4000);
-	if(level0 == static_cast<PhysicalAddr>(-1)) {
-		return kHelErrNoMemory;
-	}
-	PageAccessor paccessor{level0};
-	memset(paccessor.get(), 0, 0x4000);
-
-	smarter::shared_ptr<VirtualizedPageSpace> vspace = riscv_hypervisor::HypervisorSpace::create(level0);
+	auto vspaceOutcome = riscv_hypervisor::HypervisorSpace::create();
+	if(!vspaceOutcome)
+		return translateError(vspaceOutcome.error());
+	smarter::shared_ptr<VirtualizedPageSpace> vspace = std::move(*vspaceOutcome);
 
 	*handle = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedSpace>(std::move(vspace)));
@@ -913,12 +907,19 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 	auto vspace = std::move(*vspaceOutcome);
 
 	smarter::shared_ptr<VirtualizedCpu> vcpu;
-	if(getGlobalCpuFeatures()->haveVmx)
-		vcpu = smarter::allocate_shared<vmx::Vmcs>(Allocator{}, (smarter::static_pointer_cast<thor::vmx::EptSpace>(vspace)));
-	else if(getGlobalCpuFeatures()->haveSvm)
-		vcpu = smarter::allocate_shared<svm::Vcpu>(Allocator{}, (smarter::static_pointer_cast<thor::svm::NptSpace>(vspace)));
-	else
+	if(getGlobalCpuFeatures()->haveVmx) {
+		auto vcpuOutcome = vmx::Vmcs::create(smarter::static_pointer_cast<thor::vmx::EptSpace>(vspace));
+		if(!vcpuOutcome)
+			return translateError(vcpuOutcome.error());
+		vcpu = std::move(*vcpuOutcome);
+	} else if(getGlobalCpuFeatures()->haveSvm) {
+		auto vcpuOutcome = svm::Vcpu::create(smarter::static_pointer_cast<thor::svm::NptSpace>(vspace));
+		if(!vcpuOutcome)
+			return translateError(vcpuOutcome.error());
+		vcpu = std::move(*vcpuOutcome);
+	} else {
 		return kHelErrNoHardwareSupport;
+	}
 
 	*out = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));
@@ -935,8 +936,11 @@ HelError helCreateVirtualizedCpu(HelHandle handle, HelHandle *out) {
 		return translateError(vspaceOutcome.error());
 	auto vspace = std::move(*vspaceOutcome);
 
-	smarter::shared_ptr<VirtualizedCpu> vcpu = smarter::allocate_shared<riscv_hypervisor::Vcpu>(Allocator{},
+	auto vcpuOutcome = riscv_hypervisor::Vcpu::create(
 			smarter::static_pointer_cast<riscv_hypervisor::HypervisorSpace>(vspace));
+	if(!vcpuOutcome)
+		return translateError(vcpuOutcome.error());
+	smarter::shared_ptr<VirtualizedCpu> vcpu = std::move(*vcpuOutcome);
 
 	*out = this_universe->attachDescriptor(
 			AnyDescriptor::make<DescriptorType::virtualizedCpu>(std::move(vcpu)));

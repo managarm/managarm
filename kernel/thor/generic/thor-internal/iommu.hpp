@@ -31,15 +31,20 @@ private:
 
 // A page space used specifically for DMA.
 struct DmaSpace : VirtualSpace {
+protected:
 	DmaSpace(VirtualOperations *ops)
 	: VirtualSpace{ops} { }
 };
 
 struct NoopDmaSpace final : DmaSpace {
-	NoopDmaSpace() : DmaSpace(&ops_) {}
+private:
+	struct CtorToken {};
 
-	static smarter::shared_ptr<NoopDmaSpace> create() {
-		auto ptr = smarter::allocate_shared<NoopDmaSpace>(*kernelAlloc);
+public:
+	NoopDmaSpace(CtorToken) : DmaSpace(&ops_) {}
+
+	static std::expected<smarter::shared_ptr<NoopDmaSpace>, Error> create() {
+		auto ptr = smarter::allocate_shared<NoopDmaSpace>(*kernelAlloc, CtorToken{});
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0, 1UL << 39);
 		return ptr;

@@ -15,7 +15,17 @@ namespace thor::riscv_hypervisor {
 void init();
 
 struct Vcpu final : VirtualizedCpu {
-	Vcpu(smarter::shared_ptr<HypervisorSpace> space);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<Vcpu>, Error>
+	create(smarter::shared_ptr<HypervisorSpace> space) {
+		auto ptr = smarter::allocate_shared<Vcpu>(Allocator{}, CtorToken{}, std::move(space));
+		return ptr;
+	}
+
+	Vcpu(CtorToken, smarter::shared_ptr<HypervisorSpace> space);
 	~Vcpu();
 
 	Vcpu(const Vcpu &) = delete;
