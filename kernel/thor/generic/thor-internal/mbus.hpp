@@ -43,7 +43,10 @@ struct KernelBusObject {
 	coroutine<Error> updateProperties(Properties &properties);
 
 	virtual smarter::shared_ptr<Stream, LanePolicy> initiateClient() {
-		auto stream = createStream();
+		auto streamOutcome = createStream();
+		if(!streamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		auto stream = std::move(*streamOutcome);
 
 		spawnOnWorkQueue(*kernelAlloc, WorkQueue::generalQueue().lock(), [] (smarter::shared_ptr<Stream, LanePolicy> lane,
 				KernelBusObject *self) -> coroutine<void> {

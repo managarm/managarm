@@ -265,10 +265,12 @@ HelError helCreateUniverse(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto new_universe = smarter::allocate_shared<Universe>(*kernelAlloc);
+	auto universeOutcome = Universe::create();
+	if(!universeOutcome)
+		return translateError(universeOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::universe>(std::move(new_universe)));
+			AnyDescriptor::make<DescriptorType::universe>(std::move(*universeOutcome)));
 
 	return kHelErrNone;
 }
@@ -1814,7 +1816,10 @@ HelError helCreateThread(HelHandle universe_handle, HelHandle space_handle,
 	params.ip = (uintptr_t)ip;
 	params.sp = (uintptr_t)sp;
 
-	auto new_thread = Thread::create(std::move(universe), std::move(space), params);
+	auto threadOutcome = Thread::create(std::move(universe), std::move(space), params);
+	if(!threadOutcome)
+		return translateError(threadOutcome.error());
+	auto new_thread = std::move(*threadOutcome);
 
 	// Adding a large prime (coprime to getCpuCount()) should yield a good distribution.
 	auto cpuIndex = globalNextCpu.fetch_add(4099, std::memory_order_relaxed) % getCpuCount();
@@ -2586,11 +2591,13 @@ HelError helCreateStream(HelHandle *lane1_handle, HelHandle *lane2_handle, uint3
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto lanes = createStream(attach_credentials);
+	auto lanesOutcome = createStream(attach_credentials);
+	if(!lanesOutcome)
+		return translateError(lanesOutcome.error());
 	*lane1_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<0>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<0>())));
 	*lane2_handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::lane>(std::move(lanes.get<1>())));
+			AnyDescriptor::make<DescriptorType::lane>(std::move(lanesOutcome->get<1>())));
 
 	return kHelErrNone;
 }
@@ -3247,10 +3254,12 @@ HelError helCreateOneshotEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto event = smarter::allocate_shared<OneshotEvent>(*kernelAlloc);
+	auto eventOutcome = OneshotEvent::create();
+	if(!eventOutcome)
+		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(event)));
+			AnyDescriptor::make<DescriptorType::oneshotEvent>(std::move(*eventOutcome)));
 
 	return kHelErrNone;
 }
@@ -3259,10 +3268,12 @@ HelError helCreateBitsetEvent(HelHandle *handle) {
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto event = smarter::allocate_shared<BitsetEvent>(*kernelAlloc);
+	auto eventOutcome = BitsetEvent::create();
+	if(!eventOutcome)
+		return translateError(eventOutcome.error());
 
 	*handle = this_universe->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(event)));
+			AnyDescriptor::make<DescriptorType::bitsetEvent>(std::move(*eventOutcome)));
 
 	return kHelErrNone;
 }
@@ -3291,8 +3302,11 @@ HelError helAccessIrq(int number, HelHandle *handle) {
 	if (!pin)
 		return kHelErrOutOfBounds;
 
-	auto irq = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+	auto irqOutcome = GenericIrqObject::create(
 			frg::string<KernelAlloc>{*kernelAlloc, "generic-irq-object"});
+	if(!irqOutcome)
+		return translateError(irqOutcome.error());
+	auto irq = std::move(*irqOutcome);
 	IrqPin::attachSink(pin, irq.get());
 
 	*handle = this_universe->attachDescriptor(
@@ -3460,7 +3474,10 @@ HelError helAccessIo(uintptr_t *port_array, size_t num_ports,
 	auto this_thread = getCurrentThread();
 	auto this_universe = this_thread->getUniverse();
 
-	auto io_space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+	auto ioSpaceOutcome = IoSpace::create();
+	if(!ioSpaceOutcome)
+		return translateError(ioSpaceOutcome.error());
+	auto io_space = std::move(*ioSpaceOutcome);
 	for(size_t i = 0; i < num_ports; i++) {
 		uintptr_t port;
 		if(!readUserObject<uintptr_t>(port_array + i, port))
@@ -3521,8 +3538,10 @@ HelError helBindKernlet(HelHandle handle, const HelKernletData *data, size_t num
 	if (num_data != object->numberOfBindParameters())
 		return kHelErrIllegalArgs;
 
-	auto bound = smarter::allocate_shared<BoundKernlet>(*kernelAlloc,
-			std::move(kernlet));
+	auto boundOutcome = BoundKernlet::create(std::move(kernlet));
+	if(!boundOutcome)
+		return translateError(boundOutcome.error());
+	auto bound = std::move(*boundOutcome);
 	for(size_t i = 0; i < object->numberOfBindParameters(); i++) {
 		const auto &defn = object->defnOfBindParameter(i);
 
@@ -3740,10 +3759,12 @@ HelError helCreateToken(HelHandle *handle) {
 	auto thisThread = getCurrentThread();
 	auto thisUniverse = thisThread->getUniverse();
 
-	auto creds = smarter::allocate_shared<Credentials>(*kernelAlloc);
+	auto credsOutcome = TokenObject::create();
+	if(!credsOutcome)
+		return translateError(credsOutcome.error());
 
 	*handle = thisUniverse->attachDescriptor(
-			AnyDescriptor::make<DescriptorType::token>(std::move(creds)));
+			AnyDescriptor::make<DescriptorType::token>(std::move(*credsOutcome)));
 
 	return kHelErrNone;
 }

@@ -314,7 +314,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	assert(copyDataOutcome);
 
 	// build the stack tail area (containing the aux vector).
-	auto universe = smarter::allocate_shared<Universe>(*kernelAlloc);
+	auto universeOutcome = Universe::create();
+	if(!universeOutcome)
+		panicLogger() << "thor: Failed to create universe" << frg::endlog;
+	auto universe = std::move(*universeOutcome);
 
 	Handle xpipe_handle = 0;
 	if(xpipe_lane) {
@@ -370,7 +373,10 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 	params.sp = mapResult.value() + tail_disp;
 	params.argument = 0;
 
-	auto thread = Thread::create(std::move(universe), std::move(space), params);
+	auto threadOutcome = Thread::create(std::move(universe), std::move(space), params);
+	if(!threadOutcome)
+		panicLogger() << "thor: Failed to create thread" << frg::endlog;
+	auto thread = std::move(*threadOutcome);
 	thread->flags |= Thread::kFlagServer;
 
 	// see helCreateThread for the reasoning here
@@ -390,9 +396,11 @@ coroutine<void> executeModule(frg::string_view name, MfsRegular *module,
 }
 
 void initializeMbusStream() {
-	auto mbusStream = createStream();
-	mbusClient.initialize(std::move(mbusStream.get<1>()));
-	futureMbusServer.initialize(std::move(mbusStream.get<0>()));
+	auto mbusStreamOutcome = createStream();
+	if(!mbusStreamOutcome)
+		panicLogger() << "thor: Failed to create stream" << frg::endlog;
+	mbusClient.initialize(std::move(mbusStreamOutcome->get<1>()));
+	futureMbusServer.initialize(std::move(mbusStreamOutcome->get<0>()));
 }
 
 coroutine<void> runMbus() {
@@ -406,7 +414,10 @@ coroutine<void> runMbus() {
 		frg::string<KernelAlloc> nameStr{*kernelAlloc, "/usr/bin/mbus"};
 		assert(!allServers->get(nameStr));
 
-		controlStream = createStream();
+		auto controlStreamOutcome = createStream();
+		if(!controlStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		controlStream = std::move(*controlStreamOutcome);
 		allServers->insert(nameStr, controlStream.get<1>());
 	}
 
@@ -433,7 +444,10 @@ coroutine<smarter::shared_ptr<Stream, LanePolicy>> runServer(frg::string_view na
 			co_return *server;
 		}
 
-		controlStream = createStream();
+		auto controlStreamOutcome = createStream();
+		if(!controlStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		controlStream = std::move(*controlStreamOutcome);
 		allServers->insert(nameStr, controlStream.get<1>());
 	}
 

@@ -11,8 +11,13 @@ namespace thor {
 // --------------------------------------------------------
 
 struct IoSpace {
+private:
+	struct CtorToken {};
+
 public:
-	IoSpace();
+	static std::expected<smarter::shared_ptr<IoSpace>, Error> create();
+
+	IoSpace(CtorToken);
 
 	std::expected<void, Error> addPort(uintptr_t port);
 

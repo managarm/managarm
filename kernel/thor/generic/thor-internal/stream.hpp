@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <atomic>
+#include <expected>
 #include <optional>
 
 #include <async/oneshot-event.hpp>
@@ -190,6 +191,15 @@ using StreamList = frg::intrusive_list<
 >;
 
 struct Stream final {
+private:
+	struct CtorToken {};
+
+public:
+	friend std::expected<
+		frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>>,
+		Error
+	> createStream(bool withCredentials);
+
 	struct Submitter {
 		void enqueue(const smarter::shared_ptr<Stream, LanePolicy> &lane, StreamList &chain);
 
@@ -207,7 +217,7 @@ struct Stream final {
 		return _peerCount[lane];
 	}
 
-	Stream(bool withCredentials = false);
+	Stream(CtorToken, bool withCredentials = false);
 	~Stream();
 
 	// Submits a chain of operations to the stream.
@@ -257,7 +267,10 @@ private:
 	bool _withCredentials;
 };
 
-frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>> createStream(bool withCredentials = false);
+std::expected<
+	frg::tuple<smarter::shared_ptr<Stream, LanePolicy>, smarter::shared_ptr<Stream, LanePolicy>>,
+	Error
+> createStream(bool withCredentials = false);
 
 //---------------------------------------------------------------------------------------
 // In-kernel stream utilities.

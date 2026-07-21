@@ -1,9 +1,14 @@
 #include <stdint.h>
 
 #include <thor-internal/credentials.hpp>
+#include <thor-internal/kernel-heap.hpp>
 #include <thor-internal/random.hpp>
 
 namespace thor {
+
+std::expected<smarter::shared_ptr<TokenObject>, Error> TokenObject::create() {
+	return smarter::allocate_shared<TokenObject>(*kernelAlloc, CtorToken{});
+}
 
 Credentials::Credentials() {
 	size_t progress = 0;

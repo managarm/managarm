@@ -424,7 +424,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 		}
 
 		// Obtain an IRQ object for the interrupt.
-		auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+		auto objectOutcome = GenericIrqObject::create(
 				frg::string<KernelAlloc>{*kernelAlloc, "pci-msi."}
 				+ frg::to_allocated_string(*kernelAlloc, bus)
 				+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
@@ -433,6 +433,9 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 				+ frg::to_allocated_string(*kernelAlloc, function)
 				+ frg::string<KernelAlloc>{*kernelAlloc, "."}
 				+ frg::to_allocated_string(*kernelAlloc, req->index()));
+		if(!objectOutcome)
+			panicLogger() << "thor: Failed to create IRQ object" << frg::endlog;
+		auto object = std::move(*objectOutcome);
 		IrqPin::attachSink(interrupt, object.get());
 
 		static_cast<PciDevice *>(this)->setupMsi(interrupt, req->index());
@@ -816,7 +819,18 @@ void PciEntity::enableBusmaster() {
 
 namespace {
 	struct PciIrqObject final : IrqObject {
-		PciIrqObject(PciDevice *pciDevice, frg::string<KernelAlloc> name)
+	private:
+		struct CtorToken {};
+
+	public:
+		static std::expected<smarter::shared_ptr<PciIrqObject>, Error> create(
+				PciDevice *pciDevice, frg::string<KernelAlloc> name) {
+			auto ptr = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, CtorToken{},
+					pciDevice, std::move(name));
+			return ptr;
+		}
+
+		PciIrqObject(CtorToken, PciDevice *pciDevice, frg::string<KernelAlloc> name)
 		: IrqObject{name}, pciDevice_{pciDevice} { }
 
 		void dumpHardwareState() override {
@@ -834,13 +848,16 @@ namespace {
 
 smarter::shared_ptr<IrqObject> PciDevice::obtainIrqObject() {
 	assert(interrupt);
-	auto object = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, this,
+	auto objectOutcome = PciIrqObject::create(this,
 			frg::string<KernelAlloc>{*kernelAlloc, "pci-irq."}
 			+ frg::to_allocated_string(*kernelAlloc, bus)
 			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
 			+ frg::to_allocated_string(*kernelAlloc, slot)
 			+ frg::string<KernelAlloc>{*kernelAlloc, "-"}
 			+ frg::to_allocated_string(*kernelAlloc, function));
+	if(!objectOutcome)
+		panicLogger() << "thor: Failed to create PCI IRQ object" << frg::endlog;
+	auto object = std::move(*objectOutcome);
 	IrqPin::attachSink(interrupt, object.get());
 	return object;
 }
@@ -1056,7 +1073,10 @@ void readEntityBars(PciEntity *entity, int nBars) {
 				} else {
 					bars[i].hostType = PciBar::kBarIo;
 					bars[i].allocated = true;
-					bars[i].io = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+					auto ioOutcome = IoSpace::create();
+					if(!ioOutcome)
+						panicLogger() << "thor: Failed to create I/O space" << frg::endlog;
+					bars[i].io = std::move(*ioOutcome);
 					for(size_t p = 0; p < length; ++p) {
 						if (auto outcome = bars[i].io->addPort(address + p); !outcome)
 							panicLogger() << "thor: Failed to access PCI ports" << frg::endlog;

@@ -1,11 +1,17 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/event.hpp>
+#include <thor-internal/kernel-heap.hpp>
 
 namespace thor {
 
 //---------------------------------------------------------------------------------------
 // OneshotEvent implementation.
 //---------------------------------------------------------------------------------------
+
+std::expected<smarter::shared_ptr<OneshotEvent>, Error> OneshotEvent::create() {
+	auto ptr = smarter::allocate_shared<OneshotEvent>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
 
 std::expected<void, Error> OneshotEvent::trigger() {
 	auto irq_lock = frg::guard(&irqMutex());
@@ -72,7 +78,12 @@ void OneshotEvent::cancelAwait(AwaitEventNode<OneshotEvent> *node) {
 // BitsetEvent implementation.
 //---------------------------------------------------------------------------------------
 
-BitsetEvent::BitsetEvent()
+std::expected<smarter::shared_ptr<BitsetEvent>, Error> BitsetEvent::create() {
+	auto ptr = smarter::allocate_shared<BitsetEvent>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
+
+BitsetEvent::BitsetEvent(CtorToken)
 : _currentSequence{1} {
 	for(int i = 0; i < 32; i++)
 		_lastTrigger[i] = 0;

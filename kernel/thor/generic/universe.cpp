@@ -91,7 +91,12 @@ void AnyDescriptor::releaseOnZero_() {
 	}
 }
 
-Universe::Universe()
+std::expected<smarter::shared_ptr<Universe>, Error> Universe::create() {
+	auto ptr = smarter::allocate_shared<Universe>(*kernelAlloc, CtorToken{});
+	return ptr;
+}
+
+Universe::Universe(CtorToken)
 : _descriptorMap{frg::hash<Handle>{}, *kernelAlloc}, _nextHandle{1} { }
 
 Universe::~Universe() {

@@ -25,7 +25,15 @@ struct KernletObject {
 	// TODO: Add a getIrqAutomationEntry() function instead.
 	friend struct BoundKernlet;
 
-	KernletObject(void *entry, const frg::vector<KernletParameterType, KernelAlloc> &bind_types);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<KernletObject>, Error> create(
+			void *entry, const frg::vector<KernletParameterType, KernelAlloc> &bind_types);
+
+	KernletObject(CtorToken, void *entry,
+			const frg::vector<KernletParameterType, KernelAlloc> &bind_types);
 
 	size_t instanceSize();
 	size_t numberOfBindParameters();
@@ -38,7 +46,14 @@ private:
 };
 
 struct BoundKernlet {
-	BoundKernlet(smarter::shared_ptr<KernletObject> object);
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<BoundKernlet>, Error> create(
+			smarter::shared_ptr<KernletObject> object);
+
+	BoundKernlet(CtorToken, smarter::shared_ptr<KernletObject> object);
 
 	KernletObject *object() {
 		return _object.get();

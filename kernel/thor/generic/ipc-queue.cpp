@@ -13,10 +13,8 @@ namespace thor {
 
 std::expected<smarter::shared_ptr<IpcQueue>, Error>
 IpcQueue::create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks) {
-	auto ptr = smarter::allocate_shared<IpcQueue>(*kernelAlloc,
+	auto ptr = smarter::allocate_shared<IpcQueue>(*kernelAlloc, CtorToken{},
 			numChunks, chunkSize, numSqChunks);
-	if(!ptr)
-		return std::unexpected{Error::noMemory};
 	ptr->selfPtr = ptr;
 
 	auto totalChunks = numChunks + numSqChunks;
@@ -63,7 +61,7 @@ IpcQueue::create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChu
 	return ptr;
 }
 
-IpcQueue::IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks)
+IpcQueue::IpcQueue(CtorToken, unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks)
 : _chunkSize{chunkSize}, _chunkOffsets{*kernelAlloc},
 		_currentChunk{0}, _currentProgress{0},
 		_numCqChunks{numChunks}, _numSqChunks{numSqChunks} { }

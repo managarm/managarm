@@ -30,7 +30,13 @@ namespace {
 // KernletObject class.
 // ------------------------------------------------------------------------
 
-KernletObject::KernletObject(void *entry,
+std::expected<smarter::shared_ptr<KernletObject>, Error> KernletObject::create(
+		void *entry, const frg::vector<KernletParameterType, KernelAlloc> &bind_types) {
+	auto ptr = smarter::allocate_shared<KernletObject>(*kernelAlloc, CtorToken{}, entry, bind_types);
+	return ptr;
+}
+
+KernletObject::KernletObject(CtorToken, void *entry,
 		const frg::vector<KernletParameterType, KernelAlloc> &bind_types)
 : _entry(entry), _bindDefns{*kernelAlloc}, _instanceSize{0} {
 	for(auto type : bind_types) {
@@ -68,7 +74,13 @@ const KernletParameterDefn &KernletObject::defnOfBindParameter(size_t index) {
 // BoundKernlet class.
 // ------------------------------------------------------------------------
 
-BoundKernlet::BoundKernlet(smarter::shared_ptr<KernletObject> object)
+std::expected<smarter::shared_ptr<BoundKernlet>, Error> BoundKernlet::create(
+		smarter::shared_ptr<KernletObject> object) {
+	auto ptr = smarter::allocate_shared<BoundKernlet>(*kernelAlloc, CtorToken{}, std::move(object));
+	return ptr;
+}
+
+BoundKernlet::BoundKernlet(CtorToken, smarter::shared_ptr<KernletObject> object)
 : _object{std::move(object)} {
 	_instance = reinterpret_cast<char *>(kernelAlloc->allocate(_object->instanceSize()));
 }
@@ -347,7 +359,10 @@ smarter::shared_ptr<KernletObject> processElfDso(const char *buffer,
 	};
 
 	auto entry = lookup("automate_irq");
-	return smarter::allocate_shared<KernletObject>(*kernelAlloc, entry, bind_types);
+	auto kernletOutcome = KernletObject::create(entry, bind_types);
+	if(!kernletOutcome)
+		panicLogger() << "thor: Failed to create kernlet object" << frg::endlog;
+	return std::move(*kernletOutcome);
 }
 
 } // anonymous namespace

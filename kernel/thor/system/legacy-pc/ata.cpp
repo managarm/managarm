@@ -99,7 +99,10 @@ private:
 
 			managarm::hw::SvrResponse<KernelAlloc> resp{*kernelAlloc};
 
-			auto space = smarter::allocate_shared<IoSpace>(*kernelAlloc);
+			auto spaceOutcome = IoSpace::create();
+			if(!spaceOutcome)
+				panicLogger() << "thor: Failed to create I/O space" << frg::endlog;
+			auto space = std::move(*spaceOutcome);
 			if(req->index() == 0) {
 				for(size_t p = 0; p < 8; ++p) {
 					if (auto outcome = space->addPort(0x1F0 + p); !outcome)
@@ -136,8 +139,11 @@ private:
 				co_return frg::success;
 			}
 
-			auto object = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc,
+			auto objectOutcome = GenericIrqObject::create(
 					frg::string<KernelAlloc>{*kernelAlloc, "isa-irq.ata"});
+			if(!objectOutcome)
+				panicLogger() << "thor: Failed to create IRQ object" << frg::endlog;
+			auto object = std::move(*objectOutcome);
 #ifdef __x86_64__
 			auto irqOverride = resolveIsaIrq(14);
 			IrqPin::attachSink(acpi::getGlobalSystemIrq(irqOverride.gsi), object.get());

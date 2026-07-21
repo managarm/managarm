@@ -4,6 +4,7 @@
 
 #include <async/cancellation.hpp>
 #include <frg/list.hpp>
+#include <smarter.hpp>
 #include <thor-internal/error.hpp>
 #include <thor-internal/work-queue.hpp>
 
@@ -63,7 +64,13 @@ private:
 };
 
 struct OneshotEvent {
-	OneshotEvent() = default;
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<OneshotEvent>, Error> create();
+
+	OneshotEvent(CtorToken) { }
 
 	std::expected<void, Error> trigger();
 
@@ -150,7 +157,13 @@ private:
 };
 
 struct BitsetEvent {
-	BitsetEvent();
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<BitsetEvent>, Error> create();
+
+	BitsetEvent(CtorToken);
 
 	std::expected<void, Error> trigger(uint32_t bits);
 

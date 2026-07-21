@@ -468,7 +468,10 @@ namespace posix {
 		}
 
 		ThreadInfo &attachThread(smarter::shared_ptr<Thread, ActiveHandle> thread) {
-			auto posixStream = createStream();
+			auto posixStreamOutcome = createStream();
+			if(!posixStreamOutcome)
+				panicLogger() << "thor: Failed to create stream" << frg::endlog;
+			auto posixStream = std::move(*posixStreamOutcome);
 			Handle posixHandle = thread->getUniverse()->attachDescriptor(
 					AnyDescriptor::make<DescriptorType::lane>(std::move(posixStream.get<1>())));
 
@@ -645,7 +648,10 @@ namespace posix {
 				}
 
 				if(module == urandomNode) {
-					auto stream = createStream();
+					auto streamOutcome = createStream();
+					if(!streamOutcome)
+						panicLogger() << "thor: Failed to create stream" << frg::endlog;
+					auto stream = std::move(*streamOutcome);
 					auto file = frg::construct<urandom::OpenUrandom>(*kernelAlloc);
 					file->clientLane = std::move(stream.get<1>());
 
@@ -669,7 +675,10 @@ namespace posix {
 				}
 
 				if(module->type == MfsType::directory) {
-					auto stream = createStream();
+					auto streamOutcome = createStream();
+					if(!streamOutcome)
+						panicLogger() << "thor: Failed to create stream" << frg::endlog;
+					auto stream = std::move(*streamOutcome);
 					auto file = frg::construct<initrd::OpenDirectory>(*kernelAlloc,
 							static_cast<MfsDirectory *>(module));
 					file->clientLane = std::move(stream.get<1>());
@@ -693,7 +702,10 @@ namespace posix {
 				}else{
 					assert(module->type == MfsType::regular);
 
-					auto stream = createStream();
+					auto streamOutcome = createStream();
+					if(!streamOutcome)
+						panicLogger() << "thor: Failed to create stream" << frg::endlog;
+					auto stream = std::move(*streamOutcome);
 					auto file = frg::construct<initrd::OpenRegular>(*kernelAlloc,
 							static_cast<MfsRegular *>(module));
 					file->clientLane = std::move(stream.get<1>());
@@ -1150,7 +1162,10 @@ namespace posix {
 				params.sp = argSp;
 				params.argument = 0;
 
-				auto new_thread = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
+				auto threadOutcome = Thread::create(info.thread->getUniverse().lock(), info.thread->getAddressSpace().lock(), params);
+				if(!threadOutcome)
+					panicLogger() << "thor: Failed to create thread" << frg::endlog;
+				auto new_thread = std::move(*threadOutcome);
 				new_thread->flags |= Thread::kFlagServer;
 				auto new_info = attachThread(new_thread);
 
@@ -1195,7 +1210,10 @@ coroutine<void> initPosixEmulation() {
 void runService(frg::string<KernelAlloc> name, smarter::shared_ptr<Stream, LanePolicy> controlLane,
 		smarter::shared_ptr<Thread, ActiveHandle> thread) {
 	KernelFiber::run([name, thread, controlLane = std::move(controlLane)] () mutable {
-		auto stdioStream = createStream();
+		auto stdioStreamOutcome = createStream();
+		if(!stdioStreamOutcome)
+			panicLogger() << "thor: Failed to create stream" << frg::endlog;
+		auto stdioStream = std::move(*stdioStreamOutcome);
 		auto stdioFile = frg::construct<StdioFile>(*kernelAlloc);
 		stdioFile->clientLane = std::move(stdioStream.get<1>());
 

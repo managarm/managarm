@@ -71,13 +71,15 @@ struct QueueSource {
 
 struct IpcQueue : CancelRegistry {
 private:
+	struct CtorToken {};
+
 	using Address = uintptr_t;
 
 public:
 	static std::expected<smarter::shared_ptr<IpcQueue>, Error>
 	create(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
 
-	IpcQueue(unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
+	IpcQueue(CtorToken, unsigned int numChunks, size_t chunkSize, unsigned int numSqChunks);
 
 	IpcQueue(const IpcQueue &) = delete;
 

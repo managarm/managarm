@@ -22,7 +22,19 @@ struct DtRegister {
 };
 
 struct DtIrqObject final : IrqObject {
-	DtIrqObject(frg::string<KernelAlloc> name, dt::IrqController *controller, dtb::Cells irqCells)
+private:
+	struct CtorToken {};
+
+public:
+	static std::expected<smarter::shared_ptr<DtIrqObject>, Error> create(
+			frg::string<KernelAlloc> name, dt::IrqController *controller, dtb::Cells irqCells) {
+		auto ptr = smarter::allocate_shared<DtIrqObject>(*kernelAlloc, CtorToken{},
+				std::move(name), controller, irqCells);
+		return ptr;
+	}
+
+	DtIrqObject(CtorToken, frg::string<KernelAlloc> name, dt::IrqController *controller,
+			dtb::Cells irqCells)
 	: IrqObject{name}, controller{controller}, irqCells{irqCells}, pin{nullptr} { }
 
 	void dumpHardwareState() override {
@@ -56,12 +68,14 @@ struct MbusNode final : private KernelBusObject {
 
 		auto walkInterruptResult = dt::walkInterrupts(
 			[&] (DeviceTreeNode *parentNode, dtb::Cells irqCells) {
-				auto object = smarter::allocate_shared<DtIrqObject>(*kernelAlloc,
+				auto objectOutcome = DtIrqObject::create(
 						frg::string<KernelAlloc>{*kernelAlloc, "dt-irq."}
 						+ node->name(),
 						parentNode->getAssociatedIrqController(),
 						irqCells);
-				irqs.push_back(object);
+				if(!objectOutcome)
+					panicLogger() << "thor: Failed to create DT IRQ object" << frg::endlog;
+				irqs.push_back(std::move(*objectOutcome));
 			}, node);
 		if(walkInterruptResult && !walkInterruptResult.value())
 			warningLogger()
