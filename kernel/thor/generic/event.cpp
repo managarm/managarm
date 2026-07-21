@@ -1,6 +1,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/event.hpp>
 #include <thor-internal/kernel-heap.hpp>
+#include <thor-internal/rcu.hpp>
 
 namespace thor {
 
@@ -9,7 +10,7 @@ namespace thor {
 //---------------------------------------------------------------------------------------
 
 std::expected<smarter::shared_ptr<OneshotEvent>, Error> OneshotEvent::create() {
-	auto ptr = smarter::allocate_shared<OneshotEvent>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<OneshotEvent>(*kernelAlloc, CtorToken{});
 	return ptr;
 }
 
@@ -79,7 +80,7 @@ void OneshotEvent::cancelAwait(AwaitEventNode<OneshotEvent> *node) {
 //---------------------------------------------------------------------------------------
 
 std::expected<smarter::shared_ptr<BitsetEvent>, Error> BitsetEvent::create() {
-	auto ptr = smarter::allocate_shared<BitsetEvent>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<BitsetEvent>(*kernelAlloc, CtorToken{});
 	return ptr;
 }
 

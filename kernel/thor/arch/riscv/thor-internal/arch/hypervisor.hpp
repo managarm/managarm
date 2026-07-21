@@ -21,7 +21,7 @@ private:
 public:
 	static std::expected<smarter::shared_ptr<Vcpu>, Error>
 	create(smarter::shared_ptr<HypervisorSpace> space) {
-		auto ptr = smarter::allocate_shared<Vcpu>(Allocator{}, CtorToken{}, std::move(space));
+		auto ptr = allocate_rcu_shared<Vcpu>(Allocator{}, CtorToken{}, std::move(space));
 		return ptr;
 	}
 

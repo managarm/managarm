@@ -13,6 +13,7 @@
 #include <thor-internal/memory-view.hpp>
 #include <thor-internal/mm-rc.hpp>
 #include <thor-internal/rcu.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -800,7 +801,7 @@ private:
 	async::oneshot_event agingDoneEvent_;
 };
 
-struct AddressSpace final : VirtualSpace {
+struct AddressSpace final : VirtualSpace, RcuProtected {
 	friend struct Mapping;
 
 private:
@@ -866,9 +867,8 @@ public:
 	}
 
 	static std::expected<smarter::shared_ptr<AddressSpace, BindableHandle>, Error> create() {
-		// Note: technically, we do not rely on RCU here.
-		//       However, the refcount may be decrement in IRQ context
-		//       and RCU ensures that freeing happens on a work queue.
+		// Note: RCU also ensures that freeing happens on a work queue even though
+		//       the refcount may be decremented in IRQ context.
 		auto ptr = allocate_rcu_shared<AddressSpace>(Allocator{}, CtorToken{});
 		ptr->selfPtr = ptr;
 		ptr->setupInitialHole(0x1000, (UINT64_C(1) << getLowerHalfBits()) - 0x1000);
@@ -946,14 +946,14 @@ private:
 	bool _active = false;
 };
 
-struct NamedMemoryViewLock {
+struct NamedMemoryViewLock : RcuProtected {
 private:
 	struct CtorToken {};
 
 public:
 	static std::expected<smarter::shared_ptr<NamedMemoryViewLock>, Error> create(
 			MemoryViewLockHandle handle) {
-		auto ptr = smarter::allocate_shared<NamedMemoryViewLock>(*kernelAlloc, CtorToken{},
+		auto ptr = allocate_rcu_shared<NamedMemoryViewLock>(*kernelAlloc, CtorToken{},
 				std::move(handle));
 		return ptr;
 	}

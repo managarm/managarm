@@ -190,7 +190,7 @@ using StreamList = frg::intrusive_list<
 	>
 >;
 
-struct Stream final {
+struct Stream final : RcuProtected {
 private:
 	struct CtorToken {};
 

@@ -2,6 +2,7 @@
 
 #include <frg/vector.hpp>
 #include <thor-internal/error.hpp>
+#include <thor-internal/rcu-base.hpp>
 #include <thor-internal/thread.hpp>
 
 namespace thor {
@@ -10,7 +11,7 @@ namespace thor {
 // I/O related functions
 // --------------------------------------------------------
 
-struct IoSpace {
+struct IoSpace : RcuProtected {
 private:
 	struct CtorToken {};
 

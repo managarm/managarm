@@ -825,7 +825,7 @@ namespace {
 	public:
 		static std::expected<smarter::shared_ptr<PciIrqObject>, Error> create(
 				PciDevice *pciDevice, frg::string<KernelAlloc> name) {
-			auto ptr = smarter::allocate_shared<PciIrqObject>(*kernelAlloc, CtorToken{},
+			auto ptr = allocate_rcu_shared<PciIrqObject>(*kernelAlloc, CtorToken{},
 					pciDevice, std::move(name));
 			return ptr;
 		}

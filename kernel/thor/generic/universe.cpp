@@ -92,7 +92,7 @@ void AnyDescriptor::releaseOnZero_() {
 }
 
 std::expected<smarter::shared_ptr<Universe>, Error> Universe::create() {
-	auto ptr = smarter::allocate_shared<Universe>(*kernelAlloc, CtorToken{});
+	auto ptr = allocate_rcu_shared<Universe>(*kernelAlloc, CtorToken{});
 	return ptr;
 }
 

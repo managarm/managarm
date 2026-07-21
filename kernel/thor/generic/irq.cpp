@@ -2,6 +2,7 @@
 #include <thor-internal/cpu-data.hpp>
 #include <thor-internal/debug.hpp>
 #include <thor-internal/irq.hpp>
+#include <thor-internal/rcu.hpp>
 #include <thor-internal/timer.hpp>
 
 namespace thor {
@@ -491,7 +492,7 @@ IrqObject::IrqObject(frg::string<KernelAlloc> name)
 
 std::expected<smarter::shared_ptr<GenericIrqObject>, Error> GenericIrqObject::create(
 		frg::string<KernelAlloc> name) {
-	auto ptr = smarter::allocate_shared<GenericIrqObject>(*kernelAlloc, CtorToken{}, std::move(name));
+	auto ptr = allocate_rcu_shared<GenericIrqObject>(*kernelAlloc, CtorToken{}, std::move(name));
 	return ptr;
 }
 

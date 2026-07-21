@@ -28,7 +28,7 @@ private:
 public:
 	static std::expected<smarter::shared_ptr<DtIrqObject>, Error> create(
 			frg::string<KernelAlloc> name, dt::IrqController *controller, dtb::Cells irqCells) {
-		auto ptr = smarter::allocate_shared<DtIrqObject>(*kernelAlloc, CtorToken{},
+		auto ptr = allocate_rcu_shared<DtIrqObject>(*kernelAlloc, CtorToken{},
 				std::move(name), controller, irqCells);
 		return ptr;
 	}
