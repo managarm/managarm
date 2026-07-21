@@ -309,7 +309,7 @@ coroutine<frg::expected<Error>> PciEntity::handleRequest(smarter::shared_ptr<Str
 
 		AnyDescriptor descriptor;
 		if(bars[index].type == PciBar::kBarIo) {
-			descriptor = AnyDescriptor::make<DescriptorType::io>(bars[index].io);
+			descriptor = AnyDescriptor::make<DescriptorType::io>(bars[index].io, kHelRightAssign);
 		}else{
 			assert(bars[index].type == PciBar::kBarMemory);
 			descriptor = AnyDescriptor::make<DescriptorType::memoryView>(bars[index].memory);

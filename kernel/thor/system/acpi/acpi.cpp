@@ -229,8 +229,9 @@ AcpiObject::handleRequest(smarter::shared_ptr<Stream, LanePolicy> lane) {
 
 		FRG_CO_TRY(co_await sendResponse(conversation, std::move(resp)));
 
-		auto ioError =
-		    co_await pushDescriptor(conversation, AnyDescriptor::make<DescriptorType::io>(space));
+		auto ioError = co_await pushDescriptor(
+		    conversation, AnyDescriptor::make<DescriptorType::io>(space, kHelRightAssign)
+		);
 		if (ioError != Error::success)
 			co_return ioError;
 	} else if (preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {

@@ -119,7 +119,7 @@ private:
 
 			FRG_CO_TRY(co_await sendResponse(lane, std::move(resp)));
 
-			auto ioError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::io>(space));
+			auto ioError = co_await pushDescriptor(lane, AnyDescriptor::make<DescriptorType::io>(space, kHelRightAssign));
 			if(ioError != Error::success)
 				co_return ioError;
 		}else if(preamble.id() == bragi::message_id<managarm::hw::AccessIrqRequest>) {
