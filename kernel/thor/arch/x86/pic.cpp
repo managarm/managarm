@@ -442,11 +442,25 @@ void sendGlobalNmi() {
 // MSI management
 // --------------------------------------------------------
 
-// TODO: Replace this by proper IRQ allocation.
 extern frg::manual_box<IrqSlot> globalIrqSlots[64];
-extern IrqSpinlock globalIrqSlotsLock;
 
 namespace {
+	IrqSpinlock irqAllocationLock;
+	static bool irqSlotAllocated[64]{};
+
+	std::optional<int> allocateIrqSlot() {
+		auto guard = frg::guard(&irqAllocationLock);
+
+		for(int i = 0; i < 64; i++) {
+			if(irqSlotAllocated[i])
+				continue;
+			irqSlotAllocated[i] = true;
+			return i;
+		}
+
+		return std::nullopt;
+	}
+
 	struct ApicMsiPin final : MsiPin {
 		ApicMsiPin(frg::string<KernelAlloc> name, unsigned int vector)
 		: MsiPin{std::move(name)}, vector_{vector} { }
@@ -482,17 +496,10 @@ namespace {
 }
 
 MsiPin *allocateApicMsi(frg::string<KernelAlloc> name) {
-	auto guard = frg::guard(&globalIrqSlotsLock);
-
-	int slotIndex = -1;
-	for(int i = 0; i < 64; i++) {
-		if(!globalIrqSlots[i]->isAvailable())
-			continue;
-		slotIndex = i;
-		break;
-	}
-	if(slotIndex == -1)
+	auto maybeSlotIndex = allocateIrqSlot();
+	if (!maybeSlotIndex)
 		return nullptr;
+	auto slotIndex = *maybeSlotIndex;
 
 	// Create an IRQ pin for the MSI.
 	auto pin = frg::construct<ApicMsiPin>(*kernelAlloc,
@@ -652,21 +659,14 @@ namespace {
 
 		// Allocate an IRQ vector for the I/O APIC pin.
 		if(_vector == -1) {
-			auto guard = frg::guard(&globalIrqSlotsLock);
-
-			for(int i = 0; i < 64; i++) {
-				if(!globalIrqSlots[i]->isAvailable())
-					continue;
-				infoLogger() << "thor: Allocating IRQ slot " << i
-						<< " to " << name() << frg::endlog;
-				globalIrqSlots[i]->link(this);
-				_vector = 64 + i;
-				break;
-			}
+			auto maybeSlotIndex = allocateIrqSlot();
+			if (!maybeSlotIndex)
+				panicLogger() << "thor: Could not allocate interrupt vector for "
+						<< name() << frg::endlog;
+			auto slotIndex = *maybeSlotIndex;
+			globalIrqSlots[slotIndex]->link(this);
+			_vector = 64 + slotIndex;
 		}
-		if(_vector == -1)
-			panicLogger() << "thor: Could not allocate interrupt vector for "
-					<< name() << frg::endlog;
 
 		{
 			auto irqLock = frg::guard(&irqMutex());

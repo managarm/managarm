@@ -41,7 +41,6 @@ bool debugToSerial = false;
 bool debugToBochs = false;
 
 frg::manual_box<IrqSlot> globalIrqSlots[numIrqSlots];
-IrqSpinlock globalIrqSlotsLock;
 
 MfsDirectory *mfsRoot;
 frg::manual_box<frg::string<KernelAlloc>> kernelCommandLine;

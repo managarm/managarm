@@ -9,6 +9,7 @@
 #include <smarter.hpp>
 #include <thor-internal/coroutine.hpp>
 #include <thor-internal/cpu-data.hpp>
+#include <thor-internal/rcu-base.hpp>
 
 namespace thor {
 
@@ -125,14 +126,6 @@ private:
 
 	std::atomic<CriticalSection> cs_;
 	async::recurring_event gpEvent_;
-};
-
-struct RcuCallable {
-	friend struct RcuDispatcher;
-
-private:
-	void (*call_)(RcuCallable *);
-	frg::default_list_hook<RcuCallable> hook_;
 };
 
 void setRcuOnline(CpuData *cpu);

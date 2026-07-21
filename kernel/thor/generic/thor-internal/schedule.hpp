@@ -14,9 +14,9 @@ namespace thor {
 
 template<typename ImageAccessor>
 inline bool deferPreemption(ImageAccessor image) {
-	if (image.iplState()->current < ipl::schedule)
+	if (image.iplState()->current < ipl::noPreemption)
 		return false;
-	deferToIplLowerThan(ipl::schedule);
+	deferToIplLowerThan(ipl::noPreemption);
 	return true;
 }
 
@@ -73,10 +73,10 @@ public:
 
 	// Precondition: Preemption must be safe at the call site.
 	//               In particular, before the caller disables interrupts,
-	//               it should be on a code path with currentIpl() < ipl::schedule.
+	//               it should be on a code path with currentIpl() < ipl::noPreemption.
 	// Precondition: !intsAreEnabled().
 	virtual void handlePreemption() = 0;
-	// Must only be called if the image's IPL < ipl::schedule.
+	// Must only be called if the image's IPL < ipl::noPreemption.
 	// Precondition: !intsAreEnabled().
 	virtual void handlePreemption(IrqImageAccessor image) = 0;
 

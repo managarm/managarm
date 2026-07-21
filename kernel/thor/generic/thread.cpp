@@ -27,7 +27,7 @@ namespace {
 // --------------------------------------------------------
 
 void Thread::migrateCurrent() {
-	assert(currentIpl() < ipl::schedule);
+	assert(currentIpl() < ipl::noSchedule);
 
 	auto this_thread = getCurrentThread().get();
 	auto maskSize = LbControlBlock::affinityMaskSize();
@@ -78,7 +78,7 @@ void Thread::migrateCurrent() {
 }
 
 void Thread::blockCurrent(Condition checkedConditions) {
-	assert(currentIpl() < ipl::schedule);
+	assert(currentIpl() < ipl::noSchedule);
 
 	auto thisThread = getCurrentThread();
 
@@ -126,7 +126,7 @@ void Thread::blockCurrent(Condition checkedConditions) {
 }
 
 void Thread::deferCurrent() {
-	assert(currentIpl() < ipl::schedule);
+	assert(currentIpl() < ipl::noSchedule);
 
 	auto thisThread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -153,7 +153,7 @@ void Thread::deferCurrent() {
 }
 
 void Thread::deferCurrent(IrqImageAccessor image) {
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -179,7 +179,7 @@ void Thread::deferCurrent(IrqImageAccessor image) {
 }
 
 void Thread::suspendCurrent(IrqImageAccessor image) {
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 
 	auto this_thread = getCurrentThread();
 	StatelessIrqLock irq_lock;
@@ -206,7 +206,7 @@ void Thread::suspendCurrent(IrqImageAccessor image) {
 
 template<typename ImageAccessor>
 void Thread::genericInterruptCurrent(Interrupt interrupt, ImageAccessor image, InterruptInfo info) {
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 	auto thisThread = getCurrentThread();
 
 	// We must never save kernel state into intrImage_.
@@ -387,7 +387,7 @@ void Thread::terminateCurrent_() {
 
 template<typename ImageAccessor>
 void Thread::genericHandleConditions(ImageAccessor image) {
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 	auto thisThread = getCurrentThread();
 
 	auto clearPending = [&] (Condition c) {
@@ -437,7 +437,7 @@ void Thread::handleConditions(IrqImageAccessor image) {
 }
 
 void Thread::raiseSignals(SyscallImageAccessor image) {
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 	auto this_thread = getCurrentThread();
 
 	if(auto assignedCpu = this_thread->_lbCb->getAssignedCpu(); assignedCpu != getCpuData()) {
@@ -588,6 +588,7 @@ Thread::~Thread() {
 		infoLogger() << "thor: Thread is destructed" << frg::endlog;
 	assert(_runState == kRunTerminated);
 	assert(_observeQueue.empty());
+	ExecutorContext::retire(_executorContext);
 }
 
 // This function has to initiate the thread's shutdown.
@@ -661,7 +662,8 @@ void Thread::invoke() {
 
 	_userContext.migrate(cpuData);
 	AddressSpace::activate(_addressSpace);
-	cpuData->executorContext = &_executorContext;
+	_executorContext->active.store(true, std::memory_order_relaxed);
+	cpuData->executorContext = _executorContext;
 	cpuData->activeThread = self;
 	restoreExecutor(&_executor);
 }
@@ -709,7 +711,7 @@ template<typename ImageAccessor>
 void Thread::genericHandlePreemption(ImageAccessor image) {
 	assert(!intsAreEnabled());
 	assert(getCurrentThread().get() == this);
-	assert(image.iplState()->current < ipl::schedule);
+	assert(image.iplState()->current < ipl::noPreemption);
 
 	auto *scheduler = &localScheduler.get();
 
@@ -756,6 +758,7 @@ void Thread::_uninvoke() {
 	UserContext::deactivate();
 
 	auto cpuData = getCpuData();
+	_executorContext->active.store(false, std::memory_order_relaxed);
 	cpuData->executorContext = nullptr;
 	cpuData->activeThread = {};
 }

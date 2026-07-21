@@ -143,6 +143,9 @@ private:
 	Ipl previous_{ipl::bad};
 };
 
+using PreemptionGuard = IplGuard<ipl::noPreemption>;
+using ScheduleGuard = IplGuard<ipl::noSchedule>;
+
 struct IrqMutex {
 	IrqMutex() = default;
 
