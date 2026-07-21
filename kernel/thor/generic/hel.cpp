@@ -335,7 +335,7 @@ HelError helDescriptorInfo(HelHandle handle, HelDescriptorInfo *) {
 	auto this_universe = this_thread->getUniverse();
 
 	auto infoOutcome = this_universe->inspectDescriptor(handle,
-			[](AnyDescriptor &desc) -> std::expected<void, Error> {
+			[](const DescriptorView &desc) -> std::expected<void, Error> {
 		switch(desc.type()) {
 		default:
 			return std::unexpected{Error::other};
@@ -359,7 +359,7 @@ HelError helGetCredentials(HelHandle handle, uint32_t flags, char *credentials) 
 		creds = thisThread->credentials();
 	}else{
 		auto outcome = thisUniverse->inspectDescriptor(handle,
-				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+				[&](const DescriptorView &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::thread>()) {
 				auto threadOutcome = desc.resolveObject<DescriptorType::thread>(kHelRightNull);
 				if(!threadOutcome)
@@ -829,7 +829,7 @@ HelError helAlterMemoryIndirection(HelHandle indirectHandle, size_t slot,
 	smarter::shared_ptr<MemoryView> memoryView;
 	CachingFlags cacheFlags = 0;
 	auto memoryOutcome = thisUniverse->inspectDescriptor(memoryHandle,
-			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			[&](const DescriptorView &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::memoryView>()) {
 			auto viewOutcome = desc.resolveObject<DescriptorType::memoryView>(kHelRightRead | kHelRightWrite | kHelRightAssign);
 			if(!viewOutcome)
@@ -1360,7 +1360,7 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 		requiredRights |= kHelRightExecute;
 
 	auto memoryOutcome = this_universe->inspectDescriptor(memory_handle,
-			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			[&](const DescriptorView &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::memorySlice>()) {
 			auto sliceOutcome = desc.resolveObject<DescriptorType::memorySlice>(requiredRights);
 			if(!sliceOutcome)
@@ -1398,7 +1398,7 @@ std::expected<MapMemoryOperands, Error> resolveMapMemory(HelHandle memory_handle
 		space = this_thread->getAddressSpace().lock();
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+				[&](const DescriptorView &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
 				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightGrant);
 				if(!addressSpaceOutcome)
@@ -1559,7 +1559,7 @@ std::expected<UnmapMemoryOperands, Error> resolveUnmapMemory(HelHandle space_han
 		space = this_thread->getAddressSpace().lock();
 	}else{
 		auto spaceOutcome = this_universe->inspectDescriptor(space_handle,
-				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+				[&](const DescriptorView &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
 				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightGrant);
 				if(!addressSpaceOutcome)
@@ -1674,7 +1674,7 @@ HelError helPointerPhysical(HelHandle spaceHandle, const void *pointer, uintptr_
 		space = thisThread->getAddressSpace().lock();
 	}else{
 		auto spaceOutcome = thisUniverse->inspectDescriptor(spaceHandle,
-				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+				[&](const DescriptorView &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::addressSpace>()) {
 				auto addressSpaceOutcome = desc.resolveObject<DescriptorType::addressSpace>(kHelRightProvision);
 				if(!addressSpaceOutcome)
@@ -2375,7 +2375,7 @@ HelError helLoadRegisters(HelHandle handle, int set, void *image) {
 	smarter::shared_ptr<Thread> thread;
 	smarter::shared_ptr<VirtualizedCpu> vcpu;
 	auto outcome = this_universe->inspectDescriptor(handle,
-			[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+			[&](const DescriptorView &desc) -> std::expected<void, Error> {
 		if(desc.is<DescriptorType::thread>()) {
 			auto threadOutcome = desc.resolveObject<DescriptorType::thread>(kHelRightRead);
 			if(!threadOutcome)
@@ -2650,7 +2650,7 @@ HelError helStoreRegisters(HelHandle handle, int set, const void *image) {
 		thread = this_thread.lock();
 	}else{
 		auto outcome = this_universe->inspectDescriptor(handle,
-				[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+				[&](const DescriptorView &desc) -> std::expected<void, Error> {
 			if(desc.is<DescriptorType::thread>()) {
 				auto threadOutcome = desc.resolveObject<DescriptorType::thread>(kHelRightWrite);
 				if(!threadOutcome)
@@ -3069,7 +3069,7 @@ HelError doSubmitExchangeMsgs(HelHandle laneHandle, smarter::shared_ptr<IpcQueue
 					creds = thisThread->credentials();
 				} else {
 					auto credsOutcome = thisUniverse->inspectDescriptor(recipe->handle,
-							[&](AnyDescriptor &desc) -> std::expected<void, Error> {
+							[&](const DescriptorView &desc) -> std::expected<void, Error> {
 						if(desc.is<DescriptorType::thread>()) {
 							auto threadOutcome = desc.resolveObject<DescriptorType::thread>(kHelRightNull);
 							if(!threadOutcome)
