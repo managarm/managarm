@@ -244,6 +244,9 @@ struct AnyDescriptor {
 
 	AnyDescriptor() = default;
 
+	AnyDescriptor(smarter::adopt_rc_t, DescriptorType type, uint8_t extra, void *object, smarter::counter *ctr)
+	: type_{type}, extra_{extra}, object_{object}, ctr_{ctr} { }
+
 	AnyDescriptor(const AnyDescriptor &other)
 	: type_{other.type_}, extra_{other.extra_}, object_{other.object_}, ctr_{other.ctr_} {
 		if(ctr_)
@@ -267,6 +270,17 @@ struct AnyDescriptor {
 
 	DescriptorType type() const {
 		return type_;
+	}
+
+	uint8_t raw_extra() const { return extra_; }
+	void *raw_object() const { return object_; }
+	smarter::counter *raw_ctr() const { return ctr_; }
+
+	void release() {
+		type_ = DescriptorType::none;
+		extra_ = 0;
+		object_ = nullptr;
+		ctr_ = nullptr;
 	}
 
 	template<DescriptorType K>
@@ -295,6 +309,9 @@ private:
 template<DescriptorType K>
 AnyDescriptor AnyDescriptor::make(DescriptorPointer<K> ptr) {
 	static_assert(std::same_as<typename DescriptorTraits<K>::Policy, smarter::default_rc_policy>);
+	// AnyDescriptor may be stored in RCU protected data structures (e.g., Universe).
+	// Hence, the objects that we store (and their refcount control blocks) must also be RCU protected.
+	static_assert(IsRcuProtected<typename DescriptorTraits<K>::Object>);
 	assert(ptr);
 
 	AnyDescriptor descriptor;
@@ -364,17 +381,59 @@ AnyDescriptor::resolveObject<DescriptorType::lane>() const;
 // Universe.
 // --------------------------------------------------------
 
-struct Universe : RcuProtected {
+// Maps handles to descriptors.
+// Lookups are lock-free via RCU, modifications take a lock.
+// Handles encode a slot index in their low bits and a per-slot generation in their high bits.
+// Slot reuse bumps the generation. Slots are only reused after an RCU grace period has passed since the previous detach.
+struct Universe : RcuProtected, private RcuCallable {
 private:
 	struct CtorToken {};
 
-public:
-	typedef frg::ticket_spinlock Lock;
-	typedef frg::unique_lock<frg::ticket_spinlock> Guard;
+	static constexpr unsigned int slotIndexBits = 20;
+	static constexpr unsigned int generationBits = 63 - slotIndexBits;
+	static constexpr uint64_t slotIndexMask = (uint64_t{1} << slotIndexBits) - 1;
+	// Set in a slot's handle field iff no descriptor is attached to the slot.
+	static constexpr uint64_t invalidMarker = uint64_t{1} << 63;
+	// Denotes the empty list in the free/pending/retiring head and tail members.
+	static constexpr uint32_t nilIndex = ~uint32_t{0};
 
+	static constexpr unsigned int chunkShift = 6;
+	static constexpr size_t chunkSize = size_t{1} << chunkShift;
+
+	struct Slot {
+		// Encodes the state of this slot.
+		// - Live slots: the invalidMarker bit is clear.
+		//   The value matches the handle of the slot.
+		// - Detached slots: the invalidMarker bit is set.
+		//   Generation bits store the next generation to use.
+		//   Index bits store the next slot in the free-list that the slot is part of.
+		std::atomic<uint64_t> state{invalidMarker | (uint64_t{1} << slotIndexBits)};
+		// The remainder of the fields are constant after attachDescriptor().
+		// They remain valid until reuse (i.e., until a RCU grace period has passed after detachDescriptor()).
+		void *object = nullptr;
+		smarter::counter *ctr = nullptr;
+		DescriptorType type = DescriptorType::none;
+		uint8_t extra = 0;
+	};
+	static_assert(sizeof(Slot) == 32);
+
+	struct Root : RcuCallable {
+		size_t numChunks;
+
+		std::atomic<Slot *> *chunks() {
+			return reinterpret_cast<std::atomic<Slot *> *>(this + 1);
+		}
+	};
+
+public:
 	static std::expected<smarter::shared_ptr<Universe>, Error> create();
 
 	Universe(CtorToken);
+
+	Universe(const Universe &) = delete;
+
+	Universe &operator= (const Universe &) = delete;
+
 	~Universe();
 
 	Handle attachDescriptor(AnyDescriptor descriptor);
@@ -389,13 +448,10 @@ public:
 			-> std::invoke_result_t<Fn, AnyDescriptor &> {
 		using ResultType = std::invoke_result_t<Fn, AnyDescriptor &>;
 
-		auto irqLock = frg::guard(&irqMutex());
-		Guard guard(lock);
-
-		auto *desc = _descriptorMap.get(handle);
-		if(!desc)
+		auto pinned = getDescriptor(handle);
+		if(!pinned)
 			return ResultType{std::unexpect, Error::noDescriptor};
-		return std::forward<Fn>(fn)(*desc);
+		return std::forward<Fn>(fn)(*pinned);
 	}
 
 	// Looks up a handle and resolves it to the object held by its descriptor.
@@ -409,17 +465,59 @@ public:
 
 	frg::optional<AnyDescriptor> detachDescriptor(Handle handle);
 
-	Lock lock;
-
 private:
-	frg::hash_map<
-		Handle,
-		AnyDescriptor,
-		frg::hash<Handle>,
-		KernelAlloc
-	> _descriptorMap;
+	Slot *slotFor_(uint64_t handle) {
+		auto index = handle & ((uint64_t{1} << slotIndexBits) - 1);
+		auto root = root_.load(std::memory_order_acquire);
+		auto chunkIndex = index >> chunkShift;
+		if(chunkIndex >= root->numChunks)
+			return nullptr;
+		auto chunk = root->chunks()[chunkIndex].load(std::memory_order_acquire);
+		if(!chunk)
+			return nullptr;
+		return &chunk[index & (chunkSize - 1)];
+	}
 
-	Handle _nextHandle;
+	Slot *slotAt_(uint32_t index);
+	void setLink_(Slot *slot, uint32_t next);
+	Slot *allocateSlot_();
+	void growRoot_(size_t numChunks);
+	static void recycleRcu_(RcuCallable *base);
+
+	frg::ticket_spinlock lock_;
+	std::atomic<Root *> root_{nullptr};
+	// Number of slots that have been opened so far (never decreases; slots are recycled).
+	size_t numSlots_ = 0;
+	// FIFO of slots that are ready for reuse.
+	uint32_t freeHead_ = nilIndex;
+	uint32_t freeTail_ = nilIndex;
+	// Open batch of slots that await recycling; closed once the retiring batch drains.
+	uint32_t pendingHead_ = nilIndex;
+	uint32_t pendingTail_ = nilIndex;
+	// Batch of slots covered by the in-flight RCU callback.
+	uint32_t retiringHead_ = nilIndex;
+	uint32_t retiringTail_ = nilIndex;
+	bool rcuInFlight_ = false;
+	// Used to keep the Universe alive while the RCU callback is in flight.
+	smarter::borrowed_ptr<Universe> selfPtr_;
 };
+
+inline std::optional<AnyDescriptor> Universe::getDescriptor(Handle handle) {
+	if(handle <= 0)
+		return std::nullopt;
+	auto h = static_cast<uint64_t>(handle);
+
+	{
+		IplGuard<ipl::noSchedule> rcuGuard;
+
+		auto slot = slotFor_(h);
+		if(!slot || slot->state.load(std::memory_order_acquire) != h)
+			return std::nullopt;
+		auto ctr = slot->ctr;
+		if(ctr && !ctr->increment_if_nonzero())
+			return std::nullopt;
+		return AnyDescriptor{smarter::adopt_rc, slot->type, slot->extra, slot->object, ctr};
+	}
+}
 
 } // namespace thor
